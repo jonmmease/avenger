@@ -6,7 +6,7 @@
 //! 3. collect and distribute retargeted requirements,
 //! 4. propagate final plot-area and scale-range updates.
 //!
-//! Immutable coordination plans are built in `coordination_attributes`, and
+//! Immutable coordination plans are built in `coordination_plans`, and
 //! bounded side effects are applied through executors in `coordination_apply`.
 
 use std::collections::HashSet;
@@ -15,8 +15,8 @@ use crate::{
     error::AvengerChartError,
     facet::{
         coordination_apply::visit_facet_bands_with_node_id,
-        coordination_attributes::{
-            CoordNodeKey, FinalPropagationPlan, FinalPropagationTrace,
+        coordination_plans::{
+            CoordinationNodeKey, FinalPropagationPlan, FinalPropagationTrace,
             InitialRequirementNodeSnapshot, InitialRequirementPass, InitialRequirementSnapshot,
             RetargetPlan, RetargetTrace, RetargetedRequirementNodeSnapshot,
             RetargetedRequirementPass, RetargetedRequirementSnapshot,
@@ -46,7 +46,7 @@ use crate::facet::coordination_apply::{
     run_retarget_with_trace, visit_facet_bands_with_node_id_mut,
 };
 #[cfg(test)]
-use crate::facet::coordination_attributes::{
+use crate::facet::coordination_plans::{
     build_initial_requirement_pass, build_retargeted_requirement_pass,
 };
 
@@ -169,7 +169,7 @@ pub(crate) fn collect_retargeted_requirement_snapshot(
     RetargetedRequirementSnapshot { nodes }
 }
 
-fn measurement_node_ids(measurement: &ComponentsMeasurement) -> Vec<CoordNodeKey> {
+fn measurement_node_ids(measurement: &ComponentsMeasurement) -> Vec<CoordinationNodeKey> {
     let mut node_ids = Vec::new();
     let mut node_path = Vec::new();
     visit_facet_bands_with_node_id(
@@ -212,13 +212,13 @@ pub(crate) fn debug_assert_stage_transition(
 pub(crate) fn debug_assert_initial_requirement_coverage(
     initial_requirement_pass: &InitialRequirementPass,
 ) {
-    let snapshot_nodes: HashSet<CoordNodeKey> = initial_requirement_pass
+    let snapshot_nodes: HashSet<CoordinationNodeKey> = initial_requirement_pass
         .snapshot
         .nodes
         .iter()
         .map(|node| node.node_id.clone())
         .collect();
-    let layout_patch_nodes: HashSet<CoordNodeKey> = initial_requirement_pass
+    let layout_patch_nodes: HashSet<CoordinationNodeKey> = initial_requirement_pass
         .distribution
         .layout_patches_by_node
         .keys()
@@ -245,13 +245,13 @@ pub(crate) fn debug_assert_initial_requirement_coverage(
 pub(crate) fn debug_assert_retargeted_requirement_coverage(
     retargeted_requirement_pass: &RetargetedRequirementPass,
 ) {
-    let snapshot_nodes: HashSet<CoordNodeKey> = retargeted_requirement_pass
+    let snapshot_nodes: HashSet<CoordinationNodeKey> = retargeted_requirement_pass
         .snapshot
         .nodes
         .iter()
         .map(|node| node.node_id.clone())
         .collect();
-    let layout_patch_nodes: HashSet<CoordNodeKey> = retargeted_requirement_pass
+    let layout_patch_nodes: HashSet<CoordinationNodeKey> = retargeted_requirement_pass
         .distribution
         .layout_patches_by_node
         .keys()
@@ -268,9 +268,9 @@ pub(crate) fn debug_assert_retarget_plan_coverage(
     measurement: &ComponentsMeasurement,
     plan: &RetargetPlan,
 ) {
-    let expected_ids: HashSet<CoordNodeKey> =
+    let expected_ids: HashSet<CoordinationNodeKey> =
         measurement_node_ids(measurement).into_iter().collect();
-    let actual_ids: HashSet<CoordNodeKey> = plan
+    let actual_ids: HashSet<CoordinationNodeKey> = plan
         .node_plans
         .iter()
         .map(|node| node.node_id.clone())
@@ -286,9 +286,9 @@ pub(crate) fn debug_assert_final_propagation_plan_coverage(
     measurement: &ComponentsMeasurement,
     plan: &FinalPropagationPlan,
 ) {
-    let expected_ids: HashSet<CoordNodeKey> =
+    let expected_ids: HashSet<CoordinationNodeKey> =
         measurement_node_ids(measurement).into_iter().collect();
-    let actual_ids: HashSet<CoordNodeKey> = plan
+    let actual_ids: HashSet<CoordinationNodeKey> = plan
         .node_plans
         .iter()
         .map(|node| node.node_id.clone())
@@ -301,12 +301,12 @@ pub(crate) fn debug_assert_final_propagation_plan_coverage(
 }
 
 pub(crate) fn debug_assert_retarget_trace_alignment(plan: &RetargetPlan, trace: &RetargetTrace) {
-    let derived_ids: Vec<CoordNodeKey> = plan
+    let derived_ids: Vec<CoordinationNodeKey> = plan
         .node_plans
         .iter()
         .map(|node| node.node_id.clone())
         .collect();
-    let trace_ids: Vec<CoordNodeKey> = trace
+    let trace_ids: Vec<CoordinationNodeKey> = trace
         .node_results
         .iter()
         .map(|node| node.node_id.clone())
@@ -370,12 +370,12 @@ pub(crate) fn debug_assert_final_propagation_trace_alignment(
     plan: &FinalPropagationPlan,
     trace: &FinalPropagationTrace,
 ) {
-    let derived_ids: Vec<CoordNodeKey> = plan
+    let derived_ids: Vec<CoordinationNodeKey> = plan
         .node_plans
         .iter()
         .map(|node| node.node_id.clone())
         .collect();
-    let trace_ids: Vec<CoordNodeKey> = trace
+    let trace_ids: Vec<CoordinationNodeKey> = trace
         .node_results
         .iter()
         .map(|node| node.node_id.clone())
@@ -1336,18 +1336,20 @@ mod tests {
         let initial_requirement_pass =
             build_initial_requirement_pass(collect_initial_requirement_snapshot(&measurement));
         debug_assert_initial_requirement_coverage(&initial_requirement_pass);
-        let snapshot_nodes: std::collections::HashSet<CoordNodeKey> = initial_requirement_pass
-            .snapshot
-            .nodes
-            .iter()
-            .map(|node| node.node_id.clone())
-            .collect();
-        let layout_patch_nodes: std::collections::HashSet<CoordNodeKey> = initial_requirement_pass
-            .distribution
-            .layout_patches_by_node
-            .keys()
-            .cloned()
-            .collect();
+        let snapshot_nodes: std::collections::HashSet<CoordinationNodeKey> =
+            initial_requirement_pass
+                .snapshot
+                .nodes
+                .iter()
+                .map(|node| node.node_id.clone())
+                .collect();
+        let layout_patch_nodes: std::collections::HashSet<CoordinationNodeKey> =
+            initial_requirement_pass
+                .distribution
+                .layout_patches_by_node
+                .keys()
+                .cloned()
+                .collect();
         assert_eq!(layout_patch_nodes, snapshot_nodes);
         Ok(())
     }
@@ -1360,13 +1362,14 @@ mod tests {
             collect_retargeted_requirement_snapshot(&measurement),
         );
         debug_assert_retargeted_requirement_coverage(&retargeted_requirement_pass);
-        let snapshot_nodes: std::collections::HashSet<CoordNodeKey> = retargeted_requirement_pass
-            .snapshot
-            .nodes
-            .iter()
-            .map(|node| node.node_id.clone())
-            .collect();
-        let layout_patch_nodes: std::collections::HashSet<CoordNodeKey> =
+        let snapshot_nodes: std::collections::HashSet<CoordinationNodeKey> =
+            retargeted_requirement_pass
+                .snapshot
+                .nodes
+                .iter()
+                .map(|node| node.node_id.clone())
+                .collect();
+        let layout_patch_nodes: std::collections::HashSet<CoordinationNodeKey> =
             retargeted_requirement_pass
                 .distribution
                 .layout_patches_by_node

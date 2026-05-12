@@ -1,4 +1,4 @@
-//! Unified domain extent type for scale sharing across facets.
+//! Unified domain extent type for plot scale domain sharing across facets.
 //!
 //! This module provides `DomainExtent`, a unified type that represents
 //! domain extents with optional radius padding information.
@@ -252,8 +252,9 @@ pub enum DomainBounds {
 /// Radius padding information for symbol marks.
 ///
 /// When a domain is shared across facets containing symbol marks,
-/// the domain needs to be padded to account for the symbol radius.
-/// This struct stores the maximum radius values observed in the data.
+/// final scale construction needs the maximum symbol radius on each side.
+/// The actual numeric padding is range-dependent and is computed later by the
+/// scale builder.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RadiusPadding {
     /// Maximum radius extending below (towards min) the data points
@@ -306,23 +307,6 @@ impl DomainExtent {
     /// Check if this extent has radius padding information.
     pub fn has_radius(&self) -> bool {
         self.radius.is_some()
-    }
-
-    /// Get the effective numeric bounds considering radius padding.
-    ///
-    /// Returns `None` if this is not a numeric extent.
-    /// If radius padding is present, the bounds are expanded to include it.
-    pub fn effective_numeric_bounds(&self) -> Option<(f64, f64)> {
-        match &self.bounds {
-            DomainBounds::Numeric { min, max } => {
-                if let Some(radius) = &self.radius {
-                    Some((min - radius.max_lower, max + radius.max_upper))
-                } else {
-                    Some((*min, *max))
-                }
-            }
-            _ => None,
-        }
     }
 
     /// Get the numeric bounds without radius padding.
@@ -428,7 +412,6 @@ mod tests {
         let extent = DomainExtent::numeric(0.0, 100.0);
         assert_eq!(extent.numeric_bounds(), Some((0.0, 100.0)));
         assert!(!extent.has_radius());
-        assert_eq!(extent.effective_numeric_bounds(), Some((0.0, 100.0)));
     }
 
     #[test]
@@ -436,8 +419,6 @@ mod tests {
         let extent = DomainExtent::numeric_with_radius(0.0, 100.0, 5.0, 10.0);
         assert_eq!(extent.numeric_bounds(), Some((0.0, 100.0)));
         assert!(extent.has_radius());
-        // Effective bounds should include radius padding
-        assert_eq!(extent.effective_numeric_bounds(), Some((-5.0, 110.0)));
     }
 
     #[test]

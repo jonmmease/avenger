@@ -4,7 +4,7 @@ use crate::facet::empty_cell_policy::FacetEmptyCellPolicy;
 #[derive(Clone, Default)]
 pub struct FacetRowChannelConfig {
     pub(crate) title: Option<String>,
-    pub(crate) scale_sharing: Option<ScaleSharing>,
+    pub(crate) slot_sharing: Option<ScaleSharing>,
     pub(crate) position: Option<String>,
     pub(crate) empty_cell_policy: Option<FacetEmptyCellPolicy>,
 }
@@ -12,7 +12,7 @@ pub struct FacetRowChannelConfig {
 #[derive(Clone, Default)]
 pub struct FacetOptions {
     pub(crate) title: Option<String>,
-    pub(crate) scale_sharing: Option<ScaleSharing>,
+    pub(crate) slot_sharing: Option<ScaleSharing>,
     pub(crate) position: Option<String>,
     pub(crate) empty_cell_policy: Option<FacetEmptyCellPolicy>,
 }
@@ -23,7 +23,7 @@ impl FacetOptions {
         self
     }
 
-    /// Configure scale sharing mode for this facet variable's domain.
+    /// Configure slot sharing mode for this facet variable.
     ///
     /// For nested facets (e.g., FacetRow inside FacetColumn):
     /// - `Shared`: All outer cells use the same domain computed from the full dataset.
@@ -32,20 +32,20 @@ impl FacetOptions {
     ///   Different outer cells may have different numbers of inner cells.
     ///
     /// Note: Free and Shared are normalized to Level(0) and Level(255) internally.
-    pub fn with_scale_sharing(mut self, mode: ScaleSharing) -> Self {
+    pub fn with_slot_sharing(mut self, mode: ScaleSharing) -> Self {
         // Normalize Free/Shared to Level representation for internal consistency
-        self.scale_sharing = Some(mode.to_normalized());
+        self.slot_sharing = Some(mode.to_normalized());
         self
     }
 
-    /// Share this facet variable's domain across all facets (compute from full dataset)
-    pub fn share_scale(self) -> Self {
-        self.with_scale_sharing(ScaleSharing::Shared)
+    /// Share this facet variable's slots across all facets (enumerate from the full dataset).
+    pub fn share_slots(self) -> Self {
+        self.with_slot_sharing(ScaleSharing::Shared)
     }
 
-    /// Make this facet variable's domain independent per facet (compute from filtered data)
-    pub fn free_scale(self) -> Self {
-        self.with_scale_sharing(ScaleSharing::Free)
+    /// Make this facet variable's slots independent per facet (enumerate from filtered data).
+    pub fn free_slots(self) -> Self {
+        self.with_slot_sharing(ScaleSharing::Free)
     }
 
     /// Set the position of the facet labels.
@@ -86,7 +86,7 @@ impl FacetRowChannelConfig {
     {
         let opts = f(FacetOptions::default());
         self.title = opts.title;
-        self.scale_sharing = opts.scale_sharing;
+        self.slot_sharing = opts.slot_sharing;
         self.position = opts.position;
         self.empty_cell_policy = opts.empty_cell_policy;
         self
@@ -96,7 +96,7 @@ impl FacetRowChannelConfig {
 #[derive(Clone, Default)]
 pub struct FacetColChannelConfig {
     pub(crate) title: Option<String>,
-    pub(crate) scale_sharing: Option<ScaleSharing>,
+    pub(crate) slot_sharing: Option<ScaleSharing>,
     pub(crate) position: Option<String>,
     pub(crate) empty_cell_policy: Option<FacetEmptyCellPolicy>,
 }
@@ -108,7 +108,7 @@ impl FacetColChannelConfig {
     {
         let opts = f(FacetOptions::default());
         self.title = opts.title;
-        self.scale_sharing = opts.scale_sharing;
+        self.slot_sharing = opts.slot_sharing;
         self.position = opts.position;
         self.empty_cell_policy = opts.empty_cell_policy;
         self

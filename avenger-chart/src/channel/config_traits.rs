@@ -99,9 +99,14 @@ pub trait ChannelConfig: Sized {
         self
     }
 
-    /// Configure whether this channel's scale is shared across facets or free per facet
+    /// Configure how this channel's plot scale domain is shared across facets.
     ///
-    /// Supports full ScaleSharing enum: Shared, Free, Level(n)
+    /// This applies to data channels such as x, y, color, and size. Facet row
+    /// and column channels use the same `ScaleSharing` values to configure
+    /// facet slot sharing, but expose that through facet-specific
+    /// `with_slot_sharing` options.
+    ///
+    /// Supports full ScaleSharing enum: Shared, Free, Level(n).
     /// Note: Free and Shared are normalized to Level(0) and Level(255) internally.
     fn with_scale_sharing(mut self, mode: ScaleSharing) -> Self {
         // Normalize Free/Shared to Level representation for internal consistency
@@ -142,18 +147,22 @@ pub trait ChannelConfig: Sized {
         self
     }
 
-    /// Share this channel's scale across all facets (convenience method)
+    /// Share this channel's plot scale domain across all facets (convenience method).
     fn share_scale(self) -> Self {
         self.with_scale_sharing(ScaleSharing::Shared)
     }
 
-    /// Make this channel's scale independent for each facet (convenience method)
+    /// Make this channel's plot scale domain independent for each facet (convenience method).
     fn free_scale(self) -> Self {
         self.with_scale_sharing(ScaleSharing::Free)
     }
 }
 
-/// Facet scale sharing modes for a channel
+/// Hierarchical sharing modes for plot scale domains and facet slots.
+///
+/// For data channels, this controls plot scale domain sharing across facets.
+/// For facet row/column channels, this controls slot sharing: whether a facet
+/// level enumerates slots independently per parent or from a shared ancestor.
 ///
 /// # Implementation Note: Unified UNION Semantics
 ///
@@ -167,13 +176,13 @@ pub trait ChannelConfig: Sized {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ScaleSharing {
-    /// Share scales across all facets (one domain for all subplots)
+    /// Share across all facets.
     /// Equivalent to Level(u8::MAX)
     Shared,
-    /// Independent scales per facet (each subplot has its own domain)
+    /// Independent per facet.
     /// Equivalent to Level(0)
     Free,
-    /// Hierarchical level-based scale sharing for nested facets
+    /// Hierarchical level-based sharing for nested facets.
     /// Level(0) = Free (independent per cell)
     /// Level(1) = Share with immediate parent facet
     /// Level(N) = Share N levels up in the hierarchy

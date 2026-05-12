@@ -5,7 +5,7 @@ use datafusion::common::ScalarValue;
 use crate::{
     coords::{CellDomainInfo, CoordinatedLayout, CoordinatedOverflow, FacetAxis},
     facet::{
-        coord::{FacetBandCoordApplyPlan, union_domain_extents},
+        coord::{FacetBandCoordinationApplyPlan, union_domain_extents},
         coordination::CoordinationGroupKey,
         sharing_level::SharingLevel,
         sharing_policy,
@@ -14,11 +14,11 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct CoordNodeKey {
+pub(crate) struct CoordinationNodeKey {
     pub(crate) path: Vec<usize>,
 }
 
-impl CoordNodeKey {
+impl CoordinationNodeKey {
     pub(crate) fn new(path: Vec<usize>) -> Self {
         Self { path }
     }
@@ -26,7 +26,7 @@ impl CoordNodeKey {
 
 #[derive(Debug, Clone)]
 pub(crate) struct InitialRequirementNodeSnapshot {
-    pub(crate) node_id: CoordNodeKey,
+    pub(crate) node_id: CoordinationNodeKey,
     pub(crate) key: CoordinationGroupKey,
     pub(crate) local_overflow: Option<CoordinatedOverflow>,
     pub(crate) local_layout: CoordinatedLayout,
@@ -47,9 +47,9 @@ pub(crate) struct InitialRequirementAggregates {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct InitialRequirementDistributionPlan {
-    pub(crate) overflow_patches_by_node: HashMap<CoordNodeKey, CoordinatedOverflow>,
-    pub(crate) layout_patches_by_node: HashMap<CoordNodeKey, CoordinatedLayout>,
-    pub(crate) domain_target_nodes: HashSet<CoordNodeKey>,
+    pub(crate) overflow_patches_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
+    pub(crate) layout_patches_by_node: HashMap<CoordinationNodeKey, CoordinatedLayout>,
+    pub(crate) domain_target_nodes: HashSet<CoordinationNodeKey>,
     pub(crate) unified_domain_extents: HashMap<(String, Vec<ScalarValue>), DomainExtent>,
 }
 
@@ -62,7 +62,7 @@ pub(crate) struct InitialRequirementPass {
 
 #[derive(Debug, Clone)]
 pub(crate) struct RetargetedRequirementNodeSnapshot {
-    pub(crate) node_id: CoordNodeKey,
+    pub(crate) node_id: CoordinationNodeKey,
     pub(crate) key: CoordinationGroupKey,
     pub(crate) local_overflow: Option<CoordinatedOverflow>,
     pub(crate) local_layout: CoordinatedLayout,
@@ -81,8 +81,8 @@ pub(crate) struct RetargetedRequirementAggregates {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RetargetedRequirementDistributionPlan {
-    pub(crate) overflow_patches_by_node: HashMap<CoordNodeKey, CoordinatedOverflow>,
-    pub(crate) layout_patches_by_node: HashMap<CoordNodeKey, CoordinatedLayout>,
+    pub(crate) overflow_patches_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
+    pub(crate) layout_patches_by_node: HashMap<CoordinationNodeKey, CoordinatedLayout>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -94,9 +94,9 @@ pub(crate) struct RetargetedRequirementPass {
 
 #[derive(Debug, Clone)]
 pub(crate) struct RetargetNodePlan {
-    pub(crate) node_id: CoordNodeKey,
+    pub(crate) node_id: CoordinationNodeKey,
     pub(crate) axis: FacetAxis,
-    pub(crate) apply_plan: FacetBandCoordApplyPlan,
+    pub(crate) apply_plan: FacetBandCoordinationApplyPlan,
     pub(crate) has_legend_overflow: bool,
     pub(crate) has_coordinated_extents: bool,
     pub(crate) remeasure_triggered: bool,
@@ -110,7 +110,7 @@ pub(crate) struct RetargetPlan {
 
 #[derive(Debug, Clone)]
 pub(crate) struct RetargetNodeTrace {
-    pub(crate) node_id: CoordNodeKey,
+    pub(crate) node_id: CoordinationNodeKey,
     pub(crate) axis: FacetAxis,
     pub(crate) planned_has_legend_overflow: bool,
     pub(crate) planned_has_coordinated_extents: bool,
@@ -147,7 +147,7 @@ pub(crate) struct FinalPropagationChildPlan {
 
 #[derive(Debug, Clone)]
 pub(crate) struct FinalPropagationNodePlan {
-    pub(crate) node_id: CoordNodeKey,
+    pub(crate) node_id: CoordinationNodeKey,
     pub(crate) axis: FacetAxis,
     pub(crate) parent_cross_size_target: Option<f32>,
     pub(crate) child_count: usize,
@@ -162,7 +162,7 @@ pub(crate) struct FinalPropagationPlan {
 
 #[derive(Debug, Clone)]
 pub(crate) struct FinalPropagationNodeTrace {
-    pub(crate) node_id: CoordNodeKey,
+    pub(crate) node_id: CoordinationNodeKey,
     pub(crate) axis: FacetAxis,
     pub(crate) planned_parent_cross_size_target: Option<f32>,
     pub(crate) planned_child_count: usize,
@@ -223,7 +223,7 @@ fn aggregate_domain_extents(
     for info in infos {
         let ancestor_key = sharing_policy::domain_group_key(
             &info.full_cell_path,
-            SharingLevel::from_raw(info.sharing_level),
+            SharingLevel::from_raw(info.domain_sharing_level),
             info.facet_depth,
         );
         groups
@@ -249,7 +249,7 @@ fn aggregate_domain_extents(
 
 #[derive(Debug, Clone)]
 struct RoundCollectionInput {
-    node_id: CoordNodeKey,
+    node_id: CoordinationNodeKey,
     key: CoordinationGroupKey,
     local_overflow: Option<CoordinatedOverflow>,
     local_layout: CoordinatedLayout,
@@ -259,10 +259,10 @@ struct RoundCollectionInput {
 struct RoundCollectionOutput {
     merged_overflow_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow>,
     merged_layout_by_key: HashMap<CoordinationGroupKey, CoordinatedLayout>,
-    overflow_patches_by_node: HashMap<CoordNodeKey, CoordinatedOverflow>,
-    layout_patches_by_node: HashMap<CoordNodeKey, CoordinatedLayout>,
+    overflow_patches_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
+    layout_patches_by_node: HashMap<CoordinationNodeKey, CoordinatedLayout>,
     unified_domain_extents: HashMap<(String, Vec<ScalarValue>), DomainExtent>,
-    domain_target_nodes: HashSet<CoordNodeKey>,
+    domain_target_nodes: HashSet<CoordinationNodeKey>,
 }
 
 fn build_round_collection(
@@ -420,7 +420,7 @@ mod tests {
         let snapshot = InitialRequirementSnapshot {
             nodes: vec![
                 InitialRequirementNodeSnapshot {
-                    node_id: CoordNodeKey::new(vec![0]),
+                    node_id: CoordinationNodeKey::new(vec![0]),
                     key: key.clone(),
                     local_overflow: Some(overflow(1.0, 2.0, 3.0, 4.0)),
                     local_layout: CoordinatedLayout {
@@ -432,13 +432,13 @@ mod tests {
                     domain_infos: vec![CellDomainInfo {
                         full_cell_path: vec![s("A")],
                         channel: "x".to_string(),
-                        sharing_level: 255,
+                        domain_sharing_level: 255,
                         facet_depth: 1,
                         extent: DomainExtent::numeric(0.0, 10.0),
                     }],
                 },
                 InitialRequirementNodeSnapshot {
-                    node_id: CoordNodeKey::new(vec![1]),
+                    node_id: CoordinationNodeKey::new(vec![1]),
                     key: key.clone(),
                     local_overflow: Some(overflow(3.0, 1.0, 5.0, 2.0)),
                     local_layout: CoordinatedLayout {
@@ -450,7 +450,7 @@ mod tests {
                     domain_infos: vec![CellDomainInfo {
                         full_cell_path: vec![s("B")],
                         channel: "x".to_string(),
-                        sharing_level: 255,
+                        domain_sharing_level: 255,
                         facet_depth: 1,
                         extent: DomainExtent::numeric(2.0, 14.0),
                     }],
@@ -458,14 +458,14 @@ mod tests {
             ],
         };
 
-        let attributes = build_initial_requirement_pass(snapshot);
-        assert_eq!(attributes.snapshot.nodes.len(), 2);
-        assert_eq!(attributes.aggregates.merged_overflow_by_key.len(), 1);
-        assert_eq!(attributes.aggregates.merged_layout_by_key.len(), 1);
-        assert_eq!(attributes.aggregates.unified_domain_extents.len(), 1);
-        assert_eq!(attributes.distribution.overflow_patches_by_node.len(), 2);
-        assert_eq!(attributes.distribution.layout_patches_by_node.len(), 2);
-        assert_eq!(attributes.distribution.domain_target_nodes.len(), 2);
+        let pass = build_initial_requirement_pass(snapshot);
+        assert_eq!(pass.snapshot.nodes.len(), 2);
+        assert_eq!(pass.aggregates.merged_overflow_by_key.len(), 1);
+        assert_eq!(pass.aggregates.merged_layout_by_key.len(), 1);
+        assert_eq!(pass.aggregates.unified_domain_extents.len(), 1);
+        assert_eq!(pass.distribution.overflow_patches_by_node.len(), 2);
+        assert_eq!(pass.distribution.layout_patches_by_node.len(), 2);
+        assert_eq!(pass.distribution.domain_target_nodes.len(), 2);
     }
 
     #[test]
@@ -474,56 +474,54 @@ mod tests {
         let info_a = CellDomainInfo {
             full_cell_path: vec![s("A"), s("B"), s("X")],
             channel: "x".to_string(),
-            sharing_level: 1,
+            domain_sharing_level: 1,
             facet_depth: 3,
             extent: DomainExtent::numeric(0.0, 1.0),
         };
         let info_b = CellDomainInfo {
             full_cell_path: vec![s("A"), s("B"), s("Y")],
             channel: "x".to_string(),
-            sharing_level: 1,
+            domain_sharing_level: 1,
             facet_depth: 3,
             extent: DomainExtent::numeric(0.0, 2.0),
         };
         let info_c = CellDomainInfo {
             full_cell_path: vec![s("A"), s("Z"), s("Q")],
             channel: "x".to_string(),
-            sharing_level: 1,
+            domain_sharing_level: 1,
             facet_depth: 3,
             extent: DomainExtent::numeric(5.0, 7.0),
         };
 
         let snapshot = InitialRequirementSnapshot {
             nodes: vec![InitialRequirementNodeSnapshot {
-                node_id: CoordNodeKey::new(vec![0]),
+                node_id: CoordinationNodeKey::new(vec![0]),
                 key,
                 local_overflow: None,
                 local_layout: CoordinatedLayout::default(),
                 domain_infos: vec![info_a.clone(), info_b.clone(), info_c.clone()],
             }],
         };
-        let attributes = build_initial_requirement_pass(snapshot);
+        let pass = build_initial_requirement_pass(snapshot);
 
         let key_ab = sharing_policy::domain_group_key(
             &info_a.full_cell_path,
-            SharingLevel::from_raw(info_a.sharing_level),
+            SharingLevel::from_raw(info_a.domain_sharing_level),
             info_a.facet_depth,
         );
         let key_c = sharing_policy::domain_group_key(
             &info_c.full_cell_path,
-            SharingLevel::from_raw(info_c.sharing_level),
+            SharingLevel::from_raw(info_c.domain_sharing_level),
             info_c.facet_depth,
         );
-        assert_eq!(attributes.aggregates.unified_domain_extents.len(), 2);
+        assert_eq!(pass.aggregates.unified_domain_extents.len(), 2);
         assert!(
-            attributes
-                .aggregates
+            pass.aggregates
                 .unified_domain_extents
                 .contains_key(&("x".to_string(), key_ab))
         );
         assert!(
-            attributes
-                .aggregates
+            pass.aggregates
                 .unified_domain_extents
                 .contains_key(&("x".to_string(), key_c))
         );
@@ -535,7 +533,7 @@ mod tests {
         let snapshot = RetargetedRequirementSnapshot {
             nodes: vec![
                 RetargetedRequirementNodeSnapshot {
-                    node_id: CoordNodeKey::new(vec![0]),
+                    node_id: CoordinationNodeKey::new(vec![0]),
                     key: key.clone(),
                     local_overflow: Some(overflow(1.0, 1.0, 2.0, 3.0)),
                     local_layout: CoordinatedLayout {
@@ -546,7 +544,7 @@ mod tests {
                     },
                 },
                 RetargetedRequirementNodeSnapshot {
-                    node_id: CoordNodeKey::new(vec![1]),
+                    node_id: CoordinationNodeKey::new(vec![1]),
                     key,
                     local_overflow: Some(overflow(2.0, 4.0, 1.0, 1.0)),
                     local_layout: CoordinatedLayout {
@@ -559,11 +557,11 @@ mod tests {
             ],
         };
 
-        let attributes = build_retargeted_requirement_pass(snapshot);
-        assert_eq!(attributes.snapshot.nodes.len(), 2);
-        assert_eq!(attributes.aggregates.merged_overflow_by_key.len(), 1);
-        assert_eq!(attributes.aggregates.merged_layout_by_key.len(), 1);
-        assert_eq!(attributes.distribution.overflow_patches_by_node.len(), 2);
-        assert_eq!(attributes.distribution.layout_patches_by_node.len(), 2);
+        let pass = build_retargeted_requirement_pass(snapshot);
+        assert_eq!(pass.snapshot.nodes.len(), 2);
+        assert_eq!(pass.aggregates.merged_overflow_by_key.len(), 1);
+        assert_eq!(pass.aggregates.merged_layout_by_key.len(), 1);
+        assert_eq!(pass.distribution.overflow_patches_by_node.len(), 2);
+        assert_eq!(pass.distribution.layout_patches_by_node.len(), 2);
     }
 }

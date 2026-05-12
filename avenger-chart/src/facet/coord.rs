@@ -75,16 +75,17 @@ use crate::facet::probe_summary::FacetBandProbeLayout;
 
 pub use crate::facet::coord_row::FacetRow;
 
-/// Domain extent with associated sharing level.
+/// Domain extent with associated channel-domain sharing level.
 ///
-/// Used to track domain extents per-cell along with the sharing level
-/// for coordinating domains across cells at the appropriate hierarchy level.
+/// Used to track domain extents per cell along with the channel-domain sharing
+/// level for coordinating plot scale domains across cells at the appropriate
+/// hierarchy level.
 #[derive(Clone, Debug)]
 pub(crate) struct ChannelDomainExtent {
     /// The domain extent (bounds + optional radius padding)
     pub extent: DomainExtent,
-    /// Scale sharing level (0=Free, N=Level(N), 255=Shared)
-    pub(crate) sharing_level: SharingLevel,
+    /// Channel-domain sharing level (0=Free, N=Level(N), 255=Shared).
+    pub(crate) domain_sharing_level: SharingLevel,
 }
 
 /// Runtime state for a single enumerated facet cell.
@@ -127,7 +128,7 @@ pub struct FacetBandCoordMeasurement {
     pub subplot_cross_size: f32,
     /// Facet depth in the hierarchy (1 = outermost, 2 = nested, etc.)
     /// INVARIANT: facet_depth == full_cell_path.len() for any cell
-    /// Used for sharing level comparison: sharing >= facet_depth means global.
+    /// Used for channel-domain sharing comparison: sharing >= facet_depth means global.
     pub facet_depth: u8,
     /// Column scale (as ConfiguredScale) BEFORE Pass 2 adjustments.
     /// Used to recompute subplot width when coordinated layout differs from local.
@@ -136,12 +137,12 @@ pub struct FacetBandCoordMeasurement {
     pub local_layout: CoordinatedLayout,
     /// Coordinated layout values (post-coordination). None before coordination.
     pub coordinated_layout: Option<CoordinatedLayout>,
-    /// Channel sharing levels observed in non-empty child local extents.
+    /// Channel-domain sharing levels observed in non-empty child local extents.
     ///
     /// Data-empty cells may have no local domain extents; this map preserves
     /// per-channel sharing metadata so those cells can still inherit coordinated
-    /// shared domains.
-    pub(crate) channel_sharing_levels: HashMap<String, SharingLevel>,
+    /// shared plot scale domains.
+    pub(crate) channel_domain_sharing_levels: HashMap<String, SharingLevel>,
     /// Effective policy used when deciding whether empty cells are renderable.
     pub empty_cell_policy: FacetEmptyCellPolicy,
 }
@@ -238,7 +239,7 @@ impl FacetBandProbeMeasurement {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct FacetBandCoordApplyPlan {
+pub(crate) struct FacetBandCoordinationApplyPlan {
     pub(crate) axis: FacetAxis,
     pub(crate) legend_start: f32,
     pub(crate) legend_end: f32,
@@ -255,7 +256,7 @@ pub(crate) struct FacetBandCoordApplyPlan {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct FacetBandCoordApplyOutcome {
+pub(crate) struct FacetBandCoordinationApplyOutcome {
     pub(crate) subplot_cross_size_before: f32,
     pub(crate) subplot_cross_size_after: f32,
     pub(crate) remeasure_triggered: bool,
@@ -792,13 +793,15 @@ fn adjusted_size_for_legend_overflow(
     (original_size - legend_start - legend_end).max(1.0)
 }
 
-fn collect_channel_sharing_levels(cells: &[FacetCellDraft]) -> HashMap<String, SharingLevel> {
+fn collect_channel_domain_sharing_levels(
+    cells: &[FacetCellDraft],
+) -> HashMap<String, SharingLevel> {
     let mut sharing_levels = HashMap::new();
     for cell in cells {
         for (channel, annotated) in &cell.local_domain_extents {
             sharing_levels
                 .entry(channel.clone())
-                .or_insert(annotated.sharing_level);
+                .or_insert(annotated.domain_sharing_level);
         }
     }
     sharing_levels
@@ -839,7 +842,7 @@ impl FacetBandCoordMeasurement {
                 collector.push(CellDomainInfo {
                     full_cell_path: cell.plan.full_path.clone(),
                     channel: channel.clone(),
-                    sharing_level: annotated.sharing_level.raw(),
+                    domain_sharing_level: annotated.domain_sharing_level.raw(),
                     facet_depth: self.facet_depth,
                     extent: annotated.extent.clone(),
                 });
@@ -855,13 +858,13 @@ impl FacetBandCoordMeasurement {
             cell.coordinated_domain_extents.clear();
 
             for (channel, annotated) in &cell.local_domain_extents {
-                if annotated.sharing_level == 0 {
+                if annotated.domain_sharing_level == 0 {
                     continue;
                 }
 
                 let ancestor_key = sharing_policy::domain_group_key(
                     &cell.plan.full_path,
-                    annotated.sharing_level,
+                    annotated.domain_sharing_level,
                     self.facet_depth,
                 );
 
@@ -871,10 +874,11 @@ impl FacetBandCoordMeasurement {
                 }
             }
 
-            // Data-empty cells can have no local domain extents even when channel
-            // sharing is enabled. Fill coordinated extents from saved sharing levels
-            // so owner cells without local data still render shared domains.
-            for (channel, sharing_level) in &self.channel_sharing_levels {
+            // Data-empty cells can have no local domain extents even when
+            // channel-domain sharing is enabled. Fill coordinated extents from
+            // saved sharing levels.
+            // so owner cells without local data still render shared plot scale domains.
+            for (channel, sharing_level) in &self.channel_domain_sharing_levels {
                 if *sharing_level == 0 || cell.coordinated_domain_extents.contains_key(channel) {
                     continue;
                 }
@@ -901,7 +905,7 @@ impl FacetBandCoordMeasurement {
         }
     }
 
-    pub(crate) fn derive_coordinated_apply_plan(&self) -> FacetBandCoordApplyPlan {
+    pub(crate) fn derive_coordinated_apply_plan(&self) -> FacetBandCoordinationApplyPlan {
         let (legend_start, legend_end) =
             legend_axis_overflow(self.axis, &self.coordinated_overflow);
         let legend_slab_applied = legend_start + legend_end;
@@ -930,7 +934,7 @@ impl FacetBandCoordMeasurement {
             adjusted_size_for_legend_overflow(original_main_size, legend_start, legend_end);
         let legend_main_axis_shrink = (original_main_size - adjusted_main_size).max(0.0);
 
-        FacetBandCoordApplyPlan {
+        FacetBandCoordinationApplyPlan {
             axis: self.axis,
             legend_start,
             legend_end,
@@ -999,8 +1003,8 @@ impl FacetBandCoordMeasurement {
     pub(crate) async fn apply_coordinated_overflow_with_plan(
         &mut self,
         eval_ctx: &EvaluationContext,
-        plan: &FacetBandCoordApplyPlan,
-    ) -> Result<FacetBandCoordApplyOutcome, AvengerChartError> {
+        plan: &FacetBandCoordinationApplyPlan,
+    ) -> Result<FacetBandCoordinationApplyOutcome, AvengerChartError> {
         debug_assert_eq!(
             plan.axis, self.axis,
             "coordinated apply plan axis must match measurement axis"
@@ -1051,7 +1055,7 @@ impl FacetBandCoordMeasurement {
 
         if !plan.remeasure_required {
             self.apply_cross_axis_coordinated_side_slabs_to_cells();
-            return Ok(FacetBandCoordApplyOutcome {
+            return Ok(FacetBandCoordinationApplyOutcome {
                 subplot_cross_size_before,
                 subplot_cross_size_after: self.subplot_cross_size,
                 remeasure_triggered: false,
@@ -1114,7 +1118,7 @@ impl FacetBandCoordMeasurement {
             "FacetBand apply_coordinated_overflow retargeted cells without remeasure"
         );
 
-        Ok(FacetBandCoordApplyOutcome {
+        Ok(FacetBandCoordinationApplyOutcome {
             subplot_cross_size_before,
             subplot_cross_size_after: self.subplot_cross_size,
             remeasure_triggered: false,
@@ -1139,10 +1143,10 @@ impl FacetBandCoordMeasurement {
 
 /// Scale selection strategy for measuring a facet cell.
 enum FacetCellMeasurementMode<'a> {
-    /// Use nested sharing rules (Free/Level(N)/Shared) for nested facet cells.
-    NestedSharing {
-        nested_sharing_level: Option<SharingLevel>,
-        nested_depth: u8,
+    /// Use child facet slot-sharing rules (Free/Level(N)/Shared) for nested facet cells.
+    ChildFacetSlots {
+        child_facet_slot_sharing: Option<SharingLevel>,
+        child_facet_depth: u8,
         ancestor_scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
         per_cell_scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
         shared_scale_builder: &'a ScaleBuilder,
@@ -2207,7 +2211,7 @@ fn empty_facet_band_measurement(
         local_layout: CoordinatedLayout::default(),
         coordinated_layout: None,
         coordination_field_identity: axis.scale_name().to_string(),
-        channel_sharing_levels: HashMap::new(),
+        channel_domain_sharing_levels: HashMap::new(),
         empty_cell_policy,
     };
     if fixed_mode {
@@ -2291,8 +2295,8 @@ fn fixed_plot_area_layout_spec(width: f32, height: f32) -> EvaluatedLayoutSpec {
 
 fn resolve_nested_scale_plan<'a>(
     cell: &FacetCellPlan,
-    nested_sharing_level: Option<SharingLevel>,
-    nested_depth: u8,
+    child_facet_slot_sharing: Option<SharingLevel>,
+    child_facet_depth: u8,
     ancestor_scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
     per_cell_scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
     facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
@@ -2302,7 +2306,7 @@ fn resolve_nested_scale_plan<'a>(
         return Ok(NestedScalePlan::EmptySharedNoData);
     }
 
-    match nested_sharing_level {
+    match child_facet_slot_sharing {
         Some(sharing_level) if sharing_level.is_free() => {
             let canonical_full_path = canonicalize_path(&cell.full_path);
             if let Some(cached_builder) = per_cell_scale_builder_cache
@@ -2313,16 +2317,16 @@ fn resolve_nested_scale_plan<'a>(
             } else {
                 debug!(
                     full_path = ?cell.full_path,
-                    "Facet nested measurement missing per-cell cached builder; falling back to on-demand build"
+                    "Facet child-slot measurement missing per-cell cached builder; falling back to on-demand build"
                 );
                 Ok(NestedScalePlan::PerCellBuilderFallback)
             }
         }
-        Some(sharing_level) if sharing_level < nested_depth => {
-            let ancestor_key = path_math::nested_measurement_ancestor_key(
+        Some(sharing_level) if sharing_level < child_facet_depth => {
+            let ancestor_key = path_math::child_facet_slot_ancestor_key(
                 &cell.full_path,
                 sharing_level,
-                nested_depth,
+                child_facet_depth,
             );
             let canonical_ancestor_key = canonicalize_path(&ancestor_key);
             let cached_builder = ancestor_scale_builder_cache
@@ -2486,9 +2490,9 @@ async fn measure_facet_cell(
     mode: FacetCellMeasurementMode<'_>,
 ) -> Result<MeasuredFacetCell, AvengerChartError> {
     match mode {
-        FacetCellMeasurementMode::NestedSharing {
-            nested_sharing_level,
-            nested_depth,
+        FacetCellMeasurementMode::ChildFacetSlots {
+            child_facet_slot_sharing,
+            child_facet_depth,
             ancestor_scale_builder_cache,
             per_cell_scale_builder_cache,
             shared_scale_builder,
@@ -2498,8 +2502,8 @@ async fn measure_facet_cell(
         } => {
             let plan = resolve_nested_scale_plan(
                 cell,
-                nested_sharing_level,
-                nested_depth,
+                child_facet_slot_sharing,
+                child_facet_depth,
                 ancestor_scale_builder_cache,
                 per_cell_scale_builder_cache,
                 facet_tree,
@@ -2530,9 +2534,9 @@ async fn measure_nested_cell(
     nested_ctx: &FacetBandNestedMeasureContext,
 ) -> Result<MeasuredFacetCell, AvengerChartError> {
     let subplot_layout_spec = fixed_plot_area_layout_spec(subplot_plot_width, subplot_plot_height);
-    let mode = FacetCellMeasurementMode::NestedSharing {
-        nested_sharing_level: nested_ctx.scale_artifacts.nested_col_sharing,
-        nested_depth: nested_ctx.scale_artifacts.nested_depth,
+    let mode = FacetCellMeasurementMode::ChildFacetSlots {
+        child_facet_slot_sharing: nested_ctx.scale_artifacts.child_facet_slot_sharing,
+        child_facet_depth: nested_ctx.scale_artifacts.child_facet_depth,
         ancestor_scale_builder_cache: &nested_ctx.scale_artifacts.ancestor_scale_builder_cache,
         per_cell_scale_builder_cache: &nested_ctx.scale_artifacts.per_cell_scale_builder_cache,
         shared_scale_builder: &nested_ctx.scale_artifacts.shared_scale_builder,
@@ -2593,7 +2597,7 @@ async fn build_facet_band_measure_plan(
         debug!(
             scale_builder_count = scale_artifacts.ancestor_scale_builder_cache.len(),
             sharing_level = scale_artifacts
-                .nested_col_sharing
+                .child_facet_slot_sharing
                 .unwrap_or(SharingLevel::GLOBAL)
                 .raw(),
             "FacetBand using precomputed ancestor cached scale builders"
@@ -2839,7 +2843,7 @@ async fn capture_estimated_overflow_probe_if_requested(
 
     let matches_selector = match &request.selector {
         FacetSubtreeSelector::ByFacetPath(path) => path.as_slice() == full_path,
-        FacetSubtreeSelector::ByCoordNodePath(path) => {
+        FacetSubtreeSelector::ByCoordinationNodePath(path) => {
             path.as_slice() == eval_ctx.facet_coord_node_path()
         }
     };
@@ -2862,12 +2866,14 @@ fn annotate_domain_extents(
     raw_extents
         .into_iter()
         .map(|(channel, extent)| {
-            let sharing_level = nested_ctx.facet_tree.channel_sharing_level_typed(&channel);
+            let domain_sharing_level = nested_ctx
+                .facet_tree
+                .channel_domain_sharing_level_typed(&channel);
             (
                 channel,
                 ChannelDomainExtent {
                     extent,
-                    sharing_level,
+                    domain_sharing_level,
                 },
             )
         })
@@ -3324,7 +3330,7 @@ struct FacetBandResolvedNode<'a> {
     compiled_subplot: &'a Arc<CompiledPlot>,
     band_scale: &'a ConfiguredScaleWithSpec,
     subplot_band_size: f32,
-    current_sharing_level: SharingLevel,
+    current_facet_slot_sharing: SharingLevel,
     coordination_field_identity: String,
     empty_cell_policy: FacetEmptyCellPolicy,
 }
@@ -3392,7 +3398,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             ))
         })?;
 
-        // Step 2: Precompute -- precompute subtree scale builders used by nested sharing measurement.
+        // Step 2: Precompute -- precompute subtree scale builders used by child facet slot sharing.
         ensure_subtree_precomputed(
             self.compiled_marks,
             self.facet_path,
@@ -3658,17 +3664,17 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 AvengerChartError::InternalError(self.axis_ops.missing_mark_err.to_string())
             })?;
 
-        let (compiled_subplot, current_sharing_level, empty_cell_policy) = match facet_mark {
+        let (compiled_subplot, current_facet_slot_sharing, empty_cell_policy) = match facet_mark {
             FacetMarkRef::Col(mark) => (
                 mark.compiled_subplot(),
-                mark.facet_scale_sharing()
+                mark.facet_slot_sharing()
                     .map(SharingLevel::from)
                     .unwrap_or(SharingLevel::FREE),
                 mark.facet_empty_cell_policy(),
             ),
             FacetMarkRef::Row(mark) => (
                 mark.compiled_subplot(),
-                mark.facet_scale_sharing()
+                mark.facet_slot_sharing()
                     .map(SharingLevel::from)
                     .unwrap_or(SharingLevel::FREE),
                 mark.facet_empty_cell_policy(),
@@ -3720,7 +3726,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             compiled_subplot,
             band_scale,
             subplot_band_size,
-            current_sharing_level,
+            current_facet_slot_sharing,
             coordination_field_identity: current_node.field.clone(),
             empty_cell_policy,
         }))
@@ -3741,7 +3747,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         };
 
         facet_tree
-            .enumerate_values_for_facet(self.facet_path, resolved.current_sharing_level.raw())
+            .enumerate_values_for_facet(self.facet_path, resolved.current_facet_slot_sharing.raw())
             .unwrap_or_else(fallback)
     }
 
@@ -3990,7 +3996,8 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             )
             .await?;
 
-        let channel_sharing_levels = collect_channel_sharing_levels(&local_layout_outcome.cells);
+        let channel_domain_sharing_levels =
+            collect_channel_domain_sharing_levels(&local_layout_outcome.cells);
         let mut measurements = Vec::with_capacity(local_layout_outcome.cells.len());
         let mut local_domain_extents = Vec::with_capacity(local_layout_outcome.cells.len());
         for mut cell in local_layout_outcome.cells {
@@ -4004,7 +4011,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             overflow_probe: overflow_probe.clone(),
             band_layout_plan: local_layout_outcome.band_layout_plan,
             final_subplot_cross_size: local_layout_outcome.final_subplot_main_or_cross_size,
-            channel_sharing_levels,
+            channel_domain_sharing_levels,
         };
         let runtime_state = FacetBandMeasuredRuntime {
             measurements,
@@ -4023,7 +4030,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             overflow_probe,
             band_layout_plan,
             final_subplot_cross_size,
-            channel_sharing_levels,
+            channel_domain_sharing_levels,
         } = local_layout;
         let FacetBandOverflowProbe {
             prepared_inputs, ..
@@ -4094,7 +4101,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             local_layout,
             coordinated_layout: None,
             coordination_field_identity,
-            channel_sharing_levels,
+            channel_domain_sharing_levels,
             empty_cell_policy,
         };
 
@@ -5808,7 +5815,7 @@ mod tests {
         let resolved = match pipeline.resolve_node_or_empty()? {
             ResolveBandNodeOutcome::Ready(resolved) => resolved,
             ResolveBandNodeOutcome::Empty(_) => {
-                panic!("expected ready facet node for prepared_inputs attributes test");
+                panic!("expected ready facet node for prepared_inputs pipeline test");
             }
         };
         let cell_values = pipeline.enumerate_cell_values(&resolved);
@@ -5850,7 +5857,7 @@ mod tests {
         let resolved = match pipeline.resolve_node_or_empty()? {
             ResolveBandNodeOutcome::Ready(resolved) => resolved,
             ResolveBandNodeOutcome::Empty(_) => {
-                panic!("expected ready facet node for overflow_probe attributes test");
+                panic!("expected ready facet node for overflow_probe pipeline test");
             }
         };
         let cell_values = pipeline.enumerate_cell_values(&resolved);
@@ -5903,7 +5910,7 @@ mod tests {
         let resolved = match pipeline.resolve_node_or_empty()? {
             ResolveBandNodeOutcome::Ready(resolved) => resolved,
             ResolveBandNodeOutcome::Empty(_) => {
-                panic!("expected ready facet node for local_layout attributes test");
+                panic!("expected ready facet node for local_layout pipeline test");
             }
         };
         let cell_values = pipeline.enumerate_cell_values(&resolved);
@@ -5964,7 +5971,7 @@ mod tests {
         let resolved = match pipeline.resolve_node_or_empty()? {
             ResolveBandNodeOutcome::Ready(resolved) => resolved,
             ResolveBandNodeOutcome::Empty(_) => {
-                panic!("expected ready facet node for coord-measurement attributes test");
+                panic!("expected ready facet node for coord-measurement pipeline test");
             }
         };
         let cell_values = pipeline.enumerate_cell_values(&resolved);

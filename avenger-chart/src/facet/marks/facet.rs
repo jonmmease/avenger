@@ -174,8 +174,8 @@ pub struct Facet<InnerC: CoordinateSystem> {
     pub(crate) subplot: Option<Plot<InnerC>>,
     pub(crate) facet_row_title: Option<String>,
     pub(crate) facet_col_title: Option<String>,
-    pub(crate) facet_row_scale_sharing: Option<ScaleSharing>,
-    pub(crate) facet_col_scale_sharing: Option<ScaleSharing>,
+    pub(crate) facet_row_slot_sharing: Option<ScaleSharing>,
+    pub(crate) facet_col_slot_sharing: Option<ScaleSharing>,
     pub(crate) facet_row_position: Option<String>,
     pub(crate) facet_col_position: Option<String>,
     pub(crate) facet_row_empty_cell_policy: Option<FacetEmptyCellPolicy>,
@@ -201,8 +201,8 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
             subplot: None,
             facet_row_title: None,
             facet_col_title: None,
-            facet_row_scale_sharing: None,
-            facet_col_scale_sharing: None,
+            facet_row_slot_sharing: None,
+            facet_col_slot_sharing: None,
             facet_row_position: None,
             facet_col_position: None,
             facet_row_empty_cell_policy: None,
@@ -232,7 +232,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
         s
     }
 
-    /// Configure row with facet options (e.g., title, scale_sharing)
+    /// Configure row with facet options (e.g., title, slot sharing)
     pub fn row_with<V, F>(self, value: V, f: F) -> Self
     where
         V: Into<ChannelValue>,
@@ -241,7 +241,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
         let mut s = self.row(value);
         let cfg = f(FacetRowChannelConfig::default());
         s.facet_row_title = cfg.title;
-        s.facet_row_scale_sharing = cfg.scale_sharing;
+        s.facet_row_slot_sharing = cfg.slot_sharing;
         s.facet_row_position = cfg.position;
         s.facet_row_empty_cell_policy = cfg.empty_cell_policy;
         s
@@ -257,7 +257,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
         s
     }
 
-    /// Configure col with facet options (e.g., title, scale_sharing, position)
+    /// Configure col with facet options (e.g., title, slot sharing, position)
     pub fn col_with<V, F>(self, value: V, f: F) -> Self
     where
         V: Into<ChannelValue>,
@@ -266,7 +266,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
         let mut s = self.column(value);
         let cfg = f(FacetColChannelConfig::default());
         s.facet_col_title = cfg.title;
-        s.facet_col_scale_sharing = cfg.scale_sharing;
+        s.facet_col_slot_sharing = cfg.slot_sharing;
         s.facet_col_position = cfg.position;
         s.facet_col_empty_cell_policy = cfg.empty_cell_policy;
         s
@@ -286,7 +286,7 @@ pub struct CompiledFacetRow {
     pub(crate) state: CompiledMarkState,
     pub(crate) compiled_subplot: Arc<CompiledPlot>,
     pub(crate) facet_title: Option<String>,
-    pub(crate) facet_scale_sharing: Option<ScaleSharing>,
+    pub(crate) facet_slot_sharing: Option<ScaleSharing>,
     pub(crate) facet_position: Option<String>,
     #[serde(default)]
     pub(crate) facet_empty_cell_policy: FacetEmptyCellPolicy,
@@ -302,8 +302,8 @@ impl CompiledFacetRow {
     pub fn facet_title(&self) -> Option<&str> {
         self.facet_title.as_deref()
     }
-    pub fn facet_scale_sharing(&self) -> Option<ScaleSharing> {
-        self.facet_scale_sharing
+    pub fn facet_slot_sharing(&self) -> Option<ScaleSharing> {
+        self.facet_slot_sharing
     }
     pub fn facet_position(&self) -> Option<&str> {
         self.facet_position.as_deref()
@@ -374,7 +374,7 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetRow> for Facet<InnerC> {
             state: compiled_state,
             compiled_subplot,
             facet_title,
-            facet_scale_sharing: self.facet_row_scale_sharing,
+            facet_slot_sharing: self.facet_row_slot_sharing,
             facet_position: self.facet_row_position.clone(),
             facet_empty_cell_policy: self.facet_row_empty_cell_policy.unwrap_or_default(),
         }))
@@ -490,7 +490,7 @@ pub struct CompiledFacetCol {
     pub(crate) state: CompiledMarkState,
     pub(crate) compiled_subplot: Arc<CompiledPlot>,
     pub(crate) facet_title: Option<String>,
-    pub(crate) facet_scale_sharing: Option<ScaleSharing>,
+    pub(crate) facet_slot_sharing: Option<ScaleSharing>,
     pub(crate) facet_position: Option<String>,
     #[serde(default)]
     pub(crate) facet_empty_cell_policy: FacetEmptyCellPolicy,
@@ -506,8 +506,8 @@ impl CompiledFacetCol {
     pub fn facet_title(&self) -> Option<&str> {
         self.facet_title.as_deref()
     }
-    pub fn facet_scale_sharing(&self) -> Option<ScaleSharing> {
-        self.facet_scale_sharing
+    pub fn facet_slot_sharing(&self) -> Option<ScaleSharing> {
+        self.facet_slot_sharing
     }
     pub fn facet_position(&self) -> Option<&str> {
         self.facet_position.as_deref()
@@ -531,10 +531,10 @@ impl<'a> FacetMarkRef<'a> {
         }
     }
 
-    pub fn facet_scale_sharing(self) -> Option<ScaleSharing> {
+    pub fn facet_slot_sharing(self) -> Option<ScaleSharing> {
         match self {
-            Self::Row(mark) => mark.facet_scale_sharing(),
-            Self::Col(mark) => mark.facet_scale_sharing(),
+            Self::Row(mark) => mark.facet_slot_sharing(),
+            Self::Col(mark) => mark.facet_slot_sharing(),
         }
     }
 
@@ -621,7 +621,7 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetColumn> for Facet<InnerC> {
             state: compiled_state,
             compiled_subplot,
             facet_title,
-            facet_scale_sharing: self.facet_col_scale_sharing,
+            facet_slot_sharing: self.facet_col_slot_sharing,
             facet_position: self.facet_col_position.clone(),
             facet_empty_cell_policy: self.facet_col_empty_cell_policy.unwrap_or_default(),
         }))

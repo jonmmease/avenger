@@ -73,7 +73,7 @@ pub(crate) struct FacetBandLocalLayout {
     pub(crate) overflow_probe: FacetBandOverflowProbe,
     pub(crate) band_layout_plan: FacetBandPlan,
     pub(crate) final_subplot_cross_size: f32,
-    pub(crate) channel_sharing_levels: HashMap<String, SharingLevel>,
+    pub(crate) channel_domain_sharing_levels: HashMap<String, SharingLevel>,
 }
 
 pub(crate) struct FacetBandPreparedRuntime {

@@ -14,7 +14,7 @@ use crate::{
             build_final_propagation_plan, build_retarget_plan, run_final_propagation_with_trace,
             run_retarget_with_trace,
         },
-        coordination_attributes::{
+        coordination_plans::{
             CoordinationRunArtifacts, build_initial_requirement_pass,
             build_retargeted_requirement_pass,
         },

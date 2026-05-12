@@ -15,7 +15,7 @@ use crate::{
             run_final_propagation_with_trace_fixed, run_retarget_with_trace_fixed,
             visit_fixed_facet_bands_with_node_id,
         },
-        coordination_attributes::{
+        coordination_plans::{
             InitialRequirementNodeSnapshot, InitialRequirementSnapshot, RetargetPlan,
             RetargetedRequirementNodeSnapshot, RetargetedRequirementSnapshot,
             build_initial_requirement_pass, build_retargeted_requirement_pass,
@@ -124,7 +124,7 @@ fn assert_fixed_leaf_plot_sizes(
 
 fn assert_retarget_trace_invariants_fixed(
     _plan: &RetargetPlan,
-    trace: &crate::facet::coordination_attributes::RetargetTrace,
+    trace: &crate::facet::coordination_plans::RetargetTrace,
 ) {
     for node_result in &trace.node_results {
         debug_assert_eq!(

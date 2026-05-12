@@ -312,7 +312,7 @@ async fn test_shared_sharing_nested_row_row() {
             Plot::<FacetRow>::new().mark(
                 Facet::new()
                     .row_with(col("species"), |c| {
-                        c.facet(|f| f.with_scale_sharing(ScaleSharing::Shared))
+                        c.facet(|f| f.with_slot_sharing(ScaleSharing::Shared))
                     })
                     .subplot(
                         Plot::<Cartesian>::new()
@@ -361,7 +361,7 @@ async fn test_sharing_level_stored_in_node() {
             Plot::<FacetRow>::new().mark(
                 Facet::new()
                     .row_with(col("species"), |c| {
-                        c.facet(|f| f.with_scale_sharing(ScaleSharing::Level(2)))
+                        c.facet(|f| f.with_slot_sharing(ScaleSharing::Level(2)))
                     })
                     .subplot(
                         Plot::<Cartesian>::new()

@@ -72,25 +72,26 @@ pub(crate) fn sharing_group_boundary(facet_depth: u8, sharing_level: SharingLeve
     sharing_level.group_boundary(facet_depth)
 }
 
-/// Compute ancestor key for nested facet measurement sharing.
+/// Compute the current-cell ancestor key implied by a child facet's slot sharing.
 ///
-/// Nested sharing level is defined one level deeper than the current cell path.
-/// For a current path at depth `D`, nested facet depth is `D + 1`, and Level(N)
-/// at nested depth translates to removing `N - 1` components from current path.
-pub(crate) fn nested_measurement_ancestor_key(
+/// Child facet slot sharing is expressed one level deeper than the current cell
+/// path. For a current path at depth `D`, child facet depth is `D + 1`, and
+/// `Level(N)` at child depth translates to removing `N - 1` components from the
+/// current path.
+pub(crate) fn child_facet_slot_ancestor_key(
     current_cell_path: &[ScalarValue],
-    nested_sharing_level: SharingLevel,
-    nested_depth: u8,
+    child_facet_slot_sharing: SharingLevel,
+    child_facet_depth: u8,
 ) -> Vec<ScalarValue> {
     debug_assert_eq!(
-        nested_depth as usize,
+        child_facet_depth as usize,
         current_cell_path.len() + 1,
-        "nested_depth ({}) must equal current_cell_path.len()+1 ({})",
-        nested_depth,
+        "child_facet_depth ({}) must equal current_cell_path.len()+1 ({})",
+        child_facet_depth,
         current_cell_path.len() + 1
     );
 
-    let translated_level = SharingLevel::from_raw(nested_sharing_level.raw().saturating_sub(1));
+    let translated_level = SharingLevel::from_raw(child_facet_slot_sharing.raw().saturating_sub(1));
     ancestor_key(
         current_cell_path,
         translated_level,
@@ -172,30 +173,30 @@ mod tests {
     }
 
     #[test]
-    fn nested_measurement_ancestor_translates_level0_to_full_path() {
+    fn child_facet_slot_ancestor_translates_level0_to_full_path() {
         let path = vec![s("Div"), s("Dept"), s("Team")];
-        let key = nested_measurement_ancestor_key(&path, SharingLevel::from_raw(0), 4);
+        let key = child_facet_slot_ancestor_key(&path, SharingLevel::from_raw(0), 4);
         assert_eq!(key, path);
     }
 
     #[test]
-    fn nested_measurement_ancestor_translates_level1_to_full_path() {
+    fn child_facet_slot_ancestor_translates_level1_to_full_path() {
         let path = vec![s("Div"), s("Dept"), s("Team")];
-        let key = nested_measurement_ancestor_key(&path, SharingLevel::from_raw(1), 4);
+        let key = child_facet_slot_ancestor_key(&path, SharingLevel::from_raw(1), 4);
         assert_eq!(key, path);
     }
 
     #[test]
-    fn nested_measurement_ancestor_translates_level2_to_drop_one() {
+    fn child_facet_slot_ancestor_translates_level2_to_drop_one() {
         let path = vec![s("Div"), s("Dept"), s("Team")];
-        let key = nested_measurement_ancestor_key(&path, SharingLevel::from_raw(2), 4);
+        let key = child_facet_slot_ancestor_key(&path, SharingLevel::from_raw(2), 4);
         assert_eq!(key, vec![s("Div"), s("Dept")]);
     }
 
     #[test]
-    fn nested_measurement_ancestor_shared_like_levels_map_to_global() {
+    fn child_facet_slot_ancestor_shared_like_levels_map_to_global() {
         let path = vec![s("Div"), s("Dept"), s("Team")];
-        assert!(nested_measurement_ancestor_key(&path, SharingLevel::from_raw(4), 4).is_empty());
-        assert!(nested_measurement_ancestor_key(&path, SharingLevel::from_raw(255), 4).is_empty());
+        assert!(child_facet_slot_ancestor_key(&path, SharingLevel::from_raw(4), 4).is_empty());
+        assert!(child_facet_slot_ancestor_key(&path, SharingLevel::from_raw(255), 4).is_empty());
     }
 }

@@ -3213,7 +3213,7 @@ impl CompiledPlot {
             FacetSubtreeSelector::ByFacetPath(path) => {
                 self.select_facet_subtree_by_facet_path(measurement, None, path, Vec::new(), false)?
             }
-            FacetSubtreeSelector::ByCoordNodePath(path) => self
+            FacetSubtreeSelector::ByCoordinationNodePath(path) => self
                 .select_facet_subtree_by_coord_node_path(
                     measurement,
                     None,
@@ -4127,7 +4127,7 @@ mod tests {
                         Facet::new()
                             .row_with(col("row_group"), |c| {
                                 c.facet(|f| {
-                                    f.with_scale_sharing(ScaleSharing::Shared).position("right")
+                                    f.with_slot_sharing(ScaleSharing::Shared).position("right")
                                 })
                             })
                             .subplot(
@@ -4148,7 +4148,7 @@ mod tests {
                     Plot::<FacetRow>::new().mark(
                         Facet::new()
                             .row_with(col("row_group"), |c| {
-                                c.facet(|f| f.with_scale_sharing(ScaleSharing::Shared))
+                                c.facet(|f| f.with_slot_sharing(ScaleSharing::Shared))
                             })
                             .subplot(
                                 Plot::<Cartesian>::new().mark(
@@ -4180,7 +4180,7 @@ mod tests {
                         Facet::new()
                             .row_with(col("row_group"), move |c| {
                                 c.facet(|f| {
-                                    f.with_scale_sharing(ScaleSharing::Shared)
+                                    f.with_slot_sharing(ScaleSharing::Shared)
                                         .empty_cell_policy(policy)
                                 })
                             })
@@ -4213,7 +4213,7 @@ mod tests {
                                 Facet::new()
                                     .row_with(col("row_group"), |c| {
                                         c.facet(|f| {
-                                            f.with_scale_sharing(ScaleSharing::Level(1))
+                                            f.with_slot_sharing(ScaleSharing::Level(1))
                                                 .position("right")
                                         })
                                     })
@@ -4792,190 +4792,194 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn evaluate_default_matches_with_options_final() -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let compiled = compile_deeply_nested_plot(&ctx).await?;
+    #[test]
+    fn evaluate_default_matches_with_options_final() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled = compile_deeply_nested_plot(&ctx).await?;
 
-        let default_eval = compiled.evaluate(&ctx, None).await?;
-        let options_eval = compiled
-            .evaluate_with_options(
-                &ctx,
-                None,
-                EvaluationOptions {
-                    layout_snapshot: LayoutSnapshot::Final,
-                    debug_layout_lines: false,
-                    ..EvaluationOptions::default()
-                },
-            )
-            .await?;
+            let default_eval = compiled.evaluate(&ctx, None).await?;
+            let options_eval = compiled
+                .evaluate_with_options(
+                    &ctx,
+                    None,
+                    EvaluationOptions {
+                        layout_snapshot: LayoutSnapshot::Final,
+                        debug_layout_lines: false,
+                        ..EvaluationOptions::default()
+                    },
+                )
+                .await?;
 
-        assert_eq!(
-            default_eval.scene_graph.width,
-            options_eval.scene_graph.width
-        );
-        assert_eq!(
-            default_eval.scene_graph.height,
-            options_eval.scene_graph.height
-        );
+            assert_eq!(
+                default_eval.scene_graph.width,
+                options_eval.scene_graph.width
+            );
+            assert_eq!(
+                default_eval.scene_graph.height,
+                options_eval.scene_graph.height
+            );
 
-        let default_col_origins =
-            absolute_origins_for_named_groups(&default_eval.scene_graph, "facet_col_");
-        let options_col_origins =
-            absolute_origins_for_named_groups(&options_eval.scene_graph, "facet_col_");
-        assert_eq!(default_col_origins, options_col_origins);
+            let default_col_origins =
+                absolute_origins_for_named_groups(&default_eval.scene_graph, "facet_col_");
+            let options_col_origins =
+                absolute_origins_for_named_groups(&options_eval.scene_graph, "facet_col_");
+            assert_eq!(default_col_origins, options_col_origins);
 
-        let default_row_origins =
-            absolute_origins_for_named_groups(&default_eval.scene_graph, "facet_row_");
-        let options_row_origins =
-            absolute_origins_for_named_groups(&options_eval.scene_graph, "facet_row_");
-        assert_eq!(default_row_origins, options_row_origins);
+            let default_row_origins =
+                absolute_origins_for_named_groups(&default_eval.scene_graph, "facet_row_");
+            let options_row_origins =
+                absolute_origins_for_named_groups(&options_eval.scene_graph, "facet_row_");
+            assert_eq!(default_row_origins, options_row_origins);
 
-        Ok(())
+            Ok(())
+        });
     }
 
-    #[tokio::test]
-    async fn evaluate_with_options_initial_and_coordinated_execute_for_nested_facets()
-    -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let compiled = compile_deeply_nested_plot(&ctx).await?;
+    #[test]
+    fn evaluate_with_options_initial_and_coordinated_execute_for_nested_facets() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled = compile_deeply_nested_plot(&ctx).await?;
 
-        let initial_eval = compiled
-            .evaluate_with_options(
-                &ctx,
-                None,
-                EvaluationOptions {
-                    layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::LocalMeasured),
-                    debug_layout_lines: false,
-                    ..EvaluationOptions::default()
-                },
-            )
-            .await?;
-        let coordinated_eval = compiled
-            .evaluate_with_options(
-                &ctx,
-                None,
-                EvaluationOptions {
-                    layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
-                        CoordinationCheckpoint::FinalPropagationComplete,
-                    )),
-                    debug_layout_lines: false,
-                    ..EvaluationOptions::default()
-                },
-            )
-            .await?;
+            let initial_eval = compiled
+                .evaluate_with_options(
+                    &ctx,
+                    None,
+                    EvaluationOptions {
+                        layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::LocalMeasured),
+                        debug_layout_lines: false,
+                        ..EvaluationOptions::default()
+                    },
+                )
+                .await?;
+            let coordinated_eval = compiled
+                .evaluate_with_options(
+                    &ctx,
+                    None,
+                    EvaluationOptions {
+                        layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
+                            CoordinationCheckpoint::FinalPropagationComplete,
+                        )),
+                        debug_layout_lines: false,
+                        ..EvaluationOptions::default()
+                    },
+                )
+                .await?;
 
-        assert!(initial_eval.scene_graph.width > 0.0);
-        assert!(initial_eval.scene_graph.height > 0.0);
-        assert!(coordinated_eval.scene_graph.width > 0.0);
-        assert!(coordinated_eval.scene_graph.height > 0.0);
+            assert!(initial_eval.scene_graph.width > 0.0);
+            assert!(initial_eval.scene_graph.height > 0.0);
+            assert!(coordinated_eval.scene_graph.width > 0.0);
+            assert!(coordinated_eval.scene_graph.height > 0.0);
 
-        let initial_col_origins =
-            absolute_origins_for_named_groups(&initial_eval.scene_graph, "facet_col_");
-        let coordinated_col_origins =
-            absolute_origins_for_named_groups(&coordinated_eval.scene_graph, "facet_col_");
-        let initial_row_origins =
-            absolute_origins_for_named_groups(&initial_eval.scene_graph, "facet_row_");
-        let coordinated_row_origins =
-            absolute_origins_for_named_groups(&coordinated_eval.scene_graph, "facet_row_");
+            let initial_col_origins =
+                absolute_origins_for_named_groups(&initial_eval.scene_graph, "facet_col_");
+            let coordinated_col_origins =
+                absolute_origins_for_named_groups(&coordinated_eval.scene_graph, "facet_col_");
+            let initial_row_origins =
+                absolute_origins_for_named_groups(&initial_eval.scene_graph, "facet_row_");
+            let coordinated_row_origins =
+                absolute_origins_for_named_groups(&coordinated_eval.scene_graph, "facet_row_");
 
-        assert!(!initial_col_origins.is_empty());
-        assert!(!coordinated_col_origins.is_empty());
-        assert_eq!(initial_col_origins.len(), coordinated_col_origins.len());
-        assert_eq!(initial_row_origins.len(), coordinated_row_origins.len());
+            assert!(!initial_col_origins.is_empty());
+            assert!(!coordinated_col_origins.is_empty());
+            assert_eq!(initial_col_origins.len(), coordinated_col_origins.len());
+            assert_eq!(initial_row_origins.len(), coordinated_row_origins.len());
 
-        Ok(())
+            Ok(())
+        });
     }
 
-    #[tokio::test]
-    async fn facet_subtree_snapshots_render_probe_and_local_layout() -> Result<(), AvengerChartError>
-    {
-        let ctx = SessionContext::new();
-        let compiled = compile_deeply_nested_plot(&ctx).await?;
-        let selector = FacetSubtreeSelector::ByFacetPath(vec![
-            ScalarValue::Utf8(Some("G1".to_string())),
-            ScalarValue::Utf8(Some("S1".to_string())),
-        ]);
+    #[test]
+    fn facet_subtree_snapshots_render_probe_and_local_layout() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled = compile_deeply_nested_plot(&ctx).await?;
+            let selector = FacetSubtreeSelector::ByFacetPath(vec![
+                ScalarValue::Utf8(Some("G1".to_string())),
+                ScalarValue::Utf8(Some("S1".to_string())),
+            ]);
 
-        let probe_eval = compiled
-            .evaluate_with_options(
-                &ctx,
-                None,
-                EvaluationOptions {
-                    layout_snapshot: LayoutSnapshot::FacetSubtree(FacetSubtreeSnapshot {
-                        selector: selector.clone(),
-                        checkpoint: FacetSubtreeCheckpoint::EstimatedOverflowProbe,
-                    }),
-                    debug_layout_lines: true,
-                    ..EvaluationOptions::default()
-                },
-            )
-            .await?;
-        let probe_by_index_eval = compiled
-            .evaluate_with_options(
-                &ctx,
-                None,
-                EvaluationOptions {
-                    layout_snapshot: LayoutSnapshot::FacetSubtree(FacetSubtreeSnapshot {
-                        selector: FacetSubtreeSelector::ByCoordNodePath(vec![0, 0]),
-                        checkpoint: FacetSubtreeCheckpoint::EstimatedOverflowProbe,
-                    }),
-                    debug_layout_lines: true,
-                    ..EvaluationOptions::default()
-                },
-            )
-            .await?;
-        let local_eval = compiled
-            .evaluate_with_options(
-                &ctx,
-                None,
-                EvaluationOptions {
-                    layout_snapshot: LayoutSnapshot::FacetSubtree(FacetSubtreeSnapshot {
-                        selector,
-                        checkpoint: FacetSubtreeCheckpoint::LocalRetargetedLayout,
-                    }),
-                    debug_layout_lines: true,
-                    ..EvaluationOptions::default()
-                },
-            )
-            .await?;
-        let by_index_eval = compiled
-            .evaluate_with_options(
-                &ctx,
-                None,
-                EvaluationOptions {
-                    layout_snapshot: LayoutSnapshot::FacetSubtree(FacetSubtreeSnapshot {
-                        selector: FacetSubtreeSelector::ByCoordNodePath(vec![0, 0]),
-                        checkpoint: FacetSubtreeCheckpoint::LocalRetargetedLayout,
-                    }),
-                    debug_layout_lines: true,
-                    ..EvaluationOptions::default()
-                },
-            )
-            .await?;
+            let probe_eval = compiled
+                .evaluate_with_options(
+                    &ctx,
+                    None,
+                    EvaluationOptions {
+                        layout_snapshot: LayoutSnapshot::FacetSubtree(FacetSubtreeSnapshot {
+                            selector: selector.clone(),
+                            checkpoint: FacetSubtreeCheckpoint::EstimatedOverflowProbe,
+                        }),
+                        debug_layout_lines: true,
+                        ..EvaluationOptions::default()
+                    },
+                )
+                .await?;
+            let probe_by_index_eval = compiled
+                .evaluate_with_options(
+                    &ctx,
+                    None,
+                    EvaluationOptions {
+                        layout_snapshot: LayoutSnapshot::FacetSubtree(FacetSubtreeSnapshot {
+                            selector: FacetSubtreeSelector::ByCoordinationNodePath(vec![0, 0]),
+                            checkpoint: FacetSubtreeCheckpoint::EstimatedOverflowProbe,
+                        }),
+                        debug_layout_lines: true,
+                        ..EvaluationOptions::default()
+                    },
+                )
+                .await?;
+            let local_eval = compiled
+                .evaluate_with_options(
+                    &ctx,
+                    None,
+                    EvaluationOptions {
+                        layout_snapshot: LayoutSnapshot::FacetSubtree(FacetSubtreeSnapshot {
+                            selector,
+                            checkpoint: FacetSubtreeCheckpoint::LocalRetargetedLayout,
+                        }),
+                        debug_layout_lines: true,
+                        ..EvaluationOptions::default()
+                    },
+                )
+                .await?;
+            let by_index_eval = compiled
+                .evaluate_with_options(
+                    &ctx,
+                    None,
+                    EvaluationOptions {
+                        layout_snapshot: LayoutSnapshot::FacetSubtree(FacetSubtreeSnapshot {
+                            selector: FacetSubtreeSelector::ByCoordinationNodePath(vec![0, 0]),
+                            checkpoint: FacetSubtreeCheckpoint::LocalRetargetedLayout,
+                        }),
+                        debug_layout_lines: true,
+                        ..EvaluationOptions::default()
+                    },
+                )
+                .await?;
 
-        assert!(probe_eval.scene_graph.width > 0.0);
-        assert!(probe_eval.scene_graph.height > 0.0);
-        assert_eq!(
-            probe_eval.scene_graph.width,
-            probe_by_index_eval.scene_graph.width
-        );
-        assert_eq!(
-            probe_eval.scene_graph.height,
-            probe_by_index_eval.scene_graph.height
-        );
-        assert!(local_eval.scene_graph.width > 0.0);
-        assert!(local_eval.scene_graph.height > 0.0);
-        assert_eq!(
-            local_eval.scene_graph.width,
-            by_index_eval.scene_graph.width
-        );
-        assert_eq!(
-            local_eval.scene_graph.height,
-            by_index_eval.scene_graph.height
-        );
+            assert!(probe_eval.scene_graph.width > 0.0);
+            assert!(probe_eval.scene_graph.height > 0.0);
+            assert_eq!(
+                probe_eval.scene_graph.width,
+                probe_by_index_eval.scene_graph.width
+            );
+            assert_eq!(
+                probe_eval.scene_graph.height,
+                probe_by_index_eval.scene_graph.height
+            );
+            assert!(local_eval.scene_graph.width > 0.0);
+            assert!(local_eval.scene_graph.height > 0.0);
+            assert_eq!(
+                local_eval.scene_graph.width,
+                by_index_eval.scene_graph.width
+            );
+            assert_eq!(
+                local_eval.scene_graph.height,
+                by_index_eval.scene_graph.height
+            );
 
-        Ok(())
+            Ok(())
+        });
     }
 
     #[test]
@@ -5199,95 +5203,96 @@ mod tests {
         });
     }
 
-    #[tokio::test]
-    async fn evaluate_with_options_coordinated_vs_final_canvas_mode()
-    -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let compiled = compile_deeply_nested_plot(&ctx).await?;
-        let coordinated_eval = compiled
-            .evaluate_with_options(
-                &ctx,
-                None,
-                EvaluationOptions {
-                    layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
+    #[test]
+    fn evaluate_with_options_coordinated_vs_final_canvas_mode() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled = compile_deeply_nested_plot(&ctx).await?;
+            let coordinated_eval = compiled
+                .evaluate_with_options(
+                    &ctx,
+                    None,
+                    EvaluationOptions {
+                        layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
+                            CoordinationCheckpoint::FinalPropagationComplete,
+                        )),
+                        debug_layout_lines: false,
+                        ..EvaluationOptions::default()
+                    },
+                )
+                .await?;
+            let final_eval = compiled
+                .evaluate_with_options(
+                    &ctx,
+                    None,
+                    EvaluationOptions {
+                        layout_snapshot: LayoutSnapshot::Final,
+                        debug_layout_lines: false,
+                        ..EvaluationOptions::default()
+                    },
+                )
+                .await?;
+
+            assert!(coordinated_eval.scene_graph.width > 0.0);
+            assert!(coordinated_eval.scene_graph.height > 0.0);
+            assert!(final_eval.scene_graph.width > 0.0);
+            assert!(final_eval.scene_graph.height > 0.0);
+
+            let (eval_ctx, evaluated_layout_spec, scale_builder, mut coordinated_measurement) =
+                prepare_top_level_measurement(&compiled, &ctx).await?;
+            let provider = DynamicScaleProvider {
+                builder: &scale_builder,
+                plot: &compiled,
+            };
+            compiled
+                .apply_layout_snapshot(
+                    &LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
                         CoordinationCheckpoint::FinalPropagationComplete,
                     )),
-                    debug_layout_lines: false,
-                    ..EvaluationOptions::default()
-                },
-            )
-            .await?;
-        let final_eval = compiled
-            .evaluate_with_options(
-                &ctx,
-                None,
-                EvaluationOptions {
-                    layout_snapshot: LayoutSnapshot::Final,
-                    debug_layout_lines: false,
-                    ..EvaluationOptions::default()
-                },
-            )
-            .await?;
+                    &mut coordinated_measurement,
+                    &eval_ctx,
+                    &evaluated_layout_spec,
+                    &provider,
+                    FacetSizingStrategy::CanvasFit,
+                    FacetCoordinationMode::CanvasFullCycle,
+                )
+                .await?;
 
-        assert!(coordinated_eval.scene_graph.width > 0.0);
-        assert!(coordinated_eval.scene_graph.height > 0.0);
-        assert!(final_eval.scene_graph.width > 0.0);
-        assert!(final_eval.scene_graph.height > 0.0);
+            let coordinated_bounds = coordinated_measurement.layout.plot_area_bounds();
+            let coordinated_delta_w =
+                (coordinated_measurement.plot_area_width - coordinated_bounds.width).abs();
+            let coordinated_delta_h =
+                (coordinated_measurement.plot_area_height - coordinated_bounds.height).abs();
 
-        let (eval_ctx, evaluated_layout_spec, scale_builder, mut coordinated_measurement) =
-            prepare_top_level_measurement(&compiled, &ctx).await?;
-        let provider = DynamicScaleProvider {
-            builder: &scale_builder,
-            plot: &compiled,
-        };
-        compiled
-            .apply_layout_snapshot(
-                &LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
-                    CoordinationCheckpoint::FinalPropagationComplete,
-                )),
-                &mut coordinated_measurement,
-                &eval_ctx,
-                &evaluated_layout_spec,
-                &provider,
-                FacetSizingStrategy::CanvasFit,
-                FacetCoordinationMode::CanvasFullCycle,
-            )
-            .await?;
+            let (eval_ctx, evaluated_layout_spec, scale_builder, mut final_measurement) =
+                prepare_top_level_measurement(&compiled, &ctx).await?;
+            let provider = DynamicScaleProvider {
+                builder: &scale_builder,
+                plot: &compiled,
+            };
+            compiled
+                .apply_layout_snapshot(
+                    &LayoutSnapshot::Final,
+                    &mut final_measurement,
+                    &eval_ctx,
+                    &evaluated_layout_spec,
+                    &provider,
+                    FacetSizingStrategy::CanvasFit,
+                    FacetCoordinationMode::CanvasFullCycle,
+                )
+                .await?;
 
-        let coordinated_bounds = coordinated_measurement.layout.plot_area_bounds();
-        let coordinated_delta_w =
-            (coordinated_measurement.plot_area_width - coordinated_bounds.width).abs();
-        let coordinated_delta_h =
-            (coordinated_measurement.plot_area_height - coordinated_bounds.height).abs();
+            let final_bounds = final_measurement.layout.plot_area_bounds();
+            let final_delta_w = (final_measurement.plot_area_width - final_bounds.width).abs();
+            let final_delta_h = (final_measurement.plot_area_height - final_bounds.height).abs();
 
-        let (eval_ctx, evaluated_layout_spec, scale_builder, mut final_measurement) =
-            prepare_top_level_measurement(&compiled, &ctx).await?;
-        let provider = DynamicScaleProvider {
-            builder: &scale_builder,
-            plot: &compiled,
-        };
-        compiled
-            .apply_layout_snapshot(
-                &LayoutSnapshot::Final,
-                &mut final_measurement,
-                &eval_ctx,
-                &evaluated_layout_spec,
-                &provider,
-                FacetSizingStrategy::CanvasFit,
-                FacetCoordinationMode::CanvasFullCycle,
-            )
-            .await?;
+            assert!(final_delta_w <= CompiledPlot::LAYOUT_REFINEMENT_EPSILON);
+            assert!(final_delta_h <= CompiledPlot::LAYOUT_REFINEMENT_EPSILON);
+            assert!(final_delta_w <= coordinated_delta_w + 1e-6);
+            assert!(final_delta_h <= coordinated_delta_h + 1e-6);
 
-        let final_bounds = final_measurement.layout.plot_area_bounds();
-        let final_delta_w = (final_measurement.plot_area_width - final_bounds.width).abs();
-        let final_delta_h = (final_measurement.plot_area_height - final_bounds.height).abs();
-
-        assert!(final_delta_w <= CompiledPlot::LAYOUT_REFINEMENT_EPSILON);
-        assert!(final_delta_h <= CompiledPlot::LAYOUT_REFINEMENT_EPSILON);
-        assert!(final_delta_w <= coordinated_delta_w + 1e-6);
-        assert!(final_delta_h <= coordinated_delta_h + 1e-6);
-
-        Ok(())
+            Ok(())
+        });
     }
 
     #[tokio::test]
@@ -5705,538 +5710,569 @@ mod tests {
         });
     }
 
-    #[tokio::test]
-    async fn debug_layout_lines_option_enables_overlay_without_env() -> Result<(), AvengerChartError>
-    {
-        if crate::facet::debug::env_layout_overlay_enabled() {
-            return Ok(());
-        }
+    #[test]
+    fn debug_layout_lines_option_enables_overlay_without_env() {
+        run_with_large_stack(|| async {
+            if crate::facet::debug::env_layout_overlay_enabled() {
+                return Ok(());
+            }
 
-        let ctx = SessionContext::new();
-        let compiled = compile_deeply_nested_plot(&ctx).await?;
-        let base_eval = compiled
-            .evaluate_with_options(
-                &ctx,
-                None,
-                EvaluationOptions {
-                    layout_snapshot: LayoutSnapshot::Final,
-                    debug_layout_lines: false,
-                    ..EvaluationOptions::default()
-                },
-            )
-            .await?;
-        let debug_eval = compiled
-            .evaluate_with_options(
-                &ctx,
-                None,
-                EvaluationOptions {
-                    layout_snapshot: LayoutSnapshot::Final,
-                    debug_layout_lines: true,
-                    ..EvaluationOptions::default()
-                },
-            )
-            .await?;
+            let ctx = SessionContext::new();
+            let compiled = compile_deeply_nested_plot(&ctx).await?;
+            let base_eval = compiled
+                .evaluate_with_options(
+                    &ctx,
+                    None,
+                    EvaluationOptions {
+                        layout_snapshot: LayoutSnapshot::Final,
+                        debug_layout_lines: false,
+                        ..EvaluationOptions::default()
+                    },
+                )
+                .await?;
+            let debug_eval = compiled
+                .evaluate_with_options(
+                    &ctx,
+                    None,
+                    EvaluationOptions {
+                        layout_snapshot: LayoutSnapshot::Final,
+                        debug_layout_lines: true,
+                        ..EvaluationOptions::default()
+                    },
+                )
+                .await?;
 
-        let base_plot_area_labels = collect_text_x_positions(&base_eval.scene_graph, "plot-area");
-        let debug_plot_area_labels = collect_text_x_positions(&debug_eval.scene_graph, "plot-area");
+            let base_plot_area_labels =
+                collect_text_x_positions(&base_eval.scene_graph, "plot-area");
+            let debug_plot_area_labels =
+                collect_text_x_positions(&debug_eval.scene_graph, "plot-area");
 
-        assert_eq!(
-            base_plot_area_labels.len(),
-            0,
-            "baseline evaluation unexpectedly has layout debug labels"
-        );
-        assert!(
-            !debug_plot_area_labels.is_empty(),
-            "debug option should enable layout overlay labels"
-        );
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn canvas_mode_measurement_matches_final_layout_bounds() -> Result<(), AvengerChartError>
-    {
-        let ctx = SessionContext::new();
-        let compiled = compile_deeply_nested_plot(&ctx).await?;
-        let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
-        let bounds = measurement.layout.plot_area_bounds();
-        let delta_w = (measurement.plot_area_width - bounds.width).abs();
-        let delta_h = (measurement.plot_area_height - bounds.height).abs();
-        assert!(
-            delta_w <= CompiledPlot::LAYOUT_REFINEMENT_EPSILON,
-            "plot area width mismatch after refinement: measurement={} layout={} delta={}",
-            measurement.plot_area_width,
-            bounds.width,
-            delta_w
-        );
-        assert!(
-            delta_h <= CompiledPlot::LAYOUT_REFINEMENT_EPSILON,
-            "plot area height mismatch after refinement: measurement={} layout={} delta={}",
-            measurement.plot_area_height,
-            bounds.height,
-            delta_h
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn level1_left_legend_slab_stays_on_child_facet() -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let compiled =
-            compile_two_level_col_legend_sharing_plot(&ctx, LegendPosition::Left).await?;
-        let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
-
-        let outer_facet = facet_band_ref(&measurement)
-            .expect("top-level legend sharing test should measure as FacetBandCoordMeasurement");
-        let outer_left_slab =
-            legend_slab_for_position(&outer_facet.coordinated_overflow, LegendPosition::Left);
-
-        let first_non_empty = outer_facet
-            .cells
-            .iter()
-            .find(|cell| !cell.plan.is_empty)
-            .expect("expected non-empty outer facet cell");
-        let child_facet = facet_band_ref(&first_non_empty.measurement)
-            .expect("expected nested child facet measurement");
-        let child_left_slab =
-            legend_slab_for_position(&child_facet.coordinated_overflow, LegendPosition::Left);
-
-        assert!(
-            outer_left_slab <= 0.5,
-            "outer facet should not reserve descendant left legend slab (found {})",
-            outer_left_slab
-        );
-        assert!(
-            child_left_slab > 1.0,
-            "child facet should retain its own left legend slab (found {})",
-            child_left_slab
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn level1_bottom_legend_slab_stays_on_child_facet() -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let compiled =
-            compile_two_level_col_legend_sharing_plot(&ctx, LegendPosition::Bottom).await?;
-        let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
-
-        let outer_facet = facet_band_ref(&measurement)
-            .expect("top-level legend sharing test should measure as FacetBandCoordMeasurement");
-        let outer_bottom_slab =
-            legend_slab_for_position(&outer_facet.coordinated_overflow, LegendPosition::Bottom);
-
-        let first_non_empty = outer_facet
-            .cells
-            .iter()
-            .find(|cell| !cell.plan.is_empty)
-            .expect("expected non-empty outer facet cell");
-        let child_facet = facet_band_ref(&first_non_empty.measurement)
-            .expect("expected nested child facet measurement");
-        let child_bottom_slab =
-            legend_slab_for_position(&child_facet.coordinated_overflow, LegendPosition::Bottom);
-
-        assert!(
-            outer_bottom_slab <= 0.5,
-            "outer facet should not reserve descendant bottom legend slab (found {})",
-            outer_bottom_slab
-        );
-        assert!(
-            child_bottom_slab > 1.0,
-            "child facet should retain its own bottom legend slab (found {})",
-            child_bottom_slab
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn level1_top_legend_slab_stays_on_child_facet() -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let compiled = compile_two_level_col_legend_sharing_plot(&ctx, LegendPosition::Top).await?;
-        let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
-
-        let outer_facet = facet_band_ref(&measurement)
-            .expect("top-level legend sharing test should measure as FacetBandCoordMeasurement");
-        let outer_top_slab =
-            legend_slab_for_position(&outer_facet.coordinated_overflow, LegendPosition::Top);
-
-        let first_non_empty = outer_facet
-            .cells
-            .iter()
-            .find(|cell| !cell.plan.is_empty)
-            .expect("expected non-empty outer facet cell");
-        let child_facet = facet_band_ref(&first_non_empty.measurement)
-            .expect("expected nested child facet measurement");
-        let child_top_slab =
-            legend_slab_for_position(&child_facet.coordinated_overflow, LegendPosition::Top);
-        let first_child_subplot_height = child_facet
-            .cells
-            .iter()
-            .find(|cell| !cell.plan.is_empty)
-            .expect("expected non-empty child facet cell")
-            .measurement
-            .plot_area_height;
-        let expected_child_subplot_height =
-            (first_non_empty.measurement.plot_area_height - child_top_slab).max(1.0);
-
-        assert!(
-            outer_top_slab <= 0.5,
-            "outer facet should not reserve descendant top legend slab (found {})",
-            outer_top_slab
-        );
-        assert!(
-            child_top_slab > 1.0,
-            "child facet should retain its own top legend slab (found {})",
-            child_top_slab
-        );
-        assert!(
-            (first_child_subplot_height - expected_child_subplot_height).abs() <= 0.5,
-            "child subplot height should preserve room for the child top legend slab: expected {expected_child_subplot_height}, found {first_child_subplot_height}"
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn row_facet_group_origins_include_main_axis_legend_start_slab()
-    -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let compiled = compile_single_level_row_legend_plot(&ctx, LegendPosition::Left).await?;
-        let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
-        let evaluated = compiled.evaluate(&ctx, None).await?;
-
-        let row_facet = facet_band_ref(&measurement)
-            .expect("row facet origin invariant expects FacetBandCoordMeasurement");
-        let legend_start =
-            legend_slab_for_position(&row_facet.coordinated_overflow, LegendPosition::Left);
-        let base_x = measurement.layout.plot_area_bounds().x;
-        let base_y = measurement.layout.plot_area_bounds().y;
-        let row_scale = measurement
-            .scales
-            .get("row")
-            .expect("expected row scale for facet row origin invariant");
-        let expected_y_starts: Vec<f32> = BandPositionIterator::from_scale(row_scale)?
-            .map(|band| base_y + band.start())
-            .collect();
-        let row_origins = absolute_origins_for_named_groups(&evaluated.scene_graph, "facet_row_");
-        assert!(
-            !row_origins.is_empty(),
-            "expected non-empty row facet groups in evaluated scene"
-        );
-        assert_eq!(
-            row_origins.len(),
-            expected_y_starts.len(),
-            "row facet groups should match row band count"
-        );
-
-        for ((name, origin), expected_y) in row_origins.iter().zip(expected_y_starts.iter()) {
-            assert!(
-                (origin[0] - (base_x + legend_start)).abs() <= 1.0,
-                "row facet group {} should include left legend start slab at x (origin_x={}, expected={})",
-                name,
-                origin[0],
-                base_x + legend_start
-            );
-            assert!(
-                (origin[1] - *expected_y).abs() <= 1.0,
-                "row facet group {} should align to row band start y (origin_y={}, expected={})",
-                name,
-                origin[1],
-                expected_y
-            );
-        }
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn col_facet_group_origins_include_main_axis_legend_start_slab()
-    -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let compiled = compile_single_level_col_legend_plot(&ctx, LegendPosition::Top).await?;
-        let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
-        let evaluated = compiled.evaluate(&ctx, None).await?;
-
-        let col_facet = facet_band_ref(&measurement)
-            .expect("col facet origin invariant expects FacetBandCoordMeasurement");
-        let legend_start =
-            legend_slab_for_position(&col_facet.coordinated_overflow, LegendPosition::Top);
-        let base_x = measurement.layout.plot_area_bounds().x;
-        let base_y = measurement.layout.plot_area_bounds().y;
-        let col_scale = measurement
-            .scales
-            .get("column")
-            .expect("expected column scale for facet col origin invariant");
-        let expected_x_starts: Vec<f32> = BandPositionIterator::from_scale(col_scale)?
-            .map(|band| base_x + band.start())
-            .collect();
-        let col_origins = absolute_origins_for_named_groups(&evaluated.scene_graph, "facet_col_");
-        assert!(
-            !col_origins.is_empty(),
-            "expected non-empty col facet groups in evaluated scene"
-        );
-        assert_eq!(
-            col_origins.len(),
-            expected_x_starts.len(),
-            "col facet groups should match column band count"
-        );
-
-        for ((name, origin), expected_x) in col_origins.iter().zip(expected_x_starts.iter()) {
-            assert!(
-                (origin[1] - (base_y + legend_start)).abs() <= 1.0,
-                "col facet group {} should include top legend start slab at y (origin_y={}, expected={})",
-                name,
-                origin[1],
-                base_y + legend_start
-            );
-            assert!(
-                (origin[0] - *expected_x).abs() <= 1.0,
-                "col facet group {} should align to column band start x (origin_x={}, expected={})",
-                name,
-                origin[0],
-                expected_x
-            );
-        }
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn level0_right_outer_labels_align_with_child_department_titles()
-    -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let compiled =
-            compile_two_level_col_legend_sharing_plot(&ctx, LegendPosition::Right).await?;
-        let evaluated = compiled.evaluate(&ctx, None).await?;
-
-        let mut division_label_centers = Vec::new();
-        for label in ["DivA", "DivB"] {
-            let xs = collect_text_x_positions(&evaluated.scene_graph, label);
-            assert_eq!(xs.len(), 1, "expected exactly one {:?} label", label);
-            division_label_centers.push(xs[0]);
-        }
-        division_label_centers.sort_by(f32::total_cmp);
-
-        let mut department_title_centers =
-            collect_text_x_positions(&evaluated.scene_graph, "department");
-        assert_eq!(
-            department_title_centers.len(),
-            2,
-            "expected one inner 'department' title per outer division"
-        );
-        department_title_centers.sort_by(f32::total_cmp);
-
-        for (division_x, department_x) in division_label_centers
-            .iter()
-            .zip(department_title_centers.iter())
-        {
-            assert!(
-                (division_x - department_x).abs() <= 2.0,
-                "outer division label should align to child department title center (division_x={}, department_x={})",
-                division_x,
-                department_x
-            );
-        }
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn level2_right_outer_labels_align_with_child_department_titles()
-    -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let compiled =
-            compile_three_level_col_legend_sharing_plot(&ctx, LegendPosition::Right).await?;
-        let evaluated = compiled.evaluate(&ctx, None).await?;
-
-        let mut division_label_centers = Vec::new();
-        for label in ["DivA", "DivB"] {
-            let xs = collect_text_x_positions(&evaluated.scene_graph, label);
-            assert_eq!(xs.len(), 1, "expected exactly one {:?} label", label);
-            division_label_centers.push(xs[0]);
-        }
-        division_label_centers.sort_by(f32::total_cmp);
-
-        let mut department_title_centers =
-            collect_text_x_positions(&evaluated.scene_graph, "department");
-        assert_eq!(
-            department_title_centers.len(),
-            2,
-            "expected one inner 'department' title per outer division"
-        );
-        department_title_centers.sort_by(f32::total_cmp);
-
-        for (division_x, department_x) in division_label_centers
-            .iter()
-            .zip(department_title_centers.iter())
-        {
-            assert!(
-                (division_x - department_x).abs() <= 2.0,
-                "outer division label should align to child department title center (division_x={}, department_x={})",
-                division_x,
-                department_x
-            );
-        }
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn shared_row_basic_right_owner_renders_each_row_label_once_globally()
-    -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let compiled = compile_nested_shared_row_basic_plot(&ctx).await?;
-        let evaluated = compiled.evaluate(&ctx, None).await?;
-
-        for label in ["R1", "R2", "R3"] {
-            let xs = collect_text_x_positions(&evaluated.scene_graph, label);
             assert_eq!(
-                xs.len(),
-                1,
-                "expected shared-row label {:?} to render exactly once on owning column",
-                label
+                base_plot_area_labels.len(),
+                0,
+                "baseline evaluation unexpectedly has layout debug labels"
             );
-        }
+            assert!(
+                !debug_plot_area_labels.is_empty(),
+                "debug option should enable layout overlay labels"
+            );
 
-        Ok(())
+            Ok(())
+        });
     }
 
-    #[tokio::test]
-    async fn empty_cell_policy_controls_whether_empty_slots_render_subplots()
-    -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let hole_plot = compile_nested_shared_row_shared_both_plot_with_empty_policy(
-            &ctx,
-            FacetEmptyCellPolicy::Hole,
-        )
-        .await?;
-        let hole_scene = hole_plot.evaluate(&ctx, None).await?;
-
-        let ctx = SessionContext::new();
-        let empty_subplot_plot = compile_nested_shared_row_shared_both_plot_with_empty_policy(
-            &ctx,
-            FacetEmptyCellPolicy::EmptySubplot,
-        )
-        .await?;
-        let empty_subplot_scene = empty_subplot_plot.evaluate(&ctx, None).await?;
-
-        let ctx = SessionContext::new();
-        let auto_plot = compile_nested_shared_row_shared_both_plot_with_empty_policy(
-            &ctx,
-            FacetEmptyCellPolicy::Auto,
-        )
-        .await?;
-        let auto_scene = auto_plot.evaluate(&ctx, None).await?;
-
-        let hole_empty_groups =
-            count_groups_with_name(&hole_scene.scene_graph, "facet_row_", "_empty");
-        let empty_subplot_empty_groups =
-            count_groups_with_name(&empty_subplot_scene.scene_graph, "facet_row_", "_empty");
-        let auto_empty_groups =
-            count_groups_with_name(&auto_scene.scene_graph, "facet_row_", "_empty");
-
-        assert!(
-            hole_empty_groups > 0,
-            "hole policy should render explicit empty groups for empty slots"
-        );
-        assert_eq!(
-            empty_subplot_empty_groups, 0,
-            "empty subplot policy should render full subplot groups instead of *_empty placeholders"
-        );
-        assert_eq!(
-            auto_empty_groups, hole_empty_groups,
-            "auto policy should resolve to hole in this release"
-        );
-
-        Ok(())
+    #[test]
+    fn canvas_mode_measurement_matches_final_layout_bounds() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled = compile_deeply_nested_plot(&ctx).await?;
+            let (_, _, measurement) =
+                prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+            let bounds = measurement.layout.plot_area_bounds();
+            let delta_w = (measurement.plot_area_width - bounds.width).abs();
+            let delta_h = (measurement.plot_area_height - bounds.height).abs();
+            assert!(
+                delta_w <= CompiledPlot::LAYOUT_REFINEMENT_EPSILON,
+                "plot area width mismatch after refinement: measurement={} layout={} delta={}",
+                measurement.plot_area_width,
+                bounds.width,
+                delta_w
+            );
+            assert!(
+                delta_h <= CompiledPlot::LAYOUT_REFINEMENT_EPSILON,
+                "plot area height mismatch after refinement: measurement={} layout={} delta={}",
+                measurement.plot_area_height,
+                bounds.height,
+                delta_h
+            );
+            Ok(())
+        });
     }
 
-    #[tokio::test]
-    async fn empty_subplot_policy_renders_structural_subplot_groups_for_empty_slots()
-    -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let hole_plot = compile_nested_shared_row_shared_both_plot_with_empty_policy(
-            &ctx,
-            FacetEmptyCellPolicy::Hole,
-        )
-        .await?;
-        let hole_scene = hole_plot.evaluate(&ctx, None).await?;
+    #[test]
+    fn level1_left_legend_slab_stays_on_child_facet() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled =
+                compile_two_level_col_legend_sharing_plot(&ctx, LegendPosition::Left).await?;
+            let (_, _, measurement) =
+                prepare_refined_top_level_measurement(&compiled, &ctx).await?;
 
-        let ctx = SessionContext::new();
-        let empty_subplot_plot = compile_nested_shared_row_shared_both_plot_with_empty_policy(
-            &ctx,
-            FacetEmptyCellPolicy::EmptySubplot,
-        )
-        .await?;
-        let empty_subplot_scene = empty_subplot_plot.evaluate(&ctx, None).await?;
+            let outer_facet = facet_band_ref(&measurement).expect(
+                "top-level legend sharing test should measure as FacetBandCoordMeasurement",
+            );
+            let outer_left_slab =
+                legend_slab_for_position(&outer_facet.coordinated_overflow, LegendPosition::Left);
 
-        let hole_empty_groups =
-            count_groups_with_name(&hole_scene.scene_graph, "facet_row_", "_empty");
-        let hole_subplot_groups = count_groups_with_prefix_excluding_suffix(
-            &hole_scene.scene_graph,
-            "facet_row_",
-            "_empty",
-        );
-        let empty_subplot_groups = count_groups_with_prefix_excluding_suffix(
-            &empty_subplot_scene.scene_graph,
-            "facet_row_",
-            "_empty",
-        );
+            let first_non_empty = outer_facet
+                .cells
+                .iter()
+                .find(|cell| !cell.plan.is_empty)
+                .expect("expected non-empty outer facet cell");
+            let child_facet = facet_band_ref(&first_non_empty.measurement)
+                .expect("expected nested child facet measurement");
+            let child_left_slab =
+                legend_slab_for_position(&child_facet.coordinated_overflow, LegendPosition::Left);
 
-        assert!(
-            hole_empty_groups > 0,
-            "fixture should include hole placeholders so policy replacement can be validated"
-        );
-        assert!(
-            empty_subplot_groups > hole_subplot_groups,
-            "empty subplot policy should add subplot groups in slots that are holes under hole policy"
-        );
-        assert_eq!(
-            empty_subplot_groups,
-            hole_subplot_groups + hole_empty_groups,
-            "empty subplot policy should replace each hole placeholder with a structural subplot group"
-        );
-
-        Ok(())
+            assert!(
+                outer_left_slab <= 0.5,
+                "outer facet should not reserve descendant left legend slab (found {})",
+                outer_left_slab
+            );
+            assert!(
+                child_left_slab > 1.0,
+                "child facet should retain its own left legend slab (found {})",
+                child_left_slab
+            );
+            Ok(())
+        });
     }
 
-    #[tokio::test]
-    async fn data_empty_shared_cells_receive_coordinated_domain_extents()
-    -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let compiled = compile_nested_shared_row_shared_both_plot(&ctx).await?;
-        let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+    #[test]
+    fn level1_bottom_legend_slab_stays_on_child_facet() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled =
+                compile_two_level_col_legend_sharing_plot(&ctx, LegendPosition::Bottom).await?;
+            let (_, _, measurement) =
+                prepare_refined_top_level_measurement(&compiled, &ctx).await?;
 
-        let outer_facet = facet_band_ref(&measurement)
-            .expect("expected top-level FacetBandCoordMeasurement for shared-both probe");
+            let outer_facet = facet_band_ref(&measurement).expect(
+                "top-level legend sharing test should measure as FacetBandCoordMeasurement",
+            );
+            let outer_bottom_slab =
+                legend_slab_for_position(&outer_facet.coordinated_overflow, LegendPosition::Bottom);
 
-        let mut covered_cell_count = 0usize;
-        for outer_cell in &outer_facet.cells {
-            let inner_row = facet_band_ref(&outer_cell.measurement)
-                .expect("expected nested row FacetBandCoordMeasurement");
+            let first_non_empty = outer_facet
+                .cells
+                .iter()
+                .find(|cell| !cell.plan.is_empty)
+                .expect("expected non-empty outer facet cell");
+            let child_facet = facet_band_ref(&first_non_empty.measurement)
+                .expect("expected nested child facet measurement");
+            let child_bottom_slab =
+                legend_slab_for_position(&child_facet.coordinated_overflow, LegendPosition::Bottom);
 
-            for cell in &inner_row.cells {
-                if !cell.plan.is_empty {
-                    covered_cell_count += 1;
-                    assert!(
-                        cell.local_domain_extents.contains_key("x")
-                            || cell.coordinated_domain_extents.contains_key("x"),
-                        "shared cell {:?} missing local or coordinated x extent",
-                        cell.plan.full_path
-                    );
-                    assert!(
-                        cell.local_domain_extents.contains_key("y")
-                            || cell.coordinated_domain_extents.contains_key("y"),
-                        "shared cell {:?} missing local or coordinated y extent",
-                        cell.plan.full_path
-                    );
+            assert!(
+                outer_bottom_slab <= 0.5,
+                "outer facet should not reserve descendant bottom legend slab (found {})",
+                outer_bottom_slab
+            );
+            assert!(
+                child_bottom_slab > 1.0,
+                "child facet should retain its own bottom legend slab (found {})",
+                child_bottom_slab
+            );
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn level1_top_legend_slab_stays_on_child_facet() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled =
+                compile_two_level_col_legend_sharing_plot(&ctx, LegendPosition::Top).await?;
+            let (_, _, measurement) =
+                prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+
+            let outer_facet = facet_band_ref(&measurement).expect(
+                "top-level legend sharing test should measure as FacetBandCoordMeasurement",
+            );
+            let outer_top_slab =
+                legend_slab_for_position(&outer_facet.coordinated_overflow, LegendPosition::Top);
+
+            let first_non_empty = outer_facet
+                .cells
+                .iter()
+                .find(|cell| !cell.plan.is_empty)
+                .expect("expected non-empty outer facet cell");
+            let child_facet = facet_band_ref(&first_non_empty.measurement)
+                .expect("expected nested child facet measurement");
+            let child_top_slab =
+                legend_slab_for_position(&child_facet.coordinated_overflow, LegendPosition::Top);
+            let first_child_subplot_height = child_facet
+                .cells
+                .iter()
+                .find(|cell| !cell.plan.is_empty)
+                .expect("expected non-empty child facet cell")
+                .measurement
+                .plot_area_height;
+            let expected_child_subplot_height =
+                (first_non_empty.measurement.plot_area_height - child_top_slab).max(1.0);
+
+            assert!(
+                outer_top_slab <= 0.5,
+                "outer facet should not reserve descendant top legend slab (found {})",
+                outer_top_slab
+            );
+            assert!(
+                child_top_slab > 1.0,
+                "child facet should retain its own top legend slab (found {})",
+                child_top_slab
+            );
+            assert!(
+                (first_child_subplot_height - expected_child_subplot_height).abs() <= 0.5,
+                "child subplot height should preserve room for the child top legend slab: expected {expected_child_subplot_height}, found {first_child_subplot_height}"
+            );
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn row_facet_group_origins_include_main_axis_legend_start_slab() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled = compile_single_level_row_legend_plot(&ctx, LegendPosition::Left).await?;
+            let (_, _, measurement) =
+                prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+            let evaluated = compiled.evaluate(&ctx, None).await?;
+
+            let row_facet = facet_band_ref(&measurement)
+                .expect("row facet origin invariant expects FacetBandCoordMeasurement");
+            let legend_start =
+                legend_slab_for_position(&row_facet.coordinated_overflow, LegendPosition::Left);
+            let base_x = measurement.layout.plot_area_bounds().x;
+            let base_y = measurement.layout.plot_area_bounds().y;
+            let row_scale = measurement
+                .scales
+                .get("row")
+                .expect("expected row scale for facet row origin invariant");
+            let expected_y_starts: Vec<f32> = BandPositionIterator::from_scale(row_scale)?
+                .map(|band| base_y + band.start())
+                .collect();
+            let row_origins =
+                absolute_origins_for_named_groups(&evaluated.scene_graph, "facet_row_");
+            assert!(
+                !row_origins.is_empty(),
+                "expected non-empty row facet groups in evaluated scene"
+            );
+            assert_eq!(
+                row_origins.len(),
+                expected_y_starts.len(),
+                "row facet groups should match row band count"
+            );
+
+            for ((name, origin), expected_y) in row_origins.iter().zip(expected_y_starts.iter()) {
+                assert!(
+                    (origin[0] - (base_x + legend_start)).abs() <= 1.0,
+                    "row facet group {} should include left legend start slab at x (origin_x={}, expected={})",
+                    name,
+                    origin[0],
+                    base_x + legend_start
+                );
+                assert!(
+                    (origin[1] - *expected_y).abs() <= 1.0,
+                    "row facet group {} should align to row band start y (origin_y={}, expected={})",
+                    name,
+                    origin[1],
+                    expected_y
+                );
+            }
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn col_facet_group_origins_include_main_axis_legend_start_slab() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled = compile_single_level_col_legend_plot(&ctx, LegendPosition::Top).await?;
+            let (_, _, measurement) =
+                prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+            let evaluated = compiled.evaluate(&ctx, None).await?;
+
+            let col_facet = facet_band_ref(&measurement)
+                .expect("col facet origin invariant expects FacetBandCoordMeasurement");
+            let legend_start =
+                legend_slab_for_position(&col_facet.coordinated_overflow, LegendPosition::Top);
+            let base_x = measurement.layout.plot_area_bounds().x;
+            let base_y = measurement.layout.plot_area_bounds().y;
+            let col_scale = measurement
+                .scales
+                .get("column")
+                .expect("expected column scale for facet col origin invariant");
+            let expected_x_starts: Vec<f32> = BandPositionIterator::from_scale(col_scale)?
+                .map(|band| base_x + band.start())
+                .collect();
+            let col_origins =
+                absolute_origins_for_named_groups(&evaluated.scene_graph, "facet_col_");
+            assert!(
+                !col_origins.is_empty(),
+                "expected non-empty col facet groups in evaluated scene"
+            );
+            assert_eq!(
+                col_origins.len(),
+                expected_x_starts.len(),
+                "col facet groups should match column band count"
+            );
+
+            for ((name, origin), expected_x) in col_origins.iter().zip(expected_x_starts.iter()) {
+                assert!(
+                    (origin[1] - (base_y + legend_start)).abs() <= 1.0,
+                    "col facet group {} should include top legend start slab at y (origin_y={}, expected={})",
+                    name,
+                    origin[1],
+                    base_y + legend_start
+                );
+                assert!(
+                    (origin[0] - *expected_x).abs() <= 1.0,
+                    "col facet group {} should align to column band start x (origin_x={}, expected={})",
+                    name,
+                    origin[0],
+                    expected_x
+                );
+            }
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn level0_right_outer_labels_align_with_child_department_titles() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled =
+                compile_two_level_col_legend_sharing_plot(&ctx, LegendPosition::Right).await?;
+            let evaluated = compiled.evaluate(&ctx, None).await?;
+
+            let mut division_label_centers = Vec::new();
+            for label in ["DivA", "DivB"] {
+                let xs = collect_text_x_positions(&evaluated.scene_graph, label);
+                assert_eq!(xs.len(), 1, "expected exactly one {:?} label", label);
+                division_label_centers.push(xs[0]);
+            }
+            division_label_centers.sort_by(f32::total_cmp);
+
+            let mut department_title_centers =
+                collect_text_x_positions(&evaluated.scene_graph, "department");
+            assert_eq!(
+                department_title_centers.len(),
+                2,
+                "expected one inner 'department' title per outer division"
+            );
+            department_title_centers.sort_by(f32::total_cmp);
+
+            for (division_x, department_x) in division_label_centers
+                .iter()
+                .zip(department_title_centers.iter())
+            {
+                assert!(
+                    (division_x - department_x).abs() <= 2.0,
+                    "outer division label should align to child department title center (division_x={}, department_x={})",
+                    division_x,
+                    department_x
+                );
+            }
+
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn level2_right_outer_labels_align_with_child_department_titles() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled =
+                compile_three_level_col_legend_sharing_plot(&ctx, LegendPosition::Right).await?;
+            let evaluated = compiled.evaluate(&ctx, None).await?;
+
+            let mut division_label_centers = Vec::new();
+            for label in ["DivA", "DivB"] {
+                let xs = collect_text_x_positions(&evaluated.scene_graph, label);
+                assert_eq!(xs.len(), 1, "expected exactly one {:?} label", label);
+                division_label_centers.push(xs[0]);
+            }
+            division_label_centers.sort_by(f32::total_cmp);
+
+            let mut department_title_centers =
+                collect_text_x_positions(&evaluated.scene_graph, "department");
+            assert_eq!(
+                department_title_centers.len(),
+                2,
+                "expected one inner 'department' title per outer division"
+            );
+            department_title_centers.sort_by(f32::total_cmp);
+
+            for (division_x, department_x) in division_label_centers
+                .iter()
+                .zip(department_title_centers.iter())
+            {
+                assert!(
+                    (division_x - department_x).abs() <= 2.0,
+                    "outer division label should align to child department title center (division_x={}, department_x={})",
+                    division_x,
+                    department_x
+                );
+            }
+
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn shared_row_basic_right_owner_renders_each_row_label_once_globally() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled = compile_nested_shared_row_basic_plot(&ctx).await?;
+            let evaluated = compiled.evaluate(&ctx, None).await?;
+
+            for label in ["R1", "R2", "R3"] {
+                let xs = collect_text_x_positions(&evaluated.scene_graph, label);
+                assert_eq!(
+                    xs.len(),
+                    1,
+                    "expected shared-row label {:?} to render exactly once on owning column",
+                    label
+                );
+            }
+
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn empty_cell_policy_controls_whether_empty_slots_render_subplots() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let hole_plot = compile_nested_shared_row_shared_both_plot_with_empty_policy(
+                &ctx,
+                FacetEmptyCellPolicy::Hole,
+            )
+            .await?;
+            let hole_scene = hole_plot.evaluate(&ctx, None).await?;
+
+            let ctx = SessionContext::new();
+            let empty_subplot_plot = compile_nested_shared_row_shared_both_plot_with_empty_policy(
+                &ctx,
+                FacetEmptyCellPolicy::EmptySubplot,
+            )
+            .await?;
+            let empty_subplot_scene = empty_subplot_plot.evaluate(&ctx, None).await?;
+
+            let ctx = SessionContext::new();
+            let auto_plot = compile_nested_shared_row_shared_both_plot_with_empty_policy(
+                &ctx,
+                FacetEmptyCellPolicy::Auto,
+            )
+            .await?;
+            let auto_scene = auto_plot.evaluate(&ctx, None).await?;
+
+            let hole_empty_groups =
+                count_groups_with_name(&hole_scene.scene_graph, "facet_row_", "_empty");
+            let empty_subplot_empty_groups =
+                count_groups_with_name(&empty_subplot_scene.scene_graph, "facet_row_", "_empty");
+            let auto_empty_groups =
+                count_groups_with_name(&auto_scene.scene_graph, "facet_row_", "_empty");
+
+            assert!(
+                hole_empty_groups > 0,
+                "hole policy should render explicit empty groups for empty slots"
+            );
+            assert_eq!(
+                empty_subplot_empty_groups, 0,
+                "empty subplot policy should render full subplot groups instead of *_empty placeholders"
+            );
+            assert_eq!(
+                auto_empty_groups, hole_empty_groups,
+                "auto policy should resolve to hole in this release"
+            );
+
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn empty_subplot_policy_renders_structural_subplot_groups_for_empty_slots() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let hole_plot = compile_nested_shared_row_shared_both_plot_with_empty_policy(
+                &ctx,
+                FacetEmptyCellPolicy::Hole,
+            )
+            .await?;
+            let hole_scene = hole_plot.evaluate(&ctx, None).await?;
+
+            let ctx = SessionContext::new();
+            let empty_subplot_plot = compile_nested_shared_row_shared_both_plot_with_empty_policy(
+                &ctx,
+                FacetEmptyCellPolicy::EmptySubplot,
+            )
+            .await?;
+            let empty_subplot_scene = empty_subplot_plot.evaluate(&ctx, None).await?;
+
+            let hole_empty_groups =
+                count_groups_with_name(&hole_scene.scene_graph, "facet_row_", "_empty");
+            let hole_subplot_groups = count_groups_with_prefix_excluding_suffix(
+                &hole_scene.scene_graph,
+                "facet_row_",
+                "_empty",
+            );
+            let empty_subplot_groups = count_groups_with_prefix_excluding_suffix(
+                &empty_subplot_scene.scene_graph,
+                "facet_row_",
+                "_empty",
+            );
+
+            assert!(
+                hole_empty_groups > 0,
+                "fixture should include hole placeholders so policy replacement can be validated"
+            );
+            assert!(
+                empty_subplot_groups > hole_subplot_groups,
+                "empty subplot policy should add subplot groups in slots that are holes under hole policy"
+            );
+            assert_eq!(
+                empty_subplot_groups,
+                hole_subplot_groups + hole_empty_groups,
+                "empty subplot policy should replace each hole placeholder with a structural subplot group"
+            );
+
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn data_empty_shared_cells_receive_coordinated_domain_extents() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled = compile_nested_shared_row_shared_both_plot(&ctx).await?;
+            let (_, _, measurement) =
+                prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+
+            let outer_facet = facet_band_ref(&measurement)
+                .expect("expected top-level FacetBandCoordMeasurement for shared-both probe");
+
+            let mut covered_cell_count = 0usize;
+            for outer_cell in &outer_facet.cells {
+                let inner_row = facet_band_ref(&outer_cell.measurement)
+                    .expect("expected nested row FacetBandCoordMeasurement");
+
+                for cell in &inner_row.cells {
+                    if !cell.plan.is_empty {
+                        covered_cell_count += 1;
+                        assert!(
+                            cell.local_domain_extents.contains_key("x")
+                                || cell.coordinated_domain_extents.contains_key("x"),
+                            "shared cell {:?} missing local or coordinated x extent",
+                            cell.plan.full_path
+                        );
+                        assert!(
+                            cell.local_domain_extents.contains_key("y")
+                                || cell.coordinated_domain_extents.contains_key("y"),
+                            "shared cell {:?} missing local or coordinated y extent",
+                            cell.plan.full_path
+                        );
+                    }
                 }
             }
-        }
 
-        assert!(
-            covered_cell_count > 0,
-            "expected at least one non-hole shared cell with domain extent coverage"
-        );
+            assert!(
+                covered_cell_count > 0,
+                "expected at least one non-hole shared cell with domain extent coverage"
+            );
 
-        Ok(())
+            Ok(())
+        });
     }
 
     #[test]
@@ -6292,169 +6328,175 @@ mod tests {
         });
     }
 
-    #[tokio::test]
-    async fn nested_sparse_col_title_centers_over_coordinated_slot_span()
-    -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let compiled = compile_nested_sparse_row_plot(&ctx).await?;
-        let evaluated = compiled.evaluate(&ctx, None).await?;
-        let title_positions = collect_text_x_positions(&evaluated.scene_graph, "petal_width_bin");
-        assert_eq!(
-            title_positions.len(),
-            1,
-            "expected exactly one visible petal_width_bin title"
-        );
-        let title_x = title_positions[0];
+    #[test]
+    fn nested_sparse_col_title_centers_over_coordinated_slot_span() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled = compile_nested_sparse_row_plot(&ctx).await?;
+            let evaluated = compiled.evaluate(&ctx, None).await?;
+            let title_positions =
+                collect_text_x_positions(&evaluated.scene_graph, "petal_width_bin");
+            assert_eq!(
+                title_positions.len(),
+                1,
+                "expected exactly one visible petal_width_bin title"
+            );
+            let title_x = title_positions[0];
 
-        let narrow_label_positions = collect_text_x_positions(&evaluated.scene_graph, "narrow");
-        assert_eq!(
-            narrow_label_positions.len(),
-            1,
-            "expected exactly one visible narrow label in top sparse row"
-        );
-        let narrow_x = narrow_label_positions[0];
-        let medium_positions = collect_text_x_positions(&evaluated.scene_graph, "medium");
-        let wide_positions = collect_text_x_positions(&evaluated.scene_graph, "wide");
-        assert!(
-            !medium_positions.is_empty() && !wide_positions.is_empty(),
-            "expected visible medium/wide labels to infer coordinated slot pitch"
-        );
-        let slot_step = (wide_positions[0] - medium_positions[0]).abs();
-        assert!(
-            slot_step > 1.0,
-            "expected positive coordinated slot pitch, got {}",
-            slot_step
-        );
-        let expected_title_x = narrow_x + 0.5 * slot_step;
+            let narrow_label_positions = collect_text_x_positions(&evaluated.scene_graph, "narrow");
+            assert_eq!(
+                narrow_label_positions.len(),
+                1,
+                "expected exactly one visible narrow label in top sparse row"
+            );
+            let narrow_x = narrow_label_positions[0];
+            let medium_positions = collect_text_x_positions(&evaluated.scene_graph, "medium");
+            let wide_positions = collect_text_x_positions(&evaluated.scene_graph, "wide");
+            assert!(
+                !medium_positions.is_empty() && !wide_positions.is_empty(),
+                "expected visible medium/wide labels to infer coordinated slot pitch"
+            );
+            let slot_step = (wide_positions[0] - medium_positions[0]).abs();
+            assert!(
+                slot_step > 1.0,
+                "expected positive coordinated slot pitch, got {}",
+                slot_step
+            );
+            let expected_title_x = narrow_x + 0.5 * slot_step;
 
-        assert!(
-            (title_x - expected_title_x).abs() <= 2.0,
-            "expected petal_width_bin title x={} to align with coordinated slot midpoint {}",
-            title_x,
-            expected_title_x
-        );
+            assert!(
+                (title_x - expected_title_x).abs() <= 2.0,
+                "expected petal_width_bin title x={} to align with coordinated slot midpoint {}",
+                title_x,
+                expected_title_x
+            );
 
-        Ok(())
+            Ok(())
+        });
     }
 
-    #[tokio::test]
-    async fn nested_plot_area_measurements_use_coord_aware_overflow()
-    -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let compiled = compile_deeply_nested_plot(&ctx).await?;
-        let (eval_ctx, _, measurement) =
-            prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+    #[test]
+    fn nested_plot_area_measurements_use_coord_aware_overflow() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled = compile_deeply_nested_plot(&ctx).await?;
+            let (eval_ctx, _, measurement) =
+                prepare_refined_top_level_measurement(&compiled, &ctx).await?;
 
-        let outer_facet = facet_band_ref(&measurement)
-            .expect("top-level deeply nested test should measure as FacetBandCoordMeasurement");
+            let outer_facet = facet_band_ref(&measurement)
+                .expect("top-level deeply nested test should measure as FacetBandCoordMeasurement");
 
-        let first_non_empty = outer_facet
-            .cells
-            .iter()
-            .find(|cell| !cell.plan.is_empty)
-            .expect("expected at least one non-empty outer facet cell");
+            let first_non_empty = outer_facet
+                .cells
+                .iter()
+                .find(|cell| !cell.plan.is_empty)
+                .expect("expected at least one non-empty outer facet cell");
 
-        let child_measurement = &first_non_empty.measurement;
-        let child_layout_spec = EvaluatedLayoutSpec {
-            canvas: EvaluatedSizeMode::Auto,
-            plot_area: EvaluatedSizeMode::Fixed {
-                width: child_measurement.plot_area_width,
-                height: child_measurement.plot_area_height,
-            },
-            margins: EvaluatedMargins {
-                top: 0.0,
-                right: 0.0,
-                bottom: 0.0,
-                left: 0.0,
-            },
-        };
+            let child_measurement = &first_non_empty.measurement;
+            let child_layout_spec = EvaluatedLayoutSpec {
+                canvas: EvaluatedSizeMode::Auto,
+                plot_area: EvaluatedSizeMode::Fixed {
+                    width: child_measurement.plot_area_width,
+                    height: child_measurement.plot_area_height,
+                },
+                margins: EvaluatedMargins {
+                    top: 0.0,
+                    right: 0.0,
+                    bottom: 0.0,
+                    left: 0.0,
+                },
+            };
 
-        let child_plot = outer_facet.compiled_subplot.as_ref();
-        let (_, coord_aware_layout, _) = child_plot
-            .rebuild_layout_with_coord_overflow(
-                &child_layout_spec,
-                &child_measurement.scales,
-                child_measurement.plot_area_width,
-                child_measurement.plot_area_height,
-                &child_measurement.params,
-                Some(&first_non_empty.data_override),
-                &eval_ctx.session_context,
-                eval_ctx.facet_tree.as_ref(),
-                &first_non_empty.plan.full_path,
-                Some(child_measurement.coord_measurement.as_ref()),
-            )
-            .await?;
-        let (_, no_coord_layout, _) = child_plot
-            .rebuild_layout_with_coord_overflow(
-                &child_layout_spec,
-                &child_measurement.scales,
-                child_measurement.plot_area_width,
-                child_measurement.plot_area_height,
-                &child_measurement.params,
-                Some(&first_non_empty.data_override),
-                &eval_ctx.session_context,
-                eval_ctx.facet_tree.as_ref(),
-                &first_non_empty.plan.full_path,
-                None,
-            )
-            .await?;
+            let child_plot = outer_facet.compiled_subplot.as_ref();
+            let (_, coord_aware_layout, _) = child_plot
+                .rebuild_layout_with_coord_overflow(
+                    &child_layout_spec,
+                    &child_measurement.scales,
+                    child_measurement.plot_area_width,
+                    child_measurement.plot_area_height,
+                    &child_measurement.params,
+                    Some(&first_non_empty.data_override),
+                    &eval_ctx.session_context,
+                    eval_ctx.facet_tree.as_ref(),
+                    &first_non_empty.plan.full_path,
+                    Some(child_measurement.coord_measurement.as_ref()),
+                )
+                .await?;
+            let (_, no_coord_layout, _) = child_plot
+                .rebuild_layout_with_coord_overflow(
+                    &child_layout_spec,
+                    &child_measurement.scales,
+                    child_measurement.plot_area_width,
+                    child_measurement.plot_area_height,
+                    &child_measurement.params,
+                    Some(&first_non_empty.data_override),
+                    &eval_ctx.session_context,
+                    eval_ctx.facet_tree.as_ref(),
+                    &first_non_empty.plan.full_path,
+                    None,
+                )
+                .await?;
 
-        let guide_delta_coord = max_overflow_abs_delta(
-            &child_measurement.layout.overflow,
-            &coord_aware_layout.overflow,
-        );
-        let total_delta_coord = max_overflow_abs_delta(
-            &child_measurement.layout.total_overflow,
-            &coord_aware_layout.total_overflow,
-        );
-        let guide_delta_no_coord = max_overflow_abs_delta(
-            &child_measurement.layout.overflow,
-            &no_coord_layout.overflow,
-        );
-        let total_delta_no_coord = max_overflow_abs_delta(
-            &child_measurement.layout.total_overflow,
-            &no_coord_layout.total_overflow,
-        );
-        assert!(
-            guide_delta_coord <= 1.0,
-            "nested child measurement guide overflow should come from coord-aware pass (delta={})",
-            guide_delta_coord
-        );
-        assert!(
-            total_delta_coord <= 1.0,
-            "nested child measurement total overflow should come from coord-aware pass (delta={})",
-            total_delta_coord
-        );
-        assert!(
-            guide_delta_no_coord >= guide_delta_coord + 0.5
-                || total_delta_no_coord >= total_delta_coord + 0.5,
-            "coord-aware overflow should be materially closer than coord-agnostic overflow (guide coord={} no_coord={}, total coord={} no_coord={})",
-            guide_delta_coord,
-            guide_delta_no_coord,
-            total_delta_coord,
-            total_delta_no_coord
-        );
-        Ok(())
+            let guide_delta_coord = max_overflow_abs_delta(
+                &child_measurement.layout.overflow,
+                &coord_aware_layout.overflow,
+            );
+            let total_delta_coord = max_overflow_abs_delta(
+                &child_measurement.layout.total_overflow,
+                &coord_aware_layout.total_overflow,
+            );
+            let guide_delta_no_coord = max_overflow_abs_delta(
+                &child_measurement.layout.overflow,
+                &no_coord_layout.overflow,
+            );
+            let total_delta_no_coord = max_overflow_abs_delta(
+                &child_measurement.layout.total_overflow,
+                &no_coord_layout.total_overflow,
+            );
+            assert!(
+                guide_delta_coord <= 1.0,
+                "nested child measurement guide overflow should come from coord-aware pass (delta={})",
+                guide_delta_coord
+            );
+            assert!(
+                total_delta_coord <= 1.0,
+                "nested child measurement total overflow should come from coord-aware pass (delta={})",
+                total_delta_coord
+            );
+            assert!(
+                guide_delta_no_coord >= guide_delta_coord + 0.5
+                    || total_delta_no_coord >= total_delta_coord + 0.5,
+                "coord-aware overflow should be materially closer than coord-agnostic overflow (guide coord={} no_coord={}, total coord={} no_coord={})",
+                guide_delta_coord,
+                guide_delta_no_coord,
+                total_delta_coord,
+                total_delta_no_coord
+            );
+            Ok(())
+        });
     }
 
-    #[tokio::test]
-    async fn deeply_nested_outer_padding_inner_not_pathological() -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let compiled = compile_deeply_nested_plot(&ctx).await?;
-        let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+    #[test]
+    fn deeply_nested_outer_padding_inner_not_pathological() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled = compile_deeply_nested_plot(&ctx).await?;
+            let (_, _, measurement) =
+                prepare_refined_top_level_measurement(&compiled, &ctx).await?;
 
-        let outer_facet = facet_band_ref(&measurement)
-            .expect("top-level deeply nested test should measure as FacetBandCoordMeasurement");
-        let active_layout = outer_facet
-            .coordinated_layout
-            .as_ref()
-            .unwrap_or(&outer_facet.local_layout);
+            let outer_facet = facet_band_ref(&measurement)
+                .expect("top-level deeply nested test should measure as FacetBandCoordMeasurement");
+            let active_layout = outer_facet
+                .coordinated_layout
+                .as_ref()
+                .unwrap_or(&outer_facet.local_layout);
 
-        assert!(
-            active_layout.padding_inner_px < 180.0,
-            "outer facet padding_inner_px regressed into pathological range: {}",
-            active_layout.padding_inner_px
-        );
-        Ok(())
+            assert!(
+                active_layout.padding_inner_px < 180.0,
+                "outer facet padding_inner_px regressed into pathological range: {}",
+                active_layout.padding_inner_px
+            );
+            Ok(())
+        });
     }
 }

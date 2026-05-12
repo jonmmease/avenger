@@ -102,7 +102,7 @@ impl CompiledPlot {
             .iter()
             .map(|channel| {
                 channel.sharing_level.map_or_else(
-                    || facet_tree.channel_sharing_level_typed(channel.name.as_str()),
+                    || facet_tree.channel_domain_sharing_level_typed(channel.name.as_str()),
                     SharingLevel::from_raw,
                 )
             })
@@ -1131,7 +1131,7 @@ mod tests {
             None,
             outer_children,
         );
-        EvaluatedFacetTree::new_with_sharing_levels(Some(root), levels)
+        EvaluatedFacetTree::new_with_channel_domain_sharing_levels(Some(root), levels)
     }
 
     #[test]

@@ -10,8 +10,8 @@ use crate::{
             facet_band_fixed_ref as facet_band_fixed_ref_from_coord,
             retarget_scale_ranges_for_plot_area,
         },
-        coordination_attributes::{
-            CoordNodeKey, FinalPropagationChildPlan, FinalPropagationNodePlan,
+        coordination_plans::{
+            CoordinationNodeKey, FinalPropagationChildPlan, FinalPropagationNodePlan,
             FinalPropagationNodeTrace, FinalPropagationPlan, FinalPropagationTrace,
             InitialRequirementPass, RetargetNodePlan, RetargetNodeTrace, RetargetPlan,
             RetargetTrace, RetargetedRequirementPass,
@@ -38,10 +38,10 @@ pub(crate) fn visit_fixed_facet_bands_with_node_id<F>(
     node_path: &mut Vec<usize>,
     visit: &mut F,
 ) where
-    F: FnMut(&CoordNodeKey, usize, &FacetBandCoordMeasurementFixed),
+    F: FnMut(&CoordinationNodeKey, usize, &FacetBandCoordMeasurementFixed),
 {
     if let Some(facet_band) = facet_band_ref(measurement) {
-        let node_id = CoordNodeKey::new(node_path.clone());
+        let node_id = CoordinationNodeKey::new(node_path.clone());
         visit(&node_id, depth, facet_band);
         for (idx, child) in facet_band.child_measurements_iter().enumerate() {
             node_path.push(idx);
@@ -57,10 +57,10 @@ pub(crate) fn visit_fixed_facet_bands_with_node_id_mut<F>(
     node_path: &mut Vec<usize>,
     visit: &mut F,
 ) where
-    F: FnMut(&CoordNodeKey, usize, &mut FacetBandCoordMeasurementFixed),
+    F: FnMut(&CoordinationNodeKey, usize, &mut FacetBandCoordMeasurementFixed),
 {
     if let Some(facet_band) = facet_band_mut(measurement) {
-        let node_id = CoordNodeKey::new(node_path.clone());
+        let node_id = CoordinationNodeKey::new(node_path.clone());
         visit(&node_id, depth, facet_band);
         for (idx, child) in facet_band.child_measurements_iter_mut().enumerate() {
             node_path.push(idx);
@@ -180,7 +180,7 @@ fn build_retarget_plan_fixed_recursive(
             node_path.pop();
         }
 
-        let node_id = CoordNodeKey::new(node_path.clone());
+        let node_id = CoordinationNodeKey::new(node_path.clone());
         let mut apply_plan = facet_band.derive_coordinated_apply_plan();
         let slabs = LayoutSlabs::from_coordinated(&facet_band.coordinated_overflow);
         let (legend_main_start, legend_main_end) = match facet_band.axis {
@@ -216,7 +216,7 @@ pub(crate) fn run_retarget_with_trace_fixed<'a>(
     plan: &'a RetargetPlan,
 ) -> Pin<Box<dyn Future<Output = Result<RetargetTrace, AvengerChartError>> + Send + 'a>> {
     Box::pin(async move {
-        let plan_by_node: HashMap<CoordNodeKey, RetargetNodePlan> = plan
+        let plan_by_node: HashMap<CoordinationNodeKey, RetargetNodePlan> = plan
             .node_plans
             .iter()
             .cloned()
@@ -240,13 +240,13 @@ pub(crate) fn run_retarget_with_trace_fixed<'a>(
 fn run_retarget_recursive<'a>(
     measurement: &'a mut ComponentsMeasurement,
     eval_ctx: &'a EvaluationContext,
-    plan_by_node: &'a HashMap<CoordNodeKey, RetargetNodePlan>,
+    plan_by_node: &'a HashMap<CoordinationNodeKey, RetargetNodePlan>,
     node_path: &'a mut Vec<usize>,
     node_results: &'a mut Vec<RetargetNodeTrace>,
 ) -> Pin<Box<dyn Future<Output = Result<(), AvengerChartError>> + Send + 'a>> {
     Box::pin(async move {
         if let Some(facet_band) = facet_band_mut(measurement) {
-            let node_id = CoordNodeKey::new(node_path.clone());
+            let node_id = CoordinationNodeKey::new(node_path.clone());
             let planned = plan_by_node.get(&node_id).ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
                     "Missing retarget plan for node path {:?}",
@@ -351,7 +351,7 @@ fn build_final_propagation_plan_fixed_recursive(
             .count();
 
         node_plans.push(FinalPropagationNodePlan {
-            node_id: CoordNodeKey::new(node_path.clone()),
+            node_id: CoordinationNodeKey::new(node_path.clone()),
             axis: facet_band.axis,
             parent_cross_size_target,
             child_count: child_plans.len(),
@@ -494,7 +494,7 @@ pub(crate) fn run_final_propagation_with_trace_fixed(
     measurement: &mut ComponentsMeasurement,
     plan: &FinalPropagationPlan,
 ) -> FinalPropagationTrace {
-    let plan_by_node: HashMap<CoordNodeKey, FinalPropagationNodePlan> = plan
+    let plan_by_node: HashMap<CoordinationNodeKey, FinalPropagationNodePlan> = plan
         .node_plans
         .iter()
         .cloned()
@@ -514,7 +514,7 @@ pub(crate) fn run_final_propagation_with_trace_fixed(
 
 fn run_final_propagation_recursive(
     measurement: &mut ComponentsMeasurement,
-    plan_by_node: &HashMap<CoordNodeKey, FinalPropagationNodePlan>,
+    plan_by_node: &HashMap<CoordinationNodeKey, FinalPropagationNodePlan>,
     node_path: &mut Vec<usize>,
     node_results: &mut Vec<FinalPropagationNodeTrace>,
 ) {
@@ -523,7 +523,7 @@ fn run_final_propagation_recursive(
         .apply_scale_adjustments(&mut measurement.scales);
 
     if let Some(facet_band) = facet_band_mut(measurement) {
-        let node_id = CoordNodeKey::new(node_path.clone());
+        let node_id = CoordinationNodeKey::new(node_path.clone());
         let axis = facet_band.axis;
         let planned = plan_by_node.get(&node_id);
         debug_assert!(

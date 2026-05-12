@@ -144,18 +144,18 @@ impl CoordMeasurement for EmptyCoordMeasurement {
     // Use default implementations for coordination methods (return None/empty)
 }
 
-/// Cell domain extent info collected during Pass 1.
+/// Cell domain extent info collected during the initial requirements pass.
 ///
 /// Contains all the information needed to group and aggregate domain extents
-/// across cells at the appropriate sharing level.
+/// across cells at the appropriate channel-domain sharing level.
 #[derive(Clone, Debug)]
 pub struct CellDomainInfo {
     /// Full path to this cell (parent_path + cell_value)
     pub full_cell_path: Vec<ScalarValue>,
     /// Channel name (e.g., "x", "y")
     pub channel: String,
-    /// Scale sharing level for this channel (0=Free, N=Level(N), 255=Shared)
-    pub sharing_level: u8,
+    /// Channel-domain sharing level (0=Free, N=Level(N), 255=Shared)
+    pub domain_sharing_level: u8,
     /// Facet depth (1-based) for sharing comparison
     pub facet_depth: u8,
     /// The domain extent
@@ -167,7 +167,7 @@ pub struct CellDomainInfo {
 /// 2. Computes max overflow at each depth level
 /// 3. Distributes coordinated values to all facets
 /// 4. Coordinates layout parameters (padding, cell count) by depth
-/// 5. Coordinates domain extents for level-aware scale sharing
+/// 5. Coordinates domain extents for level-aware channel-domain sharing
 /// 6. Re-measures any subplots affected by legend overflow or layout coordination
 ///
 /// This ensures measurements are correct before `build_plot_components` is called.

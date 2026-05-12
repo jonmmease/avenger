@@ -39,7 +39,7 @@ pub struct FacetRowGuideConfig {
     facet_data_plan: Option<LogicalPlanNode>,
     /// Position of facet labels ("left" or "right")
     position: Option<String>,
-    /// Scale-sharing level for the row facet variable (0=Free, N=Level(N), 255=Shared)
+    /// Slot-sharing level for the row facet variable (0=Free, N=Level(N), 255=Shared)
     sharing_level: u8,
 }
 
@@ -75,7 +75,7 @@ impl CoordinateGuide for FacetRowGuideConfig {
                 self.facet_title = facet_row.facet_title().map(|s| s.to_string());
                 self.position = facet_row.facet_position().map(|s| s.to_string());
                 self.sharing_level = facet_row
-                    .facet_scale_sharing()
+                    .facet_slot_sharing()
                     .map(|sharing| sharing.to_level())
                     .unwrap_or(0);
                 break;
@@ -111,7 +111,7 @@ pub struct FacetRowGuide {
     facet_data_plan: Option<LogicalPlanNode>,
     /// Position of facet labels ("left" or "right")
     position: Option<String>,
-    /// Scale-sharing level for the row facet variable (0=Free, N=Level(N), 255=Shared)
+    /// Slot-sharing level for the row facet variable (0=Free, N=Level(N), 255=Shared)
     #[serde(default)]
     sharing_level: u8,
 }

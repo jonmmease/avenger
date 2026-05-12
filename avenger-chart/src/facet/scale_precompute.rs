@@ -55,8 +55,8 @@ impl FacetScaleSubtreeKey {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct FacetScaleNodeArtifacts {
-    pub(crate) nested_col_sharing: Option<SharingLevel>,
-    pub(crate) nested_depth: u8,
+    pub(crate) child_facet_slot_sharing: Option<SharingLevel>,
+    pub(crate) child_facet_depth: u8,
     pub(crate) shared_scale_builder: ScaleBuilder,
     pub(crate) ancestor_scale_builder_cache: HashMap<Vec<ScalarValue>, ScaleBuilder>,
     pub(crate) per_cell_scale_builder_cache: HashMap<Vec<ScalarValue>, ScaleBuilder>,
@@ -141,7 +141,7 @@ fn resolve_current_facet_node(
                     return Some((
                         facet_row.compiled_subplot(),
                         facet_row
-                            .facet_scale_sharing()
+                            .facet_slot_sharing()
                             .map(SharingLevel::from)
                             .unwrap_or(SharingLevel::FREE),
                     ));
@@ -150,7 +150,7 @@ fn resolve_current_facet_node(
                     return Some((
                         facet_col.compiled_subplot(),
                         facet_col
-                            .facet_scale_sharing()
+                            .facet_slot_sharing()
                             .map(SharingLevel::from)
                             .unwrap_or(SharingLevel::FREE),
                     ));
@@ -162,11 +162,11 @@ fn resolve_current_facet_node(
     None
 }
 
-fn nested_facet_sharing_level(compiled_subplot: &Arc<CompiledPlot>) -> Option<SharingLevel> {
+fn resolve_child_facet_slot_sharing(compiled_subplot: &Arc<CompiledPlot>) -> Option<SharingLevel> {
     compiled_subplot.marks.iter().find_map(|mark| {
         facet_mark_ref(mark.as_ref()).and_then(|facet_mark| match facet_mark {
-            FacetMarkRef::Row(facet_row) => facet_row.facet_scale_sharing().map(SharingLevel::from),
-            FacetMarkRef::Col(facet_col) => facet_col.facet_scale_sharing().map(SharingLevel::from),
+            FacetMarkRef::Row(facet_row) => facet_row.facet_slot_sharing().map(SharingLevel::from),
+            FacetMarkRef::Col(facet_col) => facet_col.facet_slot_sharing().map(SharingLevel::from),
         })
     })
 }
@@ -174,7 +174,7 @@ fn nested_facet_sharing_level(compiled_subplot: &Arc<CompiledPlot>) -> Option<Sh
 fn enumerate_cell_values_for_node(
     facet_tree: &EvaluatedFacetTree,
     facet_path: &[ScalarValue],
-    current_sharing_level: SharingLevel,
+    current_facet_slot_sharing: SharingLevel,
 ) -> Vec<ScalarValue> {
     let current_node = if facet_path.is_empty() {
         facet_tree.root()
@@ -189,7 +189,7 @@ fn enumerate_cell_values_for_node(
     };
 
     facet_tree
-        .enumerate_values_for_facet(facet_path, current_sharing_level.raw())
+        .enumerate_values_for_facet(facet_path, current_facet_slot_sharing.raw())
         .unwrap_or_else(fallback)
 }
 
@@ -208,7 +208,7 @@ async fn build_ancestor_group_scale_builders(
     for value in cell_values {
         let mut full_path = parent_path.to_vec();
         full_path.push(value.clone());
-        let ancestor_key = path_math::nested_measurement_ancestor_key(
+        let ancestor_key = path_math::child_facet_slot_ancestor_key(
             &full_path,
             sharing_level,
             full_path.len() as u8 + 1,
@@ -313,11 +313,11 @@ pub(crate) async fn build_node_artifacts(
     )
     .await?;
 
-    let nested_depth = (facet_path.len() + 2) as u8;
-    let nested_col_sharing = nested_facet_sharing_level(compiled_subplot);
+    let child_facet_depth = (facet_path.len() + 2) as u8;
+    let child_facet_slot_sharing = resolve_child_facet_slot_sharing(compiled_subplot);
 
-    let ancestor_scale_builder_cache = if let Some(sharing_level) = nested_col_sharing {
-        if sharing_level > 0 && sharing_level < nested_depth {
+    let ancestor_scale_builder_cache = if let Some(sharing_level) = child_facet_slot_sharing {
+        if sharing_level > 0 && sharing_level < child_facet_depth {
             build_ancestor_group_scale_builders(
                 cell_values,
                 sharing_level,
@@ -335,7 +335,7 @@ pub(crate) async fn build_node_artifacts(
         HashMap::new()
     };
 
-    let per_cell_scale_builder_cache = if matches!(nested_col_sharing, Some(level) if level.is_free())
+    let per_cell_scale_builder_cache = if matches!(child_facet_slot_sharing, Some(level) if level.is_free())
     {
         build_per_cell_scale_builders(
             cell_values,
@@ -351,8 +351,8 @@ pub(crate) async fn build_node_artifacts(
     };
 
     Ok(FacetScaleNodeArtifacts {
-        nested_col_sharing,
-        nested_depth,
+        child_facet_slot_sharing,
+        child_facet_depth,
         shared_scale_builder,
         ancestor_scale_builder_cache,
         per_cell_scale_builder_cache,
@@ -366,7 +366,7 @@ async fn ensure_subtree_precomputed_internal(
     facet_tree: &EvaluatedFacetTree,
     eval_ctx: &EvaluationContext,
 ) -> Result<(), AvengerChartError> {
-    let Some((compiled_subplot, current_sharing_level)) =
+    let Some((compiled_subplot, current_facet_slot_sharing)) =
         resolve_current_facet_node(compiled_marks)
     else {
         return Ok(());
@@ -375,7 +375,8 @@ async fn ensure_subtree_precomputed_internal(
     let store = eval_ctx.facet_scale_precompute_store();
     let node_key = FacetScaleNodeKey::new(compiled_subplot, facet_path);
 
-    let cell_values = enumerate_cell_values_for_node(facet_tree, facet_path, current_sharing_level);
+    let cell_values =
+        enumerate_cell_values_for_node(facet_tree, facet_path, current_facet_slot_sharing);
     if store.get_node_artifacts(&node_key).is_none() {
         let artifacts = build_node_artifacts(
             &cell_values,

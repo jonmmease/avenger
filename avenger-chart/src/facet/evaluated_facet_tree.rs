@@ -41,32 +41,32 @@ use crate::{
     serialization::LogicalPlanNodeExt,
 };
 
-/// Cache for shared domain values to avoid redundant queries.
+/// Cache for shared facet slot values to avoid redundant queries.
 /// Key is the field name; value is the ordered list of distinct values.
-/// Only used for shared domains (sharing >= current_depth) where we query unfiltered data.
-type SharedDomainCache = HashMap<String, Vec<ScalarValue>>;
+/// Only used for shared facet slots (sharing >= current_depth) where we query unfiltered data.
+type SharedSlotCache = HashMap<String, Vec<ScalarValue>>;
 
 /// Evaluated facet structure - built once from data at evaluate() time, queried throughout.
 ///
 /// This is the single source of truth for all facet-related operations.
-/// It captures the tree structure of partition values (handling non-shared domains),
+/// It captures the tree structure of partition values (handling non-shared facet slots),
 /// and provides methods for visibility, filtering, and layout queries.
 ///
 /// Note: This struct contains ONLY the partition tree structure. All configuration
-/// (scale sharing levels, axis positions) is passed as parameters to query methods.
+/// (slot sharing levels, axis positions) is passed as parameters to query methods.
 /// This allows the same facet spec to be used with different configurations.
 #[derive(Debug, Clone)]
 pub struct EvaluatedFacetTree {
-    /// Tree of partition values (handles non-shared domains)
+    /// Tree of partition values (handles non-shared facet slots).
     root: Option<PartitionNode>,
     /// Cached depth of the partition hierarchy.
     depth_cache: usize,
     /// Cached domain counts per nesting level.
     level_counts_cache: Vec<usize>,
-    /// Channel sharing levels extracted from innermost marks.
+    /// Channel-domain sharing levels extracted from innermost marks.
     /// Maps channel name (e.g., "x", "y") to sharing level (0=Free, N=Level(N), 255=Shared).
     /// Used for axis visibility decisions when CoordMeasurement is not available.
-    channel_sharing_levels: HashMap<String, SharingLevel>,
+    channel_domain_sharing_levels: HashMap<String, SharingLevel>,
     /// Cached path metadata for resolved concrete paths.
     path_info_cache: HashMap<Vec<ScalarValue>, ResolvedFacetPathInfo>,
     /// Cached predicates for valid, non-empty paths.
@@ -84,12 +84,12 @@ pub struct EvaluatedFacetTree {
 /// A node in the partition tree.
 ///
 /// Each node represents one partition level in the facet hierarchy.
-/// For non-shared domains, children vary per parent value.
+/// For non-shared facet slots, children vary per parent value.
 #[derive(Debug, Clone)]
 pub struct PartitionNode {
     /// Direction of this partition (Row or Column)
     pub direction: FacetDirection,
-    /// Domain sharing level for this partition
+    /// Facet slot sharing level for this partition.
     pub sharing: u8,
     /// Field name for this partition
     pub field: String,
@@ -97,7 +97,7 @@ pub struct PartitionNode {
     pub field_expr: Option<Expr>,
     /// Values observed under the concrete parent-path filter for this node.
     ///
-    /// This differs from `content` values when domain sharing expands slot
+    /// This differs from `content` values when slot sharing expands facet slot
     /// enumeration from an ancestor context.
     pub observed_values: Vec<ScalarValue>,
     /// Content: either leaf values or branch with children
@@ -230,7 +230,7 @@ impl EvaluatedFacetTree {
 
     fn init_with_caches(
         root: Option<PartitionNode>,
-        channel_sharing_levels: HashMap<String, SharingLevel>,
+        channel_domain_sharing_levels: HashMap<String, SharingLevel>,
     ) -> Self {
         let depth_cache = root.as_ref().map(Self::count_depth).unwrap_or(0);
         let level_counts_cache = root
@@ -242,7 +242,7 @@ impl EvaluatedFacetTree {
             root,
             depth_cache,
             level_counts_cache,
-            channel_sharing_levels,
+            channel_domain_sharing_levels,
             path_info_cache: HashMap::new(),
             path_predicate_cache: HashMap::new(),
             slot_membership_cache: HashMap::new(),
@@ -256,20 +256,20 @@ impl EvaluatedFacetTree {
 
     /// Create a new EvaluatedFacetSpec with the given partition tree.
     ///
-    /// Note: All configuration (scale sharing levels, axis positions) is passed
+    /// Note: All configuration (slot sharing levels, axis positions) is passed
     /// as parameters to query methods like `subplot_visibility`.
     pub fn new(root: Option<PartitionNode>) -> Self {
         Self::init_with_caches(root, HashMap::new())
     }
 
-    /// Create a new EvaluatedFacetSpec with partition tree and channel sharing levels.
-    pub fn new_with_sharing_levels(
+    /// Create a new EvaluatedFacetSpec with partition tree and channel-domain sharing levels.
+    pub fn new_with_channel_domain_sharing_levels(
         root: Option<PartitionNode>,
-        channel_sharing_levels: HashMap<String, u8>,
+        channel_domain_sharing_levels: HashMap<String, u8>,
     ) -> Self {
         Self::init_with_caches(
             root,
-            channel_sharing_levels
+            channel_domain_sharing_levels
                 .into_iter()
                 .map(|(channel, level)| (channel, SharingLevel::from_raw(level)))
                 .collect(),
@@ -299,7 +299,7 @@ impl EvaluatedFacetTree {
     ///
     /// This performs the pre-pass: walks the mark tree to find facet marks,
     /// queries distinct values for each partition, and builds the tree structure.
-    /// Uses a cache to avoid redundant queries for shared domains.
+    /// Uses a cache to avoid redundant queries for shared facet slots.
     pub async fn from_compiled_plot(
         plot: &CompiledPlot,
         ctx: &SessionContext,
@@ -316,17 +316,20 @@ impl EvaluatedFacetTree {
             }
         };
 
-        // Cache for shared domain values to avoid redundant queries
-        let mut domain_cache = SharedDomainCache::new();
+        // Cache for shared facet slot values to avoid redundant queries.
+        let mut slot_cache = SharedSlotCache::new();
 
         // Build partition tree by walking marks
         // Start at depth 1 (outermost facet level)
-        let root = build_partition_tree(&plot.marks, &df, ctx, None, 1, &mut domain_cache).await?;
+        let root = build_partition_tree(&plot.marks, &df, ctx, None, 1, &mut slot_cache).await?;
 
-        // Extract channel sharing levels from the innermost marks
-        let channel_sharing_levels = extract_channel_sharing_levels(&plot.marks);
+        // Extract channel-domain sharing levels from the innermost marks.
+        let channel_domain_sharing_levels = extract_channel_domain_sharing_levels(&plot.marks);
 
-        Ok(Self::new_with_sharing_levels(root, channel_sharing_levels))
+        Ok(Self::new_with_channel_domain_sharing_levels(
+            root,
+            channel_domain_sharing_levels,
+        ))
     }
 
     fn collect_reachable_paths(&self) -> Vec<Vec<ScalarValue>> {
@@ -396,7 +399,7 @@ impl EvaluatedFacetTree {
         let mut levels: HashSet<SharingLevel> = HashSet::new();
         levels.insert(SharingLevel::FREE);
         levels.insert(SharingLevel::GLOBAL);
-        for sharing_level in self.channel_sharing_levels.values() {
+        for sharing_level in self.channel_domain_sharing_levels.values() {
             levels.insert(*sharing_level);
         }
         if let Some(root) = self.root.as_ref() {
@@ -780,12 +783,12 @@ impl EvaluatedFacetTree {
     /// Returns the sharing level stored during tree construction, or 255 (Shared)
     /// if the channel was not found. This is used for axis visibility decisions
     /// when the innermost subplot doesn't have access to CoordMeasurement.
-    pub fn channel_sharing_level(&self, channel: &str) -> u8 {
-        self.channel_sharing_level_typed(channel).raw()
+    pub fn channel_domain_sharing_level(&self, channel: &str) -> u8 {
+        self.channel_domain_sharing_level_typed(channel).raw()
     }
 
-    pub(crate) fn channel_sharing_level_typed(&self, channel: &str) -> SharingLevel {
-        self.channel_sharing_levels
+    pub(crate) fn channel_domain_sharing_level_typed(&self, channel: &str) -> SharingLevel {
+        self.channel_domain_sharing_levels
             .get(channel)
             .copied()
             .unwrap_or(SharingLevel::GLOBAL)
@@ -1625,20 +1628,20 @@ impl PartitionNode {
 // Helper functions for building the partition tree
 // ============================================================================
 
-/// Extract channel sharing levels from compiled marks by recursing through facet subplots.
+/// Extract channel-domain sharing levels from compiled marks by recursing through facet subplots.
 ///
 /// This walks the mark tree to find the innermost (non-facet) marks and extracts
-/// their channel sharing levels. Returns a map from channel name to sharing level.
-fn extract_channel_sharing_levels(marks: &[Arc<dyn CompiledMark>]) -> HashMap<String, u8> {
+/// their channel-domain sharing levels. Returns a map from channel name to sharing level.
+fn extract_channel_domain_sharing_levels(marks: &[Arc<dyn CompiledMark>]) -> HashMap<String, u8> {
     let mut result = HashMap::new();
 
     for mark in marks {
         if let Some(facet_mark) = facet_mark_ref(mark.as_ref()) {
             // Recurse into subplot to find innermost marks
-            let inner = extract_channel_sharing_levels(&facet_mark.compiled_subplot().marks);
+            let inner = extract_channel_domain_sharing_levels(&facet_mark.compiled_subplot().marks);
             result.extend(inner);
         } else {
-            // Non-facet mark - extract channel sharing levels
+            // Non-facet mark - extract channel-domain sharing levels.
             let data_context = mark.data_context();
             for (channel, channel_value) in data_context.channels() {
                 if let Some(sharing) = channel_value.get_share_mode() {
@@ -1693,7 +1696,7 @@ struct FacetPartitionSpec<'a> {
     channel_name: &'static str,
     direction: FacetDirection,
     subplot: &'a Arc<CompiledPlot>,
-    scale_sharing: Option<ScaleSharing>,
+    slot_sharing: Option<ScaleSharing>,
 }
 
 impl<'a> FacetPartitionSpec<'a> {
@@ -1704,14 +1707,14 @@ impl<'a> FacetPartitionSpec<'a> {
                 channel_name: "row",
                 direction: FacetDirection::Row,
                 subplot: facet_row.compiled_subplot(),
-                scale_sharing: facet_row.facet_scale_sharing(),
+                slot_sharing: facet_row.facet_slot_sharing(),
             },
             FacetMarkRef::Col(facet_col) => Self {
                 channels: facet_col.compiled_state().data.channels(),
                 channel_name: "column",
                 direction: FacetDirection::Column,
                 subplot: facet_col.compiled_subplot(),
-                scale_sharing: facet_col.facet_scale_sharing(),
+                slot_sharing: facet_col.facet_slot_sharing(),
             },
         }
     }
@@ -1723,16 +1726,16 @@ impl<'a> FacetPartitionSpec<'a> {
 /// * `marks` - The marks to search for facets
 /// * `df` - The DataFrame to query for distinct values
 /// * `ctx` - Session context for expression evaluation
-/// * `parent_filter` - Optional filter predicate from parent partitions (for non-shared domains)
+/// * `parent_filter` - Optional filter predicate from parent partitions (for non-shared slots)
 /// * `current_depth` - Current depth in the facet hierarchy (1 = outermost)
-/// * `domain_cache` - Cache for shared domain values to avoid redundant queries
+/// * `slot_cache` - Cache for shared facet slot values to avoid redundant queries
 async fn build_partition_tree(
     marks: &[Arc<dyn CompiledMark>],
     df: &DataFrame,
     ctx: &SessionContext,
     parent_filter: Option<Expr>,
     current_depth: u8,
-    domain_cache: &mut SharedDomainCache,
+    slot_cache: &mut SharedSlotCache,
 ) -> Result<Option<PartitionNode>, AvengerChartError> {
     for mark in marks {
         if let Some(facet_mark) = facet_mark_ref(mark.as_ref()) {
@@ -1743,7 +1746,7 @@ async fn build_partition_tree(
                 ctx,
                 parent_filter,
                 current_depth,
-                domain_cache,
+                slot_cache,
             ))
             .await;
         }
@@ -1760,7 +1763,7 @@ async fn build_partition_node(
     ctx: &SessionContext,
     parent_filter: Option<Expr>,
     current_depth: u8,
-    domain_cache: &mut SharedDomainCache,
+    slot_cache: &mut SharedSlotCache,
 ) -> Result<Option<PartitionNode>, AvengerChartError> {
     // Get channel value
     let channel_value = match spec.channels.get(spec.channel_name) {
@@ -1774,9 +1777,9 @@ async fn build_partition_node(
         None => return Ok(None), // No expression
     };
 
-    // Get sharing level
+    // Get facet slot sharing level
     let sharing = spec
-        .scale_sharing
+        .slot_sharing
         .or_else(|| channel_value.get_share_mode())
         .map(|s| s.to_level())
         .unwrap_or(0);
@@ -1784,10 +1787,10 @@ async fn build_partition_node(
     // Extract field name
     let field = extract_field_name(&field_expr);
 
-    // Determine whether to use filtered or unfiltered data for domain values
-    // If sharing level >= current depth, domain is shared (use unfiltered data)
-    // If sharing level < current depth (including Free/0), domain varies per parent (use filtered)
-    let use_shared_domain = sharing >= current_depth;
+    // Determine whether to use filtered or unfiltered data for facet slot values.
+    // If sharing level >= current depth, slots are shared (use unfiltered data).
+    // If sharing level < current depth (including Free/0), slots vary per parent (use filtered).
+    let use_shared_slots = sharing >= current_depth;
 
     let observed_values = if let Some(parent_filter) = parent_filter.clone() {
         let df_filtered = df.clone().filter(parent_filter)?;
@@ -1796,18 +1799,18 @@ async fn build_partition_node(
         FacetKeyExtractor::extract_keys(df, &field_expr).await?
     };
 
-    // Get distinct values, using cache for shared domains
-    let values = if use_shared_domain {
-        // For shared domains, check cache first (keyed by field name since we use unfiltered data)
-        if let Some(cached) = domain_cache.get(&field) {
+    // Get distinct values, using a cache for shared facet slots.
+    let values = if use_shared_slots {
+        // For shared slots, check cache first (keyed by field name since we use unfiltered data).
+        if let Some(cached) = slot_cache.get(&field) {
             cached.clone()
         } else {
             let vals = FacetKeyExtractor::extract_keys(df, &field_expr).await?;
-            domain_cache.insert(field.clone(), vals.clone());
+            slot_cache.insert(field.clone(), vals.clone());
             vals
         }
     } else if parent_filter.is_some() {
-        // For non-shared domains with a parent filter, query filtered data (no caching)
+        // For non-shared slots with a parent filter, query filtered data (no caching).
         let df_filtered = df.clone().filter(parent_filter.clone().unwrap())?;
         FacetKeyExtractor::extract_keys(&df_filtered, &field_expr).await?
     } else {
@@ -1826,7 +1829,7 @@ async fn build_partition_node(
         ctx,
         None,
         current_depth + 1,
-        domain_cache,
+        slot_cache,
     ))
     .await?;
 
@@ -1850,7 +1853,7 @@ async fn build_partition_node(
                 ctx,
                 Some(combined_filter),
                 current_depth + 1,
-                domain_cache,
+                slot_cache,
             ))
             .await?
             {
@@ -1930,7 +1933,7 @@ mod tests {
 
     #[test]
     fn test_nested_with_shared_domain() {
-        // Col > Row with shared domains (same values regardless of parent)
+        // Col > Row with shared facet slots (same values regardless of parent)
         let row_node = PartitionNode::leaf(
             FacetDirection::Row,
             0,
@@ -2588,8 +2591,9 @@ mod tests {
 
         let mut channel_sharing = HashMap::new();
         channel_sharing.insert("x".to_string(), 2);
-        let with_levels = EvaluatedFacetTree::new_with_sharing_levels(Some(root), channel_sharing);
-        assert_eq!(with_levels.channel_sharing_level("x"), 2);
+        let with_levels =
+            EvaluatedFacetTree::new_with_channel_domain_sharing_levels(Some(root), channel_sharing);
+        assert_eq!(with_levels.channel_domain_sharing_level("x"), 2);
         assert!(
             with_levels
                 .used_sharing_levels

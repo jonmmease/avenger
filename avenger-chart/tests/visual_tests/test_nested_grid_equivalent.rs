@@ -999,7 +999,7 @@ fn test_nested_free_row_mixed_shared_in_column_and_shared_in_row() {
 // Milestone 11: Shared Row Tests (Grid-equivalent behavior)
 // =============================================================================
 //
-// These tests use `.share_scale()` on the row facet variable, which causes the
+// These tests use `.share_slots()` on the row facet variable, which causes the
 // inner facet to use a shared domain computed from the full dataset. This produces
 // grid-like behavior where all columns show the same rows (species), even if some
 // cells have no data. This should match the corresponding FacetGrid baselines.
@@ -1044,8 +1044,8 @@ fn test_nested_shared_row_basic() {
                 Facet::new().column(col("length_bin")).subplot(
                     Plot::<FacetRow>::new().mark(
                         Facet::new()
-                            // KEY: share_scale() causes domain to be computed from full dataset
-                            .row_with(col("species"), |c| c.facet(|f| f.share_scale()))
+                            // KEY: share_slots() causes domain to be computed from full dataset
+                            .row_with(col("species"), |c| c.facet(|f| f.share_slots()))
                             .subplot(
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
@@ -1093,7 +1093,7 @@ fn test_nested_shared_row_with_titles() {
                         Plot::<FacetRow>::new().mark(
                             Facet::new()
                                 .row_with(col("species"), |c| {
-                                    c.facet(|f| f.title("Species").share_scale())
+                                    c.facet(|f| f.title("Species").share_slots())
                                 })
                                 .subplot(
                                     Plot::<Cartesian>::new().mark(
@@ -1137,7 +1137,7 @@ fn test_nested_shared_row_shared_both() {
                 Facet::new().column(col("petal_width_bin")).subplot(
                     Plot::<FacetRow>::new().mark(
                         Facet::new()
-                            .row_with(col("species"), |c| c.facet(|f| f.share_scale()))
+                            .row_with(col("species"), |c| c.facet(|f| f.share_slots()))
                             .subplot(
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
@@ -1186,7 +1186,7 @@ fn test_nested_shared_row_shared_both_empty_subplot() {
                         Facet::new()
                             .row_with(col("species"), |c| {
                                 c.facet(|f| {
-                                    f.share_scale()
+                                    f.share_slots()
                                         .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
                                 })
                             })
@@ -1236,7 +1236,7 @@ fn test_nested_shared_row_free_scales() {
                 Facet::new().column(col("petal_width_bin")).subplot(
                     Plot::<FacetRow>::new().mark(
                         Facet::new()
-                            .row_with(col("species"), |c| c.facet(|f| f.share_scale()))
+                            .row_with(col("species"), |c| c.facet(|f| f.share_slots()))
                             .subplot(
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
@@ -1283,7 +1283,7 @@ fn test_nested_shared_row_shared_x() {
                 Facet::new().column(col("petal_width_bin")).subplot(
                     Plot::<FacetRow>::new().mark(
                         Facet::new()
-                            .row_with(col("species"), |c| c.facet(|f| f.share_scale()))
+                            .row_with(col("species"), |c| c.facet(|f| f.share_slots()))
                             .subplot(
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
@@ -1330,7 +1330,7 @@ fn test_nested_shared_row_shared_y() {
                 Facet::new().column(col("petal_width_bin")).subplot(
                     Plot::<FacetRow>::new().mark(
                         Facet::new()
-                            .row_with(col("species"), |c| c.facet(|f| f.share_scale()))
+                            .row_with(col("species"), |c| c.facet(|f| f.share_slots()))
                             .subplot(
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
@@ -1382,7 +1382,7 @@ fn test_nested_shared_row_with_unified_titles() {
                         Plot::<FacetRow>::new().mark(
                             Facet::new()
                                 .row_with(col("species"), |c| {
-                                    c.facet(|f| f.title("Species").share_scale())
+                                    c.facet(|f| f.title("Species").share_slots())
                                 })
                                 .subplot(
                                     Plot::<Cartesian>::new().mark(
@@ -1432,7 +1432,7 @@ fn test_nested_shared_row_x_axis_top() {
                 Facet::new().column(col("petal_width_bin")).subplot(
                     Plot::<FacetRow>::new().mark(
                         Facet::new()
-                            .row_with(col("species"), |c| c.facet(|f| f.share_scale()))
+                            .row_with(col("species"), |c| c.facet(|f| f.share_slots()))
                             .subplot(
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
@@ -1479,7 +1479,7 @@ fn test_nested_shared_row_x_axis_top_empty_subplot() {
                         Facet::new()
                             .row_with(col("species"), |c| {
                                 c.facet(|f| {
-                                    f.share_scale()
+                                    f.share_slots()
                                         .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
                                 })
                             })
@@ -1527,7 +1527,7 @@ fn test_nested_shared_row_y_axis_right() {
                 Facet::new().column(col("petal_width_bin")).subplot(
                     Plot::<FacetRow>::new().mark(
                         Facet::new()
-                            .row_with(col("species"), |c| c.facet(|f| f.share_scale()))
+                            .row_with(col("species"), |c| c.facet(|f| f.share_slots()))
                             .subplot(
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
@@ -1574,7 +1574,7 @@ fn test_nested_shared_row_y_axis_right_empty_subplot() {
                         Facet::new()
                             .row_with(col("species"), |c| {
                                 c.facet(|f| {
-                                    f.share_scale()
+                                    f.share_slots()
                                         .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
                                 })
                             })
@@ -1622,7 +1622,7 @@ fn test_nested_shared_row_with_line_mark() {
                 Facet::new().column(col("petal_width_bin")).subplot(
                     Plot::<FacetRow>::new().mark(
                         Facet::new()
-                            .row_with(col("species"), |c| c.facet(|f| f.share_scale()))
+                            .row_with(col("species"), |c| c.facet(|f| f.share_slots()))
                             .subplot(
                                 Plot::<Cartesian>::new().mark(
                                     Line::new()
@@ -1665,7 +1665,7 @@ fn test_nested_shared_row_hybrid_sharing() {
                 Facet::new().column(col("petal_width_bin")).subplot(
                     Plot::<FacetRow>::new().mark(
                         Facet::new()
-                            .row_with(col("species"), |c| c.facet(|f| f.share_scale()))
+                            .row_with(col("species"), |c| c.facet(|f| f.share_slots()))
                             .subplot(
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
@@ -1714,7 +1714,7 @@ fn test_nested_shared_row_hybrid_sharing_empty_subplot() {
                         Facet::new()
                             .row_with(col("species"), |c| {
                                 c.facet(|f| {
-                                    f.share_scale()
+                                    f.share_slots()
                                         .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
                                 })
                             })
@@ -1778,8 +1778,8 @@ fn test_nested_shared_col_shared_both() {
             Facet::new().row(col("species")).subplot(
                 Plot::<FacetColumn>::new().mark(
                     Facet::new()
-                        // KEY: share_scale() causes domain to be computed from full dataset
-                        .col_with(col("petal_width_bin"), |c| c.facet(|f| f.share_scale()))
+                        // KEY: share_slots() causes domain to be computed from full dataset
+                        .col_with(col("petal_width_bin"), |c| c.facet(|f| f.share_slots()))
                         .subplot(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
@@ -1825,7 +1825,7 @@ fn test_nested_shared_col_shared_both_empty_subplot() {
                     Facet::new()
                         .col_with(col("petal_width_bin"), |c| {
                             c.facet(|f| {
-                                f.share_scale()
+                                f.share_slots()
                                     .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
                             })
                         })
@@ -4028,7 +4028,7 @@ fn test_four_level_col_col_col_col_dept_free() {
                         Plot::<FacetColumn>::new().mark(
                             Facet::new()
                                 .col_with(col("department"), |c| {
-                                    c.facet(|f| f.title("Dept").free_scale())
+                                    c.facet(|f| f.title("Dept").free_slots())
                                 })
                                 .subplot(
                                     Plot::<FacetColumn>::new().mark(
@@ -4419,7 +4419,7 @@ fn test_four_level_col_col_col_col_y_level2_dept_free() {
                         Plot::<FacetColumn>::new().mark(
                             Facet::new()
                                 .col_with(col("department"), |c| {
-                                    c.facet(|f| f.title("Dept").free_scale())
+                                    c.facet(|f| f.title("Dept").free_slots())
                                 })
                                 .subplot(
                                     Plot::<FacetColumn>::new().mark(
@@ -4490,7 +4490,7 @@ fn test_four_level_col_col_col_col_y_level2_right_dept_free() {
                         Plot::<FacetColumn>::new().mark(
                             Facet::new()
                                 .col_with(col("department"), |c| {
-                                    c.facet(|f| f.title("Dept").free_scale())
+                                    c.facet(|f| f.title("Dept").free_slots())
                                 })
                                 .subplot(
                                     Plot::<FacetColumn>::new().mark(
@@ -4567,7 +4567,7 @@ fn test_four_level_col_col_col_col_y_free_dept_free() {
                         Plot::<FacetColumn>::new().mark(
                             Facet::new()
                                 .col_with(col("department"), |c| {
-                                    c.facet(|f| f.title("Dept").free_scale())
+                                    c.facet(|f| f.title("Dept").free_slots())
                                 })
                                 .subplot(
                                     Plot::<FacetColumn>::new().mark(
@@ -4638,7 +4638,7 @@ fn test_four_level_col_col_col_col_y_level1_dept_free() {
                         Plot::<FacetColumn>::new().mark(
                             Facet::new()
                                 .col_with(col("department"), |c| {
-                                    c.facet(|f| f.title("Dept").free_scale())
+                                    c.facet(|f| f.title("Dept").free_slots())
                                 })
                                 .subplot(
                                     Plot::<FacetColumn>::new().mark(
@@ -4708,7 +4708,7 @@ fn test_four_level_col_col_row_row_dept_free() {
                         Plot::<FacetColumn>::new().mark(
                             Facet::new()
                                 .col_with(col("department"), |c| {
-                                    c.facet(|f| f.title("Dept").free_scale())
+                                    c.facet(|f| f.title("Dept").free_slots())
                                 })
                                 .subplot(
                                     Plot::<FacetRow>::new().mark(
@@ -4777,7 +4777,7 @@ fn test_four_level_col_col_col_col_team_free_asymmetric() {
                                     Plot::<FacetColumn>::new().mark(
                                         Facet::new()
                                             .col_with(col("team"), |c| {
-                                                c.facet(|f| f.title("Team").free_scale())
+                                                c.facet(|f| f.title("Team").free_slots())
                                             })
                                             .subplot(
                                                 Plot::<FacetColumn>::new().mark(
@@ -4826,7 +4826,7 @@ fn test_four_level_col_col_col_col_team_free_asymmetric() {
 }
 
 /// Test 4-level column nesting with Free Dept scale AND Level(2) Team scale sharing
-/// - Dept column has free_scale() so each Division shows only its own departments
+/// - Dept column has free_slots() so each Division shows only its own departments
 /// - Team column has Level(2) sharing: 2 >= (3-1)=2 → global enumeration.
 ///   All depts show all 8 teams from across all divisions.
 ///
@@ -4848,7 +4848,7 @@ fn test_four_level_col_col_col_col_dept_free_team_level2() {
                         Plot::<FacetColumn>::new().mark(
                             Facet::new()
                                 .col_with(col("department"), |c| {
-                                    c.facet(|f| f.title("Dept").free_scale())
+                                    c.facet(|f| f.title("Dept").free_slots())
                                 })
                                 .subplot(
                                     Plot::<FacetColumn>::new().mark(
@@ -4906,7 +4906,7 @@ fn test_four_level_col_col_col_col_dept_free_team_level2() {
 }
 
 /// Test 4-level column nesting with Dept free scaling and Team Level(1) sharing
-/// - Dept is `free_scale()` so each Division shows its own Depts
+/// - Dept is `free_slots()` so each Division shows its own Depts
 /// - Team column uses Level(1) sharing: ancestors_to_keep = (3-1) - 1 = 1, enumerates
 ///   from Division level. All depts under the same Division show the union of 4 teams.
 ///
@@ -4929,7 +4929,7 @@ fn test_four_level_col_col_col_col_dept_free_team_level1() {
                         Plot::<FacetColumn>::new().mark(
                             Facet::new()
                                 .col_with(col("department"), |c| {
-                                    c.facet(|f| f.title("Dept").free_scale())
+                                    c.facet(|f| f.title("Dept").free_slots())
                                 })
                                 .subplot(
                                     Plot::<FacetColumn>::new().mark(

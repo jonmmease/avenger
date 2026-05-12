@@ -125,6 +125,59 @@ pub enum DataExtents {
     Temporal(i64, i64),
 }
 
+#[derive(Debug, Clone, Copy)]
+struct RadiusDomainBoundarySamplesTrace {
+    shared_min: f64,
+    shared_max: f64,
+    max_radius_lower: f64,
+    max_radius_upper: f64,
+    len_before: usize,
+    len_after: usize,
+}
+
+fn append_radius_domain_boundary_samples(
+    position_data: &mut Vec<f64>,
+    radius_lower_data: &mut Vec<f64>,
+    radius_upper_data: &mut Vec<f64>,
+    shared_extent: &DomainExtent,
+) -> Option<RadiusDomainBoundarySamplesTrace> {
+    let DomainBounds::Numeric {
+        min: shared_min,
+        max: shared_max,
+    } = &shared_extent.bounds
+    else {
+        return None;
+    };
+
+    let len_before = position_data.len();
+    let (max_radius_lower, max_radius_upper) = if let Some(radius) = &shared_extent.radius {
+        (radius.max_lower, radius.max_upper)
+    } else {
+        let lower = radius_lower_data.iter().copied().fold(0.0_f64, f64::max);
+        let upper = radius_upper_data.iter().copied().fold(0.0_f64, f64::max);
+        (lower, upper)
+    };
+
+    // Add boundary samples so the range-dependent radius padding solver sees
+    // the coordinated numeric extent without requiring a second data query.
+    position_data.push(*shared_min);
+    radius_lower_data.push(max_radius_lower);
+    radius_upper_data.push(0.0);
+
+    position_data.push(*shared_max);
+    radius_lower_data.push(0.0);
+    radius_upper_data.push(max_radius_upper);
+
+    Some(RadiusDomainBoundarySamplesTrace {
+        shared_min: *shared_min,
+        shared_max: *shared_max,
+        max_radius_lower,
+        max_radius_upper,
+        len_before,
+        len_after: position_data.len(),
+    })
+}
+
 impl ScaleBuilder {
     /// Create a new empty scale builder
     pub fn new() -> Self {
@@ -346,7 +399,7 @@ impl ScaleBuilder {
                                 DataExtents::Discrete(local_values),
                                 DomainBounds::Discrete(shared_values),
                             ) => {
-                                // For categorical scale sharing, replace local values with shared values.
+                                // For categorical plot scale sharing, replace local values with shared values.
                                 trace!(
                                     channel,
                                     local_values = local_values.len(),
@@ -367,44 +420,20 @@ impl ScaleBuilder {
                         radius_upper_data,
                         ..
                     } => {
-                        // For RadiusAware scales, add synthetic data points at shared extents
-                        if let DomainBounds::Numeric {
-                            min: shared_min,
-                            max: shared_max,
-                        } = &shared_extent.bounds
-                        {
-                            let len_before = position_data.len();
-
-                            // Get radius values from shared extent, or compute from local data
-                            let (max_radius_lower, max_radius_upper) =
-                                if let Some(radius) = &shared_extent.radius {
-                                    (radius.max_lower, radius.max_upper)
-                                } else {
-                                    // Fall back to computing from local data
-                                    let lower =
-                                        radius_lower_data.iter().copied().fold(0.0_f64, f64::max);
-                                    let upper =
-                                        radius_upper_data.iter().copied().fold(0.0_f64, f64::max);
-                                    (lower, upper)
-                                };
-
-                            // Add synthetic points at shared min and max with proper radius values
-                            position_data.push(*shared_min);
-                            radius_lower_data.push(max_radius_lower);
-                            radius_upper_data.push(0.0);
-
-                            position_data.push(*shared_max);
-                            radius_lower_data.push(0.0);
-                            radius_upper_data.push(max_radius_upper);
-
+                        if let Some(trace_data) = append_radius_domain_boundary_samples(
+                            position_data,
+                            radius_lower_data,
+                            radius_upper_data,
+                            shared_extent,
+                        ) {
                             trace!(
                                 channel,
-                                shared_min = *shared_min,
-                                shared_max = *shared_max,
-                                max_radius_lower,
-                                max_radius_upper,
-                                len_before,
-                                len_after = position_data.len(),
+                                shared_min = trace_data.shared_min,
+                                shared_max = trace_data.shared_max,
+                                max_radius_lower = trace_data.max_radius_lower,
+                                max_radius_upper = trace_data.max_radius_upper,
+                                len_before = trace_data.len_before,
+                                len_after = trace_data.len_after,
                                 "Extended RadiusAware extents with shared range"
                             );
                         }
@@ -1291,7 +1320,7 @@ mod tests {
 
         builder.extend_with_domain_extents(&shared);
 
-        // Verify extents include synthetic points with shared radius values
+        // Verify extents include boundary samples with shared radius values.
         let extents = builder.extract_domain_extents(&["y"]);
         let y = extents.get("y").unwrap();
         assert_eq!(y.numeric_bounds(), Some((0.0, 100.0)));
@@ -1322,7 +1351,7 @@ mod tests {
 
         builder.extend_with_domain_extents(&shared);
 
-        // Verify extents include synthetic points
+        // Verify extents include boundary samples.
         let extents = builder.extract_domain_extents(&["y"]);
         let y = extents.get("y").unwrap();
         assert_eq!(y.numeric_bounds(), Some((0.0, 100.0)));

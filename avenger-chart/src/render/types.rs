@@ -76,7 +76,7 @@ pub enum FacetSubtreeSelector {
     /// Select by facet value path, e.g. `["Ops", "Support"]`.
     ByFacetPath(Vec<ScalarValue>),
     /// Select by child indices in the measured coordination tree.
-    ByCoordNodePath(Vec<usize>),
+    ByCoordinationNodePath(Vec<usize>),
 }
 
 /// Local facet-subtree checkpoints.
