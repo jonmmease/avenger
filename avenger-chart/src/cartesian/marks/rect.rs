@@ -288,12 +288,12 @@ impl CompiledMark for CompiledCartesianRect {
             (
                 "x" | "x2" | "y" | "y2",
                 DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
-            ) => Some(Box::new(Band::default())),
+            ) => Some(Box::new(Band)),
             // Color channels use ordinal scales for categorical data
             (
                 "fill" | "stroke" | "color",
                 DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
-            ) => Some(Box::new(Ordinal::default())),
+            ) => Some(Box::new(Ordinal)),
             // Fall back to data type-based inference for other channels
             _ => default_scale_for_data_type(data_type),
         }

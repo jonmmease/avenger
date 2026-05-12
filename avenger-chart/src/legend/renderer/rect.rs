@@ -283,37 +283,38 @@ impl LegendRenderer for CompiledRectLegend {
         }
 
         // Use constant values from mark if available (and not the legend channel itself)
-        if channel_name != "fill" && channel_name != "color" {
-            if let Some(color) = helpers::get_constant_color(
+        if channel_name != "fill"
+            && channel_name != "color"
+            && let Some(color) = helpers::get_constant_color(
                 "fill",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
                 ctx,
-            ) {
-                legend_config.fill = ScalarOrArray::new_scalar(color);
-            }
+            )
+        {
+            legend_config.fill = ScalarOrArray::new_scalar(color);
         }
 
-        if channel_name != "stroke" {
-            if let Some(color) = helpers::get_constant_color(
+        if channel_name != "stroke"
+            && let Some(color) = helpers::get_constant_color(
                 "stroke",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
                 ctx,
-            ) {
-                legend_config.stroke = ScalarOrArray::new_scalar(color);
-            }
+            )
+        {
+            legend_config.stroke = ScalarOrArray::new_scalar(color);
         }
 
-        if channel_name != "stroke_width" {
-            if let Some(width) = helpers::get_constant_f32(
+        if channel_name != "stroke_width"
+            && let Some(width) = helpers::get_constant_f32(
                 "stroke_width",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
                 ctx,
-            ) {
-                legend_config.stroke_width = Some(width);
-            }
+            )
+        {
+            legend_config.stroke_width = Some(width);
         }
 
         // Apply the scale mapping based on the legend channel

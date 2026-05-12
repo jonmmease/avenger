@@ -127,14 +127,14 @@ impl SerializableDomainValue {
             SerializableDomainValue::Decimal128(s) => {
                 // Parse "value:precision:scale" format
                 let parts: Vec<&str> = s.split(':').collect();
-                if parts.len() == 3 {
-                    if let (Ok(value), Ok(precision), Ok(scale)) = (
+                if parts.len() == 3
+                    && let (Ok(value), Ok(precision), Ok(scale)) = (
                         parts[0].parse::<i128>(),
                         parts[1].parse::<u8>(),
                         parts[2].parse::<i8>(),
-                    ) {
-                        return ScalarValue::Decimal128(Some(value), precision, scale);
-                    }
+                    )
+                {
+                    return ScalarValue::Decimal128(Some(value), precision, scale);
                 }
                 // Fallback to null if parsing fails
                 ScalarValue::Null
@@ -582,7 +582,7 @@ mod tests {
         assert_eq!(i.to_scalar(), ScalarValue::Int64(Some(42)));
 
         // Test float
-        let f = SerializableDomainValue::from_scalar(&ScalarValue::Float64(Some(3.14)));
+        let f = SerializableDomainValue::from_scalar(&ScalarValue::Float64(Some(3.5)));
         assert!(matches!(f, SerializableDomainValue::Float(_)));
 
         // Test UInt64 (previously overflowed when stored as i64)

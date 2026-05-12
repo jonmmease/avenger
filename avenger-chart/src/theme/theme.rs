@@ -429,11 +429,11 @@ impl Theme {
                 // 2. Fall back to theme.variables
 
                 // Try params first (keep -- prefix)
-                if let Some(param_value) = params.get(&var_name) {
-                    if let Some(theme_val) = Self::scalar_to_theme_value(param_value) {
-                        // Recursively resolve in case param contains another reference
-                        return self.resolve_theme_value(theme_val, params, depth + 1);
-                    }
+                if let Some(param_value) = params.get(&var_name)
+                    && let Some(theme_val) = Self::scalar_to_theme_value(param_value)
+                {
+                    // Recursively resolve in case param contains another reference
+                    return self.resolve_theme_value(theme_val, params, depth + 1);
                 }
 
                 // Fall back to theme variables
@@ -528,10 +528,10 @@ impl Theme {
         let mut matches = Vec::new();
         for rule in &self.rules {
             // Check media query condition first (if present)
-            if let Some(media_cond) = &rule.media_condition {
-                if !media_cond.evaluate(&context.params, base_font_size) {
-                    continue; // Media query doesn't match, skip rule
-                }
+            if let Some(media_cond) = &rule.media_condition
+                && !media_cond.evaluate(&context.params, base_font_size)
+            {
+                continue; // Media query doesn't match, skip rule
             }
 
             // Then check selector match
@@ -553,29 +553,29 @@ impl Theme {
         // CSS cascade: !important declarations win over non-important declarations
         // Search important declarations first (from highest specificity)
         for rule in matches.iter().rev() {
-            if let Some(declaration) = rule.declarations.get(property) {
-                if declaration.important {
-                    // Resolve the value with params from context
-                    return Some(self.resolve_theme_value(
-                        declaration.value.clone(),
-                        &context.params,
-                        0,
-                    ));
-                }
+            if let Some(declaration) = rule.declarations.get(property)
+                && declaration.important
+            {
+                // Resolve the value with params from context
+                return Some(self.resolve_theme_value(
+                    declaration.value.clone(),
+                    &context.params,
+                    0,
+                ));
             }
         }
 
         // If no important declaration found, search non-important declarations
         for rule in matches.iter().rev() {
-            if let Some(declaration) = rule.declarations.get(property) {
-                if !declaration.important {
-                    // Resolve the value with params from context
-                    return Some(self.resolve_theme_value(
-                        declaration.value.clone(),
-                        &context.params,
-                        0,
-                    ));
-                }
+            if let Some(declaration) = rule.declarations.get(property)
+                && !declaration.important
+            {
+                // Resolve the value with params from context
+                return Some(self.resolve_theme_value(
+                    declaration.value.clone(),
+                    &context.params,
+                    0,
+                ));
             }
         }
 
@@ -1087,49 +1087,45 @@ impl Theme {
         let range_value = self.query(context, property);
 
         // Parse the range value into appropriate ScaleRange
-        match range_value {
-            Some(ThemeValue::List(values)) => {
-                // Handle pre-parsed list of values
-                let mut parsed_values = Vec::new();
-                let base_font_size = self.get_base_font_size(&context.params);
+        if let Some(ThemeValue::List(values)) = range_value {
+            // Handle pre-parsed list of values
+            let mut parsed_values = Vec::new();
+            let base_font_size = self.get_base_font_size(&context.params);
 
-                for val in values {
-                    match val {
-                        ThemeValue::String(s) => {
-                            parsed_values.push(s.clone());
-                        }
-                        ThemeValue::Color(rgba) => {
+            for val in values {
+                match val {
+                    ThemeValue::String(s) => {
+                        parsed_values.push(s.clone());
+                    }
+                    ThemeValue::Color(rgba) => {
+                        let hex = format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue);
+                        parsed_values.push(hex);
+                    }
+                    ThemeValue::Number(n) => {
+                        parsed_values.push(n.to_string());
+                    }
+                    // Handle color functions (color-mix, contrast-color, light-dark, etc.)
+                    ThemeValue::Function(_, _) | ThemeValue::LightDark(_, _) => {
+                        // Resolve the function to a color
+                        if let Some(rgba) =
+                            val.as_color_with_params(&context.params, base_font_size)
+                        {
                             let hex =
                                 format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue);
                             parsed_values.push(hex);
                         }
-                        ThemeValue::Number(n) => {
-                            parsed_values.push(n.to_string());
-                        }
-                        // Handle color functions (color-mix, contrast-color, light-dark, etc.)
-                        ThemeValue::Function(_, _) | ThemeValue::LightDark(_, _) => {
-                            // Resolve the function to a color
-                            if let Some(rgba) =
-                                val.as_color_with_params(&context.params, base_font_size)
-                            {
-                                let hex =
-                                    format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue);
-                                parsed_values.push(hex);
-                            }
-                        }
-                        _ => {}
                     }
-                }
-                if !parsed_values.is_empty() {
-                    return Some(self.create_scale_range(
-                        &parsed_values,
-                        channel,
-                        range_kind,
-                        domain_cardinality,
-                    ));
+                    _ => {}
                 }
             }
-            _ => {}
+            if !parsed_values.is_empty() {
+                return Some(self.create_scale_range(
+                    &parsed_values,
+                    channel,
+                    range_kind,
+                    domain_cardinality,
+                ));
+            }
         }
 
         // No value found
@@ -2252,9 +2248,9 @@ mod tests {
         }
 
         // Test numeric types
-        let float32_scalar = ScalarValue::Float32(Some(3.14));
+        let float32_scalar = ScalarValue::Float32(Some(3.5));
         match Theme::scalar_to_theme_value(&float32_scalar) {
-            Some(ThemeValue::Number(n)) => assert!((n - 3.14).abs() < 0.001),
+            Some(ThemeValue::Number(n)) => assert!((n - 3.5).abs() < 0.001),
             _ => panic!("Expected number from Float32"),
         }
 

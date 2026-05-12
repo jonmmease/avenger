@@ -231,17 +231,15 @@ fn run_inherited_apply_recursive<'a>(
             let mut parent_cross_size_propagated = false;
 
             for (idx, child) in facet_band.child_measurements_iter_mut().enumerate() {
-                if let Some(cross_size) = parent_cross_size {
-                    if let Some(child_facet_band) = child
+                if let Some(cross_size) = parent_cross_size
+                    && let Some(child_facet_band) = child
                         .coord_measurement
                         .as_any_mut()
                         .downcast_mut::<FacetBandCoordMeasurement>()
-                    {
-                        if child_facet_band.axis == parent_axis {
-                            child_facet_band.set_parent_bandwidth_value(cross_size);
-                            parent_cross_size_propagated = true;
-                        }
-                    }
+                    && child_facet_band.axis == parent_axis
+                {
+                    child_facet_band.set_parent_bandwidth_value(cross_size);
+                    parent_cross_size_propagated = true;
                 }
                 node_path.push(idx);
                 run_inherited_apply_recursive(
@@ -413,17 +411,17 @@ fn apply_inherited_propagation_cell_update(
     let plot_area_adjusted = (child.plot_area_width - target_plot_area_width).abs() > 0.01
         || (child.plot_area_height - target_plot_area_height).abs() > 0.01;
 
-    if intent.update_band_range {
-        if let (Some(band_scale), Some(range_end)) = (
+    if intent.update_band_range
+        && let (Some(band_scale), Some(range_end)) = (
             child.scales.get_mut(axis.scale_name()),
             intent.target_band_range_end,
-        ) {
-            let updated_config = band_scale
-                .configured()
-                .clone()
-                .with_range_interval((0.0, range_end));
-            band_scale.set_configured(updated_config);
-        }
+        )
+    {
+        let updated_config = band_scale
+            .configured()
+            .clone()
+            .with_range_interval((0.0, range_end));
+        band_scale.set_configured(updated_config);
     }
 
     if !plot_area_adjusted {

@@ -219,33 +219,34 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
 
     fn try_decode_udf(&self, name: &str, buf: &[u8]) -> DataFusionResult<Arc<ScalarUDF>> {
         // Check if this is a scale UDF with serialized data
-        if name == "scale" && buf.len() > SCALE_UDF_MAGIC.len() + 4 {
-            if buf.starts_with(SCALE_UDF_MAGIC) {
-                // Skip magic header
-                let buf = &buf[SCALE_UDF_MAGIC.len()..];
+        if name == "scale"
+            && buf.len() > SCALE_UDF_MAGIC.len() + 4
+            && buf.starts_with(SCALE_UDF_MAGIC)
+        {
+            // Skip magic header
+            let buf = &buf[SCALE_UDF_MAGIC.len()..];
 
-                // Read postcard length
-                if buf.len() < 4 {
-                    return datafusion_common::plan_err!(
-                        "Invalid scale UDF serialization: missing length"
-                    );
-                }
-                let postcard_len = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
-
-                // Read postcard data
-                if buf.len() < 4 + postcard_len {
-                    return datafusion_common::plan_err!(
-                        "Invalid scale UDF serialization: truncated data"
-                    );
-                }
-                let postcard_bytes = &buf[4..4 + postcard_len];
-
-                // Deserialize ScaleUDF
-                let scale_udf: ScaleUDF = postcard::from_bytes(postcard_bytes)
-                    .map_err(|e| DataFusionError::External(Box::new(e)))?;
-
-                return Ok(Arc::new(ScalarUDF::new_from_impl(scale_udf)));
+            // Read postcard length
+            if buf.len() < 4 {
+                return datafusion_common::plan_err!(
+                    "Invalid scale UDF serialization: missing length"
+                );
             }
+            let postcard_len = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
+
+            // Read postcard data
+            if buf.len() < 4 + postcard_len {
+                return datafusion_common::plan_err!(
+                    "Invalid scale UDF serialization: truncated data"
+                );
+            }
+            let postcard_bytes = &buf[4..4 + postcard_len];
+
+            // Deserialize ScaleUDF
+            let scale_udf: ScaleUDF = postcard::from_bytes(postcard_bytes)
+                .map_err(|e| DataFusionError::External(Box::new(e)))?;
+
+            return Ok(Arc::new(ScalarUDF::new_from_impl(scale_udf)));
         }
 
         // User UDF - fail with informative error

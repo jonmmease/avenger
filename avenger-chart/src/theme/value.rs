@@ -841,16 +841,14 @@ pub(crate) fn parse_color_string(color_str: &str) -> Option<CssRgba> {
 pub(crate) fn parse_length_string(length_str: &str) -> Option<ThemeValue> {
     let s = length_str.trim();
 
-    if s.ends_with("px") {
-        let num_str = &s[..s.len() - 2];
+    if let Some(num_str) = s.strip_suffix("px") {
         if let Ok(n) = num_str.parse::<f64>() {
             return Some(ThemeValue::Length(n, LengthUnit::Px));
         }
-    } else if s.ends_with("rem") {
-        let num_str = &s[..s.len() - 3];
-        if let Ok(n) = num_str.parse::<f64>() {
-            return Some(ThemeValue::Length(n, LengthUnit::Rem));
-        }
+    } else if let Some(num_str) = s.strip_suffix("rem")
+        && let Ok(n) = num_str.parse::<f64>()
+    {
+        return Some(ThemeValue::Length(n, LengthUnit::Rem));
     }
 
     None

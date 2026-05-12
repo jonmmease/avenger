@@ -156,7 +156,7 @@ Both types can be nested to create multi-dimensional grids.
 | How do I share scales across facets? | Use `.with_scale_sharing(ScaleSharing::Shared)` on inner mark channels |
 | How do I make scales independent? | Use `.with_scale_sharing(ScaleSharing::Free)` on inner mark channels (default) |
 | How do I add a facet title? | Use `.row_with(col("cat"), \|c\| c.facet(\|f\| f.title("Category")))` |
-| How do I adjust spacing? | Use `.row_with(col("cat"), \|c\| c.facet(\|f\| f.spacing(30.0)))` |
+| How do I adjust spacing? | Facet spacing is computed from measured subplot overflows. |
 | How do I create nested facets? | Use a facet coordinate system as the subplot of another facet |
 | How do I create grid-like nested facets? | Use `.row_with(col("cat"), \|c\| c.facet(\|f\| f.share_scale()))` - see [Customization](customization.md#facet-variable-scale-sharing) |
 

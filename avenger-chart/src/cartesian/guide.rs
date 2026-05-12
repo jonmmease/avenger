@@ -112,14 +112,13 @@ impl CartesianGuide {
             .plot_background_color
             .as_option()
             .and_then(|o| o.as_ref())
+            && let Ok(color_expr) = color_node.to_expr(ctx)
         {
-            if let Ok(color_expr) = color_node.to_expr(ctx) {
-                // Evaluate the expression to get color string
-                if let Ok(color_str) = evaluate_string_expr(&color_expr, ctx, params).await {
-                    // Parse the color string
-                    if let Ok(color) = parse_color_to_array_strict(&color_str) {
-                        return Some(color);
-                    }
+            // Evaluate the expression to get color string
+            if let Ok(color_str) = evaluate_string_expr(&color_expr, ctx, params).await {
+                // Parse the color string
+                if let Ok(color) = parse_color_to_array_strict(&color_str) {
+                    return Some(color);
                 }
             }
         }
@@ -456,17 +455,17 @@ impl CompiledGuide for CartesianGuide {
             // If axis has explicit position expression, try to extract it if it's a simple literal
             if let Some(position_node) = axis.position.as_option().and_then(|o| o.as_ref()) {
                 // Try to convert to datafusion Expr and check if it's a literal
-                if let Ok(expr) = position_node.to_expr(&SessionContext::new()) {
-                    if let Expr::Literal(DFScalarValue::Utf8(Some(pos_str)), _) = expr {
-                        // Got a literal string, parse it as an axis position
-                        return match pos_str.to_lowercase().as_str() {
-                            "top" => Some(AxisPosition::Top),
-                            "bottom" => Some(AxisPosition::Bottom),
-                            "left" => Some(AxisPosition::Left),
-                            "right" => Some(AxisPosition::Right),
-                            _ => None,
-                        };
-                    }
+                if let Ok(expr) = position_node.to_expr(&SessionContext::new())
+                    && let Expr::Literal(DFScalarValue::Utf8(Some(pos_str)), _) = expr
+                {
+                    // Got a literal string, parse it as an axis position
+                    return match pos_str.to_lowercase().as_str() {
+                        "top" => Some(AxisPosition::Top),
+                        "bottom" => Some(AxisPosition::Bottom),
+                        "left" => Some(AxisPosition::Left),
+                        "right" => Some(AxisPosition::Right),
+                        _ => None,
+                    };
                 }
                 // Has position expression but can't extract it - return None for fallback
                 None

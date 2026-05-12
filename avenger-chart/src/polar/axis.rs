@@ -365,12 +365,11 @@ impl PolarAxis {
                     }
                 } else if let Some(scaled_array) =
                     scaled_values.as_any().downcast_ref::<Float32Array>()
+                    && !scaled_array.is_empty()
                 {
-                    if !scaled_array.is_empty() {
-                        let radius = scaled_array.value(0);
-                        if radius.is_finite() && radius > 0.0 {
-                            radii.push(radius);
-                        }
+                    let radius = scaled_array.value(0);
+                    if radius.is_finite() && radius > 0.0 {
+                        radii.push(radius);
                     }
                 }
             }
@@ -638,7 +637,7 @@ impl PolarAxis {
                     color
                 })),
                 stroke_width: ScalarOrArray::new_scalar(
-                    theme.axis_grid_width(&axis_ctx).unwrap_or(1.0),
+                    theme.axis_grid_width(axis_ctx).unwrap_or(1.0),
                 ),
                 stroke_cap: ScalarOrArray::new_scalar(StrokeCap::Butt),
                 stroke_dash: None,

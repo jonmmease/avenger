@@ -249,23 +249,14 @@ impl<'i, 'a> DeclarationParser<'i> for DeclarationParserImpl<'a> {
 
         // Parse values manually, stopping at !important or end of input
         let mut values = Vec::new();
-        loop {
-            // Try to parse a value
-            match parse_single_value(input, self.unsupported_units) {
-                Ok(value) => {
-                    values.push(value);
-                    // Check if there's a comma (indicating more values)
-                    if input.try_parse(|i| i.expect_comma()).is_err() {
-                        // No comma, we're done parsing values
-                        break;
-                    }
-                    // Comma found, continue to next value
-                }
-                Err(_) => {
-                    // No more values to parse
-                    break;
-                }
+        while let Ok(value) = parse_single_value(input, self.unsupported_units) {
+            values.push(value);
+            // Check if there's a comma (indicating more values)
+            if input.try_parse(|i| i.expect_comma()).is_err() {
+                // No comma, we're done parsing values
+                break;
             }
+            // Comma found, continue to next value
         }
 
         // Check for !important flag using cssparser's parse_important
@@ -605,7 +596,7 @@ fn parse_single_value<'i, 't>(
             }
         }
         _ => {
-            token_to_theme_value(&token, unsupported_units).map_err(|_| parser.new_custom_error(()))
+            token_to_theme_value(token, unsupported_units).map_err(|_| parser.new_custom_error(()))
         }
     }
 }
@@ -645,7 +636,7 @@ fn parse_color_mix_args<'i, 't>(
                             values.push(nested_value);
                         }
                         _ => {
-                            if let Ok(theme_value) = token_to_theme_value(&token, unsupported_units)
+                            if let Ok(theme_value) = token_to_theme_value(token, unsupported_units)
                             {
                                 values.push(theme_value);
                             } else {
@@ -725,10 +716,10 @@ fn parse_calc_sum<'i, 't>(
                 // Require whitespace before the operator (already consumed by skip_whitespace)
                 // Check for whitespace after
                 let next_state = parser.state();
-                if let Ok(token) = parser.next_including_whitespace() {
-                    if !matches!(token, Token::WhiteSpace(_)) {
-                        parser.reset(&next_state);
-                    }
+                if let Ok(token) = parser.next_including_whitespace()
+                    && !matches!(token, Token::WhiteSpace(_))
+                {
+                    parser.reset(&next_state);
                 }
 
                 let term = parse_calc_product(parser, unsupported_units)?;
@@ -738,10 +729,10 @@ fn parse_calc_sum<'i, 't>(
                 // Require whitespace before the operator (already consumed by skip_whitespace)
                 // Check for whitespace after
                 let next_state = parser.state();
-                if let Ok(token) = parser.next_including_whitespace() {
-                    if !matches!(token, Token::WhiteSpace(_)) {
-                        parser.reset(&next_state);
-                    }
+                if let Ok(token) = parser.next_including_whitespace()
+                    && !matches!(token, Token::WhiteSpace(_))
+                {
+                    parser.reset(&next_state);
                 }
 
                 let term = parse_calc_product(parser, unsupported_units)?;
@@ -1905,7 +1896,7 @@ fn parse_dimension_value_tokens<'i, 't>(
 
     match token {
         Token::Number { value, .. } => {
-            let num_value = *value as f32;
+            let num_value = *value;
             // Check if there's a unit following
             let unit_result: Result<String, _> = parser.try_parse(|p| match p.next() {
                 Ok(Token::Ident(unit)) => Ok(unit.as_ref().to_string()),
@@ -1924,8 +1915,8 @@ fn parse_dimension_value_tokens<'i, 't>(
             }
         }
         Token::Dimension { value, unit, .. } => match unit.as_ref() {
-            "px" => Ok(DimensionValue::Pixels(*value as f32)),
-            "rem" => Ok(DimensionValue::Rem(*value as f32)),
+            "px" => Ok(DimensionValue::Pixels(*value)),
+            "rem" => Ok(DimensionValue::Rem(*value)),
             _ => Err(location.new_custom_error(())),
         },
         _ => Err(location.new_unexpected_token_error(token.clone())),

@@ -95,9 +95,10 @@ impl IntoExprDimension for i64 {
 /// Constraints that can be applied to the canvas
 ///
 /// Dimensions accept numeric literals (e.g., `800.0`), `Expr` values, or column references
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub enum CanvasConstraint {
     /// No constraint - canvas shrinks to fit content
+    #[default]
     None,
 
     /// Fixed width, height adjusts to content
@@ -119,16 +120,11 @@ impl CanvasConstraint {
     }
 }
 
-impl Default for CanvasConstraint {
-    fn default() -> Self {
-        Self::None
-    }
-}
-
 /// Constraints that can be applied to the plot area
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub enum PlotConstraint {
     /// Plot area fills available space in canvas
+    #[default]
     Auto,
 
     /// Fixed plot width, height adjusts
@@ -147,12 +143,6 @@ impl PlotConstraint {
     /// Create a height constraint from a numeric value
     pub fn height<T: IntoExprDimension>(value: T) -> Self {
         Self::Height(value.into_expr_dim())
-    }
-}
-
-impl Default for PlotConstraint {
-    fn default() -> Self {
-        Self::Auto
     }
 }
 

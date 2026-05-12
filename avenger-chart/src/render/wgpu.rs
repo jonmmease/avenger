@@ -23,6 +23,12 @@ pub struct WgpuRenderer {
     scale: f32,
 }
 
+impl Default for WgpuRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WgpuRenderer {
     /// Create a renderer with default settings (scale = 1.0).
     pub fn new() -> Self {

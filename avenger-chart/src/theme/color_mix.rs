@@ -84,20 +84,18 @@ pub fn resolve_color_mix_with_params(
 
     // Optionally parse hue interpolation method
     let mut hue_method = HueInterpolationMethod::Shorter;
-    if i < args.len() {
-        if let ThemeValue::String(s) = &args[i] {
-            if let Some(method) = parse_hue_method(s) {
-                hue_method = method;
-                i += 1;
-                // Should be followed by "hue" keyword
-                if i < args.len() {
-                    if let ThemeValue::String(s) = &args[i] {
-                        if s == "hue" {
-                            i += 1;
-                        }
-                    }
-                }
-            }
+    if i < args.len()
+        && let ThemeValue::String(s) = &args[i]
+        && let Some(method) = parse_hue_method(s)
+    {
+        hue_method = method;
+        i += 1;
+        // Should be followed by "hue" keyword
+        if i < args.len()
+            && let ThemeValue::String(s) = &args[i]
+            && s == "hue"
+        {
+            i += 1;
         }
     }
 

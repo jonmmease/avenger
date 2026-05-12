@@ -156,12 +156,12 @@ mod tests {
         ];
 
         for (name, result) in datasets {
-            let df = result.expect(&format!("Failed to load {}", name));
+            let df = result.unwrap_or_else(|_| panic!("Failed to load {}", name));
             let count = df
                 .clone()
                 .count()
                 .await
-                .expect(&format!("Failed to count rows in {}", name));
+                .unwrap_or_else(|_| panic!("Failed to count rows in {}", name));
             println!("{}: {} rows", name, count);
             assert!(count > 0, "{} should have rows", name);
         }

@@ -332,7 +332,7 @@ impl CompiledGuide for PolarGuide {
 
         // Create default axes at render time with full scale information
         let mut default_axes = HashMap::new();
-        for (channel_name, _scale) in scales {
+        for channel_name in scales.keys() {
             if channel_name == "r" || channel_name == "theta" {
                 let axis_type = match channel_name.as_str() {
                     "r" => PolarAxisType::Radial,

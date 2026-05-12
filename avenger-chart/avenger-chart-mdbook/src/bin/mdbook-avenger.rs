@@ -12,7 +12,7 @@ const GENERATED_DIR: &str = ".generated/images";
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
-    let preprocessor = AvengerPreprocessor::default();
+    let preprocessor = AvengerPreprocessor;
 
     if let Some(sub) = args.next() {
         if sub == "supports" {
@@ -124,7 +124,7 @@ impl<'a> AvengerBookProcessor<'a> {
 
 fn render_all(images_dir: &Path, src_dir: &Path) -> Result<()> {
     for entry in RENDER_ENTRIES {
-        let source = src_dir.join(&entry.markdown_path);
+        let source = src_dir.join(entry.markdown_path);
 
         // Check if any of the output images need rendering
         let needs_render = if entry.image_count == 1 {
@@ -139,7 +139,7 @@ fn render_all(images_dir: &Path, src_dir: &Path) -> Result<()> {
         };
 
         if needs_render {
-            let output_base = images_dir.join(&entry.slug);
+            let output_base = images_dir.join(entry.slug);
 
             // Render in subprocess to isolate stdout/stderr
             let render_binary = std::env::current_exe()

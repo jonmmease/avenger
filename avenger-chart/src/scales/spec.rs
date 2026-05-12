@@ -100,7 +100,7 @@ pub struct Auto;
 #[typetag::serde]
 impl ScaleSpec for Linear {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
-        Box::new(self.clone())
+        Box::new(*self)
     }
 
     fn create_impl(&self) -> Arc<dyn ScaleImpl> {
@@ -116,7 +116,7 @@ impl ScaleSpec for Linear {
 #[typetag::serde]
 impl ScaleSpec for Log {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
-        Box::new(self.clone())
+        Box::new(*self)
     }
 
     fn create_impl(&self) -> Arc<dyn ScaleImpl> {
@@ -132,7 +132,7 @@ impl ScaleSpec for Log {
 #[typetag::serde]
 impl ScaleSpec for Pow {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
-        Box::new(self.clone())
+        Box::new(*self)
     }
 
     fn create_impl(&self) -> Arc<dyn ScaleImpl> {
@@ -148,7 +148,7 @@ impl ScaleSpec for Pow {
 #[typetag::serde]
 impl ScaleSpec for Sqrt {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
-        Box::new(self.clone())
+        Box::new(*self)
     }
 
     fn create_impl(&self) -> Arc<dyn ScaleImpl> {
@@ -174,7 +174,7 @@ impl ScaleSpec for Sqrt {
 #[typetag::serde]
 impl ScaleSpec for Symlog {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
-        Box::new(self.clone())
+        Box::new(*self)
     }
 
     fn create_impl(&self) -> Arc<dyn ScaleImpl> {
@@ -190,7 +190,7 @@ impl ScaleSpec for Symlog {
 #[typetag::serde]
 impl ScaleSpec for Time {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
-        Box::new(self.clone())
+        Box::new(*self)
     }
 
     fn create_impl(&self) -> Arc<dyn ScaleImpl> {
@@ -206,7 +206,7 @@ impl ScaleSpec for Time {
 #[typetag::serde]
 impl ScaleSpec for Band {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
-        Box::new(self.clone())
+        Box::new(*self)
     }
 
     fn create_impl(&self) -> Arc<dyn ScaleImpl> {
@@ -222,7 +222,7 @@ impl ScaleSpec for Band {
 #[typetag::serde]
 impl ScaleSpec for Point {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
-        Box::new(self.clone())
+        Box::new(*self)
     }
 
     fn create_impl(&self) -> Arc<dyn ScaleImpl> {
@@ -238,7 +238,7 @@ impl ScaleSpec for Point {
 #[typetag::serde]
 impl ScaleSpec for Ordinal {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
-        Box::new(self.clone())
+        Box::new(*self)
     }
 
     fn create_impl(&self) -> Arc<dyn ScaleImpl> {
@@ -254,7 +254,7 @@ impl ScaleSpec for Ordinal {
 #[typetag::serde]
 impl ScaleSpec for Threshold {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
-        Box::new(self.clone())
+        Box::new(*self)
     }
 
     fn create_impl(&self) -> Arc<dyn ScaleImpl> {
@@ -270,7 +270,7 @@ impl ScaleSpec for Threshold {
 #[typetag::serde]
 impl ScaleSpec for Quantile {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
-        Box::new(self.clone())
+        Box::new(*self)
     }
 
     fn create_impl(&self) -> Arc<dyn ScaleImpl> {
@@ -286,7 +286,7 @@ impl ScaleSpec for Quantile {
 #[typetag::serde]
 impl ScaleSpec for Quantize {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
-        Box::new(self.clone())
+        Box::new(*self)
     }
 
     fn create_impl(&self) -> Arc<dyn ScaleImpl> {
@@ -302,7 +302,7 @@ impl ScaleSpec for Quantize {
 #[typetag::serde]
 impl ScaleSpec for Auto {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
-        Box::new(self.clone())
+        Box::new(*self)
     }
 
     fn create_impl(&self) -> Arc<dyn ScaleImpl> {
@@ -321,7 +321,7 @@ mod tests {
     #[test]
     fn test_sqrt_scale_default_options() {
         // Test that Sqrt scale has exponent = 0.5 as default
-        let sqrt = Sqrt::default();
+        let sqrt = Sqrt;
         let options = sqrt.default_options();
 
         assert!(
@@ -340,7 +340,7 @@ mod tests {
     #[test]
     fn test_linear_scale_default_options() {
         // Test that Linear scale has no default options
-        let linear = Linear::default();
+        let linear = Linear;
         let options = linear.default_options();
         assert!(
             options.is_empty(),
@@ -351,7 +351,7 @@ mod tests {
     #[test]
     fn test_scale_spec_clone_box() {
         // Test that we can clone a Box<dyn ScaleSpec>
-        let spec: Box<dyn ScaleSpec> = Box::new(Band::default());
+        let spec: Box<dyn ScaleSpec> = Box::new(Band);
         let cloned = spec.clone();
 
         // Both should have the same name
@@ -363,11 +363,11 @@ mod tests {
     fn test_scale_spec_clone_different_types() {
         // Test cloning different scale types
         let specs: Vec<Box<dyn ScaleSpec>> = vec![
-            Box::new(Linear::default()),
-            Box::new(Log::default()),
-            Box::new(Sqrt::default()),
-            Box::new(Band::default()),
-            Box::new(Ordinal::default()),
+            Box::new(Linear),
+            Box::new(Log),
+            Box::new(Sqrt),
+            Box::new(Band),
+            Box::new(Ordinal),
         ];
 
         for spec in &specs {

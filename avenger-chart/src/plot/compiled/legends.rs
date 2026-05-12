@@ -154,10 +154,10 @@ impl CompiledPlot {
         F: FnOnce(&Legend) -> &Maybe<Option<U>>,
         G: FnOnce() -> Option<T>,
     {
-        if matches!(field_check(legend), Maybe::Unset) {
-            if let Some(value) = theme_query() {
-                *legend = setter(legend.clone(), value);
-            }
+        if matches!(field_check(legend), Maybe::Unset)
+            && let Some(value) = theme_query()
+        {
+            *legend = setter(legend.clone(), value);
         }
     }
 
@@ -253,17 +253,17 @@ impl CompiledPlot {
             let base_font_size = theme.get_base_font_size(&legend_ctx.params);
 
             // Apply background padding if set
-            if let Some(value) = theme.query(&bg_ctx, "padding") {
-                if let Some(padding) = value.as_font_size(&legend_ctx.params, base_font_size) {
-                    legend = legend.background_padding(padding);
-                }
+            if let Some(value) = theme.query(&bg_ctx, "padding")
+                && let Some(padding) = value.as_font_size(&legend_ctx.params, base_font_size)
+            {
+                legend = legend.background_padding(padding);
             }
 
             // Apply background corner radius if set
-            if let Some(value) = theme.query(&bg_ctx, "corner-radius") {
-                if let Some(radius) = value.as_font_size(&legend_ctx.params, base_font_size) {
-                    legend = legend.background_corner_radius(radius);
-                }
+            if let Some(value) = theme.query(&bg_ctx, "corner-radius")
+                && let Some(radius) = value.as_font_size(&legend_ctx.params, base_font_size)
+            {
+                legend = legend.background_corner_radius(radius);
             }
 
             // Apply optional theme defaults
@@ -276,10 +276,10 @@ impl CompiledPlot {
                 legend = legend.background_stroke(color_array_to_hex(stroke));
             }
             // Apply stroke-width from theme
-            if let Some(value) = theme.query(&bg_ctx, "stroke-width") {
-                if let Some(stroke_width) = value.as_font_size(&legend_ctx.params, base_font_size) {
-                    legend = legend.background_stroke_width(stroke_width);
-                }
+            if let Some(value) = theme.query(&bg_ctx, "stroke-width")
+                && let Some(stroke_width) = value.as_font_size(&legend_ctx.params, base_font_size)
+            {
+                legend = legend.background_stroke_width(stroke_width);
             }
 
             // Set text colors and typography from theme (using defaults if theme doesn't specify)
@@ -562,18 +562,18 @@ impl CompiledPlot {
 
                 if !has_media_queries {
                     // No media queries, apply static position from theme
-                    if let Some(theme_value) = theme.query(&legend_ctx, "position") {
-                        if let Some(position_str) = theme_value.as_string() {
-                            let position = match position_str.to_lowercase().as_str() {
-                                "top" => Some(LegendPosition::Top),
-                                "bottom" => Some(LegendPosition::Bottom),
-                                "left" => Some(LegendPosition::Left),
-                                "right" => Some(LegendPosition::Right),
-                                _ => None,
-                            };
-                            if let Some(pos) = position {
-                                *legend = legend.clone().position(pos);
-                            }
+                    if let Some(theme_value) = theme.query(&legend_ctx, "position")
+                        && let Some(position_str) = theme_value.as_string()
+                    {
+                        let position = match position_str.to_lowercase().as_str() {
+                            "top" => Some(LegendPosition::Top),
+                            "bottom" => Some(LegendPosition::Bottom),
+                            "left" => Some(LegendPosition::Left),
+                            "right" => Some(LegendPosition::Right),
+                            _ => None,
+                        };
+                        if let Some(pos) = position {
+                            *legend = legend.clone().position(pos);
                         }
                     }
                 }
@@ -733,16 +733,16 @@ impl CompiledPlot {
             };
 
             let legend_ctx = theme.legend_context_with_params(legend_type, params.clone());
-            if let Some(theme_value) = theme.query(&legend_ctx, "position") {
-                if let Some(position_str) = theme_value.as_string() {
-                    return Ok(match position_str.to_lowercase().as_str() {
-                        "top" => LegendPosition::Top,
-                        "bottom" => LegendPosition::Bottom,
-                        "left" => LegendPosition::Left,
-                        "right" => LegendPosition::Right,
-                        _ => LegendPosition::Right,
-                    });
-                }
+            if let Some(theme_value) = theme.query(&legend_ctx, "position")
+                && let Some(position_str) = theme_value.as_string()
+            {
+                return Ok(match position_str.to_lowercase().as_str() {
+                    "top" => LegendPosition::Top,
+                    "bottom" => LegendPosition::Bottom,
+                    "left" => LegendPosition::Left,
+                    "right" => LegendPosition::Right,
+                    _ => LegendPosition::Right,
+                });
             }
         }
 
@@ -1094,7 +1094,7 @@ mod tests {
     }
 
     fn make_simple_scale() -> ConfiguredScale {
-        let domain = ScalarValue::iter_to_array(vec![s("A"), s("B")].into_iter()).unwrap();
+        let domain = ScalarValue::iter_to_array(vec![s("A"), s("B")]).unwrap();
         BandScale::configured(domain, (0.0, 100.0))
     }
 

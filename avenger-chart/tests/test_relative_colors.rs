@@ -326,9 +326,9 @@ fn test_relative_color_clamping() {
 
     let [r, g, b, _] = color.unwrap();
     // Components should be clamped to [0, 1]
-    assert!(r >= 0.0 && r <= 1.0);
-    assert!(g >= 0.0 && g <= 1.0);
-    assert!(b >= 0.0 && b <= 1.0);
+    assert!((0.0..=1.0).contains(&r));
+    assert!((0.0..=1.0).contains(&g));
+    assert!((0.0..=1.0).contains(&b));
 }
 
 // ============================================================================

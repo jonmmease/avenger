@@ -164,22 +164,22 @@ pub fn measure_facet_label_slab(config: &FacetLabelMeasurementConfig) -> f32 {
 
     // Measure title if present AND render_title is true
     // When nested, render_title=false so we don't include title space
-    if config.render_title {
-        if let Some(title_text) = &config.title {
-            let title_config = TextMeasurementConfig {
-                text: title_text,
-                font: &config.title_font_family,
-                font_size: config.title_font_size_px,
-                font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
-                font_style: &FontStyle::Normal,
-            };
-            let title_bounds = measurer.measure_text_bounds(&title_config);
-            let title_dimension = title_bounds.height;
+    if config.render_title
+        && let Some(title_text) = &config.title
+    {
+        let title_config = TextMeasurementConfig {
+            text: title_text,
+            font: &config.title_font_family,
+            font_size: config.title_font_size_px,
+            font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
+            font_style: &FontStyle::Normal,
+        };
+        let title_bounds = measurer.measure_text_bounds(&title_config);
+        let title_dimension = title_bounds.height;
 
-            // Add gap + title + rule stroke (original logic - gap includes rule/tick space)
-            let gap = 10.0_f32;
-            total_space += gap + title_dimension + 1.0;
-        }
+        // Add gap + title + rule stroke (original logic - gap includes rule/tick space)
+        let gap = 10.0_f32;
+        total_space += gap + title_dimension + 1.0;
     }
 
     total_space + 1.0 // Extra pixel for safety
@@ -233,11 +233,11 @@ pub fn render_facet_label_slab(
 
     // Render title if present AND render_title is true
     // When nested, render_title=false so title appears only at outer edge
-    if config.render_title {
-        if let Some(title_text) = &config.title {
-            let title_mark = render_facet_title(title_text, config, theme, theme_params);
-            marks.push(SceneMark::Text(StdArc::new(title_mark)));
-        }
+    if config.render_title
+        && let Some(title_text) = &config.title
+    {
+        let title_mark = render_facet_title(title_text, config, theme, theme_params);
+        marks.push(SceneMark::Text(StdArc::new(title_mark)));
     }
 
     marks

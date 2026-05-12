@@ -326,7 +326,7 @@ impl CompiledMark for CompiledCartesianSymbol {
         match (channel, data_type) {
             // Symbol marks use point scales for categorical position data
             ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Box::new(Point::default()))
+                Some(Box::new(Point))
             }
             // Size uses sqrt scale for numeric data (better for area perception)
             (
@@ -343,20 +343,20 @@ impl CompiledMark for CompiledCartesianSymbol {
                 | DataType::UInt64,
             ) => {
                 // Use Sqrt scale for better area perception
-                Some(Box::new(Sqrt::default()))
+                Some(Box::new(Sqrt))
             }
             // Size uses ordinal for categorical data
             ("size", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Box::new(Ordinal::default()))
+                Some(Box::new(Ordinal))
             }
             // Color and shape channels use ordinal scales for categorical data
             (
                 "fill" | "stroke" | "color" | "shape",
                 DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
-            ) => Some(Box::new(Ordinal::default())),
+            ) => Some(Box::new(Ordinal)),
             // Stroke width uses ordinal scale only for categorical data
             ("stroke_width", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Box::new(Ordinal::default()))
+                Some(Box::new(Ordinal))
             }
             // Fall back to data type-based inference for other channels
             _ => default_scale_for_data_type(data_type),

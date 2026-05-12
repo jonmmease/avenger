@@ -521,10 +521,10 @@ impl LegendRenderer for CompiledSymbolLegend {
                         ScalarOrArrayValue::Scalar(fill) => {
                             // If fill is scalar, apply first opacity value
                             let mut fill = fill.clone();
-                            if let Some(opacity) = opacities.first() {
-                                if let ColorOrGradient::Color(ref mut color) = fill {
-                                    color[3] *= opacity.clamp(0.0, 1.0);
-                                }
+                            if let Some(opacity) = opacities.first()
+                                && let ColorOrGradient::Color(ref mut color) = fill
+                            {
+                                color[3] *= opacity.clamp(0.0, 1.0);
                             }
                             ScalarOrArray::new_scalar(fill)
                         }
@@ -550,10 +550,10 @@ impl LegendRenderer for CompiledSymbolLegend {
                         ScalarOrArrayValue::Scalar(stroke) => {
                             // If stroke is scalar, apply first opacity value
                             let mut stroke = stroke.clone();
-                            if let Some(opacity) = opacities.first() {
-                                if let ColorOrGradient::Color(ref mut color) = stroke {
-                                    color[3] *= opacity.clamp(0.0, 1.0);
-                                }
+                            if let Some(opacity) = opacities.first()
+                                && let ColorOrGradient::Color(ref mut color) = stroke
+                            {
+                                color[3] *= opacity.clamp(0.0, 1.0);
                             }
                             ScalarOrArray::new_scalar(stroke)
                         }

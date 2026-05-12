@@ -891,11 +891,11 @@ mod tests {
             "inherited propagation should retarget child plot width when parent cross size changes"
         );
 
-        if let Some(scale_with_spec) = first_child.scales.get(root.axis.scale_name()) {
-            if let Ok((start, end)) = scale_with_spec.configured().numeric_interval_range() {
-                let span = (end - start).abs();
-                assert!(approx_eq_within(span, target_cross_size, 2.0));
-            }
+        if let Some(scale_with_spec) = first_child.scales.get(root.axis.scale_name())
+            && let Ok((start, end)) = scale_with_spec.configured().numeric_interval_range()
+        {
+            let span = (end - start).abs();
+            assert!(approx_eq_within(span, target_cross_size, 2.0));
         }
 
         Ok(())

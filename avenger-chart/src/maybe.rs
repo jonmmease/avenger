@@ -14,18 +14,13 @@ use serde_with::{DeserializeAs, SerializeAs};
 use crate::serialization::SerializableExpr;
 
 /// Three-state enum for tracking configuration values
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 pub enum Maybe<T> {
     /// Field has not been set by user
+    #[default]
     Unset,
     /// Field has been explicitly set (including to None for Option<T>)
     Set(T),
-}
-
-impl<T> Default for Maybe<T> {
-    fn default() -> Self {
-        Maybe::Unset
-    }
 }
 
 impl<T> Maybe<T> {

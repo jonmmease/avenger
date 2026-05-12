@@ -314,7 +314,7 @@ impl GridBuilder {
                 let title_ctx = theme.title_context_with_params(params.clone());
 
                 // Measure title height
-                let text_node: LogicalExprNode = t.text.clone().into();
+                let text_node: LogicalExprNode = t.text.clone();
                 let bounds = measure_text_bounds(
                     &text_node,
                     &t.font_size,
@@ -342,7 +342,7 @@ impl GridBuilder {
                 let subtitle_ctx = theme.subtitle_context_with_params(params.clone());
 
                 // Measure subtitle height
-                let text_node: LogicalExprNode = s.text.clone().into();
+                let text_node: LogicalExprNode = s.text.clone();
                 let bounds = measure_text_bounds(
                     &text_node,
                     &s.font_size,

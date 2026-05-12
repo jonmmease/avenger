@@ -548,7 +548,7 @@ fn apply_facet_band_scale_adjustment(
         active_layout,
         domain_override,
         band_n_override,
-        ScaleLayoutRewriteMode::RenderPass {
+        ScaleLayoutRewriteMode::Render {
             allow_zero_padding_override: needs_zero_padding_override,
             side_specific_outer_edges: true,
         },
@@ -654,14 +654,14 @@ impl CoordMeasurement for FacetBandProbeMeasurement {
 
 #[derive(Clone, Copy, Debug)]
 enum ScaleLayoutRewriteMode {
-    MeasurementPass {
+    Measurement {
         side_specific_outer_edges: bool,
     },
-    RenderPass {
+    Render {
         allow_zero_padding_override: bool,
         side_specific_outer_edges: bool,
     },
-    RemeasurePass {
+    Remeasure {
         side_specific_outer_edges: bool,
     },
 }
@@ -671,15 +671,14 @@ impl ScaleLayoutRewriteMode {
     fn set_padding_always(self) -> bool {
         matches!(
             self,
-            ScaleLayoutRewriteMode::MeasurementPass { .. }
-                | ScaleLayoutRewriteMode::RemeasurePass { .. }
+            ScaleLayoutRewriteMode::Measurement { .. } | ScaleLayoutRewriteMode::Remeasure { .. }
         )
     }
 
     #[inline]
     fn allow_zero_padding_override(self) -> bool {
         match self {
-            ScaleLayoutRewriteMode::RenderPass {
+            ScaleLayoutRewriteMode::Render {
                 allow_zero_padding_override,
                 ..
             } => allow_zero_padding_override,
@@ -690,14 +689,14 @@ impl ScaleLayoutRewriteMode {
     #[inline]
     fn side_specific_outer_edges(self) -> bool {
         match self {
-            ScaleLayoutRewriteMode::MeasurementPass {
+            ScaleLayoutRewriteMode::Measurement {
                 side_specific_outer_edges,
             }
-            | ScaleLayoutRewriteMode::RenderPass {
+            | ScaleLayoutRewriteMode::Render {
                 side_specific_outer_edges,
                 ..
             }
-            | ScaleLayoutRewriteMode::RemeasurePass {
+            | ScaleLayoutRewriteMode::Remeasure {
                 side_specific_outer_edges,
             } => side_specific_outer_edges,
         }
@@ -715,12 +714,11 @@ fn apply_facet_band_scale_layout(
 ) -> ConfiguredScale {
     let mut updated = base.clone();
 
-    if let Some(domain_values) = domain_override {
-        if !domain_values.is_empty() {
-            if let Ok(domain_array) = ScalarValue::iter_to_array(domain_values.iter().cloned()) {
-                updated = updated.with_domain(domain_array);
-            }
-        }
+    if let Some(domain_values) = domain_override
+        && !domain_values.is_empty()
+        && let Ok(domain_array) = ScalarValue::iter_to_array(domain_values.iter().cloned())
+    {
+        updated = updated.with_domain(domain_array);
     }
 
     if let Some(band_n) = band_n_override {
@@ -976,7 +974,7 @@ impl FacetBandCoordMeasurement {
             layout,
             domain_override,
             Some(layout.n),
-            ScaleLayoutRewriteMode::RemeasurePass {
+            ScaleLayoutRewriteMode::Remeasure {
                 side_specific_outer_edges: true,
             },
         );
@@ -1927,14 +1925,14 @@ fn cell_main_plot_size(axis: FacetAxis, measurement: &ComponentsMeasurement) -> 
         .downcast_ref::<FacetBandCoordMeasurementFixed>()
     {
         let positions = &facet_band.fixed_main_axis_positions;
-        if let Some(&last_pos) = positions.last() {
-            if let Some(last_cell) = facet_band.base.cells.last() {
-                let last_cell_size = match axis {
-                    FacetAxis::Column => last_cell.measurement.plot_area_width,
-                    FacetAxis::Row => last_cell.measurement.plot_area_height,
-                };
-                return (last_pos + last_cell_size).max(0.0);
-            }
+        if let Some(&last_pos) = positions.last()
+            && let Some(last_cell) = facet_band.base.cells.last()
+        {
+            let last_cell_size = match axis {
+                FacetAxis::Column => last_cell.measurement.plot_area_width,
+                FacetAxis::Row => last_cell.measurement.plot_area_height,
+            };
+            return (last_pos + last_cell_size).max(0.0);
         }
     }
 
@@ -3877,7 +3875,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             &pass2_layout,
             Some(cell_values),
             None,
-            ScaleLayoutRewriteMode::MeasurementPass {
+            ScaleLayoutRewriteMode::Measurement {
                 side_specific_outer_edges: true,
             },
         );
@@ -4325,13 +4323,10 @@ mod tests {
     use taffy::Size;
 
     fn make_band_scale(range: (f32, f32)) -> ConfiguredScale {
-        let domain = ScalarValue::iter_to_array(
-            vec![
-                ScalarValue::Utf8(Some("a".to_string())),
-                ScalarValue::Utf8(Some("b".to_string())),
-            ]
-            .into_iter(),
-        )
+        let domain = ScalarValue::iter_to_array(vec![
+            ScalarValue::Utf8(Some("a".to_string())),
+            ScalarValue::Utf8(Some("b".to_string())),
+        ])
         .unwrap();
         BandScale::configured(domain, range)
     }
@@ -4950,7 +4945,7 @@ mod tests {
             &layout,
             Some(domain_override.as_slice()),
             None,
-            ScaleLayoutRewriteMode::MeasurementPass {
+            ScaleLayoutRewriteMode::Measurement {
                 side_specific_outer_edges: true,
             },
         );
@@ -5009,7 +5004,7 @@ mod tests {
             &layout,
             None,
             None,
-            ScaleLayoutRewriteMode::RenderPass {
+            ScaleLayoutRewriteMode::Render {
                 allow_zero_padding_override: false,
                 side_specific_outer_edges: true,
             },
@@ -5022,7 +5017,7 @@ mod tests {
             &layout,
             None,
             None,
-            ScaleLayoutRewriteMode::RenderPass {
+            ScaleLayoutRewriteMode::Render {
                 allow_zero_padding_override: true,
                 side_specific_outer_edges: true,
             },
@@ -5106,7 +5101,7 @@ mod tests {
             &layout,
             None,
             None,
-            ScaleLayoutRewriteMode::MeasurementPass {
+            ScaleLayoutRewriteMode::Measurement {
                 side_specific_outer_edges: true,
             },
         );

@@ -131,7 +131,7 @@ mod tests {
 
     #[test]
     fn test_sorting_with_nan_and_null() {
-        let mut values = vec![
+        let mut values = [
             ScalarValue::Float64(Some(2.0)),
             ScalarValue::Float64(None),
             ScalarValue::Float64(Some(f64::NAN)),

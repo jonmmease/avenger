@@ -305,7 +305,7 @@ impl CompiledMark for CompiledPolarSymbol {
             (
                 "r" | "theta",
                 ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 | ArrowDataType::Utf8View,
-            ) => Some(Box::new(Point::default())),
+            ) => Some(Box::new(Point)),
             // Size uses sqrt scale for numeric data (better for area perception)
             (
                 "size",
@@ -321,22 +321,22 @@ impl CompiledMark for CompiledPolarSymbol {
                 | ArrowDataType::UInt64,
             ) => {
                 // Use Sqrt scale for better area perception
-                Some(Box::new(Sqrt::default()))
+                Some(Box::new(Sqrt))
             }
             // Size uses ordinal for categorical data
             ("size", ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 | ArrowDataType::Utf8View) => {
-                Some(Box::new(Ordinal::default()))
+                Some(Box::new(Ordinal))
             }
             // Color and shape channels use ordinal scales for categorical data
             (
                 "fill" | "stroke" | "color" | "shape",
                 ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 | ArrowDataType::Utf8View,
-            ) => Some(Box::new(Ordinal::default())),
+            ) => Some(Box::new(Ordinal)),
             // Stroke width uses ordinal scale only for categorical data
             (
                 "stroke_width",
                 ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 | ArrowDataType::Utf8View,
-            ) => Some(Box::new(Ordinal::default())),
+            ) => Some(Box::new(Ordinal)),
             // Fall back to data type-based inference for other channels
             _ => default_scale_for_data_type(data_type),
         }

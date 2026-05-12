@@ -281,17 +281,16 @@ fn run_inherited_apply_recursive<'a>(
             let mut parent_cross_size_propagated = false;
 
             for (idx, child) in facet_band.child_measurements_iter_mut().enumerate() {
-                if let Some(cross_size) = parent_cross_size {
-                    if let Some(child_facet_band) = child
+                if let Some(cross_size) = parent_cross_size
+                    && let Some(child_facet_band) = child
                         .coord_measurement
                         .as_any_mut()
                         .downcast_mut::<FacetBandCoordMeasurementFixed>(
-                    ) {
-                        if child_facet_band.axis == parent_axis {
-                            child_facet_band.set_parent_bandwidth_value(cross_size);
-                            parent_cross_size_propagated = true;
-                        }
-                    }
+                    )
+                    && child_facet_band.axis == parent_axis
+                {
+                    child_facet_band.set_parent_bandwidth_value(cross_size);
+                    parent_cross_size_propagated = true;
                 }
                 node_path.push(idx);
                 run_inherited_apply_recursive(
@@ -464,31 +463,31 @@ fn apply_inherited_propagation_child_resize(
 ) -> bool {
     let mut plot_area_adjusted = false;
     if intent.adjust_plot_area {
-        if let Some(new_width) = intent.target_plot_area_width {
-            if (child.plot_area_width - new_width).abs() > 0.01 {
-                child.plot_area_width = new_width;
-                plot_area_adjusted = true;
-            }
+        if let Some(new_width) = intent.target_plot_area_width
+            && (child.plot_area_width - new_width).abs() > 0.01
+        {
+            child.plot_area_width = new_width;
+            plot_area_adjusted = true;
         }
-        if let Some(new_height) = intent.target_plot_area_height {
-            if (child.plot_area_height - new_height).abs() > 0.01 {
-                child.plot_area_height = new_height;
-                plot_area_adjusted = true;
-            }
+        if let Some(new_height) = intent.target_plot_area_height
+            && (child.plot_area_height - new_height).abs() > 0.01
+        {
+            child.plot_area_height = new_height;
+            plot_area_adjusted = true;
         }
     }
 
-    if intent.update_band_range {
-        if let (Some(band_scale), Some(range_end)) = (
+    if intent.update_band_range
+        && let (Some(band_scale), Some(range_end)) = (
             child.scales.get_mut(axis.scale_name()),
             intent.target_band_range_end,
-        ) {
-            let updated_config = band_scale
-                .configured()
-                .clone()
-                .with_range_interval((0.0, range_end));
-            band_scale.set_configured(updated_config);
-        }
+        )
+    {
+        let updated_config = band_scale
+            .configured()
+            .clone()
+            .with_range_interval((0.0, range_end));
+        band_scale.set_configured(updated_config);
     }
 
     plot_area_adjusted

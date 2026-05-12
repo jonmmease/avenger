@@ -613,7 +613,7 @@ impl EvaluatedFacetTree {
     ///
     /// # Arguments
     /// * `path` - Sequence of values identifying position in the tree, from outermost
-    ///            to the desired depth. Can be a full cell path or a partial ancestor path.
+    ///   to the desired depth. Can be a full cell path or a partial ancestor path.
     ///
     /// # Returns
     /// - `Some(Expr)` with filter like `field1 = value1 AND field2 = value2 AND ...`
@@ -879,10 +879,10 @@ impl EvaluatedFacetTree {
         // Recurse to children (use first child to get next level structure).
         // This preserves existing first-branch semantics for potentially
         // asymmetric trees without panicking in debug builds.
-        if let PartitionContent::Branch { ref children } = node.content {
-            if let Some(first_child) = children.values().next() {
-                Self::collect_level_counts_first_branch(first_child.as_ref(), counts, level + 1);
-            }
+        if let PartitionContent::Branch { ref children } = node.content
+            && let Some(first_child) = children.values().next()
+        {
+            Self::collect_level_counts_first_branch(first_child.as_ref(), counts, level + 1);
         }
     }
 
@@ -1338,6 +1338,7 @@ impl EvaluatedFacetTree {
     /// This applies axis ownership in a way that composes mixed row/column nesting:
     /// - x axes are controlled by row-facet levels
     /// - y axes are controlled by column-facet levels
+    ///
     /// while preserving orthogonal strip grouping and branch-local ragged counts.
     pub fn channel_axis_visibility_for_path_checked(
         &self,
@@ -1663,10 +1664,10 @@ fn get_dataframe_from_plot(plot: &CompiledPlot, ctx: &SessionContext) -> Option<
     }
 
     // Fall back to plot-level data
-    if let Some(data_node) = &plot.data {
-        if let Ok(logical_plan) = data_node.to_logical_plan(ctx) {
-            return Some(DataFrame::new(ctx.state().clone(), logical_plan));
-        }
+    if let Some(data_node) = &plot.data
+        && let Ok(logical_plan) = data_node.to_logical_plan(ctx)
+    {
+        return Some(DataFrame::new(ctx.state().clone(), logical_plan));
     }
 
     None

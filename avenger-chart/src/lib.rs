@@ -1,3 +1,12 @@
+#![allow(
+    clippy::borrowed_box,
+    clippy::items_after_test_module,
+    clippy::large_enum_variant,
+    clippy::module_inception,
+    clippy::too_many_arguments,
+    clippy::type_complexity
+)]
+
 pub mod axis;
 pub mod cartesian;
 pub mod channel;

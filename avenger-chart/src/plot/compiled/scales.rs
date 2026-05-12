@@ -321,7 +321,8 @@ async fn build_scale_for_channel(
                     let df_for_inference = mark_df
                         .filter(|df| !is_empty_relation(df))
                         .or_else(|| df_opt.clone());
-                    let inferred_dt = if let Some(df) = df_for_inference {
+
+                    if let Some(df) = df_for_inference {
                         match &expr {
                             Expr::Column(col) => {
                                 let name = col.name.clone();
@@ -342,8 +343,7 @@ async fn build_scale_for_channel(
                         }
                     } else {
                         None
-                    };
-                    inferred_dt
+                    }
                 } else {
                     None
                 }
@@ -412,10 +412,10 @@ async fn build_scale_for_channel(
     let mut scale = Scale::<Auto>::from_spec(scale_spec.clone());
 
     // Apply user's domain if present (before defaults)
-    if let Some(channel_scale) = &chosen_scale_config {
-        if let Some(domain) = channel_scale.get_domain() {
-            scale = scale.domain(domain.clone());
-        }
+    if let Some(channel_scale) = &chosen_scale_config
+        && let Some(domain) = channel_scale.get_domain()
+    {
+        scale = scale.domain(domain.clone());
     }
 
     // Check if domain is explicitly set by user on the channel
@@ -536,14 +536,14 @@ fn get_radius_expression(
                                         });
 
                                     // Check Phase 1 scales
-                                    if let Some(configured) = phase1_configured.get(&scale_key) {
-                                        if let Ok(expr_df) = expr.to_expr(ctx) {
-                                            return ConfiguredScaleDataFusionExt::to_expr(
-                                                configured,
-                                                expr_df.clone(),
-                                            )
-                                            .unwrap_or(expr_df);
-                                        }
+                                    if let Some(configured) = phase1_configured.get(&scale_key)
+                                        && let Ok(expr_df) = expr.to_expr(ctx)
+                                    {
+                                        return ConfiguredScaleDataFusionExt::to_expr(
+                                            configured,
+                                            expr_df.clone(),
+                                        )
+                                        .unwrap_or(expr_df);
                                     }
 
                                     // Fallback to raw expression
@@ -655,19 +655,19 @@ async fn cache_domain_data(
     let mut entries: Vec<(Arc<DataFrame>, Expr, Option<RadiusExpression>)> = Vec::new();
 
     // First, if the scale domain is DomainExprs from overrides, use those directly
-    if let Some(domain) = scale.get_domain() {
-        if let ScaleDefaultDomain::DomainExprs(exprs) = &domain.default_domain {
-            for DomainExpr {
-                dataframe,
-                expr,
-                radius,
-            } in exprs.iter()
-            {
-                let logical_plan = dataframe.to_logical_plan(ctx)?;
-                let df = Arc::new(DataFrame::new(ctx.state().clone(), logical_plan));
-                let expr_df = expr.to_expr(ctx)?;
-                entries.push((df, expr_df, radius.clone()));
-            }
+    if let Some(domain) = scale.get_domain()
+        && let ScaleDefaultDomain::DomainExprs(exprs) = &domain.default_domain
+    {
+        for DomainExpr {
+            dataframe,
+            expr,
+            radius,
+        } in exprs.iter()
+        {
+            let logical_plan = dataframe.to_logical_plan(ctx)?;
+            let df = Arc::new(DataFrame::new(ctx.state().clone(), logical_plan));
+            let expr_df = expr.to_expr(ctx)?;
+            entries.push((df, expr_df, radius.clone()));
         }
     }
 
@@ -693,85 +693,87 @@ async fn cache_domain_data(
                 resolve_all_channel_refs(channels, ctx).unwrap_or_else(|_| channels.clone());
 
             for (channel_name, channel_value) in &resolved {
-                if let Some(channel_scale_name) = channel_value.get_scale_name(channel_name) {
-                    if channel_scale_name == channel {
-                        // Helper to push (df, expr_df, per_mark_radius)
-                        let mut push_entry = |expr_df: Expr| {
-                            // Compute per-mark radius (if supported by this scale)
-                            let per_mark_radius = if let Ok(scale_impl) =
-                                Scale::<Auto>::from_spec(spec.clone_box()).to_scale_impl()
-                            {
-                                if scale_impl.supports_radius_expansion() {
-                                    // Build resolve_channel as in get_radius_expression
-                                    let resolve_channel = |ch_name: &str| -> Expr {
-                                        if let Some(ch_val) = resolved.get(ch_name) {
-                                            match ch_val {
-                                                ChannelValue::Scaled {
-                                                    expr, scale_name, ..
-                                                } => {
-                                                    let scale_key = scale_name
-                                                        .as_ref()
-                                                        .cloned()
-                                                        .unwrap_or_else(|| {
-                                                            strip_trailing_numbers(ch_name)
-                                                                .to_string()
-                                                        });
-                                                    if let Some(configured) =
-                                                        phase1_configured.get(&scale_key)
-                                                    {
-                                                        if let Ok(expr_df2) = expr.to_expr(ctx) {
-                                                            return ConfiguredScaleDataFusionExt::to_expr(configured, expr_df2.clone()).unwrap_or(expr_df2);
-                                                        }
-                                                    }
-                                                    expr.to_expr(ctx).unwrap_or(lit(0.0))
+                if let Some(channel_scale_name) = channel_value.get_scale_name(channel_name)
+                    && channel_scale_name == channel
+                {
+                    // Helper to push (df, expr_df, per_mark_radius)
+                    let mut push_entry = |expr_df: Expr| {
+                        // Compute per-mark radius (if supported by this scale)
+                        let per_mark_radius = if let Ok(scale_impl) =
+                            Scale::<Auto>::from_spec(spec.clone_box()).to_scale_impl()
+                        {
+                            if scale_impl.supports_radius_expansion() {
+                                // Build resolve_channel as in get_radius_expression
+                                let resolve_channel = |ch_name: &str| -> Expr {
+                                    if let Some(ch_val) = resolved.get(ch_name) {
+                                        match ch_val {
+                                            ChannelValue::Scaled {
+                                                expr, scale_name, ..
+                                            } => {
+                                                let scale_key = scale_name
+                                                    .as_ref()
+                                                    .cloned()
+                                                    .unwrap_or_else(|| {
+                                                        strip_trailing_numbers(ch_name).to_string()
+                                                    });
+                                                if let Some(configured) =
+                                                    phase1_configured.get(&scale_key)
+                                                    && let Ok(expr_df2) = expr.to_expr(ctx)
+                                                {
+                                                    return ConfiguredScaleDataFusionExt::to_expr(
+                                                        configured,
+                                                        expr_df2.clone(),
+                                                    )
+                                                    .unwrap_or(expr_df2);
                                                 }
-                                                ChannelValue::Value { expr } => {
-                                                    expr.to_expr(ctx).unwrap_or(lit(0.0))
-                                                }
-                                                _ => lit(0.0),
+                                                expr.to_expr(ctx).unwrap_or(lit(0.0))
                                             }
-                                        } else {
-                                            // Default or zero
-                                            let temp_eval_ctx = EvaluationContext::new(
-                                                Arc::new(theme.clone()),
-                                                Arc::new(ctx.clone()),
-                                                IndexMap::new(),
-                                                Arc::new(EvaluatedFacetTree::empty()),
-                                            );
-                                            let temp_state =
-                                                RenderState::new(400.0, 300.0, HashMap::new());
-                                            let temp_ctx = RenderContext::new(
-                                                &temp_eval_ctx,
-                                                &temp_state,
-                                                &[],
-                                                &EmptyCoordMeasurement,
-                                            );
-                                            if let Some(default_scalar) =
-                                                mark.default_channel_value(ch_name, &temp_ctx)
-                                            {
-                                                lit(default_scalar)
-                                            } else {
-                                                lit(0.0)
+                                            ChannelValue::Value { expr } => {
+                                                expr.to_expr(ctx).unwrap_or(lit(0.0))
                                             }
+                                            _ => lit(0.0),
                                         }
-                                    };
-                                    mark.radius_expression(channel, &resolve_channel)
-                                } else {
-                                    None
-                                }
+                                    } else {
+                                        // Default or zero
+                                        let temp_eval_ctx = EvaluationContext::new(
+                                            Arc::new(theme.clone()),
+                                            Arc::new(ctx.clone()),
+                                            IndexMap::new(),
+                                            Arc::new(EvaluatedFacetTree::empty()),
+                                        );
+                                        let temp_state =
+                                            RenderState::new(400.0, 300.0, HashMap::new());
+                                        let temp_ctx = RenderContext::new(
+                                            &temp_eval_ctx,
+                                            &temp_state,
+                                            &[],
+                                            &EmptyCoordMeasurement,
+                                        );
+                                        if let Some(default_scalar) =
+                                            mark.default_channel_value(ch_name, &temp_ctx)
+                                        {
+                                            lit(default_scalar)
+                                        } else {
+                                            lit(0.0)
+                                        }
+                                    }
+                                };
+                                mark.radius_expression(channel, &resolve_channel)
                             } else {
                                 None
-                            };
-                            entries.push((df.clone(), expr_df, per_mark_radius));
+                            }
+                        } else {
+                            None
                         };
+                        entries.push((df.clone(), expr_df, per_mark_radius));
+                    };
 
-                        // Use scale_input_expr to get an expression for domain collection.
-                        // For conditionals, this returns a CASE expression with NULL for
-                        // literal Value branches (they bypass the scale and shouldn't
-                        // affect domain computation like min/max or distinct values).
-                        if let Some(expr_df) = channel_value.scale_input_expr(ctx) {
-                            push_entry(expr_df);
-                        }
+                    // Use scale_input_expr to get an expression for domain collection.
+                    // For conditionals, this returns a CASE expression with NULL for
+                    // literal Value branches (they bypass the scale and shouldn't
+                    // affect domain computation like min/max or distinct values).
+                    if let Some(expr_df) = channel_value.scale_input_expr(ctx) {
+                        push_entry(expr_df);
                     }
                 }
             }

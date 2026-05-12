@@ -212,12 +212,11 @@ impl LegendRenderer for CompiledColorbar {
         } else {
             // Check theme for title color
             let title_ctx = legend_ctx.child("title");
-            if let Some(color_value) = theme.query(&title_ctx, "color") {
-                if let Some(color_str) = color_value.as_string() {
-                    if let Ok(ColorOrGradient::Color(c)) = parse_color_string_strict(&color_str) {
-                        legend_config.title_color = Some(c);
-                    }
-                }
+            if let Some(color_value) = theme.query(&title_ctx, "color")
+                && let Some(color_str) = color_value.as_string()
+                && let Ok(ColorOrGradient::Color(c)) = parse_color_string_strict(color_str)
+            {
+                legend_config.title_color = Some(c);
             }
         }
 
@@ -231,12 +230,11 @@ impl LegendRenderer for CompiledColorbar {
         } else {
             // Check theme for tick color
             let tick_ctx = legend_ctx.child("tick");
-            if let Some(color_value) = theme.query(&tick_ctx, "color") {
-                if let Some(color_str) = color_value.as_string() {
-                    if let Ok(ColorOrGradient::Color(c)) = parse_color_string_strict(&color_str) {
-                        legend_config.label_color = Some(c);
-                    }
-                }
+            if let Some(color_value) = theme.query(&tick_ctx, "color")
+                && let Some(color_str) = color_value.as_string()
+                && let Ok(ColorOrGradient::Color(c)) = parse_color_string_strict(color_str)
+            {
+                legend_config.label_color = Some(c);
             }
         }
 
@@ -252,10 +250,10 @@ impl LegendRenderer for CompiledColorbar {
         } else {
             // Check theme for title font family
             let title_ctx = legend_ctx.child("title");
-            if let Some(family_value) = theme.query(&title_ctx, "font-family") {
-                if let Some(family_str) = family_value.as_string() {
-                    legend_config.title_font_family = Some(family_str.to_string());
-                }
+            if let Some(family_value) = theme.query(&title_ctx, "font-family")
+                && let Some(family_str) = family_value.as_string()
+            {
+                legend_config.title_font_family = Some(family_str.to_string());
             }
         }
 
@@ -302,10 +300,10 @@ impl LegendRenderer for CompiledColorbar {
         } else {
             // Check theme for tick font family
             let tick_ctx = legend_ctx.child("tick");
-            if let Some(family_value) = theme.query(&tick_ctx, "font-family") {
-                if let Some(family_str) = family_value.as_string() {
-                    legend_config.label_font_family = Some(family_str.to_string());
-                }
+            if let Some(family_value) = theme.query(&tick_ctx, "font-family")
+                && let Some(family_str) = family_value.as_string()
+            {
+                legend_config.label_font_family = Some(family_str.to_string());
             }
         }
 
@@ -372,12 +370,11 @@ impl LegendRenderer for CompiledColorbar {
         } else {
             // Check theme for background fill
             let background_ctx = legend_ctx.child("background");
-            if let Some(fill_value) = theme.query(&background_ctx, "fill") {
-                if let Some(fill_str) = fill_value.as_string() {
-                    if let Some(color) = parse_color_string(&fill_str) {
-                        legend_config.background_fill = Some(color);
-                    }
-                }
+            if let Some(fill_value) = theme.query(&background_ctx, "fill")
+                && let Some(fill_str) = fill_value.as_string()
+                && let Some(color) = parse_color_string(fill_str)
+            {
+                legend_config.background_fill = Some(color);
             }
         }
 
@@ -395,12 +392,11 @@ impl LegendRenderer for CompiledColorbar {
         } else {
             // Check theme for background stroke
             let background_ctx = legend_ctx.child("background");
-            if let Some(stroke_value) = theme.query(&background_ctx, "stroke") {
-                if let Some(stroke_str) = stroke_value.as_string() {
-                    if let Some(color) = parse_color_string(&stroke_str) {
-                        legend_config.background_stroke = Some(color);
-                    }
-                }
+            if let Some(stroke_value) = theme.query(&background_ctx, "stroke")
+                && let Some(stroke_str) = stroke_value.as_string()
+                && let Some(color) = parse_color_string(stroke_str)
+            {
+                legend_config.background_stroke = Some(color);
             }
         }
 

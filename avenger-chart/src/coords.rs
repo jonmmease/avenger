@@ -432,10 +432,10 @@ pub fn extract_channel_title_from_marks(
             // Try to get column name if this references actual data
             if let Some(col_name) = channel_value.as_column_name(session_context) {
                 // Only use if it references actual columns
-                if let Some(expr) = channel_value.expr(session_context) {
-                    if !expr.column_refs().is_empty() {
-                        return Some(col_name);
-                    }
+                if let Some(expr) = channel_value.expr(session_context)
+                    && !expr.column_refs().is_empty()
+                {
+                    return Some(col_name);
                 }
             }
         }
@@ -454,10 +454,10 @@ pub fn extract_channel_title_from_marks(
             // Try to get column name if this references actual data
             if let Some(col_name) = channel_value.as_column_name(session_context) {
                 // Only use if it references actual columns
-                if let Some(expr) = channel_value.expr(session_context) {
-                    if !expr.column_refs().is_empty() {
-                        return Some(col_name);
-                    }
+                if let Some(expr) = channel_value.expr(session_context)
+                    && !expr.column_refs().is_empty()
+                {
+                    return Some(col_name);
                 }
             }
         }
@@ -584,7 +584,7 @@ mod tests {
     #[test]
     fn test_coordinate_transform_serialization() {
         // Create a coordinate system transform
-        let cartesian = Cartesian::default();
+        let cartesian = Cartesian;
         let transform: Box<dyn CoordinateSystemTransform> = Box::new(cartesian);
 
         // Serialize it

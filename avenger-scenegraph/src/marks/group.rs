@@ -14,8 +14,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::marks::{mark::SceneMark, path::ScenePathMark};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub enum Clip {
+    #[default]
     None,
     Rect {
         x: f32,
@@ -78,12 +79,6 @@ impl PartialEq for Clip {
             }
             _ => false,
         }
-    }
-}
-
-impl Default for Clip {
-    fn default() -> Self {
-        Self::None
     }
 }
 

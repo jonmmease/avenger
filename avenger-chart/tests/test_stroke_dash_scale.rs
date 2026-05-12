@@ -45,7 +45,7 @@ async fn test_stroke_dash_scale_inference() {
         Ok(_) => println!("Plot compiled successfully!"),
         Err(e) => {
             println!("Error compiling plot: {:?}", e);
-            assert!(false, "Failed to compile plot with stroke_dash: {:?}", e);
+            panic!("Failed to compile plot with stroke_dash: {:?}", e);
         }
     }
 }

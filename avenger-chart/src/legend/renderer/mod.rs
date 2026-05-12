@@ -278,14 +278,13 @@ pub mod helpers {
         }
 
         // Fallback to mark_encodings
-        if let Some(channel_value) = mark_encodings.get(channel_name) {
-            if let Some(expr) = channel_value.expr(session_context) {
-                if expr.column_refs().is_empty() {
-                    // Try to simplify - this handles literals and simple expressions
-                    if let Ok(scalar) = simplify_to_scalar_sync(expr.clone()) {
-                        return Some(scalar);
-                    }
-                }
+        if let Some(channel_value) = mark_encodings.get(channel_name)
+            && let Some(expr) = channel_value.expr(session_context)
+            && expr.column_refs().is_empty()
+        {
+            // Try to simplify - this handles literals and simple expressions
+            if let Ok(scalar) = simplify_to_scalar_sync(expr.clone()) {
+                return Some(scalar);
             }
         }
 
@@ -310,10 +309,10 @@ pub mod helpers {
             // Try to convert to color
             if let Ok(color_array) = ScalarValue::iter_to_array(std::iter::once(scalar)) {
                 let coercer = Coercer::default();
-                if let Ok(colors) = coercer.to_color(&color_array, None) {
-                    if let Some(color) = colors.as_vec(1, None).first() {
-                        return Some(color.clone());
-                    }
+                if let Ok(colors) = coercer.to_color(&color_array, None)
+                    && let Some(color) = colors.as_vec(1, None).first()
+                {
+                    return Some(color.clone());
                 }
             }
         }

@@ -828,10 +828,9 @@ impl CalcNode {
                     CalcNode::Leaf(center_leaf),
                     CalcNode::Leaf(max_leaf),
                 ) = (&**min, &**center, &**max)
+                    && let Ok(result) = center_leaf.clamp(min_leaf, max_leaf)
                 {
-                    if let Ok(result) = center_leaf.clamp(min_leaf, max_leaf) {
-                        *self = CalcNode::Leaf(result);
-                    }
+                    *self = CalcNode::Leaf(result);
                 }
             }
             CalcNode::Abs(node) => {
@@ -1445,11 +1444,11 @@ fn try_simplify_sum(nodes: &[CalcNode]) -> Option<CalcNode> {
         // Try to merge compatible leaves
         let mut merged_leaves: Vec<CalcLeaf> = Vec::new();
         for leaf in leaves.iter() {
-            if let Some(last) = merged_leaves.last_mut() {
-                if let Ok(merged) = last.add(leaf) {
-                    *last = merged;
-                    continue;
-                }
+            if let Some(last) = merged_leaves.last_mut()
+                && let Ok(merged) = last.add(leaf)
+            {
+                *last = merged;
+                continue;
             }
             // Couldn't merge with previous, add as new leaf
             merged_leaves.push(leaf.clone());

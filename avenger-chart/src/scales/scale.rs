@@ -158,20 +158,18 @@ impl<S: ScaleSpec> Scale<S> {
         }
 
         // If scale type changed, filter options to only keep supported ones
-        if scale_type_changed {
-            if let Some(scale_spec) = self.scale_spec.as_option() {
-                let scale_impl = scale_spec.create_impl();
-                // Get supported options for the new scale type
-                let option_definitions = scale_impl.option_definitions();
-                let supported_options: std::collections::HashSet<&str> = option_definitions
-                    .iter()
-                    .map(|def| def.name.as_str())
-                    .collect();
+        if scale_type_changed && let Some(scale_spec) = self.scale_spec.as_option() {
+            let scale_impl = scale_spec.create_impl();
+            // Get supported options for the new scale type
+            let option_definitions = scale_impl.option_definitions();
+            let supported_options: std::collections::HashSet<&str> = option_definitions
+                .iter()
+                .map(|def| def.name.as_str())
+                .collect();
 
-                // Filter options to only keep supported ones
-                self.options
-                    .retain(|key, _| supported_options.contains(key.as_str()));
-            }
+            // Filter options to only keep supported ones
+            self.options
+                .retain(|key, _| supported_options.contains(key.as_str()));
         }
 
         self
@@ -367,14 +365,11 @@ impl<S: ScaleSpec> Scale<S> {
         if spec.name() != "auto" {
             for (key, value) in spec.default_options() {
                 // Only add if not already present
-                if !options.contains_key(&key) {
+                options.entry(key).or_insert_with(|| {
                     let scalar_value = scalar_to_scalar_value(&value);
                     let expr = lit(scalar_value);
-                    options.insert(
-                        key,
-                        LogicalExprNode::from_expr(expr).expect("Failed to serialize option expr"),
-                    );
-                }
+                    LogicalExprNode::from_expr(expr).expect("Failed to serialize option expr")
+                });
             }
         }
 
@@ -732,9 +727,7 @@ impl<S: ScaleSpec> Scale<S> {
         // Apply implementation defaults only for options not already set
         // This ensures Sqrt's exponent:0.5 isn't overridden by PowScale's exponent:1.0
         for (key, value) in default_options {
-            if !scalar_options.contains_key(&key) {
-                scalar_options.insert(key, value);
-            }
+            scalar_options.entry(key).or_insert(value);
         }
 
         // Convert padding to clip_padding_lower and clip_padding_upper for numeric continuous scales
@@ -742,19 +735,17 @@ impl<S: ScaleSpec> Scale<S> {
             // Check if this is a numeric continuous scale that supports clip padding
             if scale_impl.domain_kind() == DomainKind::Numeric
                 && scale_impl.range_kind() == RangeKind::Continuous
+                && let Some(padding_value) = scalar_options.get("padding").cloned()
             {
-                if let Some(padding_value) = scalar_options.get("padding").cloned() {
-                    // For continuous scales, padding becomes clip_padding
-                    if !scalar_options.contains_key("clip_padding_lower") {
-                        scalar_options
-                            .insert("clip_padding_lower".to_string(), padding_value.clone());
-                    }
-                    if !scalar_options.contains_key("clip_padding_upper") {
-                        scalar_options.insert("clip_padding_upper".to_string(), padding_value);
-                    }
-                    // Remove the padding option as it's been converted
-                    scalar_options.remove("padding");
+                // For continuous scales, padding becomes clip_padding
+                if !scalar_options.contains_key("clip_padding_lower") {
+                    scalar_options.insert("clip_padding_lower".to_string(), padding_value.clone());
                 }
+                if !scalar_options.contains_key("clip_padding_upper") {
+                    scalar_options.insert("clip_padding_upper".to_string(), padding_value);
+                }
+                // Remove the padding option as it's been converted
+                scalar_options.remove("padding");
             }
             // For band and point scales, padding is valid and should be kept as-is
             // For other scales (ordinal, threshold, etc.), padding is not used

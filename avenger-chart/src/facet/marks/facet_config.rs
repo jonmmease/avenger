@@ -30,6 +30,7 @@ impl FacetOptions {
     ///   This creates a grid-like structure where empty cells may appear.
     /// - `Free` (default): Each outer cell computes its own domain from filtered data.
     ///   Different outer cells may have different numbers of inner cells.
+    ///
     /// Note: Free and Shared are normalized to Level(0) and Level(255) internally.
     pub fn with_scale_sharing(mut self, mode: ScaleSharing) -> Self {
         // Normalize Free/Shared to Level representation for internal consistency

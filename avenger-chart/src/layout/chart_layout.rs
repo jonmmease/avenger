@@ -137,7 +137,7 @@ impl ChartLayout {
                         "plot-area" | "plot_area" => Some(TitleSpan::PlotArea),
                         _ => None,
                     })
-                    .unwrap_or(TitleSpan::default()))
+                    .unwrap_or_default())
             }
         }
     }
@@ -729,19 +729,18 @@ fn create_overflow_nodes(
                            overflow_side: OverflowSide,
                            axis_position: AxisPosition|
      -> Result<(), AvengerChartError> {
-        if overflow_value > MIN_GUIDE_OVERFLOW_SIZE {
-            if let Some((row, col)) =
+        if overflow_value > MIN_GUIDE_OVERFLOW_SIZE
+            && let Some((row, col)) =
                 grid_layout.find_component_position(&ComponentType::GuideOverflow(overflow_side))
-            {
-                let style = Style {
-                    display: Display::Block,
-                    grid_row: line((row + 1) as i16),
-                    grid_column: line((col + 1) as i16),
-                    ..Default::default()
-                };
-                let node = taffy.new_leaf(style)?;
-                nodes.guide_overflow_nodes.insert(axis_position, node);
-            }
+        {
+            let style = Style {
+                display: Display::Block,
+                grid_row: line((row + 1) as i16),
+                grid_column: line((col + 1) as i16),
+                ..Default::default()
+            };
+            let node = taffy.new_leaf(style)?;
+            nodes.guide_overflow_nodes.insert(axis_position, node);
         }
         Ok(())
     };
@@ -778,7 +777,7 @@ fn create_title_nodes(
         }
         TitleSpan::Canvas => {
             let mut end_col = col;
-            for ((_, c), _comp) in &grid_layout.component_cells {
+            for (_, c) in grid_layout.component_cells.keys() {
                 if *c > end_col {
                     end_col = *c;
                 }
@@ -846,88 +845,88 @@ fn create_legend_nodes(
 
     for (channel, &legend_position) in legend_positions {
         for ((row, col), comp_type) in &grid_layout.component_cells {
-            if let ComponentType::LegendContainer(pos) = comp_type {
-                if *pos == legend_position {
-                    // Create container node if it doesn't exist
-                    if !nodes.legend_container_nodes.contains_key(pos) {
-                        // Determine flex direction based on position
-                        // Top/Bottom: horizontal stacking (Row)
-                        // Left/Right: vertical stacking (Column)
-                        let flex_direction = match pos {
-                            LegendPosition::Top | LegendPosition::Bottom => FlexDirection::Row,
-                            LegendPosition::Left | LegendPosition::Right => FlexDirection::Column,
-                        };
+            if let ComponentType::LegendContainer(pos) = comp_type
+                && *pos == legend_position
+            {
+                // Create container node if it doesn't exist
+                if !nodes.legend_container_nodes.contains_key(pos) {
+                    // Determine flex direction based on position
+                    // Top/Bottom: horizontal stacking (Row)
+                    // Left/Right: vertical stacking (Column)
+                    let flex_direction = match pos {
+                        LegendPosition::Top | LegendPosition::Bottom => FlexDirection::Row,
+                        LegendPosition::Left | LegendPosition::Right => FlexDirection::Column,
+                    };
 
-                        let container_style = Style {
-                            display: Display::Flex,
-                            flex_direction,
-                            grid_row: line((*row + 1) as i16),
-                            grid_column: line((*col + 1) as i16),
-                            ..Default::default()
-                        };
-                        let container_node = taffy.new_leaf(container_style)?;
-                        nodes.legend_container_nodes.insert(*pos, container_node);
-                    }
+                    let container_style = Style {
+                        display: Display::Flex,
+                        flex_direction,
+                        grid_row: line((*row + 1) as i16),
+                        grid_column: line((*col + 1) as i16),
+                        ..Default::default()
+                    };
+                    let container_node = taffy.new_leaf(container_style)?;
+                    nodes.legend_container_nodes.insert(*pos, container_node);
+                }
 
-                    // Create legend node
-                    if let Some(size) = legend_sizes.get(channel) {
-                        let is_flexible = legend_flexible.get(channel).copied().unwrap_or(false);
+                // Create legend node
+                if let Some(size) = legend_sizes.get(channel) {
+                    let is_flexible = legend_flexible.get(channel).copied().unwrap_or(false);
 
-                        let legend_style = if is_flexible {
-                            // Flexible sizing depends on position:
-                            // - Top/Bottom: fixed height, flexible width (grows horizontally)
-                            // - Left/Right: fixed width, flexible height (grows vertically)
-                            match legend_position {
-                                LegendPosition::Top | LegendPosition::Bottom => Style {
-                                    display: Display::Block,
-                                    size: Size {
-                                        width: auto(),
-                                        height: length(size.height),
-                                    },
-                                    flex_grow: 1.0,
-                                    flex_shrink: 1.0,
-                                    min_size: Size {
-                                        width: length(ChartLayout::MIN_COMPONENT_SIZE),
-                                        height: length(size.height),
-                                    },
-                                    ..Default::default()
-                                },
-                                LegendPosition::Left | LegendPosition::Right => Style {
-                                    display: Display::Block,
-                                    size: Size {
-                                        width: length(size.width),
-                                        height: auto(),
-                                    },
-                                    flex_grow: 1.0,
-                                    flex_shrink: 1.0,
-                                    min_size: Size {
-                                        width: length(size.width),
-                                        height: length(ChartLayout::MIN_COMPONENT_SIZE),
-                                    },
-                                    ..Default::default()
-                                },
-                            }
-                        } else {
-                            Style {
+                    let legend_style = if is_flexible {
+                        // Flexible sizing depends on position:
+                        // - Top/Bottom: fixed height, flexible width (grows horizontally)
+                        // - Left/Right: fixed width, flexible height (grows vertically)
+                        match legend_position {
+                            LegendPosition::Top | LegendPosition::Bottom => Style {
                                 display: Display::Block,
                                 size: Size {
-                                    width: length(size.width),
+                                    width: auto(),
+                                    height: length(size.height),
+                                },
+                                flex_grow: 1.0,
+                                flex_shrink: 1.0,
+                                min_size: Size {
+                                    width: length(ChartLayout::MIN_COMPONENT_SIZE),
                                     height: length(size.height),
                                 },
                                 ..Default::default()
-                            }
-                        };
+                            },
+                            LegendPosition::Left | LegendPosition::Right => Style {
+                                display: Display::Block,
+                                size: Size {
+                                    width: length(size.width),
+                                    height: auto(),
+                                },
+                                flex_grow: 1.0,
+                                flex_shrink: 1.0,
+                                min_size: Size {
+                                    width: length(size.width),
+                                    height: length(ChartLayout::MIN_COMPONENT_SIZE),
+                                },
+                                ..Default::default()
+                            },
+                        }
+                    } else {
+                        Style {
+                            display: Display::Block,
+                            size: Size {
+                                width: length(size.width),
+                                height: length(size.height),
+                            },
+                            ..Default::default()
+                        }
+                    };
 
-                        let legend_node = taffy.new_leaf(legend_style)?;
-                        nodes.legend_nodes.insert(channel.clone(), legend_node);
+                    let legend_node = taffy.new_leaf(legend_style)?;
+                    nodes.legend_nodes.insert(channel.clone(), legend_node);
 
-                        legend_nodes_by_container
-                            .entry(*pos)
-                            .or_default()
-                            .push(legend_node);
-                    }
-                    break;
+                    legend_nodes_by_container
+                        .entry(*pos)
+                        .or_default()
+                        .push(legend_node);
                 }
+                break;
             }
         }
     }

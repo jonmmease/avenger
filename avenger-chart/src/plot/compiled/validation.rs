@@ -51,16 +51,16 @@ impl CompiledPlot {
         // Check each positional channel
         for channel_name in self.coord_transform.required_channels() {
             // Check in data batch first
-            if let Some(data) = data_batch {
-                if let Some(column) = data.column_by_name(channel_name) {
-                    let dtype = column.data_type();
-                    if !Self::is_numeric_type(dtype) {
-                        return self.create_positional_type_error(
-                            channel_name,
-                            dtype,
-                            coord_system_name,
-                        );
-                    }
+            if let Some(data) = data_batch
+                && let Some(column) = data.column_by_name(channel_name)
+            {
+                let dtype = column.data_type();
+                if !Self::is_numeric_type(dtype) {
+                    return self.create_positional_type_error(
+                        channel_name,
+                        dtype,
+                        coord_system_name,
+                    );
                 }
             }
 

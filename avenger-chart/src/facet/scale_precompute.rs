@@ -131,9 +131,9 @@ pub(crate) fn canonicalize_path(path: &[ScalarValue]) -> Vec<ScalarValue> {
     path.iter().map(canonicalize_scalar).collect()
 }
 
-fn resolve_current_facet_node<'a>(
-    compiled_marks: &'a [Arc<dyn CompiledMark>],
-) -> Option<(&'a Arc<CompiledPlot>, SharingLevel)> {
+fn resolve_current_facet_node(
+    compiled_marks: &[Arc<dyn CompiledMark>],
+) -> Option<(&Arc<CompiledPlot>, SharingLevel)> {
     for mark in compiled_marks {
         if let Some(facet_mark) = facet_mark_ref(mark.as_ref()) {
             match facet_mark {

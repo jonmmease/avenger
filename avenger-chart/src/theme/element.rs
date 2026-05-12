@@ -176,9 +176,9 @@ impl Element for CssElement {
     }
 
     fn has_id(&self, id: &ChartString, case_sensitivity: CaseSensitivity) -> bool {
-        self.id.as_ref().map_or(false, |self_id| {
-            case_sensitivity.eq(self_id.0.as_bytes(), id.0.as_bytes())
-        })
+        self.id
+            .as_ref()
+            .is_some_and(|self_id| case_sensitivity.eq(self_id.0.as_bytes(), id.0.as_bytes()))
     }
 
     fn has_class(&self, class: &ChartString, case_sensitivity: CaseSensitivity) -> bool {

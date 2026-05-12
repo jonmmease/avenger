@@ -4,6 +4,12 @@
 //! so that `cargo test --doc -p avenger-chart-mdbook` runs rustdoc
 //! checks against the same content `mdbook` renders.
 
+#![allow(
+    clippy::approx_constant,
+    clippy::redundant_closure_call,
+    clippy::useless_vec
+)]
+
 include!(concat!(env!("OUT_DIR"), "/book_docs.rs"));
 
 pub mod render_snippets {

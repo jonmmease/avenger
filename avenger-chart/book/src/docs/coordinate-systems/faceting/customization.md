@@ -64,7 +64,9 @@ The `col_with()` method takes a closure that receives a channel configuration ob
 
 ## Spacing Between Facets
 
-Control the pixel gap between facet cells using `FacetOptions::spacing()`:
+The layout engine computes the gap between facet cells from the measured
+subplot overflows. This keeps adjacent axes, tick labels, and facet labels from
+overlapping without a separate per-facet spacing option:
 
 ```rust,render
 use avenger_chart::prelude::*;
@@ -102,7 +104,7 @@ let plot = Plot::<FacetColumn>::new()
     .data(df)
     .mark(
         Facet::new()
-            .col_with(col("species"), |c| c.facet(|f| f.spacing(40.0)))
+            .col_with(col("species"), |c| c.facet(|f| f.title("Iris Species")))
             .subplot(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
@@ -120,7 +122,8 @@ let evaluated = compiled.evaluate(&ctx, None).await?;
 Ok(evaluated)
 ```
 
-The default spacing is typically 10 pixels. Increasing spacing creates more visual separation between facets, which can improve readability when facets contain dense information.
+The computed spacing grows when labels or guides need more room and stays tight
+when neighboring panels do not have competing overflow.
 
 ## Axis Positioning
 
@@ -268,17 +271,17 @@ The `row_with()` and `col_with()` methods provide a builder pattern for configur
 ```rust
 // Configure row faceting
 Facet::new().row_with(col("species"), |c| {
-    c.facet(|f| f.title("Species").spacing(20.0))
+    c.facet(|f| f.title("Species"))
 })
 
 // Configure column faceting
 Facet::new().col_with(col("region"), |c| {
-    c.facet(|f| f.title("Region").spacing(15.0))
+    c.facet(|f| f.title("Region"))
 })
 ```
 
 The closure receives a channel configuration object `c`, which you can use to:
-- Call `.facet()` to configure facet-specific options (title, spacing, scale sharing)
+- Call `.facet()` to configure facet-specific options (title, scale sharing)
 - Set data scale sharing modes (covered in [Scale Sharing](scale-sharing.md))
 
 ## Facet Variable Scale Sharing
@@ -498,7 +501,6 @@ let plot = Plot::<FacetColumn>::new()
             .col_with(col("species"), |c| {
                 c.facet(|f| {
                     f.title("Iris Species")
-                        .spacing(30.0)
                 })
             })
             .subplot(
@@ -540,9 +542,6 @@ The `FacetOptions` type provides the following configuration methods:
 impl FacetOptions {
     /// Set a title for the facet dimension
     pub fn title(self, title: impl Into<String>) -> Self
-
-    /// Set the spacing (in pixels) between facet cells
-    pub fn spacing(self, spacing: f32) -> Self
 
     /// Configure scale sharing for the facet variable domain
     /// Controls whether nested facets share the same categories

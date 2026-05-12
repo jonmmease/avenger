@@ -74,7 +74,7 @@ fn test_property_inheritance() {
     let context = ThemeContext::new("text", IndexMap::new());
     let font_size = theme.query(&context, "font-size");
     // Should return None (no CSS rule for "text" element)
-    assert!(matches!(font_size, None));
+    assert!(font_size.is_none());
 }
 
 #[test]

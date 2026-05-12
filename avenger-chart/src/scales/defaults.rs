@@ -43,7 +43,7 @@ pub fn default_color_range_continuous() -> ScaleRange {
 /// # Arguments
 /// * `domain_cardinality` - Optional number of sizes to return. If `None`, returns all sizes.
 pub fn default_size_range_discrete(domain_cardinality: Option<usize>) -> ScaleRange {
-    let sizes = vec![20.0, 40.0, 60.0, 80.0, 100.0];
+    let sizes = [20.0, 40.0, 60.0, 80.0, 100.0];
     let scalars: Vec<SerializableScalar> = sizes
         .iter()
         .take(domain_cardinality.unwrap_or(sizes.len()))
@@ -62,7 +62,7 @@ pub fn default_size_range_continuous() -> ScaleRange {
 /// # Arguments
 /// * `domain_cardinality` - Optional number of opacities to return. If `None`, returns all opacities.
 pub fn default_opacity_range_discrete(domain_cardinality: Option<usize>) -> ScaleRange {
-    let opacities = vec![0.3, 0.5, 0.7, 0.9, 1.0];
+    let opacities = [0.3, 0.5, 0.7, 0.9, 1.0];
     let scalars: Vec<SerializableScalar> = opacities
         .iter()
         .take(domain_cardinality.unwrap_or(opacities.len()))
@@ -81,7 +81,7 @@ pub fn default_opacity_range_continuous() -> ScaleRange {
 /// # Arguments
 /// * `domain_cardinality` - Optional number of widths to return. If `None`, returns all widths.
 pub fn default_stroke_width_range_discrete(domain_cardinality: Option<usize>) -> ScaleRange {
-    let widths = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+    let widths = [1.0, 2.0, 3.0, 4.0, 5.0];
     let scalars: Vec<SerializableScalar> = widths
         .iter()
         .take(domain_cardinality.unwrap_or(widths.len()))
@@ -100,7 +100,7 @@ pub fn default_stroke_width_range_continuous() -> ScaleRange {
 /// # Arguments
 /// * `domain_cardinality` - Optional number of shapes to return. If `None`, returns all shapes.
 pub fn default_shape_range_discrete(domain_cardinality: Option<usize>) -> ScaleRange {
-    let shapes = vec!["circle", "square", "triangle", "diamond", "cross"];
+    let shapes = ["circle", "square", "triangle", "diamond", "cross"];
     let scalars: Vec<SerializableScalar> = shapes
         .iter()
         .take(domain_cardinality.unwrap_or(shapes.len()))

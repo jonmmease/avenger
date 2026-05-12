@@ -178,9 +178,10 @@ Ok(evaluated)
 
 The title "Iris Species" appears above the facet labels, providing context for what the panels represent.
 
-### Adjusting Spacing
+### Facet Gaps
 
-Control the gap between facet panels using the `spacing()` option:
+Facet gaps are computed from the measured subplot overflows, so tick labels and
+facet labels have enough room without a separate spacing setting:
 
 ```rust,render
 use avenger_chart::prelude::*;
@@ -194,13 +195,13 @@ let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await?;
 
-// Create a column facet with custom spacing
+// Create a column facet. The gap between panels is measured automatically.
 let plot = Plot::<FacetColumn>::new()
     .data(df)
     .mark(
         Facet::new()
             .col_with(col("species"), |c| {
-                c.facet(|f| f.spacing(30.0))
+                c.facet(|f| f.title("Iris Species"))
             })
             .subplot(
                 Plot::<Cartesian>::new().mark(

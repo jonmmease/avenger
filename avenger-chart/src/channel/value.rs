@@ -178,7 +178,7 @@ impl std::fmt::Debug for ChannelValue {
                 scale_name, band, ..
             } => f
                 .debug_struct("Scaled")
-                .field("expr", &format!("<SerializableExpr>"))
+                .field("expr", &"<SerializableExpr>".to_string())
                 .field("scale_name", scale_name)
                 .field("band", band)
                 .field("has_scale_config", &self.has_scale_config())
@@ -186,7 +186,7 @@ impl std::fmt::Debug for ChannelValue {
                 .finish(),
             ChannelValue::Value { expr: _ } => f
                 .debug_struct("Identity")
-                .field("expr", &format!("<SerializableExpr>"))
+                .field("expr", &"<SerializableExpr>".to_string())
                 .finish(),
             ChannelValue::Conditional {
                 conditions,
@@ -632,13 +632,13 @@ impl ChannelValue {
         };
 
         // Skip channel references - they need to be resolved first
-        if let Expr::Column(c) = &expr {
-            if c.name.starts_with(':') {
-                return Err(datafusion::error::DataFusionError::Plan(format!(
-                    "Cannot get data type for channel reference: {}",
-                    c.name
-                )));
-            }
+        if let Expr::Column(c) = &expr
+            && c.name.starts_with(':')
+        {
+            return Err(datafusion::error::DataFusionError::Plan(format!(
+                "Cannot get data type for channel reference: {}",
+                c.name
+            )));
         }
 
         // Get the data type from the expression

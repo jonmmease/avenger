@@ -214,6 +214,7 @@ async fn test_from_compiled_plot_nested_row_row() {
 /// Create test data where inner domain varies by parent
 /// - region "east" has species: setosa, versicolor
 /// - region "west" has species: versicolor, virginica
+///
 /// With Free sharing, each child gets different domain
 /// With Shared sharing, all children get [setosa, versicolor, virginica]
 async fn create_varying_domain_data(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {

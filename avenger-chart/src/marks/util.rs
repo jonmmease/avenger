@@ -49,15 +49,12 @@ where
     let coercer = Coercer::default();
 
     // First check data batch for array values
-    if let Some(data_batch) = data {
-        if let Some(array) = data_batch.column_by_name(channel) {
-            return coerce_fn(&coercer, array).map_err(|e| {
-                AvengerChartError::InternalError(format!(
-                    "Error coercing channel '{}': {}",
-                    channel, e
-                ))
-            });
-        }
+    if let Some(data_batch) = data
+        && let Some(array) = data_batch.column_by_name(channel)
+    {
+        return coerce_fn(&coercer, array).map_err(|e| {
+            AvengerChartError::InternalError(format!("Error coercing channel '{}': {}", channel, e))
+        });
     }
 
     // Then check scalar batch (single row, so return as scalar)
@@ -250,12 +247,10 @@ pub fn default_scale_for_data_type(data_type: &DataType) -> Option<Box<dyn Scale
     match data_type {
         // Categorical data uses ordinal scale
         DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View | DataType::Boolean => {
-            Some(Box::new(Ordinal::default()))
+            Some(Box::new(Ordinal))
         }
         // Temporal data uses time scale
-        DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _) => {
-            Some(Box::new(Time::default()))
-        }
+        DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _) => Some(Box::new(Time)),
         // Numeric data defaults to linear
         DataType::Float32
         | DataType::Float64
@@ -266,7 +261,7 @@ pub fn default_scale_for_data_type(data_type: &DataType) -> Option<Box<dyn Scale
         | DataType::UInt8
         | DataType::UInt16
         | DataType::UInt32
-        | DataType::UInt64 => Some(Box::new(Linear::default())),
+        | DataType::UInt64 => Some(Box::new(Linear)),
         // Default to None for unknown types
         _ => None,
     }

@@ -352,7 +352,7 @@ pub fn simplify_to_scalar_sync(expr: Expr) -> Result<ScalarValue, DataFusionErro
 
     // Create an empty schema since we're only dealing with constants
     let empty_schema = Schema::empty().to_dfschema_ref()?;
-    let context = SimplifyContext::new(&props).with_schema(empty_schema);
+    let context = SimplifyContext::new(props).with_schema(empty_schema);
 
     // Create simplifier with canonicalization to help evaluate more expressions
     let simplifier = ExprSimplifier::new(context).with_canonicalize(true);
@@ -531,6 +531,118 @@ impl ArrayRefHelpers for ArrayRef {
             ))?;
         Ok(a.value(0).data_type().clone())
     }
+}
+
+/// Convert avenger_scales::scalar::Scalar to datafusion::scalar::ScalarValue
+pub fn scalar_to_scalar_value(scalar: &Scalar) -> ScalarValue {
+    // Try each conversion in order of most likely types
+    if let Ok(b) = scalar.as_boolean() {
+        ScalarValue::Boolean(Some(b))
+    } else if let Ok(f) = scalar.as_f32() {
+        ScalarValue::Float32(Some(f))
+    } else if let Ok(i) = scalar.as_i32() {
+        ScalarValue::Int32(Some(i))
+    } else if let Ok(s) = scalar.as_string() {
+        ScalarValue::Utf8(Some(s))
+    } else {
+        // If none of the conversions work, return Null
+        ScalarValue::Null
+    }
+}
+
+/// Convert IndexMap of parameter values to DataFusion's ParamValues::Map variant
+pub fn params_to_datafusion(params: &IndexMap<String, ScalarValue>) -> Option<ParamValues> {
+    if params.is_empty() {
+        None
+    } else {
+        Some(ParamValues::Map(params.clone().into_iter().collect()))
+    }
+}
+
+/// Check if an expression contains any aggregate functions
+///
+/// This recursively walks the expression tree to detect aggregate functions
+/// like sum(), avg(), count(), etc.
+pub fn contains_aggregate(expr: &Expr) -> bool {
+    let mut has_aggregate = false;
+    let _ = expr.apply(|e| {
+        if matches!(e, Expr::AggregateFunction(_)) {
+            has_aggregate = true;
+        }
+        Ok(TreeNodeRecursion::Continue)
+    });
+    has_aggregate
+}
+
+/// Partition a list of expressions into grouping and aggregate expressions
+///
+/// Returns (group_by_exprs, aggregate_exprs) where:
+/// - group_by_exprs: expressions without aggregate functions
+/// - aggregate_exprs: expressions containing aggregate functions
+pub fn partition_expressions(exprs: Vec<Expr>) -> (Vec<Expr>, Vec<Expr>) {
+    let mut group_by = Vec::new();
+    let mut aggregates = Vec::new();
+
+    for expr in exprs {
+        if contains_aggregate(&expr) {
+            aggregates.push(expr);
+        } else {
+            group_by.push(expr);
+        }
+    }
+
+    (group_by, aggregates)
+}
+
+/// Extract a numeric value from an Arrow array at a given index and convert to f64
+///
+/// Supports all numeric Arrow types (Float64, Float32, Int64, Int32, UInt64, UInt32, Int16, UInt16, Int8, UInt8)
+pub fn array_value_to_f64(
+    array: &dyn arrow::array::Array,
+    index: usize,
+    data_type: &DataType,
+) -> Result<f64, AvengerChartError> {
+    // Prefer the array's actual data type when it is numeric; fall back to provided data_type.
+    let actual_dt = array.data_type();
+    let dt = match actual_dt {
+        // If array is already a numeric primitive, use its type to avoid mismatches
+        DataType::Float64
+        | DataType::Float32
+        | DataType::Int64
+        | DataType::Int32
+        | DataType::UInt64
+        | DataType::UInt32
+        | DataType::Int16
+        | DataType::UInt16
+        | DataType::Int8
+        | DataType::UInt8 => actual_dt,
+        _ => data_type,
+    };
+
+    let value = match dt {
+        DataType::Float64 => array.as_primitive::<Float64Type>().value(index),
+        DataType::Float32 => array.as_primitive::<Float32Type>().value(index) as f64,
+        DataType::Int64 => array.as_primitive::<Int64Type>().value(index) as f64,
+        DataType::Int32 => array.as_primitive::<Int32Type>().value(index) as f64,
+        DataType::UInt64 => array.as_primitive::<UInt64Type>().value(index) as f64,
+        DataType::UInt32 => array.as_primitive::<UInt32Type>().value(index) as f64,
+        DataType::Int16 => array.as_primitive::<Int16Type>().value(index) as f64,
+        DataType::UInt16 => array.as_primitive::<UInt16Type>().value(index) as f64,
+        DataType::Int8 => array.as_primitive::<Int8Type>().value(index) as f64,
+        DataType::UInt8 => array.as_primitive::<UInt8Type>().value(index) as f64,
+        _ => {
+            // As a last resort, try casting to Float64 and extracting
+            let casted = cast(array, &DataType::Float64).map_err(|e| {
+                AvengerChartError::InternalError(format!(
+                    "Failed to cast array to Float64 for numeric conversion: {}",
+                    e
+                ))
+            })?;
+            return Ok(casted.as_primitive::<Float64Type>().value(index));
+        }
+    };
+
+    Ok(value)
 }
 
 #[cfg(test)]
@@ -731,116 +843,4 @@ mod tests {
             panic!("Expected List result");
         }
     }
-}
-
-/// Convert avenger_scales::scalar::Scalar to datafusion::scalar::ScalarValue
-pub fn scalar_to_scalar_value(scalar: &Scalar) -> ScalarValue {
-    // Try each conversion in order of most likely types
-    if let Ok(b) = scalar.as_boolean() {
-        ScalarValue::Boolean(Some(b))
-    } else if let Ok(f) = scalar.as_f32() {
-        ScalarValue::Float32(Some(f))
-    } else if let Ok(i) = scalar.as_i32() {
-        ScalarValue::Int32(Some(i))
-    } else if let Ok(s) = scalar.as_string() {
-        ScalarValue::Utf8(Some(s))
-    } else {
-        // If none of the conversions work, return Null
-        ScalarValue::Null
-    }
-}
-
-/// Convert IndexMap of parameter values to DataFusion's ParamValues::Map variant
-pub fn params_to_datafusion(params: &IndexMap<String, ScalarValue>) -> Option<ParamValues> {
-    if params.is_empty() {
-        None
-    } else {
-        Some(ParamValues::Map(params.clone().into_iter().collect()))
-    }
-}
-
-/// Check if an expression contains any aggregate functions
-///
-/// This recursively walks the expression tree to detect aggregate functions
-/// like sum(), avg(), count(), etc.
-pub fn contains_aggregate(expr: &Expr) -> bool {
-    let mut has_aggregate = false;
-    let _ = expr.apply(|e| {
-        if matches!(e, Expr::AggregateFunction(_)) {
-            has_aggregate = true;
-        }
-        Ok(TreeNodeRecursion::Continue)
-    });
-    has_aggregate
-}
-
-/// Partition a list of expressions into grouping and aggregate expressions
-///
-/// Returns (group_by_exprs, aggregate_exprs) where:
-/// - group_by_exprs: expressions without aggregate functions
-/// - aggregate_exprs: expressions containing aggregate functions
-pub fn partition_expressions(exprs: Vec<Expr>) -> (Vec<Expr>, Vec<Expr>) {
-    let mut group_by = Vec::new();
-    let mut aggregates = Vec::new();
-
-    for expr in exprs {
-        if contains_aggregate(&expr) {
-            aggregates.push(expr);
-        } else {
-            group_by.push(expr);
-        }
-    }
-
-    (group_by, aggregates)
-}
-
-/// Extract a numeric value from an Arrow array at a given index and convert to f64
-///
-/// Supports all numeric Arrow types (Float64, Float32, Int64, Int32, UInt64, UInt32, Int16, UInt16, Int8, UInt8)
-pub fn array_value_to_f64(
-    array: &dyn arrow::array::Array,
-    index: usize,
-    data_type: &DataType,
-) -> Result<f64, AvengerChartError> {
-    // Prefer the array's actual data type when it is numeric; fall back to provided data_type.
-    let actual_dt = array.data_type();
-    let dt = match actual_dt {
-        // If array is already a numeric primitive, use its type to avoid mismatches
-        DataType::Float64
-        | DataType::Float32
-        | DataType::Int64
-        | DataType::Int32
-        | DataType::UInt64
-        | DataType::UInt32
-        | DataType::Int16
-        | DataType::UInt16
-        | DataType::Int8
-        | DataType::UInt8 => actual_dt,
-        _ => data_type,
-    };
-
-    let value = match dt {
-        DataType::Float64 => array.as_primitive::<Float64Type>().value(index),
-        DataType::Float32 => array.as_primitive::<Float32Type>().value(index) as f64,
-        DataType::Int64 => array.as_primitive::<Int64Type>().value(index) as f64,
-        DataType::Int32 => array.as_primitive::<Int32Type>().value(index) as f64,
-        DataType::UInt64 => array.as_primitive::<UInt64Type>().value(index) as f64,
-        DataType::UInt32 => array.as_primitive::<UInt32Type>().value(index) as f64,
-        DataType::Int16 => array.as_primitive::<Int16Type>().value(index) as f64,
-        DataType::UInt16 => array.as_primitive::<UInt16Type>().value(index) as f64,
-        DataType::Int8 => array.as_primitive::<Int8Type>().value(index) as f64,
-        DataType::UInt8 => array.as_primitive::<UInt8Type>().value(index) as f64,
-        _ => {
-            // As a last resort, try casting to Float64 and extracting
-            let casted = cast(array, &DataType::Float64).map_err(|e| {
-                AvengerChartError::InternalError(format!(
-                    "Failed to cast array to Float64 for numeric conversion: {}",
-                    e
-                ))
-            })?;
-            return Ok(casted.as_primitive::<Float64Type>().value(index));
-        }
-    };
-
-    Ok(value)
 }

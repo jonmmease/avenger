@@ -362,15 +362,14 @@ impl ConfiguredScaleLegendExt for ConfiguredScale {
                     for i in 0..list_array.len() {
                         if let Some(color_array) =
                             list_array.value(i).as_any().downcast_ref::<Float32Array>()
+                            && color_array.len() >= 4
                         {
-                            if color_array.len() >= 4 {
-                                colors.push([
-                                    color_array.value(0),
-                                    color_array.value(1),
-                                    color_array.value(2),
-                                    color_array.value(3),
-                                ]);
-                            }
+                            colors.push([
+                                color_array.value(0),
+                                color_array.value(1),
+                                color_array.value(2),
+                                color_array.value(3),
+                            ]);
                         }
                     }
                     Ok(colors)

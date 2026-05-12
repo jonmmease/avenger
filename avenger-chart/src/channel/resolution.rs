@@ -215,10 +215,10 @@ fn extract_channel_refs(expr: &Expr) -> HashSet<String> {
 
     // Use TreeNode's apply method for a clean traversal
     let _ = expr.apply(&mut |e: &Expr| {
-        if let Expr::Column(c) = e {
-            if c.name.starts_with(':') {
-                refs.insert(c.name[1..].to_string());
-            }
+        if let Expr::Column(c) = e
+            && c.name.starts_with(':')
+        {
+            refs.insert(c.name[1..].to_string());
         }
         Ok(datafusion_common::tree_node::TreeNodeRecursion::Continue)
     });
@@ -401,12 +401,12 @@ fn find_cycle_path(
 
         if find_cycle_dfs(graph, start_node, &mut visited, &mut rec_stack, &mut path) {
             // Find where the cycle starts in the path
-            if let Some(last) = path.last() {
-                if let Some(cycle_start) = path.iter().position(|n| n == last) {
-                    let mut cycle: Vec<_> = path[cycle_start..].to_vec();
-                    cycle.push(path[cycle_start].clone()); // Add first node again to show cycle
-                    return Some(cycle);
-                }
+            if let Some(last) = path.last()
+                && let Some(cycle_start) = path.iter().position(|n| n == last)
+            {
+                let mut cycle: Vec<_> = path[cycle_start..].to_vec();
+                cycle.push(path[cycle_start].clone()); // Add first node again to show cycle
+                return Some(cycle);
             }
         }
     }

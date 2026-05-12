@@ -454,17 +454,14 @@ impl ScaleBuilder {
         builder_entries.sort_by(|a, b| a.0.cmp(b.0));
 
         for (channel_name, channel_builder) in builder_entries.into_iter() {
-            if channel_name == "y" {
-                match channel_builder {
-                    ChannelScaleData::RadiusAware { position_data, .. } => {
-                        trace!(
-                            channel = channel_name,
-                            len = position_data.len(),
-                            "build_scales starting RadiusAware channel"
-                        );
-                    }
-                    _ => {}
-                }
+            if channel_name == "y"
+                && let ChannelScaleData::RadiusAware { position_data, .. } = channel_builder
+            {
+                trace!(
+                    channel = channel_name,
+                    len = position_data.len(),
+                    "build_scales starting RadiusAware channel"
+                );
             }
             match channel_builder {
                 ChannelScaleData::Standard {
@@ -535,25 +532,23 @@ impl ScaleBuilder {
                     // Apply default range if not already set (mirrors old code at scales.rs:1216-1246)
                     if scale.get_range().is_none() {
                         // Try to get default range from mark
-                        if let Some(data_type) = self.channel_data_types.get(channel_name) {
-                            if let (Some(scale_impl), Some(domain)) =
+                        if let Some(data_type) = self.channel_data_types.get(channel_name)
+                            && let (Some(scale_impl), Some(domain)) =
                                 (scale.get_scale_impl(), scale.get_domain())
-                            {
-                                if let Ok(resolved_domain) = domain.to_resolved() {
-                                    // Find first mark that uses this channel
-                                    for mark in compiled_marks {
-                                        if let Some(mark_range) = mark.default_channel_range(
-                                            channel_name,
-                                            scale_impl.as_ref(),
-                                            &resolved_domain,
-                                            data_type,
-                                            theme,
-                                            params,
-                                        ) {
-                                            scale = scale.range(mark_range);
-                                            break;
-                                        }
-                                    }
+                            && let Ok(resolved_domain) = domain.to_resolved()
+                        {
+                            // Find first mark that uses this channel
+                            for mark in compiled_marks {
+                                if let Some(mark_range) = mark.default_channel_range(
+                                    channel_name,
+                                    scale_impl.as_ref(),
+                                    &resolved_domain,
+                                    data_type,
+                                    theme,
+                                    params,
+                                ) {
+                                    scale = scale.range(mark_range);
+                                    break;
                                 }
                             }
                         }
@@ -661,40 +656,37 @@ impl ScaleBuilder {
                     // Normalize domain (apply zero, nice, padding)
                     scale = scale.normalize_domain(width, height, ctx, params).await?;
 
-                    if channel_name == "y" {
-                        if let Ok((norm_min, norm_max)) = scale
+                    if channel_name == "y"
+                        && let Ok((norm_min, norm_max)) = scale
                             .clone()
                             .create_configured_scale(width, height, ctx, params)
                             .await
                             .and_then(|c| Ok(c.numeric_interval_domain()?))
-                        {
-                            trace!(
-                                channel = channel_name,
-                                norm_min, norm_max, "RadiusAware domain after normalize"
-                            );
-                        }
+                    {
+                        trace!(
+                            channel = channel_name,
+                            norm_min, norm_max, "RadiusAware domain after normalize"
+                        );
                     }
 
                     // Apply default range if not already set (same logic as Standard path)
                     if scale.get_range().is_none() {
-                        if let Some(data_type) = self.channel_data_types.get(channel_name) {
-                            if let (Some(scale_impl), Some(domain)) =
+                        if let Some(data_type) = self.channel_data_types.get(channel_name)
+                            && let (Some(scale_impl), Some(domain)) =
                                 (scale.get_scale_impl(), scale.get_domain())
-                            {
-                                if let Ok(resolved_domain) = domain.to_resolved() {
-                                    for mark in compiled_marks {
-                                        if let Some(mark_range) = mark.default_channel_range(
-                                            channel_name,
-                                            scale_impl.as_ref(),
-                                            &resolved_domain,
-                                            data_type,
-                                            theme,
-                                            params,
-                                        ) {
-                                            scale = scale.range(mark_range);
-                                            break;
-                                        }
-                                    }
+                            && let Ok(resolved_domain) = domain.to_resolved()
+                        {
+                            for mark in compiled_marks {
+                                if let Some(mark_range) = mark.default_channel_range(
+                                    channel_name,
+                                    scale_impl.as_ref(),
+                                    &resolved_domain,
+                                    data_type,
+                                    theme,
+                                    params,
+                                ) {
+                                    scale = scale.range(mark_range);
+                                    break;
                                 }
                             }
                         }
@@ -782,24 +774,22 @@ impl ScaleBuilder {
 
                     // Apply default range if not already set
                     if scale.get_range().is_none() {
-                        if let Some(data_type) = self.channel_data_types.get(channel_name) {
-                            if let (Some(scale_impl), Some(domain)) =
+                        if let Some(data_type) = self.channel_data_types.get(channel_name)
+                            && let (Some(scale_impl), Some(domain)) =
                                 (scale.get_scale_impl(), scale.get_domain())
-                            {
-                                if let Ok(resolved_domain) = domain.to_resolved() {
-                                    for mark in compiled_marks {
-                                        if let Some(mark_range) = mark.default_channel_range(
-                                            channel_name,
-                                            scale_impl.as_ref(),
-                                            &resolved_domain,
-                                            data_type,
-                                            theme,
-                                            params,
-                                        ) {
-                                            scale = scale.range(mark_range);
-                                            break;
-                                        }
-                                    }
+                            && let Ok(resolved_domain) = domain.to_resolved()
+                        {
+                            for mark in compiled_marks {
+                                if let Some(mark_range) = mark.default_channel_range(
+                                    channel_name,
+                                    scale_impl.as_ref(),
+                                    &resolved_domain,
+                                    data_type,
+                                    theme,
+                                    params,
+                                ) {
+                                    scale = scale.range(mark_range);
+                                    break;
                                 }
                             }
                         }
@@ -885,7 +875,7 @@ mod tests {
     #[test]
     fn test_add_standard_scale() {
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
+        let scale_spec = Box::new(Linear) as Box<dyn ScaleSpec>;
         let data_extents = DataExtents::Interval(0.0, 100.0);
         let options = HashMap::new();
 
@@ -898,7 +888,7 @@ mod tests {
     #[test]
     fn test_add_radius_aware_scale() {
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
+        let scale_spec = Box::new(Linear) as Box<dyn ScaleSpec>;
         let position_data = vec![0.0, 1.0, 2.0];
         let radius_lower = vec![0.5, 0.5, 0.5];
         let radius_upper = vec![0.5, 0.5, 0.5];
@@ -965,7 +955,7 @@ mod tests {
     #[tokio::test]
     async fn test_build_scales_standard() {
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
+        let scale_spec = Box::new(Linear) as Box<dyn ScaleSpec>;
         let data_extents = DataExtents::Interval(0.0, 100.0);
         let options = HashMap::new();
 
@@ -1007,7 +997,7 @@ mod tests {
     #[tokio::test]
     async fn test_build_scales_radius_aware() {
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
+        let scale_spec = Box::new(Linear) as Box<dyn ScaleSpec>;
         let position_data = vec![0.0, 50.0, 100.0];
         let radius_lower = vec![5.0, 5.0, 5.0];
         let radius_upper = vec![5.0, 5.0, 5.0];
@@ -1064,7 +1054,7 @@ mod tests {
     #[tokio::test]
     async fn test_build_scales_radius_aware_range_change() {
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
+        let scale_spec = Box::new(Linear) as Box<dyn ScaleSpec>;
         let position_data = vec![0.0, 50.0, 100.0];
         let radius_lower = vec![5.0, 5.0, 5.0];
         let radius_upper = vec![5.0, 5.0, 5.0];
@@ -1154,7 +1144,7 @@ mod tests {
     #[test]
     fn test_extract_domain_extents_standard() {
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
+        let scale_spec = Box::new(Linear) as Box<dyn ScaleSpec>;
         let data_extents = DataExtents::Interval(0.0, 100.0);
         let options = HashMap::new();
 
@@ -1171,7 +1161,7 @@ mod tests {
     #[test]
     fn test_extract_domain_extents_radius_aware() {
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
+        let scale_spec = Box::new(Linear) as Box<dyn ScaleSpec>;
         let position_data = vec![0.0, 50.0, 100.0];
         let radius_lower = vec![5.0, 3.0, 5.0];
         let radius_upper = vec![7.0, 7.0, 4.0];
@@ -1204,7 +1194,7 @@ mod tests {
         let mut builder = ScaleBuilder::new();
 
         // Add standard scale
-        let scale_spec1 = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
+        let scale_spec1 = Box::new(Linear) as Box<dyn ScaleSpec>;
         builder.add_standard(
             "x".to_string(),
             scale_spec1,
@@ -1213,7 +1203,7 @@ mod tests {
         );
 
         // Add radius-aware scale
-        let scale_spec2 = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
+        let scale_spec2 = Box::new(Linear) as Box<dyn ScaleSpec>;
         builder.add_radius_aware(
             "y".to_string(),
             scale_spec2,
@@ -1224,7 +1214,7 @@ mod tests {
         );
 
         // Add discrete scale
-        let scale_spec3 = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
+        let scale_spec3 = Box::new(Linear) as Box<dyn ScaleSpec>;
         builder.add_standard(
             "color".to_string(),
             scale_spec3,
@@ -1259,7 +1249,7 @@ mod tests {
     #[test]
     fn test_extend_with_domain_extents_standard_numeric() {
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
+        let scale_spec = Box::new(Linear) as Box<dyn ScaleSpec>;
         builder.add_standard(
             "x".to_string(),
             scale_spec,
@@ -1282,7 +1272,7 @@ mod tests {
     #[test]
     fn test_extend_with_domain_extents_radius_aware_with_radius() {
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
+        let scale_spec = Box::new(Linear) as Box<dyn ScaleSpec>;
         builder.add_radius_aware(
             "y".to_string(),
             scale_spec,
@@ -1316,7 +1306,7 @@ mod tests {
     #[test]
     fn test_extend_with_domain_extents_radius_aware_without_radius() {
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
+        let scale_spec = Box::new(Linear) as Box<dyn ScaleSpec>;
         builder.add_radius_aware(
             "y".to_string(),
             scale_spec,
@@ -1349,7 +1339,7 @@ mod tests {
     #[test]
     fn test_extend_with_domain_extents_discrete() {
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
+        let scale_spec = Box::new(Linear) as Box<dyn ScaleSpec>;
         builder.add_standard(
             "color".to_string(),
             scale_spec,

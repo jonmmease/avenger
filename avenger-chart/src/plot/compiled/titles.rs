@@ -38,7 +38,7 @@ impl CompiledPlot {
         use datafusion_proto::protobuf::LogicalExprNode;
 
         // Evaluate the title text expression
-        let text_node: LogicalExprNode = title.text.clone().into();
+        let text_node: LogicalExprNode = title.text.clone();
         let text_expr = text_node.to_expr(ctx)?;
         let text_value = super::expr_eval::evaluate_string_expr(&text_expr, ctx, params).await?;
 
@@ -150,7 +150,7 @@ impl CompiledPlot {
         use datafusion_proto::protobuf::LogicalExprNode;
 
         // Evaluate the subtitle text expression
-        let text_node: LogicalExprNode = subtitle.text.clone().into();
+        let text_node: LogicalExprNode = subtitle.text.clone();
         let text_expr = text_node.to_expr(ctx)?;
         let text_value = super::expr_eval::evaluate_string_expr(&text_expr, ctx, params).await?;
 

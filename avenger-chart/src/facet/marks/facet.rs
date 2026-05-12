@@ -182,6 +182,12 @@ pub struct Facet<InnerC: CoordinateSystem> {
     pub(crate) facet_col_empty_cell_policy: Option<FacetEmptyCellPolicy>,
 }
 
+impl<InnerC: CoordinateSystem> Default for Facet<InnerC> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<InnerC: CoordinateSystem> Facet<InnerC> {
     pub fn new() -> Self {
         Self {
@@ -440,7 +446,7 @@ impl CompiledMark for CompiledFacetRow {
     ) -> Option<Box<dyn crate::scales::ScaleSpec>> {
         if channel == RowDimensionConfig::channel_name() {
             // Use band scale for row faceting regardless of domain type (categorical input expected)
-            Some(Box::new(crate::scales::spec::Band::default()))
+            Some(Box::new(crate::scales::spec::Band))
         } else {
             crate::marks::default_scale_for_data_type(data_type)
         }
@@ -688,7 +694,7 @@ impl CompiledMark for CompiledFacetCol {
     ) -> Option<Box<dyn crate::scales::ScaleSpec>> {
         if channel == ColumnDimensionConfig::channel_name() {
             // Use band scale for column faceting regardless of domain type (categorical input expected)
-            Some(Box::new(crate::scales::spec::Band::default()))
+            Some(Box::new(crate::scales::spec::Band))
         } else {
             crate::marks::default_scale_for_data_type(data_type)
         }
@@ -767,13 +773,10 @@ mod tests {
     use avenger_scales::scales::band::BandScale;
 
     fn make_band_scale(range: (f32, f32)) -> avenger_scales::scales::ConfiguredScale {
-        let domain = ScalarValue::iter_to_array(
-            vec![
-                ScalarValue::Utf8(Some("a".to_string())),
-                ScalarValue::Utf8(Some("b".to_string())),
-            ]
-            .into_iter(),
-        )
+        let domain = ScalarValue::iter_to_array(vec![
+            ScalarValue::Utf8(Some("a".to_string())),
+            ScalarValue::Utf8(Some("b".to_string())),
+        ])
         .unwrap();
         BandScale::configured(domain, range)
     }
