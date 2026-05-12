@@ -1,20 +1,22 @@
 //! Canvas-fit facet coordination pipeline.
 //!
-//! Runs the full four-phase AG-style coordination cycle for canvas-fit mode.
+//! Runs the full requirement collection, retargeting, and final propagation
+//! cycle for canvas-fit mode.
 
 use tracing::{debug, trace};
 
 use crate::{
     error::AvengerChartError,
     facet::{
-        coordination::{self, FacetCircularEpoch},
-        coordination_attributes::{
-            CoordinationRunArtifacts, build_collection_round_a, build_recollection_round,
+        coordination::{self, FacetCoordinationStage},
+        coordination_apply::{
+            apply_initial_requirement_pass, apply_retargeted_requirement_pass,
+            build_final_propagation_plan, build_retarget_plan, run_final_propagation_with_trace,
+            run_retarget_with_trace,
         },
-        coordination_sidecar::{
-            apply_collection_round_a, apply_recollection_round, derive_inherited_apply_intent,
-            derive_inherited_propagation_intent, run_inherited_apply_with_trace,
-            run_inherited_propagation_with_trace,
+        coordination_attributes::{
+            CoordinationRunArtifacts, build_initial_requirement_pass,
+            build_retargeted_requirement_pass,
         },
     },
     plot::compiled::ComponentsMeasurement,
@@ -28,10 +30,11 @@ pub async fn coordinate_facet_measurement_tree_canvas_fit(
     let artifacts =
         coordinate_facet_measurement_tree_canvas_fit_with_artifacts(measurement, eval_ctx).await?;
     trace!(
-        collection_round_a_nodes = artifacts.collection_round_a.snapshot.nodes.len(),
-        inherited_apply_nodes = artifacts.inherited_apply.node_results.len(),
-        recollection_round_nodes = artifacts.recollection_round.snapshot.nodes.len(),
-        inherited_propagation_nodes = artifacts.inherited_propagation.node_results.len(),
+        initial_requirement_pass_nodes = artifacts.initial_requirement_pass.snapshot.nodes.len(),
+        retarget_trace_nodes = artifacts.retarget_trace.node_results.len(),
+        retargeted_requirement_pass_nodes =
+            artifacts.retargeted_requirement_pass.snapshot.nodes.len(),
+        final_propagation_trace_nodes = artifacts.final_propagation_trace.node_results.len(),
         "coordinate_facet_measurement_tree complete"
     );
     Ok(())
@@ -42,51 +45,42 @@ pub(crate) async fn coordinate_facet_measurement_tree_canvas_fit_until(
     eval_ctx: &EvaluationContext,
     checkpoint: CoordinationCheckpoint,
 ) -> Result<(), AvengerChartError> {
-    let collection_round_a =
-        build_collection_round_a(coordination::collect_collection_round_snapshot(measurement));
-    coordination::debug_assert_collection_round_coverage(&collection_round_a);
-    apply_collection_round_a(measurement, &collection_round_a);
-    if checkpoint == CoordinationCheckpoint::CollectionApplied {
+    let initial_requirement_pass = build_initial_requirement_pass(
+        coordination::collect_initial_requirement_snapshot(measurement),
+    );
+    coordination::debug_assert_initial_requirement_coverage(&initial_requirement_pass);
+    apply_initial_requirement_pass(measurement, &initial_requirement_pass);
+    if checkpoint == CoordinationCheckpoint::InitialRequirementsApplied {
         return Ok(());
     }
 
-    let inherited_apply_derivation = derive_inherited_apply_intent(measurement);
-    coordination::debug_assert_inherited_apply_derivation_coverage(
-        measurement,
-        &inherited_apply_derivation,
-    );
-    let inherited_apply =
-        run_inherited_apply_with_trace(measurement, eval_ctx, &inherited_apply_derivation).await?;
-    coordination::debug_assert_inherited_apply_trace_alignment(
-        &inherited_apply_derivation,
-        &inherited_apply,
-    );
-    if checkpoint == CoordinationCheckpoint::InheritedApplyComplete {
+    let retarget_plan = build_retarget_plan(measurement);
+    coordination::debug_assert_retarget_plan_coverage(measurement, &retarget_plan);
+    let retarget_trace = run_retarget_with_trace(measurement, eval_ctx, &retarget_plan).await?;
+    coordination::debug_assert_retarget_trace_alignment(&retarget_plan, &retarget_trace);
+    if checkpoint == CoordinationCheckpoint::RetargetComplete {
         return Ok(());
     }
 
-    let recollection_round = build_recollection_round(
-        coordination::collect_recollection_round_snapshot(measurement),
+    let retargeted_requirement_pass = build_retargeted_requirement_pass(
+        coordination::collect_retargeted_requirement_snapshot(measurement),
     );
-    coordination::debug_assert_recollection_round_coverage(&recollection_round);
-    apply_recollection_round(measurement, &recollection_round);
-    if checkpoint == CoordinationCheckpoint::RecollectionApplied {
+    coordination::debug_assert_retargeted_requirement_coverage(&retargeted_requirement_pass);
+    apply_retargeted_requirement_pass(measurement, &retargeted_requirement_pass);
+    if checkpoint == CoordinationCheckpoint::RetargetedRequirementsApplied {
         return Ok(());
     }
 
-    let inherited_propagation_derivation = derive_inherited_propagation_intent(measurement);
-    coordination::debug_assert_inherited_propagation_derivation_coverage(
+    let final_propagation_plan = build_final_propagation_plan(measurement);
+    coordination::debug_assert_final_propagation_plan_coverage(
         measurement,
-        &inherited_propagation_derivation,
+        &final_propagation_plan,
     );
-    let inherited_propagation = run_inherited_propagation_with_trace(
-        measurement,
-        eval_ctx,
-        &inherited_propagation_derivation,
-    )?;
-    coordination::debug_assert_inherited_propagation_trace_alignment(
-        &inherited_propagation_derivation,
-        &inherited_propagation,
+    let final_propagation_trace =
+        run_final_propagation_with_trace(measurement, eval_ctx, &final_propagation_plan)?;
+    coordination::debug_assert_final_propagation_trace_alignment(
+        &final_propagation_plan,
+        &final_propagation_trace,
     );
 
     Ok(())
@@ -97,41 +91,44 @@ pub(crate) async fn coordinate_facet_measurement_tree_canvas_fit_with_artifacts(
     eval_ctx: &EvaluationContext,
 ) -> Result<CoordinationRunArtifacts, AvengerChartError> {
     let mut epoch = None;
-    coordination::debug_assert_epoch_transition(epoch, FacetCircularEpoch::CollectionA);
-    epoch = Some(FacetCircularEpoch::CollectionA);
+    coordination::debug_assert_stage_transition(epoch, FacetCoordinationStage::InitialRequirements);
+    epoch = Some(FacetCoordinationStage::InitialRequirements);
 
-    let collection_round_a =
-        build_collection_round_a(coordination::collect_collection_round_snapshot(measurement));
-    coordination::debug_assert_collection_round_coverage(&collection_round_a);
+    let initial_requirement_pass = build_initial_requirement_pass(
+        coordination::collect_initial_requirement_snapshot(measurement),
+    );
+    coordination::debug_assert_initial_requirement_coverage(&initial_requirement_pass);
     debug!(
-        overflow_groups = collection_round_a.aggregates.merged_overflow_by_key.len(),
-        layout_groups = collection_round_a.aggregates.merged_layout_by_key.len(),
-        domain_groups = collection_round_a.aggregates.unified_domain_extents.len(),
-        "coordinate_facet_measurement_tree collection round A global aggregate + distribution"
+        overflow_groups = initial_requirement_pass
+            .aggregates
+            .merged_overflow_by_key
+            .len(),
+        layout_groups = initial_requirement_pass
+            .aggregates
+            .merged_layout_by_key
+            .len(),
+        domain_groups = initial_requirement_pass
+            .aggregates
+            .unified_domain_extents
+            .len(),
+        "coordinate_facet_measurement_tree initial requirements global aggregate + distribution"
     );
-    apply_collection_round_a(measurement, &collection_round_a);
-    debug!("coordinate_facet_measurement_tree collection round A complete");
+    apply_initial_requirement_pass(measurement, &initial_requirement_pass);
+    debug!("coordinate_facet_measurement_tree initial requirements complete");
 
-    coordination::debug_assert_epoch_transition(epoch, FacetCircularEpoch::InheritedApply);
-    epoch = Some(FacetCircularEpoch::InheritedApply);
+    coordination::debug_assert_stage_transition(epoch, FacetCoordinationStage::Retarget);
+    epoch = Some(FacetCoordinationStage::Retarget);
 
-    let inherited_apply_derivation = derive_inherited_apply_intent(measurement);
-    coordination::debug_assert_inherited_apply_derivation_coverage(
-        measurement,
-        &inherited_apply_derivation,
-    );
-    let inherited_apply =
-        run_inherited_apply_with_trace(measurement, eval_ctx, &inherited_apply_derivation).await?;
-    coordination::debug_assert_inherited_apply_trace_alignment(
-        &inherited_apply_derivation,
-        &inherited_apply,
-    );
-    let parent_cross_propagations = inherited_apply
+    let retarget_plan = build_retarget_plan(measurement);
+    coordination::debug_assert_retarget_plan_coverage(measurement, &retarget_plan);
+    let retarget_trace = run_retarget_with_trace(measurement, eval_ctx, &retarget_plan).await?;
+    coordination::debug_assert_retarget_trace_alignment(&retarget_plan, &retarget_trace);
+    let parent_cross_propagations = retarget_trace
         .node_results
         .iter()
         .filter(|result| result.parent_cross_size_propagated)
         .count();
-    let cross_size_changes = inherited_apply
+    let cross_size_changes = retarget_trace
         .node_results
         .iter()
         .filter(|result| {
@@ -141,63 +138,69 @@ pub(crate) async fn coordinate_facet_measurement_tree_canvas_fit_with_artifacts(
     debug!(
         parent_cross_propagations,
         cross_size_changes,
-        remeasured_nodes = inherited_apply
+        remeasured_nodes = retarget_trace
             .node_results
             .iter()
             .filter(|result| result.remeasure_triggered)
             .count(),
-        "coordinate_facet_measurement_tree inherited apply complete"
+        "coordinate_facet_measurement_tree retarget complete"
     );
 
-    coordination::debug_assert_epoch_transition(epoch, FacetCircularEpoch::Recollection);
-    epoch = Some(FacetCircularEpoch::Recollection);
-
-    let recollection_round = build_recollection_round(
-        coordination::collect_recollection_round_snapshot(measurement),
+    coordination::debug_assert_stage_transition(
+        epoch,
+        FacetCoordinationStage::RetargetedRequirements,
     );
-    coordination::debug_assert_recollection_round_coverage(&recollection_round);
+    epoch = Some(FacetCoordinationStage::RetargetedRequirements);
+
+    let retargeted_requirement_pass = build_retargeted_requirement_pass(
+        coordination::collect_retargeted_requirement_snapshot(measurement),
+    );
+    coordination::debug_assert_retargeted_requirement_coverage(&retargeted_requirement_pass);
     debug!(
-        overflow_groups = recollection_round.aggregates.merged_overflow_by_key.len(),
-        layout_groups = recollection_round.aggregates.merged_layout_by_key.len(),
-        "coordinate_facet_measurement_tree recollection round post-remeasure reconciliation"
+        overflow_groups = retargeted_requirement_pass
+            .aggregates
+            .merged_overflow_by_key
+            .len(),
+        layout_groups = retargeted_requirement_pass
+            .aggregates
+            .merged_layout_by_key
+            .len(),
+        "coordinate_facet_measurement_tree retargeted requirements post-remeasure reconciliation"
     );
-    apply_recollection_round(measurement, &recollection_round);
-    debug!("coordinate_facet_measurement_tree recollection round complete");
+    apply_retargeted_requirement_pass(measurement, &retargeted_requirement_pass);
+    debug!("coordinate_facet_measurement_tree retargeted requirements complete");
 
-    coordination::debug_assert_epoch_transition(epoch, FacetCircularEpoch::InheritedPropagation);
+    coordination::debug_assert_stage_transition(epoch, FacetCoordinationStage::FinalPropagation);
 
-    let inherited_propagation_derivation = derive_inherited_propagation_intent(measurement);
-    coordination::debug_assert_inherited_propagation_derivation_coverage(
+    let final_propagation_plan = build_final_propagation_plan(measurement);
+    coordination::debug_assert_final_propagation_plan_coverage(
         measurement,
-        &inherited_propagation_derivation,
+        &final_propagation_plan,
     );
-    let inherited_propagation = run_inherited_propagation_with_trace(
-        measurement,
-        eval_ctx,
-        &inherited_propagation_derivation,
-    )?;
-    coordination::debug_assert_inherited_propagation_trace_alignment(
-        &inherited_propagation_derivation,
-        &inherited_propagation,
+    let final_propagation_trace =
+        run_final_propagation_with_trace(measurement, eval_ctx, &final_propagation_plan)?;
+    coordination::debug_assert_final_propagation_trace_alignment(
+        &final_propagation_plan,
+        &final_propagation_trace,
     );
     debug!(
-        scale_range_retargets = inherited_propagation
+        scale_range_retargets = final_propagation_trace
             .node_results
             .iter()
             .map(|result| result.scale_range_retarget_count)
             .sum::<usize>(),
-        plot_area_adjustments = inherited_propagation
+        plot_area_adjustments = final_propagation_trace
             .node_results
             .iter()
             .map(|result| result.child_plot_area_adjustments_count)
             .sum::<usize>(),
-        "coordinate_facet_measurement_tree inherited propagation complete"
+        "coordinate_facet_measurement_tree final propagation complete"
     );
 
     Ok(CoordinationRunArtifacts {
-        collection_round_a,
-        inherited_apply,
-        recollection_round,
-        inherited_propagation,
+        initial_requirement_pass,
+        retarget_trace,
+        retargeted_requirement_pass,
+        final_propagation_trace,
     })
 }

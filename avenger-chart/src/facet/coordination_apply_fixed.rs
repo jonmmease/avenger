@@ -11,10 +11,10 @@ use crate::{
             retarget_scale_ranges_for_plot_area,
         },
         coordination_attributes::{
-            CollectionRoundA, CoordNodeKey, InheritedApplyIntent, InheritedApplyNodeIntent,
-            InheritedApplyNodeOutcome, InheritedApplyTrace, InheritedPropagationChildIntent,
-            InheritedPropagationIntent, InheritedPropagationNodeIntent,
-            InheritedPropagationNodeOutcome, InheritedPropagationTrace, RecollectionRound,
+            CoordNodeKey, FinalPropagationChildPlan, FinalPropagationNodePlan,
+            FinalPropagationNodeTrace, FinalPropagationPlan, FinalPropagationTrace,
+            InitialRequirementPass, RetargetNodePlan, RetargetNodeTrace, RetargetPlan,
+            RetargetTrace, RetargetedRequirementPass,
         },
         layout_slabs::LayoutSlabs,
     },
@@ -70,9 +70,9 @@ pub(crate) fn visit_fixed_facet_bands_with_node_id_mut<F>(
     }
 }
 
-pub(crate) fn apply_collection_round_a_fixed(
+pub(crate) fn apply_initial_requirement_pass_fixed(
     measurement: &mut ComponentsMeasurement,
-    collection_round_a: &CollectionRoundA,
+    initial_requirement_pass: &InitialRequirementPass,
 ) {
     let mut node_path = Vec::new();
     visit_fixed_facet_bands_with_node_id_mut(
@@ -80,7 +80,7 @@ pub(crate) fn apply_collection_round_a_fixed(
         0,
         &mut node_path,
         &mut |node_id, _depth, facet_band| {
-            if let Some(overflow) = collection_round_a
+            if let Some(overflow) = initial_requirement_pass
                 .distribution
                 .overflow_patches_by_node
                 .get(node_id)
@@ -88,7 +88,7 @@ pub(crate) fn apply_collection_round_a_fixed(
             {
                 facet_band.set_coordinated_overflow_value(overflow);
             }
-            if let Some(layout) = collection_round_a
+            if let Some(layout) = initial_requirement_pass
                 .distribution
                 .layout_patches_by_node
                 .get(node_id)
@@ -105,26 +105,26 @@ pub(crate) fn apply_collection_round_a_fixed(
                     active_layout,
                 );
             }
-            if collection_round_a
+            if initial_requirement_pass
                 .distribution
                 .domain_target_nodes
                 .contains(node_id)
-                && !collection_round_a
+                && !initial_requirement_pass
                     .distribution
                     .unified_domain_extents
                     .is_empty()
             {
                 facet_band.distribute_coordinated_domain_extents(
-                    &collection_round_a.distribution.unified_domain_extents,
+                    &initial_requirement_pass.distribution.unified_domain_extents,
                 );
             }
         },
     );
 }
 
-pub(crate) fn apply_recollection_round_fixed(
+pub(crate) fn apply_retargeted_requirement_pass_fixed(
     measurement: &mut ComponentsMeasurement,
-    recollection_round: &RecollectionRound,
+    retargeted_requirement_pass: &RetargetedRequirementPass,
 ) {
     let mut node_path = Vec::new();
     visit_fixed_facet_bands_with_node_id_mut(
@@ -132,7 +132,7 @@ pub(crate) fn apply_recollection_round_fixed(
         0,
         &mut node_path,
         &mut |node_id, _depth, facet_band| {
-            if let Some(overflow) = recollection_round
+            if let Some(overflow) = retargeted_requirement_pass
                 .distribution
                 .overflow_patches_by_node
                 .get(node_id)
@@ -140,7 +140,7 @@ pub(crate) fn apply_recollection_round_fixed(
             {
                 facet_band.set_coordinated_overflow_value(overflow);
             }
-            if let Some(layout) = recollection_round
+            if let Some(layout) = retargeted_requirement_pass
                 .distribution
                 .layout_patches_by_node
                 .get(node_id)
@@ -161,28 +161,22 @@ pub(crate) fn apply_recollection_round_fixed(
     );
 }
 
-pub(crate) fn derive_inherited_apply_intent_fixed(
-    measurement: &ComponentsMeasurement,
-) -> InheritedApplyIntent {
-    let mut node_derivations = Vec::new();
+pub(crate) fn build_retarget_plan_fixed(measurement: &ComponentsMeasurement) -> RetargetPlan {
+    let mut node_plans = Vec::new();
     let mut node_path = Vec::new();
-    derive_inherited_apply_intent_fixed_recursive(
-        measurement,
-        &mut node_path,
-        &mut node_derivations,
-    );
-    InheritedApplyIntent { node_derivations }
+    build_retarget_plan_fixed_recursive(measurement, &mut node_path, &mut node_plans);
+    RetargetPlan { node_plans }
 }
 
-fn derive_inherited_apply_intent_fixed_recursive(
+fn build_retarget_plan_fixed_recursive(
     measurement: &ComponentsMeasurement,
     node_path: &mut Vec<usize>,
-    node_derivations: &mut Vec<InheritedApplyNodeIntent>,
+    node_plans: &mut Vec<RetargetNodePlan>,
 ) {
     if let Some(facet_band) = facet_band_ref(measurement) {
         for (idx, child) in facet_band.child_measurements_iter().enumerate() {
             node_path.push(idx);
-            derive_inherited_apply_intent_fixed_recursive(child, node_path, node_derivations);
+            build_retarget_plan_fixed_recursive(child, node_path, node_plans);
             node_path.pop();
         }
 
@@ -196,7 +190,7 @@ fn derive_inherited_apply_intent_fixed_recursive(
         let has_main_axis_legend_slab = legend_main_start > 0.0 || legend_main_end > 0.0;
         debug_assert_eq!(
             apply_plan.has_legend_overflow, has_main_axis_legend_slab,
-            "fixed inherited-apply invariant: apply-plan legend-overflow flag must match coordinated main-axis legend slabs"
+            "fixed retarget invariant: apply-plan legend-overflow flag must match coordinated main-axis legend slabs"
         );
         // Fixed-subplot mode keeps per-cell plot area dimensions locked.
         // Keep coordinated layout/domain/remeasure semantics intact, but disable
@@ -204,7 +198,7 @@ fn derive_inherited_apply_intent_fixed_recursive(
         apply_plan.adjusted_main_size = apply_plan.original_main_size;
         apply_plan.legend_main_axis_shrink = 0.0;
         let child_count = facet_band.child_measurements_iter().count();
-        node_derivations.push(InheritedApplyNodeIntent {
+        node_plans.push(RetargetNodePlan {
             node_id,
             axis: apply_plan.axis,
             has_legend_overflow: apply_plan.has_legend_overflow,
@@ -216,14 +210,14 @@ fn derive_inherited_apply_intent_fixed_recursive(
     }
 }
 
-pub(crate) fn run_inherited_apply_with_trace_fixed<'a>(
+pub(crate) fn run_retarget_with_trace_fixed<'a>(
     measurement: &'a mut ComponentsMeasurement,
     eval_ctx: &'a EvaluationContext,
-    derivation: &'a InheritedApplyIntent,
-) -> Pin<Box<dyn Future<Output = Result<InheritedApplyTrace, AvengerChartError>> + Send + 'a>> {
+    plan: &'a RetargetPlan,
+) -> Pin<Box<dyn Future<Output = Result<RetargetTrace, AvengerChartError>> + Send + 'a>> {
     Box::pin(async move {
-        let derivation_by_node: HashMap<CoordNodeKey, InheritedApplyNodeIntent> = derivation
-            .node_derivations
+        let plan_by_node: HashMap<CoordNodeKey, RetargetNodePlan> = plan
+            .node_plans
             .iter()
             .cloned()
             .map(|node| (node.node_id.clone(), node))
@@ -231,38 +225,38 @@ pub(crate) fn run_inherited_apply_with_trace_fixed<'a>(
 
         let mut node_results = Vec::new();
         let mut node_path = Vec::new();
-        run_inherited_apply_recursive(
+        run_retarget_recursive(
             measurement,
             eval_ctx,
-            &derivation_by_node,
+            &plan_by_node,
             &mut node_path,
             &mut node_results,
         )
         .await?;
-        Ok(InheritedApplyTrace { node_results })
+        Ok(RetargetTrace { node_results })
     })
 }
 
-fn run_inherited_apply_recursive<'a>(
+fn run_retarget_recursive<'a>(
     measurement: &'a mut ComponentsMeasurement,
     eval_ctx: &'a EvaluationContext,
-    derivation_by_node: &'a HashMap<CoordNodeKey, InheritedApplyNodeIntent>,
+    plan_by_node: &'a HashMap<CoordNodeKey, RetargetNodePlan>,
     node_path: &'a mut Vec<usize>,
-    node_results: &'a mut Vec<InheritedApplyNodeOutcome>,
+    node_results: &'a mut Vec<RetargetNodeTrace>,
 ) -> Pin<Box<dyn Future<Output = Result<(), AvengerChartError>> + Send + 'a>> {
     Box::pin(async move {
         if let Some(facet_band) = facet_band_mut(measurement) {
             let node_id = CoordNodeKey::new(node_path.clone());
-            let derived = derivation_by_node.get(&node_id).ok_or_else(|| {
+            let planned = plan_by_node.get(&node_id).ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
-                    "Missing inherited-apply derivation for node path {:?}",
+                    "Missing retarget plan for node path {:?}",
                     node_id.path
                 ))
             })?;
-            // Fixed-subplot mode keeps leaf subplot sizes locked. Preserve derived
+            // Fixed-subplot mode keeps leaf subplot sizes locked. Preserve planned
             // coordination semantics for diagnostics/tracing, but skip coordinated
             // cross-size rewrites during execution.
-            let mut execution_plan = derived.apply_plan.clone();
+            let mut execution_plan = planned.apply_plan.clone();
             execution_plan.has_coordinated_layout = false;
             let outcome = facet_band
                 .apply_coordinated_overflow_with_plan(eval_ctx, &execution_plan)
@@ -293,28 +287,22 @@ fn run_inherited_apply_recursive<'a>(
                     parent_cross_size_propagated = true;
                 }
                 node_path.push(idx);
-                run_inherited_apply_recursive(
-                    child,
-                    eval_ctx,
-                    derivation_by_node,
-                    node_path,
-                    node_results,
-                )
-                .await?;
+                run_retarget_recursive(child, eval_ctx, plan_by_node, node_path, node_results)
+                    .await?;
                 node_path.pop();
             }
 
-            node_results.push(InheritedApplyNodeOutcome {
+            node_results.push(RetargetNodeTrace {
                 node_id,
-                axis: derived.axis,
-                derived_has_legend_overflow: derived.has_legend_overflow,
-                derived_has_coordinated_extents: derived.has_coordinated_extents,
-                derived_remeasure_required: derived.remeasure_triggered,
-                derived_axis_owner_ignore_empty_cells: derived
+                axis: planned.axis,
+                planned_has_legend_overflow: planned.has_legend_overflow,
+                planned_has_coordinated_extents: planned.has_coordinated_extents,
+                planned_remeasure_required: planned.remeasure_triggered,
+                planned_axis_owner_ignore_empty_cells: planned
                     .apply_plan
                     .axis_owner_ignore_empty_cells,
-                derived_adjusted_main_size: derived.apply_plan.adjusted_main_size,
-                derived_child_count: derived.child_count,
+                planned_adjusted_main_size: planned.apply_plan.adjusted_main_size,
+                planned_child_count: planned.child_count,
                 parent_cross_size_propagated,
                 subplot_cross_size_before: outcome.subplot_cross_size_before,
                 subplot_cross_size_after: outcome.subplot_cross_size_after,
@@ -330,58 +318,54 @@ fn run_inherited_apply_recursive<'a>(
     })
 }
 
-pub(crate) fn derive_inherited_propagation_intent_fixed(
+pub(crate) fn build_final_propagation_plan_fixed(
     measurement: &ComponentsMeasurement,
-) -> InheritedPropagationIntent {
-    let mut node_derivations = Vec::new();
+) -> FinalPropagationPlan {
+    let mut node_plans = Vec::new();
     let mut node_path = Vec::new();
-    derive_inherited_propagation_intent_fixed_recursive(
-        measurement,
-        &mut node_path,
-        &mut node_derivations,
-    );
-    InheritedPropagationIntent { node_derivations }
+    build_final_propagation_plan_fixed_recursive(measurement, &mut node_path, &mut node_plans);
+    FinalPropagationPlan { node_plans }
 }
 
-fn derive_inherited_propagation_intent_fixed_recursive(
+fn build_final_propagation_plan_fixed_recursive(
     measurement: &ComponentsMeasurement,
     node_path: &mut Vec<usize>,
-    node_derivations: &mut Vec<InheritedPropagationNodeIntent>,
+    node_plans: &mut Vec<FinalPropagationNodePlan>,
 ) {
     if let Some(facet_band) = facet_band_ref(measurement) {
         for (idx, child) in facet_band.child_measurements_iter().enumerate() {
             node_path.push(idx);
-            derive_inherited_propagation_intent_fixed_recursive(child, node_path, node_derivations);
+            build_final_propagation_plan_fixed_recursive(child, node_path, node_plans);
             node_path.pop();
         }
 
         let parent_cross_size_target = facet_band.coordinated_subplot_cross_size();
-        let child_intents = build_inherited_propagation_child_intents(
+        let child_plans = build_final_propagation_child_plans(
             facet_band.axis,
             parent_cross_size_target,
             facet_band.child_measurements_iter(),
         );
-        let expected_plot_area_adjustments_count = child_intents
+        let expected_plot_area_adjustments_count = child_plans
             .iter()
-            .filter(|intent| intent.adjust_plot_area)
+            .filter(|child_plan| child_plan.adjust_plot_area)
             .count();
 
-        node_derivations.push(InheritedPropagationNodeIntent {
+        node_plans.push(FinalPropagationNodePlan {
             node_id: CoordNodeKey::new(node_path.clone()),
             axis: facet_band.axis,
             parent_cross_size_target,
-            child_count: child_intents.len(),
-            child_intents,
+            child_count: child_plans.len(),
+            child_plans,
             expected_plot_area_adjustments_count,
         });
     }
 }
 
-fn build_inherited_propagation_child_intents<'a, I>(
+fn build_final_propagation_child_plans<'a, I>(
     axis: FacetAxis,
     parent_cross_size_target: Option<f32>,
     child_measurements: I,
-) -> Vec<InheritedPropagationChildIntent>
+) -> Vec<FinalPropagationChildPlan>
 where
     I: Iterator<Item = &'a ComponentsMeasurement>,
 {
@@ -394,7 +378,7 @@ where
                 .as_any()
                 .downcast_ref::<FacetBandCoordMeasurementFixed>()
                 .is_some();
-            build_inherited_propagation_child_intent(
+            build_final_propagation_child_plan(
                 idx,
                 axis,
                 parent_cross_size_target,
@@ -407,7 +391,7 @@ where
         .collect()
 }
 
-fn build_inherited_propagation_child_intent(
+fn build_final_propagation_child_plan(
     child_index: usize,
     _axis: FacetAxis,
     parent_cross_size_target: Option<f32>,
@@ -415,7 +399,7 @@ fn build_inherited_propagation_child_intent(
     old_plot_area_height: f32,
     has_band_scale: bool,
     child_is_facet_band: bool,
-) -> InheritedPropagationChildIntent {
+) -> FinalPropagationChildPlan {
     // Fixed mode keeps leaf subplot dimensions locked, but facet child containers may still
     // need cross-size propagation for coordinated parent sizing.
     let (target_plot_area_width, target_plot_area_height, adjust_plot_area) = if child_is_facet_band
@@ -444,7 +428,7 @@ fn build_inherited_propagation_child_intent(
     };
     let update_band_range = target_band_range_end.is_some();
 
-    InheritedPropagationChildIntent {
+    FinalPropagationChildPlan {
         child_index,
         old_plot_area_width,
         old_plot_area_height,
@@ -456,20 +440,20 @@ fn build_inherited_propagation_child_intent(
     }
 }
 
-fn apply_inherited_propagation_child_resize(
+fn apply_final_propagation_child_resize(
     axis: FacetAxis,
     child: &mut ComponentsMeasurement,
-    intent: &InheritedPropagationChildIntent,
+    child_plan: &FinalPropagationChildPlan,
 ) -> bool {
     let mut plot_area_adjusted = false;
-    if intent.adjust_plot_area {
-        if let Some(new_width) = intent.target_plot_area_width
+    if child_plan.adjust_plot_area {
+        if let Some(new_width) = child_plan.target_plot_area_width
             && (child.plot_area_width - new_width).abs() > 0.01
         {
             child.plot_area_width = new_width;
             plot_area_adjusted = true;
         }
-        if let Some(new_height) = intent.target_plot_area_height
+        if let Some(new_height) = child_plan.target_plot_area_height
             && (child.plot_area_height - new_height).abs() > 0.01
         {
             child.plot_area_height = new_height;
@@ -477,10 +461,10 @@ fn apply_inherited_propagation_child_resize(
         }
     }
 
-    if intent.update_band_range
+    if child_plan.update_band_range
         && let (Some(band_scale), Some(range_end)) = (
             child.scales.get_mut(axis.scale_name()),
-            intent.target_band_range_end,
+            child_plan.target_band_range_end,
         )
     {
         let updated_config = band_scale
@@ -493,12 +477,12 @@ fn apply_inherited_propagation_child_resize(
     plot_area_adjusted
 }
 
-fn apply_inherited_propagation_child_retarget(
+fn apply_final_propagation_child_retarget(
     child: &mut ComponentsMeasurement,
-    intent: &InheritedPropagationChildIntent,
+    child_plan: &FinalPropagationChildPlan,
 ) -> usize {
-    if (child.plot_area_width - intent.old_plot_area_width).abs() <= 0.01
-        && (child.plot_area_height - intent.old_plot_area_height).abs() <= 0.01
+    if (child.plot_area_width - child_plan.old_plot_area_width).abs() <= 0.01
+        && (child.plot_area_height - child_plan.old_plot_area_height).abs() <= 0.01
     {
         return 0;
     }
@@ -506,12 +490,12 @@ fn apply_inherited_propagation_child_retarget(
     retarget_child_scales_for_resized_plot_area(child)
 }
 
-pub(crate) fn run_inherited_propagation_with_trace_fixed(
+pub(crate) fn run_final_propagation_with_trace_fixed(
     measurement: &mut ComponentsMeasurement,
-    derivation: &InheritedPropagationIntent,
-) -> InheritedPropagationTrace {
-    let derivation_by_node: HashMap<CoordNodeKey, InheritedPropagationNodeIntent> = derivation
-        .node_derivations
+    plan: &FinalPropagationPlan,
+) -> FinalPropagationTrace {
+    let plan_by_node: HashMap<CoordNodeKey, FinalPropagationNodePlan> = plan
+        .node_plans
         .iter()
         .cloned()
         .map(|node| (node.node_id.clone(), node))
@@ -519,20 +503,20 @@ pub(crate) fn run_inherited_propagation_with_trace_fixed(
 
     let mut node_results = Vec::new();
     let mut node_path = Vec::new();
-    run_inherited_propagation_recursive(
+    run_final_propagation_recursive(
         measurement,
-        &derivation_by_node,
+        &plan_by_node,
         &mut node_path,
         &mut node_results,
     );
-    InheritedPropagationTrace { node_results }
+    FinalPropagationTrace { node_results }
 }
 
-fn run_inherited_propagation_recursive(
+fn run_final_propagation_recursive(
     measurement: &mut ComponentsMeasurement,
-    derivation_by_node: &HashMap<CoordNodeKey, InheritedPropagationNodeIntent>,
+    plan_by_node: &HashMap<CoordNodeKey, FinalPropagationNodePlan>,
     node_path: &mut Vec<usize>,
-    node_results: &mut Vec<InheritedPropagationNodeOutcome>,
+    node_results: &mut Vec<FinalPropagationNodeTrace>,
 ) {
     measurement
         .coord_measurement
@@ -541,36 +525,36 @@ fn run_inherited_propagation_recursive(
     if let Some(facet_band) = facet_band_mut(measurement) {
         let node_id = CoordNodeKey::new(node_path.clone());
         let axis = facet_band.axis;
-        let derived = derivation_by_node.get(&node_id);
+        let planned = plan_by_node.get(&node_id);
         debug_assert!(
-            derived.is_some(),
-            "Missing inherited-propagation derivation for node path {:?}",
+            planned.is_some(),
+            "Missing final propagation plan for node path {:?}",
             node_id.path
         );
-        let fallback_child_intents = build_inherited_propagation_child_intents(
+        let fallback_child_plans = build_final_propagation_child_plans(
             axis,
             facet_band.coordinated_subplot_cross_size(),
             facet_band.child_measurements_iter(),
         );
-        let fallback_expected_plot_area_adjustments_count = fallback_child_intents
+        let fallback_expected_plot_area_adjustments_count = fallback_child_plans
             .iter()
-            .filter(|intent| intent.adjust_plot_area)
+            .filter(|child_plan| child_plan.adjust_plot_area)
             .count();
         let (
-            child_intents,
-            derived_parent_cross_size_target,
-            derived_child_count,
-            derived_expected_plot_area_adjustments_count,
-        ) = if let Some(derived) = derived {
+            child_plans,
+            planned_parent_cross_size_target,
+            planned_child_count,
+            planned_plot_area_adjustments_count,
+        ) = if let Some(planned) = planned {
             (
-                derived.child_intents.clone(),
-                derived.parent_cross_size_target,
-                derived.child_count,
-                derived.expected_plot_area_adjustments_count,
+                planned.child_plans.clone(),
+                planned.parent_cross_size_target,
+                planned.child_count,
+                planned.expected_plot_area_adjustments_count,
             )
         } else {
             (
-                fallback_child_intents,
+                fallback_child_plans,
                 facet_band.coordinated_subplot_cross_size(),
                 facet_band.child_measurements_iter().count(),
                 fallback_expected_plot_area_adjustments_count,
@@ -580,12 +564,12 @@ fn run_inherited_propagation_recursive(
         let mut scale_range_retarget_count = 0usize;
 
         for (idx, child) in facet_band.child_measurements_iter_mut().enumerate() {
-            let intent = child_intents.get(idx).cloned().unwrap_or_else(|| {
+            let child_plan = child_plans.get(idx).cloned().unwrap_or_else(|| {
                 let has_band_scale = child.scales.contains_key(axis.scale_name());
-                build_inherited_propagation_child_intent(
+                build_final_propagation_child_plan(
                     idx,
                     axis,
-                    derived_parent_cross_size_target,
+                    planned_parent_cross_size_target,
                     child.plot_area_width,
                     child.plot_area_height,
                     has_band_scale,
@@ -597,26 +581,26 @@ fn run_inherited_propagation_recursive(
                 )
             });
 
-            let plot_area_adjusted = apply_inherited_propagation_child_resize(axis, child, &intent);
+            let plot_area_adjusted = apply_final_propagation_child_resize(axis, child, &child_plan);
             if plot_area_adjusted {
                 child_plot_area_adjustments_count += 1;
             }
             scale_range_retarget_count +=
-                apply_inherited_propagation_child_retarget(child, &intent);
+                apply_final_propagation_child_retarget(child, &child_plan);
             node_path.push(idx);
-            run_inherited_propagation_recursive(child, derivation_by_node, node_path, node_results);
+            run_final_propagation_recursive(child, plan_by_node, node_path, node_results);
             node_path.pop();
         }
 
         facet_band.apply_cross_axis_coordinated_side_slabs_to_cells();
 
-        node_results.push(InheritedPropagationNodeOutcome {
+        node_results.push(FinalPropagationNodeTrace {
             node_id,
             axis,
-            derived_parent_cross_size_target,
-            derived_child_count,
-            derived_child_intent_count: child_intents.len(),
-            derived_expected_plot_area_adjustments_count,
+            planned_parent_cross_size_target,
+            planned_child_count,
+            planned_child_plan_count: child_plans.len(),
+            planned_plot_area_adjustments_count,
             child_plot_area_adjustments_count,
             scale_range_retarget_count,
         });

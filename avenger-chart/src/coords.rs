@@ -173,11 +173,11 @@ pub struct CellDomainInfo {
 /// This ensures measurements are correct before `build_plot_components` is called.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FacetCoordinationMode {
-    /// Full AG-style coordination cycle:
-    /// collection -> inherited apply/resynthesis -> recollection -> inherited propagation.
+    /// Full requirement coordination cycle:
+    /// initial requirements -> retarget -> retargeted requirements -> final propagation.
     CanvasFullCycle,
     /// Fixed-subplot mode:
-    /// full-cycle coordination with fixed-safe inherited behavior (no plot-area resizing).
+    /// full-cycle coordination with fixed-safe retarget behavior (no plot-area resizing).
     FixedFullCycle,
 }
 

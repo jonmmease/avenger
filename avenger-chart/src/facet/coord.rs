@@ -1,13 +1,8 @@
-//! Facet band synthesis pipeline (FacetColumn and FacetRow).
+//! Facet band measurement and local layout pipeline (FacetColumn and FacetRow).
 //!
-//! This module implements local per-node evaluation using AG-style semantics:
-//! - synthesized attributes: per-cell semantics, overflow probes, local layout, measured cells;
-//! - inherited attributes: coordinated values applied later by `coordination.rs`.
-//!
-//! Reference terminology:
-//! - JastAdd concept overview: https://jastadd.cs.lth.se/web/documentation/concept-overview.php
-//! - JastAdd reference manual: https://jastadd.cs.lth.se/web/documentation/reference-manual.php
-//! - Knuth attribute grammars: https://doi.org/10.1007/BF01692511
+//! This module builds per-cell semantics, measures estimated overflow, derives
+//! local facet band layout, and retargets child measurements before global
+//! coordination aligns matching facet requirements.
 //!
 use std::{
     any::Any,
@@ -34,8 +29,8 @@ use crate::{
     error::AvengerChartError,
     facet::{
         band_attributes::{
-            FacetBandLocalSynthesis, FacetBandMeasuredRuntime, FacetBandOverflowSynthesis,
-            FacetBandPreparedRuntime, FacetBandPreparedSynthesis, FacetBandSemantics,
+            FacetBandLocalLayout, FacetBandMeasuredRuntime, FacetBandOverflowProbe,
+            FacetBandPreparedInputs, FacetBandPreparedRuntime, FacetBandSemantics,
             OverflowProbeSummary,
         },
         coord_row::compute_band_layout,
@@ -76,7 +71,7 @@ use crate::{
 };
 
 #[cfg(test)]
-use crate::facet::probe_summary::FacetBandProbeSynthesis;
+use crate::facet::probe_summary::FacetBandProbeLayout;
 
 pub use crate::facet::coord_row::FacetRow;
 
@@ -216,7 +211,7 @@ pub(crate) fn facet_band_fixed_mut(
         .downcast_mut::<FacetBandCoordMeasurementFixed>()
 }
 
-/// Probe-only facet band measurement used during phase-5 synthesized aggregation.
+/// Probe-only facet band measurement used during estimated-overflow aggregation.
 ///
 /// This carries enough local information for guide overflow measurement and band-scale
 /// layout rewrites without materializing child `ComponentsMeasurement` trees.
@@ -1217,10 +1212,9 @@ struct FacetLocalLayoutOutcome {
 
 #[derive(Debug, Default, Clone, Copy)]
 struct FacetPipelinePerfCounters {
-    phase5_leaf_measure_count: usize,
-    phase5_non_leaf_probe_aggregate_count: usize,
-    phase5_non_leaf_full_measure_count: usize,
-    phase6_full_measure_count: usize,
+    estimated_overflow_leaf_measure_count: usize,
+    estimated_overflow_non_leaf_aggregate_count: usize,
+    estimated_overflow_non_leaf_full_measure_count: usize,
 }
 
 pub(crate) fn retarget_scale_ranges_for_plot_area(
@@ -2688,20 +2682,20 @@ async fn prepare_measurement_inputs(
 }
 
 fn prepared_cells_as_drafts(
-    prepared_synthesis: &FacetBandPreparedSynthesis,
-    sidecars: &FacetBandPreparedRuntime,
+    prepared_inputs: &FacetBandPreparedInputs,
+    runtime_state: &FacetBandPreparedRuntime,
 ) -> Vec<FacetCellDraft> {
     assert_eq!(
-        prepared_synthesis.cell_synthesis.cells.len(),
-        sidecars.data_overrides.len(),
-        "FacetBand prepared-synthesis attributes/sidecar invariant violated: mismatched cell/data_override lengths"
+        prepared_inputs.cell_semantics.cells.len(),
+        runtime_state.data_overrides.len(),
+        "FacetBand prepared inputs/executor invariant violated: mismatched cell/data_override lengths"
     );
 
-    prepared_synthesis
-        .cell_synthesis
+    prepared_inputs
+        .cell_semantics
         .cells
         .iter()
-        .zip(sidecars.data_overrides.iter())
+        .zip(runtime_state.data_overrides.iter())
         .map(|(cell, data_override)| FacetCellDraft {
             plan: FacetCellPlan::from(cell),
             data_override: data_override.clone(),
@@ -2712,32 +2706,32 @@ fn prepared_cells_as_drafts(
         .collect()
 }
 
-async fn synthesize_prepared_attributes_and_runtime(
-    cell_synthesis: FacetBandSemantics,
+async fn prepare_band_inputs_and_runtime(
+    cell_semantics: FacetBandSemantics,
     data_df: &DataFrame,
     compiled_subplot: &Arc<CompiledPlot>,
     band_scale: &ConfiguredScaleWithSpec,
     initial_subplot_band_size: f32,
     eval_ctx: &EvaluationContext,
-) -> Result<(FacetBandPreparedSynthesis, FacetBandPreparedRuntime), AvengerChartError> {
-    let cell_plans: Vec<FacetCellPlan> = cell_synthesis
+) -> Result<(FacetBandPreparedInputs, FacetBandPreparedRuntime), AvengerChartError> {
+    let cell_plans: Vec<FacetCellPlan> = cell_semantics
         .cells
         .iter()
         .map(FacetCellPlan::from)
         .collect();
     let measurement_inputs = prepare_measurement_inputs(
         cell_plans,
-        &cell_synthesis.node_id.facet_path,
+        &cell_semantics.node_id.facet_path,
         data_df,
         compiled_subplot,
-        cell_synthesis.empty_cell_policy,
+        cell_semantics.empty_cell_policy,
         eval_ctx,
     )
     .await?;
 
     let renderable_mask = renderable_mask_for_cells(
         &measurement_inputs.plan.cells,
-        cell_synthesis.empty_cell_policy,
+        cell_semantics.empty_cell_policy,
     );
     let data_overrides = measurement_inputs
         .plan
@@ -2747,15 +2741,15 @@ async fn synthesize_prepared_attributes_and_runtime(
         .collect::<Vec<_>>();
     let scale_artifacts = measurement_inputs.plan.scale_artifacts.clone();
 
-    let prepared_synthesis = FacetBandPreparedSynthesis {
-        cell_synthesis: cell_synthesis.clone(),
+    let prepared_inputs = FacetBandPreparedInputs {
+        cell_semantics: cell_semantics.clone(),
         renderable_mask,
         scale_artifacts_key: FacetScaleNodeKey::new(
             compiled_subplot,
-            &cell_synthesis.node_id.facet_path,
+            &cell_semantics.node_id.facet_path,
         ),
     };
-    let sidecars = FacetBandPreparedRuntime {
+    let runtime_state = FacetBandPreparedRuntime {
         data_overrides,
         subplot_eval_ctx: measurement_inputs.subplot_eval_ctx,
         nested_measure_ctx: measurement_inputs.nested_measure_ctx,
@@ -2764,47 +2758,47 @@ async fn synthesize_prepared_attributes_and_runtime(
         initial_subplot_band_size,
         scale_artifacts,
     };
-    Ok((prepared_synthesis, sidecars))
+    Ok((prepared_inputs, runtime_state))
 }
 
-async fn synthesize_overflow_probe_attributes(
-    prepared_synthesis: &FacetBandPreparedSynthesis,
-    sidecars: &FacetBandPreparedRuntime,
+async fn build_overflow_probe(
+    prepared_inputs: &FacetBandPreparedInputs,
+    runtime_state: &FacetBandPreparedRuntime,
     subplot_plot_width: f32,
     subplot_plot_height: f32,
     perf_counters: &mut FacetPipelinePerfCounters,
-) -> Result<(FacetBandOverflowSynthesis, FacetBandOverflowRuntime), AvengerChartError> {
+) -> Result<(FacetBandOverflowProbe, FacetBandOverflowRuntime), AvengerChartError> {
     assert_eq!(
-        prepared_synthesis.renderable_mask.len(),
-        prepared_synthesis.cell_synthesis.cells.len(),
-        "FacetBand prepared-synthesis attributes invariant violated: renderable mask length mismatch"
+        prepared_inputs.renderable_mask.len(),
+        prepared_inputs.cell_semantics.cells.len(),
+        "FacetBand prepared inputs invariant violated: renderable mask length mismatch"
     );
     let expected_key = FacetScaleNodeKey::new(
-        &sidecars.compiled_subplot,
-        &prepared_synthesis.cell_synthesis.node_id.facet_path,
+        &runtime_state.compiled_subplot,
+        &prepared_inputs.cell_semantics.node_id.facet_path,
     );
     assert_eq!(
-        prepared_synthesis.scale_artifacts_key, expected_key,
-        "FacetBand prepared-synthesis attributes invariant violated: scale artifacts key mismatch"
+        prepared_inputs.scale_artifacts_key, expected_key,
+        "FacetBand prepared inputs invariant violated: scale artifacts key mismatch"
     );
 
-    let mut cells = prepared_cells_as_drafts(prepared_synthesis, sidecars);
-    let overflow_probe_summary = synthesize_overflow_probe(
+    let mut cells = prepared_cells_as_drafts(prepared_inputs, runtime_state);
+    let overflow_probe_summary = measure_overflow_probe(
         &mut cells,
         subplot_plot_width,
         subplot_plot_height,
-        &sidecars.compiled_subplot,
-        &sidecars.subplot_eval_ctx,
-        &sidecars.nested_measure_ctx,
-        prepared_synthesis.cell_synthesis.empty_cell_policy,
-        is_leaf_subplot(&sidecars.compiled_subplot),
+        &runtime_state.compiled_subplot,
+        &runtime_state.subplot_eval_ctx,
+        &runtime_state.nested_measure_ctx,
+        prepared_inputs.cell_semantics.empty_cell_policy,
+        is_leaf_subplot(&runtime_state.compiled_subplot),
         perf_counters,
     )
     .await?;
 
     Ok((
-        FacetBandOverflowSynthesis {
-            prepared_synthesis: prepared_synthesis.clone(),
+        FacetBandOverflowProbe {
+            prepared_inputs: prepared_inputs.clone(),
             overflow_probe_summary,
         },
         FacetBandOverflowRuntime { cells },
@@ -2920,7 +2914,7 @@ async fn measure_cells_overflow_probe(
             .unwrap_or((subplot_plot_width, subplot_plot_height));
 
         let cell_summary = if is_leaf_node {
-            perf_counters.phase5_leaf_measure_count += 1;
+            perf_counters.estimated_overflow_leaf_measure_count += 1;
             let measured = Box::pin(measure_nested_cell(
                 &cell.plan,
                 &cell.data_override,
@@ -2957,8 +2951,8 @@ async fn measure_cells_overflow_probe(
             cell.measurement = Some(measured.measurement);
             cell_probe_summary
         } else {
-            perf_counters.phase5_non_leaf_probe_aggregate_count += 1;
-            perf_counters.phase5_non_leaf_full_measure_count += 1;
+            perf_counters.estimated_overflow_non_leaf_aggregate_count += 1;
+            perf_counters.estimated_overflow_non_leaf_full_measure_count += 1;
             let measured = Box::pin(measure_nested_cell(
                 &cell.plan,
                 &cell.data_override,
@@ -2993,7 +2987,10 @@ async fn measure_cells_overflow_probe(
             };
             cell.last_cell_scale_builder = measured.cell_scale_builder;
             cell.measurement = Some(measured.measurement);
-            trace!(cell_index = idx, "FacetBand non-leaf phase-5 full measure");
+            trace!(
+                cell_index = idx,
+                "FacetBand non-leaf estimated-overflow full measure"
+            );
             cell_probe_summary
         };
         let guide_overflow = cell_summary.guide_overflow.clone();
@@ -3031,7 +3028,7 @@ async fn measure_cells_overflow_probe(
     Ok(summary)
 }
 
-async fn synthesize_overflow_probe(
+async fn measure_overflow_probe(
     cells: &mut [FacetCellDraft],
     subplot_plot_width: f32,
     subplot_plot_height: f32,
@@ -3058,7 +3055,7 @@ async fn synthesize_overflow_probe(
     Ok(overflow_probe_summary)
 }
 
-async fn measure_cells_final_and_extents(
+async fn retarget_cells_and_collect_extents(
     cells: &mut [FacetCellDraft],
     subplot_plot_width: f32,
     subplot_plot_height: f32,
@@ -3066,14 +3063,13 @@ async fn measure_cells_final_and_extents(
     subplot_eval_ctx: &EvaluationContext,
     nested_ctx: &FacetBandNestedMeasureContext,
     empty_cell_policy: FacetEmptyCellPolicy,
-    _perf_counters: &mut FacetPipelinePerfCounters,
 ) -> Result<(), AvengerChartError> {
     for (idx, cell) in cells.iter_mut().enumerate() {
         if !cell.plan.has_data_rows {
             trace!(
                 cell_index = idx,
                 cell_value = ?cell.plan.value,
-                "FacetBand final measure empty cell"
+                "FacetBand retargeted layout empty cell"
             );
         }
 
@@ -3089,7 +3085,7 @@ async fn measure_cells_final_and_extents(
         };
         let measurement = cell.measurement.as_mut().ok_or_else(|| {
             AvengerChartError::InternalError(format!(
-                "FacetBand phase-6 no-remeasure invariant violated: missing phase-5 measurement for cell {:?}",
+                "FacetBand retargeted-layout invariant violated: missing estimated-overflow measurement for cell {:?}",
                 cell.plan.value
             ))
         })?;
@@ -3108,7 +3104,7 @@ async fn measure_cells_final_and_extents(
             subplot_plot_width,
             subplot_plot_height,
             is_empty = !cell.plan.has_data_rows,
-            "FacetBand phase-6 finalized cell measurement"
+            "FacetBand finalized retargeted cell measurement without remeasure"
         );
 
         let local_extents = if cell.plan.has_data_rows {
@@ -3406,12 +3402,12 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         )
         .await?;
 
-        // Step 3: Synthesize cell attributes -- build geometry-independent per-cell semantics.
-        let cell_synthesis = self.synthesize_cell_attributes(&resolved, &cell_values)?;
+        // Step 3: Build cell semantics -- build geometry-independent per-cell semantics.
+        let cell_semantics = self.build_cell_semantics(&resolved, &cell_values)?;
 
-        // Step 4: Synthesize prepared attributes -- build synthesis attributes + runtime sidecars.
-        let (prepared_synthesis, prepared_runtime) = synthesize_prepared_attributes_and_runtime(
-            cell_synthesis.clone(),
+        // Step 4: Prepare layout inputs and runtime state.
+        let (prepared_inputs, prepared_runtime) = prepare_band_inputs_and_runtime(
+            cell_semantics.clone(),
             data_df,
             resolved.compiled_subplot,
             resolved.band_scale,
@@ -3425,9 +3421,9 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             .measure_dims(self.plot_other_axis_size, subplot_band_size);
         let mut perf_counters = FacetPipelinePerfCounters::default();
 
-        // Step 5: Synthesize overflow probe -- non-mutating probe at estimated slot size.
-        let (overflow_synthesis, overflow_runtime) = synthesize_overflow_probe_attributes(
-            &prepared_synthesis,
+        // Step 5: Build overflow probe -- non-mutating probe at estimated slot size.
+        let (overflow_probe, overflow_runtime) = build_overflow_probe(
+            &prepared_inputs,
             &prepared_runtime,
             subplot_plot_width,
             subplot_plot_height,
@@ -3435,33 +3431,26 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         )
         .await?;
 
-        // Step 6: Synthesize local layout -- finalize band layout and measure cells.
-        let (local_synthesis, measured_runtime) = self
-            .synthesize_local_attributes(
-                &overflow_synthesis,
-                overflow_runtime,
-                &prepared_runtime,
-                &mut perf_counters,
-            )
+        // Step 6: Build local layout -- finalize band layout and retarget cells.
+        let (local_layout, measured_runtime) = self
+            .build_local_layout(&overflow_probe, overflow_runtime, &prepared_runtime)
             .await?;
 
         let coord_measurement =
-            self.assemble_coord_measurement(local_synthesis, measured_runtime, &prepared_runtime);
+            self.assemble_coord_measurement(local_layout, measured_runtime, &prepared_runtime);
 
         debug!(
             axis = ?self.axis_ops.axis,
             facet_path = ?self.facet_path,
-            phase5_leaf_measure_count = perf_counters.phase5_leaf_measure_count,
-            phase5_non_leaf_probe_aggregate_count = perf_counters.phase5_non_leaf_probe_aggregate_count,
-            phase5_non_leaf_full_measure_count = perf_counters.phase5_non_leaf_full_measure_count,
-            phase6_full_measure_count = perf_counters.phase6_full_measure_count,
-            "FacetBand synthesized measurement counters"
+            estimated_overflow_leaf_measure_count = perf_counters.estimated_overflow_leaf_measure_count,
+            estimated_overflow_non_leaf_aggregate_count = perf_counters.estimated_overflow_non_leaf_aggregate_count,
+            estimated_overflow_non_leaf_full_measure_count = perf_counters.estimated_overflow_non_leaf_full_measure_count,
+            "FacetBand layout measurement counters"
         );
         self.eval_ctx.record_facet_band_measure_run(
-            perf_counters.phase5_leaf_measure_count,
-            perf_counters.phase5_non_leaf_probe_aggregate_count,
-            perf_counters.phase5_non_leaf_full_measure_count,
-            perf_counters.phase6_full_measure_count,
+            perf_counters.estimated_overflow_leaf_measure_count,
+            perf_counters.estimated_overflow_non_leaf_aggregate_count,
+            perf_counters.estimated_overflow_non_leaf_full_measure_count,
         );
 
         // Step 7: Assemble -- package runtime cell state for coordination and rendering.
@@ -3469,13 +3458,13 @@ impl<'a> FacetBandMeasurePipeline<'a> {
     }
 
     #[cfg(test)]
-    async fn synthesize_band_probe_only(
+    async fn build_band_probe_only(
         &self,
         perf_counters: &mut FacetPipelinePerfCounters,
-    ) -> Result<FacetBandProbeSynthesis, AvengerChartError> {
+    ) -> Result<FacetBandProbeLayout, AvengerChartError> {
         let resolved = match self.resolve_node_or_empty()? {
             ResolveBandNodeOutcome::Empty(_) => {
-                return Ok(FacetBandProbeSynthesis {
+                return Ok(FacetBandProbeLayout {
                     cell_probe_summary: FacetCellProbeSummary {
                         guide_overflow: OverflowSpaceRequirement::default(),
                         total_overflow: OverflowSpaceRequirement::default(),
@@ -3487,7 +3476,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         };
         let cell_values = self.enumerate_cell_values(&resolved);
         if cell_values.is_empty() {
-            return Ok(FacetBandProbeSynthesis {
+            return Ok(FacetBandProbeLayout {
                 cell_probe_summary: FacetCellProbeSummary {
                     guide_overflow: OverflowSpaceRequirement::default(),
                     total_overflow: OverflowSpaceRequirement::default(),
@@ -3513,9 +3502,9 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         )
         .await?;
 
-        let cell_synthesis = self.synthesize_cell_attributes(&resolved, &cell_values)?;
-        let (prepared_synthesis, prepared_runtime) = synthesize_prepared_attributes_and_runtime(
-            cell_synthesis,
+        let cell_semantics = self.build_cell_semantics(&resolved, &cell_values)?;
+        let (prepared_inputs, prepared_runtime) = prepare_band_inputs_and_runtime(
+            cell_semantics,
             data_df,
             resolved.compiled_subplot,
             resolved.band_scale,
@@ -3526,8 +3515,8 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         let (subplot_plot_width, subplot_plot_height) = self
             .axis_ops
             .measure_dims(self.plot_other_axis_size, subplot_band_size);
-        let (overflow_synthesis, overflow_runtime) = synthesize_overflow_probe_attributes(
-            &prepared_synthesis,
+        let (overflow_probe, overflow_runtime) = build_overflow_probe(
+            &prepared_inputs,
             &prepared_runtime,
             subplot_plot_width,
             subplot_plot_height,
@@ -3536,9 +3525,9 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         .await?;
 
         let plan = FacetBandMeasurePlan {
-            cell_values: overflow_synthesis
-                .prepared_synthesis
-                .cell_synthesis
+            cell_values: overflow_probe
+                .prepared_inputs
+                .cell_semantics
                 .cell_values
                 .clone(),
             cells: overflow_runtime.cells,
@@ -3551,27 +3540,27 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             final_subplot_plot_height,
         ) = self.derive_local_layout_from_probe(
             &plan,
-            &overflow_synthesis.overflow_probe_summary,
+            &overflow_probe.overflow_probe_summary,
             prepared_runtime.initial_subplot_band_size,
             &prepared_runtime.original_band_scale,
-            overflow_synthesis
-                .prepared_synthesis
-                .cell_synthesis
+            overflow_probe
+                .prepared_inputs
+                .cell_semantics
                 .empty_cell_policy,
         )?;
 
         let mut final_probe_cells =
-            prepared_cells_as_drafts(&overflow_synthesis.prepared_synthesis, &prepared_runtime);
-        let final_overflow_summary = synthesize_overflow_probe(
+            prepared_cells_as_drafts(&overflow_probe.prepared_inputs, &prepared_runtime);
+        let final_overflow_summary = measure_overflow_probe(
             &mut final_probe_cells,
             final_subplot_plot_width,
             final_subplot_plot_height,
             &prepared_runtime.compiled_subplot,
             &prepared_runtime.subplot_eval_ctx,
             &prepared_runtime.nested_measure_ctx,
-            overflow_synthesis
-                .prepared_synthesis
-                .cell_synthesis
+            overflow_probe
+                .prepared_inputs
+                .cell_semantics
                 .empty_cell_policy,
             is_leaf_subplot(&prepared_runtime.compiled_subplot),
             perf_counters,
@@ -3586,7 +3575,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         };
         let local_overflow = derive_band_overflow_from_probe(
             self.axis_ops.axis,
-            &overflow_synthesis.prepared_synthesis.renderable_mask,
+            &overflow_probe.prepared_inputs.renderable_mask,
             &final_overflow_summary.cell_overflows,
         );
         let probe_measurement = FacetBandProbeMeasurement {
@@ -3600,9 +3589,9 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             local_overflow,
             original_band_scale: prepared_runtime.original_band_scale.clone(),
             local_layout,
-            empty_cell_policy: overflow_synthesis
-                .prepared_synthesis
-                .cell_synthesis
+            empty_cell_policy: overflow_probe
+                .prepared_inputs
+                .cell_semantics
                 .empty_cell_policy,
             fixed_plot_area_lock: matches!(
                 self.eval_ctx.facet_runtime_sizing_mode(),
@@ -3648,7 +3637,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             )
             .await?;
 
-        Ok(FacetBandProbeSynthesis {
+        Ok(FacetBandProbeLayout {
             cell_probe_summary: FacetCellProbeSummary {
                 guide_overflow,
                 total_overflow,
@@ -3801,7 +3790,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         }
     }
 
-    fn synthesize_cell_attributes(
+    fn build_cell_semantics(
         &self,
         resolved: &FacetBandResolvedNode<'_>,
         cell_values: &[ScalarValue],
@@ -3932,7 +3921,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         ))
     }
 
-    async fn synthesize_local_layout(
+    async fn build_local_layout_from_probe(
         &self,
         mut plan: FacetBandMeasurePlan,
         overflow_summary: &OverflowProbeSummary,
@@ -3942,7 +3931,6 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         nested_measure_ctx: &FacetBandNestedMeasureContext,
         band_scale: &ConfiguredScale,
         empty_cell_policy: FacetEmptyCellPolicy,
-        perf_counters: &mut FacetPipelinePerfCounters,
     ) -> Result<FacetLocalLayoutOutcome, AvengerChartError> {
         let (band_layout_plan, final_subplot_band_size, subplot_plot_width, subplot_plot_height) =
             self.derive_local_layout_from_probe(
@@ -3953,7 +3941,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 empty_cell_policy,
             )?;
 
-        measure_cells_final_and_extents(
+        retarget_cells_and_collect_extents(
             &mut plan.cells,
             subplot_plot_width,
             subplot_plot_height,
@@ -3961,7 +3949,6 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             subplot_eval_ctx,
             nested_measure_ctx,
             empty_cell_policy,
-            perf_counters,
         )
         .await?;
 
@@ -3972,36 +3959,34 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         })
     }
 
-    async fn synthesize_local_attributes(
+    async fn build_local_layout(
         &self,
-        overflow_synthesis: &FacetBandOverflowSynthesis,
+        overflow_probe: &FacetBandOverflowProbe,
         overflow_runtime: FacetBandOverflowRuntime,
         prepared_runtime: &FacetBandPreparedRuntime,
-        perf_counters: &mut FacetPipelinePerfCounters,
-    ) -> Result<(FacetBandLocalSynthesis, FacetBandMeasuredRuntime), AvengerChartError> {
+    ) -> Result<(FacetBandLocalLayout, FacetBandMeasuredRuntime), AvengerChartError> {
         let plan = FacetBandMeasurePlan {
-            cell_values: overflow_synthesis
-                .prepared_synthesis
-                .cell_synthesis
+            cell_values: overflow_probe
+                .prepared_inputs
+                .cell_semantics
                 .cell_values
                 .clone(),
             cells: overflow_runtime.cells,
             scale_artifacts: prepared_runtime.scale_artifacts.clone(),
         };
         let local_layout_outcome = self
-            .synthesize_local_layout(
+            .build_local_layout_from_probe(
                 plan,
-                &overflow_synthesis.overflow_probe_summary,
+                &overflow_probe.overflow_probe_summary,
                 prepared_runtime.initial_subplot_band_size,
                 &prepared_runtime.compiled_subplot,
                 &prepared_runtime.subplot_eval_ctx,
                 &prepared_runtime.nested_measure_ctx,
                 &prepared_runtime.original_band_scale,
-                overflow_synthesis
-                    .prepared_synthesis
-                    .cell_synthesis
+                overflow_probe
+                    .prepared_inputs
+                    .cell_semantics
                     .empty_cell_policy,
-                perf_counters,
             )
             .await?;
 
@@ -4010,62 +3995,62 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         let mut local_domain_extents = Vec::with_capacity(local_layout_outcome.cells.len());
         for mut cell in local_layout_outcome.cells {
             measurements.push(cell.measurement.take().expect(
-                "FacetBand attributes invariant violated: missing final cell measurement in measured-runtime sidecars",
+                "FacetBand layout invariant violated: missing final cell measurement in measured runtime state",
             ));
             local_domain_extents.push(cell.local_domain_extents);
         }
 
-        let local_synthesis = FacetBandLocalSynthesis {
-            overflow_synthesis: overflow_synthesis.clone(),
+        let local_layout = FacetBandLocalLayout {
+            overflow_probe: overflow_probe.clone(),
             band_layout_plan: local_layout_outcome.band_layout_plan,
             final_subplot_cross_size: local_layout_outcome.final_subplot_main_or_cross_size,
             channel_sharing_levels,
         };
-        let sidecars = FacetBandMeasuredRuntime {
+        let runtime_state = FacetBandMeasuredRuntime {
             measurements,
             local_domain_extents,
         };
-        Ok((local_synthesis, sidecars))
+        Ok((local_layout, runtime_state))
     }
 
     fn assemble_coord_measurement(
         &self,
-        local_synthesis: FacetBandLocalSynthesis,
+        local_layout: FacetBandLocalLayout,
         measured_runtime: FacetBandMeasuredRuntime,
         prepared_runtime: &FacetBandPreparedRuntime,
     ) -> Box<dyn CoordMeasurement> {
-        let FacetBandLocalSynthesis {
-            overflow_synthesis,
+        let FacetBandLocalLayout {
+            overflow_probe,
             band_layout_plan,
             final_subplot_cross_size,
             channel_sharing_levels,
-        } = local_synthesis;
-        let FacetBandOverflowSynthesis {
-            prepared_synthesis, ..
-        } = overflow_synthesis;
-        let FacetBandPreparedSynthesis { cell_synthesis, .. } = prepared_synthesis;
+        } = local_layout;
+        let FacetBandOverflowProbe {
+            prepared_inputs, ..
+        } = overflow_probe;
+        let FacetBandPreparedInputs { cell_semantics, .. } = prepared_inputs;
         let crate::facet::band_attributes::FacetBandSemantics {
             facet_depth,
             coordination_field_identity,
             empty_cell_policy,
             cells,
             ..
-        } = cell_synthesis;
+        } = cell_semantics;
 
         assert_eq!(
             cells.len(),
             prepared_runtime.data_overrides.len(),
-            "FacetBand attributes/sidecar invariant violated: cell-synthesis cell count must equal prepared-synthesis data overrides"
+            "FacetBand layout invariant violated: cell semantics cell count must equal prepared inputs data overrides"
         );
         assert_eq!(
             cells.len(),
             measured_runtime.measurements.len(),
-            "FacetBand attributes/sidecar invariant violated: cell-synthesis cell count must equal measured-runtime measurements"
+            "FacetBand layout invariant violated: cell semantics cell count must equal measured runtime measurements"
         );
         assert_eq!(
             cells.len(),
             measured_runtime.local_domain_extents.len(),
-            "FacetBand attributes/sidecar invariant violated: cell-synthesis cell count must equal measured-runtime local extents"
+            "FacetBand layout invariant violated: cell semantics cell count must equal measured runtime local extents"
         );
 
         let cell_runtimes: Vec<FacetCellRuntime> = cells
@@ -4834,7 +4819,7 @@ mod tests {
         })
     }
 
-    async fn build_synthesis_measurement_fixture()
+    async fn build_measurement_fixture()
     -> Result<(Arc<CompiledPlot>, FacetPreparedRuntimeInputs), AvengerChartError> {
         let session = SessionContext::new();
         let data_df = session
@@ -4867,7 +4852,7 @@ mod tests {
         let facet_path = vec![s("Group")];
         let cell_plans =
             build_facet_cell_plans(&facet_tree, &facet_path, &[s("A"), s("B"), s("C")])?;
-        let prepared_synthesis = prepare_measurement_inputs(
+        let prepared_inputs = prepare_measurement_inputs(
             cell_plans,
             &facet_path,
             &data_df,
@@ -4877,7 +4862,7 @@ mod tests {
         )
         .await?;
 
-        Ok((compiled_subplot, prepared_synthesis))
+        Ok((compiled_subplot, prepared_inputs))
     }
 
     async fn build_coord_measurement_for_apply_plan_tests(
@@ -5695,14 +5680,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn overflow_synthesis_overflow_probe_leaf_capture_preserves_extents()
-    -> Result<(), AvengerChartError> {
-        let (compiled_subplot, prepared_synthesis) = build_synthesis_measurement_fixture().await?;
+    async fn overflow_probe_leaf_capture_preserves_extents() -> Result<(), AvengerChartError> {
+        let (compiled_subplot, prepared_inputs) = build_measurement_fixture().await?;
         let FacetPreparedRuntimeInputs {
             mut plan,
             subplot_eval_ctx,
             nested_measure_ctx,
-        } = prepared_synthesis;
+        } = prepared_inputs;
         let cells = &mut plan.cells;
         let is_leaf = is_leaf_subplot(&compiled_subplot);
 
@@ -5712,7 +5696,7 @@ mod tests {
             .collect();
         let mut perf_counters = FacetPipelinePerfCounters::default();
 
-        let overflow_synthesis = synthesize_overflow_probe(
+        let overflow_probe = measure_overflow_probe(
             cells,
             140.0,
             140.0,
@@ -5725,7 +5709,7 @@ mod tests {
         )
         .await?;
 
-        assert_eq!(overflow_synthesis.cell_overflows.len(), 3);
+        assert_eq!(overflow_probe.cell_overflows.len(), 3);
 
         let after: Vec<(bool, usize)> = cells
             .iter()
@@ -5741,8 +5725,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn non_leaf_phase5_probe_path_records_full_measure_calls() -> Result<(), AvengerChartError>
-    {
+    async fn non_leaf_estimated_overflow_probe_path_records_full_measure_calls()
+    -> Result<(), AvengerChartError> {
         let fixture = build_non_leaf_probe_fixture().await?;
         let pipeline = FacetBandMeasurePipeline::new(
             FacetAxisOps::for_axis(FacetAxis::Column),
@@ -5755,28 +5739,26 @@ mod tests {
         );
         let mut perf_counters = FacetPipelinePerfCounters::default();
 
-        let synthesis = pipeline
-            .synthesize_band_probe_only(&mut perf_counters)
-            .await?;
-        assert!(synthesis.cell_probe_summary.max_child_padding >= 0.0);
-        assert!(perf_counters.phase5_non_leaf_probe_aggregate_count > 0);
-        assert!(perf_counters.phase5_non_leaf_full_measure_count > 0);
+        let probe_layout = pipeline.build_band_probe_only(&mut perf_counters).await?;
+        assert!(probe_layout.cell_probe_summary.max_child_padding >= 0.0);
+        assert!(perf_counters.estimated_overflow_non_leaf_aggregate_count > 0);
+        assert!(perf_counters.estimated_overflow_non_leaf_full_measure_count > 0);
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn local_synthesis_local_layout_finalization_populates_measurements_and_extents()
+    async fn local_layout_finalization_populates_measurements_and_extents()
     -> Result<(), AvengerChartError> {
-        let (compiled_subplot, prepared_synthesis) = build_synthesis_measurement_fixture().await?;
+        let (compiled_subplot, prepared_inputs) = build_measurement_fixture().await?;
         let FacetPreparedRuntimeInputs {
             mut plan,
             subplot_eval_ctx,
             nested_measure_ctx,
-        } = prepared_synthesis;
+        } = prepared_inputs;
         let mut perf_counters = FacetPipelinePerfCounters::default();
         let is_leaf = is_leaf_subplot(&compiled_subplot);
-        synthesize_overflow_probe(
+        measure_overflow_probe(
             &mut plan.cells,
             140.0,
             140.0,
@@ -5789,7 +5771,7 @@ mod tests {
         )
         .await?;
 
-        measure_cells_final_and_extents(
+        retarget_cells_and_collect_extents(
             &mut plan.cells,
             140.0,
             140.0,
@@ -5797,7 +5779,6 @@ mod tests {
             &subplot_eval_ctx,
             &nested_measure_ctx,
             FacetEmptyCellPolicy::Hole,
-            &mut perf_counters,
         )
         .await?;
 
@@ -5813,7 +5794,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn prepared_synthesis_ir_sidecars_align_with_cells() -> Result<(), AvengerChartError> {
+    async fn prepared_inputs_runtime_state_aligns_with_cells() -> Result<(), AvengerChartError> {
         let fixture = build_facet_band_pipeline_fixture(FacetAxis::Column).await?;
         let pipeline = FacetBandMeasurePipeline::new(
             FacetAxisOps::for_axis(FacetAxis::Column),
@@ -5827,13 +5808,13 @@ mod tests {
         let resolved = match pipeline.resolve_node_or_empty()? {
             ResolveBandNodeOutcome::Ready(resolved) => resolved,
             ResolveBandNodeOutcome::Empty(_) => {
-                panic!("expected ready facet node for prepared_synthesis attributes test");
+                panic!("expected ready facet node for prepared_inputs attributes test");
             }
         };
         let cell_values = pipeline.enumerate_cell_values(&resolved);
-        let cell_synthesis = pipeline.synthesize_cell_attributes(&resolved, &cell_values)?;
-        let (prepared_synthesis, sidecars) = synthesize_prepared_attributes_and_runtime(
-            cell_synthesis.clone(),
+        let cell_semantics = pipeline.build_cell_semantics(&resolved, &cell_values)?;
+        let (prepared_inputs, runtime_state) = prepare_band_inputs_and_runtime(
+            cell_semantics.clone(),
             &fixture.data_df,
             resolved.compiled_subplot,
             resolved.band_scale,
@@ -5843,19 +5824,19 @@ mod tests {
         .await?;
 
         assert_eq!(
-            prepared_synthesis.cell_synthesis.cells.len(),
-            sidecars.data_overrides.len()
+            prepared_inputs.cell_semantics.cells.len(),
+            runtime_state.data_overrides.len()
         );
         assert_eq!(
-            prepared_synthesis.cell_synthesis.cells.len(),
-            prepared_synthesis.renderable_mask.len()
+            prepared_inputs.cell_semantics.cells.len(),
+            prepared_inputs.renderable_mask.len()
         );
-        assert_eq!(prepared_synthesis.cell_synthesis.cell_values, cell_values);
+        assert_eq!(prepared_inputs.cell_semantics.cell_values, cell_values);
         Ok(())
     }
 
     #[tokio::test]
-    async fn overflow_synthesis_ir_probe_is_non_mutating() -> Result<(), AvengerChartError> {
+    async fn overflow_probe_is_non_mutating() -> Result<(), AvengerChartError> {
         let fixture = build_facet_band_pipeline_fixture(FacetAxis::Column).await?;
         let pipeline = FacetBandMeasurePipeline::new(
             FacetAxisOps::for_axis(FacetAxis::Column),
@@ -5869,13 +5850,13 @@ mod tests {
         let resolved = match pipeline.resolve_node_or_empty()? {
             ResolveBandNodeOutcome::Ready(resolved) => resolved,
             ResolveBandNodeOutcome::Empty(_) => {
-                panic!("expected ready facet node for overflow_synthesis attributes test");
+                panic!("expected ready facet node for overflow_probe attributes test");
             }
         };
         let cell_values = pipeline.enumerate_cell_values(&resolved);
-        let cell_synthesis = pipeline.synthesize_cell_attributes(&resolved, &cell_values)?;
-        let (prepared_synthesis, sidecars) = synthesize_prepared_attributes_and_runtime(
-            cell_synthesis,
+        let cell_semantics = pipeline.build_cell_semantics(&resolved, &cell_values)?;
+        let (prepared_inputs, runtime_state) = prepare_band_inputs_and_runtime(
+            cell_semantics,
             &fixture.data_df,
             resolved.compiled_subplot,
             resolved.band_scale,
@@ -5884,33 +5865,30 @@ mod tests {
         )
         .await?;
 
-        let before_rows = sidecars.data_overrides.len();
+        let before_rows = runtime_state.data_overrides.len();
         let (subplot_plot_width, subplot_plot_height) = pipeline
             .axis_ops
             .measure_dims(fixture.plot_other_axis_size, resolved.subplot_band_size);
         let mut perf_counters = FacetPipelinePerfCounters::default();
-        let (overflow_synthesis, _overflow_runtime) = synthesize_overflow_probe_attributes(
-            &prepared_synthesis,
-            &sidecars,
+        let (overflow_probe, _overflow_runtime) = build_overflow_probe(
+            &prepared_inputs,
+            &runtime_state,
             subplot_plot_width,
             subplot_plot_height,
             &mut perf_counters,
         )
         .await?;
 
-        assert_eq!(before_rows, sidecars.data_overrides.len());
+        assert_eq!(before_rows, runtime_state.data_overrides.len());
         assert_eq!(
-            overflow_synthesis
-                .overflow_probe_summary
-                .cell_overflows
-                .len(),
-            prepared_synthesis.cell_synthesis.cells.len()
+            overflow_probe.overflow_probe_summary.cell_overflows.len(),
+            prepared_inputs.cell_semantics.cells.len()
         );
         Ok(())
     }
 
     #[tokio::test]
-    async fn local_synthesis_ir_finalization_produces_layout_and_measurements()
+    async fn local_layout_finalization_produces_layout_and_measurements()
     -> Result<(), AvengerChartError> {
         let fixture = build_facet_band_pipeline_fixture(FacetAxis::Column).await?;
         let pipeline = FacetBandMeasurePipeline::new(
@@ -5925,13 +5903,13 @@ mod tests {
         let resolved = match pipeline.resolve_node_or_empty()? {
             ResolveBandNodeOutcome::Ready(resolved) => resolved,
             ResolveBandNodeOutcome::Empty(_) => {
-                panic!("expected ready facet node for local_synthesis attributes test");
+                panic!("expected ready facet node for local_layout attributes test");
             }
         };
         let cell_values = pipeline.enumerate_cell_values(&resolved);
-        let cell_synthesis = pipeline.synthesize_cell_attributes(&resolved, &cell_values)?;
-        let (prepared_synthesis, sidecars) = synthesize_prepared_attributes_and_runtime(
-            cell_synthesis,
+        let cell_semantics = pipeline.build_cell_semantics(&resolved, &cell_values)?;
+        let (prepared_inputs, runtime_state) = prepare_band_inputs_and_runtime(
+            cell_semantics,
             &fixture.data_df,
             resolved.compiled_subplot,
             resolved.band_scale,
@@ -5943,40 +5921,35 @@ mod tests {
             .axis_ops
             .measure_dims(fixture.plot_other_axis_size, resolved.subplot_band_size);
         let mut perf_counters = FacetPipelinePerfCounters::default();
-        let (overflow_synthesis, overflow_runtime) = synthesize_overflow_probe_attributes(
-            &prepared_synthesis,
-            &sidecars,
+        let (overflow_probe, overflow_runtime) = build_overflow_probe(
+            &prepared_inputs,
+            &runtime_state,
             subplot_plot_width,
             subplot_plot_height,
             &mut perf_counters,
         )
         .await?;
-        let (local_synthesis, measured_runtime) = pipeline
-            .synthesize_local_attributes(
-                &overflow_synthesis,
-                overflow_runtime,
-                &sidecars,
-                &mut perf_counters,
-            )
+        let (local_layout, measured_runtime) = pipeline
+            .build_local_layout(&overflow_probe, overflow_runtime, &runtime_state)
             .await?;
 
         assert_eq!(
-            local_synthesis.band_layout_plan.n,
-            prepared_synthesis.cell_synthesis.cells.len()
+            local_layout.band_layout_plan.n,
+            prepared_inputs.cell_semantics.cells.len()
         );
         assert_eq!(
             measured_runtime.measurements.len(),
-            prepared_synthesis.cell_synthesis.cells.len()
+            prepared_inputs.cell_semantics.cells.len()
         );
         assert_eq!(
             measured_runtime.local_domain_extents.len(),
-            prepared_synthesis.cell_synthesis.cells.len()
+            prepared_inputs.cell_semantics.cells.len()
         );
         Ok(())
     }
 
     #[tokio::test]
-    async fn ir_to_coord_measurement_preserves_axis_and_layout_fields()
+    async fn layout_to_coord_measurement_preserves_axis_and_layout_fields()
     -> Result<(), AvengerChartError> {
         let fixture = build_facet_band_pipeline_fixture(FacetAxis::Column).await?;
         let pipeline = FacetBandMeasurePipeline::new(
@@ -5995,9 +5968,9 @@ mod tests {
             }
         };
         let cell_values = pipeline.enumerate_cell_values(&resolved);
-        let cell_synthesis = pipeline.synthesize_cell_attributes(&resolved, &cell_values)?;
-        let (prepared_synthesis, sidecars) = synthesize_prepared_attributes_and_runtime(
-            cell_synthesis,
+        let cell_semantics = pipeline.build_cell_semantics(&resolved, &cell_values)?;
+        let (prepared_inputs, runtime_state) = prepare_band_inputs_and_runtime(
+            cell_semantics,
             &fixture.data_df,
             resolved.compiled_subplot,
             resolved.band_scale,
@@ -6009,26 +5982,21 @@ mod tests {
             .axis_ops
             .measure_dims(fixture.plot_other_axis_size, resolved.subplot_band_size);
         let mut perf_counters = FacetPipelinePerfCounters::default();
-        let (overflow_synthesis, overflow_runtime) = synthesize_overflow_probe_attributes(
-            &prepared_synthesis,
-            &sidecars,
+        let (overflow_probe, overflow_runtime) = build_overflow_probe(
+            &prepared_inputs,
+            &runtime_state,
             subplot_plot_width,
             subplot_plot_height,
             &mut perf_counters,
         )
         .await?;
-        let (local_synthesis, measured_runtime) = pipeline
-            .synthesize_local_attributes(
-                &overflow_synthesis,
-                overflow_runtime,
-                &sidecars,
-                &mut perf_counters,
-            )
+        let (local_layout, measured_runtime) = pipeline
+            .build_local_layout(&overflow_probe, overflow_runtime, &runtime_state)
             .await?;
-        let expected_n = local_synthesis.band_layout_plan.n;
-        let expected_size = local_synthesis.final_subplot_cross_size;
+        let expected_n = local_layout.band_layout_plan.n;
+        let expected_size = local_layout.final_subplot_cross_size;
         let measurement =
-            pipeline.assemble_coord_measurement(local_synthesis, measured_runtime, &sidecars);
+            pipeline.assemble_coord_measurement(local_layout, measured_runtime, &runtime_state);
         let facet_band = measurement
             .as_any()
             .downcast_ref::<FacetBandCoordMeasurement>()
@@ -6041,8 +6009,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cell_synthesis_ir_semantics_match_cell_plan_projection()
-    -> Result<(), AvengerChartError> {
+    async fn cell_semantics_match_cell_plan_projection() -> Result<(), AvengerChartError> {
         let fixture = build_facet_band_pipeline_fixture(FacetAxis::Column).await?;
         let pipeline = FacetBandMeasurePipeline::new(
             FacetAxisOps::for_axis(FacetAxis::Column),
@@ -6058,32 +6025,32 @@ mod tests {
             ResolveBandNodeOutcome::Empty(_) => panic!("expected ready facet node"),
         };
         let cell_values = pipeline.enumerate_cell_values(&resolved);
-        let cell_synthesis = pipeline.synthesize_cell_attributes(&resolved, &cell_values)?;
+        let cell_semantics = pipeline.build_cell_semantics(&resolved, &cell_values)?;
         let projected_plans =
             build_facet_cell_plans(&fixture.eval_ctx.facet_tree, &[], &cell_values)?;
 
-        let cell_synthesis_plans: Vec<FacetCellPlan> = cell_synthesis
+        let cell_semantics_plans: Vec<FacetCellPlan> = cell_semantics
             .cells
             .iter()
             .map(FacetCellPlan::from)
             .collect();
-        assert_eq!(cell_synthesis_plans.len(), projected_plans.len());
-        for (cell_synthesis_plan, projected_plan) in
-            cell_synthesis_plans.iter().zip(projected_plans.iter())
+        assert_eq!(cell_semantics_plans.len(), projected_plans.len());
+        for (cell_semantics_plan, projected_plan) in
+            cell_semantics_plans.iter().zip(projected_plans.iter())
         {
-            assert_eq!(cell_synthesis_plan.value, projected_plan.value);
-            assert_eq!(cell_synthesis_plan.full_path, projected_plan.full_path);
+            assert_eq!(cell_semantics_plan.value, projected_plan.value);
+            assert_eq!(cell_semantics_plan.full_path, projected_plan.full_path);
             assert_eq!(
-                cell_synthesis_plan.in_domain_slot,
+                cell_semantics_plan.in_domain_slot,
                 projected_plan.in_domain_slot
             );
             assert_eq!(
-                cell_synthesis_plan.has_data_rows,
+                cell_semantics_plan.has_data_rows,
                 projected_plan.has_data_rows
             );
-            assert_eq!(cell_synthesis_plan.empty_kind, projected_plan.empty_kind);
+            assert_eq!(cell_semantics_plan.empty_kind, projected_plan.empty_kind);
             assert_eq!(
-                cell_synthesis_plan.filter_predicate,
+                cell_semantics_plan.filter_predicate,
                 projected_plan.filter_predicate
             );
         }

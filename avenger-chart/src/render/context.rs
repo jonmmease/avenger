@@ -19,7 +19,7 @@ use crate::{
         evaluated_facet_tree::EvaluatedFacetTree, scale_precompute::FacetScalePrecomputeStore,
     },
     render::types::{
-        EvaluatedPlot, EvaluationMetrics, FacetMeasureRefinement, FacetSubtreeSnapshot,
+        EvaluatedPlot, EvaluationMetrics, FacetLayoutRefinement, FacetSubtreeSnapshot,
     },
     scales::ConfiguredScaleWithSpec,
     theme::{Theme, ThemeContext, ThemeValue},
@@ -72,8 +72,8 @@ pub struct EvaluationContext {
     /// Effective debug overlay toggle for layout bounds.
     pub(crate) debug_layout_lines: bool,
     /// Facet refinement policy for final layout evaluation.
-    pub(crate) facet_measure_refinement: FacetMeasureRefinement,
-    /// Optional phase-5 probe-size seed from a previous realized facet tree.
+    pub(crate) facet_layout_refinement: FacetLayoutRefinement,
+    /// Optional estimated-overflow probe-size seed from a previous realized facet tree.
     pub(crate) facet_probe_size_overrides: Option<Arc<HashMap<Vec<ScalarValue>, (f32, f32)>>>,
     /// Child-index path from the root facet coord to the currently evaluated facet cell.
     pub(crate) facet_coord_node_path: Vec<usize>,
@@ -99,7 +99,7 @@ impl EvaluationContext {
             facet_scale_precompute_store: Arc::new(FacetScalePrecomputeStore::default()),
             facet_runtime_sizing_mode: FacetRuntimeSizingMode::CanvasFit,
             debug_layout_lines: false,
-            facet_measure_refinement: FacetMeasureRefinement::default(),
+            facet_layout_refinement: FacetLayoutRefinement::default(),
             facet_probe_size_overrides: None,
             facet_coord_node_path: Vec::new(),
             evaluation_metrics: None,
@@ -118,7 +118,7 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
-            facet_measure_refinement: self.facet_measure_refinement,
+            facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
@@ -140,7 +140,7 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
-            facet_measure_refinement: self.facet_measure_refinement,
+            facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
@@ -164,7 +164,7 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
-            facet_measure_refinement: self.facet_measure_refinement,
+            facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
@@ -188,7 +188,7 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
-            facet_measure_refinement: self.facet_measure_refinement,
+            facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
@@ -206,7 +206,7 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: mode,
             debug_layout_lines: self.debug_layout_lines,
-            facet_measure_refinement: self.facet_measure_refinement,
+            facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
@@ -228,7 +228,7 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: enabled,
-            facet_measure_refinement: self.facet_measure_refinement,
+            facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
@@ -236,7 +236,7 @@ impl EvaluationContext {
         }
     }
 
-    pub(crate) fn with_facet_measure_refinement(&self, refinement: FacetMeasureRefinement) -> Self {
+    pub(crate) fn with_facet_layout_refinement(&self, refinement: FacetLayoutRefinement) -> Self {
         Self {
             theme: self.theme.clone(),
             session_context: self.session_context.clone(),
@@ -246,7 +246,7 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
-            facet_measure_refinement: refinement,
+            facet_layout_refinement: refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
@@ -254,8 +254,8 @@ impl EvaluationContext {
         }
     }
 
-    pub(crate) fn facet_measure_refinement(&self) -> FacetMeasureRefinement {
-        self.facet_measure_refinement
+    pub(crate) fn facet_layout_refinement(&self) -> FacetLayoutRefinement {
+        self.facet_layout_refinement
     }
 
     pub(crate) fn with_facet_probe_size_overrides(
@@ -271,7 +271,7 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
-            facet_measure_refinement: self.facet_measure_refinement,
+            facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: Some(overrides),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
@@ -306,7 +306,7 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
-            facet_measure_refinement: self.facet_measure_refinement,
+            facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: Some(metrics),
@@ -327,7 +327,7 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
-            facet_measure_refinement: self.facet_measure_refinement,
+            facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
@@ -347,7 +347,7 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
-            facet_measure_refinement: self.facet_measure_refinement,
+            facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
             facet_coord_node_path,
             evaluation_metrics: self.evaluation_metrics.clone(),
@@ -411,20 +411,18 @@ impl EvaluationContext {
 
     pub(crate) fn record_facet_band_measure_run(
         &self,
-        phase5_leaf_measure_count: usize,
-        phase5_non_leaf_probe_aggregate_count: usize,
-        phase5_non_leaf_full_measure_count: usize,
-        phase6_full_measure_count: usize,
+        estimated_overflow_leaf_measure_count: usize,
+        estimated_overflow_non_leaf_aggregate_count: usize,
+        estimated_overflow_non_leaf_full_measure_count: usize,
     ) {
         if let Some(metrics) = &self.evaluation_metrics {
             metrics
                 .lock()
                 .expect("evaluation metrics lock poisoned")
                 .record_facet_band_measure_run(
-                    phase5_leaf_measure_count,
-                    phase5_non_leaf_probe_aggregate_count,
-                    phase5_non_leaf_full_measure_count,
-                    phase6_full_measure_count,
+                    estimated_overflow_leaf_measure_count,
+                    estimated_overflow_non_leaf_aggregate_count,
+                    estimated_overflow_non_leaf_full_measure_count,
                 );
         }
     }

@@ -9,6 +9,6 @@ pub(crate) struct FacetCellProbeSummary {
 
 #[cfg(test)]
 #[derive(Clone, Debug)]
-pub(crate) struct FacetBandProbeSynthesis {
+pub(crate) struct FacetBandProbeLayout {
     pub(crate) cell_probe_summary: FacetCellProbeSummary,
 }

@@ -1720,7 +1720,7 @@ impl CompiledPlot {
             let overflow_grew = Self::overflow_increased(
                 &measurement.layout.total_overflow,
                 &candidate_layout.total_overflow,
-                eval_ctx.facet_measure_refinement().overflow_growth_epsilon,
+                eval_ctx.facet_layout_refinement().overflow_growth_epsilon,
             );
 
             trace!(
@@ -1954,7 +1954,7 @@ impl CompiledPlot {
             Self::recursive_overflow_increased(
                 &before,
                 &after,
-                eval_ctx.facet_measure_refinement().overflow_growth_epsilon,
+                eval_ctx.facet_layout_refinement().overflow_growth_epsilon,
             )
         });
 
@@ -2148,7 +2148,7 @@ impl CompiledPlot {
             let overflow_grew = Self::overflow_increased(
                 &measurement.layout.total_overflow,
                 &candidate_layout.total_overflow,
-                eval_ctx.facet_measure_refinement().overflow_growth_epsilon,
+                eval_ctx.facet_layout_refinement().overflow_growth_epsilon,
             );
 
             measurement.layout = candidate_layout;
@@ -3322,7 +3322,7 @@ impl CompiledPlot {
                     measurement,
                     eval_ctx,
                     coordination_mode,
-                    CoordinationCheckpoint::InheritedPropagationComplete,
+                    CoordinationCheckpoint::FinalPropagationComplete,
                 )
                 .await?;
                 self.apply_refinement_snapshot(
@@ -3351,17 +3351,17 @@ impl CompiledPlot {
         coordination_mode: FacetCoordinationMode,
     ) -> Result<(), AvengerChartError> {
         // `coordinate_overflow_for_guides` currently maps to top-level phases 7-10:
-        // - phase 7 attributes build (snapshot/aggregate/distribution) + sidecar apply,
-        // - phase 8 sidecar apply/remeasure + immutable execution trace,
-        // - phase 9 attributes build (post-remeasure reconcile distribution) + sidecar apply,
-        // - phase 10 sidecar scale retarget/adjustment propagation + immutable trace.
+        // - phase 7 attributes build (snapshot/aggregate/distribution) + executor apply,
+        // - phase 8 executor apply/remeasure + immutable execution trace,
+        // - phase 9 attributes build (post-remeasure reconcile distribution) + executor apply,
+        // - phase 10 executor scale retarget/adjustment propagation + immutable trace.
         coordinate_overflow_for_guides_with_mode(measurement, eval_ctx, coordination_mode).await?;
 
         let (_, _, is_plot_area_mode) = Self::resolve_dimensions_from_spec(evaluated_layout_spec);
         match facet_sizing_strategy {
             FacetSizingStrategy::CanvasFit => {
                 if !is_plot_area_mode {
-                    let refinement = eval_ctx.facet_measure_refinement();
+                    let refinement = eval_ctx.facet_layout_refinement();
                     self.refine_canvas_measurement_after_coordination(
                         measurement,
                         eval_ctx,
@@ -3375,7 +3375,7 @@ impl CompiledPlot {
                 }
             }
             FacetSizingStrategy::FixedSubplot { .. } => {
-                let refinement = eval_ctx.facet_measure_refinement();
+                let refinement = eval_ctx.facet_layout_refinement();
                 self.realize_fixed_subplot_layout_after_coordination(
                     measurement,
                     eval_ctx,
@@ -3404,7 +3404,7 @@ impl CompiledPlot {
         iteration: usize,
         checkpoint: RefinementCheckpoint,
     ) -> Result<(), AvengerChartError> {
-        let refinement = eval_ctx.facet_measure_refinement();
+        let refinement = eval_ctx.facet_layout_refinement();
         let (_, _, is_plot_area_mode) = Self::resolve_dimensions_from_spec(evaluated_layout_spec);
         match facet_sizing_strategy {
             FacetSizingStrategy::CanvasFit => {
@@ -3555,7 +3555,7 @@ impl CompiledPlot {
             facet_tree.clone(),
         )
         .with_facet_runtime_sizing_mode(facet_sizing_strategy.runtime_sizing_mode())
-        .with_facet_measure_refinement(options.facet_measure_refinement)
+        .with_facet_layout_refinement(options.facet_layout_refinement)
         .with_debug_layout_lines(facet_debug::resolve_layout_overlay_enabled(
             options.debug_layout_lines,
         ));
@@ -3604,7 +3604,7 @@ impl CompiledPlot {
                 FacetSubtreeCheckpoint::CoordinatedLayout => {
                     self.apply_layout_snapshot(
                         &LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
-                            CoordinationCheckpoint::InheritedPropagationComplete,
+                            CoordinationCheckpoint::FinalPropagationComplete,
                         )),
                         &mut measurement,
                         &eval_ctx,
@@ -3672,7 +3672,7 @@ mod tests {
         layout::PlotConstraint,
         legend::LegendPosition,
         prelude::*,
-        render::FacetMeasureRefinement,
+        render::FacetLayoutRefinement,
     };
     use datafusion::{
         arrow::{
@@ -4506,7 +4506,7 @@ mod tests {
                             &provider,
                             None,
                             &[],
-                            eval_ctx.facet_measure_refinement().max_refinement_passes,
+                            eval_ctx.facet_layout_refinement().max_refinement_passes,
                         )
                         .await?;
                 }
@@ -4520,7 +4520,7 @@ mod tests {
                         &provider,
                         None,
                         &[],
-                        eval_ctx.facet_measure_refinement().max_refinement_passes,
+                        eval_ctx.facet_layout_refinement().max_refinement_passes,
                     )
                     .await?;
             }
@@ -4857,7 +4857,7 @@ mod tests {
                 None,
                 EvaluationOptions {
                     layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
-                        CoordinationCheckpoint::InheritedPropagationComplete,
+                        CoordinationCheckpoint::FinalPropagationComplete,
                     )),
                     debug_layout_lines: false,
                     ..EvaluationOptions::default()
@@ -5021,16 +5021,12 @@ mod tests {
                 "expected facet-band measurement pipelines: {metrics:?}"
             );
             assert!(
-                facet_metrics.phase5_non_leaf_probe_aggregate_count > 0,
-                "expected non-leaf synthesized probe aggregates: {metrics:?}"
+                facet_metrics.estimated_overflow_non_leaf_aggregate_count > 0,
+                "expected non-leaf estimated-overflow probe aggregates: {metrics:?}"
             );
             assert!(
-                facet_metrics.phase5_non_leaf_full_measure_count > 0,
-                "expected non-leaf synthesized probes to require full subtree measurement: {metrics:?}"
-            );
-            assert!(
-                facet_metrics.phase6_full_measure_count == 0,
-                "phase 6 should finalize phase-5 measurements without remeasure: {metrics:?}"
+                facet_metrics.estimated_overflow_non_leaf_full_measure_count > 0,
+                "expected non-leaf estimated-overflow probes to require full subtree measurement: {metrics:?}"
             );
             assert!(
                 facet_metrics.plot_component_measure_calls <= 128,
@@ -5054,7 +5050,7 @@ mod tests {
                     EvaluationOptions {
                         layout_snapshot: LayoutSnapshot::Final,
                         debug_layout_lines: false,
-                        facet_measure_refinement: FacetMeasureRefinement {
+                        facet_layout_refinement: FacetLayoutRefinement {
                             max_refinement_passes: 0,
                             overflow_growth_epsilon: 0.5,
                         },
@@ -5063,10 +5059,6 @@ mod tests {
                 .await?;
             let facet_metrics = &metrics.facet_layout;
 
-            assert_eq!(
-                facet_metrics.phase6_full_measure_count, 0,
-                "phase 6 should not measure in fast measure-once mode: {metrics:?}"
-            );
             assert_eq!(
                 facet_metrics.refinement_pass_count, 0,
                 "max_refinement_passes=0 should not run extra measurement passes: {metrics:?}"
@@ -5096,7 +5088,7 @@ mod tests {
                             checkpoint: FacetSubtreeCheckpoint::FinalLayout,
                         }),
                         debug_layout_lines: true,
-                        facet_measure_refinement: FacetMeasureRefinement {
+                        facet_layout_refinement: FacetLayoutRefinement {
                             max_refinement_passes: 0,
                             overflow_growth_epsilon: 0.5,
                         },
@@ -5113,7 +5105,7 @@ mod tests {
                             checkpoint: FacetSubtreeCheckpoint::FinalLayout,
                         }),
                         debug_layout_lines: true,
-                        facet_measure_refinement: FacetMeasureRefinement {
+                        facet_layout_refinement: FacetLayoutRefinement {
                             max_refinement_passes: 1,
                             overflow_growth_epsilon: 0.5,
                         },
@@ -5130,10 +5122,6 @@ mod tests {
                 refined_metrics.facet_layout.plot_component_measure_calls
                     > fast_metrics.facet_layout.plot_component_measure_calls,
                 "refinement should remeasure at the retargeted subplot size; fast={fast_metrics:?}, refined={refined_metrics:?}"
-            );
-            assert!(
-                refined_metrics.facet_layout.phase6_full_measure_count == 0,
-                "refinement should reuse the normal phase-5/phase-6 measure-retarget cycle without phase-6 remeasurement: {refined_metrics:?}"
             );
             assert_eq!(
                 collect_text_x_positions(&fast_eval.scene_graph, "of-right").len(),
@@ -5164,7 +5152,7 @@ mod tests {
                             checkpoint: RefinementCheckpoint::Recoordinated,
                         }),
                         debug_layout_lines: false,
-                        facet_measure_refinement: FacetMeasureRefinement {
+                        facet_layout_refinement: FacetLayoutRefinement {
                             max_refinement_passes: 1,
                             overflow_growth_epsilon: 0.5,
                         },
@@ -5175,10 +5163,6 @@ mod tests {
             assert!(
                 metrics.facet_layout.plot_component_measure_calls > 7,
                 "iteration-1 snapshot should run the refinement remeasure path: {metrics:?}"
-            );
-            assert_eq!(
-                metrics.facet_layout.phase6_full_measure_count, 0,
-                "refinement snapshots should use phase-5 measurement plus phase-6 retargeting: {metrics:?}"
             );
 
             Ok(())
@@ -5198,7 +5182,7 @@ mod tests {
                     EvaluationOptions {
                         layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::LocalMeasured),
                         debug_layout_lines: false,
-                        facet_measure_refinement: FacetMeasureRefinement {
+                        facet_layout_refinement: FacetLayoutRefinement {
                             max_refinement_passes: 3,
                             overflow_growth_epsilon: 0.5,
                         },
@@ -5226,7 +5210,7 @@ mod tests {
                 None,
                 EvaluationOptions {
                     layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
-                        CoordinationCheckpoint::InheritedPropagationComplete,
+                        CoordinationCheckpoint::FinalPropagationComplete,
                     )),
                     debug_layout_lines: false,
                     ..EvaluationOptions::default()
@@ -5259,7 +5243,7 @@ mod tests {
         compiled
             .apply_layout_snapshot(
                 &LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
-                    CoordinationCheckpoint::InheritedPropagationComplete,
+                    CoordinationCheckpoint::FinalPropagationComplete,
                 )),
                 &mut coordinated_measurement,
                 &eval_ctx,
@@ -5522,7 +5506,7 @@ mod tests {
                 );
                 assert!(
                     remeasure_required,
-                    "team-level node with right legend slab should require inherited-apply remeasure semantics (right_slab={right_slab})"
+                    "team-level node with right legend slab should require retarget remeasure semantics (right_slab={right_slab})"
                 );
             }
             Ok(())
@@ -5547,7 +5531,7 @@ mod tests {
             compiled
                 .apply_layout_snapshot(
                     &LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
-                        CoordinationCheckpoint::InheritedPropagationComplete,
+                        CoordinationCheckpoint::FinalPropagationComplete,
                     )),
                     &mut measurement,
                     &eval_ctx,
@@ -5667,7 +5651,7 @@ mod tests {
     }
 
     #[test]
-    fn fixed_inherited_apply_recomputes_positions_after_remeasure() {
+    fn fixed_retarget_trace_recomputes_positions_after_remeasure() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
             let compiled = compile_three_level_col_legend_sharing_plot_fixed_subplot(

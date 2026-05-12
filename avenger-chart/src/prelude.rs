@@ -76,7 +76,7 @@ pub use crate::polar::PolarAxis;
 // Re-export rendering types
 pub use crate::render::CanvasExt;
 pub use crate::render::{
-    CoordinationCheckpoint, EvaluationOptions, FacetMeasureRefinement, FacetSubtreeCheckpoint,
+    CoordinationCheckpoint, EvaluationOptions, FacetLayoutRefinement, FacetSubtreeCheckpoint,
     FacetSubtreeSelector, FacetSubtreeSnapshot, LayoutSnapshot, RefinementCheckpoint,
     WholeChartSnapshot,
 };

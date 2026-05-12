@@ -42,14 +42,14 @@ pub enum WholeChartSnapshot {
 /// Checkpoints inside the global facet coordination cycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoordinationCheckpoint {
-    /// Collection round A has been aggregated and distributed.
-    CollectionApplied,
-    /// Inherited apply has retargeted affected measurements.
-    InheritedApplyComplete,
-    /// Recollection has reconciled post-apply overflow/layout.
-    RecollectionApplied,
-    /// Inherited propagation has pushed coordinated scale/layout values into descendants.
-    InheritedPropagationComplete,
+    /// Initial layout requirements have been aggregated and distributed.
+    InitialRequirementsApplied,
+    /// Affected measurements have been retargeted.
+    RetargetComplete,
+    /// Retargeted overflow and layout requirements have been reconciled.
+    RetargetedRequirementsApplied,
+    /// Coordinated plot-area and scale-range updates have been propagated to descendants.
+    FinalPropagationComplete,
 }
 
 /// Checkpoints inside the final layout realization/refinement loop.
@@ -82,9 +82,9 @@ pub enum FacetSubtreeSelector {
 /// Local facet-subtree checkpoints.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FacetSubtreeCheckpoint {
-    /// Phase-5 estimated-size overflow probe, before phase-6 retargeting.
+    /// Estimated-size overflow probe, before local plot-area retargeting.
     EstimatedOverflowProbe,
-    /// Phase-6 locally retargeted layout, before global coordination.
+    /// Locally retargeted layout, before global coordination.
     LocalRetargetedLayout,
     /// After global coordination, before final realization/refinement.
     CoordinatedLayout,
@@ -100,7 +100,7 @@ pub struct EvaluationOptions {
     /// Whether to draw layout debug overlays when no env override is set.
     pub debug_layout_lines: bool,
     /// Controls optional facet layout refinement after the mandatory measure-once pass.
-    pub facet_measure_refinement: FacetMeasureRefinement,
+    pub facet_layout_refinement: FacetLayoutRefinement,
 }
 
 /// Controls optional repeated facet measurement/layout passes.
@@ -108,14 +108,14 @@ pub struct EvaluationOptions {
 /// One mandatory pass is always performed. The default runs one refinement pass;
 /// set `max_refinement_passes` to zero for the fastest measure-once path.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct FacetMeasureRefinement {
-    /// Number of additional phase-5/phase-6 refinement passes after the mandatory pass.
+pub struct FacetLayoutRefinement {
+    /// Number of additional measure/retarget refinement passes after the mandatory pass.
     pub max_refinement_passes: usize,
     /// Minimum overflow growth that should be treated as layout-significant.
     pub overflow_growth_epsilon: f32,
 }
 
-impl Default for FacetMeasureRefinement {
+impl Default for FacetLayoutRefinement {
     fn default() -> Self {
         Self {
             max_refinement_passes: 1,
@@ -129,7 +129,7 @@ impl Default for EvaluationOptions {
         Self {
             layout_snapshot: LayoutSnapshot::Final,
             debug_layout_lines: false,
-            facet_measure_refinement: FacetMeasureRefinement::default(),
+            facet_layout_refinement: FacetLayoutRefinement::default(),
         }
     }
 }
@@ -153,16 +153,14 @@ impl EvaluationMetrics {
 
     pub(crate) fn record_facet_band_measure_run(
         &mut self,
-        phase5_leaf_measure_count: usize,
-        phase5_non_leaf_probe_aggregate_count: usize,
-        phase5_non_leaf_full_measure_count: usize,
-        phase6_full_measure_count: usize,
+        estimated_overflow_leaf_measure_count: usize,
+        estimated_overflow_non_leaf_aggregate_count: usize,
+        estimated_overflow_non_leaf_full_measure_count: usize,
     ) {
         self.facet_layout.record_facet_band_measure_run(
-            phase5_leaf_measure_count,
-            phase5_non_leaf_probe_aggregate_count,
-            phase5_non_leaf_full_measure_count,
-            phase6_full_measure_count,
+            estimated_overflow_leaf_measure_count,
+            estimated_overflow_non_leaf_aggregate_count,
+            estimated_overflow_non_leaf_full_measure_count,
         );
     }
 
@@ -189,14 +187,12 @@ pub struct FacetLayoutMetrics {
     pub plot_component_measure_calls_by_facet_depth: Vec<usize>,
     /// Number of completed facet-band measurement pipelines.
     pub facet_band_measure_runs: usize,
-    /// Number of leaf cell measurements in phase 5 overflow probes.
-    pub phase5_leaf_measure_count: usize,
-    /// Number of non-leaf synthesized probe aggregates in phase 5.
-    pub phase5_non_leaf_probe_aggregate_count: usize,
-    /// Number of full subtree measurements used to synthesize non-leaf phase 5 probes.
-    pub phase5_non_leaf_full_measure_count: usize,
-    /// Number of full cell measurements in phase 6 finalization.
-    pub phase6_full_measure_count: usize,
+    /// Number of leaf cell measurements during estimated-overflow probes.
+    pub estimated_overflow_leaf_measure_count: usize,
+    /// Number of non-leaf estimated-overflow probe aggregates.
+    pub estimated_overflow_non_leaf_aggregate_count: usize,
+    /// Number of full subtree measurements used to synthesize non-leaf estimated-overflow probes.
+    pub estimated_overflow_non_leaf_full_measure_count: usize,
     /// Number of top-level facet refinement passes after the mandatory pass.
     pub refinement_pass_count: usize,
     /// Whether iterative facet refinement stopped because no overflow grew.
@@ -217,16 +213,16 @@ impl FacetLayoutMetrics {
 
     pub(crate) fn record_facet_band_measure_run(
         &mut self,
-        phase5_leaf_measure_count: usize,
-        phase5_non_leaf_probe_aggregate_count: usize,
-        phase5_non_leaf_full_measure_count: usize,
-        phase6_full_measure_count: usize,
+        estimated_overflow_leaf_measure_count: usize,
+        estimated_overflow_non_leaf_aggregate_count: usize,
+        estimated_overflow_non_leaf_full_measure_count: usize,
     ) {
         self.facet_band_measure_runs += 1;
-        self.phase5_leaf_measure_count += phase5_leaf_measure_count;
-        self.phase5_non_leaf_probe_aggregate_count += phase5_non_leaf_probe_aggregate_count;
-        self.phase5_non_leaf_full_measure_count += phase5_non_leaf_full_measure_count;
-        self.phase6_full_measure_count += phase6_full_measure_count;
+        self.estimated_overflow_leaf_measure_count += estimated_overflow_leaf_measure_count;
+        self.estimated_overflow_non_leaf_aggregate_count +=
+            estimated_overflow_non_leaf_aggregate_count;
+        self.estimated_overflow_non_leaf_full_measure_count +=
+            estimated_overflow_non_leaf_full_measure_count;
     }
 }
 

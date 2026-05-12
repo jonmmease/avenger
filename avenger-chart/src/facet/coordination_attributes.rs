@@ -25,7 +25,7 @@ impl CoordNodeKey {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CollectionRoundNodeSnapshot {
+pub(crate) struct InitialRequirementNodeSnapshot {
     pub(crate) node_id: CoordNodeKey,
     pub(crate) key: CoordinationGroupKey,
     pub(crate) local_overflow: Option<CoordinatedOverflow>,
@@ -34,19 +34,19 @@ pub(crate) struct CollectionRoundNodeSnapshot {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CollectionRoundSnapshot {
-    pub(crate) nodes: Vec<CollectionRoundNodeSnapshot>,
+pub(crate) struct InitialRequirementSnapshot {
+    pub(crate) nodes: Vec<InitialRequirementNodeSnapshot>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CollectionRoundAggregates {
+pub(crate) struct InitialRequirementAggregates {
     pub(crate) merged_overflow_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow>,
     pub(crate) merged_layout_by_key: HashMap<CoordinationGroupKey, CoordinatedLayout>,
     pub(crate) unified_domain_extents: HashMap<(String, Vec<ScalarValue>), DomainExtent>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CollectionRoundDistributionPlan {
+pub(crate) struct InitialRequirementDistributionPlan {
     pub(crate) overflow_patches_by_node: HashMap<CoordNodeKey, CoordinatedOverflow>,
     pub(crate) layout_patches_by_node: HashMap<CoordNodeKey, CoordinatedLayout>,
     pub(crate) domain_target_nodes: HashSet<CoordNodeKey>,
@@ -54,14 +54,14 @@ pub(crate) struct CollectionRoundDistributionPlan {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CollectionRoundA {
-    pub(crate) snapshot: CollectionRoundSnapshot,
-    pub(crate) aggregates: CollectionRoundAggregates,
-    pub(crate) distribution: CollectionRoundDistributionPlan,
+pub(crate) struct InitialRequirementPass {
+    pub(crate) snapshot: InitialRequirementSnapshot,
+    pub(crate) aggregates: InitialRequirementAggregates,
+    pub(crate) distribution: InitialRequirementDistributionPlan,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct RecollectionRoundNodeSnapshot {
+pub(crate) struct RetargetedRequirementNodeSnapshot {
     pub(crate) node_id: CoordNodeKey,
     pub(crate) key: CoordinationGroupKey,
     pub(crate) local_overflow: Option<CoordinatedOverflow>,
@@ -69,31 +69,31 @@ pub(crate) struct RecollectionRoundNodeSnapshot {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct RecollectionRoundSnapshot {
-    pub(crate) nodes: Vec<RecollectionRoundNodeSnapshot>,
+pub(crate) struct RetargetedRequirementSnapshot {
+    pub(crate) nodes: Vec<RetargetedRequirementNodeSnapshot>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct RecollectionRoundAggregates {
+pub(crate) struct RetargetedRequirementAggregates {
     pub(crate) merged_overflow_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow>,
     pub(crate) merged_layout_by_key: HashMap<CoordinationGroupKey, CoordinatedLayout>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct RecollectionRoundDistributionPlan {
+pub(crate) struct RetargetedRequirementDistributionPlan {
     pub(crate) overflow_patches_by_node: HashMap<CoordNodeKey, CoordinatedOverflow>,
     pub(crate) layout_patches_by_node: HashMap<CoordNodeKey, CoordinatedLayout>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct RecollectionRound {
-    pub(crate) snapshot: RecollectionRoundSnapshot,
-    pub(crate) aggregates: RecollectionRoundAggregates,
-    pub(crate) distribution: RecollectionRoundDistributionPlan,
+pub(crate) struct RetargetedRequirementPass {
+    pub(crate) snapshot: RetargetedRequirementSnapshot,
+    pub(crate) aggregates: RetargetedRequirementAggregates,
+    pub(crate) distribution: RetargetedRequirementDistributionPlan,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct InheritedApplyNodeIntent {
+pub(crate) struct RetargetNodePlan {
     pub(crate) node_id: CoordNodeKey,
     pub(crate) axis: FacetAxis,
     pub(crate) apply_plan: FacetBandCoordApplyPlan,
@@ -104,20 +104,20 @@ pub(crate) struct InheritedApplyNodeIntent {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct InheritedApplyIntent {
-    pub(crate) node_derivations: Vec<InheritedApplyNodeIntent>,
+pub(crate) struct RetargetPlan {
+    pub(crate) node_plans: Vec<RetargetNodePlan>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct InheritedApplyNodeOutcome {
+pub(crate) struct RetargetNodeTrace {
     pub(crate) node_id: CoordNodeKey,
     pub(crate) axis: FacetAxis,
-    pub(crate) derived_has_legend_overflow: bool,
-    pub(crate) derived_has_coordinated_extents: bool,
-    pub(crate) derived_remeasure_required: bool,
-    pub(crate) derived_axis_owner_ignore_empty_cells: bool,
-    pub(crate) derived_adjusted_main_size: f32,
-    pub(crate) derived_child_count: usize,
+    pub(crate) planned_has_legend_overflow: bool,
+    pub(crate) planned_has_coordinated_extents: bool,
+    pub(crate) planned_remeasure_required: bool,
+    pub(crate) planned_axis_owner_ignore_empty_cells: bool,
+    pub(crate) planned_adjusted_main_size: f32,
+    pub(crate) planned_child_count: usize,
     pub(crate) parent_cross_size_propagated: bool,
     pub(crate) subplot_cross_size_before: f32,
     pub(crate) subplot_cross_size_after: f32,
@@ -129,12 +129,12 @@ pub(crate) struct InheritedApplyNodeOutcome {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct InheritedApplyTrace {
-    pub(crate) node_results: Vec<InheritedApplyNodeOutcome>,
+pub(crate) struct RetargetTrace {
+    pub(crate) node_results: Vec<RetargetNodeTrace>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct InheritedPropagationChildIntent {
+pub(crate) struct FinalPropagationChildPlan {
     pub(crate) child_index: usize,
     pub(crate) old_plot_area_width: f32,
     pub(crate) old_plot_area_height: f32,
@@ -146,43 +146,43 @@ pub(crate) struct InheritedPropagationChildIntent {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct InheritedPropagationNodeIntent {
+pub(crate) struct FinalPropagationNodePlan {
     pub(crate) node_id: CoordNodeKey,
     pub(crate) axis: FacetAxis,
     pub(crate) parent_cross_size_target: Option<f32>,
     pub(crate) child_count: usize,
-    pub(crate) child_intents: Vec<InheritedPropagationChildIntent>,
+    pub(crate) child_plans: Vec<FinalPropagationChildPlan>,
     pub(crate) expected_plot_area_adjustments_count: usize,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct InheritedPropagationIntent {
-    pub(crate) node_derivations: Vec<InheritedPropagationNodeIntent>,
+pub(crate) struct FinalPropagationPlan {
+    pub(crate) node_plans: Vec<FinalPropagationNodePlan>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct InheritedPropagationNodeOutcome {
+pub(crate) struct FinalPropagationNodeTrace {
     pub(crate) node_id: CoordNodeKey,
     pub(crate) axis: FacetAxis,
-    pub(crate) derived_parent_cross_size_target: Option<f32>,
-    pub(crate) derived_child_count: usize,
-    pub(crate) derived_child_intent_count: usize,
-    pub(crate) derived_expected_plot_area_adjustments_count: usize,
+    pub(crate) planned_parent_cross_size_target: Option<f32>,
+    pub(crate) planned_child_count: usize,
+    pub(crate) planned_child_plan_count: usize,
+    pub(crate) planned_plot_area_adjustments_count: usize,
     pub(crate) child_plot_area_adjustments_count: usize,
     pub(crate) scale_range_retarget_count: usize,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct InheritedPropagationTrace {
-    pub(crate) node_results: Vec<InheritedPropagationNodeOutcome>,
+pub(crate) struct FinalPropagationTrace {
+    pub(crate) node_results: Vec<FinalPropagationNodeTrace>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct CoordinationRunArtifacts {
-    pub(crate) collection_round_a: CollectionRoundA,
-    pub(crate) inherited_apply: InheritedApplyTrace,
-    pub(crate) recollection_round: RecollectionRound,
-    pub(crate) inherited_propagation: InheritedPropagationTrace,
+    pub(crate) initial_requirement_pass: InitialRequirementPass,
+    pub(crate) retarget_trace: RetargetTrace,
+    pub(crate) retargeted_requirement_pass: RetargetedRequirementPass,
+    pub(crate) final_propagation_trace: FinalPropagationTrace,
 }
 
 fn merge_overflow_groups(
@@ -321,7 +321,9 @@ fn build_round_collection(
     }
 }
 
-pub(crate) fn build_collection_round_a(snapshot: CollectionRoundSnapshot) -> CollectionRoundA {
+pub(crate) fn build_initial_requirement_pass(
+    snapshot: InitialRequirementSnapshot,
+) -> InitialRequirementPass {
     let nodes = snapshot
         .nodes
         .iter()
@@ -339,14 +341,14 @@ pub(crate) fn build_collection_round_a(snapshot: CollectionRoundSnapshot) -> Col
         .collect::<Vec<_>>();
     let round = build_round_collection(&nodes, true, &domain_infos);
 
-    CollectionRoundA {
+    InitialRequirementPass {
         snapshot,
-        aggregates: CollectionRoundAggregates {
+        aggregates: InitialRequirementAggregates {
             merged_overflow_by_key: round.merged_overflow_by_key,
             merged_layout_by_key: round.merged_layout_by_key,
             unified_domain_extents: round.unified_domain_extents.clone(),
         },
-        distribution: CollectionRoundDistributionPlan {
+        distribution: InitialRequirementDistributionPlan {
             overflow_patches_by_node: round.overflow_patches_by_node,
             layout_patches_by_node: round.layout_patches_by_node,
             domain_target_nodes: round.domain_target_nodes,
@@ -355,7 +357,9 @@ pub(crate) fn build_collection_round_a(snapshot: CollectionRoundSnapshot) -> Col
     }
 }
 
-pub(crate) fn build_recollection_round(snapshot: RecollectionRoundSnapshot) -> RecollectionRound {
+pub(crate) fn build_retargeted_requirement_pass(
+    snapshot: RetargetedRequirementSnapshot,
+) -> RetargetedRequirementPass {
     let nodes = snapshot
         .nodes
         .iter()
@@ -368,13 +372,13 @@ pub(crate) fn build_recollection_round(snapshot: RecollectionRoundSnapshot) -> R
         .collect::<Vec<_>>();
     let round = build_round_collection(&nodes, false, &[]);
 
-    RecollectionRound {
+    RetargetedRequirementPass {
         snapshot,
-        aggregates: RecollectionRoundAggregates {
+        aggregates: RetargetedRequirementAggregates {
             merged_overflow_by_key: round.merged_overflow_by_key,
             merged_layout_by_key: round.merged_layout_by_key,
         },
-        distribution: RecollectionRoundDistributionPlan {
+        distribution: RetargetedRequirementDistributionPlan {
             overflow_patches_by_node: round.overflow_patches_by_node,
             layout_patches_by_node: round.layout_patches_by_node,
         },
@@ -411,11 +415,11 @@ mod tests {
     }
 
     #[test]
-    fn collection_round_a_groups_and_distributes_overflow_layout_domains() {
+    fn initial_requirement_pass_groups_and_distributes_overflow_layout_domains() {
         let key = CoordinationGroupKey::new(1, "col:group");
-        let snapshot = CollectionRoundSnapshot {
+        let snapshot = InitialRequirementSnapshot {
             nodes: vec![
-                CollectionRoundNodeSnapshot {
+                InitialRequirementNodeSnapshot {
                     node_id: CoordNodeKey::new(vec![0]),
                     key: key.clone(),
                     local_overflow: Some(overflow(1.0, 2.0, 3.0, 4.0)),
@@ -433,7 +437,7 @@ mod tests {
                         extent: DomainExtent::numeric(0.0, 10.0),
                     }],
                 },
-                CollectionRoundNodeSnapshot {
+                InitialRequirementNodeSnapshot {
                     node_id: CoordNodeKey::new(vec![1]),
                     key: key.clone(),
                     local_overflow: Some(overflow(3.0, 1.0, 5.0, 2.0)),
@@ -454,7 +458,7 @@ mod tests {
             ],
         };
 
-        let attributes = build_collection_round_a(snapshot);
+        let attributes = build_initial_requirement_pass(snapshot);
         assert_eq!(attributes.snapshot.nodes.len(), 2);
         assert_eq!(attributes.aggregates.merged_overflow_by_key.len(), 1);
         assert_eq!(attributes.aggregates.merged_layout_by_key.len(), 1);
@@ -465,7 +469,7 @@ mod tests {
     }
 
     #[test]
-    fn collection_round_a_domain_grouping_respects_sharing_keys() {
+    fn initial_requirement_pass_domain_grouping_respects_sharing_keys() {
         let key = CoordinationGroupKey::new(2, "col:shared");
         let info_a = CellDomainInfo {
             full_cell_path: vec![s("A"), s("B"), s("X")],
@@ -489,8 +493,8 @@ mod tests {
             extent: DomainExtent::numeric(5.0, 7.0),
         };
 
-        let snapshot = CollectionRoundSnapshot {
-            nodes: vec![CollectionRoundNodeSnapshot {
+        let snapshot = InitialRequirementSnapshot {
+            nodes: vec![InitialRequirementNodeSnapshot {
                 node_id: CoordNodeKey::new(vec![0]),
                 key,
                 local_overflow: None,
@@ -498,7 +502,7 @@ mod tests {
                 domain_infos: vec![info_a.clone(), info_b.clone(), info_c.clone()],
             }],
         };
-        let attributes = build_collection_round_a(snapshot);
+        let attributes = build_initial_requirement_pass(snapshot);
 
         let key_ab = sharing_policy::domain_group_key(
             &info_a.full_cell_path,
@@ -526,11 +530,11 @@ mod tests {
     }
 
     #[test]
-    fn recollection_round_reconciles_overflow_layout_without_domains() {
+    fn retargeted_requirement_pass_reconciles_overflow_layout_without_domains() {
         let key = CoordinationGroupKey::new(1, "row:group");
-        let snapshot = RecollectionRoundSnapshot {
+        let snapshot = RetargetedRequirementSnapshot {
             nodes: vec![
-                RecollectionRoundNodeSnapshot {
+                RetargetedRequirementNodeSnapshot {
                     node_id: CoordNodeKey::new(vec![0]),
                     key: key.clone(),
                     local_overflow: Some(overflow(1.0, 1.0, 2.0, 3.0)),
@@ -541,7 +545,7 @@ mod tests {
                         n: 2,
                     },
                 },
-                RecollectionRoundNodeSnapshot {
+                RetargetedRequirementNodeSnapshot {
                     node_id: CoordNodeKey::new(vec![1]),
                     key,
                     local_overflow: Some(overflow(2.0, 4.0, 1.0, 1.0)),
@@ -555,7 +559,7 @@ mod tests {
             ],
         };
 
-        let attributes = build_recollection_round(snapshot);
+        let attributes = build_retargeted_requirement_pass(snapshot);
         assert_eq!(attributes.snapshot.nodes.len(), 2);
         assert_eq!(attributes.aggregates.merged_overflow_by_key.len(), 1);
         assert_eq!(attributes.aggregates.merged_layout_by_key.len(), 1);

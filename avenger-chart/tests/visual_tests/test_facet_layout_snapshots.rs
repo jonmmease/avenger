@@ -81,7 +81,7 @@ async fn facet_layout_snapshot_coordinated_with_debug_overlay() {
         None,
         EvaluationOptions {
             layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
-                CoordinationCheckpoint::InheritedPropagationComplete,
+                CoordinationCheckpoint::FinalPropagationComplete,
             )),
             debug_layout_lines: true,
             ..EvaluationOptions::default()

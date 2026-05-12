@@ -14,7 +14,7 @@ use crate::{
 /// Fixed-subplot facet measurement path.
 ///
 /// This path is intentionally separated from canvas-fit orchestration so fixed-subplot
-/// behavior can evolve independently while sharing the core facet-band synthesis engine.
+/// behavior can evolve independently while sharing the core facet-band layout engine.
 pub(crate) async fn measure_facet_row_fixed_subplot(
     scales: &HashMap<String, ConfiguredScaleWithSpec>,
     plot_other_axis_size: f32,

@@ -49,8 +49,8 @@ pub(crate) struct FacetBandSemantics {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct FacetBandPreparedSynthesis {
-    pub(crate) cell_synthesis: FacetBandSemantics,
+pub(crate) struct FacetBandPreparedInputs {
+    pub(crate) cell_semantics: FacetBandSemantics,
     pub(crate) renderable_mask: Vec<bool>,
     pub(crate) scale_artifacts_key: FacetScaleNodeKey,
 }
@@ -63,14 +63,14 @@ pub(crate) struct OverflowProbeSummary {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct FacetBandOverflowSynthesis {
-    pub(crate) prepared_synthesis: FacetBandPreparedSynthesis,
+pub(crate) struct FacetBandOverflowProbe {
+    pub(crate) prepared_inputs: FacetBandPreparedInputs,
     pub(crate) overflow_probe_summary: OverflowProbeSummary,
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct FacetBandLocalSynthesis {
-    pub(crate) overflow_synthesis: FacetBandOverflowSynthesis,
+pub(crate) struct FacetBandLocalLayout {
+    pub(crate) overflow_probe: FacetBandOverflowProbe,
     pub(crate) band_layout_plan: FacetBandPlan,
     pub(crate) final_subplot_cross_size: f32,
     pub(crate) channel_sharing_levels: HashMap<String, SharingLevel>,
@@ -163,7 +163,7 @@ mod tests {
     }
 
     #[test]
-    fn synthesize_cell_attributes_preserves_semantics_and_order() -> Result<(), AvengerChartError> {
+    fn build_cell_semantics_preserves_semantics_and_order() -> Result<(), AvengerChartError> {
         let mut children = IndexMap::new();
         children.insert(
             s("A"),
@@ -194,7 +194,7 @@ mod tests {
         )));
 
         let cell_values = vec![s("A"), s("B")];
-        let cell_synthesis = FacetBandSemantics::from_tree_and_values(
+        let cell_semantics = FacetBandSemantics::from_tree_and_values(
             FacetAxis::Column,
             &[],
             1,
@@ -204,10 +204,10 @@ mod tests {
             &cell_values,
         )?;
 
-        assert_eq!(cell_synthesis.cells.len(), 2);
-        assert_eq!(cell_synthesis.cells[0].value, s("A"));
-        assert_eq!(cell_synthesis.cells[1].value, s("B"));
-        assert!(cell_synthesis.cells.iter().all(|cell| cell.in_domain_slot));
+        assert_eq!(cell_semantics.cells.len(), 2);
+        assert_eq!(cell_semantics.cells[0].value, s("A"));
+        assert_eq!(cell_semantics.cells[1].value, s("B"));
+        assert!(cell_semantics.cells.iter().all(|cell| cell.in_domain_slot));
         Ok(())
     }
 }

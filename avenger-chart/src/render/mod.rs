@@ -13,7 +13,7 @@ pub use canvas::CanvasExt;
 pub use context::{EvaluationContext, RenderContext, RenderState};
 pub use types::{
     CoordinationCheckpoint, EvaluatedPlot, EvaluationMetrics, EvaluationOptions,
-    FacetLayoutMetrics, FacetMeasureRefinement, FacetSubtreeCheckpoint, FacetSubtreeSelector,
+    FacetLayoutMetrics, FacetLayoutRefinement, FacetSubtreeCheckpoint, FacetSubtreeSelector,
     FacetSubtreeSnapshot, LayoutSnapshot, LayoutSolution, LegendMeasurements, RefinementCheckpoint,
     WholeChartSnapshot,
 };
