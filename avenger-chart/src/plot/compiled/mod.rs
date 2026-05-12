@@ -10,31 +10,21 @@ mod validation;
 
 use std::{collections::HashMap, sync::Arc};
 
-use avenger_scales::scales::{RangeKind, ScaleImpl};
-use datafusion::{
-    arrow::datatypes::DataType as ArrowDataType,
-    common::ScalarValue,
-    dataframe::DataFrame,
-    logical_expr::{Expr, lit},
-    prelude::SessionContext,
-};
+use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 use crate::{
-    channel::{resolution::resolve_all_channel_refs, value::strip_trailing_numbers},
+    channel::value::strip_trailing_numbers,
     coords::CoordinateSystemTransform,
     error::AvengerChartError,
     guide::CompiledGuide,
     layout::LayoutSpec,
     legend::Legend,
     marks::CompiledMark,
-    scales::{
-        ConfiguredScaleWithSpec, Scale, ScaleBuilder, ScaleSpec as ScaleSpecTrait,
-        default_range_for_channel, spec::Auto,
-    },
+    scales::{ConfiguredScaleWithSpec, ScaleBuilder, ScaleRangeBinding},
     serialization::SerializableDataFrame,
     theme::Theme,
 };
@@ -150,16 +140,12 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
     ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
-        // Build coordinate system ranges map
-        let mut coord_system_ranges = HashMap::new();
+        // Build coordinate system range bindings map
+        let mut coord_system_range_bindings = HashMap::<String, ScaleRangeBinding>::new();
         for channel in builder.channel_builders().keys() {
             let base = strip_trailing_numbers(channel);
-            if let Some((min, max)) = self.coord_transform.default_range(
-                base,
-                plot_area_width as f64,
-                plot_area_height as f64,
-            ) {
-                coord_system_ranges.insert(channel.clone(), (min, max));
+            if let Some(binding) = self.coord_transform.default_range_binding(base) {
+                coord_system_range_bindings.insert(channel.clone(), binding);
             }
         }
 
@@ -168,7 +154,7 @@ impl CompiledPlot {
             .build_scales(
                 plot_area_width,
                 plot_area_height,
-                &coord_system_ranges,
+                &coord_system_range_bindings,
                 &self.scale_specs,
                 &self.marks,
                 theme.as_ref(),
@@ -199,152 +185,26 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
     ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
-        // Collect channels that need scales
-        let mut channels_with_scales = self.collect_channels_needing_scales(ctx);
-        // Also include any explicit plot-level scales
-        for ch in self.scale_specs.keys() {
-            channels_with_scales.insert(ch.clone());
-        }
+        let scale_builder = scales::build_scale_builder_from_marks(
+            &self.marks,
+            &self.scale_specs,
+            &self.coord_transform,
+            &self.data,
+            Some(df.clone()),
+            ctx,
+            params,
+            self.get_theme().as_ref(),
+        )
+        .await?;
 
-        // Convert to sorted Vec for deterministic iteration order
-        let mut sorted_channels: Vec<String> = channels_with_scales.into_iter().collect();
-        sorted_channels.sort();
-
-        let mut configured: HashMap<String, ConfiguredScaleWithSpec> = HashMap::new();
-
-        // Build each scale using provided DataFrame for type inference and domain collection
-        for channel in sorted_channels.iter() {
-            // Find first mark that uses this channel and get its expr and preferred scale type
-            let mut chosen_spec: Option<Box<dyn ScaleSpecTrait>> = None;
-            let mut data_type: Option<ArrowDataType> = None;
-            let mut expr_opt: Option<Expr> = None;
-
-            for mark in &self.marks {
-                let channels = mark.data_context().channels();
-                let resolved =
-                    resolve_all_channel_refs(channels, ctx).unwrap_or_else(|_| channels.clone());
-                if let Some(channel_value) = resolved.get(channel) {
-                    // Use scale_input_expr for type inference - only values that
-                    // pass through the scale matter. Literal branches get NULL.
-                    if let Some(expr) = channel_value.scale_input_expr(ctx) {
-                        // Try to infer type directly from schema for simple column refs
-                        let inferred_dt = match &expr {
-                            Expr::Column(col) => {
-                                let name = col.name.clone();
-                                df.schema()
-                                    .field_with_unqualified_name(&name)
-                                    .ok()
-                                    .map(|f| f.data_type().clone())
-                            }
-                            _ => None,
-                        };
-
-                        if let Some(dt) = inferred_dt {
-                            data_type = Some(dt.clone());
-                            chosen_spec = mark.preferred_scale_type(channel, &dt);
-                            expr_opt = Some(expr);
-                            break;
-                        } else if let Ok(projected) =
-                            df.clone().select(vec![expr.clone().alias("__t")])
-                        {
-                            // Fallback: project the expression
-                            let dt = projected.schema().field(0).data_type().clone();
-                            data_type = Some(dt.clone());
-                            chosen_spec = mark.preferred_scale_type(channel, &dt);
-                            expr_opt = Some(expr);
-                            break;
-                        }
-                    }
-                }
-            }
-
-            let scale_spec = chosen_spec.ok_or_else(|| {
-                AvengerChartError::InternalError(format!(
-                    "Failed to infer scale specification for channel '{}' (no matching mark expr)",
-                    channel
-                ))
-            })?;
-
-            let mut scale = Scale::<Auto>::from_spec(scale_spec);
-
-            // Apply coord and mark default options
-            if let Some(dt) = &data_type {
-                // Get an impl for option discovery
-                let scale_impl: Arc<dyn ScaleImpl> = scale.get_scale_impl().ok_or_else(|| {
-                    AvengerChartError::InternalError(format!(
-                        "Failed to create scale impl for '{}'",
-                        channel
-                    ))
-                })?;
-
-                // Coordinate defaults
-                let coord_opts = self
-                    .coord_transform
-                    .default_scale_options(channel, scale_impl.as_ref());
-                for (k, v) in coord_opts {
-                    scale = scale.option(&k, lit(v));
-                }
-                // Mark defaults (first mark that had expr)
-                if let Some(mark) = self
-                    .marks
-                    .iter()
-                    .find(|m| m.data_context().channels().contains_key(channel.as_str()))
-                {
-                    let mark_opts = mark.default_scale_options(channel, scale_impl.as_ref(), dt);
-                    for (k, v) in mark_opts {
-                        scale = scale.option(&k, v);
-                    }
-                }
-            }
-
-            // Apply default range for positional channels
-            if let Some((min, max)) = self.coord_transform.default_range(
-                channel,
-                plot_area_width as f64,
-                plot_area_height as f64,
-            ) {
-                scale = scale.range_interval(lit(min), lit(max));
-            }
-
-            // Domain: use provided df + expr
-            if let Some(expr) = expr_opt.clone() {
-                scale = scale.domain_data_fields(vec![(Arc::new(df.clone()), expr)]);
-            }
-
-            // Infer domain and normalize
-            scale = scale
-                .infer_domain_from_data(plot_area_width, plot_area_height, ctx, params)
-                .await?;
-            scale = scale
-                .normalize_domain(plot_area_width, plot_area_height, ctx, params)
-                .await?;
-
-            // Apply default range for non-positional channels (color, size, etc.) if not already set
-            if scale.get_range().is_none() {
-                let range_kind = scale
-                    .get_scale_impl()
-                    .map(|impl_arc| impl_arc.range_kind())
-                    .unwrap_or(RangeKind::Continuous);
-
-                let range = default_range_for_channel(channel, range_kind);
-                scale = scale.range(range);
-            }
-
-            // Create configured
-            let configured_scale = scale
-                .clone()
-                .create_configured_scale(plot_area_width, plot_area_height, ctx, params)
-                .await?;
-            // Use base scale name (strip trailing numbers like y2 -> y) as key
-            // to match lookup semantics during rendering
-            let scale_key = strip_trailing_numbers(channel).to_string();
-            configured.insert(
-                scale_key,
-                ConfiguredScaleWithSpec::new(scale, configured_scale),
-            );
-        }
-
-        Ok(configured)
+        self.build_scales_from_builder(
+            &scale_builder,
+            plot_area_width,
+            plot_area_height,
+            ctx,
+            params,
+        )
+        .await
     }
 }
 

@@ -38,6 +38,11 @@ use crate::{
 
 pub(crate) const HIDDEN_TOP_LOCAL_ANCHOR_EPSILON: f32 = 0.5;
 
+#[inline]
+fn has_visible_anchor(anchor: f32) -> bool {
+    anchor.abs() > HIDDEN_TOP_LOCAL_ANCHOR_EPSILON
+}
+
 /// Shared guide state carried by row/column guide wrappers.
 #[derive(Clone, Default)]
 pub(crate) struct FacetGuideState {
@@ -52,6 +57,8 @@ pub(crate) struct FacetGuideState {
 pub(crate) enum GuideAnchorSource {
     CoordinatedGuide,
     LocalGuide,
+    ReservedLayout,
+    MeasuredSubplot,
     DefaultZero,
 }
 
@@ -60,6 +67,8 @@ impl GuideAnchorSource {
         match self {
             Self::CoordinatedGuide => "coordinated_guide",
             Self::LocalGuide => "local_guide",
+            Self::ReservedLayout => "reserved_layout",
+            Self::MeasuredSubplot => "measured_subplot",
             Self::DefaultZero => "default_zero",
         }
     }
@@ -75,6 +84,8 @@ pub(crate) trait FacetGuideAxisOps {
     fn anchor_policy_label(place_at_end: bool, title_visible: bool) -> &'static str;
 
     fn subplot_dimensions(plot_width: f32, plot_height: f32, band_size: f32) -> (f32, f32);
+
+    fn side_overflow_anchor(place_at_end: bool, overflow: &OverflowSpaceRequirement) -> f32;
 
     fn compose_total_overflow(
         subplot_overflow: OverflowSpaceRequirement,
@@ -161,6 +172,14 @@ impl FacetGuideAxisOps for RowGuideAxisOps {
 
     fn subplot_dimensions(plot_width: f32, _plot_height: f32, band_size: f32) -> (f32, f32) {
         (plot_width, band_size)
+    }
+
+    fn side_overflow_anchor(place_at_end: bool, overflow: &OverflowSpaceRequirement) -> f32 {
+        if place_at_end {
+            overflow.right
+        } else {
+            overflow.left
+        }
     }
 
     fn compose_total_overflow(
@@ -291,6 +310,14 @@ impl FacetGuideAxisOps for ColGuideAxisOps {
 
     fn subplot_dimensions(_plot_width: f32, plot_height: f32, band_size: f32) -> (f32, f32) {
         (band_size, plot_height)
+    }
+
+    fn side_overflow_anchor(place_at_end: bool, overflow: &OverflowSpaceRequirement) -> f32 {
+        if place_at_end {
+            overflow.bottom
+        } else {
+            overflow.top
+        }
     }
 
     fn compose_total_overflow(
@@ -470,12 +497,32 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
     let facet_guide_slab_size =
         measure_facet_guide_slab(&labels, title_for_cell, theme, params, O::is_rotated());
 
-    let (guide_anchor, anchor_source) = O::resolve_measure_anchor(
+    let (mut guide_anchor, mut anchor_source) = O::resolve_measure_anchor(
         place_at_end,
         title_visible,
         &subplot_overflow,
         coord_measurement,
     );
+    if !has_visible_anchor(guide_anchor) && !O::is_rotated() && !place_at_end {
+        let measured_subplot_overflow = compute_subplot_overflow_common::<O>(
+            state,
+            scales,
+            plot_width,
+            plot_height,
+            theme,
+            params,
+            data_override,
+            ctx,
+            facet_tree,
+            facet_path,
+        )
+        .await?;
+        let measured_anchor = O::side_overflow_anchor(place_at_end, &measured_subplot_overflow);
+        if has_visible_anchor(measured_anchor) {
+            guide_anchor = measured_anchor;
+            anchor_source = GuideAnchorSource::MeasuredSubplot;
+        }
+    }
 
     let total = O::compose_total_overflow(
         subplot_overflow,
@@ -507,9 +554,14 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
 pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
     state: &FacetGuideState,
     scales: &HashMap<String, ConfiguredScale>,
+    plot_width: f32,
+    plot_height: f32,
     plot_bounds: &LayoutBounds,
+    guide_overflow: &OverflowSpaceRequirement,
     theme: &Theme,
     params: &IndexMap<String, ScalarValue>,
+    data_override: Option<&DataFrame>,
+    ctx: &SessionContext,
     facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
     facet_path: &[ScalarValue],
     coord_measurement: &dyn CoordMeasurement,
@@ -545,8 +597,38 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
     let facet_guide_slab_size =
         measure_facet_guide_slab(&labels, title_for_cell, theme, params, O::is_rotated());
 
-    let (subplot_overflow_anchor, anchor_source) =
+    let (mut subplot_overflow_anchor, mut anchor_source) =
         O::resolve_evaluate_anchor(place_at_end, title_visible, coord_measurement);
+    if !has_visible_anchor(subplot_overflow_anchor) {
+        let reserved_anchor = (O::side_overflow_anchor(place_at_end, guide_overflow)
+            - facet_guide_slab_size)
+            .max(0.0);
+        if has_visible_anchor(reserved_anchor) {
+            subplot_overflow_anchor = reserved_anchor;
+            anchor_source = GuideAnchorSource::ReservedLayout;
+        } else {
+            let measured_subplot_overflow = compute_subplot_overflow_common::<O>(
+                state,
+                scales,
+                plot_width,
+                plot_height,
+                theme,
+                params,
+                data_override,
+                ctx,
+                facet_tree,
+                facet_path,
+            )
+            .await?;
+            let measured_anchor = O::side_overflow_anchor(place_at_end, &measured_subplot_overflow);
+            let can_place_in_reserved_top_slab =
+                !O::is_rotated() && !place_at_end && plot_bounds.y + 0.01 >= measured_anchor;
+            if can_place_in_reserved_top_slab && has_visible_anchor(measured_anchor) {
+                subplot_overflow_anchor = measured_anchor;
+                anchor_source = GuideAnchorSource::MeasuredSubplot;
+            }
+        }
+    }
     let adjusted_plot_bounds =
         O::adjusted_plot_bounds(plot_bounds, place_at_end, subplot_overflow_anchor);
 
@@ -895,10 +977,21 @@ pub(crate) fn resolve_col_guide_anchor_overflow(
 
     if coordinated_first {
         if let Some(coordinated) = coordinated_overflow {
-            return (
-                LayoutSlabs::from_coordinated(coordinated).guide_anchor(place_at_bottom),
-                GuideAnchorSource::CoordinatedGuide,
-            );
+            let coordinated_anchor =
+                LayoutSlabs::from_coordinated(coordinated).guide_anchor(place_at_bottom);
+            if coordinated_anchor.abs() > HIDDEN_TOP_LOCAL_ANCHOR_EPSILON {
+                return (coordinated_anchor, GuideAnchorSource::CoordinatedGuide);
+            }
+
+            if let Some(local) = local_overflow {
+                let local_anchor =
+                    LayoutSlabs::from_coordinated(local).guide_anchor(place_at_bottom);
+                if local_anchor.abs() > HIDDEN_TOP_LOCAL_ANCHOR_EPSILON {
+                    return (local_anchor, GuideAnchorSource::LocalGuide);
+                }
+            }
+
+            return (coordinated_anchor, GuideAnchorSource::CoordinatedGuide);
         }
 
         if let Some(local) = local_overflow {
@@ -1156,6 +1249,16 @@ mod tests {
         let (resolved, source) =
             resolve_col_guide_anchor_overflow(false, false, Some(&coordinated), Some(&local));
         assert_eq!(resolved, 12.0);
+        assert_eq!(source, GuideAnchorSource::LocalGuide);
+    }
+
+    #[test]
+    fn column_anchor_policy_falls_back_to_local_when_coordinated_anchor_is_zero() {
+        let local = overflow(0.0, 0.0, 14.0, 8.0, 0.0, 0.0, 60.0, 40.0);
+        let coordinated = overflow(0.0, 0.0, 0.0, 39.0, 0.0, 0.0, 34.0, 39.0);
+        let (resolved, source) =
+            resolve_col_guide_anchor_overflow(false, true, Some(&coordinated), Some(&local));
+        assert_eq!(resolved, 14.0);
         assert_eq!(source, GuideAnchorSource::LocalGuide);
     }
 

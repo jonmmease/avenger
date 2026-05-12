@@ -196,6 +196,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &LayoutBounds,
+        guide_overflow: &OverflowSpaceRequirement,
         theme: &Theme,
         params: &IndexMap<String, ScalarValue>,
         ctx: &SessionContext,

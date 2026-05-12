@@ -204,11 +204,7 @@ pub fn parse_hwb_function(args: &[ThemeValue]) -> Option<CssRgba> {
 
 #[cfg(test)]
 mod tests {
-    use std::f64::consts::PI;
-
-    use indexmap::IndexMap;
-
-    use crate::theme::{AngleUnit, Theme, ThemeContext};
+    use crate::theme::{Theme, ThemeContext};
 
     use super::*;
 

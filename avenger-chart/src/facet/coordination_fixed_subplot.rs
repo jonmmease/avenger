@@ -22,9 +22,8 @@ use crate::{
         },
     },
     plot::compiled::ComponentsMeasurement,
-    render::{EvaluationContext, context::FacetRuntimeSizingMode},
+    render::{CoordinationCheckpoint, EvaluationContext, context::FacetRuntimeSizingMode},
 };
-use std::collections::HashMap;
 
 fn collect_collection_round_snapshot_fixed(
     measurement: &ComponentsMeasurement,
@@ -124,28 +123,15 @@ fn assert_fixed_leaf_plot_sizes(
 }
 
 fn assert_inherited_apply_trace_invariants_fixed(
-    derivation: &InheritedApplyIntent,
+    _derivation: &InheritedApplyIntent,
     trace: &crate::facet::coordination_attributes::InheritedApplyTrace,
 ) {
-    let derivation_by_node: HashMap<_, _> = derivation
-        .node_derivations
-        .iter()
-        .map(|node| (node.node_id.clone(), node))
-        .collect();
-
     for node_result in &trace.node_results {
-        if let Some(derived) = derivation_by_node.get(&node_result.node_id) {
-            let intent_count = derived
-                .remeasure_plan
-                .as_ref()
-                .map(|plan| plan.cell_intents.len())
-                .unwrap_or(0);
-            debug_assert_eq!(
-                node_result.remeasured_cell_count + node_result.remeasure_skipped_cell_count,
-                intent_count,
-                "fixed inherited-apply invariant: remeasured + skipped must match intent count"
-            );
-        }
+        debug_assert_eq!(
+            node_result.remeasured_cell_count + node_result.remeasure_skipped_cell_count,
+            0,
+            "fixed inherited-apply invariant: coordinated apply no longer remeasures cells"
+        );
     }
 }
 
@@ -231,6 +217,43 @@ pub async fn coordinate_facet_measurement_tree_fixed_subplot(
             .sum::<usize>(),
         "fixed-subplot coordination inherited propagation complete"
     );
+
+    Ok(())
+}
+
+pub(crate) async fn coordinate_facet_measurement_tree_fixed_subplot_until(
+    measurement: &mut ComponentsMeasurement,
+    eval_ctx: &EvaluationContext,
+    checkpoint: CoordinationCheckpoint,
+) -> Result<(), AvengerChartError> {
+    assert_no_canvas_fit_measurements_in_fixed_tree(measurement);
+
+    let collection_round_a =
+        build_collection_round_a(collect_collection_round_snapshot_fixed(measurement));
+    apply_collection_round_a_fixed(measurement, &collection_round_a);
+    if checkpoint == CoordinationCheckpoint::CollectionApplied {
+        return Ok(());
+    }
+
+    let inherited_apply_derivation = derive_inherited_apply_intent_fixed(measurement);
+    let inherited_apply =
+        run_inherited_apply_with_trace_fixed(measurement, eval_ctx, &inherited_apply_derivation)
+            .await?;
+    assert_inherited_apply_trace_invariants_fixed(&inherited_apply_derivation, &inherited_apply);
+    if checkpoint == CoordinationCheckpoint::InheritedApplyComplete {
+        return Ok(());
+    }
+
+    let recollection_round =
+        build_recollection_round(collect_recollection_round_snapshot_fixed(measurement));
+    apply_recollection_round_fixed(measurement, &recollection_round);
+    if checkpoint == CoordinationCheckpoint::RecollectionApplied {
+        return Ok(());
+    }
+
+    let inherited_propagation_derivation = derive_inherited_propagation_intent_fixed(measurement);
+    let _ =
+        run_inherited_propagation_with_trace_fixed(measurement, &inherited_propagation_derivation);
 
     Ok(())
 }

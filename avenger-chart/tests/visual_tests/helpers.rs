@@ -30,6 +30,43 @@ impl Default for VisualTestConfig {
     }
 }
 
+fn failure_image_paths(baseline_path: &str) -> (String, String) {
+    let path = Path::new(baseline_path);
+    let test_name = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown");
+
+    // Extract category from path (e.g., "tests/baselines/bar/simple_bar_chart.png" -> "bar")
+    let category = path
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+
+    let failures_dir = if category.is_empty() {
+        "tests/failures".to_string()
+    } else {
+        format!("tests/failures/{}", category)
+    };
+
+    (failures_dir, test_name.to_string())
+}
+
+fn save_actual_failure_image(actual: &RgbaImage, baseline_path: &str) -> Result<String, String> {
+    let (failures_dir, test_name) = failure_image_paths(baseline_path);
+
+    std::fs::create_dir_all(&failures_dir)
+        .map_err(|e| format!("Failed to create failures directory: {}", e))?;
+
+    let actual_path = format!("{}/{}.png", failures_dir, test_name);
+    actual
+        .save(&actual_path)
+        .map_err(|e| format!("Failed to save actual image: {}", e))?;
+
+    Ok(actual_path)
+}
+
 /// Render a CompiledPlot with params to an image
 /// This version performs a serialization round-trip through bincode to test serialization
 async fn render_compiled_plot_with_serialization(
@@ -122,7 +159,7 @@ async fn render_compiled_plot_with_serialization_and_options(
     options: EvaluationOptions,
 ) -> (RgbaImage, RgbaImage) {
     let direct_result = compiled
-        .evaluate_with_options(ctx, params.clone(), options)
+        .evaluate_with_options(ctx, params.clone(), options.clone())
         .await
         .expect("Failed to evaluate plot directly with options");
 
@@ -204,33 +241,7 @@ pub fn compare_images(
     // Check if baseline exists
     if !std::path::Path::new(baseline_path).exists() {
         // Save the actual image to failures directory for review
-        let path = Path::new(baseline_path);
-        let test_name = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown");
-
-        // Extract category from path
-        let category = path
-            .parent()
-            .and_then(|p| p.file_name())
-            .and_then(|s| s.to_str())
-            .unwrap_or("");
-
-        let failures_dir = if category.is_empty() {
-            "tests/failures".to_string()
-        } else {
-            format!("tests/failures/{}", category)
-        };
-
-        // Create failures directory if it doesn't exist
-        std::fs::create_dir_all(&failures_dir)
-            .map_err(|e| format!("Failed to create failures directory: {}", e))?;
-
-        let actual_path = format!("{}/{}.png", failures_dir, test_name);
-        actual
-            .save(&actual_path)
-            .map_err(|e| format!("Failed to save actual image: {}", e))?;
+        let actual_path = save_actual_failure_image(&actual, baseline_path)?;
 
         // Ensure baseline directory exists for the copy command
         if let Some(baseline_dir) = Path::new(baseline_path).parent() {
@@ -256,11 +267,21 @@ pub fn compare_images(
 
     // Ensure dimensions match
     if expected.dimensions() != actual.dimensions() {
-        return Err(format!(
-            "Image dimensions don't match. Expected: {:?}, Actual: {:?}",
-            expected.dimensions(),
-            actual.dimensions()
-        ));
+        if config.save_diff_on_failure {
+            let actual_path = save_actual_failure_image(&actual, baseline_path)?;
+            return Err(format!(
+                "Image dimensions don't match. Expected: {:?}, Actual: {:?}. Actual saved to: {}",
+                expected.dimensions(),
+                actual.dimensions(),
+                actual_path
+            ));
+        } else {
+            return Err(format!(
+                "Image dimensions don't match. Expected: {:?}, Actual: {:?}",
+                expected.dimensions(),
+                actual.dimensions()
+            ));
+        }
     }
 
     // Compare images using hybrid algorithm (best for visualization)
@@ -271,36 +292,11 @@ pub fn compare_images(
     if result.score < config.threshold {
         // Save difference image if requested
         if config.save_diff_on_failure {
-            let path = Path::new(baseline_path);
-            let test_name = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown");
-
-            // Extract category from path (e.g., "tests/baselines/bar/simple_bar_chart.png" -> "bar")
-            let category = path
-                .parent()
-                .and_then(|p| p.file_name())
-                .and_then(|s| s.to_str())
-                .unwrap_or("");
-
-            let failures_dir = if category.is_empty() {
-                "tests/failures".to_string()
-            } else {
-                format!("tests/failures/{}", category)
-            };
-
-            // Create failures directory if it doesn't exist
-            std::fs::create_dir_all(&failures_dir)
-                .map_err(|e| format!("Failed to create failures directory: {}", e))?;
-
+            let (failures_dir, test_name) = failure_image_paths(baseline_path);
             let diff_path = format!("{}/{}_diff.png", failures_dir, test_name);
-            let actual_path = format!("{}/{}.png", failures_dir, test_name);
 
             // Save the actual image
-            actual
-                .save(&actual_path)
-                .map_err(|e| format!("Failed to save actual image: {}", e))?;
+            let actual_path = save_actual_failure_image(&actual, baseline_path)?;
 
             // Save the difference map
             result
@@ -450,4 +446,47 @@ pub async fn assert_visual_match_default_with_options(
         0.9999,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::Rgba;
+    use std::fs;
+
+    #[test]
+    fn compare_images_saves_actual_on_dimension_mismatch() {
+        let baseline_dir = Path::new("target/visual_helper_test/baselines/dimension_mismatch");
+        fs::create_dir_all(baseline_dir).expect("failed to create test baseline dir");
+        let baseline_path = baseline_dir.join("size_case.png");
+        let failure_path = Path::new("tests/failures/dimension_mismatch/size_case.png");
+
+        if let Some(parent) = failure_path.parent() {
+            fs::create_dir_all(parent).expect("failed to create failure parent dir");
+        }
+        let _ = fs::remove_file(failure_path);
+
+        RgbaImage::from_pixel(2, 2, Rgba([0, 0, 0, 255]))
+            .save(&baseline_path)
+            .expect("failed to save test baseline");
+        let actual = RgbaImage::from_pixel(3, 2, Rgba([255, 0, 0, 255]));
+
+        let err = compare_images(
+            baseline_path.to_str().expect("non-utf8 test baseline path"),
+            actual,
+            &VisualTestConfig::default(),
+        )
+        .expect_err("dimension mismatch should fail");
+
+        assert!(err.contains("Image dimensions don't match"));
+        assert!(err.contains("Actual saved to"));
+        assert!(failure_path.exists());
+
+        let saved = image::open(failure_path)
+            .expect("saved actual image should be readable")
+            .into_rgba8();
+        assert_eq!(saved.dimensions(), (3, 2));
+
+        fs::remove_file(failure_path).expect("failed to remove test failure image");
+    }
 }

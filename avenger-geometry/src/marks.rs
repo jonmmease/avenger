@@ -395,14 +395,13 @@ impl MarkGeometryUtils for SceneTextMark {
                     };
 
                     let text_bounds = measurer.measure_text_bounds(&config);
-
                     let local_origin = text_bounds.calculate_origin(
                         [*x + origin[0], *y + origin[1]],
                         align,
                         baseline,
                     );
 
-                    let bounds = geo::Rect::new(
+                    let bounds = Rect::new(
                         coord!(x: local_origin[0], y: local_origin[1]),
                         coord!(x: local_origin[0] + text_bounds.width, y: local_origin[1] + text_bounds.line_height),
                     );

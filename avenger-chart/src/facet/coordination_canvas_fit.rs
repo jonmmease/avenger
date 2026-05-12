@@ -7,8 +7,7 @@ use tracing::{debug, trace};
 use crate::{
     error::AvengerChartError,
     facet::{
-        attribute_context::FacetCircularEpoch,
-        coordination,
+        coordination::{self, FacetCircularEpoch},
         coordination_attributes::{
             CoordinationRunArtifacts, build_collection_round_a, build_recollection_round,
         },
@@ -19,7 +18,7 @@ use crate::{
         },
     },
     plot::compiled::ComponentsMeasurement,
-    render::EvaluationContext,
+    render::{CoordinationCheckpoint, EvaluationContext},
 };
 
 pub async fn coordinate_facet_measurement_tree_canvas_fit(
@@ -35,6 +34,61 @@ pub async fn coordinate_facet_measurement_tree_canvas_fit(
         inherited_propagation_nodes = artifacts.inherited_propagation.node_results.len(),
         "coordinate_facet_measurement_tree complete"
     );
+    Ok(())
+}
+
+pub(crate) async fn coordinate_facet_measurement_tree_canvas_fit_until(
+    measurement: &mut ComponentsMeasurement,
+    eval_ctx: &EvaluationContext,
+    checkpoint: CoordinationCheckpoint,
+) -> Result<(), AvengerChartError> {
+    let collection_round_a =
+        build_collection_round_a(coordination::collect_collection_round_snapshot(measurement));
+    coordination::debug_assert_collection_round_coverage(&collection_round_a);
+    apply_collection_round_a(measurement, &collection_round_a);
+    if checkpoint == CoordinationCheckpoint::CollectionApplied {
+        return Ok(());
+    }
+
+    let inherited_apply_derivation = derive_inherited_apply_intent(measurement);
+    coordination::debug_assert_inherited_apply_derivation_coverage(
+        measurement,
+        &inherited_apply_derivation,
+    );
+    let inherited_apply =
+        run_inherited_apply_with_trace(measurement, eval_ctx, &inherited_apply_derivation).await?;
+    coordination::debug_assert_inherited_apply_trace_alignment(
+        &inherited_apply_derivation,
+        &inherited_apply,
+    );
+    if checkpoint == CoordinationCheckpoint::InheritedApplyComplete {
+        return Ok(());
+    }
+
+    let recollection_round = build_recollection_round(
+        coordination::collect_recollection_round_snapshot(measurement),
+    );
+    coordination::debug_assert_recollection_round_coverage(&recollection_round);
+    apply_recollection_round(measurement, &recollection_round);
+    if checkpoint == CoordinationCheckpoint::RecollectionApplied {
+        return Ok(());
+    }
+
+    let inherited_propagation_derivation = derive_inherited_propagation_intent(measurement);
+    coordination::debug_assert_inherited_propagation_derivation_coverage(
+        measurement,
+        &inherited_propagation_derivation,
+    );
+    let inherited_propagation = run_inherited_propagation_with_trace(
+        measurement,
+        eval_ctx,
+        &inherited_propagation_derivation,
+    )?;
+    coordination::debug_assert_inherited_propagation_trace_alignment(
+        &inherited_propagation_derivation,
+        &inherited_propagation,
+    );
+
     Ok(())
 }
 
@@ -117,8 +171,11 @@ pub(crate) async fn coordinate_facet_measurement_tree_canvas_fit_with_artifacts(
         measurement,
         &inherited_propagation_derivation,
     );
-    let inherited_propagation =
-        run_inherited_propagation_with_trace(measurement, &inherited_propagation_derivation);
+    let inherited_propagation = run_inherited_propagation_with_trace(
+        measurement,
+        eval_ctx,
+        &inherited_propagation_derivation,
+    )?;
     coordination::debug_assert_inherited_propagation_trace_alignment(
         &inherited_propagation_derivation,
         &inherited_propagation,

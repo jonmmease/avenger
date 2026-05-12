@@ -14,8 +14,8 @@ use crate::{
     guide::CoordinateGuide,
     marks::CompiledMark,
     plot::compiled::ComponentsMeasurement,
-    render::EvaluationContext,
-    scales::{ConfiguredScaleWithSpec, domain_extent::DomainExtent},
+    render::{CoordinationCheckpoint, EvaluationContext},
+    scales::{ConfiguredScaleWithSpec, ScaleRangeBinding, domain_extent::DomainExtent},
     serialization::SerializableScalar,
 };
 
@@ -40,15 +40,28 @@ pub struct CoordinatedOverflow {
 impl CoordinatedOverflow {
     /// Merge with another overflow context, keeping the maximum of each field.
     pub fn merge(&mut self, other: &Self) {
+        let legend_top = (self.total.top - self.guide.top)
+            .max(0.0)
+            .max((other.total.top - other.guide.top).max(0.0));
+        let legend_right = (self.total.right - self.guide.right)
+            .max(0.0)
+            .max((other.total.right - other.guide.right).max(0.0));
+        let legend_bottom = (self.total.bottom - self.guide.bottom)
+            .max(0.0)
+            .max((other.total.bottom - other.guide.bottom).max(0.0));
+        let legend_left = (self.total.left - self.guide.left)
+            .max(0.0)
+            .max((other.total.left - other.guide.left).max(0.0));
+
         self.guide.top = self.guide.top.max(other.guide.top);
         self.guide.bottom = self.guide.bottom.max(other.guide.bottom);
         self.guide.left = self.guide.left.max(other.guide.left);
         self.guide.right = self.guide.right.max(other.guide.right);
 
-        self.total.top = self.total.top.max(other.total.top);
-        self.total.bottom = self.total.bottom.max(other.total.bottom);
-        self.total.left = self.total.left.max(other.total.left);
-        self.total.right = self.total.right.max(other.total.right);
+        self.total.top = self.guide.top + legend_top;
+        self.total.right = self.guide.right + legend_right;
+        self.total.bottom = self.guide.bottom + legend_bottom;
+        self.total.left = self.guide.left + legend_left;
     }
 }
 
@@ -197,6 +210,32 @@ pub async fn coordinate_overflow_for_guides_with_mode(
             crate::facet::coordination_fixed_subplot::coordinate_facet_measurement_tree_fixed_subplot(
                 measurement,
                 eval_ctx,
+            )
+            .await
+        }
+    }
+}
+
+pub async fn coordinate_overflow_for_guides_with_mode_until(
+    measurement: &mut ComponentsMeasurement,
+    eval_ctx: &EvaluationContext,
+    mode: FacetCoordinationMode,
+    checkpoint: CoordinationCheckpoint,
+) -> Result<(), AvengerChartError> {
+    match mode {
+        FacetCoordinationMode::CanvasFullCycle => {
+            crate::facet::coordination_canvas_fit::coordinate_facet_measurement_tree_canvas_fit_until(
+                measurement,
+                eval_ctx,
+                checkpoint,
+            )
+            .await
+        }
+        FacetCoordinationMode::FixedFullCycle => {
+            crate::facet::coordination_fixed_subplot::coordinate_facet_measurement_tree_fixed_subplot_until(
+                measurement,
+                eval_ctx,
+                checkpoint,
             )
             .await
         }
@@ -487,6 +526,14 @@ pub trait CoordinateSystemTransform: Send + Sync {
         plot_height: f32,
     ) -> Result<Box<dyn PlotGeometry>, AvengerChartError>;
 
+    /// Get the default range binding for a coordinate channel.
+    ///
+    /// The binding records whether the range is dimension-dependent. It is used
+    /// both for initial scale construction and for no-remeasure retargeting.
+    fn default_range_binding(&self, _channel: &str) -> Option<ScaleRangeBinding> {
+        None
+    }
+
     /// Get the default range for a coordinate channel
     ///
     /// Returns the default range for a given channel based on plot dimensions.
@@ -504,7 +551,10 @@ pub trait CoordinateSystemTransform: Send + Sync {
         channel: &str,
         plot_area_width: f64,
         plot_area_height: f64,
-    ) -> Option<(f64, f64)>;
+    ) -> Option<(f64, f64)> {
+        self.default_range_binding(channel)
+            .and_then(|binding| binding.resolve(plot_area_width, plot_area_height))
+    }
 
     /// Get default scale options for a coordinate channel
     ///
@@ -594,5 +644,34 @@ mod tests {
         let second = geometry.rect_at(1).unwrap();
         assert_eq!(second.value, ScalarValue::from("R"));
         assert_eq!(second.x, 20.0);
+    }
+
+    #[test]
+    fn coordinated_overflow_merge_preserves_guide_and_legend_slabs() {
+        let mut first = CoordinatedOverflow {
+            guide: OverflowSpaceRequirement {
+                right: 4.0,
+                ..Default::default()
+            },
+            total: OverflowSpaceRequirement {
+                right: 64.0,
+                ..Default::default()
+            },
+        };
+        let second = CoordinatedOverflow {
+            guide: OverflowSpaceRequirement {
+                right: 10.0,
+                ..Default::default()
+            },
+            total: OverflowSpaceRequirement {
+                right: 20.0,
+                ..Default::default()
+            },
+        };
+
+        first.merge(&second);
+
+        assert_eq!(first.guide.right, 10.0);
+        assert_eq!(first.total.right, 70.0);
     }
 }

@@ -9,6 +9,7 @@ use crate::{
     cartesian::CartesianGuide,
     coords::{CoordinateSystem, CoordinateSystemTransform, PlotGeometry, PointGeometry},
     error::AvengerChartError,
+    scales::{PlotAreaRangeEndpoint, ScaleRangeBinding},
 };
 
 /// Cartesian coordinate system with x and y axes
@@ -65,15 +66,16 @@ impl CoordinateSystemTransform for Cartesian {
         Ok(Box::new(PointGeometry { x, y }))
     }
 
-    fn default_range(
-        &self,
-        channel: &str,
-        plot_area_width: f64,
-        plot_area_height: f64,
-    ) -> Option<(f64, f64)> {
+    fn default_range_binding(&self, channel: &str) -> Option<ScaleRangeBinding> {
         match channel {
-            "x" => Some((0.0, plot_area_width)),
-            "y" => Some((plot_area_height, 0.0)),
+            "x" => Some(ScaleRangeBinding::plot_area(
+                PlotAreaRangeEndpoint::ZERO,
+                PlotAreaRangeEndpoint::WIDTH,
+            )),
+            "y" => Some(ScaleRangeBinding::plot_area(
+                PlotAreaRangeEndpoint::HEIGHT,
+                PlotAreaRangeEndpoint::ZERO,
+            )),
             _ => None,
         }
     }

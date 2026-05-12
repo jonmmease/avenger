@@ -155,7 +155,11 @@ impl ConfiguredScaleDataFusionExt for ConfiguredScaleWithSpec {
             };
 
             // Create a new wrapper with the modified configured scale
-            let temp_wrapper = ConfiguredScaleWithSpec::new(self.spec().clone(), temp_configured);
+            let temp_wrapper = ConfiguredScaleWithSpec::with_range_binding(
+                self.spec().clone(),
+                temp_configured,
+                self.range_binding(),
+            );
 
             temp_wrapper.to_expr(input)
         } else {

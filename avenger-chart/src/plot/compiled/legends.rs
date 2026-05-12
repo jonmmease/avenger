@@ -65,6 +65,34 @@ pub(crate) struct PreparedLegendPlan {
     pub measurements: LegendMeasurements,
 }
 
+impl PreparedLegendPlan {
+    pub(crate) fn retarget_scales(
+        &mut self,
+        configured_scales: &HashMap<String, ConfiguredScaleWithSpec>,
+    ) {
+        for group in &mut self.groups {
+            for channel in &mut group.channels {
+                if let Some(scale) = configured_scales.get(&channel.name) {
+                    channel.scale = scale.configured().clone();
+                }
+
+                for (related_name, related_channel) in &mut channel.related_channels {
+                    if let (
+                        Some(scale),
+                        ChannelInfo::Scaled {
+                            scale: related_scale,
+                            ..
+                        },
+                    ) = (configured_scales.get(related_name), related_channel)
+                    {
+                        *related_scale = scale.configured().clone();
+                    }
+                }
+            }
+        }
+    }
+}
+
 impl CompiledPlot {
     fn effective_group_sharing_level(
         facet_tree: &EvaluatedFacetTree,
@@ -215,9 +243,9 @@ impl CompiledPlot {
 
             // Create legend with theme defaults
             let theme = self.get_theme();
-            let mut legend = Legend::new()
-                .title(self.infer_legend_title(channel, session_context))
-                .position(self.default_legend_position(channel));
+            let title = self.infer_legend_title(channel, session_context);
+            let position = self.default_legend_position(channel);
+            let mut legend = Legend::new().title(title).position(position);
 
             // Create legend context for querying theme values
             let legend_ctx = theme.legend_context_with_params(legend_type, params.clone());

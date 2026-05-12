@@ -13,6 +13,9 @@ pub mod html_canvas;
 pub trait TextMeasurer: Send + Sync {
     /// Measures the bounding dimensions for a text string with given configuration
     fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds;
+
+    /// Measures font-level vertical metrics without depending on a specific glyph outline.
+    fn measure_font_metrics(&self, config: &FontMetricsConfig) -> FontMetrics;
 }
 
 /// Configuration needed for text measurement
@@ -28,6 +31,51 @@ pub struct TextMeasurementConfig<'a> {
     pub font_weight: &'a FontWeight,
     /// Font style (normal or italic)
     pub font_style: &'a FontStyle,
+}
+
+/// Configuration needed for font-level metrics.
+#[derive(Debug, Clone)]
+pub struct FontMetricsConfig<'a> {
+    /// Font family name
+    pub font: &'a str,
+    /// Font size in pixels
+    pub font_size: f32,
+    /// Font weight (normal, bold, or numeric)
+    pub font_weight: &'a FontWeight,
+    /// Font style (normal or italic)
+    pub font_style: &'a FontStyle,
+}
+
+/// Font-level vertical metrics, independent of any particular glyph.
+#[derive(Debug, Clone)]
+pub struct FontMetrics {
+    /// Distance from top to baseline
+    pub ascent: f32,
+    /// Distance from baseline to bottom
+    pub descent: f32,
+    /// Total font height, ascent plus descent
+    pub height: f32,
+    /// Extra gap included in normal line spacing
+    pub line_gap: f32,
+    /// Distance from one line top to the next
+    pub line_height: f32,
+}
+
+impl FontMetrics {
+    pub fn fallback(font_size: f32) -> Self {
+        let ascent = font_size * 0.8;
+        let descent = font_size * 0.2;
+        let height = ascent + descent;
+        let line_height = font_size * 1.2;
+
+        Self {
+            ascent,
+            descent,
+            height,
+            line_gap: line_height - height,
+            line_height,
+        }
+    }
 }
 
 /// Results from text measurement

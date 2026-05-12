@@ -7,8 +7,10 @@ use crate::{
     error::AvengerChartError,
     facet::{
         coord::{
-            FacetBandCoordMeasurement, facet_band_canvas_mut as facet_band_canvas_mut_from_coord,
+            FacetBandCoordMeasurement, FacetCellRuntime,
+            facet_band_canvas_mut as facet_band_canvas_mut_from_coord,
             facet_band_canvas_ref as facet_band_canvas_ref_from_coord,
+            retarget_measurement_plot_area_no_remeasure,
         },
         coordination_attributes::{
             CollectionRoundA, CoordNodeKey, InheritedApplyIntent, InheritedApplyNodeIntent,
@@ -16,11 +18,9 @@ use crate::{
             InheritedPropagationIntent, InheritedPropagationNodeIntent,
             InheritedPropagationNodeOutcome, InheritedPropagationTrace, RecollectionRound,
         },
-        coordination_remeasure::derive_facet_coord_remeasure_plan,
     },
     plot::compiled::ComponentsMeasurement,
     render::EvaluationContext,
-    scales::ConfiguredScaleWithSpec,
 };
 
 fn facet_band_ref(measurement: &ComponentsMeasurement) -> Option<&FacetBandCoordMeasurement> {
@@ -168,21 +168,12 @@ fn derive_inherited_apply_intent_recursive(
         let node_id = CoordNodeKey::new(node_path.clone());
         let apply_plan = facet_band.derive_coordinated_apply_plan();
         let child_count = facet_band.child_measurements_iter().count();
-        let remeasure_plan = apply_plan.remeasure_required.then(|| {
-            derive_facet_coord_remeasure_plan(
-                &facet_band.cells,
-                &apply_plan,
-                facet_band.subplot_cross_size,
-            )
-        });
-
         node_derivations.push(InheritedApplyNodeIntent {
             node_id,
             axis: apply_plan.axis,
-            remeasure_plan,
             has_legend_overflow: apply_plan.has_legend_overflow,
             has_coordinated_extents: apply_plan.has_coordinated_extents,
-            remeasure_triggered: apply_plan.remeasure_required,
+            remeasure_triggered: false,
             apply_plan,
             child_count,
         });
@@ -233,11 +224,7 @@ fn run_inherited_apply_recursive<'a>(
                 ))
             })?;
             let outcome = facet_band
-                .apply_coordinated_overflow_with_plan_and_remeasure_plan(
-                    eval_ctx,
-                    &derived.apply_plan,
-                    derived.remeasure_plan.as_ref(),
-                )
+                .apply_coordinated_overflow_with_plan(eval_ctx, &derived.apply_plan)
                 .await?;
             let parent_cross_size = facet_band.coordinated_subplot_cross_size();
             let parent_axis = facet_band.axis;
@@ -407,39 +394,24 @@ fn build_inherited_propagation_child_intent(
     }
 }
 
-fn apply_inherited_propagation_child_resize(
+fn apply_inherited_propagation_cell_update(
     axis: FacetAxis,
-    child: &mut ComponentsMeasurement,
+    cell: &mut FacetCellRuntime,
+    compiled_subplot: &crate::plot::compiled::CompiledPlot,
+    eval_ctx: &EvaluationContext,
     intent: &InheritedPropagationChildIntent,
-) -> bool {
-    let mut plot_area_adjusted = false;
-
-    if intent.adjust_plot_area {
-        if let Some(new_width) = intent.target_plot_area_width {
-            if (child.plot_area_width - new_width).abs() > 0.01 {
-                trace!(
-                    old_width = child.plot_area_width,
-                    new_width,
-                    axis = "column",
-                    "coordinate_facet_measurement_tree updating child plot area cross-size"
-                );
-                child.plot_area_width = new_width;
-                plot_area_adjusted = true;
-            }
-        }
-        if let Some(new_height) = intent.target_plot_area_height {
-            if (child.plot_area_height - new_height).abs() > 0.01 {
-                trace!(
-                    old_height = child.plot_area_height,
-                    new_height,
-                    axis = "row",
-                    "coordinate_facet_measurement_tree updating child plot area cross-size"
-                );
-                child.plot_area_height = new_height;
-                plot_area_adjusted = true;
-            }
-        }
-    }
+) -> Result<(bool, usize), AvengerChartError> {
+    let child = &mut cell.measurement;
+    let target_plot_area_width = intent
+        .target_plot_area_width
+        .unwrap_or(child.plot_area_width)
+        .max(1.0);
+    let target_plot_area_height = intent
+        .target_plot_area_height
+        .unwrap_or(child.plot_area_height)
+        .max(1.0);
+    let plot_area_adjusted = (child.plot_area_width - target_plot_area_width).abs() > 0.01
+        || (child.plot_area_height - target_plot_area_height).abs() > 0.01;
 
     if intent.update_band_range {
         if let (Some(band_scale), Some(range_end)) = (
@@ -450,34 +422,38 @@ fn apply_inherited_propagation_child_resize(
                 .configured()
                 .clone()
                 .with_range_interval((0.0, range_end));
-            *band_scale = ConfiguredScaleWithSpec::new(band_scale.spec().clone(), updated_config);
+            band_scale.set_configured(updated_config);
         }
     }
 
-    plot_area_adjusted
-}
-
-fn apply_inherited_propagation_child_retarget(
-    child: &mut ComponentsMeasurement,
-    intent: &InheritedPropagationChildIntent,
-) -> usize {
-    if (child.plot_area_width - intent.old_plot_area_width).abs() <= 0.01
-        && (child.plot_area_height - intent.old_plot_area_height).abs() <= 0.01
-    {
-        return 0;
+    if !plot_area_adjusted {
+        return Ok((false, 0));
     }
 
-    retarget_child_scales_for_resized_plot_area(
+    trace!(
+        old_width = child.plot_area_width,
+        old_height = child.plot_area_height,
+        new_width = target_plot_area_width,
+        new_height = target_plot_area_height,
+        "coordinate_facet_measurement_tree retargeting child plot area through layout metadata"
+    );
+    retarget_measurement_plot_area_no_remeasure(
         child,
-        intent.old_plot_area_width,
-        intent.old_plot_area_height,
-    )
+        compiled_subplot,
+        eval_ctx,
+        &cell.plan.full_path,
+        target_plot_area_width,
+        target_plot_area_height,
+    )?;
+
+    Ok((true, 1))
 }
 
 pub(crate) fn run_inherited_propagation_with_trace(
     measurement: &mut ComponentsMeasurement,
+    eval_ctx: &EvaluationContext,
     derivation: &InheritedPropagationIntent,
-) -> InheritedPropagationTrace {
+) -> Result<InheritedPropagationTrace, AvengerChartError> {
     let derivation_by_node: HashMap<CoordNodeKey, InheritedPropagationNodeIntent> = derivation
         .node_derivations
         .iter()
@@ -489,19 +465,21 @@ pub(crate) fn run_inherited_propagation_with_trace(
     let mut node_path = Vec::new();
     run_inherited_propagation_recursive(
         measurement,
+        eval_ctx,
         &derivation_by_node,
         &mut node_path,
         &mut node_results,
-    );
-    InheritedPropagationTrace { node_results }
+    )?;
+    Ok(InheritedPropagationTrace { node_results })
 }
 
 fn run_inherited_propagation_recursive(
     measurement: &mut ComponentsMeasurement,
+    eval_ctx: &EvaluationContext,
     derivation_by_node: &HashMap<CoordNodeKey, InheritedPropagationNodeIntent>,
     node_path: &mut Vec<usize>,
     node_results: &mut Vec<InheritedPropagationNodeOutcome>,
-) {
+) -> Result<(), AvengerChartError> {
     measurement
         .coord_measurement
         .apply_scale_adjustments(&mut measurement.scales);
@@ -546,8 +524,10 @@ fn run_inherited_propagation_recursive(
         };
         let mut child_plot_area_adjustments_count = 0usize;
         let mut scale_range_retarget_count = 0usize;
+        let compiled_subplot = facet_band.compiled_subplot.clone();
 
-        for (idx, child) in facet_band.child_measurements_iter_mut().enumerate() {
+        for (idx, cell) in facet_band.cells.iter_mut().enumerate() {
+            let child = &mut cell.measurement;
             let intent = child_intents.get(idx).cloned().unwrap_or_else(|| {
                 let has_band_scale = child.scales.contains_key(axis.scale_name());
                 build_inherited_propagation_child_intent(
@@ -560,16 +540,29 @@ fn run_inherited_propagation_recursive(
                 )
             });
 
-            let plot_area_adjusted = apply_inherited_propagation_child_resize(axis, child, &intent);
+            let (plot_area_adjusted, retarget_count) = apply_inherited_propagation_cell_update(
+                axis,
+                cell,
+                compiled_subplot.as_ref(),
+                eval_ctx,
+                &intent,
+            )?;
             if plot_area_adjusted {
                 child_plot_area_adjustments_count += 1;
             }
-            scale_range_retarget_count +=
-                apply_inherited_propagation_child_retarget(child, &intent);
+            scale_range_retarget_count += retarget_count;
             node_path.push(idx);
-            run_inherited_propagation_recursive(child, derivation_by_node, node_path, node_results);
+            run_inherited_propagation_recursive(
+                &mut cell.measurement,
+                eval_ctx,
+                derivation_by_node,
+                node_path,
+                node_results,
+            )?;
             node_path.pop();
         }
+
+        facet_band.apply_cross_axis_coordinated_side_slabs_to_cells();
 
         node_results.push(InheritedPropagationNodeOutcome {
             node_id,
@@ -582,101 +575,6 @@ fn run_inherited_propagation_recursive(
             scale_range_retarget_count,
         });
     }
-}
 
-fn retarget_child_scales_for_resized_plot_area(
-    child: &mut ComponentsMeasurement,
-    old_plot_area_width: f32,
-    old_plot_area_height: f32,
-) -> usize {
-    let new_plot_area_width = child.plot_area_width;
-    let new_plot_area_height = child.plot_area_height;
-    let mut retarget_count = 0usize;
-
-    for (scale_name, scale_with_spec) in child.scales.iter_mut() {
-        let Ok((range_start, range_end)) = scale_with_spec.configured().numeric_interval_range()
-        else {
-            continue;
-        };
-
-        let span = (range_end - range_start).abs();
-        if span <= f32::EPSILON {
-            continue;
-        }
-
-        let width_match = approx_span(span, old_plot_area_width);
-        let height_match = approx_span(span, old_plot_area_height);
-
-        let target_span = match (width_match, height_match) {
-            (true, false) => new_plot_area_width,
-            (false, true) => new_plot_area_height,
-            (true, true) => {
-                let width_changed = (new_plot_area_width - old_plot_area_width).abs() > 0.01;
-                let height_changed = (new_plot_area_height - old_plot_area_height).abs() > 0.01;
-                match (width_changed, height_changed) {
-                    (true, false) => new_plot_area_width,
-                    (false, true) => new_plot_area_height,
-                    _ => continue,
-                }
-            }
-            (false, false) => continue,
-        };
-
-        let Some((new_range_start, new_range_end)) =
-            retarget_interval_preserving_anchor((range_start, range_end), target_span)
-        else {
-            continue;
-        };
-
-        let updated_config = scale_with_spec
-            .configured()
-            .clone()
-            .with_range_interval((new_range_start, new_range_end));
-        *scale_with_spec =
-            ConfiguredScaleWithSpec::new(scale_with_spec.spec().clone(), updated_config);
-        retarget_count += 1;
-
-        trace!(
-            scale = %scale_name,
-            old_range_start = range_start,
-            old_range_end = range_end,
-            new_range_start,
-            new_range_end,
-            old_plot_area_width,
-            old_plot_area_height,
-            new_plot_area_width,
-            new_plot_area_height,
-            "coordinate_facet_measurement_tree retargeted child scale range after plot resize"
-        );
-    }
-    retarget_count
-}
-
-fn approx_span(actual: f32, expected: f32) -> bool {
-    if expected <= 0.0 {
-        return false;
-    }
-    let tolerance = (expected.abs() * 0.02).max(1.0);
-    (actual - expected).abs() <= tolerance
-}
-
-fn retarget_interval_preserving_anchor(range: (f32, f32), target_span: f32) -> Option<(f32, f32)> {
-    if target_span <= 0.0 {
-        return None;
-    }
-
-    let (start, end) = range;
-    let eps = 0.01;
-
-    if start.abs() <= eps {
-        let sign = if end >= start { 1.0 } else { -1.0 };
-        return Some((0.0, sign * target_span));
-    }
-
-    if end.abs() <= eps {
-        let sign = if end >= start { 1.0 } else { -1.0 };
-        return Some((-sign * target_span, 0.0));
-    }
-
-    None
+    Ok(())
 }

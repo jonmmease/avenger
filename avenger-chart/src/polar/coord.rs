@@ -9,6 +9,7 @@ use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
 use crate::{
     coords::{CoordinateSystem, CoordinateSystemTransform, PointGeometry},
     error::AvengerChartError,
+    scales::{PlotAreaRangeEndpoint, ScaleRangeBinding},
 };
 
 use super::PolarGuide;
@@ -111,18 +112,16 @@ impl CoordinateSystemTransform for Polar {
         Ok(Box::new(PointGeometry { x, y }))
     }
 
-    fn default_range(
-        &self,
-        channel: &str,
-        plot_area_width: f64,
-        plot_area_height: f64,
-    ) -> Option<(f64, f64)> {
+    fn default_range_binding(&self, channel: &str) -> Option<ScaleRangeBinding> {
         match channel {
-            "theta" => Some((0.0, 2.0 * std::f64::consts::PI)),
-            "r" => {
-                let max_radius = f64::min(plot_area_width, plot_area_height) / 2.0;
-                Some((0.0, max_radius))
-            }
+            "theta" => Some(ScaleRangeBinding::fixed_interval(
+                0.0,
+                2.0 * std::f64::consts::PI,
+            )),
+            "r" => Some(ScaleRangeBinding::plot_area(
+                PlotAreaRangeEndpoint::ZERO,
+                PlotAreaRangeEndpoint::HALF_MIN_DIMENSION,
+            )),
             _ => None,
         }
     }

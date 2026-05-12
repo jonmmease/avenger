@@ -222,6 +222,7 @@ impl CompiledGuide for CartesianGuide {
             width: plot_width,
             height: plot_height,
         };
+        let guide_overflow = OverflowSpaceRequirement::default();
 
         // Evaluate axes to measure their bounding box with actual params
         // Use facet_tree and facet_path for visibility-aware overflow measurement
@@ -231,6 +232,7 @@ impl CompiledGuide for CartesianGuide {
                 plot_width,
                 plot_height,
                 &initial_bounds,
+                &guide_overflow,
                 theme,
                 params,
                 ctx,
@@ -303,6 +305,7 @@ impl CompiledGuide for CartesianGuide {
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &LayoutBounds,
+        _guide_overflow: &OverflowSpaceRequirement,
         theme: &Theme,
         params: &indexmap::IndexMap<String, ScalarValue>,
         ctx: &SessionContext,

@@ -3,7 +3,10 @@ use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
-use avenger_text::types::{FontWeight, TextAlign, TextBaseline};
+use avenger_text::{
+    measurement::{default_text_measurer, FontMetricsConfig, TextMeasurer},
+    types::{FontStyle, FontWeight, TextAlign, TextBaseline},
+};
 use rstar::AABB;
 
 use super::opts::{AxisConfig, AxisOrientation};
@@ -16,6 +19,9 @@ const PIXEL_OFFSET: f32 = 0.5;
 const DEFAULT_TICK_LENGTH: f32 = 5.0;
 const DEFAULT_TITLE_FONT_SIZE: f32 = 12.0;
 const DEFAULT_TICK_FONT_SIZE: f32 = 12.0;
+const DEFAULT_MAX_TICK_COUNT: f32 = 10.0;
+const HORIZONTAL_MIN_TICK_SPACING_PX: f32 = 25.0;
+const VERTICAL_TICK_SPACING_FONT_HEIGHT_FACTOR: f32 = 1.6;
 
 pub fn make_numeric_axis_marks(
     scale: &ConfiguredScale,
@@ -37,24 +43,8 @@ pub fn make_numeric_axis_marks(
         ..Default::default()
     };
 
-    // Compute tick count: use explicit value, or adapt to available pixel space
-    let tick_count = config.tick_count.or_else(|| {
-        // Estimate reasonable tick count from available axis length.
-        // For vertical axes (Left/Right), use height; for horizontal (Top/Bottom), use width.
-        let axis_length_px = match config.orientation {
-            AxisOrientation::Left | AxisOrientation::Right => config.dimensions[1],
-            AxisOrientation::Top | AxisOrientation::Bottom => config.dimensions[0],
-        };
-        // Use ~25px minimum spacing between ticks (accommodates ~10px font at 12pt)
-        let min_tick_spacing = 25.0;
-        let adaptive_count = (axis_length_px / min_tick_spacing).floor().max(2.0);
-        // Only override the default (10) if the axis is small enough to need fewer ticks
-        if adaptive_count < 10.0 {
-            Some(adaptive_count)
-        } else {
-            None
-        }
-    });
+    // Compute tick count: use explicit value, or adapt to available pixel space.
+    let tick_count = config.tick_count.or_else(|| adaptive_tick_count(config));
 
     // Get ticks
     let ticks = scale.ticks(tick_count)?;
@@ -161,6 +151,45 @@ pub fn make_numeric_axis_marks(
     main_group.origin = origin;
 
     Ok(main_group)
+}
+
+fn adaptive_tick_count(config: &AxisConfig) -> Option<f32> {
+    // Estimate reasonable tick count from available axis length.
+    // For vertical axes (Left/Right), use height; for horizontal (Top/Bottom), use width.
+    let axis_length_px = match config.orientation {
+        AxisOrientation::Left | AxisOrientation::Right => config.dimensions[1],
+        AxisOrientation::Top | AxisOrientation::Bottom => config.dimensions[0],
+    };
+
+    let min_tick_spacing = match config.orientation {
+        AxisOrientation::Left | AxisOrientation::Right => vertical_min_tick_spacing_px(config),
+        AxisOrientation::Top | AxisOrientation::Bottom => HORIZONTAL_MIN_TICK_SPACING_PX,
+    };
+
+    let adaptive_count = (axis_length_px / min_tick_spacing).max(2.0);
+
+    // Only override the default scale tick count if the axis is small enough to need fewer ticks.
+    if adaptive_count < DEFAULT_MAX_TICK_COUNT {
+        Some(adaptive_count)
+    } else {
+        None
+    }
+}
+
+fn vertical_min_tick_spacing_px(config: &AxisConfig) -> f32 {
+    let font_size = config.label_font_size.unwrap_or(DEFAULT_TICK_FONT_SIZE);
+    let font_weight = FontWeight::Number(config.label_font_weight.unwrap_or(400.0));
+    let font_family = config.label_font_family.as_deref().unwrap_or("sans-serif");
+    let measurer = default_text_measurer();
+
+    let font_metrics = measurer.measure_font_metrics(&FontMetricsConfig {
+        font: font_family,
+        font_size,
+        font_weight: &font_weight,
+        font_style: &FontStyle::Normal,
+    });
+
+    (font_metrics.height * VERTICAL_TICK_SPACING_FONT_HEIGHT_FACTOR).max(1.0)
 }
 
 fn make_axis_line(

@@ -78,6 +78,7 @@ impl CompiledGuide for NoGuide {
         _plot_width: f32,
         _plot_height: f32,
         _plot_bounds: &LayoutBounds,
+        _guide_overflow: &OverflowSpaceRequirement,
         _theme: &Theme,
         _params: &IndexMap<String, ScalarValue>,
         _ctx: &SessionContext,

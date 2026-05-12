@@ -126,7 +126,7 @@ pub fn make_colorbar_marks(
                 tick_length: None,
                 title_visible: Some(true),
                 labels_visible: None,
-                tick_count: None,
+                tick_count: Some(10.0),
             };
 
             let numeric_scale = scale.clone().with_range_interval((0.0, gradient_width));
@@ -334,7 +334,7 @@ pub fn make_colorbar_marks(
                 tick_length: None,
                 title_visible: Some(true),
                 labels_visible: None,
-                tick_count: None,
+                tick_count: Some(10.0),
             };
 
             // Create scale with horizontal range

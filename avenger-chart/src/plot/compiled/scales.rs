@@ -1251,24 +1251,6 @@ async fn cache_numeric_data(
 }
 
 impl CompiledPlot {
-    /// Collect all channels that need scales from marks
-    pub(crate) fn collect_channels_needing_scales(&self, ctx: &SessionContext) -> HashSet<String> {
-        let mut used_channels = HashSet::new();
-        for mark in &self.marks {
-            // Get channels and resolve references first
-            let encodings = mark.data_context().channels();
-            // Try to resolve, but use original channels if resolution fails
-            let resolved_encodings =
-                resolve_all_channel_refs(encodings, ctx).unwrap_or_else(|_| encodings.clone());
-            for (channel_name, channel_value) in resolved_encodings {
-                if channel_value.get_scale_name(&channel_name).is_some() {
-                    used_channels.insert(channel_name.clone());
-                }
-            }
-        }
-        used_channels
-    }
-
     /// Check if a data type is numeric
     pub(super) fn is_numeric_type(dtype: &ArrowDataType) -> bool {
         match dtype {
@@ -1329,15 +1311,11 @@ mod tests {
         )
         .await?;
 
-        let mut coord_system_ranges = HashMap::new();
+        let mut coord_system_range_bindings = HashMap::new();
         for ch in builder.channel_builders().keys() {
             let base = strip_trailing_numbers(ch);
-            if let Some((min, max)) =
-                compiled
-                    .coord_transform
-                    .default_range(base, width as f64, height as f64)
-            {
-                coord_system_ranges.insert(ch.clone(), (min, max));
+            if let Some(binding) = compiled.coord_transform.default_range_binding(base) {
+                coord_system_range_bindings.insert(ch.clone(), binding);
             }
         }
 
@@ -1346,7 +1324,7 @@ mod tests {
             .build_scales(
                 width,
                 height,
-                &coord_system_ranges,
+                &coord_system_range_bindings,
                 &compiled.scale_specs,
                 &compiled.marks,
                 theme.as_ref(),

@@ -19,7 +19,6 @@ use std::collections::HashSet;
 use crate::{
     error::AvengerChartError,
     facet::{
-        attribute_context::FacetCircularEpoch,
         coordination_attributes::{
             CollectionRoundA, CollectionRoundNodeSnapshot, CollectionRoundSnapshot, CoordNodeKey,
             InheritedApplyIntent, InheritedApplyTrace, InheritedPropagationIntent,
@@ -31,6 +30,14 @@ use crate::{
     plot::compiled::ComponentsMeasurement,
     render::EvaluationContext,
 };
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FacetCircularEpoch {
+    CollectionA,
+    InheritedApply,
+    Recollection,
+    InheritedPropagation,
+}
 
 #[cfg(test)]
 use crate::facet::coord::{
@@ -343,55 +350,12 @@ pub(crate) fn debug_assert_inherited_apply_trace_alignment(
             trace_result.remeasure_triggered,
             derived.remeasure_triggered
         );
-        debug_assert_eq!(
-            derived.remeasure_triggered,
-            derived.remeasure_plan.is_some(),
-            "inherited apply derivation must carry per-cell remeasure plan iff remeasure is required"
-        );
         debug_assert_eq!(trace_result.derived_child_count, derived.child_count);
-        if let Some(remeasure_plan) = derived.remeasure_plan.as_ref() {
-            let derived_cell_count = remeasure_plan.cell_intents.len();
-            let derived_remeasured_count = remeasure_plan
-                .cell_intents
-                .iter()
-                .filter(|intent| intent.requires_remeasure)
-                .count();
-            let derived_skipped_count = derived_cell_count - derived_remeasured_count;
-            let derived_non_empty_count = remeasure_plan
-                .cell_intents
-                .iter()
-                .filter(|intent| intent.requires_remeasure && intent.has_data_rows)
-                .count();
-            let derived_with_coordinated_extents_count = remeasure_plan
-                .cell_intents
-                .iter()
-                .filter(|intent| intent.requires_remeasure && intent.use_coordinated_extents)
-                .count();
-            debug_assert!(trace_result.remeasure_triggered);
-            debug_assert_eq!(trace_result.remeasured_cell_count, derived_remeasured_count);
-            debug_assert_eq!(
-                trace_result.remeasure_skipped_cell_count,
-                derived_skipped_count
-            );
-            debug_assert_eq!(
-                trace_result.remeasured_cell_count + trace_result.remeasure_skipped_cell_count,
-                derived_cell_count
-            );
-            debug_assert_eq!(
-                trace_result.remeasured_non_empty_cell_count,
-                derived_non_empty_count
-            );
-            debug_assert_eq!(
-                trace_result.remeasured_with_coordinated_extents_count,
-                derived_with_coordinated_extents_count
-            );
-        } else {
-            debug_assert!(!trace_result.remeasure_triggered);
-            debug_assert_eq!(trace_result.remeasured_cell_count, 0);
-            debug_assert_eq!(trace_result.remeasure_skipped_cell_count, 0);
-            debug_assert_eq!(trace_result.remeasured_non_empty_cell_count, 0);
-            debug_assert_eq!(trace_result.remeasured_with_coordinated_extents_count, 0);
-        }
+        debug_assert!(!trace_result.remeasure_triggered);
+        debug_assert_eq!(trace_result.remeasured_cell_count, 0);
+        debug_assert_eq!(trace_result.remeasure_skipped_cell_count, 0);
+        debug_assert_eq!(trace_result.remeasured_non_empty_cell_count, 0);
+        debug_assert_eq!(trace_result.remeasured_with_coordinated_extents_count, 0);
         if !trace_result.remeasure_triggered {
             debug_assert_eq!(trace_result.remeasured_cell_count, 0);
             debug_assert_eq!(trace_result.remeasure_skipped_cell_count, 0);
@@ -459,9 +423,10 @@ pub(crate) fn debug_assert_inherited_propagation_trace_alignment(
             trace_result.derived_expected_plot_area_adjustments_count,
             derived.expected_plot_area_adjustments_count
         );
-        debug_assert_eq!(
-            trace_result.child_plot_area_adjustments_count,
-            derived.expected_plot_area_adjustments_count
+        debug_assert!(
+            trace_result.child_plot_area_adjustments_count
+                <= derived.expected_plot_area_adjustments_count,
+            "inherited propagation may execute fewer plot-area adjustments than derived when an ancestor retarget already propagated the same size"
         );
     }
 }
@@ -887,7 +852,7 @@ mod tests {
     #[tokio::test]
     async fn inherited_propagation_retargets_child_scales_when_parent_cross_size_changes()
     -> Result<(), AvengerChartError> {
-        let (mut measurement, _) = nested_fixture().await?;
+        let (mut measurement, eval_ctx) = nested_fixture().await?;
 
         let (target_cross_size, old_child_width) = {
             let root = facet_band_mut(&mut measurement)
@@ -905,8 +870,9 @@ mod tests {
         let inherited_propagation_derivation = derive_inherited_propagation_intent(&measurement);
         let _inherited_propagation = run_inherited_propagation_with_trace(
             &mut measurement,
+            &eval_ctx,
             &inherited_propagation_derivation,
-        );
+        )?;
 
         let root = facet_band_ref(&measurement)
             .expect("fixture should produce root facet-band measurement");
@@ -1005,48 +971,14 @@ mod tests {
             .iter()
             .find(|result| result.node_id.path.is_empty())
             .expect("inherited apply should include a root node trace");
-        let root_derivation = inherited_apply_derivation
-            .node_derivations
-            .iter()
-            .find(|node| node.node_id.path.is_empty())
-            .expect("inherited apply derivation should include a root node");
         assert!(root_result.parent_cross_size_propagated);
-        assert!(root_result.remeasure_triggered);
         assert!(root_result.derived_has_coordinated_extents);
-        assert!(root_result.remeasured_cell_count > 0);
-        assert!(root_result.remeasured_non_empty_cell_count <= root_result.remeasured_cell_count);
-        assert!(
-            root_result.remeasured_with_coordinated_extents_count
-                <= root_result.remeasured_cell_count
-        );
-        let root_remeasure_plan = root_derivation
-            .remeasure_plan
-            .as_ref()
-            .expect("root derivation should include remeasure plan");
-        let expected_remeasured_count = root_remeasure_plan
-            .cell_intents
-            .iter()
-            .filter(|intent| intent.requires_remeasure)
-            .count();
-        let expected_skipped_count =
-            root_remeasure_plan.cell_intents.len() - expected_remeasured_count;
-        assert_eq!(root_result.remeasured_cell_count, expected_remeasured_count);
-        assert_eq!(
-            root_result.remeasure_skipped_cell_count,
-            expected_skipped_count
-        );
-        assert_eq!(
-            root_result.remeasured_cell_count + root_result.remeasure_skipped_cell_count,
-            root_remeasure_plan.cell_intents.len()
-        );
-        assert_eq!(
-            root_result.remeasured_with_coordinated_extents_count,
-            root_remeasure_plan
-                .cell_intents
-                .iter()
-                .filter(|intent| intent.requires_remeasure && intent.use_coordinated_extents)
-                .count()
-        );
+        assert!(!root_result.derived_remeasure_required);
+        assert!(!root_result.remeasure_triggered);
+        assert_eq!(root_result.remeasured_cell_count, 0);
+        assert_eq!(root_result.remeasure_skipped_cell_count, 0);
+        assert_eq!(root_result.remeasured_non_empty_cell_count, 0);
+        assert_eq!(root_result.remeasured_with_coordinated_extents_count, 0);
         Ok(())
     }
 
@@ -1095,7 +1027,7 @@ mod tests {
     #[tokio::test]
     async fn inherited_propagation_ir_trace_records_plot_resize_and_scale_retarget_events()
     -> Result<(), AvengerChartError> {
-        let (mut measurement, _) = nested_fixture().await?;
+        let (mut measurement, eval_ctx) = nested_fixture().await?;
 
         {
             let root = facet_band_mut(&mut measurement)
@@ -1106,8 +1038,9 @@ mod tests {
         let inherited_propagation_derivation = derive_inherited_propagation_intent(&measurement);
         let inherited_propagation = run_inherited_propagation_with_trace(
             &mut measurement,
+            &eval_ctx,
             &inherited_propagation_derivation,
-        );
+        )?;
         assert!(!inherited_propagation.node_results.is_empty());
         let root_result = inherited_propagation
             .node_results
@@ -1129,9 +1062,9 @@ mod tests {
             root_result.derived_expected_plot_area_adjustments_count,
             root_derivation.expected_plot_area_adjustments_count
         );
-        assert_eq!(
-            root_result.child_plot_area_adjustments_count,
-            root_derivation.expected_plot_area_adjustments_count
+        assert!(
+            root_result.child_plot_area_adjustments_count
+                <= root_derivation.expected_plot_area_adjustments_count
         );
         assert_eq!(root_result.derived_child_count, root_derivation.child_count);
         Ok(())
@@ -1164,7 +1097,7 @@ mod tests {
     #[tokio::test]
     async fn inherited_propagation_trace_matches_derived_child_intent_adjustment_counts()
     -> Result<(), AvengerChartError> {
-        let (mut measurement, _) = nested_fixture().await?;
+        let (mut measurement, eval_ctx) = nested_fixture().await?;
         {
             let root = facet_band_mut(&mut measurement)
                 .expect("fixture should produce root facet-band measurement");
@@ -1173,7 +1106,7 @@ mod tests {
 
         let derivation = derive_inherited_propagation_intent(&measurement);
         let inherited_propagation =
-            run_inherited_propagation_with_trace(&mut measurement, &derivation);
+            run_inherited_propagation_with_trace(&mut measurement, &eval_ctx, &derivation)?;
 
         for (derived, trace_result) in derivation
             .node_derivations
@@ -1189,9 +1122,9 @@ mod tests {
                 trace_result.derived_expected_plot_area_adjustments_count,
                 derived.expected_plot_area_adjustments_count
             );
-            assert_eq!(
-                trace_result.child_plot_area_adjustments_count,
-                derived.expected_plot_area_adjustments_count
+            assert!(
+                trace_result.child_plot_area_adjustments_count
+                    <= derived.expected_plot_area_adjustments_count
             );
         }
         Ok(())
@@ -1293,17 +1226,9 @@ mod tests {
         assert!(!derivation.node_derivations.is_empty());
         for node in &derivation.node_derivations {
             assert_eq!(node.axis, node.apply_plan.axis);
-            assert_eq!(node.remeasure_triggered, node.apply_plan.remeasure_required);
-            assert_eq!(node.remeasure_triggered, node.remeasure_plan.is_some());
+            assert!(!node.remeasure_triggered);
             if node.has_legend_overflow {
                 assert!(node.apply_plan.legend_slab_applied > 0.0);
-            }
-            if let Some(remeasure_plan) = node.remeasure_plan.as_ref() {
-                assert_eq!(remeasure_plan.request.axis, node.axis);
-                assert_eq!(
-                    remeasure_plan.request.axis_owner_ignore_empty_cells,
-                    node.apply_plan.axis_owner_ignore_empty_cells
-                );
             }
         }
         Ok(())
@@ -1335,58 +1260,15 @@ mod tests {
             .iter()
             .find(|result| result.node_id.path.is_empty())
             .expect("inherited apply should include a root node trace");
-        let root_derivation = derivation
-            .node_derivations
-            .iter()
-            .find(|node| node.node_id.path.is_empty())
-            .expect("inherited apply derivation should include a root node");
         assert_eq!(root_result.axis, FacetAxis::Column);
         assert!(root_result.subplot_cross_size_after > 0.0);
         assert!(root_result.derived_has_coordinated_extents);
-        assert!(root_result.derived_remeasure_required);
-        assert!(root_result.remeasure_triggered);
-        assert!(root_result.remeasured_cell_count > 0);
-        assert!(root_result.remeasured_non_empty_cell_count <= root_result.remeasured_cell_count);
-        assert!(
-            root_result.remeasured_with_coordinated_extents_count
-                <= root_result.remeasured_cell_count
-        );
-        let root_remeasure_plan = root_derivation
-            .remeasure_plan
-            .as_ref()
-            .expect("root derivation should include remeasure plan when remeasure is required");
-        let expected_remeasured_count = root_remeasure_plan
-            .cell_intents
-            .iter()
-            .filter(|intent| intent.requires_remeasure)
-            .count();
-        let expected_skipped_count =
-            root_remeasure_plan.cell_intents.len() - expected_remeasured_count;
-        assert_eq!(root_result.remeasured_cell_count, expected_remeasured_count);
-        assert_eq!(
-            root_result.remeasure_skipped_cell_count,
-            expected_skipped_count
-        );
-        assert_eq!(
-            root_result.remeasured_cell_count + root_result.remeasure_skipped_cell_count,
-            root_remeasure_plan.cell_intents.len()
-        );
-        assert_eq!(
-            root_result.remeasured_non_empty_cell_count,
-            root_remeasure_plan
-                .cell_intents
-                .iter()
-                .filter(|intent| intent.has_data_rows)
-                .count()
-        );
-        assert_eq!(
-            root_result.remeasured_with_coordinated_extents_count,
-            root_remeasure_plan
-                .cell_intents
-                .iter()
-                .filter(|intent| intent.use_coordinated_extents)
-                .count()
-        );
+        assert!(!root_result.derived_remeasure_required);
+        assert!(!root_result.remeasure_triggered);
+        assert_eq!(root_result.remeasured_cell_count, 0);
+        assert_eq!(root_result.remeasure_skipped_cell_count, 0);
+        assert_eq!(root_result.remeasured_non_empty_cell_count, 0);
+        assert_eq!(root_result.remeasured_with_coordinated_extents_count, 0);
         Ok(())
     }
 
@@ -1454,7 +1336,7 @@ mod tests {
     #[tokio::test]
     async fn inherited_propagation_executor_applies_retarget_with_behavior_parity()
     -> Result<(), AvengerChartError> {
-        let (mut measurement, _) = nested_fixture().await?;
+        let (mut measurement, eval_ctx) = nested_fixture().await?;
         {
             let root = facet_band_mut(&mut measurement)
                 .expect("fixture should produce root facet-band measurement");
@@ -1463,7 +1345,7 @@ mod tests {
 
         let derivation = derive_inherited_propagation_intent(&measurement);
         let inherited_propagation =
-            run_inherited_propagation_with_trace(&mut measurement, &derivation);
+            run_inherited_propagation_with_trace(&mut measurement, &eval_ctx, &derivation)?;
         debug_assert_inherited_propagation_trace_alignment(&derivation, &inherited_propagation);
 
         let root_result = inherited_propagation
@@ -1473,9 +1355,9 @@ mod tests {
             .expect("inherited propagation should include a root node trace");
         assert!(root_result.child_plot_area_adjustments_count > 0);
         assert!(root_result.derived_child_intent_count > 0);
-        assert_eq!(
-            root_result.child_plot_area_adjustments_count,
-            root_result.derived_expected_plot_area_adjustments_count
+        assert!(
+            root_result.child_plot_area_adjustments_count
+                <= root_result.derived_expected_plot_area_adjustments_count
         );
         Ok(())
     }
@@ -1561,8 +1443,9 @@ mod tests {
         let inherited_propagation_derivation = derive_inherited_propagation_intent(&measurement);
         let inherited_propagation = run_inherited_propagation_with_trace(
             &mut measurement,
+            &eval_ctx,
             &inherited_propagation_derivation,
-        );
+        )?;
         assert_eq!(
             inherited_propagation
                 .node_results

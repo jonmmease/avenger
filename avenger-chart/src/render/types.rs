@@ -1,5 +1,6 @@
 //! Core types for rendering pipeline
 
+use datafusion::common::ScalarValue;
 use indexmap::IndexMap;
 use taffy::Size;
 
@@ -13,23 +14,114 @@ use crate::{
 };
 
 /// Selects which layout snapshot to render during evaluation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum LayoutSnapshot {
-    /// Initial local measurement snapshot before global coordination.
-    Initial,
-    /// Snapshot after global coordination, before optional canvas refinement.
-    Coordinated,
     /// Final snapshot used by the default render pipeline.
     Final,
+    /// Render a whole-chart checkpoint before final output.
+    Whole(WholeChartSnapshot),
+    /// Render a selected facet subtree at a local measurement checkpoint.
+    FacetSubtree(FacetSubtreeSnapshot),
+}
+
+/// Whole-chart layout checkpoints.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WholeChartSnapshot {
+    /// After recursive local measurement, before global coordination.
+    LocalMeasured,
+    /// During global facet coordination.
+    Coordination(CoordinationCheckpoint),
+    /// During final canvas/fixed-subplot realization or optional refinement.
+    Refinement {
+        /// Zero is the mandatory realization pass; positive values are optional refinement passes.
+        iteration: usize,
+        checkpoint: RefinementCheckpoint,
+    },
+}
+
+/// Checkpoints inside the global facet coordination cycle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoordinationCheckpoint {
+    /// Collection round A has been aggregated and distributed.
+    CollectionApplied,
+    /// Inherited apply has retargeted affected measurements.
+    InheritedApplyComplete,
+    /// Recollection has reconciled post-apply overflow/layout.
+    RecollectionApplied,
+    /// Inherited propagation has pushed coordinated scale/layout values into descendants.
+    InheritedPropagationComplete,
+}
+
+/// Checkpoints inside the final layout realization/refinement loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefinementCheckpoint {
+    /// Candidate guide overflow and chart layout have been recomputed for this iteration.
+    CandidateLayoutMeasured,
+    /// The candidate layout has been installed and plot area sizes retargeted.
+    PlotAreaRetargeted,
+    /// Overflow growth triggered another coordination cycle for the next iteration.
+    Recoordinated,
+}
+
+/// Render a single facet subtree rather than the full chart.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FacetSubtreeSnapshot {
+    pub selector: FacetSubtreeSelector,
+    pub checkpoint: FacetSubtreeCheckpoint,
+}
+
+/// Selector for locating a facet subtree in the measured tree.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FacetSubtreeSelector {
+    /// Select by facet value path, e.g. `["Ops", "Support"]`.
+    ByFacetPath(Vec<ScalarValue>),
+    /// Select by child indices in the measured coordination tree.
+    ByCoordNodePath(Vec<usize>),
+}
+
+/// Local facet-subtree checkpoints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FacetSubtreeCheckpoint {
+    /// Phase-5 estimated-size overflow probe, before phase-6 retargeting.
+    EstimatedOverflowProbe,
+    /// Phase-6 locally retargeted layout, before global coordination.
+    LocalRetargetedLayout,
+    /// After global coordination, before final realization/refinement.
+    CoordinatedLayout,
+    /// Final selected subtree.
+    FinalLayout,
 }
 
 /// Runtime evaluation options for selecting layout snapshots and debug overlays.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct EvaluationOptions {
     /// Which layout snapshot to render.
     pub layout_snapshot: LayoutSnapshot,
     /// Whether to draw layout debug overlays when no env override is set.
     pub debug_layout_lines: bool,
+    /// Controls optional facet layout refinement after the mandatory measure-once pass.
+    pub facet_measure_refinement: FacetMeasureRefinement,
+}
+
+/// Controls optional repeated facet measurement/layout passes.
+///
+/// One mandatory pass is always performed. The default runs one refinement pass;
+/// set `max_refinement_passes` to zero for the fastest measure-once path.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FacetMeasureRefinement {
+    /// Number of additional phase-5/phase-6 refinement passes after the mandatory pass.
+    pub max_refinement_passes: usize,
+    /// Minimum overflow growth that should be treated as layout-significant.
+    pub overflow_growth_epsilon: f32,
+}
+
+impl Default for FacetMeasureRefinement {
+    fn default() -> Self {
+        Self {
+            max_refinement_passes: 1,
+            overflow_growth_epsilon: 0.5,
+        }
+    }
 }
 
 impl Default for EvaluationOptions {
@@ -37,6 +129,7 @@ impl Default for EvaluationOptions {
         Self {
             layout_snapshot: LayoutSnapshot::Final,
             debug_layout_lines: false,
+            facet_measure_refinement: FacetMeasureRefinement::default(),
         }
     }
 }
@@ -72,6 +165,18 @@ impl EvaluationMetrics {
             phase6_full_measure_count,
         );
     }
+
+    pub(crate) fn record_facet_refinement_pass(&mut self) {
+        self.facet_layout.refinement_pass_count += 1;
+    }
+
+    pub(crate) fn record_facet_refinement_converged(&mut self) {
+        self.facet_layout.refinement_converged = true;
+    }
+
+    pub(crate) fn record_facet_refinement_hit_max_passes(&mut self) {
+        self.facet_layout.refinement_hit_max_passes = true;
+    }
 }
 
 /// Opt-in counters for recursive facet layout measurement diagnostics.
@@ -92,6 +197,12 @@ pub struct FacetLayoutMetrics {
     pub phase5_non_leaf_full_measure_count: usize,
     /// Number of full cell measurements in phase 6 finalization.
     pub phase6_full_measure_count: usize,
+    /// Number of top-level facet refinement passes after the mandatory pass.
+    pub refinement_pass_count: usize,
+    /// Whether iterative facet refinement stopped because no overflow grew.
+    pub refinement_converged: bool,
+    /// Whether iterative facet refinement consumed the configured pass budget.
+    pub refinement_hit_max_passes: bool,
 }
 
 impl FacetLayoutMetrics {

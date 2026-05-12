@@ -58,8 +58,9 @@ async fn facet_layout_snapshot_initial_with_debug_overlay() {
         &ctx,
         None,
         EvaluationOptions {
-            layout_snapshot: LayoutSnapshot::Initial,
+            layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::LocalMeasured),
             debug_layout_lines: true,
+            ..EvaluationOptions::default()
         },
         "facet_debug",
         "facet_row_varied_overflow_debug_initial",
@@ -79,8 +80,11 @@ async fn facet_layout_snapshot_coordinated_with_debug_overlay() {
         &ctx,
         None,
         EvaluationOptions {
-            layout_snapshot: LayoutSnapshot::Coordinated,
+            layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
+                CoordinationCheckpoint::InheritedPropagationComplete,
+            )),
             debug_layout_lines: true,
+            ..EvaluationOptions::default()
         },
         "facet_debug",
         "facet_row_varied_overflow_debug_coordinated",
@@ -102,6 +106,7 @@ async fn facet_layout_snapshot_final_with_debug_overlay() {
         EvaluationOptions {
             layout_snapshot: LayoutSnapshot::Final,
             debug_layout_lines: true,
+            ..EvaluationOptions::default()
         },
         "facet_debug",
         "facet_row_varied_overflow_debug_final",

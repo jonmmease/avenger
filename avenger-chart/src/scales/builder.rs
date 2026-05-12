@@ -39,7 +39,8 @@ use crate::{
     maybe::Maybe,
     plot::ScaleSpec as PlotScaleSpec,
     scales::{
-        ConfiguredScaleWithSpec, DomainBounds, DomainExtent, RadiusPadding, Scale, ScaleSpec,
+        ConfiguredScaleWithSpec, DomainBounds, DomainExtent, RadiusPadding, Scale,
+        ScaleRangeBinding, ScaleSpec,
         domain::{ScaleDefaultDomain, ScaleDomain},
         domain_extent::SerializableDomainValue,
         spec::Auto,
@@ -425,7 +426,7 @@ impl ScaleBuilder {
     /// # Arguments
     /// * `width` - Plot area width
     /// * `height` - Plot area height
-    /// * `coord_system_ranges` - Map of channel name to (min, max) range values
+    /// * `coord_system_range_bindings` - Map of coordinate channel name to range binding metadata
     /// * `scale_specs` - Scale specifications for overrides
     /// * `compiled_marks` - Marks for getting default ranges
     /// * `theme` - Theme for default ranges
@@ -438,7 +439,7 @@ impl ScaleBuilder {
         &self,
         width: f32,
         height: f32,
-        coord_system_ranges: &HashMap<String, (f64, f64)>,
+        coord_system_range_bindings: &HashMap<String, ScaleRangeBinding>,
         scale_specs: &HashMap<String, PlotScaleSpec>,
         compiled_marks: &[Arc<dyn CompiledMark>],
         theme: &Theme,
@@ -516,9 +517,16 @@ impl ScaleBuilder {
                         scale = scale.domain(domain);
                     }
 
-                    // Set range if available
-                    if let Some((range_min, range_max)) = coord_system_ranges.get(channel_name) {
-                        scale = scale.range_interval(lit(*range_min), lit(*range_max));
+                    let range_binding = coord_system_range_bindings
+                        .get(channel_name)
+                        .copied()
+                        .unwrap_or(ScaleRangeBinding::Independent);
+
+                    // Set coordinate-owned range if available
+                    if let Some((range_min, range_max)) =
+                        range_binding.resolve(width as f64, height as f64)
+                    {
+                        scale = scale.range_interval(lit(range_min), lit(range_max));
                     }
 
                     // Normalize domain (apply zero, nice, padding)
@@ -584,7 +592,11 @@ impl ScaleBuilder {
 
                     result.insert(
                         channel_name.clone(),
-                        ConfiguredScaleWithSpec::new(scale, configured),
+                        ConfiguredScaleWithSpec::with_range_binding(
+                            scale,
+                            configured,
+                            range_binding,
+                        ),
                     );
                 }
                 ChannelScaleData::RadiusAware {
@@ -603,9 +615,15 @@ impl ScaleBuilder {
                         scale = scale.option(key, expr);
                     }
 
-                    // Get range for this channel
-                    let (range_min, range_max) =
-                        coord_system_ranges.get(channel_name).ok_or_else(|| {
+                    let range_binding = coord_system_range_bindings
+                        .get(channel_name)
+                        .copied()
+                        .unwrap_or(ScaleRangeBinding::Independent);
+
+                    // Get coordinate-owned range for this channel
+                    let (range_min, range_max) = range_binding
+                        .resolve(width as f64, height as f64)
+                        .ok_or_else(|| {
                             AvengerChartError::InternalError(format!(
                                 "No range found for radius-aware channel '{}'",
                                 channel_name
@@ -638,7 +656,7 @@ impl ScaleBuilder {
 
                     // Set domain and range
                     scale = scale.domain_interval(lit(d_min), lit(d_max));
-                    scale = scale.range_interval(lit(*range_min), lit(*range_max));
+                    scale = scale.range_interval(lit(range_min), lit(range_max));
 
                     // Normalize domain (apply zero, nice, padding)
                     scale = scale.normalize_domain(width, height, ctx, params).await?;
@@ -714,7 +732,11 @@ impl ScaleBuilder {
 
                     result.insert(
                         channel_name.clone(),
-                        ConfiguredScaleWithSpec::new(scale, configured),
+                        ConfiguredScaleWithSpec::with_range_binding(
+                            scale,
+                            configured,
+                            range_binding,
+                        ),
                     );
                 }
                 ChannelScaleData::ExplicitDomain {
@@ -743,9 +765,16 @@ impl ScaleBuilder {
                         }
                     }
 
-                    // Set range if available
-                    if let Some((range_min, range_max)) = coord_system_ranges.get(channel_name) {
-                        scale = scale.range_interval(lit(*range_min), lit(*range_max));
+                    let range_binding = coord_system_range_bindings
+                        .get(channel_name)
+                        .copied()
+                        .unwrap_or(ScaleRangeBinding::Independent);
+
+                    // Set coordinate-owned range if available
+                    if let Some((range_min, range_max)) =
+                        range_binding.resolve(width as f64, height as f64)
+                    {
+                        scale = scale.range_interval(lit(range_min), lit(range_max));
                     }
 
                     // Normalize domain (apply zero, nice, padding)
@@ -808,7 +837,11 @@ impl ScaleBuilder {
 
                     result.insert(
                         channel_name.clone(),
-                        ConfiguredScaleWithSpec::new(scale, configured),
+                        ConfiguredScaleWithSpec::with_range_binding(
+                            scale,
+                            configured,
+                            range_binding,
+                        ),
                     );
                 }
             }
@@ -939,7 +972,10 @@ mod tests {
         builder.add_standard("x".to_string(), scale_spec, data_extents, options);
 
         let mut coord_ranges = HashMap::new();
-        coord_ranges.insert("x".to_string(), (0.0, 400.0));
+        coord_ranges.insert(
+            "x".to_string(),
+            ScaleRangeBinding::fixed_interval(0.0, 400.0),
+        );
 
         let ctx = SessionContext::new();
         let params = IndexMap::new();
@@ -987,7 +1023,10 @@ mod tests {
         );
 
         let mut coord_ranges = HashMap::new();
-        coord_ranges.insert("x".to_string(), (0.0, 400.0));
+        coord_ranges.insert(
+            "x".to_string(),
+            ScaleRangeBinding::fixed_interval(0.0, 400.0),
+        );
 
         let ctx = SessionContext::new();
         let params = IndexMap::new();
@@ -1045,7 +1084,10 @@ mod tests {
 
         // Build with first range
         let mut coord_ranges1 = HashMap::new();
-        coord_ranges1.insert("x".to_string(), (0.0, 400.0));
+        coord_ranges1.insert(
+            "x".to_string(),
+            ScaleRangeBinding::fixed_interval(0.0, 400.0),
+        );
 
         let scales1 = builder
             .build_scales(
@@ -1070,7 +1112,10 @@ mod tests {
 
         // Build with second range (wider)
         let mut coord_ranges2 = HashMap::new();
-        coord_ranges2.insert("x".to_string(), (0.0, 800.0));
+        coord_ranges2.insert(
+            "x".to_string(),
+            ScaleRangeBinding::fixed_interval(0.0, 800.0),
+        );
 
         let scales2 = builder
             .build_scales(

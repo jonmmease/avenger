@@ -15,7 +15,7 @@ use crate::{
     facet::{coord::measure_facet_row, guide::FacetRowGuideConfig},
     marks::CompiledMark,
     render::EvaluationContext,
-    scales::ConfiguredScaleWithSpec,
+    scales::{ConfiguredScaleWithSpec, PlotAreaRangeEndpoint, ScaleRangeBinding},
 };
 
 /// Row faceting coordinate system
@@ -182,14 +182,12 @@ impl CoordinateSystemTransform for FacetRow {
         Ok(Box::new(SubplotGeometry::new(rects)))
     }
 
-    fn default_range(
-        &self,
-        channel: &str,
-        _plot_area_width: f64,
-        plot_area_height: f64,
-    ) -> Option<(f64, f64)> {
+    fn default_range_binding(&self, channel: &str) -> Option<ScaleRangeBinding> {
         match channel {
-            "row" => Some((0.0, plot_area_height)),
+            "row" => Some(ScaleRangeBinding::plot_area(
+                PlotAreaRangeEndpoint::ZERO,
+                PlotAreaRangeEndpoint::HEIGHT,
+            )),
             _ => None,
         }
     }

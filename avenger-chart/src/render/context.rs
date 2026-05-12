@@ -18,7 +18,9 @@ use crate::{
     facet::{
         evaluated_facet_tree::EvaluatedFacetTree, scale_precompute::FacetScalePrecomputeStore,
     },
-    render::types::EvaluationMetrics,
+    render::types::{
+        EvaluatedPlot, EvaluationMetrics, FacetMeasureRefinement, FacetSubtreeSnapshot,
+    },
     scales::ConfiguredScaleWithSpec,
     theme::{Theme, ThemeContext, ThemeValue},
 };
@@ -34,6 +36,11 @@ pub enum FacetRuntimeSizingMode {
         leaf_plot_width: f32,
         leaf_plot_height: f32,
     },
+}
+
+pub(crate) struct FacetSubtreeSnapshotCapture {
+    pub(crate) request: FacetSubtreeSnapshot,
+    pub(crate) result: Option<EvaluatedPlot>,
 }
 
 /// Immutable context built once at evaluate() entry.
@@ -64,8 +71,16 @@ pub struct EvaluationContext {
     pub(crate) facet_runtime_sizing_mode: FacetRuntimeSizingMode,
     /// Effective debug overlay toggle for layout bounds.
     pub(crate) debug_layout_lines: bool,
+    /// Facet refinement policy for final layout evaluation.
+    pub(crate) facet_measure_refinement: FacetMeasureRefinement,
+    /// Optional phase-5 probe-size seed from a previous realized facet tree.
+    pub(crate) facet_probe_size_overrides: Option<Arc<HashMap<Vec<ScalarValue>, (f32, f32)>>>,
+    /// Child-index path from the root facet coord to the currently evaluated facet cell.
+    pub(crate) facet_coord_node_path: Vec<usize>,
     /// Optional shared collector for focused evaluation diagnostics.
     pub(crate) evaluation_metrics: Option<Arc<Mutex<EvaluationMetrics>>>,
+    /// Optional one-shot facet-subtree snapshot capture for non-renderable intermediate states.
+    pub(crate) facet_subtree_snapshot_capture: Option<Arc<Mutex<FacetSubtreeSnapshotCapture>>>,
 }
 
 impl EvaluationContext {
@@ -84,7 +99,11 @@ impl EvaluationContext {
             facet_scale_precompute_store: Arc::new(FacetScalePrecomputeStore::default()),
             facet_runtime_sizing_mode: FacetRuntimeSizingMode::CanvasFit,
             debug_layout_lines: false,
+            facet_measure_refinement: FacetMeasureRefinement::default(),
+            facet_probe_size_overrides: None,
+            facet_coord_node_path: Vec::new(),
             evaluation_metrics: None,
+            facet_subtree_snapshot_capture: None,
         }
     }
 
@@ -99,7 +118,11 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
+            facet_measure_refinement: self.facet_measure_refinement,
+            facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
+            facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
 
@@ -117,7 +140,11 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
+            facet_measure_refinement: self.facet_measure_refinement,
+            facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
+            facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
 
@@ -137,7 +164,11 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
+            facet_measure_refinement: self.facet_measure_refinement,
+            facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
+            facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
 
@@ -157,7 +188,11 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
+            facet_measure_refinement: self.facet_measure_refinement,
+            facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
+            facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
 
@@ -171,7 +206,11 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: mode,
             debug_layout_lines: self.debug_layout_lines,
+            facet_measure_refinement: self.facet_measure_refinement,
+            facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
+            facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
 
@@ -189,8 +228,64 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: enabled,
+            facet_measure_refinement: self.facet_measure_refinement,
+            facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
+            facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
+    }
+
+    pub(crate) fn with_facet_measure_refinement(&self, refinement: FacetMeasureRefinement) -> Self {
+        Self {
+            theme: self.theme.clone(),
+            session_context: self.session_context.clone(),
+            params: self.params.clone(),
+            facet_tree: self.facet_tree.clone(),
+            hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
+            facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
+            debug_layout_lines: self.debug_layout_lines,
+            facet_measure_refinement: refinement,
+            facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_coord_node_path: self.facet_coord_node_path.clone(),
+            evaluation_metrics: self.evaluation_metrics.clone(),
+            facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+        }
+    }
+
+    pub(crate) fn facet_measure_refinement(&self) -> FacetMeasureRefinement {
+        self.facet_measure_refinement
+    }
+
+    pub(crate) fn with_facet_probe_size_overrides(
+        &self,
+        overrides: Arc<HashMap<Vec<ScalarValue>, (f32, f32)>>,
+    ) -> Self {
+        Self {
+            theme: self.theme.clone(),
+            session_context: self.session_context.clone(),
+            params: self.params.clone(),
+            facet_tree: self.facet_tree.clone(),
+            hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
+            facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
+            debug_layout_lines: self.debug_layout_lines,
+            facet_measure_refinement: self.facet_measure_refinement,
+            facet_probe_size_overrides: Some(overrides),
+            facet_coord_node_path: self.facet_coord_node_path.clone(),
+            evaluation_metrics: self.evaluation_metrics.clone(),
+            facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+        }
+    }
+
+    pub(crate) fn facet_probe_size_override(
+        &self,
+        facet_path: &[ScalarValue],
+    ) -> Option<(f32, f32)> {
+        self.facet_probe_size_overrides
+            .as_ref()
+            .and_then(|overrides| overrides.get(facet_path).copied())
     }
 
     pub(crate) fn debug_layout_lines_enabled(&self) -> bool {
@@ -211,8 +306,98 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
+            facet_measure_refinement: self.facet_measure_refinement,
+            facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: Some(metrics),
+            facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
+    }
+
+    pub(crate) fn with_facet_subtree_snapshot_capture(
+        &self,
+        capture: Arc<Mutex<FacetSubtreeSnapshotCapture>>,
+    ) -> Self {
+        Self {
+            theme: self.theme.clone(),
+            session_context: self.session_context.clone(),
+            params: self.params.clone(),
+            facet_tree: self.facet_tree.clone(),
+            hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
+            facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
+            debug_layout_lines: self.debug_layout_lines,
+            facet_measure_refinement: self.facet_measure_refinement,
+            facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_coord_node_path: self.facet_coord_node_path.clone(),
+            evaluation_metrics: self.evaluation_metrics.clone(),
+            facet_subtree_snapshot_capture: Some(capture),
+        }
+    }
+
+    pub(crate) fn with_facet_coord_node_path_appended(&self, child_index: usize) -> Self {
+        let mut facet_coord_node_path = self.facet_coord_node_path.clone();
+        facet_coord_node_path.push(child_index);
+        Self {
+            theme: self.theme.clone(),
+            session_context: self.session_context.clone(),
+            params: self.params.clone(),
+            facet_tree: self.facet_tree.clone(),
+            hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
+            facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
+            debug_layout_lines: self.debug_layout_lines,
+            facet_measure_refinement: self.facet_measure_refinement,
+            facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_coord_node_path,
+            evaluation_metrics: self.evaluation_metrics.clone(),
+            facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+        }
+    }
+
+    pub(crate) fn facet_coord_node_path(&self) -> &[usize] {
+        &self.facet_coord_node_path
+    }
+
+    pub(crate) fn facet_subtree_snapshot_request(&self) -> Option<FacetSubtreeSnapshot> {
+        self.facet_subtree_snapshot_capture.as_ref().map(|capture| {
+            capture
+                .lock()
+                .expect("facet subtree snapshot capture lock poisoned")
+                .request
+                .clone()
+        })
+    }
+
+    pub(crate) fn capture_facet_subtree_snapshot(
+        &self,
+        request: &FacetSubtreeSnapshot,
+        evaluated: EvaluatedPlot,
+    ) -> bool {
+        let Some(capture) = &self.facet_subtree_snapshot_capture else {
+            return false;
+        };
+        let mut capture = capture
+            .lock()
+            .expect("facet subtree snapshot capture lock poisoned");
+        if capture.result.is_none() && capture.request == *request {
+            capture.result = Some(evaluated);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn take_facet_subtree_snapshot(&self) -> Option<EvaluatedPlot> {
+        self.facet_subtree_snapshot_capture
+            .as_ref()
+            .and_then(|capture| {
+                capture
+                    .lock()
+                    .expect("facet subtree snapshot capture lock poisoned")
+                    .result
+                    .take()
+            })
     }
 
     pub(crate) fn record_plot_component_measure_call(&self, facet_depth: usize) {
@@ -241,6 +426,33 @@ impl EvaluationContext {
                     phase5_non_leaf_full_measure_count,
                     phase6_full_measure_count,
                 );
+        }
+    }
+
+    pub(crate) fn record_facet_refinement_pass(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_facet_refinement_pass();
+        }
+    }
+
+    pub(crate) fn record_facet_refinement_converged(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_facet_refinement_converged();
+        }
+    }
+
+    pub(crate) fn record_facet_refinement_hit_max_passes(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_facet_refinement_hit_max_passes();
         }
     }
 }
