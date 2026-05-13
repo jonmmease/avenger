@@ -1,7 +1,4 @@
-//! Minimal dimension identifiers for faceting.
-//!
-//! Earlier versions carried a broad trait surface for row/column behavior, but
-//! the current facet implementation only relies on stable channel identifiers.
+//! Minimal row/column channel identifiers for faceting.
 
 /// Dimension configuration trait used by facet marks.
 pub trait FacetDimensionConfig: Clone + Send + Sync + 'static {

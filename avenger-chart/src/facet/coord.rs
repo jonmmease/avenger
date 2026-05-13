@@ -103,35 +103,35 @@ pub(crate) struct FacetCellRuntime {
     pub(crate) coordinated_domain_extents: HashMap<String, DomainExtent>,
 }
 
-/// Measurement data for FacetColumn coordinate system.
+/// Measurement data for a facet band coordinate system.
 ///
-/// This captures the computed padding from overflow measurement and pre-computed
+/// This captures the computed padding from overflow measurement and precomputed
 /// subplot measurements. Marks use the stored measurements directly without re-measuring.
 pub struct FacetBandCoordMeasurement {
     /// Facet axis orientation for this measurement.
     pub axis: FacetAxis,
     /// Enumerated cell runtime state.
     pub(crate) cells: Vec<FacetCellRuntime>,
-    /// ScaleBuilder for shared scales (caches data extents for rebuilding with updated dimensions).
+    /// ScaleBuilder for plot scales (caches data extents for rebuilding with updated dimensions).
     /// Used with DynamicScaleProvider to correctly compute radius-aware domains.
     pub shared_scale_builder: ScaleBuilder,
     /// Stable field identity for coordination grouping at this facet level.
-    /// This is typically the facet column field name.
+    /// This is typically the facet row or column field name.
     pub coordination_field_identity: String,
     /// Coordinated overflow values aggregated across ALL facets at this nesting level.
-    /// Populated by `coordinate_overflow_for_guides()` after measurement.
+    /// Populated by facet coordination after local measurement.
     pub coordinated_overflow: CoordinatedOverflow,
-    /// Reference to compiled subplot for re-measurement after coordination.
-    /// Used by `apply_coordinated_overflow` to re-measure with adjusted height.
+    /// Reference to compiled subplot for retargeting after coordination.
+    /// Used by `apply_coordinated_overflow` when coordinated layout changes child sizing.
     pub compiled_subplot: Arc<CompiledPlot>,
-    /// Subplot width (bandwidth) for re-measurement.
+    /// Subplot cross-axis plot-area size for coordinated retargeting.
     pub subplot_cross_size: f32,
     /// Facet depth in the hierarchy (1 = outermost, 2 = nested, etc.)
     /// INVARIANT: facet_depth == full_cell_path.len() for any cell
     /// Used for channel-domain sharing comparison: sharing >= facet_depth means global.
     pub facet_depth: u8,
-    /// Column scale (as ConfiguredScale) BEFORE Pass 2 adjustments.
-    /// Used to recompute subplot width when coordinated layout differs from local.
+    /// Original facet band scale before local or coordinated layout rewrites.
+    /// Used to recompute subplot size when coordinated layout differs from local layout.
     pub original_band_scale: ConfiguredScale,
     /// Local layout values (pre-coordination).
     pub local_layout: CoordinatedLayout,
@@ -438,7 +438,7 @@ impl FacetBandCoordMeasurement {
 
             debug!(
                 bandwidth,
-                "FacetCol set_parent_bandwidth updated original column scale range"
+                "FacetBand set_parent_bandwidth updated original band scale range"
             );
         }
     }
@@ -568,9 +568,9 @@ impl CoordMeasurement for FacetBandCoordMeasurement {
 
     fn apply_scale_adjustments(&self, scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
         // Apply facet band layout adjustments at render-time:
-        // - domain override from cell_values
+        // - band-scale domain override from cell_values
         // - coordinated padding/outer edges
-        // - band_n override when coordinated layout expects more slots than the local domain
+        // - band_n override when coordinated layout expects more slots than the local slot set
         //
         // The band_n override preserves equal subplot sizing for ragged nested layouts by
         // reserving trailing empty slots in branches with fewer local values.
@@ -876,8 +876,8 @@ impl FacetBandCoordMeasurement {
 
             // Data-empty cells can have no local domain extents even when
             // channel-domain sharing is enabled. Fill coordinated extents from
-            // saved sharing levels.
-            // so owner cells without local data still render shared plot scale domains.
+            // saved sharing levels so owner cells without local data still render
+            // shared plot scale domains.
             for (channel, sharing_level) in &self.channel_domain_sharing_levels {
                 if *sharing_level == 0 || cell.coordinated_domain_extents.contains_key(channel) {
                     continue;
@@ -993,7 +993,7 @@ impl FacetBandCoordMeasurement {
             local_outer_end = self.local_layout.outer_end,
             coordinated_outer_start = layout.outer_start,
             coordinated_outer_end = layout.outer_end,
-            "FacetCol apply_coordinated_overflow layout coordination"
+            "FacetBand apply_coordinated_overflow layout coordination"
         );
 
         self.subplot_cross_size = new_subplot_cross_size;
@@ -1182,14 +1182,14 @@ enum NestedScalePlan<'a> {
     EmptySharedNoData,
 }
 
-/// Planning data prepared once before running FacetCol measurement passes.
+/// Planning data prepared once before running the facet-band measurement pipeline.
 struct FacetBandMeasurePlan {
     cell_values: Vec<ScalarValue>,
     cells: Vec<FacetCellDraft>,
     scale_artifacts: Arc<FacetScaleNodeArtifacts>,
 }
 
-/// Shared nested-facet measurement context used by pass 1 and pass 2.
+/// Shared nested-facet measurement context used by overflow probes and retargeted layout.
 #[derive(Clone)]
 pub(crate) struct FacetBandNestedMeasureContext {
     scale_artifacts: Arc<FacetScaleNodeArtifacts>,
@@ -1983,8 +1983,8 @@ fn cell_main_axis_overflow_pair(
         .max(legend_bottom_from_bounds);
 
     // Also consider the full coordinated overflow from the inner facet band.
-    // The taffy `total` may be stale or may not include overflow from nested facet
-    // levels (e.g., nested legends or row labels updated during coordination).
+    // The taffy `total` may not reflect overflow from nested facet levels
+    // (e.g., nested legends or row labels updated during coordination).
     let (coord_total_left, coord_total_right, coord_total_top, coord_total_bottom) =
         coordinated_total_overflow_edges(measurement);
 
@@ -2479,8 +2479,8 @@ async fn execute_measurement_from_plan(
 
 /// Measure a single facet cell using a selected scale strategy.
 ///
-/// This is the shared measurement engine used by pass 1, pass 2, and coordinated
-/// re-measurement to keep cell measurement behavior consistent.
+/// This is the shared measurement engine used by estimated-overflow probes,
+/// local layout finalization, and coordinated re-measurement.
 async fn measure_facet_cell(
     cell: &FacetCellPlan,
     data_override: &DataFrame,
@@ -3883,7 +3883,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             axis = ?self.axis_ops.axis,
             initial_subplot_band_size,
             final_subplot_band_size,
-            "FacetBand pass 2 scale bandwidth"
+            "FacetBand local layout scale bandwidth"
         );
 
         Ok(final_subplot_band_size)

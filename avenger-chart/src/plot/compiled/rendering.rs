@@ -1316,7 +1316,7 @@ impl CompiledPlot {
                     ctx,
                     facet_tree,
                     facet_path,
-                    None, // No coord_measurement yet (first pass)
+                    None, // No coordinate-system measurement is available during initial guide probing.
                 )
                 .await?
         } else {
@@ -2542,7 +2542,7 @@ impl CompiledPlot {
     /// to both guides and marks during rendering.
     ///
     /// Note: The caller is responsible for calling `apply_scale_adjustments()`
-    /// on the returned measurement to update scales with coord-derived values.
+    /// on the returned measurement to update scales with coordinate-system-derived values.
     async fn measure_coord_system(
         &self,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
@@ -2553,7 +2553,7 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
         ctx: &SessionContext,
     ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
-        // Get data for coord measurement: use data_override if provided (nested facets),
+        // Get data for coordinate-system measurement: use data_override if provided (nested facets),
         // otherwise use the plot's own data (top-level).
         let plot_data = if data_override.is_some() {
             None
@@ -2599,7 +2599,7 @@ impl CompiledPlot {
     /// # Arguments
     /// * `eval_ctx` - Evaluation context with theme, session, params, and facet tree
     /// * `layout_spec` - Evaluated layout specification determining canvas vs plot area mode
-    /// * `scale_provider` - Provider for building scales (prebuilt for shared scales, or from-data)
+    /// * `scale_provider` - Provider for building scales (prebuilt scale data or from-data)
     /// * `data_override` - Optional data override for faceted subplots (filtered data)
     /// * `facet_path` - Path of values identifying current cell in facet hierarchy (e.g., `["East", "Eng"]`).
     ///   Used for tree navigation, data filtering, and axis visibility checks.
@@ -2662,7 +2662,7 @@ impl CompiledPlot {
             )
             .await?;
 
-        // Apply scale adjustments from coord measurement (stays in main function
+        // Apply scale adjustments from coordinate-system measurement (stays in main function
         // because it mutates final_scales which is used by later phases)
         coord_measurement.apply_scale_adjustments(&mut final_scales);
 
@@ -2744,7 +2744,7 @@ impl CompiledPlot {
     ///
     /// This method supports both top-level plots and subplots by accepting:
     /// - Explicit dimensions (canvas size or plot area size, controlled by `dimensions_are_plot_area`)
-    /// - A scale provider (build new scales or use shared scales from parent)
+    /// - A scale provider (build new scales or use prebuilt scale data from parent)
     /// - Evaluation mode (measure overflow or full render)
     /// - Optional data override (for faceted subplots)
     ///
@@ -3350,11 +3350,11 @@ impl CompiledPlot {
         facet_sizing_strategy: FacetSizingStrategy,
         coordination_mode: FacetCoordinationMode,
     ) -> Result<(), AvengerChartError> {
-        // `coordinate_overflow_for_guides` currently maps to top-level phases 7-10:
-        // - phase 7 attributes build (snapshot/aggregate/distribution) + executor apply,
-        // - phase 8 executor apply/remeasure + immutable execution trace,
-        // - phase 9 attributes build (post-remeasure reconcile distribution) + executor apply,
-        // - phase 10 executor scale retarget/adjustment propagation + immutable trace.
+        // `coordinate_overflow_for_guides` currently maps to the global coordination cycle:
+        // - build and apply the initial requirement plan,
+        // - run retargeting and capture the immutable execution trace,
+        // - build and apply the retargeted requirement plan,
+        // - propagate final plot-area and scale-range updates.
         coordinate_overflow_for_guides_with_mode(measurement, eval_ctx, coordination_mode).await?;
 
         let (_, _, is_plot_area_mode) = Self::resolve_dimensions_from_spec(evaluated_layout_spec);
@@ -3503,9 +3503,9 @@ impl CompiledPlot {
             self.default_params.clone()
         };
 
-        // Build evaluated facet spec (pre-pass to discover partition structure)
-        // This queries distinct values for each facet level, respecting scale sharing settings.
-        // Used for efficient domain lookups in nested facet coordination.
+        // Build evaluated facet tree (pre-pass to discover partition structure).
+        // This queries distinct values for each facet level, respecting facet slot sharing.
+        // Used for efficient facet slot and predicate lookups during nested coordination.
         let facet_tree_start = Instant::now();
         let facet_tree = Arc::new(EvaluatedFacetTree::from_compiled_plot(self, ctx).await?);
         debug!(
@@ -5511,7 +5511,7 @@ mod tests {
                 );
                 assert!(
                     remeasure_required,
-                    "team-level node with right legend slab should require retarget remeasure semantics (right_slab={right_slab})"
+                    "team-level node with right legend slab should be detected by the retarget plan (right_slab={right_slab})"
                 );
             }
             Ok(())

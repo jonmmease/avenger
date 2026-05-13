@@ -56,7 +56,7 @@ impl BandPosition {
 
 /// Iterator over band positions from a configured band scale
 ///
-/// Provides consistent iteration over domain values with their corresponding
+/// Provides consistent iteration over band-scale domain values with their corresponding
 /// positions and bandwidth for faceted layouts.
 ///
 /// # Example

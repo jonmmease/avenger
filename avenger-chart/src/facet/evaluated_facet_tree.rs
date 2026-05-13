@@ -5,7 +5,7 @@
 //! `CompiledPlot::evaluate()`, then queried throughout measurement and rendering for:
 //! - Visibility decisions (axis ticks, titles, facet labels)
 //! - Filter predicates for data slicing
-//! - Domain values for iteration
+//! - Facet slot values for iteration
 //! - Position and count information for layout
 
 use std::{
@@ -54,14 +54,14 @@ type SharedSlotCache = HashMap<String, Vec<ScalarValue>>;
 ///
 /// Note: This struct contains ONLY the partition tree structure. All configuration
 /// (slot sharing levels, axis positions) is passed as parameters to query methods.
-/// This allows the same facet spec to be used with different configurations.
+/// This allows the same evaluated tree to be used with different configurations.
 #[derive(Debug, Clone)]
 pub struct EvaluatedFacetTree {
     /// Tree of partition values (handles non-shared facet slots).
     root: Option<PartitionNode>,
     /// Cached depth of the partition hierarchy.
     depth_cache: usize,
-    /// Cached domain counts per nesting level.
+    /// Cached facet slot counts per nesting level.
     level_counts_cache: Vec<usize>,
     /// Channel-domain sharing levels extracted from innermost marks.
     /// Maps channel name (e.g., "x", "y") to sharing level (0=Free, N=Level(N), 255=Shared).
@@ -107,7 +107,7 @@ pub struct PartitionNode {
 /// Content of a partition node - either leaf values or branch with children.
 #[derive(Debug, Clone)]
 pub enum PartitionContent {
-    /// Leaf node: contains the domain values at the innermost level
+    /// Leaf node: contains the facet slot values at the innermost level.
     Leaf { values: Vec<ScalarValue> },
     /// Branch node: maps each value to a child partition node
     /// Children are boxed to reduce async future state size and avoid stack overflow.
@@ -130,7 +130,7 @@ pub struct AxisVisibility {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AxisOwnershipMode {
-    /// Compute owners against the full domain slot geometry (existing behavior).
+    /// Compute owners against the full slot geometry.
     DomainSlots,
     /// Compute owners against non-empty cells only (hole-aware behavior).
     NonEmptySlots,
@@ -144,7 +144,7 @@ pub(crate) enum AxisOwnershipMode {
 pub struct ResolvedFacetPathInfo {
     /// Position index at each depth for the provided path.
     pub indices: Vec<usize>,
-    /// Domain count at each depth on the same concrete branch as `indices`.
+    /// Facet slot count at each depth on the same concrete branch as `indices`.
     pub local_level_counts: Vec<usize>,
     /// Facet direction at each depth for the provided path.
     pub level_directions: Vec<FacetDirection>,
@@ -254,7 +254,7 @@ impl EvaluatedFacetTree {
         tree
     }
 
-    /// Create a new EvaluatedFacetSpec with the given partition tree.
+    /// Create a new EvaluatedFacetTree with the given partition tree.
     ///
     /// Note: All configuration (slot sharing levels, axis positions) is passed
     /// as parameters to query methods like `subplot_visibility`.
@@ -262,7 +262,7 @@ impl EvaluatedFacetTree {
         Self::init_with_caches(root, HashMap::new())
     }
 
-    /// Create a new EvaluatedFacetSpec with partition tree and channel-domain sharing levels.
+    /// Create a new EvaluatedFacetTree with partition tree and channel-domain sharing levels.
     pub fn new_with_channel_domain_sharing_levels(
         root: Option<PartitionNode>,
         channel_domain_sharing_levels: HashMap<String, u8>,
@@ -276,7 +276,7 @@ impl EvaluatedFacetTree {
         )
     }
 
-    /// Create an empty spec (no faceting).
+    /// Create an empty tree (no faceting).
     pub fn empty() -> Self {
         Self::init_with_caches(None, HashMap::new())
     }
@@ -310,7 +310,7 @@ impl EvaluatedFacetTree {
         let df = match df {
             Some(df) => df,
             None => {
-                // No data available - return empty spec
+                // No data available; return an empty facet tree.
                 // This can happen for plots without faceting or without data
                 return Ok(Self::empty());
             }
@@ -839,7 +839,7 @@ impl EvaluatedFacetTree {
         }
     }
 
-    /// Count the domain size at the first level matching the target direction.
+    /// Count the slot set size at the first level matching the target direction.
     fn count_at_direction(node: &PartitionNode, target_direction: FacetDirection) -> usize {
         if node.direction == target_direction {
             return node.domain_count();
@@ -853,9 +853,9 @@ impl EvaluatedFacetTree {
         0
     }
 
-    /// Get level counts (domain count at each nesting level).
+    /// Get level counts (slot count at each nesting level).
     ///
-    /// Returns vec where index is nesting level and value is domain count.
+    /// Returns vec where index is nesting level and value is slot count.
     ///
     /// Semantics: counts are derived by following the first branch at each level.
     /// This is intentional for asymmetric trees and matches existing behavior.
@@ -1277,7 +1277,7 @@ impl EvaluatedFacetTree {
         self.resolve_path_info_uncached(path)
     }
 
-    /// Convert a path of domain values to position indices.
+    /// Convert a path of facet slot values to position indices.
     ///
     /// This is the inverse of `path_values_from_indices`. Given a path like
     /// `["East", "Eng"]`, returns the indices `[0, 1]` if "East" is at index 0
@@ -1588,7 +1588,7 @@ impl PartitionNode {
         matches!(self.content, PartitionContent::Leaf { .. })
     }
 
-    /// Get the domain values at this level.
+    /// Get the facet slot values at this level.
     pub fn values(&self) -> Box<dyn Iterator<Item = &ScalarValue> + '_> {
         match &self.content {
             PartitionContent::Leaf { values } => Box::new(values.iter()),
@@ -1600,7 +1600,7 @@ impl PartitionNode {
         self.observed_values.iter()
     }
 
-    /// Get the number of domain values at this level.
+    /// Get the number of facet slot values at this level.
     pub fn domain_count(&self) -> usize {
         match &self.content {
             PartitionContent::Leaf { values } => values.len(),
@@ -2160,7 +2160,7 @@ mod tests {
     fn build_hole_visibility_test_tree() -> EvaluatedFacetTree {
         // Column (petal_width_bin) > Row (species)
         //
-        // Shared row domain values exist in every column slot, but observed values
+        // Shared row slot values exist in every column slot, but observed values
         // differ by column, creating hole cells when empty policy is Hole.
         let all_species = vec![
             scalar("Iris-setosa"),
@@ -2922,7 +2922,7 @@ mod tests {
         let pred = spec.cell_predicate(&empty_path, 0);
         assert!(pred.is_none());
 
-        // Empty spec should return None
+        // Empty tree should return None
         let empty_spec = EvaluatedFacetTree::empty();
         let pred = empty_spec.cell_predicate(&path, 0);
         assert!(pred.is_none());

@@ -26,9 +26,9 @@ impl FacetOptions {
     /// Configure slot sharing mode for this facet variable.
     ///
     /// For nested facets (e.g., FacetRow inside FacetColumn):
-    /// - `Shared`: All outer cells use the same domain computed from the full dataset.
+    /// - `Shared`: All outer cells use the same slot set computed from the full dataset.
     ///   This creates a grid-like structure where empty cells may appear.
-    /// - `Free` (default): Each outer cell computes its own domain from filtered data.
+    /// - `Free` (default): Each outer cell computes its own slot set from filtered data.
     ///   Different outer cells may have different numbers of inner cells.
     ///
     /// Note: Free and Shared are normalized to Level(0) and Level(255) internally.

@@ -20,7 +20,7 @@ use datafusion::common::ScalarValue;
 /// - Different types fall back to Equal (same behavior as before)
 /// - Same types use their natural ordering when available
 ///
-/// This ensures deterministic sorting of facet domain values regardless of
+/// This ensures deterministic sorting of facet slot values regardless of
 /// whether they contain nulls, NaN, or mixed types.
 pub fn scalar_total_cmp(a: &ScalarValue, b: &ScalarValue) -> Ordering {
     // Handle nulls first - null values sort before non-null

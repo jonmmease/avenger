@@ -193,7 +193,7 @@ fn build_retarget_plan_fixed_recursive(
             "fixed retarget invariant: apply-plan legend-overflow flag must match coordinated main-axis legend slabs"
         );
         // Fixed-subplot mode keeps per-cell plot area dimensions locked.
-        // Keep coordinated layout/domain/remeasure semantics intact, but disable
+        // Keep coordinated layout/domain semantics intact, but disable
         // legend-driven main-size shrink for fixed leaf plot areas.
         apply_plan.adjusted_main_size = apply_plan.original_main_size;
         apply_plan.legend_main_axis_shrink = 0.0;

@@ -279,7 +279,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
     }
 }
 
-/// Compiled facet mark specialized for FacetRow outer coords
+/// Compiled facet mark specialized for the FacetRow outer coordinate system.
 #[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledFacetRow {
@@ -381,8 +381,6 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetRow> for Facet<InnerC> {
     }
 }
 
-// No helper methods needed for CompiledFacetRow - moved to facet_evaluation module
-
 #[typetag::serde]
 #[async_trait::async_trait]
 impl CompiledMark for CompiledFacetRow {
@@ -421,7 +419,7 @@ impl CompiledMark for CompiledFacetRow {
 
     /// Render faceted row layout
     ///
-    /// Uses coord_measurement from RenderContext (computed by FacetRow coord system)
+    /// Uses the coordinate-system measurement from RenderContext (computed by FacetRow)
     /// and the adjusted row scale to resolve deterministic band positions.
     async fn render_from_data(
         &self,
@@ -483,7 +481,7 @@ impl CompiledMark for CompiledFacetRow {
 // FacetCol Implementation
 // ============================================================================
 
-/// Compiled facet mark specialized for FacetCol outer coords
+/// Compiled facet mark specialized for the FacetCol outer coordinate system.
 #[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledFacetCol {
@@ -664,11 +662,9 @@ impl CompiledMark for CompiledFacetCol {
         true // Facets need full data for nested filtering
     }
 
-    /// Measure faceted column layout
-    ///
     /// Render faceted column layout
     ///
-    /// Uses coord_measurement from RenderContext (computed by FacetColumn coord system)
+    /// Uses the coordinate-system measurement from RenderContext (computed by FacetColumn)
     /// and the already-adjusted column scale to resolve deterministic band positions,
     /// then renders each subplot using its cached measurement.
     async fn render_from_data(

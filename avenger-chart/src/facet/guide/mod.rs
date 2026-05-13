@@ -1,4 +1,4 @@
-//! Facet guide implementations for row and column faceting (STUBBED).
+//! Facet guide implementations for row and column faceting.
 //!
 //! This module contains:
 //! - `FacetRowGuideConfig` / `FacetRowGuide`: Guide for row-based faceting

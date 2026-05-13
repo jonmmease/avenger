@@ -177,7 +177,7 @@ pub fn measure_facet_label_slab(config: &FacetLabelMeasurementConfig) -> f32 {
         let title_bounds = measurer.measure_text_bounds(&title_config);
         let title_dimension = title_bounds.height;
 
-        // Add gap + title + rule stroke (original logic - gap includes rule/tick space)
+        // Add gap + title + rule stroke; the gap includes rule/tick space.
         let gap = 10.0_f32;
         total_space += gap + title_dimension + 1.0;
     }

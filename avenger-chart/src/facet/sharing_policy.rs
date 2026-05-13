@@ -1,7 +1,7 @@
 //! Unified sharing policy helpers for faceting.
 //!
-//! This module centralizes sharing-level behavior used by both:
-//! - domain coordination grouping keys, and
+//! This module centralizes sharing-level behavior used by:
+//! - domain coordination grouping keys,
 //! - axis visibility decisions.
 //! - legend owner-cell visibility decisions.
 

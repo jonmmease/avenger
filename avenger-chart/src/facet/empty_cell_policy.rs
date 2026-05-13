@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 /// Rendering policy for empty facet cells.
 ///
 /// Empty cells include:
-/// - domain placeholders introduced by shared facet domains
-/// - cells that are in-domain but have zero rows after filtering
+/// - slot placeholders introduced by shared facet slot sets
+/// - cells whose slot exists but has zero rows after filtering
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FacetEmptyCellPolicy {

@@ -8,7 +8,7 @@ use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
 use datafusion::{common::ScalarValue, logical_expr::Expr};
 use tracing::trace;
 
-/// Canonical per-cell plan representation for column facet measurement.
+/// Canonical per-cell plan representation for facet-band measurement.
 #[derive(Clone, Debug)]
 pub(crate) struct FacetCellPlan {
     pub value: ScalarValue,
@@ -40,7 +40,7 @@ pub(crate) enum FacetCellEmptyKind {
     DataEmpty,
 }
 
-/// Resolved band-level facet layout values for a single FacetCol node.
+/// Resolved band-level facet layout values for a single facet band node.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct FacetBandPlan {
     pub padding_inner_px: f32,
