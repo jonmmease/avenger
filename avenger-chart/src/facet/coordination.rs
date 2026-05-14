@@ -6,25 +6,40 @@
 //! 3. collect and distribute retargeted requirements,
 //! 4. propagate final plot-area and scale-range updates.
 //!
-//! Immutable coordination plans are built in `coordination_plans`, and
-//! bounded side effects are applied through executors in `coordination_apply`.
+//! Immutable coordination plans are built in `coordination_plans`, bounded side
+//! effects are applied through `coordination_apply`, and sizing-mode differences
+//! are supplied by `coordination_strategy`.
 
 use std::collections::HashSet;
+
+use tracing::debug;
 
 use crate::{
     error::AvengerChartError,
     facet::{
-        coordination_apply::visit_facet_bands_with_node_id,
-        coordination_plans::{
-            CoordinationNodeKey, FinalPropagationPlan, FinalPropagationTrace,
-            InitialRequirementNodeSnapshot, InitialRequirementPass, InitialRequirementSnapshot,
-            RetargetPlan, RetargetTrace, RetargetedRequirementNodeSnapshot,
-            RetargetedRequirementPass, RetargetedRequirementSnapshot,
+        coordination_apply::{
+            apply_initial_requirement_pass_with_strategy,
+            apply_retargeted_requirement_pass_with_strategy,
+            build_final_propagation_plan_with_strategy, build_retarget_plan_with_strategy,
+            run_final_propagation_with_trace_with_strategy, run_retarget_with_trace_with_strategy,
+            visit_facet_bands_with_node_id_for_strategy,
         },
+        coordination_plans::{
+            CoordinationNodeKey, CoordinationRunArtifacts, FinalPropagationPlan,
+            FinalPropagationTrace, InitialRequirementNodeSnapshot, InitialRequirementPass,
+            InitialRequirementSnapshot, RetargetPlan, RetargetTrace,
+            RetargetedRequirementNodeSnapshot, RetargetedRequirementPass,
+            RetargetedRequirementSnapshot, build_initial_requirement_pass,
+            build_retargeted_requirement_pass,
+        },
+        coordination_strategy::FacetSizingCoordinationStrategy,
     },
     plot::compiled::ComponentsMeasurement,
-    render::EvaluationContext,
+    render::{CoordinationCheckpoint, EvaluationContext},
 };
+
+#[cfg(test)]
+use crate::facet::coordination_strategy::CanvasFitCoordinationStrategy;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FacetCoordinationStage {
@@ -43,11 +58,7 @@ use crate::facet::coord::{
 use crate::facet::coordination_apply::{
     apply_initial_requirement_pass, apply_retargeted_requirement_pass,
     build_final_propagation_plan, build_retarget_plan, run_final_propagation_with_trace,
-    run_retarget_with_trace, visit_facet_bands_with_node_id_mut,
-};
-#[cfg(test)]
-use crate::facet::coordination_plans::{
-    build_initial_requirement_pass, build_retargeted_requirement_pass,
+    run_retarget_with_trace, visit_facet_bands_with_node_id, visit_facet_bands_with_node_id_mut,
 };
 
 /// Stable key identifying a coordination group in the measurement tree.
@@ -124,16 +135,236 @@ pub async fn coordinate_facet_measurement_tree(
     .await
 }
 
-pub(crate) fn collect_initial_requirement_snapshot(
+pub(crate) async fn coordinate_facet_measurement_tree_with_strategy<S>(
+    measurement: &mut ComponentsMeasurement,
+    eval_ctx: &EvaluationContext,
+) -> Result<CoordinationRunArtifacts, AvengerChartError>
+where
+    S: FacetSizingCoordinationStrategy + Send + Sync + 'static,
+{
+    S::before_run(measurement, eval_ctx)?;
+
+    let mut epoch = None;
+    debug_assert_stage_transition(epoch, FacetCoordinationStage::InitialRequirements);
+    epoch = Some(FacetCoordinationStage::InitialRequirements);
+
+    let initial_requirement_pass = build_initial_requirement_pass(
+        collect_initial_requirement_snapshot_with_strategy::<S>(measurement),
+    );
+    debug_assert_initial_requirement_coverage(&initial_requirement_pass);
+    debug!(
+        strategy = S::LABEL,
+        overflow_groups = initial_requirement_pass
+            .aggregates
+            .merged_overflow_by_key
+            .len(),
+        layout_groups = initial_requirement_pass
+            .aggregates
+            .merged_layout_by_key
+            .len(),
+        domain_groups = initial_requirement_pass
+            .aggregates
+            .unified_domain_extents
+            .len(),
+        "coordinate_facet_measurement_tree initial requirements global aggregate + distribution"
+    );
+    apply_initial_requirement_pass_with_strategy::<S>(measurement, &initial_requirement_pass);
+    debug!(
+        strategy = S::LABEL,
+        "coordinate_facet_measurement_tree initial requirements complete"
+    );
+
+    debug_assert_stage_transition(epoch, FacetCoordinationStage::Retarget);
+    epoch = Some(FacetCoordinationStage::Retarget);
+
+    let retarget_plan = build_retarget_plan_with_strategy::<S>(measurement);
+    debug_assert_retarget_plan_coverage_with_strategy::<S>(measurement, &retarget_plan);
+    let retarget_trace =
+        run_retarget_with_trace_with_strategy::<S>(measurement, eval_ctx, &retarget_plan).await?;
+    debug_assert_retarget_trace_alignment(&retarget_plan, &retarget_trace);
+    S::after_retarget_trace(measurement, eval_ctx, &retarget_plan, &retarget_trace)?;
+    let parent_cross_propagations = retarget_trace
+        .node_results
+        .iter()
+        .filter(|result| result.parent_cross_size_propagated)
+        .count();
+    let cross_size_changes = retarget_trace
+        .node_results
+        .iter()
+        .filter(|result| {
+            (result.subplot_cross_size_after - result.subplot_cross_size_before).abs() > 0.01
+        })
+        .count();
+    debug!(
+        strategy = S::LABEL,
+        parent_cross_propagations,
+        cross_size_changes,
+        remeasured_nodes = retarget_trace
+            .node_results
+            .iter()
+            .filter(|result| result.remeasure_triggered)
+            .count(),
+        "coordinate_facet_measurement_tree retarget complete"
+    );
+
+    debug_assert_stage_transition(epoch, FacetCoordinationStage::RetargetedRequirements);
+    epoch = Some(FacetCoordinationStage::RetargetedRequirements);
+
+    let retargeted_requirement_pass = build_retargeted_requirement_pass(
+        collect_retargeted_requirement_snapshot_with_strategy::<S>(measurement),
+    );
+    debug_assert_retargeted_requirement_coverage(&retargeted_requirement_pass);
+    debug!(
+        strategy = S::LABEL,
+        overflow_groups = retargeted_requirement_pass
+            .aggregates
+            .merged_overflow_by_key
+            .len(),
+        layout_groups = retargeted_requirement_pass
+            .aggregates
+            .merged_layout_by_key
+            .len(),
+        "coordinate_facet_measurement_tree retargeted requirements post-remeasure reconciliation"
+    );
+    apply_retargeted_requirement_pass_with_strategy::<S>(measurement, &retargeted_requirement_pass);
+    debug!(
+        strategy = S::LABEL,
+        "coordinate_facet_measurement_tree retargeted requirements complete"
+    );
+
+    debug_assert_stage_transition(epoch, FacetCoordinationStage::FinalPropagation);
+
+    let final_propagation_plan = build_final_propagation_plan_with_strategy::<S>(measurement);
+    debug_assert_final_propagation_plan_coverage_with_strategy::<S>(
+        measurement,
+        &final_propagation_plan,
+    );
+    let final_propagation_trace = run_final_propagation_with_trace_with_strategy::<S>(
+        measurement,
+        eval_ctx,
+        &final_propagation_plan,
+    )?;
+    debug_assert_final_propagation_trace_alignment(
+        &final_propagation_plan,
+        &final_propagation_trace,
+    );
+    S::after_final_propagation_trace(
+        measurement,
+        eval_ctx,
+        &final_propagation_plan,
+        &final_propagation_trace,
+    )?;
+    debug!(
+        strategy = S::LABEL,
+        scale_range_retargets = final_propagation_trace
+            .node_results
+            .iter()
+            .map(|result| result.scale_range_retarget_count)
+            .sum::<usize>(),
+        plot_area_adjustments = final_propagation_trace
+            .node_results
+            .iter()
+            .map(|result| result.child_plot_area_adjustments_count)
+            .sum::<usize>(),
+        "coordinate_facet_measurement_tree final propagation complete"
+    );
+
+    Ok(CoordinationRunArtifacts {
+        initial_requirement_pass,
+        retarget_trace,
+        retargeted_requirement_pass,
+        final_propagation_trace,
+    })
+}
+
+pub(crate) async fn coordinate_facet_measurement_tree_until_with_strategy<S>(
+    measurement: &mut ComponentsMeasurement,
+    eval_ctx: &EvaluationContext,
+    checkpoint: CoordinationCheckpoint,
+) -> Result<(), AvengerChartError>
+where
+    S: FacetSizingCoordinationStrategy + Send + Sync + 'static,
+{
+    S::before_run(measurement, eval_ctx)?;
+
+    let mut epoch = None;
+    debug_assert_stage_transition(epoch, FacetCoordinationStage::InitialRequirements);
+    epoch = Some(FacetCoordinationStage::InitialRequirements);
+
+    let initial_requirement_pass = build_initial_requirement_pass(
+        collect_initial_requirement_snapshot_with_strategy::<S>(measurement),
+    );
+    debug_assert_initial_requirement_coverage(&initial_requirement_pass);
+    apply_initial_requirement_pass_with_strategy::<S>(measurement, &initial_requirement_pass);
+    if checkpoint == CoordinationCheckpoint::InitialRequirementsApplied {
+        return Ok(());
+    }
+
+    debug_assert_stage_transition(epoch, FacetCoordinationStage::Retarget);
+    epoch = Some(FacetCoordinationStage::Retarget);
+
+    let retarget_plan = build_retarget_plan_with_strategy::<S>(measurement);
+    debug_assert_retarget_plan_coverage_with_strategy::<S>(measurement, &retarget_plan);
+    let retarget_trace =
+        run_retarget_with_trace_with_strategy::<S>(measurement, eval_ctx, &retarget_plan).await?;
+    debug_assert_retarget_trace_alignment(&retarget_plan, &retarget_trace);
+    S::after_retarget_trace(measurement, eval_ctx, &retarget_plan, &retarget_trace)?;
+    if checkpoint == CoordinationCheckpoint::RetargetComplete {
+        return Ok(());
+    }
+
+    debug_assert_stage_transition(epoch, FacetCoordinationStage::RetargetedRequirements);
+    epoch = Some(FacetCoordinationStage::RetargetedRequirements);
+
+    let retargeted_requirement_pass = build_retargeted_requirement_pass(
+        collect_retargeted_requirement_snapshot_with_strategy::<S>(measurement),
+    );
+    debug_assert_retargeted_requirement_coverage(&retargeted_requirement_pass);
+    apply_retargeted_requirement_pass_with_strategy::<S>(measurement, &retargeted_requirement_pass);
+    if checkpoint == CoordinationCheckpoint::RetargetedRequirementsApplied {
+        return Ok(());
+    }
+
+    debug_assert_stage_transition(epoch, FacetCoordinationStage::FinalPropagation);
+
+    let final_propagation_plan = build_final_propagation_plan_with_strategy::<S>(measurement);
+    debug_assert_final_propagation_plan_coverage_with_strategy::<S>(
+        measurement,
+        &final_propagation_plan,
+    );
+    let final_propagation_trace = run_final_propagation_with_trace_with_strategy::<S>(
+        measurement,
+        eval_ctx,
+        &final_propagation_plan,
+    )?;
+    debug_assert_final_propagation_trace_alignment(
+        &final_propagation_plan,
+        &final_propagation_trace,
+    );
+    S::after_final_propagation_trace(
+        measurement,
+        eval_ctx,
+        &final_propagation_plan,
+        &final_propagation_trace,
+    )?;
+
+    Ok(())
+}
+
+pub(crate) fn collect_initial_requirement_snapshot_with_strategy<S>(
     measurement: &ComponentsMeasurement,
-) -> InitialRequirementSnapshot {
+) -> InitialRequirementSnapshot
+where
+    S: FacetSizingCoordinationStrategy,
+{
     let mut nodes = Vec::new();
     let mut node_path = Vec::new();
-    visit_facet_bands_with_node_id(
+    visit_facet_bands_with_node_id_for_strategy::<S, _>(
         measurement,
         0,
         &mut node_path,
         &mut |node_id, depth, facet_band| {
+            let facet_band = facet_band.base();
             let mut domain_infos = Vec::new();
             facet_band.collect_cell_domain_infos(&mut domain_infos);
             nodes.push(InitialRequirementNodeSnapshot {
@@ -150,16 +381,27 @@ pub(crate) fn collect_initial_requirement_snapshot(
     InitialRequirementSnapshot { nodes }
 }
 
-pub(crate) fn collect_retargeted_requirement_snapshot(
+#[cfg(test)]
+pub(crate) fn collect_initial_requirement_snapshot(
     measurement: &ComponentsMeasurement,
-) -> RetargetedRequirementSnapshot {
+) -> InitialRequirementSnapshot {
+    collect_initial_requirement_snapshot_with_strategy::<CanvasFitCoordinationStrategy>(measurement)
+}
+
+pub(crate) fn collect_retargeted_requirement_snapshot_with_strategy<S>(
+    measurement: &ComponentsMeasurement,
+) -> RetargetedRequirementSnapshot
+where
+    S: FacetSizingCoordinationStrategy,
+{
     let mut nodes = Vec::new();
     let mut node_path = Vec::new();
-    visit_facet_bands_with_node_id(
+    visit_facet_bands_with_node_id_for_strategy::<S, _>(
         measurement,
         0,
         &mut node_path,
         &mut |node_id, depth, facet_band| {
+            let facet_band = facet_band.base();
             nodes.push(RetargetedRequirementNodeSnapshot {
                 node_id: node_id.clone(),
                 key: facet_band.coordination_group_key_for_depth(depth),
@@ -173,10 +415,24 @@ pub(crate) fn collect_retargeted_requirement_snapshot(
     RetargetedRequirementSnapshot { nodes }
 }
 
-fn measurement_node_ids(measurement: &ComponentsMeasurement) -> Vec<CoordinationNodeKey> {
+#[cfg(test)]
+pub(crate) fn collect_retargeted_requirement_snapshot(
+    measurement: &ComponentsMeasurement,
+) -> RetargetedRequirementSnapshot {
+    collect_retargeted_requirement_snapshot_with_strategy::<CanvasFitCoordinationStrategy>(
+        measurement,
+    )
+}
+
+fn measurement_node_ids_with_strategy<S>(
+    measurement: &ComponentsMeasurement,
+) -> Vec<CoordinationNodeKey>
+where
+    S: FacetSizingCoordinationStrategy,
+{
     let mut node_ids = Vec::new();
     let mut node_path = Vec::new();
-    visit_facet_bands_with_node_id(
+    visit_facet_bands_with_node_id_for_strategy::<S, _>(
         measurement,
         0,
         &mut node_path,
@@ -185,6 +441,11 @@ fn measurement_node_ids(measurement: &ComponentsMeasurement) -> Vec<Coordination
         },
     );
     node_ids
+}
+
+#[cfg(test)]
+fn measurement_node_ids(measurement: &ComponentsMeasurement) -> Vec<CoordinationNodeKey> {
+    measurement_node_ids_with_strategy::<CanvasFitCoordinationStrategy>(measurement)
 }
 
 pub(crate) fn debug_assert_stage_transition(
@@ -268,12 +529,16 @@ pub(crate) fn debug_assert_retargeted_requirement_coverage(
     );
 }
 
-pub(crate) fn debug_assert_retarget_plan_coverage(
+pub(crate) fn debug_assert_retarget_plan_coverage_with_strategy<S>(
     measurement: &ComponentsMeasurement,
     plan: &RetargetPlan,
-) {
+) where
+    S: FacetSizingCoordinationStrategy,
+{
     let expected_ids: HashSet<CoordinationNodeKey> =
-        measurement_node_ids(measurement).into_iter().collect();
+        measurement_node_ids_with_strategy::<S>(measurement)
+            .into_iter()
+            .collect();
     let actual_ids: HashSet<CoordinationNodeKey> = plan
         .node_plans
         .iter()
@@ -286,12 +551,16 @@ pub(crate) fn debug_assert_retarget_plan_coverage(
     );
 }
 
-pub(crate) fn debug_assert_final_propagation_plan_coverage(
+pub(crate) fn debug_assert_final_propagation_plan_coverage_with_strategy<S>(
     measurement: &ComponentsMeasurement,
     plan: &FinalPropagationPlan,
-) {
+) where
+    S: FacetSizingCoordinationStrategy,
+{
     let expected_ids: HashSet<CoordinationNodeKey> =
-        measurement_node_ids(measurement).into_iter().collect();
+        measurement_node_ids_with_strategy::<S>(measurement)
+            .into_iter()
+            .collect();
     let actual_ids: HashSet<CoordinationNodeKey> = plan
         .node_plans
         .iter()
