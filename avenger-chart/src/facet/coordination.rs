@@ -139,8 +139,10 @@ pub(crate) fn collect_initial_requirement_snapshot(
             nodes.push(InitialRequirementNodeSnapshot {
                 node_id: node_id.clone(),
                 key: facet_band.coordination_group_key_for_depth(depth),
-                local_overflow: facet_band.local_overflow_value(),
+                axis: facet_band.axis,
+                measured_overflow: facet_band.measured_overflow_value(),
                 local_layout: facet_band.local_layout_value(),
+                guide_padding_inner_px: facet_band.guide_padding_inner_px_value(),
                 domain_infos,
             });
         },
@@ -161,8 +163,10 @@ pub(crate) fn collect_retargeted_requirement_snapshot(
             nodes.push(RetargetedRequirementNodeSnapshot {
                 node_id: node_id.clone(),
                 key: facet_band.coordination_group_key_for_depth(depth),
-                local_overflow: facet_band.local_overflow_value(),
+                axis: facet_band.axis,
+                measured_overflow: facet_band.measured_overflow_value(),
                 local_layout: facet_band.local_layout_value(),
+                guide_padding_inner_px: facet_band.guide_padding_inner_px_value(),
             });
         },
     );

@@ -4856,7 +4856,7 @@ fn test_four_level_col_col_col_col_dept_free_team_level2() {
                                             .col_with(col("team"), |c| {
                                                 c.facet(|f| {
                                                     f.title("Team")
-                                                        .with_scale_sharing(ScaleSharing::Level(2))
+                                                        .with_slot_sharing(ScaleSharing::Level(2))
                                                 })
                                             })
                                             .subplot(
@@ -4937,7 +4937,7 @@ fn test_four_level_col_col_col_col_dept_free_team_level1() {
                                             .col_with(col("team"), |c| {
                                                 c.facet(|f| {
                                                     f.title("Team")
-                                                        .with_scale_sharing(ScaleSharing::Level(1))
+                                                        .with_slot_sharing(ScaleSharing::Level(1))
                                                 })
                                             })
                                             .subplot(

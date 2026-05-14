@@ -109,7 +109,8 @@ pub(super) async fn render_facet_band_canvas_fit(
             subplot_eval_ctx.with_invalid_facet_path_axis_fallback_hidden(true)
         } else {
             subplot_eval_ctx.clone()
-        };
+        }
+        .with_facet_coord_node_path_appended(idx);
 
         let components = compiled_subplot
             .build_plot_components(
@@ -133,6 +134,7 @@ pub(super) async fn render_facet_band_canvas_fit(
         all_marks.extend(components.legend_marks);
         all_marks.extend(components.title_marks);
         all_marks.extend(components.subtitle_marks);
+        all_marks.extend(components.debug_marks);
 
         let subplot_group = SceneGroup {
             name: ops.group_name(idx, false),

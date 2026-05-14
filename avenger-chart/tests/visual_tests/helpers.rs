@@ -232,6 +232,33 @@ pub fn get_baseline_path(category: &str, base_name: &str) -> String {
     format!("tests/baselines/{}/{}.png", category, base_name)
 }
 
+const DERIVED_PLOT_SIZE_BASELINES_ENV: &str = "AVENGER_CHART_DERIVED_PLOT_SIZE_BASELINES";
+
+fn canvas_derived_plot_size_enabled() -> bool {
+    std::env::var_os(DERIVED_PLOT_SIZE_BASELINES_ENV).is_some()
+}
+
+fn canvas_derived_plot_size_only_enabled() -> bool {
+    std::env::var_os(DERIVED_PLOT_SIZE_BASELINES_ENV)
+        .as_deref()
+        .is_some_and(|value| value == "only")
+}
+
+fn canvas_derived_plot_size_category(category: &str) -> Option<String> {
+    if !canvas_derived_plot_size_enabled() {
+        return None;
+    }
+
+    match category {
+        "facet"
+        | "facet_legend_sharing"
+        | "facet_legends"
+        | "nested_grid"
+        | "nested_grid_empty_subplot" => Some(format!("{category}_plot_size_from_canvas")),
+        _ => None,
+    }
+}
+
 /// Compare a rendered image against a baseline
 pub fn compare_images(
     baseline_path: &str,
@@ -329,6 +356,47 @@ pub async fn assert_visual_match(
     baseline_name: &str,
     tolerance: f64,
 ) {
+    let params_for_derived_plot_size = params.clone();
+    let derived_category = canvas_derived_plot_size_category(category);
+    if canvas_derived_plot_size_only_enabled() {
+        if let Some(derived_category) = derived_category {
+            assert_canvas_derived_plot_size_visual_match(
+                compiled,
+                ctx,
+                params_for_derived_plot_size,
+                &derived_category,
+                baseline_name,
+                tolerance,
+            )
+            .await;
+        }
+        return;
+    }
+
+    assert_visual_match_baseline_only(compiled, ctx, params, category, baseline_name, tolerance)
+        .await;
+
+    if let Some(derived_category) = derived_category {
+        assert_canvas_derived_plot_size_visual_match(
+            compiled,
+            ctx,
+            params_for_derived_plot_size,
+            &derived_category,
+            baseline_name,
+            tolerance,
+        )
+        .await;
+    }
+}
+
+async fn assert_visual_match_baseline_only(
+    compiled: &CompiledPlot,
+    ctx: &datafusion::prelude::SessionContext,
+    params: Option<IndexMap<String, ScalarValue>>,
+    category: &str,
+    baseline_name: &str,
+    tolerance: f64,
+) {
     try_init_tracing();
 
     let (direct_image, serialized_image) =
@@ -390,6 +458,10 @@ pub async fn assert_visual_match_with_options(
     baseline_name: &str,
     tolerance: f64,
 ) {
+    if canvas_derived_plot_size_only_enabled() {
+        return;
+    }
+
     try_init_tracing();
 
     let (direct_image, serialized_image) =
@@ -446,6 +518,55 @@ pub async fn assert_visual_match_default_with_options(
         0.9999,
     )
     .await
+}
+
+/// Render a canvas-sized faceted chart as a fixed leaf plot-area chart.
+///
+/// The fixed leaf size is derived from the final canvas solution. This is useful
+/// for checking whether plot-size mode can reproduce the canvas-fit layout when
+/// both paths start from the same leaf subplot dimensions.
+pub async fn assert_canvas_derived_plot_size_visual_match(
+    compiled_canvas: &CompiledPlot,
+    ctx: &datafusion::prelude::SessionContext,
+    params: Option<IndexMap<String, ScalarValue>>,
+    category: &str,
+    baseline_name: &str,
+    tolerance: f64,
+) {
+    try_init_tracing();
+
+    let (leaf_plot_width, leaf_plot_height) = compiled_canvas
+        .uniform_facet_leaf_plot_area_from_canvas_for_testing(
+            ctx,
+            params.clone(),
+            EvaluationOptions::default(),
+        )
+        .await
+        .expect("Failed to derive uniform leaf plot-area size from canvas solution");
+
+    tracing::info!(
+        baseline_name,
+        leaf_plot_width,
+        leaf_plot_height,
+        "Derived fixed leaf plot-area size from canvas solution"
+    );
+
+    let serialized =
+        bincode::serialize(compiled_canvas).expect("Failed to serialize CompiledPlot with bincode");
+    let plot_size_compiled: CompiledPlot =
+        bincode::deserialize(&serialized).expect("Failed to deserialize CompiledPlot from bincode");
+    let plot_size_compiled =
+        plot_size_compiled.with_facet_leaf_plot_area_for_testing(leaf_plot_width, leaf_plot_height);
+
+    assert_visual_match_baseline_only(
+        &plot_size_compiled,
+        ctx,
+        params,
+        category,
+        baseline_name,
+        tolerance,
+    )
+    .await;
 }
 
 #[cfg(test)]

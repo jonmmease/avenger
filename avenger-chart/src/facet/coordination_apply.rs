@@ -548,7 +548,7 @@ fn run_final_propagation_recursive(
             node_path.pop();
         }
 
-        facet_band.apply_cross_axis_coordinated_side_slabs_to_cells();
+        facet_band.apply_coordinated_alignment_slabs_to_child_layouts();
 
         node_results.push(FinalPropagationNodeTrace {
             node_id,

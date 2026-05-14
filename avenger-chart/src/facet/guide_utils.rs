@@ -19,6 +19,7 @@ use crate::{
     cartesian::axis::AxisPosition,
     facet::band_positions::BandPosition,
     facet::evaluated_facet_tree::EvaluatedFacetTree,
+    facet::sharing_level::SharingLevel,
     layout::LayoutBounds,
     theme::{Theme, ThemeContext},
 };
@@ -63,6 +64,29 @@ pub(crate) fn facet_guide_labels_visible_for_cell(
     facet_tree
         .channel_axis_visibility_for_path_checked(facet_path, axis_position, sharing_level)
         .map(|visibility| visibility.show_labels)
+        .unwrap_or(true)
+}
+
+/// Determine whether a facet guide title should be visible for a specific cell.
+///
+/// Facet titles use channel-axis ownership so mixed row/column nesting scopes
+/// titles to the strip controlled by the guide axis.
+pub(crate) fn facet_guide_title_visible_for_cell(
+    facet_tree: &EvaluatedFacetTree,
+    facet_path: &[ScalarValue],
+    axis_position: AxisPosition,
+) -> bool {
+    if facet_path.is_empty() {
+        return true;
+    }
+
+    facet_tree
+        .channel_axis_visibility_for_path_checked(
+            facet_path,
+            axis_position,
+            SharingLevel::GLOBAL.raw(),
+        )
+        .map(|visibility| visibility.show_title)
         .unwrap_or(true)
 }
 
@@ -662,6 +686,43 @@ mod tests {
         )))
     }
 
+    fn column_row_column_tree() -> EvaluatedFacetTree {
+        let make_team_leaf = || {
+            PartitionNode::leaf(
+                FacetDirection::Column,
+                255,
+                "team".to_string(),
+                None,
+                vec![s("Team1"), s("Team2")],
+            )
+        };
+
+        let make_department_branch = || {
+            let mut dept_children = IndexMap::new();
+            dept_children.insert(s("Dept1"), Box::new(make_team_leaf()));
+            dept_children.insert(s("Dept2"), Box::new(make_team_leaf()));
+            PartitionNode::branch(
+                FacetDirection::Row,
+                255,
+                "department".to_string(),
+                None,
+                dept_children,
+            )
+        };
+
+        let mut division_children = IndexMap::new();
+        division_children.insert(s("DivA"), Box::new(make_department_branch()));
+        division_children.insert(s("DivB"), Box::new(make_department_branch()));
+
+        EvaluatedFacetTree::new(Some(PartitionNode::branch(
+            FacetDirection::Column,
+            255,
+            "division".to_string(),
+            None,
+            division_children,
+        )))
+    }
+
     fn title_x_from_marks(marks: &[SceneMark], expected_title: &str) -> f32 {
         marks
             .iter()
@@ -968,6 +1029,32 @@ mod tests {
             &[s("B"), s("C2")],
             AxisPosition::Right,
             1
+        ));
+    }
+
+    #[test]
+    fn facet_guide_title_repeats_for_column_guides_in_each_row_strip() {
+        let tree = column_row_column_tree();
+
+        assert!(facet_guide_title_visible_for_cell(
+            &tree,
+            &[s("DivA"), s("Dept1")],
+            AxisPosition::Top,
+        ));
+        assert!(!facet_guide_title_visible_for_cell(
+            &tree,
+            &[s("DivA"), s("Dept2")],
+            AxisPosition::Top,
+        ));
+        assert!(facet_guide_title_visible_for_cell(
+            &tree,
+            &[s("DivB"), s("Dept1")],
+            AxisPosition::Top,
+        ));
+        assert!(!facet_guide_title_visible_for_cell(
+            &tree,
+            &[s("DivB"), s("Dept2")],
+            AxisPosition::Top,
         ));
     }
 }

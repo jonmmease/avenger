@@ -1,8 +1,7 @@
 //! Rendering pipeline for CompiledPlot
 
 use std::{
-    collections::{HashMap, hash_map::DefaultHasher},
-    hash::{Hash, Hasher},
+    collections::HashMap,
     sync::{Arc, Mutex},
     time::Instant,
 };
@@ -53,7 +52,7 @@ use crate::{
         debug as facet_debug,
         empty_cell_policy::FacetEmptyCellPolicy,
         evaluated_facet_tree::{EvaluatedFacetTree, PartitionContent, PartitionNode},
-        layout_slabs::LayoutSlabs,
+        layout_plan::FacetCellEmptyKind,
         marks::facet::{FacetMarkRef, facet_mark_ref},
     },
     guide::OverflowSpaceRequirement,
@@ -80,7 +79,7 @@ use crate::{
 use super::{
     CompiledPlot, ComponentsMeasurement, PlotComponents,
     expr_eval::evaluate_f32_expr,
-    legends::{LegendPlanScope, PreparedLegendPlan},
+    legends::{HoistedLegendRequest, LegendPlanScope, PreparedLegendPlan},
     scale_provider::{DynamicScaleProvider, ScaleProvider},
     scales::build_scale_builder_from_marks,
 };
@@ -93,71 +92,6 @@ struct PreparedMarkData {
     scalar_batch: RecordBatch,
     /// Render state with plot dimensions and scales
     render_state: RenderState,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct RelativeBounds {
-    min_x: f32,
-    min_y: f32,
-    max_x: f32,
-    max_y: f32,
-}
-
-impl RelativeBounds {
-    fn empty() -> Self {
-        Self {
-            min_x: f32::INFINITY,
-            min_y: f32::INFINITY,
-            max_x: f32::NEG_INFINITY,
-            max_y: f32::NEG_INFINITY,
-        }
-    }
-
-    fn from_plot_and_overflow(
-        plot_width: f32,
-        plot_height: f32,
-        overflow: &OverflowSpaceRequirement,
-    ) -> Self {
-        Self {
-            min_x: -overflow.left,
-            min_y: -overflow.top,
-            max_x: plot_width + overflow.right,
-            max_y: plot_height + overflow.bottom,
-        }
-    }
-
-    fn is_empty(self) -> bool {
-        !self.min_x.is_finite()
-            || !self.min_y.is_finite()
-            || !self.max_x.is_finite()
-            || !self.max_y.is_finite()
-    }
-
-    fn union_with(&mut self, other: Self) {
-        if other.is_empty() {
-            return;
-        }
-        if self.is_empty() {
-            *self = other;
-            return;
-        }
-        self.min_x = self.min_x.min(other.min_x);
-        self.min_y = self.min_y.min(other.min_y);
-        self.max_x = self.max_x.max(other.max_x);
-        self.max_y = self.max_y.max(other.max_y);
-    }
-
-    fn translated(self, dx: f32, dy: f32) -> Self {
-        if self.is_empty() {
-            return self;
-        }
-        Self {
-            min_x: self.min_x + dx,
-            min_y: self.min_y + dy,
-            max_x: self.max_x + dx,
-            max_y: self.max_y + dy,
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -223,7 +157,33 @@ fn facet_band_children(
         .map(|facet_band| (&facet_band.compiled_subplot, facet_band.cells.as_slice()))
 }
 
-struct CanvasRefinementIterationOutcome {
+const OKABE_ITO_DEBUG_COLORS: [&str; 9] = [
+    "rgba(230, 159, 0, 0.85)",   // orange
+    "rgba(86, 180, 233, 0.85)",  // sky blue
+    "rgba(0, 158, 115, 0.85)",   // bluish green
+    "rgba(240, 228, 66, 0.85)",  // yellow
+    "rgba(0, 114, 178, 0.85)",   // blue
+    "rgba(213, 94, 0, 0.85)",    // vermillion
+    "rgba(204, 121, 167, 0.85)", // reddish purple
+    "rgba(153, 153, 153, 0.85)", // gray
+    "rgba(0, 0, 0, 0.85)",       // black
+];
+
+fn facet_debug_layout_color(facet_coord_node_path: &[usize]) -> String {
+    let cycle_index = facet_coord_node_path
+        .iter()
+        .enumerate()
+        .map(|(depth, child_index)| (depth + 1) * (child_index + 1))
+        .sum::<usize>()
+        .saturating_sub(1);
+    OKABE_ITO_DEBUG_COLORS[cycle_index % OKABE_ITO_DEBUG_COLORS.len()].to_string()
+}
+
+fn facet_debug_layout_flip_label_align(facet_coord_node_path: &[usize]) -> bool {
+    facet_coord_node_path.len() % 2 == 1
+}
+
+struct RefinementIterationOutcome {
     reached_snapshot_checkpoint: bool,
     overflow_grew: Option<bool>,
 }
@@ -235,7 +195,8 @@ impl CompiledPlot {
     /// Default margin in pixels when not specified in theme or expression
     const DEFAULT_MARGIN: f32 = 10.0;
 
-    /// Stop canvas refinement once dimensions are effectively stable.
+    /// Stop layout-refinement assertions once dimensions are effectively stable.
+    #[cfg(test)]
     const LAYOUT_REFINEMENT_EPSILON: f32 = 0.5;
 
     /// Extra whitespace around standalone facet-subtree snapshot renders.
@@ -332,130 +293,18 @@ impl CompiledPlot {
         }
     }
 
-    fn canvas_facet_cell_positions(facet_measurement: &FacetBandCoordMeasurement) -> Vec<f32> {
-        let layout = facet_measurement
-            .coordinated_layout
-            .as_ref()
-            .unwrap_or(&facet_measurement.local_layout);
-        let mut positions = Vec::with_capacity(facet_measurement.cells.len());
-        let mut cursor = layout.outer_start.max(0.0);
-        let gap = layout.padding_inner_px.max(0.0);
-        for (idx, cell) in facet_measurement.cells.iter().enumerate() {
-            positions.push(cursor);
-            let main_size = match facet_measurement.axis {
-                crate::coords::FacetAxis::Column => cell.measurement.plot_area_width,
-                crate::coords::FacetAxis::Row => cell.measurement.plot_area_height,
-            }
-            .max(0.0);
-            cursor += main_size;
-            if idx + 1 < facet_measurement.cells.len() {
-                cursor += gap;
-            }
-        }
-        positions
-    }
-
-    fn fixed_facet_cell_positions(facet_measurement: &FacetBandCoordMeasurementFixed) -> Vec<f32> {
-        facet_measurement.fixed_main_axis_positions.clone()
-    }
-
-    fn component_relative_bounds(measurement: &ComponentsMeasurement) -> RelativeBounds {
-        let mut bounds = RelativeBounds::from_plot_and_overflow(
-            measurement.plot_area_width,
-            measurement.plot_area_height,
-            &measurement.layout.total_overflow,
-        );
-
-        if let Some(facet_measurement_fixed) = measurement
-            .coord_measurement
-            .as_any()
-            .downcast_ref::<FacetBandCoordMeasurementFixed>()
-        {
-            let facet_measurement = &facet_measurement_fixed.base;
-            let cell_positions = Self::fixed_facet_cell_positions(facet_measurement_fixed);
-            let slabs = LayoutSlabs::from_coordinated(&facet_measurement.coordinated_overflow);
-            let (origin_offset_x, origin_offset_y) = match facet_measurement.axis {
-                crate::coords::FacetAxis::Column => (0.0, slabs.legend.top),
-                crate::coords::FacetAxis::Row => (slabs.legend.left, 0.0),
-            };
-
-            let mut facet_bounds = RelativeBounds::empty();
-            for (idx, cell) in facet_measurement.cells.iter().enumerate() {
-                if idx >= cell_positions.len() {
-                    continue;
-                }
-                let child_bounds = Self::component_relative_bounds(&cell.measurement);
-                let translated = match facet_measurement.axis {
-                    crate::coords::FacetAxis::Column => child_bounds
-                        .translated(cell_positions[idx] + origin_offset_x, origin_offset_y),
-                    crate::coords::FacetAxis::Row => child_bounds
-                        .translated(origin_offset_x, cell_positions[idx] + origin_offset_y),
-                };
-                facet_bounds.union_with(translated);
-            }
-
-            bounds.union_with(facet_bounds);
-        } else if let Some(facet_measurement) = measurement
-            .coord_measurement
-            .as_any()
-            .downcast_ref::<FacetBandCoordMeasurement>()
-        {
-            let cell_positions = Self::canvas_facet_cell_positions(facet_measurement);
-            let slabs = LayoutSlabs::from_coordinated(&facet_measurement.coordinated_overflow);
-            let (origin_offset_x, origin_offset_y) = match facet_measurement.axis {
-                crate::coords::FacetAxis::Column => (0.0, slabs.legend.top),
-                crate::coords::FacetAxis::Row => (slabs.legend.left, 0.0),
-            };
-
-            let mut facet_bounds = RelativeBounds::empty();
-            for (idx, cell) in facet_measurement.cells.iter().enumerate() {
-                if idx >= cell_positions.len() {
-                    continue;
-                }
-                let child_bounds = Self::component_relative_bounds(&cell.measurement);
-                let translated = match facet_measurement.axis {
-                    crate::coords::FacetAxis::Column => child_bounds
-                        .translated(cell_positions[idx] + origin_offset_x, origin_offset_y),
-                    crate::coords::FacetAxis::Row => child_bounds
-                        .translated(origin_offset_x, cell_positions[idx] + origin_offset_y),
-                };
-                facet_bounds.union_with(translated);
-            }
-
-            bounds.union_with(facet_bounds);
-        }
-
-        bounds
-    }
-
-    fn fixed_subplot_required_canvas_size(
+    fn collect_facet_leaf_plot_area_sizes(
         measurement: &ComponentsMeasurement,
-    ) -> Option<(f32, f32)> {
-        let relative_bounds = Self::component_relative_bounds(measurement);
-        if relative_bounds.is_empty() {
-            return None;
+        leaf_sizes: &mut Vec<(f32, f32)>,
+    ) {
+        let Some((_compiled_subplot, cells)) = facet_band_children(measurement) else {
+            leaf_sizes.push((measurement.plot_area_width, measurement.plot_area_height));
+            return;
+        };
+
+        for cell in cells {
+            Self::collect_facet_leaf_plot_area_sizes(&cell.measurement, leaf_sizes);
         }
-        let plot_bounds = measurement.layout.plot_area_bounds();
-        let abs_min_x = plot_bounds.x + relative_bounds.min_x;
-        let abs_min_y = plot_bounds.y + relative_bounds.min_y;
-        let abs_max_x = plot_bounds.x + relative_bounds.max_x;
-        let abs_max_y = plot_bounds.y + relative_bounds.max_y;
-
-        // We do not shift plot-area origin in fixed-subplot realization. If marks extend
-        // left/top of origin, grow canvas conservatively and log the residual.
-        let required_width = abs_max_x.max(measurement.layout.canvas_size.0).max(1.0);
-        let required_height = abs_max_y.max(measurement.layout.canvas_size.1).max(1.0);
-
-        if abs_min_x < -Self::LAYOUT_REFINEMENT_EPSILON
-            || abs_min_y < -Self::LAYOUT_REFINEMENT_EPSILON
-        {
-            debug!(
-                abs_min_x,
-                abs_min_y, "fixed-subplot required bounds extend left/top of canvas origin"
-            );
-        }
-
-        Some((required_width, required_height))
     }
 
     fn legends_within_canvas_recursive(measurement: &ComponentsMeasurement) -> bool {
@@ -572,7 +421,7 @@ impl CompiledPlot {
         {
             return Err(AvengerChartError::InvalidArgument(
                 "Faceted charts do not support partial `canvas_constraint`/`plot_constraint` in this mode. \
-                 Use `canvas_size(...)` (canvas-fit mode) or `plot_size(width, height)` (fixed-subplot mode)."
+                 Use `canvas_size(...)` (canvas-fit mode) or `plot_size(width, height)` (fixed leaf plot-area mode)."
                     .to_string(),
             ));
         }
@@ -697,6 +546,169 @@ impl CompiledPlot {
                 adjusted
             }
         }
+    }
+
+    fn layout_spec_with_fixed_plot_area(
+        evaluated_layout_spec: &EvaluatedLayoutSpec,
+        plot_area_width: f32,
+        plot_area_height: f32,
+    ) -> EvaluatedLayoutSpec {
+        let mut adjusted = evaluated_layout_spec.clone();
+        adjusted.canvas = EvaluatedSizeMode::Auto;
+        adjusted.plot_area = EvaluatedSizeMode::Fixed {
+            width: plot_area_width.max(1.0),
+            height: plot_area_height.max(1.0),
+        };
+        adjusted
+    }
+
+    fn nested_fixed_plot_area_layout_spec(
+        plot_area_width: f32,
+        plot_area_height: f32,
+    ) -> EvaluatedLayoutSpec {
+        EvaluatedLayoutSpec {
+            canvas: EvaluatedSizeMode::Auto,
+            plot_area: EvaluatedSizeMode::Fixed {
+                width: plot_area_width.max(1.0),
+                height: plot_area_height.max(1.0),
+            },
+            margins: EvaluatedMargins {
+                top: 0.0,
+                right: 0.0,
+                bottom: 0.0,
+                left: 0.0,
+            },
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn with_facet_leaf_plot_area_for_testing(
+        mut self,
+        leaf_plot_width: f32,
+        leaf_plot_height: f32,
+    ) -> Self {
+        self.layout_spec.canvas = SizeMode::Auto;
+        self.layout_spec.plot_area = SizeMode::Fixed {
+            width: lit(leaf_plot_width).into(),
+            height: lit(leaf_plot_height).into(),
+        };
+        self
+    }
+
+    #[doc(hidden)]
+    pub async fn final_facet_leaf_plot_area_sizes_for_testing(
+        &self,
+        ctx: &SessionContext,
+        params: Option<IndexMap<String, ScalarValue>>,
+        options: EvaluationOptions,
+    ) -> Result<Vec<(f32, f32)>, AvengerChartError> {
+        let merged_params = if let Some(provided) = params {
+            let mut merged = self.default_params.clone();
+            merged.extend(provided);
+            merged
+        } else {
+            self.default_params.clone()
+        };
+
+        let facet_tree = Arc::new(EvaluatedFacetTree::from_compiled_plot(self, ctx).await?);
+        let evaluated_layout_spec = evaluate_layout_spec(
+            &self.layout_spec,
+            ctx,
+            &merged_params,
+            self.get_theme().as_ref(),
+        )
+        .await?;
+        let facet_sizing_strategy = self.resolve_facet_sizing_strategy(&evaluated_layout_spec)?;
+        if facet_sizing_strategy != FacetSizingStrategy::CanvasFit {
+            return Err(AvengerChartError::InvalidArgument(
+                "Derived plot-size baselines must start from a canvas-sized faceted plot"
+                    .to_string(),
+            ));
+        }
+
+        let measured_layout_spec = Self::layout_spec_for_facet_sizing_strategy(
+            &evaluated_layout_spec,
+            facet_tree.as_ref(),
+            facet_sizing_strategy,
+        );
+
+        let scale_builder = build_scale_builder_from_marks(
+            &self.marks,
+            &self.scale_specs,
+            &self.coord_transform,
+            &self.data,
+            None,
+            ctx,
+            &merged_params,
+            self.get_theme().as_ref(),
+        )
+        .await?;
+
+        let provider = DynamicScaleProvider {
+            builder: &scale_builder,
+            plot: self,
+        };
+
+        let eval_ctx = EvaluationContext::new(
+            self.get_theme(),
+            Arc::new(ctx.clone()),
+            merged_params,
+            facet_tree,
+        )
+        .with_facet_runtime_sizing_mode(facet_sizing_strategy.runtime_sizing_mode())
+        .with_facet_layout_refinement(options.facet_layout_refinement)
+        .with_debug_layout_lines(facet_debug::resolve_layout_overlay_enabled(
+            options.debug_layout_lines,
+        ));
+
+        let mut measurement = self
+            .measure_plot_components(&eval_ctx, &measured_layout_spec, &provider, None, &[])
+            .await?;
+
+        self.apply_layout_snapshot(
+            &LayoutSnapshot::Final,
+            &mut measurement,
+            &eval_ctx,
+            &measured_layout_spec,
+            &provider,
+            facet_sizing_strategy,
+            facet_sizing_strategy.coordination_mode(),
+        )
+        .await?;
+
+        let mut leaf_sizes = Vec::new();
+        Self::collect_facet_leaf_plot_area_sizes(&measurement, &mut leaf_sizes);
+        Ok(leaf_sizes)
+    }
+
+    #[doc(hidden)]
+    pub async fn uniform_facet_leaf_plot_area_from_canvas_for_testing(
+        &self,
+        ctx: &SessionContext,
+        params: Option<IndexMap<String, ScalarValue>>,
+        options: EvaluationOptions,
+    ) -> Result<(f32, f32), AvengerChartError> {
+        let leaf_sizes = self
+            .final_facet_leaf_plot_area_sizes_for_testing(ctx, params, options)
+            .await?;
+        let Some((first_width, first_height)) = leaf_sizes.first().copied() else {
+            return Err(AvengerChartError::InternalError(
+                "No facet leaf plot-area sizes were measured".to_string(),
+            ));
+        };
+
+        let tolerance = 0.5;
+        for (width, height) in &leaf_sizes {
+            if (width - first_width).abs() > tolerance || (height - first_height).abs() > tolerance
+            {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Canvas solution produced non-uniform leaf plot-area sizes: {:?}",
+                    leaf_sizes
+                )));
+            }
+        }
+
+        Ok((first_width, first_height))
     }
 }
 
@@ -1358,6 +1370,35 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
         scope: LegendPlanScope,
     ) -> Result<(LayoutSolution, PreparedLegendPlan), AvengerChartError> {
+        self.compute_layout_with_precomputed_overflow_and_coord(
+            overflow,
+            layout_spec,
+            scales,
+            available_size,
+            ctx,
+            params,
+            facet_tree,
+            facet_path,
+            scope,
+            None,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn compute_layout_with_precomputed_overflow_and_coord(
+        &self,
+        overflow: &OverflowSpaceRequirement,
+        layout_spec: &EvaluatedLayoutSpec,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        available_size: taffy::Size<f32>,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+        facet_tree: &EvaluatedFacetTree,
+        facet_path: &[ScalarValue],
+        scope: LegendPlanScope,
+        coord_measurement: Option<&dyn CoordMeasurement>,
+    ) -> Result<(LayoutSolution, PreparedLegendPlan), AvengerChartError> {
         let legend_plan = self
             .prepare_legend_plan(
                 scales,
@@ -1369,6 +1410,43 @@ impl CompiledPlot {
                 scope,
             )
             .await?;
+
+        self.compute_layout_from_legend_plan(
+            overflow,
+            layout_spec,
+            available_size,
+            ctx,
+            params,
+            facet_path,
+            coord_measurement,
+            legend_plan,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn compute_layout_from_legend_plan(
+        &self,
+        overflow: &OverflowSpaceRequirement,
+        layout_spec: &EvaluatedLayoutSpec,
+        available_size: taffy::Size<f32>,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+        facet_path: &[ScalarValue],
+        coord_measurement: Option<&dyn CoordMeasurement>,
+        mut legend_plan: PreparedLegendPlan,
+    ) -> Result<(LayoutSolution, PreparedLegendPlan), AvengerChartError> {
+        if let Some(coord_measurement) = coord_measurement {
+            self.consume_anchored_hoisted_legends(
+                &mut legend_plan,
+                coord_measurement,
+                facet_path,
+                available_size,
+                ctx,
+                params,
+            )
+            .await?;
+        }
 
         let mut layout = ChartLayout::new(
             overflow,
@@ -1402,6 +1480,77 @@ impl CompiledPlot {
         }
 
         Ok((result, legend_plan))
+    }
+
+    fn collect_child_hoisted_legend_requests(
+        coord_measurement: &dyn CoordMeasurement,
+    ) -> Vec<HoistedLegendRequest> {
+        let mut requests = Vec::new();
+
+        if let Some(facet_band) = coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+        {
+            for cell in &facet_band.cells {
+                requests.extend(
+                    cell.measurement
+                        .legend_plan
+                        .hoisted_requests
+                        .iter()
+                        .cloned(),
+                );
+            }
+            return requests;
+        }
+
+        if let Some(facet_band) = coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurementFixed>()
+        {
+            for cell in &facet_band.cells {
+                requests.extend(
+                    cell.measurement
+                        .legend_plan
+                        .hoisted_requests
+                        .iter()
+                        .cloned(),
+                );
+            }
+        }
+
+        requests
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn consume_anchored_hoisted_legends(
+        &self,
+        legend_plan: &mut PreparedLegendPlan,
+        coord_measurement: &dyn CoordMeasurement,
+        facet_path: &[ScalarValue],
+        available_size: taffy::Size<f32>,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<(), AvengerChartError> {
+        let mut anchored_here = Vec::new();
+        let mut remaining = Vec::new();
+
+        for request in Self::collect_child_hoisted_legend_requests(coord_measurement) {
+            if request.anchor_path == facet_path {
+                anchored_here.push(request);
+            } else {
+                remaining.push(request);
+            }
+        }
+
+        legend_plan.hoisted_requests.extend(remaining);
+        self.add_measured_hoisted_legends_to_plan(
+            legend_plan,
+            anchored_here,
+            available_size,
+            ctx,
+            params,
+        )
+        .await
     }
 
     #[cfg(test)]
@@ -1510,7 +1659,7 @@ impl CompiledPlot {
             .await?;
 
         let (layout, legend_plan) = self
-            .compute_layout_with_precomputed_overflow(
+            .compute_layout_with_precomputed_overflow_and_coord(
                 &overflow,
                 layout_spec,
                 scales,
@@ -1523,6 +1672,7 @@ impl CompiledPlot {
                 facet_tree,
                 facet_path,
                 Self::legend_scope_for_facet_path(facet_path),
+                coord_measurement,
             )
             .await?;
 
@@ -1682,196 +1832,6 @@ impl CompiledPlot {
         Ok(())
     }
 
-    async fn refine_measurement_after_coordination(
-        &self,
-        measurement: &mut ComponentsMeasurement,
-        eval_ctx: &EvaluationContext,
-        layout_spec: &EvaluatedLayoutSpec,
-        scale_provider: &dyn ScaleProvider,
-        data_override: Option<&DataFrame>,
-        facet_path: &[ScalarValue],
-        coordination_mode: FacetCoordinationMode,
-        allow_plot_area_resize: bool,
-        max_iters: usize,
-        trace_label: &'static str,
-    ) -> Result<(), AvengerChartError> {
-        let ctx = &*eval_ctx.session_context;
-        let facet_tree = eval_ctx.facet_tree.as_ref();
-
-        for iter in 0..=max_iters {
-            let (_, candidate_layout, candidate_legend_plan) = self
-                .rebuild_layout_with_coord_overflow(
-                    layout_spec,
-                    &measurement.scales,
-                    measurement.plot_area_width,
-                    measurement.plot_area_height,
-                    &measurement.params,
-                    data_override,
-                    ctx,
-                    facet_tree,
-                    facet_path,
-                    Some(measurement.coord_measurement.as_ref()),
-                )
-                .await?;
-
-            let candidate_bounds = *candidate_layout.plot_area_bounds();
-            let delta_w = (candidate_bounds.width - measurement.plot_area_width).abs();
-            let delta_h = (candidate_bounds.height - measurement.plot_area_height).abs();
-            let overflow_grew = Self::overflow_increased(
-                &measurement.layout.total_overflow,
-                &candidate_layout.total_overflow,
-                eval_ctx.facet_layout_refinement().overflow_growth_epsilon,
-            );
-
-            trace!(
-                iter,
-                current_width = measurement.plot_area_width,
-                current_height = measurement.plot_area_height,
-                candidate_width = candidate_bounds.width,
-                candidate_height = candidate_bounds.height,
-                delta_w,
-                delta_h,
-                overflow_grew,
-                trace_label
-            );
-
-            let previous_canvas_size = measurement.canvas_size;
-            measurement.layout = candidate_layout;
-            measurement.legend_plan = candidate_legend_plan;
-            measurement.canvas_size = measurement.layout.canvas_size;
-            if !allow_plot_area_resize
-                && let Some((required_width, required_height)) =
-                    Self::fixed_subplot_required_canvas_size(measurement)
-                && (required_width > measurement.canvas_size.0
-                    || required_height > measurement.canvas_size.1)
-            {
-                trace!(
-                    iter,
-                    required_width,
-                    required_height,
-                    old_canvas_width = measurement.canvas_size.0,
-                    old_canvas_height = measurement.canvas_size.1,
-                    trace_label,
-                    "fixed-subplot realization expanded canvas from coordinated subtree bounds"
-                );
-                measurement.canvas_size = (required_width, required_height);
-                measurement.layout.canvas_size = measurement.canvas_size;
-            }
-
-            if allow_plot_area_resize {
-                let next_width = candidate_bounds.width.max(1.0);
-                let next_height = candidate_bounds.height.max(1.0);
-                self.realize_canvas_plot_area_no_overflow_remeasure(
-                    measurement,
-                    eval_ctx,
-                    facet_path,
-                    next_width,
-                    next_height,
-                )?;
-
-                if !overflow_grew {
-                    eval_ctx.record_facet_refinement_converged();
-                    trace!(iter, trace_label, "layout refinement converged");
-                    return Ok(());
-                }
-                if iter == max_iters {
-                    eval_ctx.record_facet_refinement_hit_max_passes();
-                    debug!(
-                        iter,
-                        delta_w,
-                        delta_h,
-                        epsilon = Self::LAYOUT_REFINEMENT_EPSILON,
-                        trace_label,
-                        "layout refinement reached iteration cap"
-                    );
-                    return Ok(());
-                }
-
-                eval_ctx.record_facet_refinement_pass();
-                coordinate_overflow_for_guides_with_mode(measurement, eval_ctx, coordination_mode)
-                    .await?;
-                continue;
-            } else {
-                let canvas_delta_w = (measurement.canvas_size.0 - previous_canvas_size.0).abs();
-                let canvas_delta_h = (measurement.canvas_size.1 - previous_canvas_size.1).abs();
-                if !overflow_grew {
-                    eval_ctx.record_facet_refinement_converged();
-                    debug_assert!(
-                        Self::legends_within_canvas_recursive(measurement),
-                        "fixed-subplot realization invariant: legends must remain within canvas bounds after convergence"
-                    );
-                    trace!(
-                        iter,
-                        canvas_delta_w,
-                        canvas_delta_h,
-                        trace_label,
-                        "fixed-subplot layout realization converged"
-                    );
-                    return Ok(());
-                }
-                if iter == max_iters {
-                    eval_ctx.record_facet_refinement_hit_max_passes();
-                    debug_assert!(
-                        Self::legends_within_canvas_recursive(measurement),
-                        "fixed-subplot realization invariant: legends must remain within canvas bounds at iteration cap"
-                    );
-                    debug!(
-                        iter,
-                        canvas_delta_w,
-                        canvas_delta_h,
-                        epsilon = Self::LAYOUT_REFINEMENT_EPSILON,
-                        trace_label,
-                        "fixed-subplot layout realization reached iteration cap"
-                    );
-                    return Ok(());
-                }
-            }
-
-            let (next_width, next_height) = (
-                measurement.plot_area_width.max(1.0),
-                measurement.plot_area_height.max(1.0),
-            );
-            let params_with_dims = eval_ctx.with_dimension_params(next_width, next_height);
-            let merged_params = params_with_dims.params.clone();
-            eval_ctx.record_facet_refinement_pass();
-
-            let mut final_scales = scale_provider
-                .build_scales(next_width, next_height, ctx, &merged_params)
-                .await?;
-            let coord_measurement = self
-                .measure_coord_system(
-                    &final_scales,
-                    next_width,
-                    next_height,
-                    &params_with_dims,
-                    data_override,
-                    facet_path,
-                    ctx,
-                )
-                .await?;
-            coord_measurement.apply_scale_adjustments(&mut final_scales);
-
-            measurement.plot_area_width = next_width;
-            measurement.plot_area_height = next_height;
-            measurement.scales = final_scales;
-            measurement.coord_measurement = coord_measurement;
-            measurement.params = merged_params;
-            measurement.clip = self.resolved_clip_region(
-                eval_ctx,
-                facet_path,
-                &measurement.scales,
-                next_width,
-                next_height,
-            );
-            measurement.legend_plan.retarget_scales(&measurement.scales);
-
-            coordinate_overflow_for_guides_with_mode(measurement, eval_ctx, coordination_mode)
-                .await?;
-        }
-
-        Ok(())
-    }
-
     #[allow(clippy::too_many_arguments)]
     async fn run_canvas_refinement_iteration(
         &self,
@@ -1884,7 +1844,7 @@ impl CompiledPlot {
         iteration: usize,
         target_checkpoint: Option<RefinementCheckpoint>,
         trace_label: &'static str,
-    ) -> Result<CanvasRefinementIterationOutcome, AvengerChartError> {
+    ) -> Result<RefinementIterationOutcome, AvengerChartError> {
         let before = if iteration == 0 {
             None
         } else {
@@ -1908,7 +1868,7 @@ impl CompiledPlot {
             .await?;
 
             if target_checkpoint == Some(RefinementCheckpoint::Recoordinated) {
-                return Ok(CanvasRefinementIterationOutcome {
+                return Ok(RefinementIterationOutcome {
                     reached_snapshot_checkpoint: true,
                     overflow_grew: None,
                 });
@@ -1928,7 +1888,7 @@ impl CompiledPlot {
             .await?;
 
         if target_checkpoint == Some(RefinementCheckpoint::CandidateLayoutMeasured) {
-            return Ok(CanvasRefinementIterationOutcome {
+            return Ok(RefinementIterationOutcome {
                 reached_snapshot_checkpoint: true,
                 overflow_grew: None,
             });
@@ -1943,7 +1903,7 @@ impl CompiledPlot {
         )?;
 
         if target_checkpoint == Some(RefinementCheckpoint::PlotAreaRetargeted) {
-            return Ok(CanvasRefinementIterationOutcome {
+            return Ok(RefinementIterationOutcome {
                 reached_snapshot_checkpoint: true,
                 overflow_grew: None,
             });
@@ -1958,7 +1918,7 @@ impl CompiledPlot {
             )
         });
 
-        Ok(CanvasRefinementIterationOutcome {
+        Ok(RefinementIterationOutcome {
             reached_snapshot_checkpoint: false,
             overflow_grew,
         })
@@ -2102,165 +2062,438 @@ impl CompiledPlot {
         )))
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn refine_measurement_after_coordination_until(
+    async fn remeasure_fixed_subplot_coord_at_current_plot_area(
         &self,
         measurement: &mut ComponentsMeasurement,
         eval_ctx: &EvaluationContext,
-        layout_spec: &EvaluatedLayoutSpec,
-        scale_provider: &dyn ScaleProvider,
+        evaluated_layout_spec: &EvaluatedLayoutSpec,
         data_override: Option<&DataFrame>,
         facet_path: &[ScalarValue],
-        coordination_mode: FacetCoordinationMode,
-        allow_plot_area_resize: bool,
-        max_iters: usize,
-        target_iteration: usize,
-        target_checkpoint: RefinementCheckpoint,
-        trace_label: &'static str,
     ) -> Result<(), AvengerChartError> {
-        if target_iteration > max_iters {
-            return Err(AvengerChartError::InternalError(format!(
-                "Requested refinement snapshot iteration {} exceeds configured max iteration {}",
-                target_iteration, max_iters
-            )));
-        }
-
         let ctx = &*eval_ctx.session_context;
-        let facet_tree = eval_ctx.facet_tree.as_ref();
+        let plot_area_width = measurement.plot_area_width.max(1.0);
+        let plot_area_height = measurement.plot_area_height.max(1.0);
+        let mut is_facet_band = false;
 
-        for iter in 0..=max_iters {
-            let (_, candidate_layout, candidate_legend_plan) = self
-                .rebuild_layout_with_coord_overflow(
-                    layout_spec,
-                    &measurement.scales,
-                    measurement.plot_area_width,
-                    measurement.plot_area_height,
-                    &measurement.params,
-                    data_override,
-                    ctx,
-                    facet_tree,
-                    facet_path,
-                    Some(measurement.coord_measurement.as_ref()),
+        if let Some(facet_band) = measurement
+            .coord_measurement
+            .as_any_mut()
+            .downcast_mut::<FacetBandCoordMeasurementFixed>()
+        {
+            is_facet_band = true;
+            let compiled_subplot = facet_band.compiled_subplot.clone();
+            let empty_cell_policy = facet_band.empty_cell_policy;
+            for cell in &mut facet_band.cells {
+                let cell_eval_ctx = if !cell.plan.has_data_rows
+                    && matches!(cell.plan.empty_kind, FacetCellEmptyKind::DomainPlaceholder)
+                    && matches!(
+                        empty_cell_policy.effective(),
+                        FacetEmptyCellPolicy::EmptySubplot
+                    ) {
+                    eval_ctx.with_invalid_facet_path_axis_fallback_hidden(true)
+                } else {
+                    eval_ctx.clone()
+                };
+                Box::pin(
+                    compiled_subplot.remeasure_fixed_subplot_coord_at_current_plot_area(
+                        &mut cell.measurement,
+                        &cell_eval_ctx,
+                        evaluated_layout_spec,
+                        Some(&cell.data_override),
+                        &cell.plan.full_path,
+                    ),
                 )
                 .await?;
-
-            let candidate_bounds = *candidate_layout.plot_area_bounds();
-            let overflow_grew = Self::overflow_increased(
-                &measurement.layout.total_overflow,
-                &candidate_layout.total_overflow,
-                eval_ctx.facet_layout_refinement().overflow_growth_epsilon,
-            );
-
-            measurement.layout = candidate_layout;
-            measurement.legend_plan = candidate_legend_plan;
-            measurement.canvas_size = measurement.layout.canvas_size;
-
-            if iter == target_iteration
-                && target_checkpoint == RefinementCheckpoint::CandidateLayoutMeasured
-            {
-                return Ok(());
             }
+            facet_band.recompute_measured_overflow();
+            facet_band.recompute_fixed_placement();
+        }
 
-            if !allow_plot_area_resize
-                && let Some((required_width, required_height)) =
-                    Self::fixed_subplot_required_canvas_size(measurement)
-                && (required_width > measurement.canvas_size.0
-                    || required_height > measurement.canvas_size.1)
-            {
-                measurement.canvas_size = (required_width, required_height);
-                measurement.layout.canvas_size = measurement.canvas_size;
-            }
-
-            if allow_plot_area_resize {
-                self.realize_canvas_plot_area_no_overflow_remeasure(
-                    measurement,
-                    eval_ctx,
-                    facet_path,
-                    candidate_bounds.width.max(1.0),
-                    candidate_bounds.height.max(1.0),
-                )?;
-
-                if iter == target_iteration
-                    && target_checkpoint == RefinementCheckpoint::PlotAreaRetargeted
-                {
-                    return Ok(());
-                }
-
-                if !overflow_grew || iter == max_iters {
-                    break;
-                }
-
-                coordinate_overflow_for_guides_with_mode(measurement, eval_ctx, coordination_mode)
-                    .await?;
-
-                if iter == target_iteration
-                    && target_checkpoint == RefinementCheckpoint::Recoordinated
-                {
-                    return Ok(());
-                }
-                continue;
-            }
-
-            if iter == target_iteration
-                && target_checkpoint == RefinementCheckpoint::PlotAreaRetargeted
-            {
-                return Ok(());
-            }
-
-            if !overflow_grew || iter == max_iters {
-                break;
-            }
-
-            let (next_width, next_height) = (
-                measurement.plot_area_width.max(1.0),
-                measurement.plot_area_height.max(1.0),
-            );
-            let params_with_dims = eval_ctx.with_dimension_params(next_width, next_height);
-            let merged_params = params_with_dims.params.clone();
-
-            let mut final_scales = scale_provider
-                .build_scales(next_width, next_height, ctx, &merged_params)
-                .await?;
+        if !is_facet_band {
+            let params_with_current_dims = eval_ctx.with_params(measurement.params.clone());
+            let mut final_scales = measurement.scales.clone();
             let coord_measurement = self
                 .measure_coord_system(
                     &final_scales,
-                    next_width,
-                    next_height,
-                    &params_with_dims,
+                    plot_area_width,
+                    plot_area_height,
+                    &params_with_current_dims,
                     data_override,
                     facet_path,
                     ctx,
                 )
                 .await?;
             coord_measurement.apply_scale_adjustments(&mut final_scales);
-
-            measurement.plot_area_width = next_width;
-            measurement.plot_area_height = next_height;
             measurement.scales = final_scales;
             measurement.coord_measurement = coord_measurement;
-            measurement.params = merged_params;
-            measurement.clip = self.resolved_clip_region(
-                eval_ctx,
-                facet_path,
-                &measurement.scales,
-                next_width,
-                next_height,
-            );
-            measurement.legend_plan.retarget_scales(&measurement.scales);
+        }
 
-            coordinate_overflow_for_guides_with_mode(measurement, eval_ctx, coordination_mode)
+        let realized_layout_spec = if facet_path.is_empty() {
+            Self::layout_spec_with_fixed_plot_area(
+                evaluated_layout_spec,
+                plot_area_width,
+                plot_area_height,
+            )
+        } else {
+            Self::nested_fixed_plot_area_layout_spec(plot_area_width, plot_area_height)
+        };
+        let facet_tree = eval_ctx.facet_tree.as_ref();
+        let (_, realized_layout, realized_legend_plan) = self
+            .rebuild_layout_with_coord_overflow(
+                &realized_layout_spec,
+                &measurement.scales,
+                plot_area_width,
+                plot_area_height,
+                &measurement.params,
+                data_override,
+                ctx,
+                facet_tree,
+                facet_path,
+                Some(measurement.coord_measurement.as_ref()),
+            )
+            .await?;
+
+        measurement.layout = realized_layout;
+        measurement.legend_plan = realized_legend_plan;
+        measurement.canvas_size = measurement.layout.canvas_size;
+        measurement.clip = self.resolved_clip_region(
+            eval_ctx,
+            facet_path,
+            &measurement.scales,
+            plot_area_width,
+            plot_area_height,
+        );
+        measurement.legend_plan.retarget_scales(&measurement.scales);
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn run_fixed_subplot_refinement_iteration(
+        &self,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        evaluated_layout_spec: &EvaluatedLayoutSpec,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+        iteration: usize,
+        target_checkpoint: Option<RefinementCheckpoint>,
+        trace_label: &'static str,
+    ) -> Result<RefinementIterationOutcome, AvengerChartError> {
+        let before = if iteration == 0 {
+            None
+        } else {
+            Some(Self::recursive_overflow_snapshot(measurement))
+        };
+
+        if iteration > 0 {
+            self.remeasure_fixed_subplot_coord_at_current_plot_area(
+                measurement,
+                eval_ctx,
+                evaluated_layout_spec,
+                data_override,
+                facet_path,
+            )
+            .await?;
+            coordinate_overflow_for_guides_with_mode(
+                measurement,
+                eval_ctx,
+                FacetCoordinationMode::FixedFullCycle,
+            )
+            .await?;
+
+            if target_checkpoint == Some(RefinementCheckpoint::Recoordinated) {
+                return Ok(RefinementIterationOutcome {
+                    reached_snapshot_checkpoint: true,
+                    overflow_grew: None,
+                });
+            }
+        }
+
+        self.realize_fixed_leaf_plot_area_extents_no_remeasure(
+            measurement,
+            eval_ctx,
+            evaluated_layout_spec,
+            data_override,
+            facet_path,
+        )
+        .await?;
+
+        if matches!(
+            target_checkpoint,
+            Some(RefinementCheckpoint::CandidateLayoutMeasured)
+                | Some(RefinementCheckpoint::PlotAreaRetargeted)
+        ) {
+            return Ok(RefinementIterationOutcome {
+                reached_snapshot_checkpoint: true,
+                overflow_grew: None,
+            });
+        }
+
+        let overflow_grew = before.map(|before| {
+            let after = Self::recursive_overflow_snapshot(measurement);
+            Self::recursive_overflow_increased(
+                &before,
+                &after,
+                eval_ctx.facet_layout_refinement().overflow_growth_epsilon,
+            )
+        });
+
+        trace!(
+            iteration,
+            overflow_grew,
+            canvas_width = measurement.canvas_size.0,
+            canvas_height = measurement.canvas_size.1,
+            trace_label
+        );
+
+        Ok(RefinementIterationOutcome {
+            reached_snapshot_checkpoint: false,
+            overflow_grew,
+        })
+    }
+
+    async fn refine_fixed_subplot_measurement_after_coordination(
+        &self,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        evaluated_layout_spec: &EvaluatedLayoutSpec,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+        max_refinement_passes: usize,
+    ) -> Result<(), AvengerChartError> {
+        self.run_fixed_subplot_refinement_iteration(
+            measurement,
+            eval_ctx,
+            evaluated_layout_spec,
+            data_override,
+            facet_path,
+            0,
+            None,
+            "fixed leaf plot-area mandatory realization",
+        )
+        .await?;
+
+        if max_refinement_passes == 0 {
+            eval_ctx.record_facet_refinement_converged();
+            trace!("fixed leaf plot-area refinement disabled after mandatory realization");
+            return Ok(());
+        }
+
+        for pass in 1..=max_refinement_passes {
+            let outcome = self
+                .run_fixed_subplot_refinement_iteration(
+                    measurement,
+                    eval_ctx,
+                    evaluated_layout_spec,
+                    data_override,
+                    facet_path,
+                    pass,
+                    None,
+                    "fixed leaf plot-area refinement realization",
+                )
                 .await?;
 
-            if iter == target_iteration && target_checkpoint == RefinementCheckpoint::Recoordinated
-            {
+            eval_ctx.record_facet_refinement_pass();
+            let overflow_grew = outcome.overflow_grew.unwrap_or(false);
+            trace!(
+                pass,
+                overflow_grew, "fixed leaf plot-area refinement pass completed"
+            );
+
+            if !overflow_grew {
+                eval_ctx.record_facet_refinement_converged();
                 return Ok(());
             }
         }
 
+        eval_ctx.record_facet_refinement_hit_max_passes();
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn refine_fixed_subplot_measurement_after_coordination_until(
+        &self,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        evaluated_layout_spec: &EvaluatedLayoutSpec,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+        max_refinement_passes: usize,
+        target_iteration: usize,
+        target_checkpoint: RefinementCheckpoint,
+    ) -> Result<(), AvengerChartError> {
+        if target_iteration > max_refinement_passes {
+            return Err(AvengerChartError::InternalError(format!(
+                "Requested refinement snapshot iteration {} exceeds configured max iteration {}",
+                target_iteration, max_refinement_passes
+            )));
+        }
+        if target_iteration == 0 && target_checkpoint == RefinementCheckpoint::Recoordinated {
+            return Ok(());
+        }
+
+        let target = (target_iteration == 0).then_some(target_checkpoint);
+        let outcome = self
+            .run_fixed_subplot_refinement_iteration(
+                measurement,
+                eval_ctx,
+                evaluated_layout_spec,
+                data_override,
+                facet_path,
+                0,
+                target,
+                "fixed leaf plot-area refinement snapshot",
+            )
+            .await?;
+        if outcome.reached_snapshot_checkpoint {
+            return Ok(());
+        }
+
+        if max_refinement_passes == 0 {
+            return Err(AvengerChartError::InternalError(format!(
+                "Requested refinement snapshot {:?} at iteration {} was not reached (fixed leaf plot-area refinement snapshot)",
+                target_checkpoint, target_iteration
+            )));
+        }
+
+        for pass in 1..=max_refinement_passes {
+            let target = (pass == target_iteration).then_some(target_checkpoint);
+            let outcome = self
+                .run_fixed_subplot_refinement_iteration(
+                    measurement,
+                    eval_ctx,
+                    evaluated_layout_spec,
+                    data_override,
+                    facet_path,
+                    pass,
+                    target,
+                    "fixed leaf plot-area refinement snapshot",
+                )
+                .await?;
+            if outcome.reached_snapshot_checkpoint {
+                return Ok(());
+            }
+            if !outcome.overflow_grew.unwrap_or(false) {
+                break;
+            }
+        }
+
         Err(AvengerChartError::InternalError(format!(
-            "Requested refinement snapshot {:?} at iteration {} was not reached ({})",
-            target_checkpoint, target_iteration, trace_label
+            "Requested refinement snapshot {:?} at iteration {} was not reached (fixed leaf plot-area refinement snapshot)",
+            target_checkpoint, target_iteration
         )))
+    }
+
+    async fn realize_fixed_leaf_plot_area_extents_no_remeasure(
+        &self,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        evaluated_layout_spec: &EvaluatedLayoutSpec,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+    ) -> Result<(), AvengerChartError> {
+        let incoming_plot_area_size = (measurement.plot_area_width, measurement.plot_area_height);
+        let realized_plot_area_size = if let Some(facet_band) = measurement
+            .coord_measurement
+            .as_any_mut()
+            .downcast_mut::<FacetBandCoordMeasurementFixed>()
+        {
+            if !facet_band.cells.is_empty() {
+                let compiled_subplot = facet_band.compiled_subplot.clone();
+                for cell in &mut facet_band.cells {
+                    let child_layout_spec = Self::nested_fixed_plot_area_layout_spec(
+                        cell.measurement.plot_area_width,
+                        cell.measurement.plot_area_height,
+                    );
+                    Box::pin(
+                        compiled_subplot.realize_fixed_leaf_plot_area_extents_no_remeasure(
+                            &mut cell.measurement,
+                            eval_ctx,
+                            &child_layout_spec,
+                            Some(&cell.data_override),
+                            &cell.plan.full_path,
+                        ),
+                    )
+                    .await?;
+                }
+
+                facet_band.recompute_fixed_placement();
+                Some(facet_band.fixed_plot_area_size())
+            } else {
+                facet_band.preserve_empty_slot_plot_area(
+                    incoming_plot_area_size.0,
+                    incoming_plot_area_size.1,
+                );
+                Some(incoming_plot_area_size)
+            }
+        } else {
+            None
+        };
+
+        let Some((plot_area_width, plot_area_height)) = realized_plot_area_size else {
+            return Ok(());
+        };
+        let plot_area_width = plot_area_width.max(1.0);
+        let plot_area_height = plot_area_height.max(1.0);
+
+        retarget_scale_ranges_for_plot_area(
+            &mut measurement.scales,
+            plot_area_width,
+            plot_area_height,
+        );
+
+        measurement.plot_area_width = plot_area_width;
+        measurement.plot_area_height = plot_area_height;
+        measurement.clip = self.resolved_clip_region(
+            eval_ctx,
+            facet_path,
+            &measurement.scales,
+            plot_area_width,
+            plot_area_height,
+        );
+
+        let realized_layout_spec = if facet_path.is_empty() {
+            Self::layout_spec_with_fixed_plot_area(
+                evaluated_layout_spec,
+                plot_area_width,
+                plot_area_height,
+            )
+        } else {
+            Self::nested_fixed_plot_area_layout_spec(plot_area_width, plot_area_height)
+        };
+        let ctx = &*eval_ctx.session_context;
+        let facet_tree = eval_ctx.facet_tree.as_ref();
+        let (_, realized_layout, realized_legend_plan) = self
+            .rebuild_layout_with_coord_overflow(
+                &realized_layout_spec,
+                &measurement.scales,
+                plot_area_width,
+                plot_area_height,
+                &measurement.params,
+                data_override,
+                ctx,
+                facet_tree,
+                facet_path,
+                Some(measurement.coord_measurement.as_ref()),
+            )
+            .await?;
+
+        trace!(
+            facet_path = ?facet_path,
+            plot_area_width,
+            plot_area_height,
+            canvas_width = realized_layout.canvas_size.0,
+            canvas_height = realized_layout.canvas_size.1,
+            "fixed leaf plot-area realization computed facet extent"
+        );
+
+        measurement.layout = realized_layout;
+        measurement.legend_plan = realized_legend_plan;
+        measurement.canvas_size = measurement.layout.canvas_size;
+        measurement.legend_plan.retarget_scales(&measurement.scales);
+
+        Ok(())
     }
 
     async fn realize_fixed_subplot_layout_after_coordination(
@@ -2268,100 +2501,24 @@ impl CompiledPlot {
         measurement: &mut ComponentsMeasurement,
         eval_ctx: &EvaluationContext,
         layout_spec: &EvaluatedLayoutSpec,
-        scale_provider: &dyn ScaleProvider,
         data_override: Option<&DataFrame>,
         facet_path: &[ScalarValue],
         max_refinement_passes: usize,
     ) -> Result<(), AvengerChartError> {
-        self.refine_measurement_after_coordination(
+        self.refine_fixed_subplot_measurement_after_coordination(
             measurement,
             eval_ctx,
             layout_spec,
-            scale_provider,
             data_override,
             facet_path,
-            FacetCoordinationMode::FixedFullCycle,
-            false,
             max_refinement_passes,
-            "fixed-subplot layout realization candidate",
-        )
-        .await?;
-
-        // Final guardrail: derive required canvas from the rendered scene envelope.
-        // This catches nested facet subtree extents that are difficult to infer from
-        // top-level overflow summaries alone.
-        self.expand_fixed_subplot_canvas_from_rendered_envelope(
-            measurement,
-            eval_ctx,
-            data_override,
-            facet_path,
         )
         .await?;
 
         debug_assert!(
             Self::legends_within_canvas_recursive(measurement),
-            "fixed-subplot realization invariant: legends must be within canvas after final envelope expansion"
+            "fixed leaf plot-area invariant: legends must be within canvas after extent realization"
         );
-        Ok(())
-    }
-
-    async fn expand_fixed_subplot_canvas_from_rendered_envelope(
-        &self,
-        measurement: &mut ComponentsMeasurement,
-        eval_ctx: &EvaluationContext,
-        data_override: Option<&DataFrame>,
-        facet_path: &[ScalarValue],
-    ) -> Result<(), AvengerChartError> {
-        let components = self
-            .build_plot_components(
-                eval_ctx,
-                measurement,
-                data_override,
-                !facet_path.is_empty(),
-                facet_path,
-            )
-            .await?;
-
-        let data_marks_group = SceneGroup {
-            origin: [components.plot_bounds.x, components.plot_bounds.y],
-            marks: components.data_marks,
-            clip: components.clip,
-            zindex: Some(0),
-            ..Default::default()
-        };
-
-        let mut all_marks = Vec::new();
-        all_marks.push(SceneMark::Group(data_marks_group));
-        all_marks.extend(components.guide_marks);
-        all_marks.extend(components.legend_marks);
-        all_marks.extend(components.title_marks);
-        all_marks.extend(components.subtitle_marks);
-        all_marks.extend(components.debug_marks);
-
-        let scene_graph = SceneGraph {
-            marks: vec![SceneMark::Group(SceneGroup {
-                marks: all_marks,
-                ..Default::default()
-            })],
-            width: components.size.0,
-            height: components.size.1,
-            origin: [0.0, 0.0],
-        };
-        let envelope = *SceneGraphRTree::from_scene_graph(&scene_graph).envelope();
-        let required_width = envelope.upper()[0].max(measurement.canvas_size.0).max(1.0);
-        let required_height = envelope.upper()[1].max(measurement.canvas_size.1).max(1.0);
-        if required_width > measurement.canvas_size.0 || required_height > measurement.canvas_size.1
-        {
-            trace!(
-                required_width,
-                required_height,
-                old_canvas_width = measurement.canvas_size.0,
-                old_canvas_height = measurement.canvas_size.1,
-                "fixed-subplot canvas expanded from rendered scene envelope"
-            );
-            measurement.canvas_size = (required_width, required_height);
-            measurement.layout.canvas_size = measurement.canvas_size;
-        }
         Ok(())
     }
 
@@ -2989,37 +3146,17 @@ impl CompiledPlot {
                         bounds.y -= plot_bounds.y;
                     }
 
-                    // Compute unique color for each subplot using a simple hash
-                    // of params to differentiate subplots without FacetContext
-                    let subplot_color_string = {
-                        // Use a simple hash based on params count for deterministic coloring
-                        let mut hasher = DefaultHasher::new();
-                        merged_params.len().hash(&mut hasher);
-                        // Include some param values for more variation
-                        for (key, _) in merged_params.iter().take(3) {
-                            key.hash(&mut hasher);
-                        }
-                        let hash = hasher.finish();
-                        let index = (hash % 6) as usize;
-
-                        let colors = [
-                            "hsla(15, 65%, 60%, 0.8)",  // Orange-red
-                            "hsla(75, 65%, 60%, 0.8)",  // Yellow-green
-                            "hsla(135, 65%, 60%, 0.8)", // Green
-                            "hsla(195, 65%, 60%, 0.8)", // Cyan
-                            "hsla(255, 65%, 60%, 0.8)", // Blue-purple
-                            "hsla(315, 65%, 60%, 0.8)", // Magenta
-                        ];
-
-                        colors[index].to_string()
-                    };
+                    let subplot_color_string =
+                        facet_debug_layout_color(eval_ctx.facet_coord_node_path());
+                    let flip_label_align =
+                        facet_debug_layout_flip_label_align(eval_ctx.facet_coord_node_path());
 
                     debug_marks.extend(create_debug_layout_rects(
                         &subplot_layout,
                         Some(subplot_color_string),
                         Some(1.0), // Same width as outer lines
                         Some(100), // Higher z-index to render on top
-                        true,      // Flip label alignment to avoid overlap with outer plot labels
+                        flip_label_align,
                     ));
                 }
 
@@ -3331,7 +3468,6 @@ impl CompiledPlot {
                     evaluated_layout_spec,
                     provider,
                     facet_sizing_strategy,
-                    coordination_mode,
                     *iteration,
                     *checkpoint,
                 )
@@ -3380,7 +3516,6 @@ impl CompiledPlot {
                     measurement,
                     eval_ctx,
                     evaluated_layout_spec,
-                    provider,
                     None,
                     &[],
                     refinement.max_refinement_passes,
@@ -3400,7 +3535,6 @@ impl CompiledPlot {
         evaluated_layout_spec: &EvaluatedLayoutSpec,
         provider: &dyn ScaleProvider,
         facet_sizing_strategy: FacetSizingStrategy,
-        coordination_mode: FacetCoordinationMode,
         iteration: usize,
         checkpoint: RefinementCheckpoint,
     ) -> Result<(), AvengerChartError> {
@@ -3428,19 +3562,15 @@ impl CompiledPlot {
                 .await
             }
             FacetSizingStrategy::FixedSubplot { .. } => {
-                self.refine_measurement_after_coordination_until(
+                self.refine_fixed_subplot_measurement_after_coordination_until(
                     measurement,
                     eval_ctx,
                     evaluated_layout_spec,
-                    provider,
                     None,
                     &[],
-                    coordination_mode,
-                    false,
                     refinement.max_refinement_passes,
                     iteration,
                     checkpoint,
-                    "fixed-subplot layout realization snapshot",
                 )
                 .await
             }
@@ -3667,7 +3797,6 @@ mod tests {
         facet::{
             band_positions::BandPositionIterator,
             coord::{FacetBandCoordMeasurement, facet_band_ref as facet_band_ref_from_coord},
-            layout_slabs::LayoutSlabs,
         },
         layout::PlotConstraint,
         legend::LegendPosition,
@@ -3751,6 +3880,46 @@ mod tests {
             .expect("read deeply nested test batch")
     }
 
+    fn sparse_fixed_column_hole_dataframe(ctx: &SessionContext) -> DataFrame {
+        let batch = RecordBatch::try_from_iter(vec![
+            (
+                "division",
+                Arc::new(StringArray::from(vec!["Eng", "Eng", "Ops", "Ops"]))
+                    as Arc<dyn arrow::array::Array>,
+            ),
+            (
+                "department",
+                Arc::new(StringArray::from(vec![
+                    "Frontend", "Backend", "Support", "DevOps",
+                ])) as Arc<dyn arrow::array::Array>,
+            ),
+            (
+                "team",
+                Arc::new(StringArray::from(vec!["Alpha", "Gamma", "Echo", "Golf"]))
+                    as Arc<dyn arrow::array::Array>,
+            ),
+            (
+                "subteam",
+                Arc::new(StringArray::from(vec!["X", "X", "X", "X"]))
+                    as Arc<dyn arrow::array::Array>,
+            ),
+            (
+                "x_val",
+                Arc::new(Float64Array::from(vec![1.0, 2.0, 1.0, 2.0]))
+                    as Arc<dyn arrow::array::Array>,
+            ),
+            (
+                "y_val",
+                Arc::new(Float64Array::from(vec![90.0, 110.0, 40.0, 60.0]))
+                    as Arc<dyn arrow::array::Array>,
+            ),
+        ])
+        .expect("create sparse fixed column hole batch");
+
+        ctx.read_batch(batch)
+            .expect("read sparse fixed column hole batch")
+    }
+
     fn build_deeply_nested_plot(df: DataFrame) -> Plot<FacetColumn> {
         Plot::<FacetColumn>::new()
             .data(df)
@@ -3777,6 +3946,60 @@ mod tests {
                                                     .axis(|a| a.title("Value"))
                                             })
                                             .fill("#4682b4"),
+                                    ),
+                                ),
+                        ),
+                    ),
+            )
+    }
+
+    fn build_sparse_fixed_column_hole_plot(df: DataFrame) -> Plot<FacetColumn> {
+        Plot::<FacetColumn>::new()
+            .data(df)
+            .plot_size(80.0, 60.0)
+            .mark(
+                Facet::new()
+                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
+                    .subplot(
+                        Plot::<FacetColumn>::new().mark(
+                            Facet::new()
+                                .col_with(col("department"), |c| {
+                                    c.facet(|f| f.title("Dept").free_slots())
+                                })
+                                .subplot(
+                                    Plot::<FacetColumn>::new().mark(
+                                        Facet::new()
+                                            .col_with(col("team"), |c| {
+                                                c.facet(|f| {
+                                                    f.title("Team")
+                                                        .with_slot_sharing(ScaleSharing::Level(1))
+                                                })
+                                            })
+                                            .subplot(
+                                                Plot::<FacetColumn>::new().mark(
+                                                    Facet::new()
+                                                        .col_with(col("subteam"), |c| {
+                                                            c.facet(|f| f.title("Sub"))
+                                                        })
+                                                        .subplot(
+                                                            Plot::<Cartesian>::new().mark(
+                                                                Symbol::new()
+                                                                    .x_with(col("x_val"), |c| {
+                                                                        c.with_scale_sharing(
+                                                                            ScaleSharing::Level(4),
+                                                                        )
+                                                                    })
+                                                                    .y_with(col("y_val"), |c| {
+                                                                        c.with_scale_sharing(
+                                                                            ScaleSharing::Level(4),
+                                                                        )
+                                                                    })
+                                                                    .size(24.0)
+                                                                    .fill("#3498db"),
+                                                            ),
+                                                        ),
+                                                ),
+                                            ),
                                     ),
                                 ),
                         ),
@@ -4330,6 +4553,42 @@ mod tests {
             .await
     }
 
+    async fn compile_nested_row_col_row_mixed_sharing_plot_fixed_subplot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = legend_sharing_three_level_dataframe(ctx).await;
+        Plot::<FacetRow>::new()
+            .data(df)
+            .plot_size(110.0, 80.0)
+            .mark(
+                Facet::new().row(col("division")).subplot(
+                    Plot::<FacetColumn>::new().mark(
+                        Facet::new().column(col("department")).subplot(
+                            Plot::<FacetRow>::new().mark(
+                                Facet::new().row(col("team")).subplot(
+                                    Plot::<Cartesian>::new().mark(
+                                        Symbol::new()
+                                            .x_with(col("x_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Shared)
+                                            })
+                                            .y_with(col("y_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Free)
+                                            })
+                                            .fill_with(col("category"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Level(1))
+                                            })
+                                            .size(58.0),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            .compile(ctx)
+            .await
+    }
+
     async fn compile_nested_sparse_row_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
@@ -4398,6 +4657,13 @@ mod tests {
         let df = deeply_nested_dataframe(ctx);
         let plot = build_deeply_nested_plot(df);
         plot.compile(ctx).await
+    }
+
+    async fn compile_sparse_fixed_column_hole_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = sparse_fixed_column_hole_dataframe(ctx);
+        build_sparse_fixed_column_hole_plot(df).compile(ctx).await
     }
 
     async fn compile_simple_facet_plot_with_plot_size(
@@ -4517,7 +4783,6 @@ mod tests {
                         &mut measurement,
                         &eval_ctx,
                         &evaluated_layout_spec,
-                        &provider,
                         None,
                         &[],
                         eval_ctx.facet_layout_refinement().max_refinement_passes,
@@ -4544,6 +4809,22 @@ mod tests {
             LegendPosition::Bottom => (overflow.total.bottom - overflow.guide.bottom).max(0.0),
             LegendPosition::Left => (overflow.total.left - overflow.guide.left).max(0.0),
         }
+    }
+
+    fn measured_legend_slab_for_position(
+        measurement: &ComponentsMeasurement,
+        position: LegendPosition,
+    ) -> f32 {
+        measurement
+            .legend_plan
+            .measurements
+            .values()
+            .filter(|legend| legend.position == position)
+            .map(|legend| match position {
+                LegendPosition::Top | LegendPosition::Bottom => legend.size.height,
+                LegendPosition::Left | LegendPosition::Right => legend.size.width,
+            })
+            .fold(0.0, f32::max)
     }
 
     fn absolute_origins_for_named_groups(
@@ -4645,6 +4926,25 @@ mod tests {
         }
     }
 
+    fn collect_empty_fixed_facet_plot_areas(
+        measurement: &ComponentsMeasurement,
+        out: &mut Vec<(f32, f32)>,
+    ) {
+        if let Some(fixed_facet) = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurementFixed>()
+        {
+            if fixed_facet.cells.is_empty() {
+                out.push((measurement.plot_area_width, measurement.plot_area_height));
+            }
+
+            for child in fixed_facet.child_measurements_iter() {
+                collect_empty_fixed_facet_plot_areas(child, out);
+            }
+        }
+    }
+
     fn assert_no_fixed_subplot_main_axis_overlap(measurement: &ComponentsMeasurement) {
         if let Some(facet_band_fixed) = measurement
             .coord_measurement
@@ -4652,7 +4952,7 @@ mod tests {
             .downcast_ref::<FacetBandCoordMeasurementFixed>()
         {
             let facet_band = &facet_band_fixed.base;
-            let positions = &facet_band_fixed.fixed_main_axis_positions;
+            let positions = &facet_band_fixed.fixed_placement.main_axis_positions;
             for (idx, window) in positions.windows(2).enumerate() {
                 let current_start = window[0];
                 let next_start = window[1];
@@ -4662,7 +4962,7 @@ mod tests {
                 };
                 assert!(
                     next_start + 0.01 >= current_start + current_span,
-                    "fixed-subplot main-axis overlap at axis {:?}, cell_index {}, current_start={}, current_span={}, next_start={}",
+                    "fixed leaf plot-area main-axis overlap at axis {:?}, cell_index {}, current_start={}, current_span={}, next_start={}",
                     facet_band.axis,
                     idx,
                     current_start,
@@ -4749,12 +5049,13 @@ mod tests {
                 layout,
             );
             assert_eq!(
-                fixed_facet.fixed_main_axis_positions.len(),
+                fixed_facet.fixed_placement.main_axis_positions.len(),
                 expected.len(),
                 "fixed facet position count mismatch when validating recomputed positions"
             );
             for (idx, (actual, expected)) in fixed_facet
-                .fixed_main_axis_positions
+                .fixed_placement
+                .main_axis_positions
                 .iter()
                 .zip(expected.iter())
                 .enumerate()
@@ -4771,13 +5072,55 @@ mod tests {
         }
     }
 
+    fn assert_fixed_facet_plot_area_matches_placement(measurement: &ComponentsMeasurement) {
+        if let Some(fixed_facet) = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<crate::facet::coord::FacetBandCoordMeasurementFixed>(
+        ) {
+            let (expected_width, expected_height) = fixed_facet.fixed_plot_area_size();
+            assert!(
+                (measurement.plot_area_width - expected_width).abs() <= 0.01,
+                "fixed facet plot width should match computed placement: measurement={}, placement={}",
+                measurement.plot_area_width,
+                expected_width
+            );
+            assert!(
+                (measurement.plot_area_height - expected_height).abs() <= 0.01,
+                "fixed facet plot height should match computed placement: measurement={}, placement={}",
+                measurement.plot_area_height,
+                expected_height
+            );
+
+            let bounds = measurement.layout.plot_area_bounds();
+            assert!(
+                (bounds.width - measurement.plot_area_width).abs() <= 0.01,
+                "fixed facet layout bounds width should match realized plot area: bounds={}, measurement={}",
+                bounds.width,
+                measurement.plot_area_width
+            );
+            assert!(
+                (bounds.height - measurement.plot_area_height).abs() <= 0.01,
+                "fixed facet layout bounds height should match realized plot area: bounds={}, measurement={}",
+                bounds.height,
+                measurement.plot_area_height
+            );
+
+            for child in fixed_facet.child_measurements_iter() {
+                assert_fixed_facet_plot_area_matches_placement(child);
+            }
+        }
+    }
+
     fn collect_team_level_fixed_apply_signals(
         measurement: &ComponentsMeasurement,
         out: &mut Vec<(f32, bool, bool)>,
     ) {
         if let Some(facet_band) = facet_band_ref(measurement) {
             if facet_band.coordination_field_identity == "team" {
-                let slabs = LayoutSlabs::from_coordinated(&facet_band.coordinated_overflow);
+                let slabs = crate::facet::layout_slabs::LayoutSlabs::from_coordinated(
+                    &facet_band.coordinated_overflow,
+                );
                 let apply_plan = facet_band.derive_coordinated_apply_plan();
                 out.push((
                     slabs.legend.right.max(0.0),
@@ -5142,6 +5485,71 @@ mod tests {
     }
 
     #[test]
+    fn fixed_subplot_refinement_remeasures_after_domain_coordination() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled =
+                compile_nested_row_col_row_mixed_sharing_plot_fixed_subplot(&ctx).await?;
+            let selector = FacetSubtreeSelector::ByFacetPath(vec![
+                ScalarValue::Utf8(Some("DivB".to_string())),
+                ScalarValue::Utf8(Some("Dept1".to_string())),
+                ScalarValue::Utf8(Some("Team2".to_string())),
+            ]);
+
+            let (fast_eval, fast_metrics) = compiled
+                .evaluate_with_options_and_metrics(
+                    &ctx,
+                    None,
+                    EvaluationOptions {
+                        layout_snapshot: LayoutSnapshot::FacetSubtree(FacetSubtreeSnapshot {
+                            selector: selector.clone(),
+                            checkpoint: FacetSubtreeCheckpoint::FinalLayout,
+                        }),
+                        debug_layout_lines: true,
+                        facet_layout_refinement: FacetLayoutRefinement {
+                            max_refinement_passes: 0,
+                            overflow_growth_epsilon: 0.5,
+                        },
+                    },
+                )
+                .await?;
+            let (refined_eval, refined_metrics) = compiled
+                .evaluate_with_options_and_metrics(
+                    &ctx,
+                    None,
+                    EvaluationOptions {
+                        layout_snapshot: LayoutSnapshot::FacetSubtree(FacetSubtreeSnapshot {
+                            selector,
+                            checkpoint: FacetSubtreeCheckpoint::FinalLayout,
+                        }),
+                        debug_layout_lines: true,
+                        facet_layout_refinement: FacetLayoutRefinement {
+                            max_refinement_passes: 1,
+                            overflow_growth_epsilon: 0.5,
+                        },
+                    },
+                )
+                .await?;
+
+            assert_eq!(fast_metrics.facet_layout.refinement_pass_count, 0);
+            assert_eq!(
+                refined_metrics.facet_layout.refinement_pass_count, 1,
+                "expected one fixed-subplot refinement pass: {refined_metrics:?}"
+            );
+            assert!(
+                collect_text_x_positions(&fast_eval.scene_graph, "of-right").is_empty(),
+                "fast one-shot fixed subplot should document the missing right overflow"
+            );
+            assert!(
+                !collect_text_x_positions(&refined_eval.scene_graph, "of-right").is_empty(),
+                "fixed-subplot refinement should allocate the late right overflow"
+            );
+
+            Ok(())
+        });
+    }
+
+    #[test]
     fn canvas_refinement_snapshot_reuses_iteration_remeasure_path() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
@@ -5318,7 +5726,7 @@ mod tests {
                     leaf_plot_height: 90.0
                 }
             ),
-            "expected fixed-subplot strategy for faceted plot_size"
+            "expected fixed leaf plot-area strategy for faceted plot_size"
         );
         Ok(())
     }
@@ -5474,7 +5882,7 @@ mod tests {
     }
 
     #[test]
-    fn fixed_level2_right_detects_legend_overflow_on_team_nodes() {
+    fn fixed_level2_right_hoists_legend_without_team_node_slab() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
             let compiled = compile_three_level_col_legend_sharing_plot_fixed_subplot(
@@ -5496,24 +5904,15 @@ mod tests {
                 .iter()
                 .filter(|(right_slab, _, _)| *right_slab > 0.0)
                 .count();
-            assert!(
-                nodes_with_right_legend_slab > 0,
-                "expected at least one team-level node to own right-side legend slab"
+            assert_eq!(
+                nodes_with_right_legend_slab, 0,
+                "level-2 shared legends should be hoisted to their sharing group instead of owned by team-level nodes"
             );
-
-            for (right_slab, has_coordinated_layout, remeasure_required) in team_signals
-                .into_iter()
-                .filter(|(right_slab, _, _)| *right_slab > 0.0)
-            {
-                assert!(
-                    !has_coordinated_layout,
-                    "team-level fixed leaf nodes should keep coordinated-layout cross-size rewrites disabled (right_slab={right_slab})"
-                );
-                assert!(
-                    remeasure_required,
-                    "team-level node with right legend slab should be detected by the retarget plan (right_slab={right_slab})"
-                );
-            }
+            assert!(
+                count_legend_measurements_recursive(&measurement) > 0,
+                "hoisted right legend should still be measured in the final layout"
+            );
+            assert_legends_within_canvas(&measurement);
             Ok(())
         });
     }
@@ -5672,6 +6071,51 @@ mod tests {
     }
 
     #[test]
+    fn fixed_subplot_mode_realizes_plot_area_from_computed_placement() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled = compile_three_level_col_legend_sharing_plot_fixed_subplot(
+                &ctx,
+                LegendPosition::Right,
+            )
+            .await?;
+            let (_, _, measurement) =
+                prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+            assert_fixed_facet_plot_area_matches_placement(&measurement);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn fixed_subplot_mode_preserves_empty_nested_slot_extent() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled = compile_sparse_fixed_column_hole_plot(&ctx).await?;
+            let (_, _, measurement) =
+                prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+
+            let mut empty_slot_sizes = Vec::new();
+            collect_empty_fixed_facet_plot_areas(&measurement, &mut empty_slot_sizes);
+            assert!(
+                !empty_slot_sizes.is_empty(),
+                "test fixture should contain empty fixed facet slots"
+            );
+            for (width, height) in empty_slot_sizes {
+                assert!(
+                    (width - 80.0).abs() <= 0.01,
+                    "empty fixed facet slot width should preserve the incoming leaf plot area: {width}"
+                );
+                assert!(
+                    (height - 60.0).abs() <= 0.01,
+                    "empty fixed facet slot height should preserve the incoming leaf plot area: {height}"
+                );
+            }
+            assert_fixed_facet_plot_area_matches_placement(&measurement);
+            Ok(())
+        });
+    }
+
+    #[test]
     fn fixed_subplot_mode_continuous_legend_is_visible_with_uniform_leaf_sizes() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
@@ -5683,7 +6127,7 @@ mod tests {
             let legend_measurement_count = count_legend_measurements_recursive(&measurement);
             assert!(
                 legend_measurement_count > 0,
-                "expected at least one legend measurement in fixed-subplot continuous legend scenario"
+                "expected at least one legend measurement in fixed leaf plot-area continuous legend scenario"
             );
             assert_legends_within_canvas(&measurement);
 
@@ -5697,13 +6141,13 @@ mod tests {
             for width in leaf_widths {
                 assert!(
                     (width - 110.0).abs() <= 0.01,
-                    "fixed-subplot leaf width drifted from configured width: {width}"
+                    "fixed leaf plot-area width drifted from configured width: {width}"
                 );
             }
             for height in leaf_heights {
                 assert!(
                     (height - 80.0).abs() <= 0.01,
-                    "fixed-subplot leaf height drifted from configured height: {height}"
+                    "fixed leaf plot-area height drifted from configured height: {height}"
                 );
             }
             Ok(())
@@ -5756,6 +6200,10 @@ mod tests {
                 !debug_plot_area_labels.is_empty(),
                 "debug option should enable layout overlay labels"
             );
+            assert!(
+                debug_plot_area_labels.len() > 1,
+                "debug option should include nested facet/subplot layout overlay labels"
+            );
 
             Ok(())
         });
@@ -5801,27 +6249,32 @@ mod tests {
             let outer_facet = facet_band_ref(&measurement).expect(
                 "top-level legend sharing test should measure as FacetBandCoordMeasurement",
             );
+            let outer_parent_overflow = outer_facet
+                .measured_parent_layout_overflow_value()
+                .expect("outer facet should expose measured parent-layout overflow");
             let outer_left_slab =
-                legend_slab_for_position(&outer_facet.coordinated_overflow, LegendPosition::Left);
+                legend_slab_for_position(&outer_parent_overflow, LegendPosition::Left);
 
             let first_non_empty = outer_facet
                 .cells
                 .iter()
                 .find(|cell| !cell.plan.is_empty)
                 .expect("expected non-empty outer facet cell");
-            let child_facet = facet_band_ref(&first_non_empty.measurement)
+            facet_band_ref(&first_non_empty.measurement)
                 .expect("expected nested child facet measurement");
-            let child_left_slab =
-                legend_slab_for_position(&child_facet.coordinated_overflow, LegendPosition::Left);
+            let child_left_slab = measured_legend_slab_for_position(
+                &first_non_empty.measurement,
+                LegendPosition::Left,
+            );
 
             assert!(
                 outer_left_slab <= 0.5,
-                "outer facet should not reserve descendant left legend slab (found {})",
+                "outer parent-layout overflow should not reserve descendant left legend slab (found {})",
                 outer_left_slab
             );
             assert!(
                 child_left_slab > 1.0,
-                "child facet should retain its own left legend slab (found {})",
+                "child facet layout should retain its own left legend slab (found {})",
                 child_left_slab
             );
             Ok(())
@@ -5840,27 +6293,32 @@ mod tests {
             let outer_facet = facet_band_ref(&measurement).expect(
                 "top-level legend sharing test should measure as FacetBandCoordMeasurement",
             );
+            let outer_parent_overflow = outer_facet
+                .measured_parent_layout_overflow_value()
+                .expect("outer facet should expose measured parent-layout overflow");
             let outer_bottom_slab =
-                legend_slab_for_position(&outer_facet.coordinated_overflow, LegendPosition::Bottom);
+                legend_slab_for_position(&outer_parent_overflow, LegendPosition::Bottom);
 
             let first_non_empty = outer_facet
                 .cells
                 .iter()
                 .find(|cell| !cell.plan.is_empty)
                 .expect("expected non-empty outer facet cell");
-            let child_facet = facet_band_ref(&first_non_empty.measurement)
+            facet_band_ref(&first_non_empty.measurement)
                 .expect("expected nested child facet measurement");
-            let child_bottom_slab =
-                legend_slab_for_position(&child_facet.coordinated_overflow, LegendPosition::Bottom);
+            let child_bottom_slab = measured_legend_slab_for_position(
+                &first_non_empty.measurement,
+                LegendPosition::Bottom,
+            );
 
             assert!(
                 outer_bottom_slab <= 0.5,
-                "outer facet should not reserve descendant bottom legend slab (found {})",
+                "outer parent-layout overflow should not reserve descendant bottom legend slab (found {})",
                 outer_bottom_slab
             );
             assert!(
                 child_bottom_slab > 1.0,
-                "child facet should retain its own bottom legend slab (found {})",
+                "child facet layout should retain its own bottom legend slab (found {})",
                 child_bottom_slab
             );
             Ok(())
@@ -5879,8 +6337,11 @@ mod tests {
             let outer_facet = facet_band_ref(&measurement).expect(
                 "top-level legend sharing test should measure as FacetBandCoordMeasurement",
             );
+            let outer_parent_overflow = outer_facet
+                .measured_parent_layout_overflow_value()
+                .expect("outer facet should expose measured parent-layout overflow");
             let outer_top_slab =
-                legend_slab_for_position(&outer_facet.coordinated_overflow, LegendPosition::Top);
+                legend_slab_for_position(&outer_parent_overflow, LegendPosition::Top);
 
             let first_non_empty = outer_facet
                 .cells
@@ -5889,31 +6350,23 @@ mod tests {
                 .expect("expected non-empty outer facet cell");
             let child_facet = facet_band_ref(&first_non_empty.measurement)
                 .expect("expected nested child facet measurement");
-            let child_top_slab =
-                legend_slab_for_position(&child_facet.coordinated_overflow, LegendPosition::Top);
-            let first_child_subplot_height = child_facet
-                .cells
-                .iter()
-                .find(|cell| !cell.plan.is_empty)
-                .expect("expected non-empty child facet cell")
-                .measurement
-                .plot_area_height;
-            let expected_child_subplot_height =
-                (first_non_empty.measurement.plot_area_height - child_top_slab).max(1.0);
-
+            let child_top_slab = measured_legend_slab_for_position(
+                &first_non_empty.measurement,
+                LegendPosition::Top,
+            );
             assert!(
                 outer_top_slab <= 0.5,
-                "outer facet should not reserve descendant top legend slab (found {})",
+                "outer parent-layout overflow should not reserve descendant top legend slab (found {})",
                 outer_top_slab
             );
             assert!(
                 child_top_slab > 1.0,
-                "child facet should retain its own top legend slab (found {})",
+                "child facet layout should retain its own top legend slab (found {})",
                 child_top_slab
             );
             assert!(
-                (first_child_subplot_height - expected_child_subplot_height).abs() <= 0.5,
-                "child subplot height should preserve room for the child top legend slab: expected {expected_child_subplot_height}, found {first_child_subplot_height}"
+                child_facet.cells.iter().any(|cell| !cell.plan.is_empty),
+                "expected top-legend child facet to retain non-empty subplot cells"
             );
             Ok(())
         });

@@ -309,22 +309,22 @@ mod tests {
         let coordinated = coordinated_overflow(41.0, 34.0, 55.0, 34.0);
         let (resolved, source) =
             resolve_guide_anchor_overflow(false, true, Some(&coordinated), Some(&local));
-        assert_eq!(resolved, 41.0);
+        assert_eq!(resolved, 55.0);
         assert_eq!(source, GuideAnchorSource::CoordinatedGuide);
     }
 
     #[test]
-    fn resolve_guide_anchor_top_hidden_title_prefers_local_when_both_present() {
+    fn resolve_guide_anchor_top_hidden_title_prefers_local_total_when_both_present() {
         let local = coordinated_overflow(12.0, 8.0, 60.0, 40.0);
         let coordinated = coordinated_overflow(5.0, 39.0, 5.0, 39.0);
         let (resolved, source) =
             resolve_guide_anchor_overflow(false, false, Some(&coordinated), Some(&local));
-        assert_eq!(resolved, 12.0);
+        assert_eq!(resolved, 60.0);
         assert_eq!(source, GuideAnchorSource::LocalGuide);
     }
 
     #[test]
-    fn resolve_guide_anchor_top_hidden_title_uses_coordinated_when_local_is_zero() {
+    fn resolve_guide_anchor_top_hidden_title_uses_coordinated_when_local_total_is_zero() {
         let local = coordinated_overflow(0.0, 8.0, 0.0, 40.0);
         let coordinated = coordinated_overflow(7.0, 39.0, 7.0, 39.0);
         let (resolved, source) =
@@ -339,20 +339,20 @@ mod tests {
         let coordinated = coordinated_overflow(41.0, 7.0, 41.0, 55.0);
         let (resolved, source) =
             resolve_guide_anchor_overflow(true, false, Some(&coordinated), Some(&local));
-        assert_eq!(resolved, 7.0);
+        assert_eq!(resolved, 55.0);
         assert_eq!(source, GuideAnchorSource::CoordinatedGuide);
     }
 
     #[test]
-    fn resolve_guide_anchor_falls_back_to_local_guide_overflow() {
+    fn resolve_guide_anchor_falls_back_to_local_total_overflow() {
         let local = coordinated_overflow(12.0, 8.0, 60.0, 40.0);
         let (resolved_top, source_top) =
             resolve_guide_anchor_overflow(false, false, None, Some(&local));
         let (resolved_bottom, source_bottom) =
             resolve_guide_anchor_overflow(true, false, None, Some(&local));
-        assert_eq!(resolved_top, 12.0);
+        assert_eq!(resolved_top, 60.0);
         assert_eq!(source_top, GuideAnchorSource::LocalGuide);
-        assert_eq!(resolved_bottom, 8.0);
+        assert_eq!(resolved_bottom, 40.0);
         assert_eq!(source_bottom, GuideAnchorSource::LocalGuide);
     }
 
@@ -378,11 +378,11 @@ mod tests {
     }
 
     #[test]
-    fn propagated_subplot_overflow_uses_guide_not_total() {
+    fn propagated_subplot_overflow_uses_total_subtree() {
         let local = coordinated_overflow(17.0, 9.0, 53.0, 41.0);
         let propagated = propagated_subplot_overflow(Some(local));
-        assert_eq!(propagated.top, 17.0);
-        assert_eq!(propagated.bottom, 9.0);
+        assert_eq!(propagated.top, 53.0);
+        assert_eq!(propagated.bottom, 41.0);
     }
 
     #[test]

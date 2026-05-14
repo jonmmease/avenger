@@ -44,6 +44,7 @@ pub(crate) enum FacetCellEmptyKind {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct FacetBandPlan {
     pub padding_inner_px: f32,
+    pub guide_padding_inner_px: f32,
     pub outer_start: f32,
     pub outer_end: f32,
     pub n: usize,

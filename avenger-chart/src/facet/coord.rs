@@ -121,6 +121,12 @@ pub struct FacetBandCoordMeasurement {
     /// Coordinated overflow values aggregated across ALL facets at this nesting level.
     /// Populated by facet coordination after local measurement.
     pub coordinated_overflow: CoordinatedOverflow,
+    /// Overflow measured from this facet band's rendered children before coordination.
+    ///
+    /// This is the stable "what this subtree actually renders" value. It must
+    /// not be recomputed from child layouts after coordinated alignment slabs
+    /// are projected into those child layouts.
+    pub measured_overflow: Option<CoordinatedOverflow>,
     /// Reference to compiled subplot for retargeting after coordination.
     /// Used by `apply_coordinated_overflow` when coordinated layout changes child sizing.
     pub compiled_subplot: Arc<CompiledPlot>,
@@ -135,6 +141,8 @@ pub struct FacetBandCoordMeasurement {
     pub original_band_scale: ConfiguredScale,
     /// Local layout values (pre-coordination).
     pub local_layout: CoordinatedLayout,
+    /// Interior padding required by axis and facet guides, excluding legend-only slabs.
+    pub guide_padding_inner_px: f32,
     /// Coordinated layout values (post-coordination). None before coordination.
     pub coordinated_layout: Option<CoordinatedLayout>,
     /// Channel-domain sharing levels observed in non-empty child local extents.
@@ -155,8 +163,21 @@ pub type FacetBandCoordMeasurementCanvasFit = FacetBandCoordMeasurement;
 /// This wraps the shared facet runtime payload with fixed-mode-only placement data.
 pub struct FacetBandCoordMeasurementFixed {
     pub(crate) base: FacetBandCoordMeasurement,
-    /// Explicit main-axis positions used by fixed-subplot rendering.
-    pub(crate) fixed_main_axis_positions: Vec<f32>,
+    /// Explicit placement and extent used by fixed leaf plot-area rendering.
+    pub(crate) fixed_placement: FacetBandFixedPlacement,
+}
+
+/// Explicit placement for a fixed leaf plot-area facet band.
+///
+/// Canvas-fit facets use a band scale as the authoritative placement model. Fixed
+/// leaf plot-area facets instead compute child positions and the parent facet
+/// extent directly from locked leaf plot areas, coordinated gaps, and child
+/// subtree extents.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct FacetBandFixedPlacement {
+    pub(crate) main_axis_positions: Vec<f32>,
+    pub(crate) main_axis_size: f32,
+    pub(crate) cross_axis_size: f32,
 }
 
 impl Deref for FacetBandCoordMeasurementFixed {
@@ -170,6 +191,97 @@ impl Deref for FacetBandCoordMeasurementFixed {
 impl DerefMut for FacetBandCoordMeasurementFixed {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.base
+    }
+}
+
+impl FacetBandCoordMeasurementFixed {
+    pub(crate) fn recompute_fixed_placement(&mut self) {
+        let active_layout = self
+            .coordinated_layout
+            .as_ref()
+            .unwrap_or(&self.local_layout);
+        let mut placement = compute_fixed_facet_placement(self.axis, &self.cells, active_layout);
+        let slabs = LayoutSlabs::from_coordinated(&self.coordinated_overflow);
+        let cross_axis_start_offset = match self.axis {
+            FacetAxis::Column => slabs.legend.top,
+            FacetAxis::Row => slabs.legend.left,
+        };
+        placement.cross_axis_size += cross_axis_start_offset.max(0.0);
+        self.fixed_placement = placement;
+    }
+
+    pub(crate) fn preserve_empty_slot_plot_area(&mut self, plot_width: f32, plot_height: f32) {
+        if !self.cells.is_empty() {
+            return;
+        }
+
+        let (main_axis_size, cross_axis_size) = match self.axis {
+            FacetAxis::Column => (plot_width, plot_height),
+            FacetAxis::Row => (plot_height, plot_width),
+        };
+        self.fixed_placement = FacetBandFixedPlacement {
+            main_axis_positions: Vec::new(),
+            main_axis_size: main_axis_size.max(0.0),
+            cross_axis_size: cross_axis_size.max(0.0),
+        };
+    }
+
+    pub(crate) fn fixed_plot_area_size(&self) -> (f32, f32) {
+        match self.axis {
+            FacetAxis::Column => (
+                self.fixed_placement.main_axis_size,
+                self.fixed_placement.cross_axis_size,
+            ),
+            FacetAxis::Row => (
+                self.fixed_placement.cross_axis_size,
+                self.fixed_placement.main_axis_size,
+            ),
+        }
+    }
+}
+
+fn parent_layout_overflow_for_facet_band(overflow: CoordinatedOverflow) -> CoordinatedOverflow {
+    // Facet-owned legends are placed inside the facet group by retargeting child
+    // plot areas and/or facet-band padding. Parent layout should not reserve
+    // those legend slabs again.
+    CoordinatedOverflow {
+        guide: overflow.guide.clone(),
+        total: overflow.guide,
+    }
+}
+
+fn guide_anchor_overflow_for_facet_band(
+    axis: FacetAxis,
+    overflow: CoordinatedOverflow,
+) -> CoordinatedOverflow {
+    sibling_boundary_overflow_for_facet_band(axis, overflow)
+}
+
+fn sibling_boundary_overflow_for_facet_band(
+    axis: FacetAxis,
+    overflow: CoordinatedOverflow,
+) -> CoordinatedOverflow {
+    // Main-axis legend slabs are represented by facet band outer padding. The
+    // cross-axis start slab is represented by a child-group origin offset. Those
+    // internal slabs should not be propagated to parent guide layout or sibling
+    // spacing, while cross-axis end slabs still need to anchor guides and keep
+    // adjacent siblings outside rendered boundary content.
+    let mut total = overflow.total;
+    match axis {
+        FacetAxis::Column => {
+            total.left = overflow.guide.left;
+            total.right = overflow.guide.right;
+            total.top = overflow.guide.top;
+        }
+        FacetAxis::Row => {
+            total.top = overflow.guide.top;
+            total.bottom = overflow.guide.bottom;
+            total.left = overflow.guide.left;
+        }
+    }
+    CoordinatedOverflow {
+        guide: overflow.guide,
+        total,
     }
 }
 
@@ -221,7 +333,7 @@ pub(crate) struct FacetBandProbeMeasurement {
     pub(crate) axis: FacetAxis,
     pub(crate) cell_values: Vec<ScalarValue>,
     pub(crate) cell_has_data_rows: Vec<bool>,
-    pub(crate) local_overflow: CoordinatedOverflow,
+    pub(crate) measured_overflow: CoordinatedOverflow,
     pub(crate) original_band_scale: ConfiguredScale,
     pub(crate) local_layout: CoordinatedLayout,
     pub(crate) empty_cell_policy: FacetEmptyCellPolicy,
@@ -233,8 +345,17 @@ impl FacetBandProbeMeasurement {
         self.cell_values.iter()
     }
 
-    pub(crate) fn local_overflow_value(&self) -> CoordinatedOverflow {
-        self.local_overflow.clone()
+    #[cfg(test)]
+    pub(crate) fn measured_overflow_value(&self) -> CoordinatedOverflow {
+        self.measured_overflow.clone()
+    }
+
+    pub(crate) fn parent_layout_overflow_value(&self) -> CoordinatedOverflow {
+        parent_layout_overflow_for_facet_band(self.measured_overflow.clone())
+    }
+
+    pub(crate) fn guide_anchor_overflow_value(&self) -> CoordinatedOverflow {
+        guide_anchor_overflow_for_facet_band(self.axis, self.measured_overflow.clone())
     }
 }
 
@@ -287,106 +408,32 @@ impl FacetBandCoordMeasurement {
         self.cells.iter_mut().map(|cell| &mut cell.measurement)
     }
 
-    pub fn local_overflow_value(&self) -> Option<CoordinatedOverflow> {
-        let cell_count = self.cells.len();
-        if cell_count == 0 {
-            return None;
-        }
+    pub fn measured_overflow_value(&self) -> Option<CoordinatedOverflow> {
+        self.measured_overflow.clone()
+    }
 
-        let renderable_indices: Vec<usize> = self
-            .cells
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, cell)| {
-                renderable_for_empty_policy(self.empty_cell_policy, !cell.plan.has_data_rows)
-                    .then_some(idx)
-            })
-            .collect();
-        if renderable_indices.is_empty() {
-            return Some(CoordinatedOverflow::default());
-        }
+    pub(crate) fn recompute_measured_overflow(&mut self) {
+        self.measured_overflow =
+            measured_overflow_from_cells(self.axis, &self.cells, self.empty_cell_policy);
+    }
 
-        let first_idx = *renderable_indices.first().unwrap_or(&0);
-        let last_idx = *renderable_indices
-            .last()
-            .unwrap_or(&cell_count.saturating_sub(1));
+    pub(crate) fn measured_parent_layout_overflow_value(&self) -> Option<CoordinatedOverflow> {
+        self.measured_overflow_value()
+            .map(parent_layout_overflow_for_facet_band)
+    }
 
-        let first_layout = &self.cells[first_idx].measurement.layout;
-        let last_layout = &self.cells[last_idx].measurement.layout;
+    pub(crate) fn measured_guide_anchor_overflow_value(&self) -> Option<CoordinatedOverflow> {
+        self.measured_overflow_value()
+            .map(|overflow| guide_anchor_overflow_for_facet_band(self.axis, overflow))
+    }
 
-        let max_guide_top = renderable_indices
-            .iter()
-            .map(|idx| &self.cells[*idx])
-            .map(|cell| cell.measurement.layout.overflow.top)
-            .fold(0.0f32, f32::max);
-        let max_guide_bottom = renderable_indices
-            .iter()
-            .map(|idx| &self.cells[*idx])
-            .map(|cell| cell.measurement.layout.overflow.bottom)
-            .fold(0.0f32, f32::max);
-        let max_guide_left = renderable_indices
-            .iter()
-            .map(|idx| &self.cells[*idx])
-            .map(|cell| cell.measurement.layout.overflow.left)
-            .fold(0.0f32, f32::max);
-        let max_guide_right = renderable_indices
-            .iter()
-            .map(|idx| &self.cells[*idx])
-            .map(|cell| cell.measurement.layout.overflow.right)
-            .fold(0.0f32, f32::max);
+    pub(crate) fn measured_sibling_boundary_overflow_value(&self) -> Option<CoordinatedOverflow> {
+        self.measured_overflow_value()
+            .map(|overflow| sibling_boundary_overflow_for_facet_band(self.axis, overflow))
+    }
 
-        let max_total_top = renderable_indices
-            .iter()
-            .map(|idx| &self.cells[*idx])
-            .map(|cell| cell.measurement.layout.total_overflow.top)
-            .fold(0.0f32, f32::max);
-        let max_total_bottom = renderable_indices
-            .iter()
-            .map(|idx| &self.cells[*idx])
-            .map(|cell| cell.measurement.layout.total_overflow.bottom)
-            .fold(0.0f32, f32::max);
-        let max_total_left = renderable_indices
-            .iter()
-            .map(|idx| &self.cells[*idx])
-            .map(|cell| cell.measurement.layout.total_overflow.left)
-            .fold(0.0f32, f32::max);
-        let max_total_right = renderable_indices
-            .iter()
-            .map(|idx| &self.cells[*idx])
-            .map(|cell| cell.measurement.layout.total_overflow.right)
-            .fold(0.0f32, f32::max);
-
-        let guide = match self.axis {
-            FacetAxis::Column => OverflowSpaceRequirement {
-                top: max_guide_top,
-                bottom: max_guide_bottom,
-                left: first_layout.overflow.left,
-                right: last_layout.overflow.right,
-            },
-            FacetAxis::Row => OverflowSpaceRequirement {
-                top: first_layout.overflow.top,
-                bottom: last_layout.overflow.bottom,
-                left: max_guide_left,
-                right: max_guide_right,
-            },
-        };
-
-        let total = match self.axis {
-            FacetAxis::Column => OverflowSpaceRequirement {
-                top: max_total_top,
-                bottom: max_total_bottom,
-                left: first_layout.total_overflow.left,
-                right: last_layout.total_overflow.right,
-            },
-            FacetAxis::Row => OverflowSpaceRequirement {
-                top: first_layout.total_overflow.top,
-                bottom: last_layout.total_overflow.bottom,
-                left: max_total_left,
-                right: max_total_right,
-            },
-        };
-
-        Some(CoordinatedOverflow { guide, total })
+    pub(crate) fn guide_anchor_coordinated_overflow_value(&self) -> CoordinatedOverflow {
+        guide_anchor_overflow_for_facet_band(self.axis, self.coordinated_overflow.clone())
     }
 
     pub fn local_layout_value(&self) -> CoordinatedLayout {
@@ -398,11 +445,10 @@ impl FacetBandCoordMeasurement {
     }
 
     pub fn set_coordinated_layout_value(&mut self, layout: CoordinatedLayout) {
-        let layout = coordinated_layout_preserving_outer_edges(&self.local_layout, layout);
         self.coordinated_layout = Some(layout);
     }
 
-    pub(crate) fn apply_cross_axis_coordinated_side_slabs_to_cells(&mut self) {
+    pub(crate) fn apply_coordinated_alignment_slabs_to_child_layouts(&mut self) {
         let coordinated = self.coordinated_overflow.clone();
         let sides = match self.axis {
             FacetAxis::Column => [AxisPosition::Top, AxisPosition::Bottom],
@@ -506,10 +552,114 @@ impl FacetBandCoordMeasurement {
                 target_plot_area_height,
             )?;
         }
-        self.apply_cross_axis_coordinated_side_slabs_to_cells();
+        self.apply_coordinated_alignment_slabs_to_child_layouts();
 
         Ok(())
     }
+}
+
+fn measured_overflow_from_cells(
+    axis: FacetAxis,
+    cells: &[FacetCellRuntime],
+    empty_cell_policy: FacetEmptyCellPolicy,
+) -> Option<CoordinatedOverflow> {
+    let cell_count = cells.len();
+    if cell_count == 0 {
+        return None;
+    }
+
+    let renderable_indices: Vec<usize> = cells
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, cell)| {
+            renderable_for_empty_policy(empty_cell_policy, !cell.plan.has_data_rows).then_some(idx)
+        })
+        .collect();
+    if renderable_indices.is_empty() {
+        return Some(CoordinatedOverflow::default());
+    }
+
+    let first_idx = *renderable_indices.first().unwrap_or(&0);
+    let last_idx = *renderable_indices
+        .last()
+        .unwrap_or(&cell_count.saturating_sub(1));
+
+    let first_layout = &cells[first_idx].measurement.layout;
+    let last_layout = &cells[last_idx].measurement.layout;
+
+    let max_guide_top = renderable_indices
+        .iter()
+        .map(|idx| &cells[*idx])
+        .map(|cell| cell.measurement.layout.overflow.top)
+        .fold(0.0f32, f32::max);
+    let max_guide_bottom = renderable_indices
+        .iter()
+        .map(|idx| &cells[*idx])
+        .map(|cell| cell.measurement.layout.overflow.bottom)
+        .fold(0.0f32, f32::max);
+    let max_guide_left = renderable_indices
+        .iter()
+        .map(|idx| &cells[*idx])
+        .map(|cell| cell.measurement.layout.overflow.left)
+        .fold(0.0f32, f32::max);
+    let max_guide_right = renderable_indices
+        .iter()
+        .map(|idx| &cells[*idx])
+        .map(|cell| cell.measurement.layout.overflow.right)
+        .fold(0.0f32, f32::max);
+
+    let max_total_top = renderable_indices
+        .iter()
+        .map(|idx| &cells[*idx])
+        .map(|cell| cell.measurement.layout.total_overflow.top)
+        .fold(0.0f32, f32::max);
+    let max_total_bottom = renderable_indices
+        .iter()
+        .map(|idx| &cells[*idx])
+        .map(|cell| cell.measurement.layout.total_overflow.bottom)
+        .fold(0.0f32, f32::max);
+    let max_total_left = renderable_indices
+        .iter()
+        .map(|idx| &cells[*idx])
+        .map(|cell| cell.measurement.layout.total_overflow.left)
+        .fold(0.0f32, f32::max);
+    let max_total_right = renderable_indices
+        .iter()
+        .map(|idx| &cells[*idx])
+        .map(|cell| cell.measurement.layout.total_overflow.right)
+        .fold(0.0f32, f32::max);
+
+    let guide = match axis {
+        FacetAxis::Column => OverflowSpaceRequirement {
+            top: max_guide_top,
+            bottom: max_guide_bottom,
+            left: first_layout.overflow.left,
+            right: last_layout.overflow.right,
+        },
+        FacetAxis::Row => OverflowSpaceRequirement {
+            top: first_layout.overflow.top,
+            bottom: last_layout.overflow.bottom,
+            left: max_guide_left,
+            right: max_guide_right,
+        },
+    };
+
+    let total = match axis {
+        FacetAxis::Column => OverflowSpaceRequirement {
+            top: max_total_top,
+            bottom: max_total_bottom,
+            left: first_layout.total_overflow.left,
+            right: last_layout.total_overflow.right,
+        },
+        FacetAxis::Row => OverflowSpaceRequirement {
+            top: first_layout.total_overflow.top,
+            bottom: last_layout.total_overflow.bottom,
+            left: max_total_left,
+            right: max_total_right,
+        },
+    };
+
+    Some(CoordinatedOverflow { guide, total })
 }
 
 fn apply_facet_band_scale_adjustment(
@@ -752,15 +902,6 @@ fn apply_facet_band_scale_layout(
     updated
 }
 
-fn coordinated_layout_preserving_outer_edges(
-    local_layout: &CoordinatedLayout,
-    mut coordinated_layout: CoordinatedLayout,
-) -> CoordinatedLayout {
-    coordinated_layout.outer_start = local_layout.outer_start;
-    coordinated_layout.outer_end = local_layout.outer_end;
-    coordinated_layout
-}
-
 fn has_coordinated_layout_change(
     local_layout: &CoordinatedLayout,
     coordinated_layout: Option<&CoordinatedLayout>,
@@ -848,6 +989,10 @@ impl FacetBandCoordMeasurement {
                 });
             }
         }
+    }
+
+    pub fn guide_padding_inner_px_value(&self) -> f32 {
+        self.guide_padding_inner_px
     }
 
     pub fn distribute_coordinated_domain_extents(
@@ -1054,7 +1199,7 @@ impl FacetBandCoordMeasurement {
         }
 
         if !plan.remeasure_required {
-            self.apply_cross_axis_coordinated_side_slabs_to_cells();
+            self.apply_coordinated_alignment_slabs_to_child_layouts();
             return Ok(FacetBandCoordinationApplyOutcome {
                 subplot_cross_size_before,
                 subplot_cross_size_after: self.subplot_cross_size,
@@ -1108,7 +1253,7 @@ impl FacetBandCoordMeasurement {
             )
             .await?;
         }
-        self.apply_cross_axis_coordinated_side_slabs_to_cells();
+        self.apply_coordinated_alignment_slabs_to_child_layouts();
         trace!(
             axis = ?self.axis,
             facet_depth = self.facet_depth,
@@ -1770,15 +1915,36 @@ fn derive_padding_inner_px_from_probe(
     pass1: &OverflowProbeSummary,
     pass1_renderable_cells: &[bool],
 ) -> f32 {
-    let required_parent_padding = compute_padding_from_overflows(
-        axis,
-        &pass1
-            .cell_overflows
-            .iter()
-            .map(|(_, total)| total.clone())
-            .collect::<Vec<_>>(),
-        pass1_renderable_cells,
-    );
+    derive_padding_inner_px_from_probe_overflows(axis, pass1, pass1_renderable_cells, true)
+}
+
+fn derive_guide_padding_inner_px_from_probe(
+    axis: FacetAxis,
+    pass1: &OverflowProbeSummary,
+    pass1_renderable_cells: &[bool],
+) -> f32 {
+    derive_padding_inner_px_from_probe_overflows(axis, pass1, pass1_renderable_cells, false)
+}
+
+fn derive_padding_inner_px_from_probe_overflows(
+    axis: FacetAxis,
+    pass1: &OverflowProbeSummary,
+    pass1_renderable_cells: &[bool],
+    include_total_overflow: bool,
+) -> f32 {
+    let cell_overflows = pass1
+        .cell_overflows
+        .iter()
+        .map(|(guide, total)| {
+            if include_total_overflow {
+                total.clone()
+            } else {
+                guide.clone()
+            }
+        })
+        .collect::<Vec<_>>();
+    let required_parent_padding =
+        compute_padding_from_overflows(axis, &cell_overflows, pass1_renderable_cells);
     let renderable_count = pass1_renderable_cells
         .iter()
         .filter(|renderable| **renderable)
@@ -1908,33 +2074,34 @@ fn renderable_mask_for_cells(cells: &[FacetCellDraft], policy: FacetEmptyCellPol
         .collect()
 }
 
-/// Returns the main-axis extent of a cell for fixed-subplot positioning.
+/// Returns the main-axis extent of a cell for fixed leaf plot-area positioning.
 ///
 /// For leaf cells, this is simply `plot_area_width` (or height for rows).
-/// For intermediate cells (containing a facet band), the actual rendered extent
-/// includes inter-cell gaps computed by `compute_fixed_main_axis_positions`, which
-/// may exceed `plot_area_width`. When fixed main-axis positions are available,
-/// we use them to compute the true extent: last_position + last_cell_size.
+/// For intermediate cells (containing a fixed leaf plot-area facet band), the
+/// stored fixed placement carries the actual subtree extent, including
+/// inter-cell gaps and trailing outer padding.
 fn cell_main_plot_size(axis: FacetAxis, measurement: &ComponentsMeasurement) -> f32 {
-    // Check if this cell contains a fixed facet band with computed positions
     if let Some(facet_band) = measurement
         .coord_measurement
         .as_any()
         .downcast_ref::<FacetBandCoordMeasurementFixed>()
     {
-        let positions = &facet_band.fixed_main_axis_positions;
-        if let Some(&last_pos) = positions.last()
-            && let Some(last_cell) = facet_band.base.cells.last()
-        {
-            let last_cell_size = match axis {
-                FacetAxis::Column => last_cell.measurement.plot_area_width,
-                FacetAxis::Row => last_cell.measurement.plot_area_height,
-            };
-            return (last_pos + last_cell_size).max(0.0);
+        if facet_band.cells.is_empty() {
+            return match axis {
+                FacetAxis::Column => measurement.plot_area_width,
+                FacetAxis::Row => measurement.plot_area_height,
+            }
+            .max(0.0);
         }
+
+        let (plot_width, plot_height) = facet_band.fixed_plot_area_size();
+        return match axis {
+            FacetAxis::Column => plot_width,
+            FacetAxis::Row => plot_height,
+        }
+        .max(0.0);
     }
 
-    // Fallback for leaf cells or cells without fixed positions
     match axis {
         FacetAxis::Column => measurement.plot_area_width,
         FacetAxis::Row => measurement.plot_area_height,
@@ -1942,16 +2109,47 @@ fn cell_main_plot_size(axis: FacetAxis, measurement: &ComponentsMeasurement) -> 
     .max(0.0)
 }
 
-fn cell_main_axis_overflow_pair(
+fn cell_cross_plot_size(axis: FacetAxis, measurement: &ComponentsMeasurement) -> f32 {
+    if let Some(facet_band) = measurement
+        .coord_measurement
+        .as_any()
+        .downcast_ref::<FacetBandCoordMeasurementFixed>()
+    {
+        if facet_band.cells.is_empty() {
+            return match axis {
+                FacetAxis::Column => measurement.plot_area_height,
+                FacetAxis::Row => measurement.plot_area_width,
+            }
+            .max(0.0);
+        }
+
+        let (plot_width, plot_height) = facet_band.fixed_plot_area_size();
+        return match axis {
+            FacetAxis::Column => plot_height,
+            FacetAxis::Row => plot_width,
+        }
+        .max(0.0);
+    }
+
+    match axis {
+        FacetAxis::Column => measurement.plot_area_height,
+        FacetAxis::Row => measurement.plot_area_width,
+    }
+    .max(0.0)
+}
+
+fn cell_main_axis_rendered_boundary_overflow_pair(
     axis: FacetAxis,
     measurement: &ComponentsMeasurement,
 ) -> (f32, f32) {
-    // Fixed-subplot placement uses these per-cell edge paddings to keep adjacent
-    // subplot groups separated. Add a small legend-owned breathing room so legends
-    // don't visually crowd the next subplot when they sit near branch boundaries.
+    // Fixed-subplot placement uses per-boundary rendered edge demand to keep
+    // adjacent subplot groups separated. Use the component's rendered layout
+    // overflow, augmented by stable measured subtree boundary overflow, rather
+    // than recursively projected coordinated overflows that can describe global
+    // alignment instead of content at this sibling boundary.
     const LEGEND_EDGE_BREATHING_ROOM: f32 = 8.0;
 
-    let total = &measurement.layout.total_overflow;
+    let total = sibling_boundary_total_overflow_for_fixed_placement(measurement);
     let guide = &measurement.layout.overflow;
     let (
         legend_left_from_bounds,
@@ -1982,16 +2180,10 @@ fn cell_main_axis_overflow_pair(
         .max(coord_legend_bottom)
         .max(legend_bottom_from_bounds);
 
-    // Also consider the full coordinated overflow from the inner facet band.
-    // The taffy `total` may not reflect overflow from nested facet levels
-    // (e.g., nested legends or row labels updated during coordination).
-    let (coord_total_left, coord_total_right, coord_total_top, coord_total_bottom) =
-        coordinated_total_overflow_edges(measurement);
-
     match axis {
         FacetAxis::Column => {
-            let mut left = total.left.max(coord_total_left).max(0.0);
-            let mut right = total.right.max(coord_total_right).max(0.0);
+            let mut left = total.left.max(0.0);
+            let mut right = total.right.max(0.0);
             if legend_left > 0.0 {
                 left += LEGEND_EDGE_BREATHING_ROOM;
             }
@@ -2001,8 +2193,8 @@ fn cell_main_axis_overflow_pair(
             (left, right)
         }
         FacetAxis::Row => {
-            let mut top = total.top.max(coord_total_top).max(0.0);
-            let mut bottom = total.bottom.max(coord_total_bottom).max(0.0);
+            let mut top = total.top.max(0.0);
+            let mut bottom = total.bottom.max(0.0);
             if legend_top > 0.0 {
                 top += LEGEND_EDGE_BREATHING_ROOM;
             }
@@ -2066,79 +2258,88 @@ fn coordinated_legend_overflow_edges(measurement: &ComponentsMeasurement) -> (f3
     (0.0, 0.0, 0.0, 0.0)
 }
 
-/// Returns the full coordinated overflow (guide + legend) from the inner facet band,
-/// recursing through all nested levels to capture overflow from deeply nested legends
-/// or guides that may not be visible at the immediate inner level.
-///
-/// For example, in a 3-level col>col>col layout with a legend at the innermost level,
-/// the middle level's `coordinated_overflow.total` won't include the innermost legend.
-/// This function walks down through nested cells to find the maximum overflow at any depth.
-fn coordinated_total_overflow_edges(measurement: &ComponentsMeasurement) -> (f32, f32, f32, f32) {
-    // Iterative traversal to avoid stack overflow with deep nesting + async test stacks
-    let mut left = 0.0f32;
-    let mut right = 0.0f32;
-    let mut top = 0.0f32;
-    let mut bottom = 0.0f32;
+fn sibling_boundary_total_overflow_for_fixed_placement(
+    measurement: &ComponentsMeasurement,
+) -> OverflowSpaceRequirement {
+    let mut total = measurement.layout.total_overflow.clone();
 
-    // Work queue of measurements to inspect
-    let mut queue: Vec<&ComponentsMeasurement> = vec![measurement];
-
-    while let Some(m) = queue.pop() {
-        let band: Option<&FacetBandCoordMeasurement> = m
-            .coord_measurement
-            .as_any()
-            .downcast_ref::<FacetBandCoordMeasurementFixed>()
-            .map(|fb| &fb.base)
-            .or_else(|| {
-                m.coord_measurement
-                    .as_any()
-                    .downcast_ref::<FacetBandCoordMeasurementCanvasFit>()
-                    .map(|fb| fb as &FacetBandCoordMeasurement)
-            });
-
-        if let Some(band) = band {
-            let total = &band.coordinated_overflow.total;
-            left = left.max(total.left.max(0.0));
-            right = right.max(total.right.max(0.0));
-            top = top.max(total.top.max(0.0));
-            bottom = bottom.max(total.bottom.max(0.0));
-
-            // Enqueue child cells for inspection
-            for cell in &band.cells {
-                queue.push(&cell.measurement);
-            }
+    if let Some(facet_band) = measurement
+        .coord_measurement
+        .as_any()
+        .downcast_ref::<FacetBandCoordMeasurementFixed>()
+    {
+        if let Some(boundary) = facet_band.measured_sibling_boundary_overflow_value() {
+            total = total.max_components(&boundary.total);
         }
+        return total;
     }
 
-    (left, right, top, bottom)
+    if let Some(boundary) = measurement
+        .coord_measurement
+        .as_any()
+        .downcast_ref::<FacetBandCoordMeasurementCanvasFit>()
+        .and_then(|facet_band| facet_band.measured_sibling_boundary_overflow_value())
+    {
+        total = total.max_components(&boundary.total);
+    }
+
+    total
 }
 
-pub(crate) fn compute_fixed_main_axis_positions(
+pub(crate) fn compute_fixed_facet_placement(
     axis: FacetAxis,
     cells: &[FacetCellRuntime],
     layout: &CoordinatedLayout,
-) -> Vec<f32> {
+) -> FacetBandFixedPlacement {
     if cells.is_empty() {
-        return Vec::new();
+        return FacetBandFixedPlacement::default();
     }
 
     let mut positions = Vec::with_capacity(cells.len());
     let mut cursor = layout.outer_start.max(0.0);
+    let mut cross_axis_size = 0.0f32;
     let gap = layout
         .padding_inner_px
         .max(padding_policy::MIN_SUBPLOT_MAIN_GAP);
 
     for (idx, cell) in cells.iter().enumerate() {
         positions.push(cursor);
-        cursor += cell_main_plot_size(axis, &cell.measurement);
+        cross_axis_size = cross_axis_size.max(cell_cross_plot_size(axis, &cell.measurement));
+        let cell_size = cell_main_plot_size(axis, &cell.measurement);
+        cursor += cell_size;
         if idx + 1 < cells.len() {
-            let (_, after_current) = cell_main_axis_overflow_pair(axis, &cell.measurement);
-            let (before_next, _) = cell_main_axis_overflow_pair(axis, &cells[idx + 1].measurement);
-            cursor += gap.max(after_current + before_next);
+            let (_, after_current) =
+                cell_main_axis_rendered_boundary_overflow_pair(axis, &cell.measurement);
+            let (before_next, _) =
+                cell_main_axis_rendered_boundary_overflow_pair(axis, &cells[idx + 1].measurement);
+            let gap_size = gap.max(after_current + before_next);
+            trace!(
+                axis = ?axis,
+                cell_index = idx,
+                base_gap = gap,
+                after_current,
+                before_next,
+                gap_size,
+                "fixed facet placement gap"
+            );
+            cursor += gap_size;
         }
     }
 
-    positions
+    FacetBandFixedPlacement {
+        main_axis_positions: positions,
+        main_axis_size: (cursor + layout.outer_end.max(0.0)).max(0.0),
+        cross_axis_size,
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn compute_fixed_main_axis_positions(
+    axis: FacetAxis,
+    cells: &[FacetCellRuntime],
+    layout: &CoordinatedLayout,
+) -> Vec<f32> {
+    compute_fixed_facet_placement(axis, cells, layout).main_axis_positions
 }
 
 fn synthesize_subtree_plot_area_from_leaf_size(
@@ -2204,11 +2405,13 @@ fn empty_facet_band_measurement(
         cells: Vec::new(),
         shared_scale_builder: ScaleBuilder::default(),
         coordinated_overflow: CoordinatedOverflow::default(),
+        measured_overflow: None,
         compiled_subplot: compiled_subplot.clone(),
         subplot_cross_size: 0.0,
         facet_depth: facet_path.len() as u8 + 1,
         original_band_scale: band_scale.configured().clone(),
         local_layout: CoordinatedLayout::default(),
+        guide_padding_inner_px: 0.0,
         coordinated_layout: None,
         coordination_field_identity: axis.scale_name().to_string(),
         channel_domain_sharing_levels: HashMap::new(),
@@ -2217,7 +2420,7 @@ fn empty_facet_band_measurement(
     if fixed_mode {
         Box::new(FacetBandCoordMeasurementFixed {
             base,
-            fixed_main_axis_positions: Vec::new(),
+            fixed_placement: FacetBandFixedPlacement::default(),
         })
     } else {
         Box::new(base)
@@ -3579,7 +3782,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             outer_end: band_layout_plan.outer_end,
             n: band_layout_plan.n,
         };
-        let local_overflow = derive_band_overflow_from_probe(
+        let measured_overflow = derive_band_overflow_from_probe(
             self.axis_ops.axis,
             &overflow_probe.prepared_inputs.renderable_mask,
             &final_overflow_summary.cell_overflows,
@@ -3592,7 +3795,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 .iter()
                 .map(|cell| cell.plan.has_data_rows)
                 .collect(),
-            local_overflow,
+            measured_overflow,
             original_band_scale: prepared_runtime.original_band_scale.clone(),
             local_layout,
             empty_cell_policy: overflow_probe
@@ -3628,7 +3831,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                     )
                     .await?
             } else {
-                probe_measurement.local_overflow_value().guide
+                probe_measurement.measured_overflow_value().guide
             };
         let total_overflow = prepared_runtime
             .compiled_subplot
@@ -3823,6 +4026,11 @@ impl<'a> FacetBandMeasurePipeline<'a> {
 
         let padding_inner_px =
             derive_padding_inner_px_from_probe(self.axis_ops.axis, pass1, &pass1_renderable_cells);
+        let guide_padding_inner_px = derive_guide_padding_inner_px_from_probe(
+            self.axis_ops.axis,
+            pass1,
+            &pass1_renderable_cells,
+        );
 
         let (first_edge_idx, last_edge_idx) =
             effective_edge_indices(&pass1_renderable_cells, pass1.cell_overflows.len())
@@ -3834,6 +4042,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         debug!(
             axis = ?self.axis_ops.axis,
             padding_inner_px,
+            guide_padding_inner_px,
             outer_start,
             outer_end,
             cell_count = cell_values.len(),
@@ -3844,6 +4053,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
 
         FacetBandPlan {
             padding_inner_px,
+            guide_padding_inner_px,
             outer_start,
             outer_end,
             n: cell_values.len(),
@@ -4086,6 +4296,8 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             outer_end: band_layout_plan.outer_end,
             n: band_layout_plan.n,
         };
+        let measured_overflow =
+            measured_overflow_from_cells(self.axis_ops.axis, &cell_runtimes, empty_cell_policy);
         let base = FacetBandCoordMeasurement {
             axis: self.axis_ops.axis,
             cells: cell_runtimes,
@@ -4094,11 +4306,13 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 .shared_scale_builder
                 .clone(),
             coordinated_overflow: CoordinatedOverflow::default(),
+            measured_overflow,
             compiled_subplot: prepared_runtime.compiled_subplot.clone(),
             subplot_cross_size: final_subplot_cross_size,
             facet_depth,
             original_band_scale: prepared_runtime.original_band_scale.clone(),
             local_layout,
+            guide_padding_inner_px: band_layout_plan.guide_padding_inner_px,
             coordinated_layout: None,
             coordination_field_identity,
             channel_domain_sharing_levels,
@@ -4109,15 +4323,12 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             self.eval_ctx.facet_runtime_sizing_mode(),
             FacetRuntimeSizingMode::FixedSubplot { .. }
         ) {
-            let fixed_main_axis_positions = compute_fixed_main_axis_positions(
-                self.axis_ops.axis,
-                &base.cells,
-                &base.local_layout,
-            );
-            Box::new(FacetBandCoordMeasurementFixed {
+            let mut fixed = FacetBandCoordMeasurementFixed {
                 base,
-                fixed_main_axis_positions,
-            })
+                fixed_placement: FacetBandFixedPlacement::default(),
+            };
+            fixed.recompute_fixed_placement();
+            Box::new(fixed)
         } else {
             Box::new(base)
         }
@@ -4959,8 +5170,8 @@ mod tests {
     }
 
     #[test]
-    fn set_coordinated_layout_preserves_local_outer_edges() {
-        let local = CoordinatedLayout {
+    fn coordinated_layout_merge_uses_shared_outer_edges() {
+        let mut merged = CoordinatedLayout {
             padding_inner_px: 6.0,
             outer_start: 11.0,
             outer_end: 12.0,
@@ -4973,11 +5184,11 @@ mod tests {
             n: 4,
         };
 
-        let merged = coordinated_layout_preserving_outer_edges(&local, coordinated);
-        assert_eq!(merged.padding_inner_px, 18.0);
-        assert_eq!(merged.n, 4);
-        assert_eq!(merged.outer_start, local.outer_start);
-        assert_eq!(merged.outer_end, local.outer_end);
+        merged.merge(&coordinated);
+        assert_eq!(merged.padding_inner_px, coordinated.padding_inner_px);
+        assert_eq!(merged.n, coordinated.n);
+        assert_eq!(merged.outer_start, coordinated.outer_start);
+        assert_eq!(merged.outer_end, coordinated.outer_end);
     }
 
     #[test]
@@ -5136,6 +5347,134 @@ mod tests {
         assert!(should_remeasure_cells(true, true));
     }
 
+    #[test]
+    fn parent_layout_overflow_excludes_all_internal_legend_slabs() {
+        let overflow = CoordinatedOverflow {
+            guide: OverflowSpaceRequirement {
+                top: 10.0,
+                right: 8.0,
+                bottom: 11.0,
+                left: 7.0,
+            },
+            total: OverflowSpaceRequirement {
+                top: 58.0,
+                right: 65.0,
+                bottom: 21.0,
+                left: 19.0,
+            },
+        };
+
+        let adjusted = parent_layout_overflow_for_facet_band(overflow);
+
+        assert_eq!(adjusted.total.top, 10.0);
+        assert_eq!(adjusted.total.right, 8.0);
+        assert_eq!(adjusted.total.bottom, 11.0);
+        assert_eq!(adjusted.total.left, 7.0);
+    }
+
+    #[test]
+    fn guide_anchor_overflow_keeps_cross_axis_end_legend_slab() {
+        let overflow = CoordinatedOverflow {
+            guide: OverflowSpaceRequirement {
+                top: 7.0,
+                right: 8.0,
+                bottom: 9.0,
+                left: 10.0,
+            },
+            total: OverflowSpaceRequirement {
+                top: 20.0,
+                right: 35.0,
+                bottom: 55.0,
+                left: 25.0,
+            },
+        };
+
+        let adjusted = guide_anchor_overflow_for_facet_band(FacetAxis::Row, overflow);
+
+        assert_eq!(adjusted.total.top, 7.0);
+        assert_eq!(adjusted.total.right, 35.0);
+        assert_eq!(adjusted.total.bottom, 9.0);
+        assert_eq!(adjusted.total.left, 10.0);
+    }
+
+    #[test]
+    fn sibling_boundary_overflow_keeps_rendered_cross_axis_end_slab() {
+        let overflow = CoordinatedOverflow {
+            guide: OverflowSpaceRequirement {
+                top: 7.0,
+                right: 8.0,
+                bottom: 9.0,
+                left: 10.0,
+            },
+            total: OverflowSpaceRequirement {
+                top: 20.0,
+                right: 35.0,
+                bottom: 55.0,
+                left: 25.0,
+            },
+        };
+
+        let row_adjusted =
+            sibling_boundary_overflow_for_facet_band(FacetAxis::Row, overflow.clone());
+        assert_eq!(row_adjusted.total.left, 10.0);
+        assert_eq!(row_adjusted.total.right, 35.0);
+
+        let column_adjusted = sibling_boundary_overflow_for_facet_band(FacetAxis::Column, overflow);
+        assert_eq!(column_adjusted.total.top, 7.0);
+        assert_eq!(column_adjusted.total.bottom, 55.0);
+    }
+
+    #[test]
+    fn parent_layout_and_guide_anchor_overflow_do_not_change_local_coordination_overflow() {
+        let full = CoordinatedOverflow {
+            guide: OverflowSpaceRequirement {
+                top: 7.0,
+                right: 8.0,
+                bottom: 9.0,
+                left: 10.0,
+            },
+            total: OverflowSpaceRequirement {
+                top: 20.0,
+                right: 35.0,
+                bottom: 55.0,
+                left: 25.0,
+            },
+        };
+
+        let probe = FacetBandProbeMeasurement {
+            axis: FacetAxis::Column,
+            cell_values: vec![s("a")],
+            cell_has_data_rows: vec![true],
+            measured_overflow: full.clone(),
+            original_band_scale: make_band_scale((0.0, 100.0)),
+            local_layout: CoordinatedLayout {
+                padding_inner_px: 12.0,
+                outer_start: 13.0,
+                outer_end: 46.0,
+                n: 1,
+            },
+            empty_cell_policy: FacetEmptyCellPolicy::Auto,
+            fixed_plot_area_lock: false,
+        };
+
+        let measured = probe.measured_overflow_value();
+        let parent_layout = probe.parent_layout_overflow_value();
+        let guide_anchor = probe.guide_anchor_overflow_value();
+
+        assert_eq!(measured.total.top, 20.0);
+        assert_eq!(measured.total.right, 35.0);
+        assert_eq!(measured.total.bottom, 55.0);
+        assert_eq!(measured.total.left, 25.0);
+        assert_eq!(parent_layout.total.top, 7.0);
+        assert_eq!(parent_layout.total.right, 8.0);
+        assert_eq!(parent_layout.total.bottom, 9.0);
+        assert_eq!(parent_layout.total.left, 10.0);
+        assert_eq!(guide_anchor.total.top, 7.0);
+        assert_eq!(guide_anchor.total.right, 8.0);
+        assert_eq!(guide_anchor.total.bottom, 55.0);
+        assert_eq!(guide_anchor.total.left, 10.0);
+    }
+
     #[tokio::test]
     async fn derive_coordinated_apply_plan_layout_only_no_remeasure()
     -> Result<(), AvengerChartError> {
@@ -5156,6 +5495,46 @@ mod tests {
         assert!(!plan.has_coordinated_extents);
         assert!(!plan.remeasure_required);
         assert!((plan.adjusted_main_size - plan.original_main_size).abs() <= 0.01);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn measured_overflow_is_stable_after_projecting_alignment_slabs()
+    -> Result<(), AvengerChartError> {
+        let (mut measurement, _) =
+            build_coord_measurement_for_apply_plan_tests(FacetAxis::Row).await?;
+        let facet_band = measurement
+            .as_any_mut()
+            .downcast_mut::<FacetBandCoordMeasurement>()
+            .expect("expected FacetBandCoordMeasurement");
+        let measured_before = facet_band
+            .measured_overflow_value()
+            .expect("fixture should have measured overflow");
+
+        let mut coordinated = measured_before.clone();
+        coordinated.guide.left += 100.0;
+        coordinated.total.left += 100.0;
+        coordinated.guide.right += 100.0;
+        coordinated.total.right += 100.0;
+        facet_band.set_coordinated_overflow_value(coordinated);
+        facet_band.apply_coordinated_alignment_slabs_to_child_layouts();
+
+        let measured_after = facet_band
+            .measured_overflow_value()
+            .expect("fixture should still have measured overflow");
+        assert_eq!(measured_after.guide.left, measured_before.guide.left);
+        assert_eq!(measured_after.total.left, measured_before.total.left);
+        assert_eq!(measured_after.guide.right, measured_before.guide.right);
+        assert_eq!(measured_after.total.right, measured_before.total.right);
+
+        let projected_left = facet_band
+            .child_measurements_iter()
+            .map(|child| child.layout.overflow.left)
+            .fold(0.0f32, f32::max);
+        assert!(
+            projected_left >= measured_before.guide.left + 100.0,
+            "child layouts should receive coordinated alignment slabs"
+        );
         Ok(())
     }
 

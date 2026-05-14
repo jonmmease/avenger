@@ -16,7 +16,7 @@ use crate::{cartesian::axis::AxisPosition, layout::LayoutResult};
 /// * `color` - Optional color string (HSL format like "hsl(15 65% 60%)") for debug marks. Defaults to magenta
 /// * `stroke_width` - Optional stroke width. Defaults to 1.0
 /// * `zindex` - Optional z-index. Defaults to 20
-/// * `flip_label_align` - If true, align labels on opposite side (for subplots to avoid overlap)
+/// * `flip_label_align` - If true, align labels on the opposite edge of each debug region.
 pub fn create_debug_layout_rects(
     layout: &LayoutResult,
     color: Option<String>,
@@ -125,10 +125,10 @@ pub fn create_debug_layout_rects(
                 ),
                 AxisPosition::Bottom => (
                     "of-bottom",
-                    bounds.x + 2.0,
+                    bounds.x + bounds.width - 2.0,
                     bounds.y + bounds.height - 2.0,
                     0.0,
-                    TextAlign::Left,
+                    TextAlign::Right,
                     TextBaseline::Bottom,
                 ),
             }
@@ -208,7 +208,7 @@ pub fn create_debug_layout_rects(
             y: (bounds.y + 10.0).into(),
             font_size: 8.0.into(),
             color: ColorOrGradient::Color(debug_color).into(),
-            zindex: Some(20),
+            zindex: Some(z),
             clip: false, // Don't clip debug marks
             ..Default::default()
         };
@@ -239,7 +239,7 @@ pub fn create_debug_layout_rects(
             font_size: 8.0.into(),
             color: ColorOrGradient::Color(debug_color).into(),
             align: TextAlign::Right.into(),
-            zindex: Some(20),
+            zindex: Some(z),
             clip: false, // Don't clip debug marks
             ..Default::default()
         };
@@ -270,7 +270,7 @@ pub fn create_debug_layout_rects(
             font_size: 8.0.into(),
             color: ColorOrGradient::Color(debug_color).into(),
             align: TextAlign::Right.into(),
-            zindex: Some(20),
+            zindex: Some(z),
             clip: false, // Don't clip debug marks
             ..Default::default()
         };

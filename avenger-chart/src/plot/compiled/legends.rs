@@ -53,16 +53,27 @@ pub(crate) enum LegendPlanScope {
 
 #[derive(Clone)]
 pub(crate) struct PreparedLegendGroup {
+    pub layout_key: String,
     pub primary_channel: String,
     pub channels: Vec<LegendChannel>,
     pub legend: Legend,
     pub renderer: Arc<dyn LegendRenderer>,
 }
 
+#[derive(Clone)]
+pub(crate) struct HoistedLegendRequest {
+    pub anchor_path: Vec<ScalarValue>,
+    pub owner_path: Vec<ScalarValue>,
+    pub position: LegendPosition,
+    pub sharing_level: SharingLevel,
+    pub group: PreparedLegendGroup,
+}
+
 #[derive(Clone, Default)]
 pub(crate) struct PreparedLegendPlan {
     pub groups: Vec<PreparedLegendGroup>,
     pub measurements: LegendMeasurements,
+    pub hoisted_requests: Vec<HoistedLegendRequest>,
 }
 
 impl PreparedLegendPlan {
@@ -71,26 +82,44 @@ impl PreparedLegendPlan {
         configured_scales: &HashMap<String, ConfiguredScaleWithSpec>,
     ) {
         for group in &mut self.groups {
-            for channel in &mut group.channels {
-                if let Some(scale) = configured_scales.get(&channel.name) {
-                    channel.scale = scale.configured().clone();
-                }
+            retarget_legend_group_scales(group, configured_scales);
+        }
 
-                for (related_name, related_channel) in &mut channel.related_channels {
-                    if let (
-                        Some(scale),
-                        ChannelInfo::Scaled {
-                            scale: related_scale,
-                            ..
-                        },
-                    ) = (configured_scales.get(related_name), related_channel)
-                    {
-                        *related_scale = scale.configured().clone();
-                    }
-                }
+        for request in &mut self.hoisted_requests {
+            retarget_legend_group_scales(&mut request.group, configured_scales);
+        }
+    }
+}
+
+fn retarget_legend_group_scales(
+    group: &mut PreparedLegendGroup,
+    configured_scales: &HashMap<String, ConfiguredScaleWithSpec>,
+) {
+    for channel in &mut group.channels {
+        if let Some(scale) = configured_scales.get(&channel.name) {
+            channel.scale = scale.configured().clone();
+        }
+
+        for (related_name, related_channel) in &mut channel.related_channels {
+            if let (
+                Some(scale),
+                ChannelInfo::Scaled {
+                    scale: related_scale,
+                    ..
+                },
+            ) = (configured_scales.get(related_name), related_channel)
+            {
+                *related_scale = scale.configured().clone();
             }
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum LegendDisposition {
+    RenderHere,
+    HoistToFacetGroup { anchor_path: Vec<ScalarValue> },
+    Suppress,
 }
 
 impl CompiledPlot {
@@ -110,6 +139,7 @@ impl CompiledPlot {
             .unwrap_or(SharingLevel::GLOBAL)
     }
 
+    #[cfg(test)]
     fn legend_visible_for_facet_cell(
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[ScalarValue],
@@ -139,6 +169,54 @@ impl CompiledPlot {
             sharing_level,
             legend_position,
         )
+    }
+
+    fn legend_disposition_for_facet_path(
+        facet_tree: &EvaluatedFacetTree,
+        facet_path: &[ScalarValue],
+        sharing_level: SharingLevel,
+        legend_position: LegendPosition,
+    ) -> LegendDisposition {
+        if sharing_level.is_free() || facet_path.is_empty() {
+            return LegendDisposition::RenderHere;
+        }
+
+        let Some(resolved) = facet_tree.resolve_path_info(facet_path) else {
+            return LegendDisposition::RenderHere;
+        };
+
+        if resolved.indices.is_empty() {
+            return LegendDisposition::RenderHere;
+        }
+
+        if !sharing_policy::legend_owner_for_position(
+            &resolved.indices,
+            &resolved.local_level_counts,
+            resolved.indices.len() as u8,
+            sharing_level,
+            legend_position,
+        ) {
+            return LegendDisposition::Suppress;
+        }
+
+        let anchor_path = sharing_policy::domain_group_key(
+            facet_path,
+            sharing_level,
+            resolved.indices.len() as u8,
+        );
+        if anchor_path == facet_path {
+            LegendDisposition::RenderHere
+        } else {
+            LegendDisposition::HoistToFacetGroup { anchor_path }
+        }
+    }
+
+    fn legend_layout_key(primary_channel: &str) -> String {
+        primary_channel.to_string()
+    }
+
+    fn hoisted_legend_layout_key(primary_channel: &str, anchor_path: &[ScalarValue]) -> String {
+        format!("{primary_channel}@facet:{anchor_path:?}")
     }
 
     /// Apply a theme value to a legend field if the field is Unset
@@ -666,12 +744,7 @@ impl CompiledPlot {
         }
     }
 
-    /// Policy hook for legend visibility.
-    ///
-    /// Current behavior is conservative: all channels allowed, with filtering
-    /// still driven by legend visibility expressions. This hook is the
-    /// future insertion point for facet-sharing-aware suppression.
-    fn legend_visibility_allowed(
+    fn legend_disposition(
         &self,
         _channel: &str,
         scope: LegendPlanScope,
@@ -681,10 +754,10 @@ impl CompiledPlot {
         effective_sharing_level: SharingLevel,
         _configured_scales: &HashMap<String, ConfiguredScaleWithSpec>,
         _params: &IndexMap<String, ScalarValue>,
-    ) -> bool {
+    ) -> LegendDisposition {
         match scope {
-            LegendPlanScope::TopLevel => true,
-            LegendPlanScope::FacetCell => Self::legend_visible_for_facet_cell(
+            LegendPlanScope::TopLevel => LegendDisposition::RenderHere,
+            LegendPlanScope::FacetCell => Self::legend_disposition_for_facet_path(
                 facet_tree,
                 facet_path,
                 effective_sharing_level,
@@ -894,6 +967,7 @@ impl CompiledPlot {
     ) -> Result<PreparedLegendPlan, AvengerChartError> {
         let mut legend_measurements = LegendMeasurements::new();
         let mut groups = Vec::new();
+        let mut hoisted_requests = Vec::new();
 
         // Get all legends including channel-level configs
         let all_legends = self.get_legends_with_theme(scales, ctx, params);
@@ -923,7 +997,7 @@ impl CompiledPlot {
             let effective_sharing_level =
                 Self::effective_group_sharing_level(facet_tree, channels.as_slice());
 
-            if !self.legend_visibility_allowed(
+            let disposition = self.legend_disposition(
                 &primary_channel.name,
                 scope,
                 facet_tree,
@@ -932,7 +1006,8 @@ impl CompiledPlot {
                 effective_sharing_level,
                 scales,
                 params,
-            ) {
+            );
+            if disposition == LegendDisposition::Suppress {
                 continue;
             }
 
@@ -964,12 +1039,39 @@ impl CompiledPlot {
             };
 
             if let Some(renderer) = renderer {
+                let layout_key = match &disposition {
+                    LegendDisposition::HoistToFacetGroup { anchor_path } => {
+                        Self::hoisted_legend_layout_key(&primary_channel.name, anchor_path)
+                    }
+                    LegendDisposition::RenderHere | LegendDisposition::Suppress => {
+                        Self::legend_layout_key(&primary_channel.name)
+                    }
+                };
+                let group = PreparedLegendGroup {
+                    layout_key: layout_key.clone(),
+                    primary_channel: primary_channel.name.clone(),
+                    channels: channels.clone(),
+                    legend: legend.clone(),
+                    renderer,
+                };
+
+                if let LegendDisposition::HoistToFacetGroup { anchor_path } = disposition {
+                    hoisted_requests.push(HoistedLegendRequest {
+                        anchor_path,
+                        owner_path: facet_path.to_vec(),
+                        position: resolved_position,
+                        sharing_level: effective_sharing_level,
+                        group,
+                    });
+                    continue;
+                }
+
                 // Measure the legend with the same channels that will be used for rendering
                 let theme = self.get_theme();
                 let (size, flexible) = measure_legend_size_with_channels(
                     &channels,
                     legend,
-                    renderer.clone(),
+                    group.renderer.clone(),
                     available_space,
                     theme.as_ref(),
                     params,
@@ -987,7 +1089,7 @@ impl CompiledPlot {
                     "Legend measure"
                 );
                 legend_measurements.insert(
-                    primary_channel.name.clone(),
+                    layout_key,
                     LegendMeasurement {
                         size,
                         flexible,
@@ -995,18 +1097,14 @@ impl CompiledPlot {
                     },
                 );
 
-                groups.push(PreparedLegendGroup {
-                    primary_channel: primary_channel.name.clone(),
-                    channels: channels.clone(),
-                    legend: legend.clone(),
-                    renderer,
-                });
+                groups.push(group);
             }
         }
 
         Ok(PreparedLegendPlan {
             groups,
             measurements: legend_measurements,
+            hoisted_requests,
         })
     }
 
@@ -1021,7 +1119,7 @@ impl CompiledPlot {
         let mut legend_marks = Vec::new();
 
         for group in &legend_plan.groups {
-            let Some(bounds) = layout.legends.get(&group.primary_channel) else {
+            let Some(bounds) = layout.legends.get(&group.layout_key) else {
                 continue;
             };
             let group_opt = group
@@ -1044,6 +1142,59 @@ impl CompiledPlot {
         }
 
         Ok(legend_marks)
+    }
+
+    pub(super) async fn add_measured_hoisted_legends_to_plan(
+        &self,
+        legend_plan: &mut PreparedLegendPlan,
+        requests: Vec<HoistedLegendRequest>,
+        available_space: taffy::Size<f32>,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<(), AvengerChartError> {
+        let theme = self.get_theme();
+        for request in requests {
+            let layout_key = request.group.layout_key.clone();
+            if legend_plan.measurements.contains_key(&layout_key) {
+                continue;
+            }
+
+            let (size, flexible) = measure_legend_size_with_channels(
+                &request.group.channels,
+                &request.group.legend,
+                request.group.renderer.clone(),
+                available_space,
+                theme.as_ref(),
+                params,
+                ctx,
+            )
+            .await?;
+
+            debug!(
+                channel = request.group.primary_channel.as_str(),
+                layout_key = layout_key.as_str(),
+                owner_path = ?request.owner_path,
+                anchor_path = ?request.anchor_path,
+                width = size.width,
+                height = size.height,
+                flexible,
+                position = ?request.position,
+                sharing = request.sharing_level.raw(),
+                "Hoisted legend measure"
+            );
+
+            legend_plan.measurements.insert(
+                layout_key,
+                LegendMeasurement {
+                    size,
+                    flexible,
+                    position: request.position,
+                },
+            );
+            legend_plan.groups.push(request.group);
+        }
+
+        Ok(())
     }
 
     /// Infer a title for the legend based on channel
@@ -1130,6 +1281,44 @@ mod tests {
             "division".to_string(),
             None,
             outer_children,
+        );
+        EvaluatedFacetTree::new_with_channel_domain_sharing_levels(Some(root), levels)
+    }
+
+    fn make_three_level_column_tree_with_sharing(
+        levels: HashMap<String, u8>,
+    ) -> EvaluatedFacetTree {
+        let mut division_children: IndexMap<ScalarValue, Box<PartitionNode>> = IndexMap::new();
+        for division in ["DivA", "DivB"] {
+            let mut department_children: IndexMap<ScalarValue, Box<PartitionNode>> =
+                IndexMap::new();
+            for department in ["Dept1", "Dept2"] {
+                let team_leaf = PartitionNode::leaf(
+                    FacetDirection::Column,
+                    0,
+                    "team".to_string(),
+                    None,
+                    vec![s("Team1"), s("Team2")],
+                );
+                department_children.insert(s(department), Box::new(team_leaf));
+            }
+
+            let department_node = PartitionNode::branch(
+                FacetDirection::Column,
+                0,
+                "department".to_string(),
+                None,
+                department_children,
+            );
+            division_children.insert(s(division), Box::new(department_node));
+        }
+
+        let root = PartitionNode::branch(
+            FacetDirection::Column,
+            0,
+            "division".to_string(),
+            None,
+            division_children,
         );
         EvaluatedFacetTree::new_with_channel_domain_sharing_levels(Some(root), levels)
     }
@@ -1264,6 +1453,66 @@ mod tests {
         assert_eq!(
             CompiledPlot::effective_group_sharing_level(&tree, &channels),
             SharingLevel::from_raw(1)
+        );
+    }
+
+    #[test]
+    fn legend_disposition_free_renders_in_facet_cell() {
+        let tree = make_two_level_column_tree_with_sharing(HashMap::new());
+        assert_eq!(
+            CompiledPlot::legend_disposition_for_facet_path(
+                &tree,
+                &[s("DivA"), s("Dept1")],
+                SharingLevel::FREE,
+                LegendPosition::Right,
+            ),
+            LegendDisposition::RenderHere
+        );
+    }
+
+    #[test]
+    fn legend_disposition_non_owner_suppresses() {
+        let tree = make_three_level_column_tree_with_sharing(HashMap::new());
+        assert_eq!(
+            CompiledPlot::legend_disposition_for_facet_path(
+                &tree,
+                &[s("DivA"), s("Dept1"), s("Team1")],
+                SharingLevel::from_raw(2),
+                LegendPosition::Right,
+            ),
+            LegendDisposition::Suppress
+        );
+    }
+
+    #[test]
+    fn legend_disposition_level2_owner_hoists_to_facet_group() {
+        let tree = make_three_level_column_tree_with_sharing(HashMap::new());
+        assert_eq!(
+            CompiledPlot::legend_disposition_for_facet_path(
+                &tree,
+                &[s("DivA"), s("Dept2"), s("Team2")],
+                SharingLevel::from_raw(2),
+                LegendPosition::Right,
+            ),
+            LegendDisposition::HoistToFacetGroup {
+                anchor_path: vec![s("DivA")]
+            }
+        );
+    }
+
+    #[test]
+    fn legend_disposition_global_owner_hoists_to_root_group() {
+        let tree = make_three_level_column_tree_with_sharing(HashMap::new());
+        assert_eq!(
+            CompiledPlot::legend_disposition_for_facet_path(
+                &tree,
+                &[s("DivB"), s("Dept2"), s("Team2")],
+                SharingLevel::GLOBAL,
+                LegendPosition::Right,
+            ),
+            LegendDisposition::HoistToFacetGroup {
+                anchor_path: vec![]
+            }
         );
     }
 }

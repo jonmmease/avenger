@@ -28,8 +28,10 @@ impl CoordinationNodeKey {
 pub(crate) struct InitialRequirementNodeSnapshot {
     pub(crate) node_id: CoordinationNodeKey,
     pub(crate) key: CoordinationGroupKey,
-    pub(crate) local_overflow: Option<CoordinatedOverflow>,
+    pub(crate) axis: FacetAxis,
+    pub(crate) measured_overflow: Option<CoordinatedOverflow>,
     pub(crate) local_layout: CoordinatedLayout,
+    pub(crate) guide_padding_inner_px: f32,
     pub(crate) domain_infos: Vec<CellDomainInfo>,
 }
 
@@ -64,8 +66,10 @@ pub(crate) struct InitialRequirementPass {
 pub(crate) struct RetargetedRequirementNodeSnapshot {
     pub(crate) node_id: CoordinationNodeKey,
     pub(crate) key: CoordinationGroupKey,
-    pub(crate) local_overflow: Option<CoordinatedOverflow>,
+    pub(crate) axis: FacetAxis,
+    pub(crate) measured_overflow: Option<CoordinatedOverflow>,
     pub(crate) local_layout: CoordinatedLayout,
+    pub(crate) guide_padding_inner_px: f32,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -251,8 +255,16 @@ fn aggregate_domain_extents(
 struct RoundCollectionInput {
     node_id: CoordinationNodeKey,
     key: CoordinationGroupKey,
-    local_overflow: Option<CoordinatedOverflow>,
+    axis: FacetAxis,
+    measured_overflow: Option<CoordinatedOverflow>,
     local_layout: CoordinatedLayout,
+    guide_padding_inner_px: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct AxisPaddingGroupKey {
+    axis: FacetAxis,
+    root_path: Vec<usize>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -265,6 +277,43 @@ struct RoundCollectionOutput {
     domain_target_nodes: HashSet<CoordinationNodeKey>,
 }
 
+fn axis_padding_group_keys(
+    nodes: &[RoundCollectionInput],
+) -> HashMap<CoordinationNodeKey, AxisPaddingGroupKey> {
+    // Share guide-only gutters through uninterrupted same-axis facet chains
+    // (`column -> column`, `row -> row`). Orthogonal facets start a new chain.
+    let axis_by_path = nodes
+        .iter()
+        .map(|node| (node.node_id.path.clone(), node.axis))
+        .collect::<HashMap<_, _>>();
+    let mut node_refs = nodes.iter().collect::<Vec<_>>();
+    node_refs.sort_by_key(|node| node.node_id.path.len());
+
+    let mut group_by_path: HashMap<Vec<usize>, AxisPaddingGroupKey> = HashMap::new();
+    let mut group_by_node: HashMap<CoordinationNodeKey, AxisPaddingGroupKey> = HashMap::new();
+
+    for node in node_refs {
+        let parent_group = node.node_id.path.split_last().and_then(|(_, parent_path)| {
+            let parent_path = parent_path.to_vec();
+            let parent_axis = axis_by_path.get(&parent_path).copied()?;
+            if parent_axis == node.axis {
+                group_by_path.get(&parent_path).cloned()
+            } else {
+                None
+            }
+        });
+        let group = parent_group.unwrap_or_else(|| AxisPaddingGroupKey {
+            axis: node.axis,
+            root_path: node.node_id.path.clone(),
+        });
+
+        group_by_path.insert(node.node_id.path.clone(), group.clone());
+        group_by_node.insert(node.node_id.clone(), group);
+    }
+
+    group_by_node
+}
+
 fn build_round_collection(
     nodes: &[RoundCollectionInput],
     include_domains: bool,
@@ -273,18 +322,26 @@ fn build_round_collection(
     let mut overflow_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedOverflow>> =
         HashMap::new();
     let mut layout_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedLayout>> = HashMap::new();
+    let axis_padding_group_by_node = axis_padding_group_keys(nodes);
+    let mut max_guide_padding_by_axis_group: HashMap<AxisPaddingGroupKey, f32> = HashMap::new();
 
     for node in nodes {
-        if let Some(local_overflow) = node.local_overflow.clone() {
+        if let Some(measured_overflow) = node.measured_overflow.clone() {
             overflow_by_key
                 .entry(node.key.clone())
                 .or_default()
-                .push(local_overflow);
+                .push(measured_overflow);
         }
         layout_by_key
             .entry(node.key.clone())
             .or_default()
             .push(node.local_layout.clone());
+        if let Some(group) = axis_padding_group_by_node.get(&node.node_id) {
+            let max_padding = max_guide_padding_by_axis_group
+                .entry(group.clone())
+                .or_default();
+            *max_padding = max_padding.max(node.guide_padding_inner_px);
+        }
     }
 
     let merged_overflow_by_key = merge_overflow_groups(overflow_by_key);
@@ -304,7 +361,13 @@ fn build_round_collection(
             overflow_patches_by_node.insert(node.node_id.clone(), merged);
         }
         if let Some(merged) = merged_layout_by_key.get(&node.key).cloned() {
-            layout_patches_by_node.insert(node.node_id.clone(), merged);
+            let mut layout = merged;
+            if let Some(axis_group) = axis_padding_group_by_node.get(&node.node_id)
+                && let Some(group_padding) = max_guide_padding_by_axis_group.get(axis_group)
+            {
+                layout.padding_inner_px = layout.padding_inner_px.max(*group_padding);
+            }
+            layout_patches_by_node.insert(node.node_id.clone(), layout);
         }
         if include_domains && !unified_domain_extents.is_empty() {
             domain_target_nodes.insert(node.node_id.clone());
@@ -330,8 +393,10 @@ pub(crate) fn build_initial_requirement_pass(
         .map(|node| RoundCollectionInput {
             node_id: node.node_id.clone(),
             key: node.key.clone(),
-            local_overflow: node.local_overflow.clone(),
+            axis: node.axis,
+            measured_overflow: node.measured_overflow.clone(),
             local_layout: node.local_layout.clone(),
+            guide_padding_inner_px: node.guide_padding_inner_px,
         })
         .collect::<Vec<_>>();
     let domain_infos = snapshot
@@ -366,8 +431,10 @@ pub(crate) fn build_retargeted_requirement_pass(
         .map(|node| RoundCollectionInput {
             node_id: node.node_id.clone(),
             key: node.key.clone(),
-            local_overflow: node.local_overflow.clone(),
+            axis: node.axis,
+            measured_overflow: node.measured_overflow.clone(),
             local_layout: node.local_layout.clone(),
+            guide_padding_inner_px: node.guide_padding_inner_px,
         })
         .collect::<Vec<_>>();
     let round = build_round_collection(&nodes, false, &[]);
@@ -422,13 +489,15 @@ mod tests {
                 InitialRequirementNodeSnapshot {
                     node_id: CoordinationNodeKey::new(vec![0]),
                     key: key.clone(),
-                    local_overflow: Some(overflow(1.0, 2.0, 3.0, 4.0)),
+                    axis: FacetAxis::Column,
+                    measured_overflow: Some(overflow(1.0, 2.0, 3.0, 4.0)),
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 2.0,
                         outer_start: 1.0,
                         outer_end: 2.0,
                         n: 2,
                     },
+                    guide_padding_inner_px: 2.0,
                     domain_infos: vec![CellDomainInfo {
                         full_cell_path: vec![s("A")],
                         channel: "x".to_string(),
@@ -440,13 +509,15 @@ mod tests {
                 InitialRequirementNodeSnapshot {
                     node_id: CoordinationNodeKey::new(vec![1]),
                     key: key.clone(),
-                    local_overflow: Some(overflow(3.0, 1.0, 5.0, 2.0)),
+                    axis: FacetAxis::Column,
+                    measured_overflow: Some(overflow(3.0, 1.0, 5.0, 2.0)),
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 4.0,
                         outer_start: 2.0,
                         outer_end: 1.0,
                         n: 4,
                     },
+                    guide_padding_inner_px: 4.0,
                     domain_infos: vec![CellDomainInfo {
                         full_cell_path: vec![s("B")],
                         channel: "x".to_string(),
@@ -497,8 +568,10 @@ mod tests {
             nodes: vec![InitialRequirementNodeSnapshot {
                 node_id: CoordinationNodeKey::new(vec![0]),
                 key,
-                local_overflow: None,
+                axis: FacetAxis::Column,
+                measured_overflow: None,
                 local_layout: CoordinatedLayout::default(),
+                guide_padding_inner_px: 0.0,
                 domain_infos: vec![info_a.clone(), info_b.clone(), info_c.clone()],
             }],
         };
@@ -528,6 +601,238 @@ mod tests {
     }
 
     #[test]
+    fn requirement_pass_shares_inner_padding_across_same_axis_groups() {
+        let outer_col_key = CoordinationGroupKey::new(1, "col:division");
+        let inner_col_key = CoordinationGroupKey::new(2, "col:dept");
+        let row_key = CoordinationGroupKey::new(3, "row:team");
+        let outer_node = CoordinationNodeKey::new(vec![0]);
+        let inner_node = CoordinationNodeKey::new(vec![0, 0]);
+        let row_node = CoordinationNodeKey::new(vec![0, 0, 0]);
+
+        let snapshot = InitialRequirementSnapshot {
+            nodes: vec![
+                InitialRequirementNodeSnapshot {
+                    node_id: outer_node.clone(),
+                    key: outer_col_key.clone(),
+                    axis: FacetAxis::Column,
+                    measured_overflow: None,
+                    local_layout: CoordinatedLayout {
+                        padding_inner_px: 36.0,
+                        outer_start: 1.0,
+                        outer_end: 2.0,
+                        n: 2,
+                    },
+                    guide_padding_inner_px: 36.0,
+                    domain_infos: Vec::new(),
+                },
+                InitialRequirementNodeSnapshot {
+                    node_id: inner_node.clone(),
+                    key: inner_col_key.clone(),
+                    axis: FacetAxis::Column,
+                    measured_overflow: None,
+                    local_layout: CoordinatedLayout {
+                        padding_inner_px: 27.0,
+                        outer_start: 3.0,
+                        outer_end: 4.0,
+                        n: 2,
+                    },
+                    guide_padding_inner_px: 27.0,
+                    domain_infos: Vec::new(),
+                },
+                InitialRequirementNodeSnapshot {
+                    node_id: row_node.clone(),
+                    key: row_key.clone(),
+                    axis: FacetAxis::Row,
+                    measured_overflow: None,
+                    local_layout: CoordinatedLayout {
+                        padding_inner_px: 9.0,
+                        outer_start: 5.0,
+                        outer_end: 6.0,
+                        n: 2,
+                    },
+                    guide_padding_inner_px: 9.0,
+                    domain_infos: Vec::new(),
+                },
+            ],
+        };
+
+        let pass = build_initial_requirement_pass(snapshot);
+
+        assert_eq!(
+            pass.aggregates
+                .merged_layout_by_key
+                .get(&outer_col_key)
+                .unwrap()
+                .padding_inner_px,
+            36.0
+        );
+        assert_eq!(
+            pass.aggregates
+                .merged_layout_by_key
+                .get(&inner_col_key)
+                .unwrap()
+                .padding_inner_px,
+            27.0
+        );
+        assert_eq!(
+            pass.distribution
+                .layout_patches_by_node
+                .get(&inner_node)
+                .unwrap()
+                .padding_inner_px,
+            36.0
+        );
+        assert_eq!(
+            pass.aggregates
+                .merged_layout_by_key
+                .get(&row_key)
+                .unwrap()
+                .padding_inner_px,
+            9.0
+        );
+        assert_eq!(
+            pass.distribution
+                .layout_patches_by_node
+                .get(&inner_node)
+                .unwrap()
+                .outer_start,
+            3.0
+        );
+    }
+
+    #[test]
+    fn requirement_pass_does_not_share_inner_padding_across_orthogonal_breaks() {
+        let outer_row_key = CoordinationGroupKey::new(1, "row:division");
+        let inner_row_key = CoordinationGroupKey::new(3, "row:team");
+        let outer_node = CoordinationNodeKey::new(vec![0]);
+        let inner_node = CoordinationNodeKey::new(vec![0, 0, 0]);
+
+        let snapshot = InitialRequirementSnapshot {
+            nodes: vec![
+                InitialRequirementNodeSnapshot {
+                    node_id: outer_node.clone(),
+                    key: outer_row_key,
+                    axis: FacetAxis::Row,
+                    measured_overflow: None,
+                    local_layout: CoordinatedLayout {
+                        padding_inner_px: 8.0,
+                        outer_start: 0.0,
+                        outer_end: 0.0,
+                        n: 2,
+                    },
+                    guide_padding_inner_px: 8.0,
+                    domain_infos: Vec::new(),
+                },
+                InitialRequirementNodeSnapshot {
+                    node_id: CoordinationNodeKey::new(vec![0, 0]),
+                    key: CoordinationGroupKey::new(2, "col:department"),
+                    axis: FacetAxis::Column,
+                    measured_overflow: None,
+                    local_layout: CoordinatedLayout {
+                        padding_inner_px: 12.0,
+                        outer_start: 0.0,
+                        outer_end: 0.0,
+                        n: 2,
+                    },
+                    guide_padding_inner_px: 12.0,
+                    domain_infos: Vec::new(),
+                },
+                InitialRequirementNodeSnapshot {
+                    node_id: inner_node.clone(),
+                    key: inner_row_key,
+                    axis: FacetAxis::Row,
+                    measured_overflow: None,
+                    local_layout: CoordinatedLayout {
+                        padding_inner_px: 40.0,
+                        outer_start: 0.0,
+                        outer_end: 0.0,
+                        n: 2,
+                    },
+                    guide_padding_inner_px: 40.0,
+                    domain_infos: Vec::new(),
+                },
+            ],
+        };
+
+        let pass = build_initial_requirement_pass(snapshot);
+
+        assert_eq!(
+            pass.distribution
+                .layout_patches_by_node
+                .get(&outer_node)
+                .unwrap()
+                .padding_inner_px,
+            8.0
+        );
+        assert_eq!(
+            pass.distribution
+                .layout_patches_by_node
+                .get(&inner_node)
+                .unwrap()
+                .padding_inner_px,
+            40.0
+        );
+    }
+
+    #[test]
+    fn requirement_pass_keeps_legend_only_padding_local_to_its_group() {
+        let legend_col_key = CoordinationGroupKey::new(1, "col:legend-owner");
+        let inner_col_key = CoordinationGroupKey::new(2, "col:inner");
+
+        let snapshot = InitialRequirementSnapshot {
+            nodes: vec![
+                InitialRequirementNodeSnapshot {
+                    node_id: CoordinationNodeKey::new(vec![0]),
+                    key: legend_col_key.clone(),
+                    axis: FacetAxis::Column,
+                    measured_overflow: None,
+                    local_layout: CoordinatedLayout {
+                        padding_inner_px: 160.0,
+                        outer_start: 0.0,
+                        outer_end: 0.0,
+                        n: 2,
+                    },
+                    guide_padding_inner_px: 24.0,
+                    domain_infos: Vec::new(),
+                },
+                InitialRequirementNodeSnapshot {
+                    node_id: CoordinationNodeKey::new(vec![0, 0]),
+                    key: inner_col_key.clone(),
+                    axis: FacetAxis::Column,
+                    measured_overflow: None,
+                    local_layout: CoordinatedLayout {
+                        padding_inner_px: 24.0,
+                        outer_start: 0.0,
+                        outer_end: 0.0,
+                        n: 2,
+                    },
+                    guide_padding_inner_px: 24.0,
+                    domain_infos: Vec::new(),
+                },
+            ],
+        };
+
+        let pass = build_initial_requirement_pass(snapshot);
+
+        assert_eq!(
+            pass.aggregates
+                .merged_layout_by_key
+                .get(&legend_col_key)
+                .unwrap()
+                .padding_inner_px,
+            160.0
+        );
+        assert_eq!(
+            pass.aggregates
+                .merged_layout_by_key
+                .get(&inner_col_key)
+                .unwrap()
+                .padding_inner_px,
+            24.0
+        );
+    }
+
+    #[test]
     fn retargeted_requirement_pass_reconciles_overflow_layout_without_domains() {
         let key = CoordinationGroupKey::new(1, "row:group");
         let snapshot = RetargetedRequirementSnapshot {
@@ -535,24 +840,28 @@ mod tests {
                 RetargetedRequirementNodeSnapshot {
                     node_id: CoordinationNodeKey::new(vec![0]),
                     key: key.clone(),
-                    local_overflow: Some(overflow(1.0, 1.0, 2.0, 3.0)),
+                    axis: FacetAxis::Row,
+                    measured_overflow: Some(overflow(1.0, 1.0, 2.0, 3.0)),
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 3.0,
                         outer_start: 1.0,
                         outer_end: 2.0,
                         n: 2,
                     },
+                    guide_padding_inner_px: 3.0,
                 },
                 RetargetedRequirementNodeSnapshot {
                     node_id: CoordinationNodeKey::new(vec![1]),
                     key,
-                    local_overflow: Some(overflow(2.0, 4.0, 1.0, 1.0)),
+                    axis: FacetAxis::Row,
+                    measured_overflow: Some(overflow(2.0, 4.0, 1.0, 1.0)),
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 5.0,
                         outer_start: 2.0,
                         outer_end: 1.0,
                         n: 5,
                     },
+                    guide_padding_inner_px: 5.0,
                 },
             ],
         };

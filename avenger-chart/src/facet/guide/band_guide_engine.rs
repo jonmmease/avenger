@@ -18,20 +18,19 @@ use crate::{
     facet::{
         band_positions::{BandPosition, BandPositionIterator},
         coord::{
-            FacetBandCoordMeasurement, FacetBandProbeMeasurement, FacetCellRuntime,
+            FacetBandCoordMeasurementFixed, FacetBandProbeMeasurement, FacetCellRuntime,
             facet_band_ref as facet_band_from_coord,
         },
         guide_utils::{
             FacetLabelMeasurementConfig, FacetLabelRenderConfig,
-            facet_guide_labels_visible_for_cell, format_scalar_value, measure_facet_label_slab,
-            render_facet_label_slab,
+            facet_guide_labels_visible_for_cell, facet_guide_title_visible_for_cell,
+            format_scalar_value, measure_facet_label_slab, render_facet_label_slab,
         },
         layout_plan::effective_edge_indices_for_values_at_path,
-        layout_slabs::LayoutSlabs,
         sharing_level::SharingLevel,
     },
     layout::LayoutBounds,
-    plot::compiled::CompiledPlot,
+    plot::compiled::{CompiledPlot, ComponentsMeasurement},
     serialization::LogicalPlanNodeExt,
     theme::{Theme, ThemeContext},
 };
@@ -211,10 +210,7 @@ impl FacetGuideAxisOps for RowGuideAxisOps {
         let preferred = coord_measurement.and_then(preferred_overflow_for_facet_measurement);
 
         if let Some((overflow, source)) = preferred {
-            return (
-                LayoutSlabs::from_coordinated(&overflow).guide_anchor_horizontal(place_at_end),
-                source,
-            );
+            return (horizontal_total_anchor(&overflow, place_at_end), source);
         }
 
         let fallback = if place_at_end {
@@ -230,10 +226,13 @@ impl FacetGuideAxisOps for RowGuideAxisOps {
         _title_visible: bool,
         coord_measurement: &dyn CoordMeasurement,
     ) -> (f32, GuideAnchorSource) {
-        let coordinated = coord_measurement.coordinated_overflow();
-        let local =
-            facet_band_from_coord(coord_measurement).and_then(|fcm| fcm.local_overflow_value());
-        resolve_row_guide_anchor_overflow_horizontal(place_at_end, coordinated, local.as_ref())
+        let coordinated = facet_guide_anchor_coordinated_overflow(coord_measurement);
+        let local = facet_guide_anchor_local_overflow(coord_measurement);
+        resolve_row_guide_anchor_overflow_horizontal(
+            place_at_end,
+            coordinated.as_ref(),
+            local.as_ref(),
+        )
     }
 
     fn merge_first_last_edge_overflow(
@@ -347,19 +346,19 @@ impl FacetGuideAxisOps for ColGuideAxisOps {
         coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> (f32, GuideAnchorSource) {
         let coordinated = coord_measurement.and_then(|measurement| {
-            let coordinated = measurement.coordinated_overflow()?;
-            if coordinated_overflow_is_zero(coordinated) {
+            let coordinated = facet_guide_anchor_coordinated_overflow(measurement)?;
+            if coordinated_overflow_is_zero(&coordinated) {
                 None
             } else {
                 Some(coordinated)
             }
         });
-        let local = coord_measurement.and_then(facet_local_overflow);
+        let local = coord_measurement.and_then(facet_guide_anchor_local_overflow);
 
         let (resolved, source) = resolve_col_guide_anchor_overflow(
             place_at_end,
             title_visible,
-            coordinated,
+            coordinated.as_ref(),
             local.as_ref(),
         );
         if matches!(source, GuideAnchorSource::DefaultZero) {
@@ -379,10 +378,14 @@ impl FacetGuideAxisOps for ColGuideAxisOps {
         title_visible: bool,
         coord_measurement: &dyn CoordMeasurement,
     ) -> (f32, GuideAnchorSource) {
-        let coordinated = coord_measurement.coordinated_overflow();
-        let local =
-            facet_band_from_coord(coord_measurement).and_then(|fcm| fcm.local_overflow_value());
-        resolve_col_guide_anchor_overflow(place_at_end, title_visible, coordinated, local.as_ref())
+        let coordinated = facet_guide_anchor_coordinated_overflow(coord_measurement);
+        let local = facet_guide_anchor_local_overflow(coord_measurement);
+        resolve_col_guide_anchor_overflow(
+            place_at_end,
+            title_visible,
+            coordinated.as_ref(),
+            local.as_ref(),
+        )
     }
 
     fn merge_first_last_edge_overflow(
@@ -448,24 +451,25 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
     facet_path: &[ScalarValue],
     coord_measurement: Option<&dyn CoordMeasurement>,
 ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
-    let subplot_overflow =
-        if let Some(local_overflow) = coord_measurement.and_then(facet_local_overflow) {
-            propagated_subplot_overflow(Some(local_overflow))
-        } else {
-            compute_subplot_overflow_common::<O>(
-                state,
-                scales,
-                plot_width,
-                plot_height,
-                theme,
-                params,
-                data_override,
-                ctx,
-                facet_tree,
-                facet_path,
-            )
-            .await?
-        };
+    let subplot_overflow = if let Some(local_overflow) =
+        coord_measurement.and_then(facet_parent_layout_local_overflow)
+    {
+        propagated_subplot_overflow(Some(local_overflow))
+    } else {
+        compute_subplot_overflow_common::<O>(
+            state,
+            scales,
+            plot_width,
+            plot_height,
+            theme,
+            params,
+            data_override,
+            ctx,
+            facet_tree,
+            facet_path,
+        )
+        .await?
+    };
 
     let (_band_positions, labels) = band_positions_and_labels::<O>(scales, coord_measurement)?;
     let place_at_end = O::place_at_end(state.position.as_deref());
@@ -490,13 +494,12 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
         return Ok(subplot_overflow);
     }
 
-    let title_visible = facet_title_visible_for_cell(facet_tree, facet_path, axis_position);
+    let title_visible = facet_guide_title_visible_for_cell(facet_tree, facet_path, axis_position);
     let title_for_cell = title_visible
         .then_some(state.facet_title.as_ref())
         .flatten();
     let facet_guide_slab_size =
         measure_facet_guide_slab(&labels, title_for_cell, theme, params, O::is_rotated());
-
     let (mut guide_anchor, mut anchor_source) = O::resolve_measure_anchor(
         place_at_end,
         title_visible,
@@ -590,7 +593,7 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
     }
 
     let band_positions = O::align_band_positions_for_render(&band_positions, coord_measurement);
-    let title_visible = facet_title_visible_for_cell(facet_tree, facet_path, axis_position);
+    let title_visible = facet_guide_title_visible_for_cell(facet_tree, facet_path, axis_position);
     let title_for_cell = title_visible
         .then_some(state.facet_title.as_ref())
         .flatten();
@@ -858,6 +861,16 @@ fn band_positions_and_labels<O: FacetGuideAxisOps>(
     scales: &HashMap<String, ConfiguredScale>,
     coord_measurement: Option<&dyn CoordMeasurement>,
 ) -> Result<(Vec<BandPosition>, Vec<String>), AvengerChartError> {
+    if let Some(fixed_positions) =
+        coord_measurement.and_then(fixed_band_positions_for_measurement::<O>)
+    {
+        let labels = fixed_positions
+            .iter()
+            .map(|position| format_scalar_value(&position.value))
+            .collect();
+        return Ok((fixed_positions, labels));
+    }
+
     let band_scale = scales
         .get(O::scale_key())
         .ok_or_else(|| AvengerChartError::InternalError(O::missing_scale_error().to_string()))?;
@@ -867,6 +880,35 @@ fn band_positions_and_labels<O: FacetGuideAxisOps>(
     let labels = labels_from_values_or_band_positions(coord_values, &band_positions);
 
     Ok((band_positions, labels))
+}
+
+fn fixed_band_positions_for_measurement<O: FacetGuideAxisOps>(
+    measurement: &dyn CoordMeasurement,
+) -> Option<Vec<BandPosition>> {
+    let fixed = measurement
+        .as_any()
+        .downcast_ref::<FacetBandCoordMeasurementFixed>()?;
+    if fixed.axis.scale_name() != O::scale_key() {
+        return None;
+    }
+
+    Some(
+        fixed
+            .fixed_placement
+            .main_axis_positions
+            .iter()
+            .copied()
+            .zip(fixed.cells.iter())
+            .map(|(position, cell)| {
+                let bandwidth = match fixed.axis {
+                    FacetAxis::Column => cell.measurement.plot_area_width,
+                    FacetAxis::Row => cell.measurement.plot_area_height,
+                }
+                .max(0.0);
+                BandPosition::new(cell.plan.value.clone(), position, bandwidth)
+            })
+            .collect(),
+    )
 }
 
 fn facet_measurement_values(measurement: &dyn CoordMeasurement) -> Option<Vec<ScalarValue>> {
@@ -879,14 +921,37 @@ fn facet_measurement_values(measurement: &dyn CoordMeasurement) -> Option<Vec<Sc
         .map(|facet_measurement| facet_measurement.cell_values().cloned().collect::<Vec<_>>())
 }
 
-fn facet_local_overflow(measurement: &dyn CoordMeasurement) -> Option<CoordinatedOverflow> {
+fn facet_parent_layout_local_overflow(
+    measurement: &dyn CoordMeasurement,
+) -> Option<CoordinatedOverflow> {
     if let Some(facet_measurement) = facet_band_from_coord(measurement) {
-        return facet_measurement.local_overflow_value();
+        return facet_measurement.measured_parent_layout_overflow_value();
     }
     measurement
         .as_any()
         .downcast_ref::<FacetBandProbeMeasurement>()
-        .map(|facet_measurement| facet_measurement.local_overflow_value())
+        .map(|facet_measurement| facet_measurement.parent_layout_overflow_value())
+}
+
+fn facet_guide_anchor_local_overflow(
+    measurement: &dyn CoordMeasurement,
+) -> Option<CoordinatedOverflow> {
+    if let Some(facet_measurement) = facet_band_from_coord(measurement) {
+        return facet_measurement.measured_guide_anchor_overflow_value();
+    }
+    measurement
+        .as_any()
+        .downcast_ref::<FacetBandProbeMeasurement>()
+        .map(|facet_measurement| facet_measurement.guide_anchor_overflow_value())
+}
+
+fn facet_guide_anchor_coordinated_overflow(
+    measurement: &dyn CoordMeasurement,
+) -> Option<CoordinatedOverflow> {
+    if let Some(facet_measurement) = facet_band_from_coord(measurement) {
+        return Some(facet_measurement.guide_anchor_coordinated_overflow_value());
+    }
+    measurement.coordinated_overflow().cloned()
 }
 
 fn labels_from_values_or_band_positions(
@@ -903,16 +968,6 @@ fn labels_from_values_or_band_positions(
     }
 }
 
-fn facet_title_visible_for_cell(
-    facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-    facet_path: &[ScalarValue],
-    axis_position: AxisPosition,
-) -> bool {
-    facet_tree
-        .axis_visibility_for_path(facet_path, axis_position, SharingLevel::GLOBAL.raw())
-        .show_title
-}
-
 pub(crate) fn coordinated_overflow_is_zero(overflow: &CoordinatedOverflow) -> bool {
     overflow.guide.top == 0.0
         && overflow.guide.bottom == 0.0
@@ -927,22 +982,40 @@ pub(crate) fn coordinated_overflow_is_zero(overflow: &CoordinatedOverflow) -> bo
 pub(crate) fn preferred_overflow_for_facet_measurement(
     measurement: &dyn CoordMeasurement,
 ) -> Option<(CoordinatedOverflow, GuideAnchorSource)> {
-    if let Some(coordinated) = measurement
-        .coordinated_overflow()
+    if let Some(coordinated) = facet_guide_anchor_coordinated_overflow(measurement)
         .filter(|overflow| !coordinated_overflow_is_zero(overflow))
     {
-        return Some((coordinated.clone(), GuideAnchorSource::CoordinatedGuide));
+        return Some((coordinated, GuideAnchorSource::CoordinatedGuide));
     }
 
-    facet_local_overflow(measurement).map(|overflow| (overflow, GuideAnchorSource::LocalGuide))
+    facet_guide_anchor_local_overflow(measurement)
+        .map(|overflow| (overflow, GuideAnchorSource::LocalGuide))
 }
 
 pub(crate) fn propagated_subplot_overflow(
     local_overflow: Option<CoordinatedOverflow>,
 ) -> OverflowSpaceRequirement {
     local_overflow
-        .map(|overflow| overflow.guide)
+        .map(|overflow| overflow.total)
         .unwrap_or_default()
+}
+
+#[inline]
+fn vertical_total_anchor(overflow: &CoordinatedOverflow, place_at_bottom: bool) -> f32 {
+    if place_at_bottom {
+        overflow.total.bottom
+    } else {
+        overflow.total.top
+    }
+}
+
+#[inline]
+fn horizontal_total_anchor(overflow: &CoordinatedOverflow, place_at_right: bool) -> f32 {
+    if place_at_right {
+        overflow.total.right
+    } else {
+        overflow.total.left
+    }
 }
 
 pub(crate) fn resolve_row_guide_anchor_overflow_horizontal(
@@ -952,14 +1025,14 @@ pub(crate) fn resolve_row_guide_anchor_overflow_horizontal(
 ) -> (f32, GuideAnchorSource) {
     if let Some(local) = local_overflow {
         return (
-            LayoutSlabs::from_coordinated(local).guide_anchor_horizontal(place_at_right),
+            horizontal_total_anchor(local, place_at_right),
             GuideAnchorSource::LocalGuide,
         );
     }
 
     if let Some(coordinated) = coordinated_overflow {
         return (
-            LayoutSlabs::from_coordinated(coordinated).guide_anchor_horizontal(place_at_right),
+            horizontal_total_anchor(coordinated, place_at_right),
             GuideAnchorSource::CoordinatedGuide,
         );
     }
@@ -977,15 +1050,13 @@ pub(crate) fn resolve_col_guide_anchor_overflow(
 
     if coordinated_first {
         if let Some(coordinated) = coordinated_overflow {
-            let coordinated_anchor =
-                LayoutSlabs::from_coordinated(coordinated).guide_anchor(place_at_bottom);
+            let coordinated_anchor = vertical_total_anchor(coordinated, place_at_bottom);
             if coordinated_anchor.abs() > HIDDEN_TOP_LOCAL_ANCHOR_EPSILON {
                 return (coordinated_anchor, GuideAnchorSource::CoordinatedGuide);
             }
 
             if let Some(local) = local_overflow {
-                let local_anchor =
-                    LayoutSlabs::from_coordinated(local).guide_anchor(place_at_bottom);
+                let local_anchor = vertical_total_anchor(local, place_at_bottom);
                 if local_anchor.abs() > HIDDEN_TOP_LOCAL_ANCHOR_EPSILON {
                     return (local_anchor, GuideAnchorSource::LocalGuide);
                 }
@@ -996,13 +1067,12 @@ pub(crate) fn resolve_col_guide_anchor_overflow(
 
         if let Some(local) = local_overflow {
             return (
-                LayoutSlabs::from_coordinated(local).guide_anchor(place_at_bottom),
+                vertical_total_anchor(local, place_at_bottom),
                 GuideAnchorSource::LocalGuide,
             );
         }
     } else {
-        let local_anchor =
-            local_overflow.map(|local| LayoutSlabs::from_coordinated(local).guide_anchor(false));
+        let local_anchor = local_overflow.map(|local| vertical_total_anchor(local, false));
         if let Some(local_anchor) =
             local_anchor.filter(|anchor| anchor.abs() > HIDDEN_TOP_LOCAL_ANCHOR_EPSILON)
         {
@@ -1011,7 +1081,7 @@ pub(crate) fn resolve_col_guide_anchor_overflow(
 
         if let Some(coordinated) = coordinated_overflow {
             return (
-                LayoutSlabs::from_coordinated(coordinated).guide_anchor(false),
+                vertical_total_anchor(coordinated, false),
                 GuideAnchorSource::CoordinatedGuide,
             );
         }
@@ -1024,6 +1094,27 @@ pub(crate) fn resolve_col_guide_anchor_overflow(
     (0.0, GuideAnchorSource::DefaultZero)
 }
 
+fn column_band_positions_for_measurement(
+    measurement: &ComponentsMeasurement,
+) -> Option<Vec<BandPosition>> {
+    let child_coord = measurement.coord_measurement.as_ref();
+    if let Some(fixed_positions) =
+        fixed_band_positions_for_measurement::<ColGuideAxisOps>(child_coord)
+    {
+        return Some(fixed_positions);
+    }
+
+    let child_facet = facet_band_from_coord(child_coord)?;
+    if child_facet.axis != FacetAxis::Column {
+        return None;
+    }
+
+    let child_col_scale = measurement.scales.get("column")?;
+    BandPositionIterator::from_scale(child_col_scale)
+        .ok()
+        .map(Iterator::collect)
+}
+
 fn child_col_span_midpoint(cell: &FacetCellRuntime, recursion_depth: usize) -> Option<f32> {
     let child_facet = cell.measurement.coord_measurement.as_ref();
     let child_facet = facet_band_from_coord(child_facet)?;
@@ -1031,17 +1122,14 @@ fn child_col_span_midpoint(cell: &FacetCellRuntime, recursion_depth: usize) -> O
         return None;
     }
 
-    let child_col_scale = cell.measurement.scales.get("column")?;
-    let child_band_positions: Vec<_> = BandPositionIterator::from_scale(child_col_scale)
-        .ok()?
-        .collect();
+    let child_band_positions = column_band_positions_for_measurement(&cell.measurement)?;
     if child_band_positions.is_empty() {
         return None;
     }
 
     let aligned_child_positions = align_bands_to_nested_child_col_spans_for_measurement(
         &child_band_positions,
-        child_facet,
+        cell.measurement.coord_measurement.as_ref(),
         recursion_depth + 1,
     );
     let first = aligned_child_positions.first()?;
@@ -1051,9 +1139,16 @@ fn child_col_span_midpoint(cell: &FacetCellRuntime, recursion_depth: usize) -> O
 
 fn align_bands_to_nested_child_col_spans_for_measurement(
     band_positions: &[BandPosition],
-    facet_measurement: &FacetBandCoordMeasurement,
+    coord_measurement: &dyn CoordMeasurement,
     recursion_depth: usize,
 ) -> Vec<BandPosition> {
+    let Some(facet_measurement) = facet_band_from_coord(coord_measurement) else {
+        return band_positions.to_vec();
+    };
+    if facet_measurement.axis != FacetAxis::Column {
+        return band_positions.to_vec();
+    }
+
     let child_midpoints: Vec<Option<f32>> = band_positions
         .iter()
         .enumerate()
@@ -1107,11 +1202,7 @@ fn align_bands_to_nested_child_col_spans(
     band_positions: &[BandPosition],
     coord_measurement: &dyn CoordMeasurement,
 ) -> Vec<BandPosition> {
-    let Some(facet_measurement) = facet_band_from_coord(coord_measurement) else {
-        return band_positions.to_vec();
-    };
-
-    align_bands_to_nested_child_col_spans_for_measurement(band_positions, facet_measurement, 0)
+    align_bands_to_nested_child_col_spans_for_measurement(band_positions, coord_measurement, 0)
 }
 
 fn coordinated_col_title_midpoint_override(
@@ -1243,23 +1334,23 @@ mod tests {
     }
 
     #[test]
-    fn column_anchor_policy_matches_hidden_title_behavior() {
+    fn column_anchor_policy_uses_total_subtree_for_hidden_title() {
         let local = overflow(0.0, 0.0, 12.0, 8.0, 0.0, 0.0, 60.0, 40.0);
         let coordinated = overflow(0.0, 0.0, 7.0, 39.0, 0.0, 0.0, 7.0, 39.0);
         let (resolved, source) =
             resolve_col_guide_anchor_overflow(false, false, Some(&coordinated), Some(&local));
-        assert_eq!(resolved, 12.0);
+        assert_eq!(resolved, 60.0);
         assert_eq!(source, GuideAnchorSource::LocalGuide);
     }
 
     #[test]
-    fn column_anchor_policy_falls_back_to_local_when_coordinated_anchor_is_zero() {
+    fn column_anchor_policy_uses_coordinated_total_even_when_guide_anchor_is_zero() {
         let local = overflow(0.0, 0.0, 14.0, 8.0, 0.0, 0.0, 60.0, 40.0);
         let coordinated = overflow(0.0, 0.0, 0.0, 39.0, 0.0, 0.0, 34.0, 39.0);
         let (resolved, source) =
             resolve_col_guide_anchor_overflow(false, true, Some(&coordinated), Some(&local));
-        assert_eq!(resolved, 14.0);
-        assert_eq!(source, GuideAnchorSource::LocalGuide);
+        assert_eq!(resolved, 34.0);
+        assert_eq!(source, GuideAnchorSource::CoordinatedGuide);
     }
 
     #[test]
@@ -1268,7 +1359,7 @@ mod tests {
         let coordinated = overflow(5.0, 39.0, 0.0, 0.0, 5.0, 39.0, 0.0, 0.0);
         let (resolved, source) =
             resolve_row_guide_anchor_overflow_horizontal(true, Some(&coordinated), Some(&local));
-        assert_eq!(resolved, 8.0);
+        assert_eq!(resolved, 40.0);
         assert_eq!(source, GuideAnchorSource::LocalGuide);
     }
 

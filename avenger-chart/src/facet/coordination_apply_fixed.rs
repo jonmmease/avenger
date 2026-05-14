@@ -5,7 +5,7 @@ use crate::{
     error::AvengerChartError,
     facet::{
         coord::{
-            FacetBandCoordMeasurementFixed, compute_fixed_main_axis_positions,
+            FacetBandCoordMeasurementFixed,
             facet_band_fixed_mut as facet_band_fixed_mut_from_coord,
             facet_band_fixed_ref as facet_band_fixed_ref_from_coord,
             retarget_scale_ranges_for_plot_area,
@@ -87,6 +87,7 @@ pub(crate) fn apply_initial_requirement_pass_fixed(
                 .cloned()
             {
                 facet_band.set_coordinated_overflow_value(overflow);
+                facet_band.recompute_fixed_placement();
             }
             if let Some(layout) = initial_requirement_pass
                 .distribution
@@ -95,15 +96,7 @@ pub(crate) fn apply_initial_requirement_pass_fixed(
                 .cloned()
             {
                 facet_band.set_coordinated_layout_value(layout);
-                let active_layout = facet_band
-                    .coordinated_layout
-                    .as_ref()
-                    .unwrap_or(&facet_band.local_layout);
-                facet_band.fixed_main_axis_positions = compute_fixed_main_axis_positions(
-                    facet_band.axis,
-                    &facet_band.cells,
-                    active_layout,
-                );
+                facet_band.recompute_fixed_placement();
             }
             if initial_requirement_pass
                 .distribution
@@ -139,6 +132,7 @@ pub(crate) fn apply_retargeted_requirement_pass_fixed(
                 .cloned()
             {
                 facet_band.set_coordinated_overflow_value(overflow);
+                facet_band.recompute_fixed_placement();
             }
             if let Some(layout) = retargeted_requirement_pass
                 .distribution
@@ -147,15 +141,7 @@ pub(crate) fn apply_retargeted_requirement_pass_fixed(
                 .cloned()
             {
                 facet_band.set_coordinated_layout_value(layout);
-                let active_layout = facet_band
-                    .coordinated_layout
-                    .as_ref()
-                    .unwrap_or(&facet_band.local_layout);
-                facet_band.fixed_main_axis_positions = compute_fixed_main_axis_positions(
-                    facet_band.axis,
-                    &facet_band.cells,
-                    active_layout,
-                );
+                facet_band.recompute_fixed_placement();
             }
         },
     );
@@ -261,15 +247,7 @@ fn run_retarget_recursive<'a>(
             let outcome = facet_band
                 .apply_coordinated_overflow_with_plan(eval_ctx, &execution_plan)
                 .await?;
-            let active_layout = facet_band
-                .coordinated_layout
-                .as_ref()
-                .unwrap_or(&facet_band.local_layout);
-            facet_band.fixed_main_axis_positions = compute_fixed_main_axis_positions(
-                facet_band.axis,
-                &facet_band.cells,
-                active_layout,
-            );
+            facet_band.recompute_fixed_placement();
             let parent_cross_size = facet_band.coordinated_subplot_cross_size();
             let parent_axis = facet_band.axis;
             let mut parent_cross_size_propagated = false;
@@ -592,7 +570,8 @@ fn run_final_propagation_recursive(
             node_path.pop();
         }
 
-        facet_band.apply_cross_axis_coordinated_side_slabs_to_cells();
+        facet_band.apply_coordinated_alignment_slabs_to_child_layouts();
+        facet_band.recompute_fixed_placement();
 
         node_results.push(FinalPropagationNodeTrace {
             node_id,
