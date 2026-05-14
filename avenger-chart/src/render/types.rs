@@ -31,7 +31,7 @@ pub enum WholeChartSnapshot {
     LocalMeasured,
     /// During global facet coordination.
     Coordination(CoordinationCheckpoint),
-    /// During final canvas/fixed-subplot realization or optional refinement.
+    /// During final canvas/fixed leaf plot-area realization or optional refinement.
     Refinement {
         /// Zero is the mandatory realization pass; positive values are optional refinement passes.
         iteration: usize,

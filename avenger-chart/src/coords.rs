@@ -176,9 +176,9 @@ pub enum FacetCoordinationMode {
     /// Full requirement coordination cycle:
     /// initial requirements -> retarget -> retargeted requirements -> final propagation.
     CanvasFullCycle,
-    /// Fixed-subplot mode:
+    /// Fixed leaf plot-area mode:
     /// full-cycle coordination with fixed-safe retarget behavior (no plot-area resizing).
-    FixedFullCycle,
+    FixedLeafPlotAreaFullCycle,
 }
 
 pub async fn coordinate_overflow_for_guides(
@@ -206,8 +206,8 @@ pub async fn coordinate_overflow_for_guides_with_mode(
             )
             .await
         }
-        FacetCoordinationMode::FixedFullCycle => {
-            crate::facet::coordination_fixed_subplot::coordinate_facet_measurement_tree_fixed_subplot(
+        FacetCoordinationMode::FixedLeafPlotAreaFullCycle => {
+            crate::facet::coordination_fixed_leaf_plot_area::coordinate_facet_measurement_tree_fixed_leaf_plot_area(
                 measurement,
                 eval_ctx,
             )
@@ -231,8 +231,8 @@ pub async fn coordinate_overflow_for_guides_with_mode_until(
             )
             .await
         }
-        FacetCoordinationMode::FixedFullCycle => {
-            crate::facet::coordination_fixed_subplot::coordinate_facet_measurement_tree_fixed_subplot_until(
+        FacetCoordinationMode::FixedLeafPlotAreaFullCycle => {
+            crate::facet::coordination_fixed_leaf_plot_area::coordinate_facet_measurement_tree_fixed_leaf_plot_area_until(
                 measurement,
                 eval_ctx,
                 checkpoint,

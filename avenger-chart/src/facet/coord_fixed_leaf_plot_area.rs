@@ -11,11 +11,11 @@ use crate::{
     scales::ConfiguredScaleWithSpec,
 };
 
-/// Fixed-subplot facet measurement path.
+/// Fixed leaf plot-area facet measurement path.
 ///
-/// This path is intentionally separated from canvas-fit orchestration so fixed-subplot
+/// This path is intentionally separated from canvas-fit orchestration so fixed leaf plot-area
 /// behavior can evolve independently while sharing the core facet-band layout engine.
-pub(crate) async fn measure_facet_row_fixed_subplot(
+pub(crate) async fn measure_facet_row_fixed_leaf_plot_area(
     scales: &HashMap<String, ConfiguredScaleWithSpec>,
     plot_other_axis_size: f32,
     eval_ctx: &EvaluationContext,
@@ -36,7 +36,7 @@ pub(crate) async fn measure_facet_row_fixed_subplot(
     .await
 }
 
-pub(crate) async fn measure_facet_column_fixed_subplot(
+pub(crate) async fn measure_facet_column_fixed_leaf_plot_area(
     scales: &HashMap<String, ConfiguredScaleWithSpec>,
     plot_other_axis_size: f32,
     eval_ctx: &EvaluationContext,

@@ -5,9 +5,9 @@ use crate::{
     error::AvengerChartError,
     facet::{
         coord::{
-            FacetBandCoordMeasurementFixed,
-            facet_band_fixed_mut as facet_band_fixed_mut_from_coord,
-            facet_band_fixed_ref as facet_band_fixed_ref_from_coord,
+            FacetBandCoordMeasurementPlotAreaSized,
+            facet_band_plot_area_sized_mut as facet_band_plot_area_sized_mut_from_coord,
+            facet_band_plot_area_sized_ref as facet_band_plot_area_sized_ref_from_coord,
             retarget_scale_ranges_for_plot_area,
         },
         coordination_plans::{
@@ -22,60 +22,62 @@ use crate::{
     render::EvaluationContext,
 };
 
-fn facet_band_ref(measurement: &ComponentsMeasurement) -> Option<&FacetBandCoordMeasurementFixed> {
-    facet_band_fixed_ref_from_coord(measurement.coord_measurement.as_ref())
+fn facet_band_ref(
+    measurement: &ComponentsMeasurement,
+) -> Option<&FacetBandCoordMeasurementPlotAreaSized> {
+    facet_band_plot_area_sized_ref_from_coord(measurement.coord_measurement.as_ref())
 }
 
 fn facet_band_mut(
     measurement: &mut ComponentsMeasurement,
-) -> Option<&mut FacetBandCoordMeasurementFixed> {
-    facet_band_fixed_mut_from_coord(measurement.coord_measurement.as_mut())
+) -> Option<&mut FacetBandCoordMeasurementPlotAreaSized> {
+    facet_band_plot_area_sized_mut_from_coord(measurement.coord_measurement.as_mut())
 }
 
-pub(crate) fn visit_fixed_facet_bands_with_node_id<F>(
+pub(crate) fn visit_plot_area_sized_facet_bands_with_node_id<F>(
     measurement: &ComponentsMeasurement,
     depth: usize,
     node_path: &mut Vec<usize>,
     visit: &mut F,
 ) where
-    F: FnMut(&CoordinationNodeKey, usize, &FacetBandCoordMeasurementFixed),
+    F: FnMut(&CoordinationNodeKey, usize, &FacetBandCoordMeasurementPlotAreaSized),
 {
     if let Some(facet_band) = facet_band_ref(measurement) {
         let node_id = CoordinationNodeKey::new(node_path.clone());
         visit(&node_id, depth, facet_band);
         for (idx, child) in facet_band.child_measurements_iter().enumerate() {
             node_path.push(idx);
-            visit_fixed_facet_bands_with_node_id(child, depth + 1, node_path, visit);
+            visit_plot_area_sized_facet_bands_with_node_id(child, depth + 1, node_path, visit);
             node_path.pop();
         }
     }
 }
 
-pub(crate) fn visit_fixed_facet_bands_with_node_id_mut<F>(
+pub(crate) fn visit_plot_area_sized_facet_bands_with_node_id_mut<F>(
     measurement: &mut ComponentsMeasurement,
     depth: usize,
     node_path: &mut Vec<usize>,
     visit: &mut F,
 ) where
-    F: FnMut(&CoordinationNodeKey, usize, &mut FacetBandCoordMeasurementFixed),
+    F: FnMut(&CoordinationNodeKey, usize, &mut FacetBandCoordMeasurementPlotAreaSized),
 {
     if let Some(facet_band) = facet_band_mut(measurement) {
         let node_id = CoordinationNodeKey::new(node_path.clone());
         visit(&node_id, depth, facet_band);
         for (idx, child) in facet_band.child_measurements_iter_mut().enumerate() {
             node_path.push(idx);
-            visit_fixed_facet_bands_with_node_id_mut(child, depth + 1, node_path, visit);
+            visit_plot_area_sized_facet_bands_with_node_id_mut(child, depth + 1, node_path, visit);
             node_path.pop();
         }
     }
 }
 
-pub(crate) fn apply_initial_requirement_pass_fixed(
+pub(crate) fn apply_initial_requirement_pass_plot_area_sized(
     measurement: &mut ComponentsMeasurement,
     initial_requirement_pass: &InitialRequirementPass,
 ) {
     let mut node_path = Vec::new();
-    visit_fixed_facet_bands_with_node_id_mut(
+    visit_plot_area_sized_facet_bands_with_node_id_mut(
         measurement,
         0,
         &mut node_path,
@@ -87,7 +89,7 @@ pub(crate) fn apply_initial_requirement_pass_fixed(
                 .cloned()
             {
                 facet_band.set_coordinated_overflow_value(overflow);
-                facet_band.recompute_fixed_placement();
+                facet_band.recompute_plot_area_sized_placement();
             }
             if let Some(layout) = initial_requirement_pass
                 .distribution
@@ -96,7 +98,7 @@ pub(crate) fn apply_initial_requirement_pass_fixed(
                 .cloned()
             {
                 facet_band.set_coordinated_layout_value(layout);
-                facet_band.recompute_fixed_placement();
+                facet_band.recompute_plot_area_sized_placement();
             }
             if initial_requirement_pass
                 .distribution
@@ -115,12 +117,12 @@ pub(crate) fn apply_initial_requirement_pass_fixed(
     );
 }
 
-pub(crate) fn apply_retargeted_requirement_pass_fixed(
+pub(crate) fn apply_retargeted_requirement_pass_plot_area_sized(
     measurement: &mut ComponentsMeasurement,
     retargeted_requirement_pass: &RetargetedRequirementPass,
 ) {
     let mut node_path = Vec::new();
-    visit_fixed_facet_bands_with_node_id_mut(
+    visit_plot_area_sized_facet_bands_with_node_id_mut(
         measurement,
         0,
         &mut node_path,
@@ -132,7 +134,7 @@ pub(crate) fn apply_retargeted_requirement_pass_fixed(
                 .cloned()
             {
                 facet_band.set_coordinated_overflow_value(overflow);
-                facet_band.recompute_fixed_placement();
+                facet_band.recompute_plot_area_sized_placement();
             }
             if let Some(layout) = retargeted_requirement_pass
                 .distribution
@@ -141,20 +143,22 @@ pub(crate) fn apply_retargeted_requirement_pass_fixed(
                 .cloned()
             {
                 facet_band.set_coordinated_layout_value(layout);
-                facet_band.recompute_fixed_placement();
+                facet_band.recompute_plot_area_sized_placement();
             }
         },
     );
 }
 
-pub(crate) fn build_retarget_plan_fixed(measurement: &ComponentsMeasurement) -> RetargetPlan {
+pub(crate) fn build_retarget_plan_plot_area_sized(
+    measurement: &ComponentsMeasurement,
+) -> RetargetPlan {
     let mut node_plans = Vec::new();
     let mut node_path = Vec::new();
-    build_retarget_plan_fixed_recursive(measurement, &mut node_path, &mut node_plans);
+    build_retarget_plan_plot_area_sized_recursive(measurement, &mut node_path, &mut node_plans);
     RetargetPlan { node_plans }
 }
 
-fn build_retarget_plan_fixed_recursive(
+fn build_retarget_plan_plot_area_sized_recursive(
     measurement: &ComponentsMeasurement,
     node_path: &mut Vec<usize>,
     node_plans: &mut Vec<RetargetNodePlan>,
@@ -162,7 +166,7 @@ fn build_retarget_plan_fixed_recursive(
     if let Some(facet_band) = facet_band_ref(measurement) {
         for (idx, child) in facet_band.child_measurements_iter().enumerate() {
             node_path.push(idx);
-            build_retarget_plan_fixed_recursive(child, node_path, node_plans);
+            build_retarget_plan_plot_area_sized_recursive(child, node_path, node_plans);
             node_path.pop();
         }
 
@@ -178,7 +182,7 @@ fn build_retarget_plan_fixed_recursive(
             apply_plan.has_legend_overflow, has_main_axis_legend_slab,
             "fixed retarget invariant: apply-plan legend-overflow flag must match coordinated main-axis legend slabs"
         );
-        // Fixed-subplot mode keeps per-cell plot area dimensions locked.
+        // Fixed leaf plot-area mode keeps per-cell plot area dimensions locked.
         // Keep coordinated layout/domain semantics intact, but disable
         // legend-driven main-size shrink for fixed leaf plot areas.
         apply_plan.adjusted_main_size = apply_plan.original_main_size;
@@ -196,7 +200,7 @@ fn build_retarget_plan_fixed_recursive(
     }
 }
 
-pub(crate) fn run_retarget_with_trace_fixed<'a>(
+pub(crate) fn run_retarget_with_trace_plot_area_sized<'a>(
     measurement: &'a mut ComponentsMeasurement,
     eval_ctx: &'a EvaluationContext,
     plan: &'a RetargetPlan,
@@ -239,7 +243,7 @@ fn run_retarget_recursive<'a>(
                     node_id.path
                 ))
             })?;
-            // Fixed-subplot mode keeps leaf subplot sizes locked. Preserve planned
+            // Fixed leaf plot-area mode keeps leaf subplot sizes locked. Preserve planned
             // coordination semantics for diagnostics/tracing, but skip coordinated
             // cross-size rewrites during execution.
             let mut execution_plan = planned.apply_plan.clone();
@@ -247,7 +251,7 @@ fn run_retarget_recursive<'a>(
             let outcome = facet_band
                 .apply_coordinated_overflow_with_plan(eval_ctx, &execution_plan)
                 .await?;
-            facet_band.recompute_fixed_placement();
+            facet_band.recompute_plot_area_sized_placement();
             let parent_cross_size = facet_band.coordinated_subplot_cross_size();
             let parent_axis = facet_band.axis;
             let mut parent_cross_size_propagated = false;
@@ -257,7 +261,7 @@ fn run_retarget_recursive<'a>(
                     && let Some(child_facet_band) = child
                         .coord_measurement
                         .as_any_mut()
-                        .downcast_mut::<FacetBandCoordMeasurementFixed>(
+                        .downcast_mut::<FacetBandCoordMeasurementPlotAreaSized>(
                     )
                     && child_facet_band.axis == parent_axis
                 {
@@ -296,16 +300,20 @@ fn run_retarget_recursive<'a>(
     })
 }
 
-pub(crate) fn build_final_propagation_plan_fixed(
+pub(crate) fn build_final_propagation_plan_plot_area_sized(
     measurement: &ComponentsMeasurement,
 ) -> FinalPropagationPlan {
     let mut node_plans = Vec::new();
     let mut node_path = Vec::new();
-    build_final_propagation_plan_fixed_recursive(measurement, &mut node_path, &mut node_plans);
+    build_final_propagation_plan_plot_area_sized_recursive(
+        measurement,
+        &mut node_path,
+        &mut node_plans,
+    );
     FinalPropagationPlan { node_plans }
 }
 
-fn build_final_propagation_plan_fixed_recursive(
+fn build_final_propagation_plan_plot_area_sized_recursive(
     measurement: &ComponentsMeasurement,
     node_path: &mut Vec<usize>,
     node_plans: &mut Vec<FinalPropagationNodePlan>,
@@ -313,7 +321,7 @@ fn build_final_propagation_plan_fixed_recursive(
     if let Some(facet_band) = facet_band_ref(measurement) {
         for (idx, child) in facet_band.child_measurements_iter().enumerate() {
             node_path.push(idx);
-            build_final_propagation_plan_fixed_recursive(child, node_path, node_plans);
+            build_final_propagation_plan_plot_area_sized_recursive(child, node_path, node_plans);
             node_path.pop();
         }
 
@@ -354,7 +362,7 @@ where
             let child_is_facet_band = child
                 .coord_measurement
                 .as_any()
-                .downcast_ref::<FacetBandCoordMeasurementFixed>()
+                .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
                 .is_some();
             build_final_propagation_child_plan(
                 idx,
@@ -378,7 +386,7 @@ fn build_final_propagation_child_plan(
     has_band_scale: bool,
     child_is_facet_band: bool,
 ) -> FinalPropagationChildPlan {
-    // Fixed mode keeps leaf subplot dimensions locked, but facet child containers may still
+    // Fixed leaf plot-area mode keeps leaf subplot dimensions locked, but facet child containers may still
     // need cross-size propagation for coordinated parent sizing.
     let (target_plot_area_width, target_plot_area_height, adjust_plot_area) = if child_is_facet_band
     {
@@ -468,7 +476,7 @@ fn apply_final_propagation_child_retarget(
     retarget_child_scales_for_resized_plot_area(child)
 }
 
-pub(crate) fn run_final_propagation_with_trace_fixed(
+pub(crate) fn run_final_propagation_with_trace_plot_area_sized(
     measurement: &mut ComponentsMeasurement,
     plan: &FinalPropagationPlan,
 ) -> FinalPropagationTrace {
@@ -554,7 +562,7 @@ fn run_final_propagation_recursive(
                     child
                         .coord_measurement
                         .as_any()
-                        .downcast_ref::<FacetBandCoordMeasurementFixed>()
+                        .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
                         .is_some(),
                 )
             });
@@ -571,7 +579,7 @@ fn run_final_propagation_recursive(
         }
 
         facet_band.apply_coordinated_alignment_slabs_to_child_layouts();
-        facet_band.recompute_fixed_placement();
+        facet_band.recompute_plot_area_sized_placement();
 
         node_results.push(FinalPropagationNodeTrace {
             node_id,

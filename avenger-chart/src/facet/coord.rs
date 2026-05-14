@@ -158,29 +158,30 @@ pub struct FacetBandCoordMeasurement {
 /// Canvas-fit facet band measurement type.
 pub type FacetBandCoordMeasurementCanvasFit = FacetBandCoordMeasurement;
 
-/// Fixed-subplot facet band measurement type.
+/// Plot-area-sized facet band measurement type.
 ///
-/// This wraps the shared facet runtime payload with fixed-mode-only placement data.
-pub struct FacetBandCoordMeasurementFixed {
+/// This wraps the shared facet runtime payload with explicit placement data
+/// for fixed leaf plot-area sizing.
+pub struct FacetBandCoordMeasurementPlotAreaSized {
     pub(crate) base: FacetBandCoordMeasurement,
     /// Explicit placement and extent used by fixed leaf plot-area rendering.
-    pub(crate) fixed_placement: FacetBandFixedPlacement,
+    pub(crate) plot_area_sized_placement: FacetBandPlotAreaSizedPlacement,
 }
 
-/// Explicit placement for a fixed leaf plot-area facet band.
+/// Explicit placement for a plot-area-sized facet band.
 ///
-/// Canvas-fit facets use a band scale as the authoritative placement model. Fixed
-/// leaf plot-area facets instead compute child positions and the parent facet
+/// Canvas-fit facets use a band scale as the authoritative placement model.
+/// Plot-area-sized facets instead compute child positions and the parent facet
 /// extent directly from locked leaf plot areas, coordinated gaps, and child
 /// subtree extents.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct FacetBandFixedPlacement {
+pub(crate) struct FacetBandPlotAreaSizedPlacement {
     pub(crate) main_axis_positions: Vec<f32>,
     pub(crate) main_axis_size: f32,
     pub(crate) cross_axis_size: f32,
 }
 
-impl Deref for FacetBandCoordMeasurementFixed {
+impl Deref for FacetBandCoordMeasurementPlotAreaSized {
     type Target = FacetBandCoordMeasurement;
 
     fn deref(&self) -> &Self::Target {
@@ -188,26 +189,27 @@ impl Deref for FacetBandCoordMeasurementFixed {
     }
 }
 
-impl DerefMut for FacetBandCoordMeasurementFixed {
+impl DerefMut for FacetBandCoordMeasurementPlotAreaSized {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.base
     }
 }
 
-impl FacetBandCoordMeasurementFixed {
-    pub(crate) fn recompute_fixed_placement(&mut self) {
+impl FacetBandCoordMeasurementPlotAreaSized {
+    pub(crate) fn recompute_plot_area_sized_placement(&mut self) {
         let active_layout = self
             .coordinated_layout
             .as_ref()
             .unwrap_or(&self.local_layout);
-        let mut placement = compute_fixed_facet_placement(self.axis, &self.cells, active_layout);
+        let mut placement =
+            compute_plot_area_sized_facet_placement(self.axis, &self.cells, active_layout);
         let slabs = LayoutSlabs::from_coordinated(&self.coordinated_overflow);
         let cross_axis_start_offset = match self.axis {
             FacetAxis::Column => slabs.legend.top,
             FacetAxis::Row => slabs.legend.left,
         };
         placement.cross_axis_size += cross_axis_start_offset.max(0.0);
-        self.fixed_placement = placement;
+        self.plot_area_sized_placement = placement;
     }
 
     pub(crate) fn preserve_empty_slot_plot_area(&mut self, plot_width: f32, plot_height: f32) {
@@ -219,22 +221,22 @@ impl FacetBandCoordMeasurementFixed {
             FacetAxis::Column => (plot_width, plot_height),
             FacetAxis::Row => (plot_height, plot_width),
         };
-        self.fixed_placement = FacetBandFixedPlacement {
+        self.plot_area_sized_placement = FacetBandPlotAreaSizedPlacement {
             main_axis_positions: Vec::new(),
             main_axis_size: main_axis_size.max(0.0),
             cross_axis_size: cross_axis_size.max(0.0),
         };
     }
 
-    pub(crate) fn fixed_plot_area_size(&self) -> (f32, f32) {
+    pub(crate) fn plot_area_sized_extent(&self) -> (f32, f32) {
         match self.axis {
             FacetAxis::Column => (
-                self.fixed_placement.main_axis_size,
-                self.fixed_placement.cross_axis_size,
+                self.plot_area_sized_placement.main_axis_size,
+                self.plot_area_sized_placement.cross_axis_size,
             ),
             FacetAxis::Row => (
-                self.fixed_placement.cross_axis_size,
-                self.fixed_placement.main_axis_size,
+                self.plot_area_sized_placement.cross_axis_size,
+                self.plot_area_sized_placement.main_axis_size,
             ),
         }
     }
@@ -293,19 +295,21 @@ pub(crate) fn facet_band_canvas_ref(
         .downcast_ref::<FacetBandCoordMeasurement>()
 }
 
-pub(crate) fn facet_band_fixed_ref(
+pub(crate) fn facet_band_plot_area_sized_ref(
     coord_measurement: &dyn CoordMeasurement,
-) -> Option<&FacetBandCoordMeasurementFixed> {
+) -> Option<&FacetBandCoordMeasurementPlotAreaSized> {
     coord_measurement
         .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementFixed>()
+        .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
 }
 
 pub(crate) fn facet_band_ref(
     coord_measurement: &dyn CoordMeasurement,
 ) -> Option<&FacetBandCoordMeasurement> {
-    facet_band_canvas_ref(coord_measurement)
-        .or_else(|| facet_band_fixed_ref(coord_measurement).map(|fixed| &fixed.base))
+    facet_band_canvas_ref(coord_measurement).or_else(|| {
+        facet_band_plot_area_sized_ref(coord_measurement)
+            .map(|plot_area_sized| &plot_area_sized.base)
+    })
 }
 
 pub(crate) fn facet_band_canvas_mut(
@@ -316,12 +320,12 @@ pub(crate) fn facet_band_canvas_mut(
         .downcast_mut::<FacetBandCoordMeasurement>()
 }
 
-pub(crate) fn facet_band_fixed_mut(
+pub(crate) fn facet_band_plot_area_sized_mut(
     coord_measurement: &mut dyn CoordMeasurement,
-) -> Option<&mut FacetBandCoordMeasurementFixed> {
+) -> Option<&mut FacetBandCoordMeasurementPlotAreaSized> {
     coord_measurement
         .as_any_mut()
-        .downcast_mut::<FacetBandCoordMeasurementFixed>()
+        .downcast_mut::<FacetBandCoordMeasurementPlotAreaSized>()
 }
 
 /// Probe-only facet band measurement used during estimated-overflow aggregation.
@@ -745,7 +749,7 @@ impl CoordMeasurement for FacetBandCoordMeasurement {
     }
 }
 
-impl CoordMeasurement for FacetBandCoordMeasurementFixed {
+impl CoordMeasurement for FacetBandCoordMeasurementPlotAreaSized {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -759,7 +763,7 @@ impl CoordMeasurement for FacetBandCoordMeasurementFixed {
     }
 
     fn apply_scale_adjustments(&self, _scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
-        // Fixed-subplot mode keeps leaf plot area sizing locked, so render-time
+        // Fixed leaf plot-area mode keeps leaf plot area sizing locked, so render-time
         // facet band scale rewrites are intentionally disabled.
     }
 }
@@ -2078,13 +2082,13 @@ fn renderable_mask_for_cells(cells: &[FacetCellDraft], policy: FacetEmptyCellPol
 ///
 /// For leaf cells, this is simply `plot_area_width` (or height for rows).
 /// For intermediate cells (containing a fixed leaf plot-area facet band), the
-/// stored fixed placement carries the actual subtree extent, including
+/// stored explicit placement carries the actual subtree extent, including
 /// inter-cell gaps and trailing outer padding.
 fn cell_main_plot_size(axis: FacetAxis, measurement: &ComponentsMeasurement) -> f32 {
     if let Some(facet_band) = measurement
         .coord_measurement
         .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementFixed>()
+        .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
     {
         if facet_band.cells.is_empty() {
             return match axis {
@@ -2094,7 +2098,7 @@ fn cell_main_plot_size(axis: FacetAxis, measurement: &ComponentsMeasurement) -> 
             .max(0.0);
         }
 
-        let (plot_width, plot_height) = facet_band.fixed_plot_area_size();
+        let (plot_width, plot_height) = facet_band.plot_area_sized_extent();
         return match axis {
             FacetAxis::Column => plot_width,
             FacetAxis::Row => plot_height,
@@ -2113,7 +2117,7 @@ fn cell_cross_plot_size(axis: FacetAxis, measurement: &ComponentsMeasurement) ->
     if let Some(facet_band) = measurement
         .coord_measurement
         .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementFixed>()
+        .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
     {
         if facet_band.cells.is_empty() {
             return match axis {
@@ -2123,7 +2127,7 @@ fn cell_cross_plot_size(axis: FacetAxis, measurement: &ComponentsMeasurement) ->
             .max(0.0);
         }
 
-        let (plot_width, plot_height) = facet_band.fixed_plot_area_size();
+        let (plot_width, plot_height) = facet_band.plot_area_sized_extent();
         return match axis {
             FacetAxis::Column => plot_height,
             FacetAxis::Row => plot_width,
@@ -2142,14 +2146,14 @@ fn cell_main_axis_rendered_boundary_overflow_pair(
     axis: FacetAxis,
     measurement: &ComponentsMeasurement,
 ) -> (f32, f32) {
-    // Fixed-subplot placement uses per-boundary rendered edge demand to keep
+    // Fixed leaf plot-area placement uses per-boundary rendered edge demand to keep
     // adjacent subplot groups separated. Use the component's rendered layout
     // overflow, augmented by stable measured subtree boundary overflow, rather
     // than recursively projected coordinated overflows that can describe global
     // alignment instead of content at this sibling boundary.
     const LEGEND_EDGE_BREATHING_ROOM: f32 = 8.0;
 
-    let total = sibling_boundary_total_overflow_for_fixed_placement(measurement);
+    let total = sibling_boundary_total_overflow_for_plot_area_sized_placement(measurement);
     let guide = &measurement.layout.overflow;
     let (
         legend_left_from_bounds,
@@ -2228,7 +2232,7 @@ fn coordinated_legend_overflow_edges(measurement: &ComponentsMeasurement) -> (f3
     if let Some(facet_band) = measurement
         .coord_measurement
         .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementFixed>()
+        .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
     {
         let total = &facet_band.coordinated_overflow.total;
         let guide = &facet_band.coordinated_overflow.guide;
@@ -2258,7 +2262,7 @@ fn coordinated_legend_overflow_edges(measurement: &ComponentsMeasurement) -> (f3
     (0.0, 0.0, 0.0, 0.0)
 }
 
-fn sibling_boundary_total_overflow_for_fixed_placement(
+fn sibling_boundary_total_overflow_for_plot_area_sized_placement(
     measurement: &ComponentsMeasurement,
 ) -> OverflowSpaceRequirement {
     let mut total = measurement.layout.total_overflow.clone();
@@ -2266,7 +2270,7 @@ fn sibling_boundary_total_overflow_for_fixed_placement(
     if let Some(facet_band) = measurement
         .coord_measurement
         .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementFixed>()
+        .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
     {
         if let Some(boundary) = facet_band.measured_sibling_boundary_overflow_value() {
             total = total.max_components(&boundary.total);
@@ -2286,13 +2290,13 @@ fn sibling_boundary_total_overflow_for_fixed_placement(
     total
 }
 
-pub(crate) fn compute_fixed_facet_placement(
+pub(crate) fn compute_plot_area_sized_facet_placement(
     axis: FacetAxis,
     cells: &[FacetCellRuntime],
     layout: &CoordinatedLayout,
-) -> FacetBandFixedPlacement {
+) -> FacetBandPlotAreaSizedPlacement {
     if cells.is_empty() {
-        return FacetBandFixedPlacement::default();
+        return FacetBandPlotAreaSizedPlacement::default();
     }
 
     let mut positions = Vec::with_capacity(cells.len());
@@ -2320,13 +2324,13 @@ pub(crate) fn compute_fixed_facet_placement(
                 after_current,
                 before_next,
                 gap_size,
-                "fixed facet placement gap"
+                "plot-area-sized facet placement gap"
             );
             cursor += gap_size;
         }
     }
 
-    FacetBandFixedPlacement {
+    FacetBandPlotAreaSizedPlacement {
         main_axis_positions: positions,
         main_axis_size: (cursor + layout.outer_end.max(0.0)).max(0.0),
         cross_axis_size,
@@ -2334,12 +2338,12 @@ pub(crate) fn compute_fixed_facet_placement(
 }
 
 #[cfg(test)]
-pub(crate) fn compute_fixed_main_axis_positions(
+pub(crate) fn compute_plot_area_sized_main_axis_positions(
     axis: FacetAxis,
     cells: &[FacetCellRuntime],
     layout: &CoordinatedLayout,
 ) -> Vec<f32> {
-    compute_fixed_facet_placement(axis, cells, layout).main_axis_positions
+    compute_plot_area_sized_facet_placement(axis, cells, layout).main_axis_positions
 }
 
 fn synthesize_subtree_plot_area_from_leaf_size(
@@ -2398,7 +2402,7 @@ fn empty_facet_band_measurement(
     compiled_subplot: &Arc<CompiledPlot>,
     band_scale: &ConfiguredScaleWithSpec,
     empty_cell_policy: FacetEmptyCellPolicy,
-    fixed_mode: bool,
+    plot_area_sized_mode: bool,
 ) -> Box<dyn CoordMeasurement> {
     let base = FacetBandCoordMeasurement {
         axis,
@@ -2417,10 +2421,10 @@ fn empty_facet_band_measurement(
         channel_domain_sharing_levels: HashMap::new(),
         empty_cell_policy,
     };
-    if fixed_mode {
-        Box::new(FacetBandCoordMeasurementFixed {
+    if plot_area_sized_mode {
+        Box::new(FacetBandCoordMeasurementPlotAreaSized {
             base,
-            fixed_placement: FacetBandFixedPlacement::default(),
+            plot_area_sized_placement: FacetBandPlotAreaSizedPlacement::default(),
         })
     } else {
         Box::new(base)
@@ -3588,7 +3592,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 resolved.empty_cell_policy,
                 matches!(
                     self.eval_ctx.facet_runtime_sizing_mode(),
-                    FacetRuntimeSizingMode::FixedSubplot { .. }
+                    FacetRuntimeSizingMode::FixedLeafPlotArea { .. }
                 ),
             ));
         }
@@ -3804,7 +3808,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 .empty_cell_policy,
             fixed_plot_area_lock: matches!(
                 self.eval_ctx.facet_runtime_sizing_mode(),
-                FacetRuntimeSizingMode::FixedSubplot { .. }
+                FacetRuntimeSizingMode::FixedLeafPlotArea { .. }
             ),
         };
 
@@ -3920,7 +3924,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 empty_cell_policy,
                 matches!(
                     self.eval_ctx.facet_runtime_sizing_mode(),
-                    FacetRuntimeSizingMode::FixedSubplot { .. }
+                    FacetRuntimeSizingMode::FixedLeafPlotArea { .. }
                 ),
             )));
         };
@@ -3974,7 +3978,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
     ) -> f32 {
         match self.eval_ctx.facet_runtime_sizing_mode() {
             FacetRuntimeSizingMode::CanvasFit => resolved.subplot_band_size,
-            FacetRuntimeSizingMode::FixedSubplot {
+            FacetRuntimeSizingMode::FixedLeafPlotArea {
                 leaf_plot_width,
                 leaf_plot_height,
             } => {
@@ -4115,7 +4119,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         );
         let final_subplot_band_size = if matches!(
             self.eval_ctx.facet_runtime_sizing_mode(),
-            FacetRuntimeSizingMode::FixedSubplot { .. }
+            FacetRuntimeSizingMode::FixedLeafPlotArea { .. }
         ) {
             initial_subplot_band_size
         } else {
@@ -4321,14 +4325,14 @@ impl<'a> FacetBandMeasurePipeline<'a> {
 
         if matches!(
             self.eval_ctx.facet_runtime_sizing_mode(),
-            FacetRuntimeSizingMode::FixedSubplot { .. }
+            FacetRuntimeSizingMode::FixedLeafPlotArea { .. }
         ) {
-            let mut fixed = FacetBandCoordMeasurementFixed {
+            let mut plot_area_sized = FacetBandCoordMeasurementPlotAreaSized {
                 base,
-                fixed_placement: FacetBandFixedPlacement::default(),
+                plot_area_sized_placement: FacetBandPlotAreaSizedPlacement::default(),
             };
-            fixed.recompute_fixed_placement();
-            Box::new(fixed)
+            plot_area_sized.recompute_plot_area_sized_placement();
+            Box::new(plot_area_sized)
         } else {
             Box::new(base)
         }
@@ -4355,8 +4359,8 @@ pub(crate) async fn measure_facet_row(
             )
             .await
         }
-        FacetRuntimeSizingMode::FixedSubplot { .. } => {
-            crate::facet::coord_fixed_subplot::measure_facet_row_fixed_subplot(
+        FacetRuntimeSizingMode::FixedLeafPlotArea { .. } => {
+            crate::facet::coord_fixed_leaf_plot_area::measure_facet_row_fixed_leaf_plot_area(
                 scales,
                 plot_width,
                 eval_ctx,
@@ -4419,8 +4423,8 @@ impl CoordinateSystemTransform for FacetColumn {
                 )
                 .await
             }
-            FacetRuntimeSizingMode::FixedSubplot { .. } => {
-                crate::facet::coord_fixed_subplot::measure_facet_column_fixed_subplot(
+            FacetRuntimeSizingMode::FixedLeafPlotArea { .. } => {
+                crate::facet::coord_fixed_leaf_plot_area::measure_facet_column_fixed_leaf_plot_area(
                     scales,
                     plot_height,
                     eval_ctx,

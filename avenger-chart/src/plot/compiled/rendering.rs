@@ -46,7 +46,7 @@ use crate::{
     error::AvengerChartError,
     facet::{
         coord::{
-            FacetBandCoordMeasurement, FacetBandCoordMeasurementFixed, FacetCellRuntime,
+            FacetBandCoordMeasurement, FacetBandCoordMeasurementPlotAreaSized, FacetCellRuntime,
             retarget_scale_ranges_for_plot_area,
         },
         debug as facet_debug,
@@ -103,7 +103,7 @@ struct RecursiveOverflowSnapshot {
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum FacetSizingStrategy {
     CanvasFit,
-    FixedSubplot {
+    FixedLeafPlotArea {
         leaf_plot_width: f32,
         leaf_plot_height: f32,
     },
@@ -113,17 +113,17 @@ impl FacetSizingStrategy {
     fn coordination_mode(self) -> FacetCoordinationMode {
         match self {
             Self::CanvasFit => FacetCoordinationMode::CanvasFullCycle,
-            Self::FixedSubplot { .. } => FacetCoordinationMode::FixedFullCycle,
+            Self::FixedLeafPlotArea { .. } => FacetCoordinationMode::FixedLeafPlotAreaFullCycle,
         }
     }
 
     fn runtime_sizing_mode(self) -> FacetRuntimeSizingMode {
         match self {
             Self::CanvasFit => FacetRuntimeSizingMode::CanvasFit,
-            Self::FixedSubplot {
+            Self::FixedLeafPlotArea {
                 leaf_plot_width,
                 leaf_plot_height,
-            } => FacetRuntimeSizingMode::FixedSubplot {
+            } => FacetRuntimeSizingMode::FixedLeafPlotArea {
                 leaf_plot_width,
                 leaf_plot_height,
             },
@@ -153,7 +153,7 @@ fn facet_band_children(
     measurement
         .coord_measurement
         .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementFixed>()
+        .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
         .map(|facet_band| (&facet_band.compiled_subplot, facet_band.cells.as_slice()))
 }
 
@@ -236,7 +236,7 @@ impl CompiledPlot {
         if let Some(facet_measurement) = measurement
             .coord_measurement
             .as_any()
-            .downcast_ref::<FacetBandCoordMeasurementFixed>()
+            .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
         {
             for child in facet_measurement.child_measurements_iter() {
                 Self::collect_recursive_overflow_snapshots(child, snapshots);
@@ -320,12 +320,12 @@ impl CompiledPlot {
             }
         }
 
-        if let Some(facet_measurement_fixed) = measurement
+        if let Some(facet_measurement_plot_area_sized) = measurement
             .coord_measurement
             .as_any()
-            .downcast_ref::<FacetBandCoordMeasurementFixed>()
-        {
-            return facet_measurement_fixed
+            .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>(
+        ) {
+            return facet_measurement_plot_area_sized
                 .child_measurements_iter()
                 .all(Self::legends_within_canvas_recursive);
         }
@@ -441,7 +441,7 @@ impl CompiledPlot {
                         .to_string(),
                 ));
             }
-            return Ok(FacetSizingStrategy::FixedSubplot {
+            return Ok(FacetSizingStrategy::FixedLeafPlotArea {
                 leaf_plot_width,
                 leaf_plot_height,
             });
@@ -504,7 +504,7 @@ impl CompiledPlot {
         }
     }
 
-    fn derive_fixed_subplot_plot_area(
+    fn derive_fixed_leaf_subtree_plot_area(
         facet_tree: &EvaluatedFacetTree,
         leaf_plot_width: f32,
         leaf_plot_height: f32,
@@ -527,12 +527,12 @@ impl CompiledPlot {
     ) -> EvaluatedLayoutSpec {
         match strategy {
             FacetSizingStrategy::CanvasFit => evaluated_layout_spec.clone(),
-            FacetSizingStrategy::FixedSubplot {
+            FacetSizingStrategy::FixedLeafPlotArea {
                 leaf_plot_width,
                 leaf_plot_height,
             } => {
                 let (required_plot_area_width, required_plot_area_height) =
-                    Self::derive_fixed_subplot_plot_area(
+                    Self::derive_fixed_leaf_subtree_plot_area(
                         facet_tree,
                         leaf_plot_width,
                         leaf_plot_height,
@@ -1505,7 +1505,7 @@ impl CompiledPlot {
 
         if let Some(facet_band) = coord_measurement
             .as_any()
-            .downcast_ref::<FacetBandCoordMeasurementFixed>()
+            .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
         {
             for cell in &facet_band.cells {
                 requests.extend(
@@ -2062,7 +2062,7 @@ impl CompiledPlot {
         )))
     }
 
-    async fn remeasure_fixed_subplot_coord_at_current_plot_area(
+    async fn remeasure_fixed_leaf_plot_area_coord_at_current_plot_area(
         &self,
         measurement: &mut ComponentsMeasurement,
         eval_ctx: &EvaluationContext,
@@ -2078,7 +2078,7 @@ impl CompiledPlot {
         if let Some(facet_band) = measurement
             .coord_measurement
             .as_any_mut()
-            .downcast_mut::<FacetBandCoordMeasurementFixed>()
+            .downcast_mut::<FacetBandCoordMeasurementPlotAreaSized>()
         {
             is_facet_band = true;
             let compiled_subplot = facet_band.compiled_subplot.clone();
@@ -2095,7 +2095,7 @@ impl CompiledPlot {
                     eval_ctx.clone()
                 };
                 Box::pin(
-                    compiled_subplot.remeasure_fixed_subplot_coord_at_current_plot_area(
+                    compiled_subplot.remeasure_fixed_leaf_plot_area_coord_at_current_plot_area(
                         &mut cell.measurement,
                         &cell_eval_ctx,
                         evaluated_layout_spec,
@@ -2106,7 +2106,7 @@ impl CompiledPlot {
                 .await?;
             }
             facet_band.recompute_measured_overflow();
-            facet_band.recompute_fixed_placement();
+            facet_band.recompute_plot_area_sized_placement();
         }
 
         if !is_facet_band {
@@ -2169,7 +2169,7 @@ impl CompiledPlot {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn run_fixed_subplot_refinement_iteration(
+    async fn run_fixed_leaf_plot_area_refinement_iteration(
         &self,
         measurement: &mut ComponentsMeasurement,
         eval_ctx: &EvaluationContext,
@@ -2187,7 +2187,7 @@ impl CompiledPlot {
         };
 
         if iteration > 0 {
-            self.remeasure_fixed_subplot_coord_at_current_plot_area(
+            self.remeasure_fixed_leaf_plot_area_coord_at_current_plot_area(
                 measurement,
                 eval_ctx,
                 evaluated_layout_spec,
@@ -2198,7 +2198,7 @@ impl CompiledPlot {
             coordinate_overflow_for_guides_with_mode(
                 measurement,
                 eval_ctx,
-                FacetCoordinationMode::FixedFullCycle,
+                FacetCoordinationMode::FixedLeafPlotAreaFullCycle,
             )
             .await?;
 
@@ -2253,7 +2253,7 @@ impl CompiledPlot {
         })
     }
 
-    async fn refine_fixed_subplot_measurement_after_coordination(
+    async fn refine_fixed_leaf_plot_area_measurement_after_coordination(
         &self,
         measurement: &mut ComponentsMeasurement,
         eval_ctx: &EvaluationContext,
@@ -2262,7 +2262,7 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
         max_refinement_passes: usize,
     ) -> Result<(), AvengerChartError> {
-        self.run_fixed_subplot_refinement_iteration(
+        self.run_fixed_leaf_plot_area_refinement_iteration(
             measurement,
             eval_ctx,
             evaluated_layout_spec,
@@ -2282,7 +2282,7 @@ impl CompiledPlot {
 
         for pass in 1..=max_refinement_passes {
             let outcome = self
-                .run_fixed_subplot_refinement_iteration(
+                .run_fixed_leaf_plot_area_refinement_iteration(
                     measurement,
                     eval_ctx,
                     evaluated_layout_spec,
@@ -2312,7 +2312,7 @@ impl CompiledPlot {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn refine_fixed_subplot_measurement_after_coordination_until(
+    async fn refine_fixed_leaf_plot_area_measurement_after_coordination_until(
         &self,
         measurement: &mut ComponentsMeasurement,
         eval_ctx: &EvaluationContext,
@@ -2335,7 +2335,7 @@ impl CompiledPlot {
 
         let target = (target_iteration == 0).then_some(target_checkpoint);
         let outcome = self
-            .run_fixed_subplot_refinement_iteration(
+            .run_fixed_leaf_plot_area_refinement_iteration(
                 measurement,
                 eval_ctx,
                 evaluated_layout_spec,
@@ -2360,7 +2360,7 @@ impl CompiledPlot {
         for pass in 1..=max_refinement_passes {
             let target = (pass == target_iteration).then_some(target_checkpoint);
             let outcome = self
-                .run_fixed_subplot_refinement_iteration(
+                .run_fixed_leaf_plot_area_refinement_iteration(
                     measurement,
                     eval_ctx,
                     evaluated_layout_spec,
@@ -2397,7 +2397,7 @@ impl CompiledPlot {
         let realized_plot_area_size = if let Some(facet_band) = measurement
             .coord_measurement
             .as_any_mut()
-            .downcast_mut::<FacetBandCoordMeasurementFixed>()
+            .downcast_mut::<FacetBandCoordMeasurementPlotAreaSized>()
         {
             if !facet_band.cells.is_empty() {
                 let compiled_subplot = facet_band.compiled_subplot.clone();
@@ -2418,8 +2418,8 @@ impl CompiledPlot {
                     .await?;
                 }
 
-                facet_band.recompute_fixed_placement();
-                Some(facet_band.fixed_plot_area_size())
+                facet_band.recompute_plot_area_sized_placement();
+                Some(facet_band.plot_area_sized_extent())
             } else {
                 facet_band.preserve_empty_slot_plot_area(
                     incoming_plot_area_size.0,
@@ -2496,7 +2496,7 @@ impl CompiledPlot {
         Ok(())
     }
 
-    async fn realize_fixed_subplot_layout_after_coordination(
+    async fn realize_fixed_leaf_plot_area_layout_after_coordination(
         &self,
         measurement: &mut ComponentsMeasurement,
         eval_ctx: &EvaluationContext,
@@ -2505,7 +2505,7 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
         max_refinement_passes: usize,
     ) -> Result<(), AvengerChartError> {
-        self.refine_fixed_subplot_measurement_after_coordination(
+        self.refine_fixed_leaf_plot_area_measurement_after_coordination(
             measurement,
             eval_ctx,
             layout_spec,
@@ -2599,11 +2599,11 @@ impl CompiledPlot {
         if facet_path.is_empty()
             && matches!(
                 eval_ctx.facet_runtime_sizing_mode(),
-                FacetRuntimeSizingMode::FixedSubplot { .. }
+                FacetRuntimeSizingMode::FixedLeafPlotArea { .. }
             )
             && Self::marks_contain_facet(&self.marks)
         {
-            // Fixed-subplot top-level facet content can legitimately extend past the
+            // Fixed leaf plot-area top-level facet content can legitimately extend past the
             // synthesized root plot-area rectangle; avoid clipping at the root.
             Clip::None
         } else {
@@ -3510,9 +3510,9 @@ impl CompiledPlot {
                     .await?;
                 }
             }
-            FacetSizingStrategy::FixedSubplot { .. } => {
+            FacetSizingStrategy::FixedLeafPlotArea { .. } => {
                 let refinement = eval_ctx.facet_layout_refinement();
-                self.realize_fixed_subplot_layout_after_coordination(
+                self.realize_fixed_leaf_plot_area_layout_after_coordination(
                     measurement,
                     eval_ctx,
                     evaluated_layout_spec,
@@ -3561,8 +3561,8 @@ impl CompiledPlot {
                 )
                 .await
             }
-            FacetSizingStrategy::FixedSubplot { .. } => {
-                self.refine_fixed_subplot_measurement_after_coordination_until(
+            FacetSizingStrategy::FixedLeafPlotArea { .. } => {
+                self.refine_fixed_leaf_plot_area_measurement_after_coordination_until(
                     measurement,
                     eval_ctx,
                     evaluated_layout_spec,
@@ -4263,7 +4263,7 @@ mod tests {
             ))
     }
 
-    fn build_three_level_col_legend_sharing_plot_fixed_subplot(
+    fn build_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(
         df: DataFrame,
         position: LegendPosition,
     ) -> Plot<FacetColumn> {
@@ -4279,7 +4279,7 @@ mod tests {
             ))
     }
 
-    fn build_nested_col_row_col_continuous_legend_plot_fixed_subplot(
+    fn build_nested_col_row_col_continuous_legend_plot_fixed_leaf_plot_area(
         df: DataFrame,
     ) -> Plot<FacetColumn> {
         Plot::<FacetColumn>::new()
@@ -4500,12 +4500,12 @@ mod tests {
             .await
     }
 
-    async fn compile_three_level_col_legend_sharing_plot_fixed_subplot(
+    async fn compile_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(
         ctx: &SessionContext,
         position: LegendPosition,
     ) -> Result<CompiledPlot, AvengerChartError> {
         let df = legend_sharing_three_level_dataframe(ctx).await;
-        build_three_level_col_legend_sharing_plot_fixed_subplot(df, position)
+        build_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(df, position)
             .compile(ctx)
             .await
     }
@@ -4544,16 +4544,16 @@ mod tests {
             .await
     }
 
-    async fn compile_nested_col_row_col_continuous_legend_plot_fixed_subplot(
+    async fn compile_nested_col_row_col_continuous_legend_plot_fixed_leaf_plot_area(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
         let df = legend_sharing_three_level_dataframe(ctx).await;
-        build_nested_col_row_col_continuous_legend_plot_fixed_subplot(df)
+        build_nested_col_row_col_continuous_legend_plot_fixed_leaf_plot_area(df)
             .compile(ctx)
             .await
     }
 
-    async fn compile_nested_row_col_row_mixed_sharing_plot_fixed_subplot(
+    async fn compile_nested_row_col_row_mixed_sharing_plot_fixed_leaf_plot_area(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
         let df = legend_sharing_three_level_dataframe(ctx).await;
@@ -4777,9 +4777,9 @@ mod tests {
                         .await?;
                 }
             }
-            FacetSizingStrategy::FixedSubplot { .. } => {
+            FacetSizingStrategy::FixedLeafPlotArea { .. } => {
                 compiled
-                    .realize_fixed_subplot_layout_after_coordination(
+                    .realize_fixed_leaf_plot_area_layout_after_coordination(
                         &mut measurement,
                         &eval_ctx,
                         &evaluated_layout_spec,
@@ -4926,33 +4926,35 @@ mod tests {
         }
     }
 
-    fn collect_empty_fixed_facet_plot_areas(
+    fn collect_empty_plot_area_sized_facet_plot_areas(
         measurement: &ComponentsMeasurement,
         out: &mut Vec<(f32, f32)>,
     ) {
-        if let Some(fixed_facet) = measurement
+        if let Some(plot_area_sized_facet) = measurement
             .coord_measurement
             .as_any()
-            .downcast_ref::<FacetBandCoordMeasurementFixed>()
-        {
-            if fixed_facet.cells.is_empty() {
+            .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>(
+        ) {
+            if plot_area_sized_facet.cells.is_empty() {
                 out.push((measurement.plot_area_width, measurement.plot_area_height));
             }
 
-            for child in fixed_facet.child_measurements_iter() {
-                collect_empty_fixed_facet_plot_areas(child, out);
+            for child in plot_area_sized_facet.child_measurements_iter() {
+                collect_empty_plot_area_sized_facet_plot_areas(child, out);
             }
         }
     }
 
-    fn assert_no_fixed_subplot_main_axis_overlap(measurement: &ComponentsMeasurement) {
-        if let Some(facet_band_fixed) = measurement
+    fn assert_no_fixed_leaf_plot_area_main_axis_overlap(measurement: &ComponentsMeasurement) {
+        if let Some(facet_band_plot_area_sized) = measurement
             .coord_measurement
             .as_any()
-            .downcast_ref::<FacetBandCoordMeasurementFixed>()
-        {
-            let facet_band = &facet_band_fixed.base;
-            let positions = &facet_band_fixed.fixed_placement.main_axis_positions;
+            .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>(
+        ) {
+            let facet_band = &facet_band_plot_area_sized.base;
+            let positions = &facet_band_plot_area_sized
+                .plot_area_sized_placement
+                .main_axis_positions;
             for (idx, window) in positions.windows(2).enumerate() {
                 let current_start = window[0];
                 let next_start = window[1];
@@ -4972,7 +4974,7 @@ mod tests {
             }
 
             for child in facet_band.child_measurements_iter() {
-                assert_no_fixed_subplot_main_axis_overlap(child);
+                assert_no_fixed_leaf_plot_area_main_axis_overlap(child);
             }
         }
     }
@@ -5033,28 +5035,32 @@ mod tests {
         count
     }
 
-    fn assert_fixed_positions_match_recomputed(measurement: &ComponentsMeasurement) {
-        if let Some(fixed_facet) = measurement
-            .coord_measurement
-            .as_any()
-            .downcast_ref::<crate::facet::coord::FacetBandCoordMeasurementFixed>(
-        ) {
-            let layout = fixed_facet
+    fn assert_plot_area_sized_positions_match_recomputed(measurement: &ComponentsMeasurement) {
+        if let Some(plot_area_sized_facet) =
+            measurement
+                .coord_measurement
+                .as_any()
+                .downcast_ref::<crate::facet::coord::FacetBandCoordMeasurementPlotAreaSized>()
+        {
+            let layout = plot_area_sized_facet
                 .coordinated_layout
                 .as_ref()
-                .unwrap_or(&fixed_facet.local_layout);
-            let expected = crate::facet::coord::compute_fixed_main_axis_positions(
-                fixed_facet.axis,
-                &fixed_facet.cells,
+                .unwrap_or(&plot_area_sized_facet.local_layout);
+            let expected = crate::facet::coord::compute_plot_area_sized_main_axis_positions(
+                plot_area_sized_facet.axis,
+                &plot_area_sized_facet.cells,
                 layout,
             );
             assert_eq!(
-                fixed_facet.fixed_placement.main_axis_positions.len(),
+                plot_area_sized_facet
+                    .plot_area_sized_placement
+                    .main_axis_positions
+                    .len(),
                 expected.len(),
-                "fixed facet position count mismatch when validating recomputed positions"
+                "plot-area-sized facet position count mismatch when validating recomputed positions"
             );
-            for (idx, (actual, expected)) in fixed_facet
-                .fixed_placement
+            for (idx, (actual, expected)) in plot_area_sized_facet
+                .plot_area_sized_placement
                 .main_axis_positions
                 .iter()
                 .zip(expected.iter())
@@ -5062,32 +5068,35 @@ mod tests {
             {
                 assert!(
                     (actual - expected).abs() <= 0.01,
-                    "fixed position mismatch at index {idx}: actual={actual}, expected={expected}"
+                    "plot-area-sized position mismatch at index {idx}: actual={actual}, expected={expected}"
                 );
             }
 
-            for child in fixed_facet.child_measurements_iter() {
-                assert_fixed_positions_match_recomputed(child);
+            for child in plot_area_sized_facet.child_measurements_iter() {
+                assert_plot_area_sized_positions_match_recomputed(child);
             }
         }
     }
 
-    fn assert_fixed_facet_plot_area_matches_placement(measurement: &ComponentsMeasurement) {
-        if let Some(fixed_facet) = measurement
-            .coord_measurement
-            .as_any()
-            .downcast_ref::<crate::facet::coord::FacetBandCoordMeasurementFixed>(
-        ) {
-            let (expected_width, expected_height) = fixed_facet.fixed_plot_area_size();
+    fn assert_plot_area_sized_facet_plot_area_matches_placement(
+        measurement: &ComponentsMeasurement,
+    ) {
+        if let Some(plot_area_sized_facet) =
+            measurement
+                .coord_measurement
+                .as_any()
+                .downcast_ref::<crate::facet::coord::FacetBandCoordMeasurementPlotAreaSized>()
+        {
+            let (expected_width, expected_height) = plot_area_sized_facet.plot_area_sized_extent();
             assert!(
                 (measurement.plot_area_width - expected_width).abs() <= 0.01,
-                "fixed facet plot width should match computed placement: measurement={}, placement={}",
+                "plot-area-sized facet plot width should match computed placement: measurement={}, placement={}",
                 measurement.plot_area_width,
                 expected_width
             );
             assert!(
                 (measurement.plot_area_height - expected_height).abs() <= 0.01,
-                "fixed facet plot height should match computed placement: measurement={}, placement={}",
+                "plot-area-sized facet plot height should match computed placement: measurement={}, placement={}",
                 measurement.plot_area_height,
                 expected_height
             );
@@ -5095,24 +5104,24 @@ mod tests {
             let bounds = measurement.layout.plot_area_bounds();
             assert!(
                 (bounds.width - measurement.plot_area_width).abs() <= 0.01,
-                "fixed facet layout bounds width should match realized plot area: bounds={}, measurement={}",
+                "plot-area-sized facet layout bounds width should match realized plot area: bounds={}, measurement={}",
                 bounds.width,
                 measurement.plot_area_width
             );
             assert!(
                 (bounds.height - measurement.plot_area_height).abs() <= 0.01,
-                "fixed facet layout bounds height should match realized plot area: bounds={}, measurement={}",
+                "plot-area-sized facet layout bounds height should match realized plot area: bounds={}, measurement={}",
                 bounds.height,
                 measurement.plot_area_height
             );
 
-            for child in fixed_facet.child_measurements_iter() {
-                assert_fixed_facet_plot_area_matches_placement(child);
+            for child in plot_area_sized_facet.child_measurements_iter() {
+                assert_plot_area_sized_facet_plot_area_matches_placement(child);
             }
         }
     }
 
-    fn collect_team_level_fixed_apply_signals(
+    fn collect_team_level_plot_area_sized_apply_signals(
         measurement: &ComponentsMeasurement,
         out: &mut Vec<(f32, bool, bool)>,
     ) {
@@ -5130,7 +5139,7 @@ mod tests {
             }
 
             for child in facet_band.child_measurements_iter() {
-                collect_team_level_fixed_apply_signals(child, out);
+                collect_team_level_plot_area_sized_apply_signals(child, out);
             }
         }
     }
@@ -5485,11 +5494,11 @@ mod tests {
     }
 
     #[test]
-    fn fixed_subplot_refinement_remeasures_after_domain_coordination() {
+    fn fixed_leaf_plot_area_refinement_remeasures_after_domain_coordination() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
             let compiled =
-                compile_nested_row_col_row_mixed_sharing_plot_fixed_subplot(&ctx).await?;
+                compile_nested_row_col_row_mixed_sharing_plot_fixed_leaf_plot_area(&ctx).await?;
             let selector = FacetSubtreeSelector::ByFacetPath(vec![
                 ScalarValue::Utf8(Some("DivB".to_string())),
                 ScalarValue::Utf8(Some("Dept1".to_string())),
@@ -5534,15 +5543,15 @@ mod tests {
             assert_eq!(fast_metrics.facet_layout.refinement_pass_count, 0);
             assert_eq!(
                 refined_metrics.facet_layout.refinement_pass_count, 1,
-                "expected one fixed-subplot refinement pass: {refined_metrics:?}"
+                "expected one fixed leaf plot-area refinement pass: {refined_metrics:?}"
             );
             assert!(
                 collect_text_x_positions(&fast_eval.scene_graph, "of-right").is_empty(),
-                "fast one-shot fixed subplot should document the missing right overflow"
+                "fast one-shot fixed leaf plot-area should document the missing right overflow"
             );
             assert!(
                 !collect_text_x_positions(&refined_eval.scene_graph, "of-right").is_empty(),
-                "fixed-subplot refinement should allocate the late right overflow"
+                "fixed leaf plot-area refinement should allocate the late right overflow"
             );
 
             Ok(())
@@ -5721,7 +5730,7 @@ mod tests {
         assert!(
             matches!(
                 strategy,
-                FacetSizingStrategy::FixedSubplot {
+                FacetSizingStrategy::FixedLeafPlotArea {
                     leaf_plot_width: 120.0,
                     leaf_plot_height: 90.0
                 }
@@ -5777,7 +5786,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn facet_partial_constraints_error_in_fixed_subplot_mode() {
+    async fn facet_partial_constraints_error_in_fixed_leaf_plot_area_mode() {
         let ctx = SessionContext::new();
         let df = deeply_nested_dataframe(&ctx);
         let compiled = build_simple_facet_col_plot(df)
@@ -5834,11 +5843,11 @@ mod tests {
     }
 
     #[test]
-    fn fixed_subplot_mode_leaf_plot_area_uniform_for_three_level_col_col_col_with_level2_right_legend()
+    fn fixed_leaf_plot_area_mode_leaf_plot_area_uniform_for_three_level_col_col_col_with_level2_right_legend()
      {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
-            let compiled = compile_three_level_col_legend_sharing_plot_fixed_subplot(
+            let compiled = compile_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(
                 &ctx,
                 LegendPosition::Right,
             )
@@ -5885,7 +5894,7 @@ mod tests {
     fn fixed_level2_right_hoists_legend_without_team_node_slab() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
-            let compiled = compile_three_level_col_legend_sharing_plot_fixed_subplot(
+            let compiled = compile_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(
                 &ctx,
                 LegendPosition::Right,
             )
@@ -5894,7 +5903,7 @@ mod tests {
                 prepare_refined_top_level_measurement(&compiled, &ctx).await?;
 
             let mut team_signals = Vec::new();
-            collect_team_level_fixed_apply_signals(&measurement, &mut team_signals);
+            collect_team_level_plot_area_sized_apply_signals(&measurement, &mut team_signals);
             assert!(
                 !team_signals.is_empty(),
                 "expected at least one team-level facet node in level2-right scenario"
@@ -5918,10 +5927,10 @@ mod tests {
     }
 
     #[test]
-    fn fixed_subplot_mode_collection_only_applies_layout_patches_without_resizing_leaves() {
+    fn fixed_leaf_plot_area_mode_collection_only_applies_layout_patches_without_resizing_leaves() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
-            let compiled = compile_three_level_col_legend_sharing_plot_fixed_subplot(
+            let compiled = compile_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(
                 &ctx,
                 LegendPosition::Right,
             )
@@ -5941,18 +5950,18 @@ mod tests {
                     &eval_ctx,
                     &evaluated_layout_spec,
                     &provider,
-                    FacetSizingStrategy::FixedSubplot {
+                    FacetSizingStrategy::FixedLeafPlotArea {
                         leaf_plot_width: 120.0,
                         leaf_plot_height: 90.0,
                     },
-                    FacetCoordinationMode::FixedFullCycle,
+                    FacetCoordinationMode::FixedLeafPlotAreaFullCycle,
                 )
                 .await?;
 
             let patch_count = count_coordinated_layout_patches(&measurement);
             assert!(
                 patch_count > 0,
-                "expected fixed full-cycle mode to apply at least one coordinated layout patch"
+                "expected fixed leaf plot-area full-cycle mode to apply at least one coordinated layout patch"
             );
 
             let mut leaf_widths = Vec::new();
@@ -5960,21 +5969,22 @@ mod tests {
             collect_leaf_plot_areas(&measurement, &mut leaf_widths, &mut leaf_heights);
             assert!(
                 leaf_widths.iter().all(|w| (*w - 120.0).abs() <= 0.01),
-                "fixed full-cycle path must keep leaf plot widths locked"
+                "fixed leaf plot-area full-cycle path must keep leaf plot widths locked"
             );
             assert!(
                 leaf_heights.iter().all(|h| (*h - 90.0).abs() <= 0.01),
-                "fixed full-cycle path must keep leaf plot heights locked"
+                "fixed leaf plot-area full-cycle path must keep leaf plot heights locked"
             );
             Ok(())
         });
     }
 
     #[test]
-    fn fixed_subplot_mode_final_realization_applies_layout_patches_without_resizing_leaves() {
+    fn fixed_leaf_plot_area_mode_final_realization_applies_layout_patches_without_resizing_leaves()
+    {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
-            let compiled = compile_three_level_col_legend_sharing_plot_fixed_subplot(
+            let compiled = compile_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(
                 &ctx,
                 LegendPosition::Right,
             )
@@ -5992,18 +6002,18 @@ mod tests {
                     &eval_ctx,
                     &evaluated_layout_spec,
                     &provider,
-                    FacetSizingStrategy::FixedSubplot {
+                    FacetSizingStrategy::FixedLeafPlotArea {
                         leaf_plot_width: 120.0,
                         leaf_plot_height: 90.0,
                     },
-                    FacetCoordinationMode::FixedFullCycle,
+                    FacetCoordinationMode::FixedLeafPlotAreaFullCycle,
                 )
                 .await?;
 
             let patch_count = count_coordinated_layout_patches(&measurement);
             assert!(
                 patch_count > 0,
-                "expected fixed final realization to preserve coordinated layout patches"
+                "expected fixed leaf plot-area final realization to preserve coordinated layout patches"
             );
 
             let mut leaf_widths = Vec::new();
@@ -6011,29 +6021,29 @@ mod tests {
             collect_leaf_plot_areas(&measurement, &mut leaf_widths, &mut leaf_heights);
             assert!(
                 leaf_widths.iter().all(|w| (*w - 120.0).abs() <= 0.01),
-                "fixed final realization must keep leaf plot widths locked"
+                "fixed leaf plot-area final realization must keep leaf plot widths locked"
             );
             assert!(
                 leaf_heights.iter().all(|h| (*h - 90.0).abs() <= 0.01),
-                "fixed final realization must keep leaf plot heights locked"
+                "fixed leaf plot-area final realization must keep leaf plot heights locked"
             );
             Ok(())
         });
     }
 
     #[test]
-    fn fixed_subplot_mode_has_no_main_axis_overlap_for_three_level_col_col_col_with_level2_right_legend()
+    fn fixed_leaf_plot_area_mode_has_no_main_axis_overlap_for_three_level_col_col_col_with_level2_right_legend()
      {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
-            let compiled = compile_three_level_col_legend_sharing_plot_fixed_subplot(
+            let compiled = compile_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(
                 &ctx,
                 LegendPosition::Right,
             )
             .await?;
             let (_, _, measurement) =
                 prepare_refined_top_level_measurement(&compiled, &ctx).await?;
-            assert_no_fixed_subplot_main_axis_overlap(&measurement);
+            assert_no_fixed_leaf_plot_area_main_axis_overlap(&measurement);
             Ok(())
         });
     }
@@ -6042,7 +6052,7 @@ mod tests {
     fn fixed_level2_right_legends_within_canvas() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
-            let compiled = compile_three_level_col_legend_sharing_plot_fixed_subplot(
+            let compiled = compile_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(
                 &ctx,
                 LegendPosition::Right,
             )
@@ -6058,36 +6068,36 @@ mod tests {
     fn fixed_retarget_trace_recomputes_positions_after_remeasure() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
-            let compiled = compile_three_level_col_legend_sharing_plot_fixed_subplot(
+            let compiled = compile_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(
                 &ctx,
                 LegendPosition::Right,
             )
             .await?;
             let (_, _, measurement) =
                 prepare_refined_top_level_measurement(&compiled, &ctx).await?;
-            assert_fixed_positions_match_recomputed(&measurement);
+            assert_plot_area_sized_positions_match_recomputed(&measurement);
             Ok(())
         });
     }
 
     #[test]
-    fn fixed_subplot_mode_realizes_plot_area_from_computed_placement() {
+    fn fixed_leaf_plot_area_mode_realizes_plot_area_from_computed_placement() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
-            let compiled = compile_three_level_col_legend_sharing_plot_fixed_subplot(
+            let compiled = compile_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(
                 &ctx,
                 LegendPosition::Right,
             )
             .await?;
             let (_, _, measurement) =
                 prepare_refined_top_level_measurement(&compiled, &ctx).await?;
-            assert_fixed_facet_plot_area_matches_placement(&measurement);
+            assert_plot_area_sized_facet_plot_area_matches_placement(&measurement);
             Ok(())
         });
     }
 
     #[test]
-    fn fixed_subplot_mode_preserves_empty_nested_slot_extent() {
+    fn fixed_leaf_plot_area_mode_preserves_empty_nested_slot_extent() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
             let compiled = compile_sparse_fixed_column_hole_plot(&ctx).await?;
@@ -6095,32 +6105,33 @@ mod tests {
                 prepare_refined_top_level_measurement(&compiled, &ctx).await?;
 
             let mut empty_slot_sizes = Vec::new();
-            collect_empty_fixed_facet_plot_areas(&measurement, &mut empty_slot_sizes);
+            collect_empty_plot_area_sized_facet_plot_areas(&measurement, &mut empty_slot_sizes);
             assert!(
                 !empty_slot_sizes.is_empty(),
-                "test fixture should contain empty fixed facet slots"
+                "test fixture should contain empty plot-area-sized facet slots"
             );
             for (width, height) in empty_slot_sizes {
                 assert!(
                     (width - 80.0).abs() <= 0.01,
-                    "empty fixed facet slot width should preserve the incoming leaf plot area: {width}"
+                    "empty plot-area-sized facet slot width should preserve the incoming leaf plot area: {width}"
                 );
                 assert!(
                     (height - 60.0).abs() <= 0.01,
-                    "empty fixed facet slot height should preserve the incoming leaf plot area: {height}"
+                    "empty plot-area-sized facet slot height should preserve the incoming leaf plot area: {height}"
                 );
             }
-            assert_fixed_facet_plot_area_matches_placement(&measurement);
+            assert_plot_area_sized_facet_plot_area_matches_placement(&measurement);
             Ok(())
         });
     }
 
     #[test]
-    fn fixed_subplot_mode_continuous_legend_is_visible_with_uniform_leaf_sizes() {
+    fn fixed_leaf_plot_area_mode_continuous_legend_is_visible_with_uniform_leaf_sizes() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
             let compiled =
-                compile_nested_col_row_col_continuous_legend_plot_fixed_subplot(&ctx).await?;
+                compile_nested_col_row_col_continuous_legend_plot_fixed_leaf_plot_area(&ctx)
+                    .await?;
             let (_, _, measurement) =
                 prepare_refined_top_level_measurement(&compiled, &ctx).await?;
 

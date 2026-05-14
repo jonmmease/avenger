@@ -6,7 +6,7 @@ use crate::{
     coords::FacetAxis,
     error::AvengerChartError,
     facet::{
-        coord::FacetBandCoordMeasurementFixed,
+        coord::FacetBandCoordMeasurementPlotAreaSized,
         empty_cell_policy::FacetEmptyCellPolicy,
         ownership_policy::{
             cell_requires_invalid_path_axis_fallback_hidden, has_holes_from_cells,
@@ -19,7 +19,7 @@ use crate::{
 
 use super::{FacetBandRenderOps, facet_cell_main_axis_start_offset, facet_subplot_eval_ctx};
 
-pub(super) async fn render_facet_band_fixed_subplot(
+pub(super) async fn render_facet_band_plot_area_sized(
     ops: FacetBandRenderOps,
     compiled_subplot: &Arc<CompiledPlot>,
     facet_empty_cell_policy: FacetEmptyCellPolicy,
@@ -28,10 +28,10 @@ pub(super) async fn render_facet_band_fixed_subplot(
     let facet_measurement = context
         .coord_measurement()
         .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementFixed>()
+        .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
         .ok_or_else(|| {
             AvengerChartError::InternalError(
-                "Expected FacetBandCoordMeasurementFixed in coord_measurement".into(),
+                "Expected FacetBandCoordMeasurementPlotAreaSized in coord_measurement".into(),
             )
         })?;
 
@@ -39,10 +39,12 @@ pub(super) async fn render_facet_band_fixed_subplot(
         return Ok(Vec::new());
     }
 
-    let cell_positions = &facet_measurement.fixed_placement.main_axis_positions;
+    let cell_positions = &facet_measurement
+        .plot_area_sized_placement
+        .main_axis_positions;
     if cell_positions.len() != facet_measurement.cells.len() {
         return Err(AvengerChartError::InternalError(format!(
-            "Facet fixed render position count mismatch: positions={}, cells={}",
+            "Facet plot-area-sized render position count mismatch: positions={}, cells={}",
             cell_positions.len(),
             facet_measurement.cells.len()
         )));

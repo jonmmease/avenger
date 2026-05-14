@@ -27,8 +27,8 @@ use tracing::trace;
 
 #[path = "facet_canvas_fit.rs"]
 mod facet_canvas_fit;
-#[path = "facet_fixed_subplot.rs"]
-mod facet_fixed_subplot;
+#[path = "facet_plot_area_sized.rs"]
+mod facet_plot_area_sized;
 
 fn facet_cell_main_axis_start_offset(
     facet_measurement: &crate::facet::coord::FacetBandCoordMeasurement,
@@ -154,8 +154,8 @@ async fn render_facet_band_common(
             )
             .await
         }
-        FacetRuntimeSizingMode::FixedSubplot { .. } => {
-            facet_fixed_subplot::render_facet_band_fixed_subplot(
+        FacetRuntimeSizingMode::FixedLeafPlotArea { .. } => {
+            facet_plot_area_sized::render_facet_band_plot_area_sized(
                 ops,
                 compiled_subplot,
                 facet_empty_cell_policy,

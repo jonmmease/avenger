@@ -18,7 +18,7 @@ use crate::{
     facet::{
         band_positions::{BandPosition, BandPositionIterator},
         coord::{
-            FacetBandCoordMeasurementFixed, FacetBandProbeMeasurement, FacetCellRuntime,
+            FacetBandCoordMeasurementPlotAreaSized, FacetBandProbeMeasurement, FacetCellRuntime,
             facet_band_ref as facet_band_from_coord,
         },
         guide_utils::{
@@ -861,14 +861,14 @@ fn band_positions_and_labels<O: FacetGuideAxisOps>(
     scales: &HashMap<String, ConfiguredScale>,
     coord_measurement: Option<&dyn CoordMeasurement>,
 ) -> Result<(Vec<BandPosition>, Vec<String>), AvengerChartError> {
-    if let Some(fixed_positions) =
-        coord_measurement.and_then(fixed_band_positions_for_measurement::<O>)
+    if let Some(plot_area_sized_positions) =
+        coord_measurement.and_then(plot_area_sized_band_positions_for_measurement::<O>)
     {
-        let labels = fixed_positions
+        let labels = plot_area_sized_positions
             .iter()
             .map(|position| format_scalar_value(&position.value))
             .collect();
-        return Ok((fixed_positions, labels));
+        return Ok((plot_area_sized_positions, labels));
     }
 
     let band_scale = scales
@@ -882,25 +882,25 @@ fn band_positions_and_labels<O: FacetGuideAxisOps>(
     Ok((band_positions, labels))
 }
 
-fn fixed_band_positions_for_measurement<O: FacetGuideAxisOps>(
+fn plot_area_sized_band_positions_for_measurement<O: FacetGuideAxisOps>(
     measurement: &dyn CoordMeasurement,
 ) -> Option<Vec<BandPosition>> {
-    let fixed = measurement
+    let plot_area_sized = measurement
         .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementFixed>()?;
-    if fixed.axis.scale_name() != O::scale_key() {
+        .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()?;
+    if plot_area_sized.axis.scale_name() != O::scale_key() {
         return None;
     }
 
     Some(
-        fixed
-            .fixed_placement
+        plot_area_sized
+            .plot_area_sized_placement
             .main_axis_positions
             .iter()
             .copied()
-            .zip(fixed.cells.iter())
+            .zip(plot_area_sized.cells.iter())
             .map(|(position, cell)| {
-                let bandwidth = match fixed.axis {
+                let bandwidth = match plot_area_sized.axis {
                     FacetAxis::Column => cell.measurement.plot_area_width,
                     FacetAxis::Row => cell.measurement.plot_area_height,
                 }
@@ -1098,10 +1098,10 @@ fn column_band_positions_for_measurement(
     measurement: &ComponentsMeasurement,
 ) -> Option<Vec<BandPosition>> {
     let child_coord = measurement.coord_measurement.as_ref();
-    if let Some(fixed_positions) =
-        fixed_band_positions_for_measurement::<ColGuideAxisOps>(child_coord)
+    if let Some(plot_area_sized_positions) =
+        plot_area_sized_band_positions_for_measurement::<ColGuideAxisOps>(child_coord)
     {
-        return Some(fixed_positions);
+        return Some(plot_area_sized_positions);
     }
 
     let child_facet = facet_band_from_coord(child_coord)?;

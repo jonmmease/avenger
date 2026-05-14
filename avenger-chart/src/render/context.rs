@@ -32,7 +32,7 @@ pub const AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM: &str = "__avenger_axis_owner_igno
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FacetRuntimeSizingMode {
     CanvasFit,
-    FixedSubplot {
+    FixedLeafPlotArea {
         leaf_plot_width: f32,
         leaf_plot_height: f32,
     },
@@ -67,7 +67,7 @@ pub struct EvaluationContext {
     pub hide_invalid_facet_path_axes: bool,
     /// Shared cache of facet scale precompute artifacts for the current evaluation run.
     pub(crate) facet_scale_precompute_store: Arc<FacetScalePrecomputeStore>,
-    /// Internal facet runtime sizing mode used to dispatch canvas-fit vs fixed-subplot paths.
+    /// Internal facet runtime sizing mode used to dispatch canvas-fit vs fixed leaf plot-area paths.
     pub(crate) facet_runtime_sizing_mode: FacetRuntimeSizingMode,
     /// Effective debug overlay toggle for layout bounds.
     pub(crate) debug_layout_lines: bool,
