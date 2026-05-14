@@ -27,6 +27,7 @@ pub mod marks;
 pub(crate) mod ownership_policy;
 pub mod padding_policy;
 pub mod path_math;
+pub(crate) mod placement;
 pub(crate) mod probe_summary;
 pub mod scalar_cmp;
 pub(crate) mod scale_precompute;

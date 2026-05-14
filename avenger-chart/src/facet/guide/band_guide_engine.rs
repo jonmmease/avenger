@@ -18,8 +18,7 @@ use crate::{
     facet::{
         band_positions::{BandPosition, BandPositionIterator},
         coord::{
-            FacetBandCoordMeasurementPlotAreaSized, FacetBandProbeMeasurement, FacetCellRuntime,
-            facet_band_ref as facet_band_from_coord,
+            FacetBandProbeMeasurement, FacetCellRuntime, facet_band_ref as facet_band_from_coord,
         },
         guide_utils::{
             FacetLabelMeasurementConfig, FacetLabelRenderConfig,
@@ -27,6 +26,9 @@ use crate::{
             format_scalar_value, measure_facet_label_slab, render_facet_label_slab,
         },
         layout_plan::effective_edge_indices_for_values_at_path,
+        placement::{
+            resolve_facet_band_placement, resolve_facet_band_placement_from_configured_scales,
+        },
         sharing_level::SharingLevel,
     },
     layout::LayoutBounds,
@@ -861,14 +863,19 @@ fn band_positions_and_labels<O: FacetGuideAxisOps>(
     scales: &HashMap<String, ConfiguredScale>,
     coord_measurement: Option<&dyn CoordMeasurement>,
 ) -> Result<(Vec<BandPosition>, Vec<String>), AvengerChartError> {
-    if let Some(plot_area_sized_positions) =
-        coord_measurement.and_then(plot_area_sized_band_positions_for_measurement::<O>)
+    if let Some(coord_measurement) = coord_measurement
+        && let Some(facet_measurement) = facet_band_from_coord(coord_measurement)
+        && !facet_measurement.cells.is_empty()
+        && facet_measurement.axis.scale_name() == O::scale_key()
+        && let Some(placement) =
+            resolve_facet_band_placement_from_configured_scales(coord_measurement, scales)?
     {
-        let labels = plot_area_sized_positions
+        let band_positions = placement.band_positions(&facet_measurement.cells)?;
+        let labels = band_positions
             .iter()
             .map(|position| format_scalar_value(&position.value))
             .collect();
-        return Ok((plot_area_sized_positions, labels));
+        return Ok((band_positions, labels));
     }
 
     let band_scale = scales
@@ -880,35 +887,6 @@ fn band_positions_and_labels<O: FacetGuideAxisOps>(
     let labels = labels_from_values_or_band_positions(coord_values, &band_positions);
 
     Ok((band_positions, labels))
-}
-
-fn plot_area_sized_band_positions_for_measurement<O: FacetGuideAxisOps>(
-    measurement: &dyn CoordMeasurement,
-) -> Option<Vec<BandPosition>> {
-    let plot_area_sized = measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()?;
-    if plot_area_sized.axis.scale_name() != O::scale_key() {
-        return None;
-    }
-
-    Some(
-        plot_area_sized
-            .plot_area_sized_placement
-            .main_axis_positions
-            .iter()
-            .copied()
-            .zip(plot_area_sized.cells.iter())
-            .map(|(position, cell)| {
-                let bandwidth = match plot_area_sized.axis {
-                    FacetAxis::Column => cell.measurement.plot_area_width,
-                    FacetAxis::Row => cell.measurement.plot_area_height,
-                }
-                .max(0.0);
-                BandPosition::new(cell.plan.value.clone(), position, bandwidth)
-            })
-            .collect(),
-    )
 }
 
 fn facet_measurement_values(measurement: &dyn CoordMeasurement) -> Option<Vec<ScalarValue>> {
@@ -1098,15 +1076,15 @@ fn column_band_positions_for_measurement(
     measurement: &ComponentsMeasurement,
 ) -> Option<Vec<BandPosition>> {
     let child_coord = measurement.coord_measurement.as_ref();
-    if let Some(plot_area_sized_positions) =
-        plot_area_sized_band_positions_for_measurement::<ColGuideAxisOps>(child_coord)
-    {
-        return Some(plot_area_sized_positions);
-    }
-
     let child_facet = facet_band_from_coord(child_coord)?;
     if child_facet.axis != FacetAxis::Column {
         return None;
+    }
+
+    if !child_facet.cells.is_empty()
+        && let Some(placement) = resolve_facet_band_placement(measurement).ok().flatten()
+    {
+        return placement.band_positions(&child_facet.cells).ok();
     }
 
     let child_col_scale = measurement.scales.get("column")?;

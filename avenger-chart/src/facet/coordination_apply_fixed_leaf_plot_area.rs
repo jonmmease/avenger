@@ -89,7 +89,7 @@ pub(crate) fn apply_initial_requirement_pass_plot_area_sized(
                 .cloned()
             {
                 facet_band.set_coordinated_overflow_value(overflow);
-                facet_band.recompute_plot_area_sized_placement();
+                facet_band.recompute_explicit_placement();
             }
             if let Some(layout) = initial_requirement_pass
                 .distribution
@@ -98,7 +98,7 @@ pub(crate) fn apply_initial_requirement_pass_plot_area_sized(
                 .cloned()
             {
                 facet_band.set_coordinated_layout_value(layout);
-                facet_band.recompute_plot_area_sized_placement();
+                facet_band.recompute_explicit_placement();
             }
             if initial_requirement_pass
                 .distribution
@@ -134,7 +134,7 @@ pub(crate) fn apply_retargeted_requirement_pass_plot_area_sized(
                 .cloned()
             {
                 facet_band.set_coordinated_overflow_value(overflow);
-                facet_band.recompute_plot_area_sized_placement();
+                facet_band.recompute_explicit_placement();
             }
             if let Some(layout) = retargeted_requirement_pass
                 .distribution
@@ -143,7 +143,7 @@ pub(crate) fn apply_retargeted_requirement_pass_plot_area_sized(
                 .cloned()
             {
                 facet_band.set_coordinated_layout_value(layout);
-                facet_band.recompute_plot_area_sized_placement();
+                facet_band.recompute_explicit_placement();
             }
         },
     );
@@ -251,7 +251,7 @@ fn run_retarget_recursive<'a>(
             let outcome = facet_band
                 .apply_coordinated_overflow_with_plan(eval_ctx, &execution_plan)
                 .await?;
-            facet_band.recompute_plot_area_sized_placement();
+            facet_band.recompute_explicit_placement();
             let parent_cross_size = facet_band.coordinated_subplot_cross_size();
             let parent_axis = facet_band.axis;
             let mut parent_cross_size_propagated = false;
@@ -579,7 +579,7 @@ fn run_final_propagation_recursive(
         }
 
         facet_band.apply_coordinated_alignment_slabs_to_child_layouts();
-        facet_band.recompute_plot_area_sized_placement();
+        facet_band.recompute_explicit_placement();
 
         node_results.push(FinalPropagationNodeTrace {
             node_id,

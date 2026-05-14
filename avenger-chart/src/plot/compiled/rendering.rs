@@ -2106,7 +2106,7 @@ impl CompiledPlot {
                 .await?;
             }
             facet_band.recompute_measured_overflow();
-            facet_band.recompute_plot_area_sized_placement();
+            facet_band.recompute_explicit_placement();
         }
 
         if !is_facet_band {
@@ -2418,7 +2418,7 @@ impl CompiledPlot {
                     .await?;
                 }
 
-                facet_band.recompute_plot_area_sized_placement();
+                facet_band.recompute_explicit_placement();
                 Some(facet_band.plot_area_sized_extent())
             } else {
                 facet_band.preserve_empty_slot_plot_area(
@@ -3793,7 +3793,7 @@ impl CompiledPlot {
 mod tests {
     use super::*;
     use crate::{
-        coords::{CoordinatedOverflow, FacetAxis},
+        coords::CoordinatedOverflow,
         facet::{
             band_positions::BandPositionIterator,
             coord::{FacetBandCoordMeasurement, facet_band_ref as facet_band_ref_from_coord},
@@ -4952,24 +4952,20 @@ mod tests {
             .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>(
         ) {
             let facet_band = &facet_band_plot_area_sized.base;
-            let positions = &facet_band_plot_area_sized
-                .plot_area_sized_placement
-                .main_axis_positions;
-            for (idx, window) in positions.windows(2).enumerate() {
-                let current_start = window[0];
-                let next_start = window[1];
-                let current_span = match facet_band.axis {
-                    FacetAxis::Column => facet_band.cells[idx].measurement.plot_area_width,
-                    FacetAxis::Row => facet_band.cells[idx].measurement.plot_area_height,
-                };
+            let placement = facet_band_plot_area_sized
+                .resolved_placement()
+                .expect("plot-area-sized facet placement should resolve");
+            for window in placement.cells.windows(2) {
+                let current = &window[0];
+                let next = &window[1];
                 assert!(
-                    next_start + 0.01 >= current_start + current_span,
+                    next.main_axis_start + 0.01 >= current.main_axis_start + current.main_axis_size,
                     "fixed leaf plot-area main-axis overlap at axis {:?}, cell_index {}, current_start={}, current_span={}, next_start={}",
                     facet_band.axis,
-                    idx,
-                    current_start,
-                    current_span,
-                    next_start
+                    current.cell_index,
+                    current.main_axis_start,
+                    current.main_axis_size,
+                    next.main_axis_start
                 );
             }
 
@@ -5046,26 +5042,21 @@ mod tests {
                 .coordinated_layout
                 .as_ref()
                 .unwrap_or(&plot_area_sized_facet.local_layout);
-            let expected = crate::facet::coord::compute_plot_area_sized_main_axis_positions(
+            let expected = crate::facet::placement::compute_explicit_main_axis_positions(
                 plot_area_sized_facet.axis,
                 &plot_area_sized_facet.cells,
                 layout,
             );
+            let resolved = plot_area_sized_facet
+                .resolved_placement()
+                .expect("plot-area-sized facet placement should resolve");
+            let actual = resolved.main_axis_starts().collect::<Vec<_>>();
             assert_eq!(
-                plot_area_sized_facet
-                    .plot_area_sized_placement
-                    .main_axis_positions
-                    .len(),
+                actual.len(),
                 expected.len(),
                 "plot-area-sized facet position count mismatch when validating recomputed positions"
             );
-            for (idx, (actual, expected)) in plot_area_sized_facet
-                .plot_area_sized_placement
-                .main_axis_positions
-                .iter()
-                .zip(expected.iter())
-                .enumerate()
-            {
+            for (idx, (actual, expected)) in actual.iter().zip(expected.iter()).enumerate() {
                 assert!(
                     (actual - expected).abs() <= 0.01,
                     "plot-area-sized position mismatch at index {idx}: actual={actual}, expected={expected}"
@@ -5074,6 +5065,36 @@ mod tests {
 
             for child in plot_area_sized_facet.child_measurements_iter() {
                 assert_plot_area_sized_positions_match_recomputed(child);
+            }
+        }
+    }
+
+    fn assert_plot_area_sized_resolved_placement_count_and_order(
+        measurement: &ComponentsMeasurement,
+    ) {
+        if let Some(plot_area_sized_facet) =
+            measurement
+                .coord_measurement
+                .as_any()
+                .downcast_ref::<crate::facet::coord::FacetBandCoordMeasurementPlotAreaSized>()
+        {
+            let resolved = plot_area_sized_facet
+                .resolved_placement()
+                .expect("plot-area-sized facet placement should resolve");
+            assert_eq!(
+                resolved.cell_count(),
+                plot_area_sized_facet.cells.len(),
+                "resolved plot-area-sized placement count should match facet cell count"
+            );
+            for (idx, cell_placement) in resolved.cells.iter().enumerate() {
+                assert_eq!(
+                    cell_placement.cell_index, idx,
+                    "resolved plot-area-sized placement should preserve cell ordering"
+                );
+            }
+
+            for child in plot_area_sized_facet.child_measurements_iter() {
+                assert_plot_area_sized_resolved_placement_count_and_order(child);
             }
         }
     }
@@ -6121,6 +6142,7 @@ mod tests {
                 );
             }
             assert_plot_area_sized_facet_plot_area_matches_placement(&measurement);
+            assert_plot_area_sized_resolved_placement_count_and_order(&measurement);
             Ok(())
         });
     }

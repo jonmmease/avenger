@@ -45,6 +45,9 @@ use crate::{
         marks::facet::{FacetMarkRef, facet_mark_ref},
         ownership_policy::{has_holes_from_cells, resolve_facet_ownership_policy},
         padding_policy, path_math,
+        placement::{
+            FacetBandExplicitPlacement, FacetBandPlacement, compute_explicit_facet_band_placement,
+        },
         probe_summary::FacetCellProbeSummary,
         scale_precompute::{
             FacetScaleNodeArtifacts, FacetScaleNodeKey, build_node_artifacts, canonicalize_path,
@@ -165,20 +168,7 @@ pub type FacetBandCoordMeasurementCanvasFit = FacetBandCoordMeasurement;
 pub struct FacetBandCoordMeasurementPlotAreaSized {
     pub(crate) base: FacetBandCoordMeasurement,
     /// Explicit placement and extent used by fixed leaf plot-area rendering.
-    pub(crate) plot_area_sized_placement: FacetBandPlotAreaSizedPlacement,
-}
-
-/// Explicit placement for a plot-area-sized facet band.
-///
-/// Canvas-fit facets use a band scale as the authoritative placement model.
-/// Plot-area-sized facets instead compute child positions and the parent facet
-/// extent directly from locked leaf plot areas, coordinated gaps, and child
-/// subtree extents.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct FacetBandPlotAreaSizedPlacement {
-    pub(crate) main_axis_positions: Vec<f32>,
-    pub(crate) main_axis_size: f32,
-    pub(crate) cross_axis_size: f32,
+    pub(crate) explicit_placement: FacetBandExplicitPlacement,
 }
 
 impl Deref for FacetBandCoordMeasurementPlotAreaSized {
@@ -196,20 +186,20 @@ impl DerefMut for FacetBandCoordMeasurementPlotAreaSized {
 }
 
 impl FacetBandCoordMeasurementPlotAreaSized {
-    pub(crate) fn recompute_plot_area_sized_placement(&mut self) {
+    pub(crate) fn recompute_explicit_placement(&mut self) {
         let active_layout = self
             .coordinated_layout
             .as_ref()
             .unwrap_or(&self.local_layout);
         let mut placement =
-            compute_plot_area_sized_facet_placement(self.axis, &self.cells, active_layout);
+            compute_explicit_facet_band_placement(self.axis, &self.cells, active_layout);
         let slabs = LayoutSlabs::from_coordinated(&self.coordinated_overflow);
         let cross_axis_start_offset = match self.axis {
             FacetAxis::Column => slabs.legend.top,
             FacetAxis::Row => slabs.legend.left,
         };
         placement.cross_axis_size += cross_axis_start_offset.max(0.0);
-        self.plot_area_sized_placement = placement;
+        self.explicit_placement = placement;
     }
 
     pub(crate) fn preserve_empty_slot_plot_area(&mut self, plot_width: f32, plot_height: f32) {
@@ -221,7 +211,7 @@ impl FacetBandCoordMeasurementPlotAreaSized {
             FacetAxis::Column => (plot_width, plot_height),
             FacetAxis::Row => (plot_height, plot_width),
         };
-        self.plot_area_sized_placement = FacetBandPlotAreaSizedPlacement {
+        self.explicit_placement = FacetBandExplicitPlacement {
             main_axis_positions: Vec::new(),
             main_axis_size: main_axis_size.max(0.0),
             cross_axis_size: cross_axis_size.max(0.0),
@@ -231,14 +221,18 @@ impl FacetBandCoordMeasurementPlotAreaSized {
     pub(crate) fn plot_area_sized_extent(&self) -> (f32, f32) {
         match self.axis {
             FacetAxis::Column => (
-                self.plot_area_sized_placement.main_axis_size,
-                self.plot_area_sized_placement.cross_axis_size,
+                self.explicit_placement.main_axis_size,
+                self.explicit_placement.cross_axis_size,
             ),
             FacetAxis::Row => (
-                self.plot_area_sized_placement.cross_axis_size,
-                self.plot_area_sized_placement.main_axis_size,
+                self.explicit_placement.cross_axis_size,
+                self.explicit_placement.main_axis_size,
             ),
         }
+    }
+
+    pub(crate) fn resolved_placement(&self) -> Result<FacetBandPlacement, AvengerChartError> {
+        FacetBandPlacement::from_explicit(self.axis, &self.explicit_placement, &self.cells)
     }
 }
 
@@ -2078,274 +2072,6 @@ fn renderable_mask_for_cells(cells: &[FacetCellDraft], policy: FacetEmptyCellPol
         .collect()
 }
 
-/// Returns the main-axis extent of a cell for fixed leaf plot-area positioning.
-///
-/// For leaf cells, this is simply `plot_area_width` (or height for rows).
-/// For intermediate cells (containing a fixed leaf plot-area facet band), the
-/// stored explicit placement carries the actual subtree extent, including
-/// inter-cell gaps and trailing outer padding.
-fn cell_main_plot_size(axis: FacetAxis, measurement: &ComponentsMeasurement) -> f32 {
-    if let Some(facet_band) = measurement
-        .coord_measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
-    {
-        if facet_band.cells.is_empty() {
-            return match axis {
-                FacetAxis::Column => measurement.plot_area_width,
-                FacetAxis::Row => measurement.plot_area_height,
-            }
-            .max(0.0);
-        }
-
-        let (plot_width, plot_height) = facet_band.plot_area_sized_extent();
-        return match axis {
-            FacetAxis::Column => plot_width,
-            FacetAxis::Row => plot_height,
-        }
-        .max(0.0);
-    }
-
-    match axis {
-        FacetAxis::Column => measurement.plot_area_width,
-        FacetAxis::Row => measurement.plot_area_height,
-    }
-    .max(0.0)
-}
-
-fn cell_cross_plot_size(axis: FacetAxis, measurement: &ComponentsMeasurement) -> f32 {
-    if let Some(facet_band) = measurement
-        .coord_measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
-    {
-        if facet_band.cells.is_empty() {
-            return match axis {
-                FacetAxis::Column => measurement.plot_area_height,
-                FacetAxis::Row => measurement.plot_area_width,
-            }
-            .max(0.0);
-        }
-
-        let (plot_width, plot_height) = facet_band.plot_area_sized_extent();
-        return match axis {
-            FacetAxis::Column => plot_height,
-            FacetAxis::Row => plot_width,
-        }
-        .max(0.0);
-    }
-
-    match axis {
-        FacetAxis::Column => measurement.plot_area_height,
-        FacetAxis::Row => measurement.plot_area_width,
-    }
-    .max(0.0)
-}
-
-fn cell_main_axis_rendered_boundary_overflow_pair(
-    axis: FacetAxis,
-    measurement: &ComponentsMeasurement,
-) -> (f32, f32) {
-    // Fixed leaf plot-area placement uses per-boundary rendered edge demand to keep
-    // adjacent subplot groups separated. Use the component's rendered layout
-    // overflow, augmented by stable measured subtree boundary overflow, rather
-    // than recursively projected coordinated overflows that can describe global
-    // alignment instead of content at this sibling boundary.
-    const LEGEND_EDGE_BREATHING_ROOM: f32 = 8.0;
-
-    let total = sibling_boundary_total_overflow_for_plot_area_sized_placement(measurement);
-    let guide = &measurement.layout.overflow;
-    let (
-        legend_left_from_bounds,
-        legend_right_from_bounds,
-        legend_top_from_bounds,
-        legend_bottom_from_bounds,
-    ) = legend_bounds_overflow_edges(measurement);
-    let (coord_legend_left, coord_legend_right, coord_legend_top, coord_legend_bottom) =
-        coordinated_legend_overflow_edges(measurement);
-
-    // Prefer whichever legend estimate is larger:
-    // - total-guide delta captures coordinated legend slabs in layout overflow
-    // - legend bounds capture per-cell legend boxes directly from taffy placement
-    let legend_left = (total.left - guide.left)
-        .max(0.0)
-        .max(coord_legend_left)
-        .max(legend_left_from_bounds);
-    let legend_right = (total.right - guide.right)
-        .max(0.0)
-        .max(coord_legend_right)
-        .max(legend_right_from_bounds);
-    let legend_top = (total.top - guide.top)
-        .max(0.0)
-        .max(coord_legend_top)
-        .max(legend_top_from_bounds);
-    let legend_bottom = (total.bottom - guide.bottom)
-        .max(0.0)
-        .max(coord_legend_bottom)
-        .max(legend_bottom_from_bounds);
-
-    match axis {
-        FacetAxis::Column => {
-            let mut left = total.left.max(0.0);
-            let mut right = total.right.max(0.0);
-            if legend_left > 0.0 {
-                left += LEGEND_EDGE_BREATHING_ROOM;
-            }
-            if legend_right > 0.0 {
-                right += LEGEND_EDGE_BREATHING_ROOM;
-            }
-            (left, right)
-        }
-        FacetAxis::Row => {
-            let mut top = total.top.max(0.0);
-            let mut bottom = total.bottom.max(0.0);
-            if legend_top > 0.0 {
-                top += LEGEND_EDGE_BREATHING_ROOM;
-            }
-            if legend_bottom > 0.0 {
-                bottom += LEGEND_EDGE_BREATHING_ROOM;
-            }
-            (top, bottom)
-        }
-    }
-}
-
-fn legend_bounds_overflow_edges(measurement: &ComponentsMeasurement) -> (f32, f32, f32, f32) {
-    let mut left = 0.0f32;
-    let mut right = 0.0f32;
-    let mut top = 0.0f32;
-    let mut bottom = 0.0f32;
-    let plot_width = measurement.plot_area_width;
-    let plot_height = measurement.plot_area_height;
-
-    for bounds in measurement.layout.taffy_layout.legends.values() {
-        left = left.max((-bounds.x).max(0.0));
-        right = right.max((bounds.x + bounds.width - plot_width).max(0.0));
-        top = top.max((-bounds.y).max(0.0));
-        bottom = bottom.max((bounds.y + bounds.height - plot_height).max(0.0));
-    }
-
-    (left, right, top, bottom)
-}
-
-fn coordinated_legend_overflow_edges(measurement: &ComponentsMeasurement) -> (f32, f32, f32, f32) {
-    if let Some(facet_band) = measurement
-        .coord_measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
-    {
-        let total = &facet_band.coordinated_overflow.total;
-        let guide = &facet_band.coordinated_overflow.guide;
-        return (
-            (total.left - guide.left).max(0.0),
-            (total.right - guide.right).max(0.0),
-            (total.top - guide.top).max(0.0),
-            (total.bottom - guide.bottom).max(0.0),
-        );
-    }
-
-    if let Some(facet_band) = measurement
-        .coord_measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementCanvasFit>()
-    {
-        let total = &facet_band.coordinated_overflow.total;
-        let guide = &facet_band.coordinated_overflow.guide;
-        return (
-            (total.left - guide.left).max(0.0),
-            (total.right - guide.right).max(0.0),
-            (total.top - guide.top).max(0.0),
-            (total.bottom - guide.bottom).max(0.0),
-        );
-    }
-
-    (0.0, 0.0, 0.0, 0.0)
-}
-
-fn sibling_boundary_total_overflow_for_plot_area_sized_placement(
-    measurement: &ComponentsMeasurement,
-) -> OverflowSpaceRequirement {
-    let mut total = measurement.layout.total_overflow.clone();
-
-    if let Some(facet_band) = measurement
-        .coord_measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
-    {
-        if let Some(boundary) = facet_band.measured_sibling_boundary_overflow_value() {
-            total = total.max_components(&boundary.total);
-        }
-        return total;
-    }
-
-    if let Some(boundary) = measurement
-        .coord_measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementCanvasFit>()
-        .and_then(|facet_band| facet_band.measured_sibling_boundary_overflow_value())
-    {
-        total = total.max_components(&boundary.total);
-    }
-
-    total
-}
-
-pub(crate) fn compute_plot_area_sized_facet_placement(
-    axis: FacetAxis,
-    cells: &[FacetCellRuntime],
-    layout: &CoordinatedLayout,
-) -> FacetBandPlotAreaSizedPlacement {
-    if cells.is_empty() {
-        return FacetBandPlotAreaSizedPlacement::default();
-    }
-
-    let mut positions = Vec::with_capacity(cells.len());
-    let mut cursor = layout.outer_start.max(0.0);
-    let mut cross_axis_size = 0.0f32;
-    let gap = layout
-        .padding_inner_px
-        .max(padding_policy::MIN_SUBPLOT_MAIN_GAP);
-
-    for (idx, cell) in cells.iter().enumerate() {
-        positions.push(cursor);
-        cross_axis_size = cross_axis_size.max(cell_cross_plot_size(axis, &cell.measurement));
-        let cell_size = cell_main_plot_size(axis, &cell.measurement);
-        cursor += cell_size;
-        if idx + 1 < cells.len() {
-            let (_, after_current) =
-                cell_main_axis_rendered_boundary_overflow_pair(axis, &cell.measurement);
-            let (before_next, _) =
-                cell_main_axis_rendered_boundary_overflow_pair(axis, &cells[idx + 1].measurement);
-            let gap_size = gap.max(after_current + before_next);
-            trace!(
-                axis = ?axis,
-                cell_index = idx,
-                base_gap = gap,
-                after_current,
-                before_next,
-                gap_size,
-                "plot-area-sized facet placement gap"
-            );
-            cursor += gap_size;
-        }
-    }
-
-    FacetBandPlotAreaSizedPlacement {
-        main_axis_positions: positions,
-        main_axis_size: (cursor + layout.outer_end.max(0.0)).max(0.0),
-        cross_axis_size,
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn compute_plot_area_sized_main_axis_positions(
-    axis: FacetAxis,
-    cells: &[FacetCellRuntime],
-    layout: &CoordinatedLayout,
-) -> Vec<f32> {
-    compute_plot_area_sized_facet_placement(axis, cells, layout).main_axis_positions
-}
-
 fn synthesize_subtree_plot_area_from_leaf_size(
     node: &crate::facet::evaluated_facet_tree::PartitionNode,
     leaf_plot_width: f32,
@@ -2424,7 +2150,7 @@ fn empty_facet_band_measurement(
     if plot_area_sized_mode {
         Box::new(FacetBandCoordMeasurementPlotAreaSized {
             base,
-            plot_area_sized_placement: FacetBandPlotAreaSizedPlacement::default(),
+            explicit_placement: FacetBandExplicitPlacement::default(),
         })
     } else {
         Box::new(base)
@@ -4329,9 +4055,9 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         ) {
             let mut plot_area_sized = FacetBandCoordMeasurementPlotAreaSized {
                 base,
-                plot_area_sized_placement: FacetBandPlotAreaSizedPlacement::default(),
+                explicit_placement: FacetBandExplicitPlacement::default(),
             };
-            plot_area_sized.recompute_plot_area_sized_placement();
+            plot_area_sized.recompute_explicit_placement();
             Box::new(plot_area_sized)
         } else {
             Box::new(base)
