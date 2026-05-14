@@ -1,6 +1,18 @@
 //! Facet module for row and column faceting.
 //!
-//! This module provides the infrastructure for faceted visualizations.
+//! Facet layout is split into a few phases:
+//! 1. `evaluated_facet_tree` builds the data-driven facet hierarchy and path metadata.
+//! 2. `coord` measures each facet band locally: cell semantics, estimated subplot
+//!    overflows, local band layout, and child measurements.
+//! 3. `coordination` reconciles requirements across matching facet bands:
+//!    overflows, layout, shared domains, final plot-area sizes, and scale ranges.
+//! 4. `placement` and `marks` turn coordinated measurements into renderable facet
+//!    guide and subplot positions.
+//!
+//! Canvas-fit facets start from an outer canvas and resize subplot plot areas to
+//! fit coordinated overflows. Plot-area-sized facets start from fixed leaf plot
+//! areas; `subtree_plot_area` provides initial subtree-size estimates, and final
+//! extents come from coordinated explicit placement.
 
 pub(crate) mod band_attributes;
 pub mod band_positions;
