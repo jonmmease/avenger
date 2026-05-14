@@ -58,6 +58,7 @@ use crate::{
         },
         sharing_level::SharingLevel,
         sharing_policy,
+        subtree_plot_area::{LeafPlotAreaSize, estimate_path_plot_area_from_leaf_size},
     },
     layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, LayoutBounds},
     legend::LegendPosition,
@@ -225,6 +226,7 @@ impl FacetBandCoordMeasurementPlotAreaSized {
         };
     }
 
+    /// Return the realized explicit-placement extent for this plot-area-sized facet subtree.
     pub(crate) fn plot_area_sized_extent(&self) -> (f32, f32) {
         match self.axis {
             FacetAxis::Column => (
@@ -1861,56 +1863,6 @@ fn renderable_mask_for_cells(cells: &[FacetCellDraft], policy: FacetEmptyCellPol
         .collect()
 }
 
-fn synthesize_subtree_plot_area_from_leaf_size(
-    node: &crate::facet::evaluated_facet_tree::PartitionNode,
-    leaf_plot_width: f32,
-    leaf_plot_height: f32,
-) -> (f32, f32) {
-    match &node.content {
-        crate::facet::evaluated_facet_tree::PartitionContent::Leaf { values } => {
-            let count = values.len().max(1) as f32;
-            match node.direction {
-                crate::guide::FacetDirection::Column => (leaf_plot_width * count, leaf_plot_height),
-                crate::guide::FacetDirection::Row => (leaf_plot_width, leaf_plot_height * count),
-            }
-        }
-        crate::facet::evaluated_facet_tree::PartitionContent::Branch { children } => {
-            let mut child_sizes = children.values().map(|child| {
-                synthesize_subtree_plot_area_from_leaf_size(
-                    child.as_ref(),
-                    leaf_plot_width,
-                    leaf_plot_height,
-                )
-            });
-
-            let Some((first_w, first_h)) = child_sizes.next() else {
-                return (leaf_plot_width, leaf_plot_height);
-            };
-
-            match node.direction {
-                crate::guide::FacetDirection::Column => {
-                    let mut total_w = first_w;
-                    let mut max_h = first_h;
-                    for (w, h) in child_sizes {
-                        total_w += w;
-                        max_h = max_h.max(h);
-                    }
-                    (total_w, max_h)
-                }
-                crate::guide::FacetDirection::Row => {
-                    let mut max_w = first_w;
-                    let mut total_h = first_h;
-                    for (w, h) in child_sizes {
-                        max_w = max_w.max(w);
-                        total_h += h;
-                    }
-                    (max_w, total_h)
-                }
-            }
-        }
-    }
-}
-
 fn empty_facet_band_measurement(
     axis: FacetAxis,
     facet_path: &[ScalarValue],
@@ -3029,13 +2981,6 @@ impl FacetAxisOps {
             FacetAxis::Row => (plot_other_axis, subplot_band_size),
         }
     }
-
-    fn main_size(self, plot_width: f32, plot_height: f32) -> f32 {
-        match self.axis {
-            FacetAxis::Column => plot_width,
-            FacetAxis::Row => plot_height,
-        }
-    }
 }
 
 pub(crate) struct FacetBandMeasurePipeline<'a> {
@@ -3478,12 +3423,12 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         cell_path: &[ScalarValue],
         leaf_plot_width: f32,
         leaf_plot_height: f32,
-    ) -> (f32, f32) {
-        if let Some(node) = self.eval_ctx.facet_tree.node_at_path(cell_path) {
-            synthesize_subtree_plot_area_from_leaf_size(node, leaf_plot_width, leaf_plot_height)
-        } else {
-            (leaf_plot_width, leaf_plot_height)
-        }
+    ) -> crate::facet::subtree_plot_area::PlotAreaSize {
+        estimate_path_plot_area_from_leaf_size(
+            &self.eval_ctx.facet_tree,
+            cell_path,
+            LeafPlotAreaSize::new(leaf_plot_width, leaf_plot_height),
+        )
     }
 
     fn resolve_subplot_band_size(
@@ -3501,13 +3446,12 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 for value in cell_values {
                     let mut cell_path = self.facet_path.to_vec();
                     cell_path.push(value.clone());
-                    let (plot_width, plot_height) = self.fixed_subtree_plot_area_for_cell_path(
+                    let plot_area_size = self.fixed_subtree_plot_area_for_cell_path(
                         &cell_path,
                         leaf_plot_width,
                         leaf_plot_height,
                     );
-                    max_main_size =
-                        max_main_size.max(self.axis_ops.main_size(plot_width, plot_height));
+                    max_main_size = max_main_size.max(plot_area_size.main_size(self.axis_ops.axis));
                 }
                 if max_main_size > 0.0 {
                     max_main_size

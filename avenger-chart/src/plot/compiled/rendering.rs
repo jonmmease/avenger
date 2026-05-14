@@ -51,9 +51,10 @@ use crate::{
         },
         debug as facet_debug,
         empty_cell_policy::FacetEmptyCellPolicy,
-        evaluated_facet_tree::{EvaluatedFacetTree, PartitionContent, PartitionNode},
+        evaluated_facet_tree::EvaluatedFacetTree,
         layout_plan::FacetCellEmptyKind,
         marks::facet::{FacetMarkRef, facet_mark_ref},
+        subtree_plot_area::{LeafPlotAreaSize, estimate_root_plot_area_from_leaf_size},
     },
     guide::OverflowSpaceRequirement,
     layout::{
@@ -450,74 +451,16 @@ impl CompiledPlot {
         Ok(FacetSizingStrategy::CanvasFit)
     }
 
-    fn synthesize_subtree_plot_area_from_leaf_size(
-        node: &PartitionNode,
-        leaf_plot_width: f32,
-        leaf_plot_height: f32,
-    ) -> (f32, f32) {
-        match &node.content {
-            PartitionContent::Leaf { values } => {
-                let count = values.len().max(1) as f32;
-                match node.direction {
-                    crate::guide::FacetDirection::Column => {
-                        (leaf_plot_width * count, leaf_plot_height)
-                    }
-                    crate::guide::FacetDirection::Row => {
-                        (leaf_plot_width, leaf_plot_height * count)
-                    }
-                }
-            }
-            PartitionContent::Branch { children } => {
-                let mut child_sizes = children.values().map(|child| {
-                    Self::synthesize_subtree_plot_area_from_leaf_size(
-                        child.as_ref(),
-                        leaf_plot_width,
-                        leaf_plot_height,
-                    )
-                });
-
-                let Some((first_w, first_h)) = child_sizes.next() else {
-                    return (leaf_plot_width, leaf_plot_height);
-                };
-
-                match node.direction {
-                    crate::guide::FacetDirection::Column => {
-                        let mut total_w = first_w;
-                        let mut max_h = first_h;
-                        for (w, h) in child_sizes {
-                            total_w += w;
-                            max_h = max_h.max(h);
-                        }
-                        (total_w, max_h)
-                    }
-                    crate::guide::FacetDirection::Row => {
-                        let mut max_w = first_w;
-                        let mut total_h = first_h;
-                        for (w, h) in child_sizes {
-                            max_w = max_w.max(w);
-                            total_h += h;
-                        }
-                        (max_w, total_h)
-                    }
-                }
-            }
-        }
-    }
-
     fn derive_fixed_leaf_subtree_plot_area(
         facet_tree: &EvaluatedFacetTree,
         leaf_plot_width: f32,
         leaf_plot_height: f32,
     ) -> (f32, f32) {
-        if let Some(root) = facet_tree.root() {
-            Self::synthesize_subtree_plot_area_from_leaf_size(
-                root,
-                leaf_plot_width,
-                leaf_plot_height,
-            )
-        } else {
-            (leaf_plot_width.max(1.0), leaf_plot_height.max(1.0))
-        }
+        estimate_root_plot_area_from_leaf_size(
+            facet_tree,
+            LeafPlotAreaSize::new(leaf_plot_width, leaf_plot_height),
+        )
+        .dimensions()
     }
 
     fn layout_spec_for_facet_sizing_strategy(
@@ -2419,6 +2362,8 @@ impl CompiledPlot {
                 }
 
                 facet_band.recompute_explicit_placement();
+                // Final fixed plot-area extent comes from realized child measurements
+                // and coordinated explicit placement, not from the initial leaf-size estimate.
                 Some(facet_band.plot_area_sized_extent())
             } else {
                 facet_band.preserve_empty_slot_plot_area(
