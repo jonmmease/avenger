@@ -535,7 +535,7 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Set fixed plot area dimensions (data-first mode).
     ///
     /// For non-facet charts, this fixes the top-level plot area.
-    /// For top-level faceted charts, this selects fixed leaf plot-area sizing where
+    /// For top-level faceted charts, this selects plot-area-sized sizing where
     /// `width`/`height` are interpreted as per-leaf-subplot plot-area dimensions and
     /// the root canvas grows to fit the facet tree.
     ///

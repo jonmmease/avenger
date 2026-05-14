@@ -199,10 +199,10 @@ where
         strategy = S::LABEL,
         parent_cross_propagations,
         cross_size_changes,
-        remeasured_nodes = retarget_trace
+        cell_retarget_nodes = retarget_trace
             .node_results
             .iter()
-            .filter(|result| result.remeasure_triggered)
+            .filter(|result| result.cell_retarget_applied)
             .count(),
         "coordinate_facet_measurement_tree retarget complete"
     );
@@ -224,7 +224,7 @@ where
             .aggregates
             .merged_layout_by_key
             .len(),
-        "coordinate_facet_measurement_tree retargeted requirements post-remeasure reconciliation"
+        "coordinate_facet_measurement_tree retargeted requirements post-retarget reconciliation"
     );
     apply_retargeted_requirement_pass_with_strategy::<S>(measurement, &retargeted_requirement_pass);
     debug!(
@@ -602,8 +602,8 @@ pub(crate) fn debug_assert_retarget_trace_alignment(plan: &RetargetPlan, trace: 
             planned.has_coordinated_extents
         );
         debug_assert_eq!(
-            trace_result.planned_remeasure_required,
-            planned.remeasure_triggered
+            trace_result.planned_cell_retarget_required,
+            planned.cell_retarget_required
         );
         debug_assert_eq!(
             trace_result.planned_axis_owner_ignore_empty_cells,
@@ -614,27 +614,17 @@ pub(crate) fn debug_assert_retarget_trace_alignment(plan: &RetargetPlan, trace: 
             planned.apply_plan.adjusted_main_size
         );
         debug_assert_eq!(
-            trace_result.remeasure_triggered,
-            planned.remeasure_triggered
+            trace_result.cell_retarget_applied,
+            planned.cell_retarget_required
         );
         debug_assert_eq!(trace_result.planned_child_count, planned.child_count);
-        debug_assert!(!trace_result.remeasure_triggered);
-        debug_assert_eq!(trace_result.remeasured_cell_count, 0);
-        debug_assert_eq!(trace_result.remeasure_skipped_cell_count, 0);
-        debug_assert_eq!(trace_result.remeasured_non_empty_cell_count, 0);
-        debug_assert_eq!(trace_result.remeasured_with_coordinated_extents_count, 0);
-        if !trace_result.remeasure_triggered {
-            debug_assert_eq!(trace_result.remeasured_cell_count, 0);
-            debug_assert_eq!(trace_result.remeasure_skipped_cell_count, 0);
-            debug_assert_eq!(trace_result.remeasured_non_empty_cell_count, 0);
-            debug_assert_eq!(trace_result.remeasured_with_coordinated_extents_count, 0);
-        }
-        debug_assert!(
-            trace_result.remeasured_non_empty_cell_count <= trace_result.remeasured_cell_count
-        );
-        debug_assert!(
-            trace_result.remeasured_with_coordinated_extents_count
-                <= trace_result.remeasured_cell_count
+        debug_assert_eq!(
+            trace_result.retargeted_cell_count,
+            if planned.cell_retarget_required {
+                planned.child_count
+            } else {
+                0
+            }
         );
     }
 }
@@ -1044,7 +1034,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn retargeted_requirement_pass_reconciles_layout_after_retarget_trace_remeasure()
+    async fn retargeted_requirement_pass_reconciles_layout_after_retarget_trace()
     -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
 
@@ -1198,7 +1188,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn retarget_trace_records_remeasure_and_parent_cross_propagation()
+    async fn retarget_trace_records_cell_retarget_and_parent_cross_propagation()
     -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = col_col_fixture().await?;
         let initial_requirement_pass =
@@ -1228,12 +1218,9 @@ mod tests {
             .expect("retarget should include a root node trace");
         assert!(root_result.parent_cross_size_propagated);
         assert!(root_result.planned_has_coordinated_extents);
-        assert!(!root_result.planned_remeasure_required);
-        assert!(!root_result.remeasure_triggered);
-        assert_eq!(root_result.remeasured_cell_count, 0);
-        assert_eq!(root_result.remeasure_skipped_cell_count, 0);
-        assert_eq!(root_result.remeasured_non_empty_cell_count, 0);
-        assert_eq!(root_result.remeasured_with_coordinated_extents_count, 0);
+        assert!(root_result.planned_cell_retarget_required);
+        assert!(root_result.cell_retarget_applied);
+        assert!(root_result.retargeted_cell_count > 0);
         Ok(())
     }
 
@@ -1472,7 +1459,10 @@ mod tests {
         assert!(!plan.node_plans.is_empty());
         for node in &plan.node_plans {
             assert_eq!(node.axis, node.apply_plan.axis);
-            assert!(!node.remeasure_triggered);
+            assert_eq!(
+                node.cell_retarget_required,
+                node.apply_plan.cell_retarget_required
+            );
             if node.has_legend_overflow {
                 assert!(node.apply_plan.legend_slab_applied > 0.0);
             }
@@ -1508,12 +1498,9 @@ mod tests {
         assert_eq!(root_result.axis, FacetAxis::Column);
         assert!(root_result.subplot_cross_size_after > 0.0);
         assert!(root_result.planned_has_coordinated_extents);
-        assert!(!root_result.planned_remeasure_required);
-        assert!(!root_result.remeasure_triggered);
-        assert_eq!(root_result.remeasured_cell_count, 0);
-        assert_eq!(root_result.remeasure_skipped_cell_count, 0);
-        assert_eq!(root_result.remeasured_non_empty_cell_count, 0);
-        assert_eq!(root_result.remeasured_with_coordinated_extents_count, 0);
+        assert!(root_result.planned_cell_retarget_required);
+        assert!(root_result.cell_retarget_applied);
+        assert!(root_result.retargeted_cell_count > 0);
         Ok(())
     }
 

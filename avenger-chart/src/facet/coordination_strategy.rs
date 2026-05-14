@@ -276,10 +276,9 @@ impl FacetSizingCoordinationStrategy for PlotAreaSizedCoordinationStrategy {
     fn after_retarget_trace(
         measurement: &ComponentsMeasurement,
         eval_ctx: &EvaluationContext,
-        plan: &RetargetPlan,
-        trace: &RetargetTrace,
+        _plan: &RetargetPlan,
+        _trace: &RetargetTrace,
     ) -> Result<(), AvengerChartError> {
-        assert_retarget_trace_invariants_plot_area_sized(plan, trace);
         assert_fixed_leaf_plot_sizes_for_eval_ctx(measurement, eval_ctx, "retarget");
         Ok(())
     }
@@ -449,7 +448,7 @@ fn assert_fixed_leaf_plot_sizes_for_eval_ctx(
     eval_ctx: &EvaluationContext,
     stage: &str,
 ) {
-    if let FacetRuntimeSizingMode::FixedLeafPlotArea {
+    if let FacetRuntimeSizingMode::PlotAreaSized {
         leaf_plot_width,
         leaf_plot_height,
     } = eval_ctx.facet_runtime_sizing_mode()
@@ -487,16 +486,6 @@ fn assert_fixed_leaf_plot_sizes(
             "plot-area-sized leaf height drifted at stage {stage}: height={}, expected={}",
             measurement.plot_area_height,
             expected_leaf_plot_height
-        );
-    }
-}
-
-fn assert_retarget_trace_invariants_plot_area_sized(_plan: &RetargetPlan, trace: &RetargetTrace) {
-    for node_result in &trace.node_results {
-        debug_assert_eq!(
-            node_result.remeasured_cell_count + node_result.remeasure_skipped_cell_count,
-            0,
-            "plot-area-sized retarget invariant: coordinated apply must not remeasure cells"
         );
     }
 }

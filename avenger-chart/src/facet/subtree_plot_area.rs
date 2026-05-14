@@ -1,4 +1,4 @@
-//! Estimated plot-area sizes for fixed leaf plot-area facet subtrees.
+//! Estimated plot-area sizes for plot-area-sized facet subtrees.
 //!
 //! These helpers synthesize an initial subtree size from the evaluated facet
 //! tree and a requested leaf plot size. They intentionally do not include

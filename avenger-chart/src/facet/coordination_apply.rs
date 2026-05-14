@@ -251,7 +251,7 @@ fn build_retarget_plan_recursive<S>(
             axis: apply_plan.axis,
             has_legend_overflow: apply_plan.has_legend_overflow,
             has_coordinated_extents: apply_plan.has_coordinated_extents,
-            remeasure_triggered: false,
+            cell_retarget_required: apply_plan.cell_retarget_required,
             apply_plan,
             child_count,
         });
@@ -344,7 +344,7 @@ where
                 axis: planned.axis,
                 planned_has_legend_overflow: planned.has_legend_overflow,
                 planned_has_coordinated_extents: planned.has_coordinated_extents,
-                planned_remeasure_required: planned.remeasure_triggered,
+                planned_cell_retarget_required: planned.cell_retarget_required,
                 planned_axis_owner_ignore_empty_cells: planned
                     .apply_plan
                     .axis_owner_ignore_empty_cells,
@@ -353,12 +353,8 @@ where
                 parent_cross_size_propagated,
                 subplot_cross_size_before: outcome.subplot_cross_size_before,
                 subplot_cross_size_after: outcome.subplot_cross_size_after,
-                remeasure_triggered: outcome.remeasure_triggered,
-                remeasured_cell_count: outcome.remeasured_cell_count,
-                remeasure_skipped_cell_count: outcome.remeasure_skipped_cell_count,
-                remeasured_non_empty_cell_count: outcome.remeasured_non_empty_cell_count,
-                remeasured_with_coordinated_extents_count: outcome
-                    .remeasured_with_coordinated_extents_count,
+                cell_retarget_applied: outcome.cell_retarget_applied,
+                retargeted_cell_count: outcome.retargeted_cell_count,
             });
         }
         Ok(())

@@ -520,9 +520,9 @@ pub async fn assert_visual_match_default_with_options(
     .await
 }
 
-/// Render a canvas-sized faceted chart as a fixed leaf plot-area chart.
+/// Render a canvas-sized faceted chart as a plot-area-sized chart.
 ///
-/// The fixed leaf size is derived from the final canvas solution. This is useful
+/// The leaf plot-area size is derived from the final canvas solution. This is useful
 /// for checking whether plot-size mode can reproduce the canvas-fit layout when
 /// both paths start from the same leaf subplot dimensions.
 pub async fn assert_canvas_derived_plot_size_visual_match(
@@ -548,7 +548,7 @@ pub async fn assert_canvas_derived_plot_size_visual_match(
         baseline_name,
         leaf_plot_width,
         leaf_plot_height,
-        "Derived fixed leaf plot-area size from canvas solution"
+        "Derived leaf plot-area size from canvas solution"
     );
 
     let serialized =

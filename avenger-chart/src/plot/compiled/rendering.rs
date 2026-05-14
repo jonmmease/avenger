@@ -104,7 +104,7 @@ struct RecursiveOverflowSnapshot {
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum FacetSizingStrategy {
     CanvasFit,
-    FixedLeafPlotArea {
+    PlotAreaSized {
         leaf_plot_width: f32,
         leaf_plot_height: f32,
     },
@@ -114,17 +114,17 @@ impl FacetSizingStrategy {
     fn coordination_mode(self) -> FacetCoordinationMode {
         match self {
             Self::CanvasFit => FacetCoordinationMode::CanvasFullCycle,
-            Self::FixedLeafPlotArea { .. } => FacetCoordinationMode::FixedLeafPlotAreaFullCycle,
+            Self::PlotAreaSized { .. } => FacetCoordinationMode::PlotAreaSizedFullCycle,
         }
     }
 
     fn runtime_sizing_mode(self) -> FacetRuntimeSizingMode {
         match self {
             Self::CanvasFit => FacetRuntimeSizingMode::CanvasFit,
-            Self::FixedLeafPlotArea {
+            Self::PlotAreaSized {
                 leaf_plot_width,
                 leaf_plot_height,
-            } => FacetRuntimeSizingMode::FixedLeafPlotArea {
+            } => FacetRuntimeSizingMode::PlotAreaSized {
                 leaf_plot_width,
                 leaf_plot_height,
             },
@@ -422,7 +422,7 @@ impl CompiledPlot {
         {
             return Err(AvengerChartError::InvalidArgument(
                 "Faceted charts do not support partial `canvas_constraint`/`plot_constraint` in this mode. \
-                 Use `canvas_size(...)` (canvas-fit mode) or `plot_size(width, height)` (fixed leaf plot-area mode)."
+                 Use `canvas_size(...)` (canvas-fit mode) or `plot_size(width, height)` (plot-area-sized mode)."
                     .to_string(),
             ));
         }
@@ -442,7 +442,7 @@ impl CompiledPlot {
                         .to_string(),
                 ));
             }
-            return Ok(FacetSizingStrategy::FixedLeafPlotArea {
+            return Ok(FacetSizingStrategy::PlotAreaSized {
                 leaf_plot_width,
                 leaf_plot_height,
             });
@@ -470,7 +470,7 @@ impl CompiledPlot {
     ) -> EvaluatedLayoutSpec {
         match strategy {
             FacetSizingStrategy::CanvasFit => evaluated_layout_spec.clone(),
-            FacetSizingStrategy::FixedLeafPlotArea {
+            FacetSizingStrategy::PlotAreaSized {
                 leaf_plot_width,
                 leaf_plot_height,
             } => {
@@ -2005,7 +2005,7 @@ impl CompiledPlot {
         )))
     }
 
-    async fn remeasure_fixed_leaf_plot_area_coord_at_current_plot_area(
+    async fn remeasure_plot_area_sized_coord_at_current_plot_area(
         &self,
         measurement: &mut ComponentsMeasurement,
         eval_ctx: &EvaluationContext,
@@ -2038,7 +2038,7 @@ impl CompiledPlot {
                     eval_ctx.clone()
                 };
                 Box::pin(
-                    compiled_subplot.remeasure_fixed_leaf_plot_area_coord_at_current_plot_area(
+                    compiled_subplot.remeasure_plot_area_sized_coord_at_current_plot_area(
                         &mut cell.measurement,
                         &cell_eval_ctx,
                         evaluated_layout_spec,
@@ -2112,7 +2112,7 @@ impl CompiledPlot {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn run_fixed_leaf_plot_area_refinement_iteration(
+    async fn run_plot_area_sized_refinement_iteration(
         &self,
         measurement: &mut ComponentsMeasurement,
         eval_ctx: &EvaluationContext,
@@ -2130,7 +2130,7 @@ impl CompiledPlot {
         };
 
         if iteration > 0 {
-            self.remeasure_fixed_leaf_plot_area_coord_at_current_plot_area(
+            self.remeasure_plot_area_sized_coord_at_current_plot_area(
                 measurement,
                 eval_ctx,
                 evaluated_layout_spec,
@@ -2141,7 +2141,7 @@ impl CompiledPlot {
             coordinate_overflow_for_guides_with_mode(
                 measurement,
                 eval_ctx,
-                FacetCoordinationMode::FixedLeafPlotAreaFullCycle,
+                FacetCoordinationMode::PlotAreaSizedFullCycle,
             )
             .await?;
 
@@ -2153,7 +2153,7 @@ impl CompiledPlot {
             }
         }
 
-        self.realize_fixed_leaf_plot_area_extents_no_remeasure(
+        self.realize_plot_area_sized_extents_no_remeasure(
             measurement,
             eval_ctx,
             evaluated_layout_spec,
@@ -2196,7 +2196,7 @@ impl CompiledPlot {
         })
     }
 
-    async fn refine_fixed_leaf_plot_area_measurement_after_coordination(
+    async fn refine_plot_area_sized_measurement_after_coordination(
         &self,
         measurement: &mut ComponentsMeasurement,
         eval_ctx: &EvaluationContext,
@@ -2205,7 +2205,7 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
         max_refinement_passes: usize,
     ) -> Result<(), AvengerChartError> {
-        self.run_fixed_leaf_plot_area_refinement_iteration(
+        self.run_plot_area_sized_refinement_iteration(
             measurement,
             eval_ctx,
             evaluated_layout_spec,
@@ -2213,19 +2213,19 @@ impl CompiledPlot {
             facet_path,
             0,
             None,
-            "fixed leaf plot-area mandatory realization",
+            "plot-area-sized mandatory realization",
         )
         .await?;
 
         if max_refinement_passes == 0 {
             eval_ctx.record_facet_refinement_converged();
-            trace!("fixed leaf plot-area refinement disabled after mandatory realization");
+            trace!("plot-area-sized refinement disabled after mandatory realization");
             return Ok(());
         }
 
         for pass in 1..=max_refinement_passes {
             let outcome = self
-                .run_fixed_leaf_plot_area_refinement_iteration(
+                .run_plot_area_sized_refinement_iteration(
                     measurement,
                     eval_ctx,
                     evaluated_layout_spec,
@@ -2233,7 +2233,7 @@ impl CompiledPlot {
                     facet_path,
                     pass,
                     None,
-                    "fixed leaf plot-area refinement realization",
+                    "plot-area-sized refinement realization",
                 )
                 .await?;
 
@@ -2241,7 +2241,7 @@ impl CompiledPlot {
             let overflow_grew = outcome.overflow_grew.unwrap_or(false);
             trace!(
                 pass,
-                overflow_grew, "fixed leaf plot-area refinement pass completed"
+                overflow_grew, "plot-area-sized refinement pass completed"
             );
 
             if !overflow_grew {
@@ -2255,7 +2255,7 @@ impl CompiledPlot {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn refine_fixed_leaf_plot_area_measurement_after_coordination_until(
+    async fn refine_plot_area_sized_measurement_after_coordination_until(
         &self,
         measurement: &mut ComponentsMeasurement,
         eval_ctx: &EvaluationContext,
@@ -2278,7 +2278,7 @@ impl CompiledPlot {
 
         let target = (target_iteration == 0).then_some(target_checkpoint);
         let outcome = self
-            .run_fixed_leaf_plot_area_refinement_iteration(
+            .run_plot_area_sized_refinement_iteration(
                 measurement,
                 eval_ctx,
                 evaluated_layout_spec,
@@ -2286,7 +2286,7 @@ impl CompiledPlot {
                 facet_path,
                 0,
                 target,
-                "fixed leaf plot-area refinement snapshot",
+                "plot-area-sized refinement snapshot",
             )
             .await?;
         if outcome.reached_snapshot_checkpoint {
@@ -2295,7 +2295,7 @@ impl CompiledPlot {
 
         if max_refinement_passes == 0 {
             return Err(AvengerChartError::InternalError(format!(
-                "Requested refinement snapshot {:?} at iteration {} was not reached (fixed leaf plot-area refinement snapshot)",
+                "Requested refinement snapshot {:?} at iteration {} was not reached (plot-area-sized refinement snapshot)",
                 target_checkpoint, target_iteration
             )));
         }
@@ -2303,7 +2303,7 @@ impl CompiledPlot {
         for pass in 1..=max_refinement_passes {
             let target = (pass == target_iteration).then_some(target_checkpoint);
             let outcome = self
-                .run_fixed_leaf_plot_area_refinement_iteration(
+                .run_plot_area_sized_refinement_iteration(
                     measurement,
                     eval_ctx,
                     evaluated_layout_spec,
@@ -2311,7 +2311,7 @@ impl CompiledPlot {
                     facet_path,
                     pass,
                     target,
-                    "fixed leaf plot-area refinement snapshot",
+                    "plot-area-sized refinement snapshot",
                 )
                 .await?;
             if outcome.reached_snapshot_checkpoint {
@@ -2323,12 +2323,12 @@ impl CompiledPlot {
         }
 
         Err(AvengerChartError::InternalError(format!(
-            "Requested refinement snapshot {:?} at iteration {} was not reached (fixed leaf plot-area refinement snapshot)",
+            "Requested refinement snapshot {:?} at iteration {} was not reached (plot-area-sized refinement snapshot)",
             target_checkpoint, target_iteration
         )))
     }
 
-    async fn realize_fixed_leaf_plot_area_extents_no_remeasure(
+    async fn realize_plot_area_sized_extents_no_remeasure(
         &self,
         measurement: &mut ComponentsMeasurement,
         eval_ctx: &EvaluationContext,
@@ -2350,7 +2350,7 @@ impl CompiledPlot {
                         cell.measurement.plot_area_height,
                     );
                     Box::pin(
-                        compiled_subplot.realize_fixed_leaf_plot_area_extents_no_remeasure(
+                        compiled_subplot.realize_plot_area_sized_extents_no_remeasure(
                             &mut cell.measurement,
                             eval_ctx,
                             &child_layout_spec,
@@ -2430,7 +2430,7 @@ impl CompiledPlot {
             plot_area_height,
             canvas_width = realized_layout.canvas_size.0,
             canvas_height = realized_layout.canvas_size.1,
-            "fixed leaf plot-area realization computed facet extent"
+            "plot-area-sized realization computed facet extent"
         );
 
         measurement.layout = realized_layout;
@@ -2441,7 +2441,7 @@ impl CompiledPlot {
         Ok(())
     }
 
-    async fn realize_fixed_leaf_plot_area_layout_after_coordination(
+    async fn realize_plot_area_sized_layout_after_coordination(
         &self,
         measurement: &mut ComponentsMeasurement,
         eval_ctx: &EvaluationContext,
@@ -2450,7 +2450,7 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
         max_refinement_passes: usize,
     ) -> Result<(), AvengerChartError> {
-        self.refine_fixed_leaf_plot_area_measurement_after_coordination(
+        self.refine_plot_area_sized_measurement_after_coordination(
             measurement,
             eval_ctx,
             layout_spec,
@@ -2462,7 +2462,7 @@ impl CompiledPlot {
 
         debug_assert!(
             Self::legends_within_canvas_recursive(measurement),
-            "fixed leaf plot-area invariant: legends must be within canvas after extent realization"
+            "plot-area-sized invariant: legends must be within canvas after extent realization"
         );
         Ok(())
     }
@@ -2544,11 +2544,11 @@ impl CompiledPlot {
         if facet_path.is_empty()
             && matches!(
                 eval_ctx.facet_runtime_sizing_mode(),
-                FacetRuntimeSizingMode::FixedLeafPlotArea { .. }
+                FacetRuntimeSizingMode::PlotAreaSized { .. }
             )
             && Self::marks_contain_facet(&self.marks)
         {
-            // Fixed leaf plot-area top-level facet content can legitimately extend past the
+            // Plot-area-sized top-level facet content can legitimately extend past the
             // synthesized root plot-area rectangle; avoid clipping at the root.
             Clip::None
         } else {
@@ -3455,9 +3455,9 @@ impl CompiledPlot {
                     .await?;
                 }
             }
-            FacetSizingStrategy::FixedLeafPlotArea { .. } => {
+            FacetSizingStrategy::PlotAreaSized { .. } => {
                 let refinement = eval_ctx.facet_layout_refinement();
-                self.realize_fixed_leaf_plot_area_layout_after_coordination(
+                self.realize_plot_area_sized_layout_after_coordination(
                     measurement,
                     eval_ctx,
                     evaluated_layout_spec,
@@ -3506,8 +3506,8 @@ impl CompiledPlot {
                 )
                 .await
             }
-            FacetSizingStrategy::FixedLeafPlotArea { .. } => {
-                self.refine_fixed_leaf_plot_area_measurement_after_coordination_until(
+            FacetSizingStrategy::PlotAreaSized { .. } => {
+                self.refine_plot_area_sized_measurement_after_coordination_until(
                     measurement,
                     eval_ctx,
                     evaluated_layout_spec,
@@ -4208,7 +4208,7 @@ mod tests {
             ))
     }
 
-    fn build_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(
+    fn build_three_level_col_legend_sharing_plot_area_sized(
         df: DataFrame,
         position: LegendPosition,
     ) -> Plot<FacetColumn> {
@@ -4224,7 +4224,7 @@ mod tests {
             ))
     }
 
-    fn build_nested_col_row_col_continuous_legend_plot_fixed_leaf_plot_area(
+    fn build_nested_col_row_col_continuous_legend_plot_area_sized(
         df: DataFrame,
     ) -> Plot<FacetColumn> {
         Plot::<FacetColumn>::new()
@@ -4445,12 +4445,12 @@ mod tests {
             .await
     }
 
-    async fn compile_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(
+    async fn compile_three_level_col_legend_sharing_plot_area_sized(
         ctx: &SessionContext,
         position: LegendPosition,
     ) -> Result<CompiledPlot, AvengerChartError> {
         let df = legend_sharing_three_level_dataframe(ctx).await;
-        build_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(df, position)
+        build_three_level_col_legend_sharing_plot_area_sized(df, position)
             .compile(ctx)
             .await
     }
@@ -4489,16 +4489,16 @@ mod tests {
             .await
     }
 
-    async fn compile_nested_col_row_col_continuous_legend_plot_fixed_leaf_plot_area(
+    async fn compile_nested_col_row_col_continuous_legend_plot_area_sized(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
         let df = legend_sharing_three_level_dataframe(ctx).await;
-        build_nested_col_row_col_continuous_legend_plot_fixed_leaf_plot_area(df)
+        build_nested_col_row_col_continuous_legend_plot_area_sized(df)
             .compile(ctx)
             .await
     }
 
-    async fn compile_nested_row_col_row_mixed_sharing_plot_fixed_leaf_plot_area(
+    async fn compile_nested_row_col_row_mixed_sharing_plot_area_sized(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
         let df = legend_sharing_three_level_dataframe(ctx).await;
@@ -4722,9 +4722,9 @@ mod tests {
                         .await?;
                 }
             }
-            FacetSizingStrategy::FixedLeafPlotArea { .. } => {
+            FacetSizingStrategy::PlotAreaSized { .. } => {
                 compiled
-                    .realize_fixed_leaf_plot_area_layout_after_coordination(
+                    .realize_plot_area_sized_layout_after_coordination(
                         &mut measurement,
                         &eval_ctx,
                         &evaluated_layout_spec,
@@ -4890,7 +4890,7 @@ mod tests {
         }
     }
 
-    fn assert_no_fixed_leaf_plot_area_main_axis_overlap(measurement: &ComponentsMeasurement) {
+    fn assert_no_plot_area_sized_main_axis_overlap(measurement: &ComponentsMeasurement) {
         if let Some(facet_band_plot_area_sized) = measurement
             .coord_measurement
             .as_any()
@@ -4905,7 +4905,7 @@ mod tests {
                 let next = &window[1];
                 assert!(
                     next.main_axis_start + 0.01 >= current.main_axis_start + current.main_axis_size,
-                    "fixed leaf plot-area main-axis overlap at axis {:?}, cell_index {}, current_start={}, current_span={}, next_start={}",
+                    "plot-area-sized main-axis overlap at axis {:?}, cell_index {}, current_start={}, current_span={}, next_start={}",
                     facet_band.axis,
                     current.cell_index,
                     current.main_axis_start,
@@ -4915,7 +4915,7 @@ mod tests {
             }
 
             for child in facet_band.child_measurements_iter() {
-                assert_no_fixed_leaf_plot_area_main_axis_overlap(child);
+                assert_no_plot_area_sized_main_axis_overlap(child);
             }
         }
     }
@@ -5100,7 +5100,7 @@ mod tests {
                 out.push((
                     slabs.legend.right.max(0.0),
                     apply_plan.has_coordinated_layout,
-                    apply_plan.remeasure_required,
+                    apply_plan.cell_retarget_required,
                 ));
             }
 
@@ -5460,11 +5460,10 @@ mod tests {
     }
 
     #[test]
-    fn fixed_leaf_plot_area_refinement_remeasures_after_domain_coordination() {
+    fn plot_area_sized_refinement_remeasures_after_domain_coordination() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
-            let compiled =
-                compile_nested_row_col_row_mixed_sharing_plot_fixed_leaf_plot_area(&ctx).await?;
+            let compiled = compile_nested_row_col_row_mixed_sharing_plot_area_sized(&ctx).await?;
             let selector = FacetSubtreeSelector::ByFacetPath(vec![
                 ScalarValue::Utf8(Some("DivB".to_string())),
                 ScalarValue::Utf8(Some("Dept1".to_string())),
@@ -5509,15 +5508,15 @@ mod tests {
             assert_eq!(fast_metrics.facet_layout.refinement_pass_count, 0);
             assert_eq!(
                 refined_metrics.facet_layout.refinement_pass_count, 1,
-                "expected one fixed leaf plot-area refinement pass: {refined_metrics:?}"
+                "expected one plot-area-sized refinement pass: {refined_metrics:?}"
             );
             assert!(
                 collect_text_x_positions(&fast_eval.scene_graph, "of-right").is_empty(),
-                "fast one-shot fixed leaf plot-area should document the missing right overflow"
+                "fast one-shot plot-area-sized should document the missing right overflow"
             );
             assert!(
                 !collect_text_x_positions(&refined_eval.scene_graph, "of-right").is_empty(),
-                "fixed leaf plot-area refinement should allocate the late right overflow"
+                "plot-area-sized refinement should allocate the late right overflow"
             );
 
             Ok(())
@@ -5696,12 +5695,12 @@ mod tests {
         assert!(
             matches!(
                 strategy,
-                FacetSizingStrategy::FixedLeafPlotArea {
+                FacetSizingStrategy::PlotAreaSized {
                     leaf_plot_width: 120.0,
                     leaf_plot_height: 90.0
                 }
             ),
-            "expected fixed leaf plot-area strategy for faceted plot_size"
+            "expected plot-area-sized strategy for faceted plot_size"
         );
         Ok(())
     }
@@ -5752,7 +5751,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn facet_partial_constraints_error_in_fixed_leaf_plot_area_mode() {
+    async fn facet_partial_constraints_error_in_plot_area_sized_mode() {
         let ctx = SessionContext::new();
         let df = deeply_nested_dataframe(&ctx);
         let compiled = build_simple_facet_col_plot(df)
@@ -5809,15 +5808,13 @@ mod tests {
     }
 
     #[test]
-    fn fixed_leaf_plot_area_mode_leaf_plot_area_uniform_for_three_level_col_col_col_with_level2_right_legend()
+    fn plot_area_sized_mode_leaf_plot_area_uniform_for_three_level_col_col_col_with_level2_right_legend()
      {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
-            let compiled = compile_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(
-                &ctx,
-                LegendPosition::Right,
-            )
-            .await?;
+            let compiled =
+                compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
+                    .await?;
             let (_, _, measurement) =
                 prepare_refined_top_level_measurement(&compiled, &ctx).await?;
 
@@ -5860,11 +5857,9 @@ mod tests {
     fn fixed_level2_right_hoists_legend_without_team_node_slab() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
-            let compiled = compile_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(
-                &ctx,
-                LegendPosition::Right,
-            )
-            .await?;
+            let compiled =
+                compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
+                    .await?;
             let (_, _, measurement) =
                 prepare_refined_top_level_measurement(&compiled, &ctx).await?;
 
@@ -5893,14 +5888,12 @@ mod tests {
     }
 
     #[test]
-    fn fixed_leaf_plot_area_mode_collection_only_applies_layout_patches_without_resizing_leaves() {
+    fn plot_area_sized_mode_collection_only_applies_layout_patches_without_resizing_leaves() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
-            let compiled = compile_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(
-                &ctx,
-                LegendPosition::Right,
-            )
-            .await?;
+            let compiled =
+                compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
+                    .await?;
             let (eval_ctx, evaluated_layout_spec, scale_builder, mut measurement) =
                 prepare_top_level_measurement(&compiled, &ctx).await?;
             let provider = DynamicScaleProvider {
@@ -5916,18 +5909,18 @@ mod tests {
                     &eval_ctx,
                     &evaluated_layout_spec,
                     &provider,
-                    FacetSizingStrategy::FixedLeafPlotArea {
+                    FacetSizingStrategy::PlotAreaSized {
                         leaf_plot_width: 120.0,
                         leaf_plot_height: 90.0,
                     },
-                    FacetCoordinationMode::FixedLeafPlotAreaFullCycle,
+                    FacetCoordinationMode::PlotAreaSizedFullCycle,
                 )
                 .await?;
 
             let patch_count = count_coordinated_layout_patches(&measurement);
             assert!(
                 patch_count > 0,
-                "expected fixed leaf plot-area full-cycle mode to apply at least one coordinated layout patch"
+                "expected plot-area-sized full-cycle mode to apply at least one coordinated layout patch"
             );
 
             let mut leaf_widths = Vec::new();
@@ -5935,26 +5928,23 @@ mod tests {
             collect_leaf_plot_areas(&measurement, &mut leaf_widths, &mut leaf_heights);
             assert!(
                 leaf_widths.iter().all(|w| (*w - 120.0).abs() <= 0.01),
-                "fixed leaf plot-area full-cycle path must keep leaf plot widths locked"
+                "plot-area-sized full-cycle path must keep leaf plot widths locked"
             );
             assert!(
                 leaf_heights.iter().all(|h| (*h - 90.0).abs() <= 0.01),
-                "fixed leaf plot-area full-cycle path must keep leaf plot heights locked"
+                "plot-area-sized full-cycle path must keep leaf plot heights locked"
             );
             Ok(())
         });
     }
 
     #[test]
-    fn fixed_leaf_plot_area_mode_final_realization_applies_layout_patches_without_resizing_leaves()
-    {
+    fn plot_area_sized_mode_final_realization_applies_layout_patches_without_resizing_leaves() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
-            let compiled = compile_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(
-                &ctx,
-                LegendPosition::Right,
-            )
-            .await?;
+            let compiled =
+                compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
+                    .await?;
             let (eval_ctx, evaluated_layout_spec, scale_builder, mut measurement) =
                 prepare_top_level_measurement(&compiled, &ctx).await?;
             let provider = DynamicScaleProvider {
@@ -5968,18 +5958,18 @@ mod tests {
                     &eval_ctx,
                     &evaluated_layout_spec,
                     &provider,
-                    FacetSizingStrategy::FixedLeafPlotArea {
+                    FacetSizingStrategy::PlotAreaSized {
                         leaf_plot_width: 120.0,
                         leaf_plot_height: 90.0,
                     },
-                    FacetCoordinationMode::FixedLeafPlotAreaFullCycle,
+                    FacetCoordinationMode::PlotAreaSizedFullCycle,
                 )
                 .await?;
 
             let patch_count = count_coordinated_layout_patches(&measurement);
             assert!(
                 patch_count > 0,
-                "expected fixed leaf plot-area final realization to preserve coordinated layout patches"
+                "expected plot-area-sized final realization to preserve coordinated layout patches"
             );
 
             let mut leaf_widths = Vec::new();
@@ -5987,29 +5977,27 @@ mod tests {
             collect_leaf_plot_areas(&measurement, &mut leaf_widths, &mut leaf_heights);
             assert!(
                 leaf_widths.iter().all(|w| (*w - 120.0).abs() <= 0.01),
-                "fixed leaf plot-area final realization must keep leaf plot widths locked"
+                "plot-area-sized final realization must keep leaf plot widths locked"
             );
             assert!(
                 leaf_heights.iter().all(|h| (*h - 90.0).abs() <= 0.01),
-                "fixed leaf plot-area final realization must keep leaf plot heights locked"
+                "plot-area-sized final realization must keep leaf plot heights locked"
             );
             Ok(())
         });
     }
 
     #[test]
-    fn fixed_leaf_plot_area_mode_has_no_main_axis_overlap_for_three_level_col_col_col_with_level2_right_legend()
+    fn plot_area_sized_mode_has_no_main_axis_overlap_for_three_level_col_col_col_with_level2_right_legend()
      {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
-            let compiled = compile_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(
-                &ctx,
-                LegendPosition::Right,
-            )
-            .await?;
+            let compiled =
+                compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
+                    .await?;
             let (_, _, measurement) =
                 prepare_refined_top_level_measurement(&compiled, &ctx).await?;
-            assert_no_fixed_leaf_plot_area_main_axis_overlap(&measurement);
+            assert_no_plot_area_sized_main_axis_overlap(&measurement);
             Ok(())
         });
     }
@@ -6018,11 +6006,9 @@ mod tests {
     fn fixed_level2_right_legends_within_canvas() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
-            let compiled = compile_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(
-                &ctx,
-                LegendPosition::Right,
-            )
-            .await?;
+            let compiled =
+                compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
+                    .await?;
             let (_, _, measurement) =
                 prepare_refined_top_level_measurement(&compiled, &ctx).await?;
             assert_legends_within_canvas(&measurement);
@@ -6034,11 +6020,9 @@ mod tests {
     fn fixed_retarget_trace_recomputes_positions_after_remeasure() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
-            let compiled = compile_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(
-                &ctx,
-                LegendPosition::Right,
-            )
-            .await?;
+            let compiled =
+                compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
+                    .await?;
             let (_, _, measurement) =
                 prepare_refined_top_level_measurement(&compiled, &ctx).await?;
             assert_plot_area_sized_positions_match_recomputed(&measurement);
@@ -6047,14 +6031,12 @@ mod tests {
     }
 
     #[test]
-    fn fixed_leaf_plot_area_mode_realizes_plot_area_from_computed_placement() {
+    fn plot_area_sized_mode_realizes_plot_area_from_computed_placement() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
-            let compiled = compile_three_level_col_legend_sharing_plot_fixed_leaf_plot_area(
-                &ctx,
-                LegendPosition::Right,
-            )
-            .await?;
+            let compiled =
+                compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
+                    .await?;
             let (_, _, measurement) =
                 prepare_refined_top_level_measurement(&compiled, &ctx).await?;
             assert_plot_area_sized_facet_plot_area_matches_placement(&measurement);
@@ -6063,7 +6045,7 @@ mod tests {
     }
 
     #[test]
-    fn fixed_leaf_plot_area_mode_preserves_empty_nested_slot_extent() {
+    fn plot_area_sized_mode_preserves_empty_nested_slot_extent() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
             let compiled = compile_sparse_fixed_column_hole_plot(&ctx).await?;
@@ -6093,19 +6075,18 @@ mod tests {
     }
 
     #[test]
-    fn fixed_leaf_plot_area_mode_continuous_legend_is_visible_with_uniform_leaf_sizes() {
+    fn plot_area_sized_mode_continuous_legend_is_visible_with_uniform_leaf_sizes() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
             let compiled =
-                compile_nested_col_row_col_continuous_legend_plot_fixed_leaf_plot_area(&ctx)
-                    .await?;
+                compile_nested_col_row_col_continuous_legend_plot_area_sized(&ctx).await?;
             let (_, _, measurement) =
                 prepare_refined_top_level_measurement(&compiled, &ctx).await?;
 
             let legend_measurement_count = count_legend_measurements_recursive(&measurement);
             assert!(
                 legend_measurement_count > 0,
-                "expected at least one legend measurement in fixed leaf plot-area continuous legend scenario"
+                "expected at least one legend measurement in plot-area-sized continuous legend scenario"
             );
             assert_legends_within_canvas(&measurement);
 
@@ -6119,13 +6100,13 @@ mod tests {
             for width in leaf_widths {
                 assert!(
                     (width - 110.0).abs() <= 0.01,
-                    "fixed leaf plot-area width drifted from configured width: {width}"
+                    "plot-area-sized width drifted from configured width: {width}"
                 );
             }
             for height in leaf_heights {
                 assert!(
                     (height - 80.0).abs() <= 0.01,
-                    "fixed leaf plot-area height drifted from configured height: {height}"
+                    "plot-area-sized height drifted from configured height: {height}"
                 );
             }
             Ok(())

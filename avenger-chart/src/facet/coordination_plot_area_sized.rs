@@ -7,8 +7,8 @@ use crate::{
     render::{CoordinationCheckpoint, EvaluationContext},
 };
 
-/// Coordinate fixed leaf plot-area facet measurements with the full requirement pipeline.
-pub async fn coordinate_facet_measurement_tree_fixed_leaf_plot_area(
+/// Coordinate plot-area-sized facet measurements with the full requirement pipeline.
+pub async fn coordinate_facet_measurement_tree_plot_area_sized(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
 ) -> Result<(), AvengerChartError> {
@@ -20,7 +20,7 @@ pub async fn coordinate_facet_measurement_tree_fixed_leaf_plot_area(
     .map(|_| ())
 }
 
-pub(crate) async fn coordinate_facet_measurement_tree_fixed_leaf_plot_area_until(
+pub(crate) async fn coordinate_facet_measurement_tree_plot_area_sized_until(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
     checkpoint: CoordinationCheckpoint,

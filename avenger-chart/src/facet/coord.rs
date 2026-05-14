@@ -172,10 +172,10 @@ pub type FacetBandCoordMeasurementCanvasFit = FacetBandCoordMeasurement;
 /// Plot-area-sized facet band measurement type.
 ///
 /// This wraps the shared facet runtime payload with explicit placement data
-/// for fixed leaf plot-area sizing.
+/// for plot-area-sized sizing.
 pub struct FacetBandCoordMeasurementPlotAreaSized {
     pub(crate) base: FacetBandCoordMeasurement,
-    /// Explicit placement and extent used by fixed leaf plot-area rendering.
+    /// Explicit placement and extent used by plot-area-sized rendering.
     pub(crate) explicit_placement: FacetBandExplicitPlacement,
 }
 
@@ -329,7 +329,7 @@ pub(crate) struct FacetBandCoordinationApplyPlan {
     pub(crate) has_legend_overflow: bool,
     pub(crate) has_coordinated_extents: bool,
     pub(crate) has_coordinated_layout: bool,
-    pub(crate) remeasure_required: bool,
+    pub(crate) cell_retarget_required: bool,
     pub(crate) has_holes: bool,
     pub(crate) axis_owner_ignore_empty_cells: bool,
     pub(crate) original_main_size: f32,
@@ -341,11 +341,8 @@ pub(crate) struct FacetBandCoordinationApplyPlan {
 pub(crate) struct FacetBandCoordinationApplyOutcome {
     pub(crate) subplot_cross_size_before: f32,
     pub(crate) subplot_cross_size_after: f32,
-    pub(crate) remeasure_triggered: bool,
-    pub(crate) remeasured_cell_count: usize,
-    pub(crate) remeasure_skipped_cell_count: usize,
-    pub(crate) remeasured_non_empty_cell_count: usize,
-    pub(crate) remeasured_with_coordinated_extents_count: usize,
+    pub(crate) cell_retarget_applied: bool,
+    pub(crate) retargeted_cell_count: usize,
 }
 
 impl FacetBandCoordMeasurement {
@@ -625,7 +622,7 @@ impl CoordMeasurement for FacetBandCoordMeasurementPlotAreaSized {
     }
 
     fn apply_scale_adjustments(&self, _scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
-        // Fixed leaf plot-area mode keeps leaf plot area sizing locked, so render-time
+        // Plot-area-sized mode keeps leaf plot area sizing locked, so render-time
         // facet band scale rewrites are intentionally disabled.
     }
 }
@@ -673,7 +670,7 @@ enum ScaleLayoutRewriteMode {
         allow_zero_padding_override: bool,
         side_specific_outer_edges: bool,
     },
-    Remeasure {
+    Retarget {
         side_specific_outer_edges: bool,
     },
 }
@@ -683,7 +680,7 @@ impl ScaleLayoutRewriteMode {
     fn set_padding_always(self) -> bool {
         matches!(
             self,
-            ScaleLayoutRewriteMode::Measurement { .. } | ScaleLayoutRewriteMode::Remeasure { .. }
+            ScaleLayoutRewriteMode::Measurement { .. } | ScaleLayoutRewriteMode::Retarget { .. }
         )
     }
 
@@ -708,7 +705,7 @@ impl ScaleLayoutRewriteMode {
                 side_specific_outer_edges,
                 ..
             }
-            | ScaleLayoutRewriteMode::Remeasure {
+            | ScaleLayoutRewriteMode::Retarget {
                 side_specific_outer_edges,
             } => side_specific_outer_edges,
         }
@@ -780,7 +777,7 @@ fn has_coordinated_layout_change(
     })
 }
 
-fn should_remeasure_cells(has_legend_overflow: bool, has_coordinated_extents: bool) -> bool {
+fn should_retarget_cells(has_legend_overflow: bool, has_coordinated_extents: bool) -> bool {
     has_legend_overflow || has_coordinated_extents
 }
 
@@ -927,8 +924,8 @@ impl FacetBandCoordMeasurement {
             .any(|cell| !cell.coordinated_domain_extents.is_empty());
         let has_coordinated_layout =
             has_coordinated_layout_change(&self.local_layout, self.coordinated_layout.as_ref());
-        let remeasure_required =
-            should_remeasure_cells(has_legend_overflow, has_coordinated_extents);
+        let cell_retarget_required =
+            should_retarget_cells(has_legend_overflow, has_coordinated_extents);
         let policy = resolve_facet_ownership_policy(
             self.empty_cell_policy,
             has_holes_from_cells(self.cells.iter().map(|cell| cell.plan.is_empty)),
@@ -953,7 +950,7 @@ impl FacetBandCoordMeasurement {
             has_legend_overflow,
             has_coordinated_extents,
             has_coordinated_layout,
-            remeasure_required,
+            cell_retarget_required,
             has_holes: policy.has_holes,
             axis_owner_ignore_empty_cells: policy.axis_owner_ignore_empty_cells,
             original_main_size,
@@ -984,7 +981,7 @@ impl FacetBandCoordMeasurement {
             layout,
             domain_override,
             Some(layout.n),
-            ScaleLayoutRewriteMode::Remeasure {
+            ScaleLayoutRewriteMode::Retarget {
                 side_specific_outer_edges: true,
             },
         );
@@ -1064,16 +1061,13 @@ impl FacetBandCoordMeasurement {
             self.apply_coordinated_layout_cross_size()?;
         }
 
-        if !plan.remeasure_required {
+        if !plan.cell_retarget_required {
             self.apply_coordinated_alignment_slabs_to_child_layouts();
             return Ok(FacetBandCoordinationApplyOutcome {
                 subplot_cross_size_before,
                 subplot_cross_size_after: self.subplot_cross_size,
-                remeasure_triggered: false,
-                remeasured_cell_count: 0,
-                remeasure_skipped_cell_count: 0,
-                remeasured_non_empty_cell_count: 0,
-                remeasured_with_coordinated_extents_count: 0,
+                cell_retarget_applied: false,
+                retargeted_cell_count: 0,
             });
         }
 
@@ -1106,6 +1100,7 @@ impl FacetBandCoordMeasurement {
         };
         let compiled_subplot = self.compiled_subplot.clone();
         let shared_scale_builder = self.shared_scale_builder.clone();
+        let retargeted_cell_count = self.cells.len();
         for cell in &mut self.cells {
             retarget_measurement_plot_area_and_domains_no_remeasure(
                 &mut cell.measurement,
@@ -1132,11 +1127,8 @@ impl FacetBandCoordMeasurement {
         Ok(FacetBandCoordinationApplyOutcome {
             subplot_cross_size_before,
             subplot_cross_size_after: self.subplot_cross_size,
-            remeasure_triggered: false,
-            remeasured_cell_count: 0,
-            remeasure_skipped_cell_count: 0,
-            remeasured_non_empty_cell_count: 0,
-            remeasured_with_coordinated_extents_count: 0,
+            cell_retarget_applied: true,
+            retargeted_cell_count,
         })
     }
 
@@ -3052,7 +3044,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 resolved.empty_cell_policy,
                 matches!(
                     self.eval_ctx.facet_runtime_sizing_mode(),
-                    FacetRuntimeSizingMode::FixedLeafPlotArea { .. }
+                    FacetRuntimeSizingMode::PlotAreaSized { .. }
                 ),
             ));
         }
@@ -3268,7 +3260,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 .empty_cell_policy,
             fixed_plot_area_lock: matches!(
                 self.eval_ctx.facet_runtime_sizing_mode(),
-                FacetRuntimeSizingMode::FixedLeafPlotArea { .. }
+                FacetRuntimeSizingMode::PlotAreaSized { .. }
             ),
         };
 
@@ -3384,7 +3376,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 empty_cell_policy,
                 matches!(
                     self.eval_ctx.facet_runtime_sizing_mode(),
-                    FacetRuntimeSizingMode::FixedLeafPlotArea { .. }
+                    FacetRuntimeSizingMode::PlotAreaSized { .. }
                 ),
             )));
         };
@@ -3438,7 +3430,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
     ) -> f32 {
         match self.eval_ctx.facet_runtime_sizing_mode() {
             FacetRuntimeSizingMode::CanvasFit => resolved.subplot_band_size,
-            FacetRuntimeSizingMode::FixedLeafPlotArea {
+            FacetRuntimeSizingMode::PlotAreaSized {
                 leaf_plot_width,
                 leaf_plot_height,
             } => {
@@ -3578,7 +3570,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         );
         let final_subplot_band_size = if matches!(
             self.eval_ctx.facet_runtime_sizing_mode(),
-            FacetRuntimeSizingMode::FixedLeafPlotArea { .. }
+            FacetRuntimeSizingMode::PlotAreaSized { .. }
         ) {
             initial_subplot_band_size
         } else {
@@ -3784,7 +3776,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
 
         if matches!(
             self.eval_ctx.facet_runtime_sizing_mode(),
-            FacetRuntimeSizingMode::FixedLeafPlotArea { .. }
+            FacetRuntimeSizingMode::PlotAreaSized { .. }
         ) {
             let mut plot_area_sized = FacetBandCoordMeasurementPlotAreaSized {
                 base,
@@ -3818,8 +3810,8 @@ pub(crate) async fn measure_facet_row(
             )
             .await
         }
-        FacetRuntimeSizingMode::FixedLeafPlotArea { .. } => {
-            crate::facet::coord_fixed_leaf_plot_area::measure_facet_row_fixed_leaf_plot_area(
+        FacetRuntimeSizingMode::PlotAreaSized { .. } => {
+            crate::facet::coord_plot_area_sized::measure_facet_row_plot_area_sized(
                 scales,
                 plot_width,
                 eval_ctx,
@@ -3882,8 +3874,8 @@ impl CoordinateSystemTransform for FacetColumn {
                 )
                 .await
             }
-            FacetRuntimeSizingMode::FixedLeafPlotArea { .. } => {
-                crate::facet::coord_fixed_leaf_plot_area::measure_facet_column_fixed_leaf_plot_area(
+            FacetRuntimeSizingMode::PlotAreaSized { .. } => {
+                crate::facet::coord_plot_area_sized::measure_facet_column_plot_area_sized(
                     scales,
                     plot_height,
                     eval_ctx,
@@ -4803,15 +4795,15 @@ mod tests {
     }
 
     #[test]
-    fn should_remeasure_cells_only_for_legend_or_extents() {
-        assert!(!should_remeasure_cells(false, false));
-        assert!(should_remeasure_cells(true, false));
-        assert!(should_remeasure_cells(false, true));
-        assert!(should_remeasure_cells(true, true));
+    fn should_retarget_cells_only_for_legend_or_extents() {
+        assert!(!should_retarget_cells(false, false));
+        assert!(should_retarget_cells(true, false));
+        assert!(should_retarget_cells(false, true));
+        assert!(should_retarget_cells(true, true));
     }
 
     #[tokio::test]
-    async fn derive_coordinated_apply_plan_layout_only_no_remeasure()
+    async fn derive_coordinated_apply_plan_layout_only_no_cell_retarget()
     -> Result<(), AvengerChartError> {
         let (mut measurement, _) =
             build_coord_measurement_for_apply_plan_tests(FacetAxis::Column).await?;
@@ -4828,7 +4820,7 @@ mod tests {
         assert!(plan.has_coordinated_layout);
         assert!(!plan.has_legend_overflow);
         assert!(!plan.has_coordinated_extents);
-        assert!(!plan.remeasure_required);
+        assert!(!plan.cell_retarget_required);
         assert!((plan.adjusted_main_size - plan.original_main_size).abs() <= 0.01);
         Ok(())
     }
@@ -4874,7 +4866,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn derive_coordinated_apply_plan_legend_overflow_requires_remeasure()
+    async fn derive_coordinated_apply_plan_legend_overflow_requires_cell_retarget()
     -> Result<(), AvengerChartError> {
         let (mut measurement, _) =
             build_coord_measurement_for_apply_plan_tests(FacetAxis::Column).await?;
@@ -4886,13 +4878,13 @@ mod tests {
 
         let plan = facet_band.derive_coordinated_apply_plan();
         assert!(plan.has_legend_overflow);
-        assert!(plan.remeasure_required);
+        assert!(plan.cell_retarget_required);
         assert!(plan.adjusted_main_size < plan.original_main_size);
         Ok(())
     }
 
     #[tokio::test]
-    async fn derive_coordinated_apply_plan_coordinated_extents_requires_remeasure()
+    async fn derive_coordinated_apply_plan_coordinated_extents_requires_cell_retarget()
     -> Result<(), AvengerChartError> {
         let (mut measurement, _) =
             build_coord_measurement_for_apply_plan_tests(FacetAxis::Column).await?;
@@ -4906,7 +4898,7 @@ mod tests {
 
         let plan = facet_band.derive_coordinated_apply_plan();
         assert!(plan.has_coordinated_extents);
-        assert!(plan.remeasure_required);
+        assert!(plan.cell_retarget_required);
         Ok(())
     }
 
@@ -4952,17 +4944,14 @@ mod tests {
 
         let before_cross_size = facet_band.subplot_cross_size;
         let plan = facet_band.derive_coordinated_apply_plan();
-        assert!(!plan.remeasure_required);
+        assert!(!plan.cell_retarget_required);
         let outcome = facet_band
             .apply_coordinated_overflow_with_plan(&eval_ctx, &plan)
             .await?;
 
         assert!((outcome.subplot_cross_size_before - before_cross_size).abs() <= 0.01);
-        assert!(!outcome.remeasure_triggered);
-        assert_eq!(outcome.remeasured_cell_count, 0);
-        assert_eq!(outcome.remeasure_skipped_cell_count, 0);
-        assert_eq!(outcome.remeasured_non_empty_cell_count, 0);
-        assert_eq!(outcome.remeasured_with_coordinated_extents_count, 0);
+        assert!(!outcome.cell_retarget_applied);
+        assert_eq!(outcome.retargeted_cell_count, 0);
         assert!((facet_band.subplot_cross_size - before_cross_size).abs() > 0.01);
         Ok(())
     }
@@ -4985,7 +4974,7 @@ mod tests {
             .measurement
             .plot_area_height;
         let plan = facet_band.derive_coordinated_apply_plan();
-        assert!(plan.remeasure_required);
+        assert!(plan.cell_retarget_required);
 
         let outcome = facet_band
             .apply_coordinated_overflow_with_plan(&eval_ctx, &plan)
@@ -4997,12 +4986,9 @@ mod tests {
             .measurement
             .plot_area_height;
 
-        assert!(!outcome.remeasure_triggered);
+        assert!(outcome.cell_retarget_applied);
         assert_eq!(expected_cells, facet_band.cells.len());
-        assert_eq!(outcome.remeasured_cell_count, 0);
-        assert_eq!(outcome.remeasure_skipped_cell_count, 0);
-        assert_eq!(outcome.remeasured_non_empty_cell_count, 0);
-        assert_eq!(outcome.remeasured_with_coordinated_extents_count, 0);
+        assert_eq!(outcome.retargeted_cell_count, expected_cells);
         assert!(first_after < first_before);
         Ok(())
     }

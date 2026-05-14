@@ -1,7 +1,7 @@
 //! Shared facet band placement helpers.
 //!
-//! Canvas-fit facets resolve placement from the active band scale. Fixed leaf
-//! plot-area facets store explicit placement, then expose it through the same
+//! Canvas-fit facets resolve placement from the active band scale. Plot-area-sized
+//! facets store explicit placement, then expose it through the same
 //! resolved placement view.
 
 use std::collections::HashMap;
@@ -43,7 +43,7 @@ pub(crate) struct FacetCellPlacement {
     pub(crate) main_axis_size: f32,
 }
 
-/// Explicit placement model used by fixed leaf plot-area facets.
+/// Explicit placement model used by plot-area-sized facets.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct FacetBandExplicitPlacement {
     pub(crate) main_axis_positions: Vec<f32>,
@@ -348,10 +348,10 @@ pub(crate) fn compute_explicit_main_axis_positions(
     compute_explicit_facet_band_placement(axis, cells, layout).main_axis_positions
 }
 
-/// Returns the main-axis extent of a cell for fixed leaf plot-area positioning.
+/// Returns the main-axis extent of a cell for plot-area-sized positioning.
 ///
 /// For leaf cells, this is simply `plot_area_width` (or height for rows).
-/// For intermediate cells (containing a fixed leaf plot-area facet band), the
+/// For intermediate cells (containing a plot-area-sized facet band), the
 /// stored explicit placement carries the actual subtree extent, including
 /// inter-cell gaps and trailing outer padding.
 fn cell_main_plot_size(axis: FacetAxis, measurement: &ComponentsMeasurement) -> f32 {

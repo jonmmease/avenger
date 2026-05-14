@@ -287,7 +287,7 @@ async fn render_facet_band_common(
             )
             .await
         }
-        FacetRuntimeSizingMode::FixedLeafPlotArea { .. } => {
+        FacetRuntimeSizingMode::PlotAreaSized { .. } => {
             facet_plot_area_sized::render_facet_band_plot_area_sized(
                 ops,
                 compiled_subplot,

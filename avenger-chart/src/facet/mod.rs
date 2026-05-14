@@ -10,21 +10,21 @@
 //!    guide and subplot positions.
 //!
 //! Canvas-fit facets start from an outer canvas and resize subplot plot areas to
-//! fit coordinated overflows. Plot-area-sized facets start from fixed leaf plot
-//! areas; `subtree_plot_area` provides initial subtree-size estimates, and final
-//! extents come from coordinated explicit placement.
+//! fit coordinated overflows. Plot-area-sized facets start from requested leaf
+//! plot areas; `subtree_plot_area` provides initial subtree-size estimates, and
+//! final extents come from coordinated explicit placement.
 
 pub(crate) mod band_attributes;
 pub mod band_positions;
 pub mod coord;
 pub(crate) mod coord_canvas_fit;
-pub(crate) mod coord_fixed_leaf_plot_area;
+pub(crate) mod coord_plot_area_sized;
 pub mod coord_row;
 pub mod coordination;
 pub(crate) mod coordination_apply;
 pub(crate) mod coordination_canvas_fit;
-pub(crate) mod coordination_fixed_leaf_plot_area;
 pub(crate) mod coordination_plans;
+pub(crate) mod coordination_plot_area_sized;
 pub(crate) mod coordination_strategy;
 pub mod debug;
 pub mod dimension_config;
