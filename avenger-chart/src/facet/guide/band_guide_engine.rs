@@ -26,6 +26,10 @@ use crate::{
             format_scalar_value, measure_facet_label_slab, render_facet_label_slab,
         },
         layout_plan::effective_edge_indices_for_values_at_path,
+        overflow_projection::{
+            FacetOverflowSource, guide_anchor_overflow_from_coord_measurement,
+            parent_layout_overflow_from_coord_measurement,
+        },
         placement::{
             resolve_facet_band_placement, resolve_facet_band_placement_from_configured_scales,
         },
@@ -902,34 +906,21 @@ fn facet_measurement_values(measurement: &dyn CoordMeasurement) -> Option<Vec<Sc
 fn facet_parent_layout_local_overflow(
     measurement: &dyn CoordMeasurement,
 ) -> Option<CoordinatedOverflow> {
-    if let Some(facet_measurement) = facet_band_from_coord(measurement) {
-        return facet_measurement.measured_parent_layout_overflow_value();
-    }
-    measurement
-        .as_any()
-        .downcast_ref::<FacetBandProbeMeasurement>()
-        .map(|facet_measurement| facet_measurement.parent_layout_overflow_value())
+    // Facet guides measure their child subplot through the parent-layout
+    // projection so descendant legends are not reserved again by the parent.
+    parent_layout_overflow_from_coord_measurement(measurement, FacetOverflowSource::MeasuredLocal)
 }
 
 fn facet_guide_anchor_local_overflow(
     measurement: &dyn CoordMeasurement,
 ) -> Option<CoordinatedOverflow> {
-    if let Some(facet_measurement) = facet_band_from_coord(measurement) {
-        return facet_measurement.measured_guide_anchor_overflow_value();
-    }
-    measurement
-        .as_any()
-        .downcast_ref::<FacetBandProbeMeasurement>()
-        .map(|facet_measurement| facet_measurement.guide_anchor_overflow_value())
+    guide_anchor_overflow_from_coord_measurement(measurement, FacetOverflowSource::MeasuredLocal)
 }
 
 fn facet_guide_anchor_coordinated_overflow(
     measurement: &dyn CoordMeasurement,
 ) -> Option<CoordinatedOverflow> {
-    if let Some(facet_measurement) = facet_band_from_coord(measurement) {
-        return Some(facet_measurement.guide_anchor_coordinated_overflow_value());
-    }
-    measurement.coordinated_overflow().cloned()
+    guide_anchor_overflow_from_coord_measurement(measurement, FacetOverflowSource::Coordinated)
 }
 
 fn labels_from_values_or_band_positions(

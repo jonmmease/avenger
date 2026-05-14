@@ -1,0 +1,617 @@
+//! Shared facet overflow projection semantics.
+//!
+//! Facet measurements keep two overflow values:
+//! - `guide`: axis and facet-guide overflow that directly surrounds the plot area.
+//! - `total`: guide overflow plus rendered content outside the guide slab, such as legends.
+//!
+//! Raw measured overflow and coordinated overflow are both represented by
+//! `CoordinatedOverflow`; callers pass them through unchanged when they need the
+//! full value. The projections here name the cases where a phase intentionally
+//! hides part of that full value:
+//! - `ParentLayout` strips facet-owned legend slabs so ancestors do not reserve them twice.
+//! - `GuideAnchor` uses the same boundary projection as sibling spacing so guides
+//!   align to visible rendered edges.
+//! - `SiblingBoundary` keeps only the rendered boundary slabs that can affect
+//!   adjacent facet-cell spacing.
+//!
+//! Fixed plot-area placement additionally needs `FacetBoundaryDemand`: the
+//! amount of space a rendered cell requires before and after its plot area along
+//! the facet band's main axis.
+
+use crate::{
+    coords::{CoordMeasurement, CoordinatedOverflow, FacetAxis, OverflowSpaceRequirement},
+    facet::coord::{FacetBandProbeMeasurement, facet_band_ref as facet_band_from_coord},
+    plot::compiled::ComponentsMeasurement,
+};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FacetOverflowProjection {
+    ParentLayout,
+    GuideAnchor { axis: FacetAxis },
+    SiblingBoundary { axis: FacetAxis },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FacetOverflowSource {
+    MeasuredLocal,
+    Coordinated,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FacetBandNoRenderablePolicy {
+    DefaultOverflow,
+    #[cfg(test)]
+    FirstCell,
+}
+
+impl FacetBandNoRenderablePolicy {
+    fn use_first_cell_when_none_renderable(self) -> bool {
+        match self {
+            Self::DefaultOverflow => false,
+            #[cfg(test)]
+            Self::FirstCell => true,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct FacetOverflowSlabs {
+    pub guide: OverflowSpaceRequirement,
+    pub legend: OverflowSpaceRequirement,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct FacetCellOverflowInput {
+    pub(crate) renderable: bool,
+    pub(crate) guide: OverflowSpaceRequirement,
+    pub(crate) total: OverflowSpaceRequirement,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct FacetBoundaryDemand {
+    pub(crate) before: f32,
+    pub(crate) after: f32,
+}
+
+impl FacetOverflowSlabs {
+    pub(crate) fn from_coordinated(overflow: &CoordinatedOverflow) -> Self {
+        let legend = OverflowSpaceRequirement {
+            top: (overflow.total.top - overflow.guide.top).max(0.0),
+            right: (overflow.total.right - overflow.guide.right).max(0.0),
+            bottom: (overflow.total.bottom - overflow.guide.bottom).max(0.0),
+            left: (overflow.total.left - overflow.guide.left).max(0.0),
+        };
+        Self {
+            guide: overflow.guide.clone(),
+            legend,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn legend_vertical(&self) -> (f32, f32) {
+        (self.legend.top, self.legend.bottom)
+    }
+
+    #[inline]
+    pub(crate) fn legend_horizontal(&self) -> (f32, f32) {
+        (self.legend.left, self.legend.right)
+    }
+}
+
+pub(crate) fn project_facet_overflow(
+    overflow: &CoordinatedOverflow,
+    projection: FacetOverflowProjection,
+) -> CoordinatedOverflow {
+    match projection {
+        FacetOverflowProjection::ParentLayout => CoordinatedOverflow {
+            guide: overflow.guide.clone(),
+            total: overflow.guide.clone(),
+        },
+        FacetOverflowProjection::GuideAnchor { axis }
+        | FacetOverflowProjection::SiblingBoundary { axis } => {
+            sibling_boundary_overflow(axis, overflow)
+        }
+    }
+}
+
+pub(crate) fn aggregate_facet_band_overflow(
+    axis: FacetAxis,
+    cells: &[FacetCellOverflowInput],
+) -> Option<CoordinatedOverflow> {
+    aggregate_facet_band_overflow_with_policy(
+        axis,
+        cells,
+        FacetBandNoRenderablePolicy::DefaultOverflow,
+    )
+}
+
+pub(crate) fn aggregate_facet_band_overflow_with_policy(
+    axis: FacetAxis,
+    cells: &[FacetCellOverflowInput],
+    no_renderable_policy: FacetBandNoRenderablePolicy,
+) -> Option<CoordinatedOverflow> {
+    if cells.is_empty() {
+        return None;
+    }
+
+    let mut renderable_indices = cells
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, cell)| cell.renderable.then_some(idx))
+        .collect::<Vec<_>>();
+    if renderable_indices.is_empty() {
+        if no_renderable_policy.use_first_cell_when_none_renderable() {
+            renderable_indices.push(0);
+        } else {
+            return Some(CoordinatedOverflow::default());
+        }
+    }
+
+    let first_idx = *renderable_indices
+        .first()
+        .expect("renderable indices must not be empty");
+    let last_idx = *renderable_indices
+        .last()
+        .expect("renderable indices must not be empty");
+    let first = &cells[first_idx];
+    let last = &cells[last_idx];
+
+    let max_guide_top = renderable_indices
+        .iter()
+        .map(|idx| cells[*idx].guide.top)
+        .fold(0.0, f32::max);
+    let max_guide_bottom = renderable_indices
+        .iter()
+        .map(|idx| cells[*idx].guide.bottom)
+        .fold(0.0, f32::max);
+    let max_guide_left = renderable_indices
+        .iter()
+        .map(|idx| cells[*idx].guide.left)
+        .fold(0.0, f32::max);
+    let max_guide_right = renderable_indices
+        .iter()
+        .map(|idx| cells[*idx].guide.right)
+        .fold(0.0, f32::max);
+
+    let max_total_top = renderable_indices
+        .iter()
+        .map(|idx| cells[*idx].total.top)
+        .fold(0.0, f32::max);
+    let max_total_bottom = renderable_indices
+        .iter()
+        .map(|idx| cells[*idx].total.bottom)
+        .fold(0.0, f32::max);
+    let max_total_left = renderable_indices
+        .iter()
+        .map(|idx| cells[*idx].total.left)
+        .fold(0.0, f32::max);
+    let max_total_right = renderable_indices
+        .iter()
+        .map(|idx| cells[*idx].total.right)
+        .fold(0.0, f32::max);
+
+    let guide = match axis {
+        FacetAxis::Column => OverflowSpaceRequirement {
+            top: max_guide_top,
+            bottom: max_guide_bottom,
+            left: first.guide.left,
+            right: last.guide.right,
+        },
+        FacetAxis::Row => OverflowSpaceRequirement {
+            top: first.guide.top,
+            bottom: last.guide.bottom,
+            left: max_guide_left,
+            right: max_guide_right,
+        },
+    };
+
+    let total = match axis {
+        FacetAxis::Column => OverflowSpaceRequirement {
+            top: max_total_top,
+            bottom: max_total_bottom,
+            left: first.total.left,
+            right: last.total.right,
+        },
+        FacetAxis::Row => OverflowSpaceRequirement {
+            top: first.total.top,
+            bottom: last.total.bottom,
+            left: max_total_left,
+            right: max_total_right,
+        },
+    };
+
+    Some(CoordinatedOverflow { guide, total })
+}
+
+pub(crate) fn parent_layout_overflow_from_coord_measurement(
+    measurement: &dyn CoordMeasurement,
+    source: FacetOverflowSource,
+) -> Option<CoordinatedOverflow> {
+    facet_measurement_overflow(measurement, source).map(|(_, overflow)| {
+        project_facet_overflow(&overflow, FacetOverflowProjection::ParentLayout)
+    })
+}
+
+pub(crate) fn guide_anchor_overflow_from_coord_measurement(
+    measurement: &dyn CoordMeasurement,
+    source: FacetOverflowSource,
+) -> Option<CoordinatedOverflow> {
+    if let Some((axis, overflow)) = facet_measurement_overflow(measurement, source) {
+        return Some(project_facet_overflow(
+            &overflow,
+            FacetOverflowProjection::GuideAnchor { axis },
+        ));
+    }
+
+    match source {
+        FacetOverflowSource::MeasuredLocal => None,
+        FacetOverflowSource::Coordinated => measurement.coordinated_overflow().cloned(),
+    }
+}
+
+pub(crate) fn rendered_boundary_demand_for_measurement(
+    axis: FacetAxis,
+    measurement: &ComponentsMeasurement,
+) -> FacetBoundaryDemand {
+    const LEGEND_EDGE_BREATHING_ROOM: f32 = 8.0;
+
+    let total = sibling_boundary_total_overflow_for_explicit_placement(measurement);
+    let guide = &measurement.layout.overflow;
+    let (
+        legend_left_from_bounds,
+        legend_right_from_bounds,
+        legend_top_from_bounds,
+        legend_bottom_from_bounds,
+    ) = legend_bounds_overflow_edges(measurement);
+    let (
+        coordinated_legend_left,
+        coordinated_legend_right,
+        coordinated_legend_top,
+        coordinated_legend_bottom,
+    ) = coordinated_legend_overflow_edges(measurement);
+
+    let legend_left = (total.left - guide.left)
+        .max(0.0)
+        .max(coordinated_legend_left)
+        .max(legend_left_from_bounds);
+    let legend_right = (total.right - guide.right)
+        .max(0.0)
+        .max(coordinated_legend_right)
+        .max(legend_right_from_bounds);
+    let legend_top = (total.top - guide.top)
+        .max(0.0)
+        .max(coordinated_legend_top)
+        .max(legend_top_from_bounds);
+    let legend_bottom = (total.bottom - guide.bottom)
+        .max(0.0)
+        .max(coordinated_legend_bottom)
+        .max(legend_bottom_from_bounds);
+
+    match axis {
+        FacetAxis::Column => FacetBoundaryDemand {
+            before: total.left.max(0.0)
+                + if legend_left > 0.0 {
+                    LEGEND_EDGE_BREATHING_ROOM
+                } else {
+                    0.0
+                },
+            after: total.right.max(0.0)
+                + if legend_right > 0.0 {
+                    LEGEND_EDGE_BREATHING_ROOM
+                } else {
+                    0.0
+                },
+        },
+        FacetAxis::Row => FacetBoundaryDemand {
+            before: total.top.max(0.0)
+                + if legend_top > 0.0 {
+                    LEGEND_EDGE_BREATHING_ROOM
+                } else {
+                    0.0
+                },
+            after: total.bottom.max(0.0)
+                + if legend_bottom > 0.0 {
+                    LEGEND_EDGE_BREATHING_ROOM
+                } else {
+                    0.0
+                },
+        },
+    }
+}
+
+fn sibling_boundary_overflow(
+    axis: FacetAxis,
+    overflow: &CoordinatedOverflow,
+) -> CoordinatedOverflow {
+    let mut total = overflow.total.clone();
+    match axis {
+        FacetAxis::Column => {
+            total.left = overflow.guide.left;
+            total.right = overflow.guide.right;
+            total.top = overflow.guide.top;
+        }
+        FacetAxis::Row => {
+            total.top = overflow.guide.top;
+            total.bottom = overflow.guide.bottom;
+            total.left = overflow.guide.left;
+        }
+    }
+    CoordinatedOverflow {
+        guide: overflow.guide.clone(),
+        total,
+    }
+}
+
+fn facet_measurement_overflow(
+    measurement: &dyn CoordMeasurement,
+    source: FacetOverflowSource,
+) -> Option<(FacetAxis, CoordinatedOverflow)> {
+    match source {
+        FacetOverflowSource::MeasuredLocal => {
+            if let Some(facet_measurement) = facet_band_from_coord(measurement) {
+                return facet_measurement
+                    .measured_overflow_value()
+                    .map(|overflow| (facet_measurement.axis, overflow));
+            }
+            measurement
+                .as_any()
+                .downcast_ref::<FacetBandProbeMeasurement>()
+                .map(|facet_measurement| {
+                    (
+                        facet_measurement.axis,
+                        facet_measurement.measured_overflow.clone(),
+                    )
+                })
+        }
+        FacetOverflowSource::Coordinated => {
+            facet_band_from_coord(measurement).map(|facet_measurement| {
+                (
+                    facet_measurement.axis,
+                    facet_measurement.coordinated_overflow.clone(),
+                )
+            })
+        }
+    }
+}
+
+fn legend_bounds_overflow_edges(measurement: &ComponentsMeasurement) -> (f32, f32, f32, f32) {
+    let mut left = 0.0f32;
+    let mut right = 0.0f32;
+    let mut top = 0.0f32;
+    let mut bottom = 0.0f32;
+    let plot_width = measurement.plot_area_width;
+    let plot_height = measurement.plot_area_height;
+
+    for bounds in measurement.layout.taffy_layout.legends.values() {
+        left = left.max((-bounds.x).max(0.0));
+        right = right.max((bounds.x + bounds.width - plot_width).max(0.0));
+        top = top.max((-bounds.y).max(0.0));
+        bottom = bottom.max((bounds.y + bounds.height - plot_height).max(0.0));
+    }
+
+    (left, right, top, bottom)
+}
+
+fn coordinated_legend_overflow_edges(measurement: &ComponentsMeasurement) -> (f32, f32, f32, f32) {
+    let Some(facet_band) = facet_band_from_coord(measurement.coord_measurement.as_ref()) else {
+        return (0.0, 0.0, 0.0, 0.0);
+    };
+
+    let slabs = FacetOverflowSlabs::from_coordinated(&facet_band.coordinated_overflow);
+    (
+        slabs.legend.left,
+        slabs.legend.right,
+        slabs.legend.top,
+        slabs.legend.bottom,
+    )
+}
+
+fn sibling_boundary_total_overflow_for_explicit_placement(
+    measurement: &ComponentsMeasurement,
+) -> OverflowSpaceRequirement {
+    let mut total = measurement.layout.total_overflow.clone();
+
+    if let Some(facet_band) = facet_band_from_coord(measurement.coord_measurement.as_ref())
+        && let Some(boundary) = facet_band.measured_sibling_boundary_overflow_value()
+    {
+        total = total.max_components(&boundary.total);
+    }
+
+    total
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn overflow(guide: (f32, f32, f32, f32), total: (f32, f32, f32, f32)) -> CoordinatedOverflow {
+        CoordinatedOverflow {
+            guide: OverflowSpaceRequirement {
+                top: guide.0,
+                right: guide.1,
+                bottom: guide.2,
+                left: guide.3,
+            },
+            total: OverflowSpaceRequirement {
+                top: total.0,
+                right: total.1,
+                bottom: total.2,
+                left: total.3,
+            },
+        }
+    }
+
+    fn cell(
+        renderable: bool,
+        guide: (f32, f32, f32, f32),
+        total: (f32, f32, f32, f32),
+    ) -> FacetCellOverflowInput {
+        FacetCellOverflowInput {
+            renderable,
+            guide: OverflowSpaceRequirement {
+                top: guide.0,
+                right: guide.1,
+                bottom: guide.2,
+                left: guide.3,
+            },
+            total: OverflowSpaceRequirement {
+                top: total.0,
+                right: total.1,
+                bottom: total.2,
+                left: total.3,
+            },
+        }
+    }
+
+    fn assert_overflow_eq(actual: &CoordinatedOverflow, expected: &CoordinatedOverflow) {
+        assert_eq!(actual.guide, expected.guide);
+        assert_eq!(actual.total, expected.total);
+    }
+
+    #[test]
+    fn parent_layout_projection_strips_legend_slabs() {
+        let raw = overflow((1.0, 2.0, 3.0, 4.0), (5.0, 6.0, 7.0, 8.0));
+        let projected = project_facet_overflow(&raw, FacetOverflowProjection::ParentLayout);
+        assert_eq!(projected.guide, raw.guide);
+        assert_eq!(projected.total, raw.guide);
+    }
+
+    #[test]
+    fn sibling_boundary_projection_preserves_only_cross_axis_end_legend_slab() {
+        let raw = overflow((10.0, 20.0, 30.0, 40.0), (110.0, 120.0, 130.0, 140.0));
+
+        let row = project_facet_overflow(
+            &raw,
+            FacetOverflowProjection::SiblingBoundary {
+                axis: FacetAxis::Row,
+            },
+        );
+        assert_eq!(row.total.top, raw.guide.top);
+        assert_eq!(row.total.bottom, raw.guide.bottom);
+        assert_eq!(row.total.left, raw.guide.left);
+        assert_eq!(row.total.right, raw.total.right);
+
+        let column = project_facet_overflow(
+            &raw,
+            FacetOverflowProjection::SiblingBoundary {
+                axis: FacetAxis::Column,
+            },
+        );
+        assert_eq!(column.total.left, raw.guide.left);
+        assert_eq!(column.total.right, raw.guide.right);
+        assert_eq!(column.total.top, raw.guide.top);
+        assert_eq!(column.total.bottom, raw.total.bottom);
+    }
+
+    #[test]
+    fn guide_anchor_projection_matches_sibling_boundary_projection() {
+        let raw = overflow((10.0, 20.0, 30.0, 40.0), (110.0, 120.0, 130.0, 140.0));
+        assert_overflow_eq(
+            &project_facet_overflow(
+                &raw,
+                FacetOverflowProjection::GuideAnchor {
+                    axis: FacetAxis::Row,
+                },
+            ),
+            &project_facet_overflow(
+                &raw,
+                FacetOverflowProjection::SiblingBoundary {
+                    axis: FacetAxis::Row,
+                },
+            ),
+        );
+    }
+
+    #[test]
+    fn overflow_slabs_extract_non_negative_legend_slab() {
+        let raw = overflow((12.0, 9.0, 5.0, 3.0), (20.0, 10.0, 8.0, 1.0));
+        let slabs = FacetOverflowSlabs::from_coordinated(&raw);
+        assert_eq!(slabs.guide, raw.guide);
+        assert_eq!(slabs.legend.top, 8.0);
+        assert_eq!(slabs.legend.right, 1.0);
+        assert_eq!(slabs.legend.bottom, 3.0);
+        assert_eq!(slabs.legend.left, 0.0);
+    }
+
+    #[test]
+    fn aggregate_column_uses_first_last_main_edges_and_max_cross_edges() {
+        let cells = vec![
+            cell(true, (1.0, 2.0, 3.0, 4.0), (11.0, 12.0, 13.0, 14.0)),
+            cell(false, (50.0, 60.0, 70.0, 80.0), (51.0, 61.0, 71.0, 81.0)),
+            cell(true, (5.0, 6.0, 7.0, 8.0), (15.0, 16.0, 17.0, 18.0)),
+        ];
+        let aggregated = aggregate_facet_band_overflow(FacetAxis::Column, &cells).unwrap();
+
+        assert_eq!(
+            aggregated.guide,
+            OverflowSpaceRequirement {
+                top: 5.0,
+                right: 6.0,
+                bottom: 7.0,
+                left: 4.0,
+            }
+        );
+        assert_eq!(
+            aggregated.total,
+            OverflowSpaceRequirement {
+                top: 15.0,
+                right: 16.0,
+                bottom: 17.0,
+                left: 14.0,
+            }
+        );
+    }
+
+    #[test]
+    fn aggregate_row_uses_first_last_main_edges_and_max_cross_edges() {
+        let cells = vec![
+            cell(true, (1.0, 2.0, 3.0, 4.0), (11.0, 12.0, 13.0, 14.0)),
+            cell(false, (50.0, 60.0, 70.0, 80.0), (51.0, 61.0, 71.0, 81.0)),
+            cell(true, (5.0, 6.0, 7.0, 8.0), (15.0, 16.0, 17.0, 18.0)),
+        ];
+        let aggregated = aggregate_facet_band_overflow(FacetAxis::Row, &cells).unwrap();
+
+        assert_eq!(
+            aggregated.guide,
+            OverflowSpaceRequirement {
+                top: 1.0,
+                right: 6.0,
+                bottom: 7.0,
+                left: 8.0,
+            }
+        );
+        assert_eq!(
+            aggregated.total,
+            OverflowSpaceRequirement {
+                top: 11.0,
+                right: 16.0,
+                bottom: 17.0,
+                left: 18.0,
+            }
+        );
+    }
+
+    #[test]
+    fn aggregate_preserves_no_renderable_policies() {
+        let cells = vec![
+            cell(false, (1.0, 2.0, 3.0, 4.0), (11.0, 12.0, 13.0, 14.0)),
+            cell(false, (5.0, 6.0, 7.0, 8.0), (15.0, 16.0, 17.0, 18.0)),
+        ];
+
+        assert_overflow_eq(
+            &aggregate_facet_band_overflow(FacetAxis::Column, &cells).unwrap(),
+            &CoordinatedOverflow::default(),
+        );
+        assert_eq!(
+            aggregate_facet_band_overflow_with_policy(
+                FacetAxis::Column,
+                &cells,
+                FacetBandNoRenderablePolicy::FirstCell,
+            )
+            .unwrap()
+            .total
+            .left,
+            14.0
+        );
+    }
+}

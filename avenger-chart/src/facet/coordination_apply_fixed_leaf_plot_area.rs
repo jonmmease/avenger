@@ -16,7 +16,7 @@ use crate::{
             InitialRequirementPass, RetargetNodePlan, RetargetNodeTrace, RetargetPlan,
             RetargetTrace, RetargetedRequirementPass,
         },
-        layout_slabs::LayoutSlabs,
+        overflow_projection::FacetOverflowSlabs,
     },
     plot::compiled::ComponentsMeasurement,
     render::EvaluationContext,
@@ -172,7 +172,7 @@ fn build_retarget_plan_plot_area_sized_recursive(
 
         let node_id = CoordinationNodeKey::new(node_path.clone());
         let mut apply_plan = facet_band.derive_coordinated_apply_plan();
-        let slabs = LayoutSlabs::from_coordinated(&facet_band.coordinated_overflow);
+        let slabs = FacetOverflowSlabs::from_coordinated(&facet_band.coordinated_overflow);
         let (legend_main_start, legend_main_end) = match facet_band.axis {
             FacetAxis::Column => slabs.legend_vertical(),
             FacetAxis::Row => slabs.legend_horizontal(),

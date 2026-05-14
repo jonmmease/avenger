@@ -11,7 +11,7 @@ use datafusion_common::ScalarValue;
 use tracing::trace;
 
 use crate::{
-    coords::{CoordMeasurement, CoordinatedLayout, FacetAxis, OverflowSpaceRequirement},
+    coords::{CoordMeasurement, CoordinatedLayout, FacetAxis},
     error::AvengerChartError,
     facet::{
         band_positions::{BandPosition, BandPositionIterator},
@@ -19,6 +19,7 @@ use crate::{
             FacetBandCoordMeasurementCanvasFit, FacetBandCoordMeasurementPlotAreaSized,
             FacetCellRuntime,
         },
+        overflow_projection::rendered_boundary_demand_for_measurement,
         padding_policy,
     },
     plot::compiled::ComponentsMeasurement,
@@ -309,10 +310,14 @@ pub(crate) fn compute_explicit_facet_band_placement(
         let cell_size = cell_main_plot_size(axis, &cell.measurement);
         cursor += cell_size;
         if idx + 1 < cells.len() {
-            let (_, after_current) =
-                cell_main_axis_rendered_boundary_overflow_pair(axis, &cell.measurement);
-            let (before_next, _) =
-                cell_main_axis_rendered_boundary_overflow_pair(axis, &cells[idx + 1].measurement);
+            // Fixed plot-area mode keeps leaf plot areas locked, so inter-cell
+            // gaps absorb any rendered content that extends past plot bounds.
+            let current_boundary =
+                rendered_boundary_demand_for_measurement(axis, &cell.measurement);
+            let next_boundary =
+                rendered_boundary_demand_for_measurement(axis, &cells[idx + 1].measurement);
+            let after_current = current_boundary.after;
+            let before_next = next_boundary.before;
             let gap_size = gap.max(after_current + before_next);
             trace!(
                 axis = ?axis,
@@ -405,146 +410,6 @@ fn cell_cross_plot_size(axis: FacetAxis, measurement: &ComponentsMeasurement) ->
         FacetAxis::Row => measurement.plot_area_width,
     }
     .max(0.0)
-}
-
-fn cell_main_axis_rendered_boundary_overflow_pair(
-    axis: FacetAxis,
-    measurement: &ComponentsMeasurement,
-) -> (f32, f32) {
-    const LEGEND_EDGE_BREATHING_ROOM: f32 = 8.0;
-
-    let total = sibling_boundary_total_overflow_for_explicit_placement(measurement);
-    let guide = &measurement.layout.overflow;
-    let (
-        legend_left_from_bounds,
-        legend_right_from_bounds,
-        legend_top_from_bounds,
-        legend_bottom_from_bounds,
-    ) = legend_bounds_overflow_edges(measurement);
-    let (coord_legend_left, coord_legend_right, coord_legend_top, coord_legend_bottom) =
-        coordinated_legend_overflow_edges(measurement);
-
-    let legend_left = (total.left - guide.left)
-        .max(0.0)
-        .max(coord_legend_left)
-        .max(legend_left_from_bounds);
-    let legend_right = (total.right - guide.right)
-        .max(0.0)
-        .max(coord_legend_right)
-        .max(legend_right_from_bounds);
-    let legend_top = (total.top - guide.top)
-        .max(0.0)
-        .max(coord_legend_top)
-        .max(legend_top_from_bounds);
-    let legend_bottom = (total.bottom - guide.bottom)
-        .max(0.0)
-        .max(coord_legend_bottom)
-        .max(legend_bottom_from_bounds);
-
-    match axis {
-        FacetAxis::Column => {
-            let mut left = total.left.max(0.0);
-            let mut right = total.right.max(0.0);
-            if legend_left > 0.0 {
-                left += LEGEND_EDGE_BREATHING_ROOM;
-            }
-            if legend_right > 0.0 {
-                right += LEGEND_EDGE_BREATHING_ROOM;
-            }
-            (left, right)
-        }
-        FacetAxis::Row => {
-            let mut top = total.top.max(0.0);
-            let mut bottom = total.bottom.max(0.0);
-            if legend_top > 0.0 {
-                top += LEGEND_EDGE_BREATHING_ROOM;
-            }
-            if legend_bottom > 0.0 {
-                bottom += LEGEND_EDGE_BREATHING_ROOM;
-            }
-            (top, bottom)
-        }
-    }
-}
-
-fn legend_bounds_overflow_edges(measurement: &ComponentsMeasurement) -> (f32, f32, f32, f32) {
-    let mut left = 0.0f32;
-    let mut right = 0.0f32;
-    let mut top = 0.0f32;
-    let mut bottom = 0.0f32;
-    let plot_width = measurement.plot_area_width;
-    let plot_height = measurement.plot_area_height;
-
-    for bounds in measurement.layout.taffy_layout.legends.values() {
-        left = left.max((-bounds.x).max(0.0));
-        right = right.max((bounds.x + bounds.width - plot_width).max(0.0));
-        top = top.max((-bounds.y).max(0.0));
-        bottom = bottom.max((bounds.y + bounds.height - plot_height).max(0.0));
-    }
-
-    (left, right, top, bottom)
-}
-
-fn coordinated_legend_overflow_edges(measurement: &ComponentsMeasurement) -> (f32, f32, f32, f32) {
-    if let Some(facet_band) = measurement
-        .coord_measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
-    {
-        let total = &facet_band.coordinated_overflow.total;
-        let guide = &facet_band.coordinated_overflow.guide;
-        return (
-            (total.left - guide.left).max(0.0),
-            (total.right - guide.right).max(0.0),
-            (total.top - guide.top).max(0.0),
-            (total.bottom - guide.bottom).max(0.0),
-        );
-    }
-
-    if let Some(facet_band) = measurement
-        .coord_measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementCanvasFit>()
-    {
-        let total = &facet_band.coordinated_overflow.total;
-        let guide = &facet_band.coordinated_overflow.guide;
-        return (
-            (total.left - guide.left).max(0.0),
-            (total.right - guide.right).max(0.0),
-            (total.top - guide.top).max(0.0),
-            (total.bottom - guide.bottom).max(0.0),
-        );
-    }
-
-    (0.0, 0.0, 0.0, 0.0)
-}
-
-fn sibling_boundary_total_overflow_for_explicit_placement(
-    measurement: &ComponentsMeasurement,
-) -> OverflowSpaceRequirement {
-    let mut total = measurement.layout.total_overflow.clone();
-
-    if let Some(facet_band) = measurement
-        .coord_measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
-    {
-        if let Some(boundary) = facet_band.measured_sibling_boundary_overflow_value() {
-            total = total.max_components(&boundary.total);
-        }
-        return total;
-    }
-
-    if let Some(boundary) = measurement
-        .coord_measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementCanvasFit>()
-        .and_then(|facet_band| facet_band.measured_sibling_boundary_overflow_value())
-    {
-        total = total.max_components(&boundary.total);
-    }
-
-    total
 }
 
 #[cfg(test)]

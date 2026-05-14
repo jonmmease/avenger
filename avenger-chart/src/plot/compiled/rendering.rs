@@ -5148,7 +5148,7 @@ mod tests {
     ) {
         if let Some(facet_band) = facet_band_ref(measurement) {
             if facet_band.coordination_field_identity == "team" {
-                let slabs = crate::facet::layout_slabs::LayoutSlabs::from_coordinated(
+                let slabs = crate::facet::overflow_projection::FacetOverflowSlabs::from_coordinated(
                     &facet_band.coordinated_overflow,
                 );
                 let apply_plan = facet_band.derive_coordinated_apply_plan();
