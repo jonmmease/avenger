@@ -3738,10 +3738,13 @@ impl CompiledPlot {
 mod tests {
     use super::*;
     use crate::{
-        coords::CoordinatedOverflow,
+        coords::{CoordinatedOverflow, FacetAxis},
         facet::{
             band_positions::BandPositionIterator,
             coord::{FacetBandCoordMeasurement, facet_band_ref as facet_band_ref_from_coord},
+            coordination_apply::build_retarget_plan_with_strategy,
+            coordination_plans::CoordinationNodeKey,
+            coordination_strategy::PlotAreaSizedCoordinationStrategy,
         },
         layout::PlotConstraint,
         legend::LegendPosition,
@@ -5096,11 +5099,12 @@ mod tests {
                 let slabs = crate::facet::overflow_projection::FacetOverflowSlabs::from_coordinated(
                     &facet_band.coordinated_overflow,
                 );
-                let apply_plan = facet_band.derive_coordinated_apply_plan();
+                let requirements =
+                    facet_band.derive_retarget_requirements(CoordinationNodeKey::new(Vec::new()));
                 out.push((
                     slabs.legend.right.max(0.0),
-                    apply_plan.has_coordinated_layout,
-                    apply_plan.cell_retarget_required,
+                    requirements.layout_changed,
+                    requirements.has_legend_overflow || requirements.has_coordinated_extents,
                 ));
             }
 
@@ -5813,7 +5817,7 @@ mod tests {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
             let compiled =
-                compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
+                compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Top)
                     .await?;
             let (_, _, measurement) =
                 prepare_refined_top_level_measurement(&compiled, &ctx).await?;
@@ -5934,6 +5938,134 @@ mod tests {
                 leaf_heights.iter().all(|h| (*h - 90.0).abs() <= 0.01),
                 "plot-area-sized full-cycle path must keep leaf plot heights locked"
             );
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn plot_area_sized_retarget_actions_preserve_plot_area_for_legend_slabs() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled =
+                compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
+                    .await?;
+            let (eval_ctx, evaluated_layout_spec, scale_builder, mut measurement) =
+                prepare_top_level_measurement(&compiled, &ctx).await?;
+            let provider = DynamicScaleProvider {
+                builder: &scale_builder,
+                plot: &compiled,
+            };
+            compiled
+                .apply_layout_snapshot(
+                    &LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
+                        CoordinationCheckpoint::InitialRequirementsApplied,
+                    )),
+                    &mut measurement,
+                    &eval_ctx,
+                    &evaluated_layout_spec,
+                    &provider,
+                    FacetSizingStrategy::PlotAreaSized {
+                        leaf_plot_width: 120.0,
+                        leaf_plot_height: 90.0,
+                    },
+                    FacetCoordinationMode::PlotAreaSizedFullCycle,
+                )
+                .await?;
+            let root_facet = measurement
+                .coord_measurement
+                .as_any_mut()
+                .downcast_mut::<FacetBandCoordMeasurementPlotAreaSized>()
+                .expect("fixture should produce a plot-area-sized root facet");
+            match root_facet.axis {
+                FacetAxis::Column => {
+                    root_facet.coordinated_overflow.total.top =
+                        root_facet.coordinated_overflow.guide.top + 24.0;
+                }
+                FacetAxis::Row => {
+                    root_facet.coordinated_overflow.total.left =
+                        root_facet.coordinated_overflow.guide.left + 24.0;
+                }
+            }
+
+            let plan = build_retarget_plan_with_strategy::<PlotAreaSizedCoordinationStrategy>(
+                &measurement,
+            );
+            let legend_nodes = plan
+                .node_plans
+                .iter()
+                .filter(|node| node.requirements.has_legend_overflow)
+                .collect::<Vec<_>>();
+            assert!(
+                !legend_nodes.is_empty(),
+                "fixture should produce plot-area-sized retarget requirements with legend slabs"
+            );
+            for node in legend_nodes {
+                assert_eq!(
+                    node.actions
+                        .child_action_counts()
+                        .plot_area_retarget_count(),
+                    0,
+                    "plot-area-sized legend slabs should not retarget child plot areas"
+                );
+            }
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn plot_area_sized_retarget_actions_rebuild_domains_without_plot_area_retarget() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled =
+                compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
+                    .await?;
+            let (eval_ctx, evaluated_layout_spec, scale_builder, mut measurement) =
+                prepare_top_level_measurement(&compiled, &ctx).await?;
+            let provider = DynamicScaleProvider {
+                builder: &scale_builder,
+                plot: &compiled,
+            };
+            compiled
+                .apply_layout_snapshot(
+                    &LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
+                        CoordinationCheckpoint::InitialRequirementsApplied,
+                    )),
+                    &mut measurement,
+                    &eval_ctx,
+                    &evaluated_layout_spec,
+                    &provider,
+                    FacetSizingStrategy::PlotAreaSized {
+                        leaf_plot_width: 120.0,
+                        leaf_plot_height: 90.0,
+                    },
+                    FacetCoordinationMode::PlotAreaSizedFullCycle,
+                )
+                .await?;
+
+            let plan = build_retarget_plan_with_strategy::<PlotAreaSizedCoordinationStrategy>(
+                &measurement,
+            );
+            let domain_nodes = plan
+                .node_plans
+                .iter()
+                .filter(|node| node.requirements.has_coordinated_extents)
+                .collect::<Vec<_>>();
+            assert!(
+                !domain_nodes.is_empty(),
+                "fixture should produce coordinated domain requirements"
+            );
+            for node in domain_nodes {
+                let counts = node.actions.child_action_counts();
+                assert_eq!(
+                    counts.plot_area_retarget_count(),
+                    0,
+                    "plot-area-sized domain coordination should preserve child plot areas"
+                );
+                assert!(
+                    counts.domain_rebuild_count() > 0,
+                    "coordinated domains should produce domain rebuild actions"
+                );
+            }
             Ok(())
         });
     }

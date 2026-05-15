@@ -5,10 +5,8 @@ use datafusion::common::ScalarValue;
 use crate::{
     coords::{CellDomainInfo, CoordinatedLayout, CoordinatedOverflow, FacetAxis},
     facet::{
-        coord::{FacetBandCoordinationApplyPlan, union_domain_extents},
-        coordination::CoordinationGroupKey,
-        sharing_level::SharingLevel,
-        sharing_policy,
+        coord::union_domain_extents, coordination::CoordinationGroupKey,
+        sharing_level::SharingLevel, sharing_policy,
     },
     scales::domain_extent::DomainExtent,
 };
@@ -97,14 +95,145 @@ pub(crate) struct RetargetedRequirementPass {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct RetargetNodePlan {
+pub(crate) struct AxisSlab {
+    pub(crate) start: f32,
+    pub(crate) end: f32,
+}
+
+impl AxisSlab {
+    pub(crate) fn total(&self) -> f32 {
+        self.start + self.end
+    }
+
+    pub(crate) fn has_slab(&self) -> bool {
+        self.start > 0.0 || self.end > 0.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct PlotAreaSize {
+    pub(crate) width: f32,
+    pub(crate) height: f32,
+}
+
+impl PlotAreaSize {
+    pub(crate) fn new(width: f32, height: f32) -> Self {
+        Self { width, height }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct FacetOwnershipRequirement {
+    pub(crate) has_holes: bool,
+    pub(crate) axis_owner_ignore_empty_cells: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct RetargetNodeRequirements {
     pub(crate) node_id: CoordinationNodeKey,
     pub(crate) axis: FacetAxis,
-    pub(crate) apply_plan: FacetBandCoordinationApplyPlan,
+    pub(crate) child_count: usize,
+    pub(crate) coordinated_overflow: CoordinatedOverflow,
+    pub(crate) coordinated_layout: Option<CoordinatedLayout>,
+    pub(crate) layout_changed: bool,
+    pub(crate) legend_main_axis_slab: AxisSlab,
     pub(crate) has_legend_overflow: bool,
     pub(crate) has_coordinated_extents: bool,
-    pub(crate) cell_retarget_required: bool,
-    pub(crate) child_count: usize,
+    pub(crate) ownership: FacetOwnershipRequirement,
+    pub(crate) child_plot_areas: Vec<PlotAreaSize>,
+    pub(crate) child_has_coordinated_extents: Vec<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BandRetargetAction {
+    Preserve,
+    ApplyCoordinatedLayout,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum CellRetargetAction {
+    Preserve,
+    RebuildDomains,
+    RetargetPlotArea { main_axis_size: f32 },
+    RetargetPlotAreaAndDomains { main_axis_size: f32 },
+}
+
+impl CellRetargetAction {
+    pub(crate) fn retargets_plot_area(&self) -> bool {
+        matches!(
+            self,
+            Self::RetargetPlotArea { .. } | Self::RetargetPlotAreaAndDomains { .. }
+        )
+    }
+
+    pub(crate) fn rebuilds_domains(&self) -> bool {
+        matches!(
+            self,
+            Self::RebuildDomains | Self::RetargetPlotAreaAndDomains { .. }
+        )
+    }
+
+    pub(crate) fn main_axis_size(&self) -> Option<f32> {
+        match self {
+            Self::RetargetPlotArea { main_axis_size }
+            | Self::RetargetPlotAreaAndDomains { main_axis_size } => Some(*main_axis_size),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct CellRetargetActionCounts {
+    pub(crate) preserve: usize,
+    pub(crate) rebuild_domains: usize,
+    pub(crate) retarget_plot_area: usize,
+    pub(crate) retarget_plot_area_and_domains: usize,
+}
+
+impl CellRetargetActionCounts {
+    pub(crate) fn from_actions(actions: &[CellRetargetAction]) -> Self {
+        let mut counts = Self::default();
+        for action in actions {
+            match action {
+                CellRetargetAction::Preserve => counts.preserve += 1,
+                CellRetargetAction::RebuildDomains => counts.rebuild_domains += 1,
+                CellRetargetAction::RetargetPlotArea { .. } => counts.retarget_plot_area += 1,
+                CellRetargetAction::RetargetPlotAreaAndDomains { .. } => {
+                    counts.retarget_plot_area_and_domains += 1;
+                }
+            }
+        }
+        counts
+    }
+
+    pub(crate) fn plot_area_retarget_count(&self) -> usize {
+        self.retarget_plot_area + self.retarget_plot_area_and_domains
+    }
+
+    pub(crate) fn domain_rebuild_count(&self) -> usize {
+        self.rebuild_domains + self.retarget_plot_area_and_domains
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct RetargetNodeActions {
+    pub(crate) node_id: CoordinationNodeKey,
+    pub(crate) axis: FacetAxis,
+    pub(crate) band_action: BandRetargetAction,
+    pub(crate) child_actions: Vec<CellRetargetAction>,
+}
+
+impl RetargetNodeActions {
+    pub(crate) fn child_action_counts(&self) -> CellRetargetActionCounts {
+        CellRetargetActionCounts::from_actions(&self.child_actions)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct RetargetNodePlan {
+    pub(crate) node_id: CoordinationNodeKey,
+    pub(crate) requirements: RetargetNodeRequirements,
+    pub(crate) actions: RetargetNodeActions,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -118,15 +247,26 @@ pub(crate) struct RetargetNodeTrace {
     pub(crate) axis: FacetAxis,
     pub(crate) planned_has_legend_overflow: bool,
     pub(crate) planned_has_coordinated_extents: bool,
-    pub(crate) planned_cell_retarget_required: bool,
+    pub(crate) planned_layout_changed: bool,
     pub(crate) planned_axis_owner_ignore_empty_cells: bool,
-    pub(crate) planned_adjusted_main_size: f32,
+    pub(crate) planned_band_action: BandRetargetAction,
+    pub(crate) planned_child_action_counts: CellRetargetActionCounts,
     pub(crate) planned_child_count: usize,
     pub(crate) parent_cross_size_propagated: bool,
     pub(crate) subplot_cross_size_before: f32,
     pub(crate) subplot_cross_size_after: f32,
-    pub(crate) cell_retarget_applied: bool,
-    pub(crate) retargeted_cell_count: usize,
+    pub(crate) band_layout_applied: bool,
+    pub(crate) plot_area_retarget_count: usize,
+    pub(crate) domain_rebuild_count: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RetargetNodeOutcome {
+    pub(crate) subplot_cross_size_before: f32,
+    pub(crate) subplot_cross_size_after: f32,
+    pub(crate) band_layout_applied: bool,
+    pub(crate) plot_area_retarget_count: usize,
+    pub(crate) domain_rebuild_count: usize,
 }
 
 #[derive(Debug, Clone, Default)]

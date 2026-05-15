@@ -243,17 +243,12 @@ fn build_retarget_plan_recursive<S>(
 
         let base = facet_band.base();
         let node_id = CoordinationNodeKey::new(node_path.clone());
-        let mut apply_plan = base.derive_coordinated_apply_plan();
-        S::prepare_retarget_apply_plan(facet_band, &mut apply_plan);
-        let child_count = base.child_measurements_iter().count();
+        let requirements = base.derive_retarget_requirements(node_id.clone());
+        let actions = S::build_retarget_actions(facet_band, &requirements);
         node_plans.push(RetargetNodePlan {
             node_id,
-            axis: apply_plan.axis,
-            has_legend_overflow: apply_plan.has_legend_overflow,
-            has_coordinated_extents: apply_plan.has_coordinated_extents,
-            cell_retarget_required: apply_plan.cell_retarget_required,
-            apply_plan,
-            child_count,
+            requirements,
+            actions,
         });
     }
 }
@@ -312,10 +307,9 @@ where
                     node_id.path
                 ))
             })?;
-            let execution_plan = S::execution_retarget_apply_plan(&facet_band, &planned.apply_plan);
             let outcome = facet_band
                 .base_mut()
-                .apply_coordinated_overflow_with_plan(eval_ctx, &execution_plan)
+                .apply_retarget_actions(eval_ctx, &planned.actions)
                 .await?;
             S::refresh_placement_after_retarget_node(&mut facet_band);
 
@@ -341,20 +335,23 @@ where
 
             node_results.push(RetargetNodeTrace {
                 node_id,
-                axis: planned.axis,
-                planned_has_legend_overflow: planned.has_legend_overflow,
-                planned_has_coordinated_extents: planned.has_coordinated_extents,
-                planned_cell_retarget_required: planned.cell_retarget_required,
+                axis: planned.requirements.axis,
+                planned_has_legend_overflow: planned.requirements.has_legend_overflow,
+                planned_has_coordinated_extents: planned.requirements.has_coordinated_extents,
+                planned_layout_changed: planned.requirements.layout_changed,
                 planned_axis_owner_ignore_empty_cells: planned
-                    .apply_plan
+                    .requirements
+                    .ownership
                     .axis_owner_ignore_empty_cells,
-                planned_adjusted_main_size: planned.apply_plan.adjusted_main_size,
-                planned_child_count: planned.child_count,
+                planned_band_action: planned.actions.band_action,
+                planned_child_action_counts: planned.actions.child_action_counts(),
+                planned_child_count: planned.requirements.child_count,
                 parent_cross_size_propagated,
                 subplot_cross_size_before: outcome.subplot_cross_size_before,
                 subplot_cross_size_after: outcome.subplot_cross_size_after,
-                cell_retarget_applied: outcome.cell_retarget_applied,
-                retargeted_cell_count: outcome.retargeted_cell_count,
+                band_layout_applied: outcome.band_layout_applied,
+                plot_area_retarget_count: outcome.plot_area_retarget_count,
+                domain_rebuild_count: outcome.domain_rebuild_count,
             });
         }
         Ok(())

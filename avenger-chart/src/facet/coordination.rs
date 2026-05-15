@@ -33,6 +33,7 @@ use crate::{
             build_retargeted_requirement_pass,
         },
         coordination_strategy::FacetSizingCoordinationStrategy,
+        overflow_projection::FacetOverflowSlabs,
     },
     plot::compiled::ComponentsMeasurement,
     render::{CoordinationCheckpoint, EvaluationContext},
@@ -199,10 +200,20 @@ where
         strategy = S::LABEL,
         parent_cross_propagations,
         cross_size_changes,
-        cell_retarget_nodes = retarget_trace
+        band_layout_nodes = retarget_trace
             .node_results
             .iter()
-            .filter(|result| result.cell_retarget_applied)
+            .filter(|result| result.band_layout_applied)
+            .count(),
+        plot_area_retarget_nodes = retarget_trace
+            .node_results
+            .iter()
+            .filter(|result| result.plot_area_retarget_count > 0)
+            .count(),
+        domain_rebuild_nodes = retarget_trace
+            .node_results
+            .iter()
+            .filter(|result| result.domain_rebuild_count > 0)
             .count(),
         "coordinate_facet_measurement_tree retarget complete"
     );
@@ -549,6 +560,42 @@ pub(crate) fn debug_assert_retarget_plan_coverage_with_strategy<S>(
         actual_ids, expected_ids,
         "retarget plan nodes must match current measurement tree node coverage"
     );
+
+    for node in &plan.node_plans {
+        debug_assert_eq!(
+            node.requirements.child_count,
+            node.requirements.child_plot_areas.len(),
+            "retarget requirements must include one child plot-area size per child"
+        );
+        debug_assert_eq!(
+            node.requirements.child_count,
+            node.requirements.child_has_coordinated_extents.len(),
+            "retarget requirements must include one coordinated-domain flag per child"
+        );
+        debug_assert_eq!(
+            node.requirements.child_count,
+            node.actions.child_actions.len(),
+            "retarget actions must include one action per child"
+        );
+        let slabs = FacetOverflowSlabs::from_coordinated(&node.requirements.coordinated_overflow);
+        let (legend_start, legend_end) = match node.requirements.axis {
+            crate::coords::FacetAxis::Column => slabs.legend_vertical(),
+            crate::coords::FacetAxis::Row => slabs.legend_horizontal(),
+        };
+        debug_assert!((node.requirements.legend_main_axis_slab.start - legend_start).abs() <= 0.01);
+        debug_assert!((node.requirements.legend_main_axis_slab.end - legend_end).abs() <= 0.01);
+        if node.requirements.layout_changed {
+            debug_assert!(
+                node.requirements.coordinated_layout.is_some(),
+                "layout_changed requires a coordinated layout requirement"
+            );
+        }
+        debug_assert!(
+            node.requirements.ownership.has_holes
+                || !node.requirements.ownership.axis_owner_ignore_empty_cells,
+            "axis-owner empty-cell ignore should only be active when the facet band has holes"
+        );
+    }
 }
 
 pub(crate) fn debug_assert_final_propagation_plan_coverage_with_strategy<S>(
@@ -592,39 +639,45 @@ pub(crate) fn debug_assert_retarget_trace_alignment(plan: &RetargetPlan, trace: 
 
     for (planned, trace_result) in plan.node_plans.iter().zip(trace.node_results.iter()) {
         debug_assert_eq!(trace_result.node_id, planned.node_id);
-        debug_assert_eq!(trace_result.axis, planned.axis);
+        debug_assert_eq!(trace_result.axis, planned.requirements.axis);
         debug_assert_eq!(
             trace_result.planned_has_legend_overflow,
-            planned.has_legend_overflow
+            planned.requirements.has_legend_overflow
         );
         debug_assert_eq!(
             trace_result.planned_has_coordinated_extents,
-            planned.has_coordinated_extents
+            planned.requirements.has_coordinated_extents
         );
         debug_assert_eq!(
-            trace_result.planned_cell_retarget_required,
-            planned.cell_retarget_required
+            trace_result.planned_layout_changed,
+            planned.requirements.layout_changed
         );
         debug_assert_eq!(
             trace_result.planned_axis_owner_ignore_empty_cells,
-            planned.apply_plan.axis_owner_ignore_empty_cells
+            planned.requirements.ownership.axis_owner_ignore_empty_cells
         );
         debug_assert_eq!(
-            trace_result.planned_adjusted_main_size,
-            planned.apply_plan.adjusted_main_size
+            trace_result.planned_band_action,
+            planned.actions.band_action
         );
         debug_assert_eq!(
-            trace_result.cell_retarget_applied,
-            planned.cell_retarget_required
+            trace_result.planned_child_action_counts,
+            planned.actions.child_action_counts()
         );
-        debug_assert_eq!(trace_result.planned_child_count, planned.child_count);
         debug_assert_eq!(
-            trace_result.retargeted_cell_count,
-            if planned.cell_retarget_required {
-                planned.child_count
-            } else {
-                0
-            }
+            trace_result.planned_child_count,
+            planned.requirements.child_count
+        );
+        debug_assert_eq!(
+            trace_result.plot_area_retarget_count,
+            planned
+                .actions
+                .child_action_counts()
+                .plot_area_retarget_count()
+        );
+        debug_assert_eq!(
+            trace_result.domain_rebuild_count,
+            planned.actions.child_action_counts().domain_rebuild_count()
         );
     }
 }
@@ -1012,7 +1065,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn retarget_trace_can_mutate_measurements_via_apply_coordinated_overflow()
+    async fn retarget_trace_can_mutate_measurements_via_retarget_actions()
     -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
 
@@ -1228,9 +1281,20 @@ mod tests {
             .expect("retarget should include a root node trace");
         assert!(root_result.parent_cross_size_propagated);
         assert!(root_result.planned_has_coordinated_extents);
-        assert!(root_result.planned_cell_retarget_required);
-        assert!(root_result.cell_retarget_applied);
-        assert!(root_result.retargeted_cell_count > 0);
+        assert!(
+            root_result
+                .planned_child_action_counts
+                .plot_area_retarget_count()
+                > 0
+        );
+        assert!(
+            root_result
+                .planned_child_action_counts
+                .domain_rebuild_count()
+                > 0
+        );
+        assert!(root_result.plot_area_retarget_count > 0);
+        assert!(root_result.domain_rebuild_count > 0);
         Ok(())
     }
 
@@ -1501,20 +1565,62 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn retarget_plan_contains_apply_plan_for_each_node() -> Result<(), AvengerChartError> {
+    async fn retarget_plan_contains_requirements_and_actions_for_each_node()
+    -> Result<(), AvengerChartError> {
         let (measurement, _) = nested_fixture().await?;
         let plan = build_retarget_plan(&measurement);
         assert!(!plan.node_plans.is_empty());
         for node in &plan.node_plans {
-            assert_eq!(node.axis, node.apply_plan.axis);
+            assert_eq!(node.requirements.node_id, node.node_id);
+            assert_eq!(node.actions.node_id, node.node_id);
+            assert_eq!(node.actions.axis, node.requirements.axis);
             assert_eq!(
-                node.cell_retarget_required,
-                node.apply_plan.cell_retarget_required
+                node.actions.child_actions.len(),
+                node.requirements.child_count
             );
-            if node.has_legend_overflow {
-                assert!(node.apply_plan.legend_slab_applied > 0.0);
+            if node.requirements.has_legend_overflow {
+                assert!(node.requirements.legend_main_axis_slab.has_slab());
             }
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn retarget_errors_when_node_plan_missing() -> Result<(), AvengerChartError> {
+        let (mut measurement, eval_ctx) = nested_fixture().await?;
+        let mut plan = build_retarget_plan(&measurement);
+        let root_idx = plan
+            .node_plans
+            .iter()
+            .position(|node| node.node_id.path.is_empty())
+            .expect("retarget plan should include a root node");
+        plan.node_plans.remove(root_idx);
+
+        let error = run_retarget_with_trace(&mut measurement, &eval_ctx, &plan)
+            .await
+            .expect_err("missing retarget node plan should error");
+        assert_internal_error_contains(error, "Missing retarget plan");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn retarget_errors_when_child_action_count_mismatches() -> Result<(), AvengerChartError> {
+        let (mut measurement, eval_ctx) = nested_fixture().await?;
+        let mut plan = build_retarget_plan(&measurement);
+        let root_plan = plan
+            .node_plans
+            .iter_mut()
+            .find(|node| node.node_id.path.is_empty())
+            .expect("retarget plan should include a root node");
+        assert!(
+            root_plan.actions.child_actions.pop().is_some(),
+            "fixture root should have at least one child action"
+        );
+
+        let error = run_retarget_with_trace(&mut measurement, &eval_ctx, &plan)
+            .await
+            .expect_err("retarget child action mismatch should error");
+        assert_internal_error_contains(error, "Retarget action child count mismatch");
         Ok(())
     }
 
@@ -1546,9 +1652,20 @@ mod tests {
         assert_eq!(root_result.axis, FacetAxis::Column);
         assert!(root_result.subplot_cross_size_after > 0.0);
         assert!(root_result.planned_has_coordinated_extents);
-        assert!(root_result.planned_cell_retarget_required);
-        assert!(root_result.cell_retarget_applied);
-        assert!(root_result.retargeted_cell_count > 0);
+        assert!(
+            root_result
+                .planned_child_action_counts
+                .plot_area_retarget_count()
+                > 0
+        );
+        assert!(
+            root_result
+                .planned_child_action_counts
+                .domain_rebuild_count()
+                > 0
+        );
+        assert!(root_result.plot_area_retarget_count > 0);
+        assert!(root_result.domain_rebuild_count > 0);
         Ok(())
     }
 

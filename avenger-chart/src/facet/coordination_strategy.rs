@@ -11,7 +11,6 @@ use crate::{
     facet::{
         coord::{
             FacetBandCoordMeasurement, FacetBandCoordMeasurementPlotAreaSized,
-            FacetBandCoordinationApplyPlan,
             facet_band_canvas_mut as facet_band_canvas_mut_from_coord,
             facet_band_canvas_ref as facet_band_canvas_ref_from_coord,
             facet_band_plot_area_sized_mut as facet_band_plot_area_sized_mut_from_coord,
@@ -19,11 +18,11 @@ use crate::{
             retarget_measurement_plot_area_no_remeasure, retarget_scale_ranges_for_plot_area,
         },
         coordination_plans::{
-            FinalPropagationChildPlan, FinalPropagationPlan, FinalPropagationTrace, RetargetPlan,
-            RetargetTrace,
+            BandRetargetAction, CellRetargetAction, FinalPropagationChildPlan,
+            FinalPropagationPlan, FinalPropagationTrace, RetargetNodeActions,
+            RetargetNodeRequirements, RetargetPlan, RetargetTrace,
         },
         layout_plan::FacetCellPlan,
-        overflow_projection::FacetOverflowSlabs,
     },
     plot::compiled::{CompiledPlot, ComponentsMeasurement},
     render::{EvaluationContext, context::FacetRuntimeSizingMode},
@@ -120,18 +119,10 @@ pub(crate) trait FacetSizingCoordinationStrategy {
 
     fn refresh_placement_after_final_propagation_node(_facet_band: &mut FacetBandMut<'_>) {}
 
-    fn prepare_retarget_apply_plan(
-        _facet_band: FacetBandRef<'_>,
-        _apply_plan: &mut FacetBandCoordinationApplyPlan,
-    ) {
-    }
-
-    fn execution_retarget_apply_plan(
-        _facet_band: &FacetBandMut<'_>,
-        planned: &FacetBandCoordinationApplyPlan,
-    ) -> FacetBandCoordinationApplyPlan {
-        planned.clone()
-    }
+    fn build_retarget_actions(
+        facet_band: FacetBandRef<'_>,
+        requirements: &RetargetNodeRequirements,
+    ) -> RetargetNodeActions;
 
     fn set_child_parent_bandwidth_if_same_axis(
         child: &mut ComponentsMeasurement,
@@ -168,6 +159,53 @@ impl FacetSizingCoordinationStrategy for CanvasFitCoordinationStrategy {
     fn facet_band_mut(measurement: &mut ComponentsMeasurement) -> Option<FacetBandMut<'_>> {
         facet_band_canvas_mut_from_coord(measurement.coord_measurement.as_mut())
             .map(FacetBandMut::CanvasFit)
+    }
+
+    fn build_retarget_actions(
+        _facet_band: FacetBandRef<'_>,
+        requirements: &RetargetNodeRequirements,
+    ) -> RetargetNodeActions {
+        let band_action = if requirements.layout_changed {
+            BandRetargetAction::ApplyCoordinatedLayout
+        } else {
+            BandRetargetAction::Preserve
+        };
+        let retarget_children =
+            requirements.has_legend_overflow || requirements.has_coordinated_extents;
+        let legend_slab_total = requirements.legend_main_axis_slab.total();
+        let child_actions = requirements
+            .child_plot_areas
+            .iter()
+            .enumerate()
+            .map(|(idx, plot_area)| {
+                if !retarget_children {
+                    return CellRetargetAction::Preserve;
+                }
+
+                let original_main_size = match requirements.axis {
+                    FacetAxis::Column => plot_area.height,
+                    FacetAxis::Row => plot_area.width,
+                };
+                let main_axis_size = (original_main_size - legend_slab_total).max(1.0);
+                let child_has_domains = requirements
+                    .child_has_coordinated_extents
+                    .get(idx)
+                    .copied()
+                    .unwrap_or(false);
+                if child_has_domains {
+                    CellRetargetAction::RetargetPlotAreaAndDomains { main_axis_size }
+                } else {
+                    CellRetargetAction::RetargetPlotArea { main_axis_size }
+                }
+            })
+            .collect();
+
+        RetargetNodeActions {
+            node_id: requirements.node_id.clone(),
+            axis: requirements.axis,
+            band_action,
+            child_actions,
+        }
     }
 
     fn set_child_parent_bandwidth_if_same_axis(
@@ -310,32 +348,28 @@ impl FacetSizingCoordinationStrategy for PlotAreaSizedCoordinationStrategy {
         facet_band.recompute_explicit_placement_if_plot_area_sized();
     }
 
-    fn prepare_retarget_apply_plan(
-        facet_band: FacetBandRef<'_>,
-        apply_plan: &mut FacetBandCoordinationApplyPlan,
-    ) {
-        let base = facet_band.base();
-        let slabs = FacetOverflowSlabs::from_coordinated(&base.coordinated_overflow);
-        let (legend_main_start, legend_main_end) = match base.axis {
-            FacetAxis::Column => slabs.legend_vertical(),
-            FacetAxis::Row => slabs.legend_horizontal(),
-        };
-        let has_main_axis_legend_slab = legend_main_start > 0.0 || legend_main_end > 0.0;
-        debug_assert_eq!(
-            apply_plan.has_legend_overflow, has_main_axis_legend_slab,
-            "plot-area-sized retarget invariant: apply-plan legend-overflow flag must match coordinated main-axis legend slabs"
-        );
-        apply_plan.adjusted_main_size = apply_plan.original_main_size;
-        apply_plan.legend_main_axis_shrink = 0.0;
-    }
+    fn build_retarget_actions(
+        _facet_band: FacetBandRef<'_>,
+        requirements: &RetargetNodeRequirements,
+    ) -> RetargetNodeActions {
+        let child_actions = requirements
+            .child_has_coordinated_extents
+            .iter()
+            .map(|has_domains| {
+                if *has_domains {
+                    CellRetargetAction::RebuildDomains
+                } else {
+                    CellRetargetAction::Preserve
+                }
+            })
+            .collect();
 
-    fn execution_retarget_apply_plan(
-        _facet_band: &FacetBandMut<'_>,
-        planned: &FacetBandCoordinationApplyPlan,
-    ) -> FacetBandCoordinationApplyPlan {
-        let mut execution_plan = planned.clone();
-        execution_plan.has_coordinated_layout = false;
-        execution_plan
+        RetargetNodeActions {
+            node_id: requirements.node_id.clone(),
+            axis: requirements.axis,
+            band_action: BandRetargetAction::Preserve,
+            child_actions,
+        }
     }
 
     fn set_child_parent_bandwidth_if_same_axis(
