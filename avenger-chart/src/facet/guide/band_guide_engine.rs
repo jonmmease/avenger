@@ -28,7 +28,7 @@ use crate::{
         layout_plan::effective_edge_indices_for_values_at_path,
         overflow_projection::{
             FacetOverflowSource, guide_anchor_overflow_from_coord_measurement,
-            parent_layout_overflow_from_coord_measurement,
+            rendered_subtree_overflow_from_coord_measurement,
         },
         placement::{
             resolve_facet_band_placement, resolve_facet_band_placement_from_configured_scales,
@@ -458,7 +458,7 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
     coord_measurement: Option<&dyn CoordMeasurement>,
 ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
     let subplot_overflow = if let Some(local_overflow) =
-        coord_measurement.and_then(facet_parent_layout_local_overflow)
+        coord_measurement.and_then(facet_rendered_subtree_local_overflow)
     {
         propagated_subplot_overflow(Some(local_overflow))
     } else {
@@ -903,12 +903,16 @@ fn facet_measurement_values(measurement: &dyn CoordMeasurement) -> Option<Vec<Sc
         .map(|facet_measurement| facet_measurement.cell_values().cloned().collect::<Vec<_>>())
 }
 
-fn facet_parent_layout_local_overflow(
+fn facet_rendered_subtree_local_overflow(
     measurement: &dyn CoordMeasurement,
 ) -> Option<CoordinatedOverflow> {
-    // Facet guides measure their child subplot through the parent-layout
-    // projection so descendant legends are not reserved again by the parent.
-    parent_layout_overflow_from_coord_measurement(measurement, FacetOverflowSource::MeasuredLocal)
+    // Parent layout needs the full local rendered envelope of nested facets,
+    // including legends/colorbars owned by that subtree. Facet guide anchoring
+    // has its own narrower projection below.
+    rendered_subtree_overflow_from_coord_measurement(
+        measurement,
+        FacetOverflowSource::MeasuredLocal,
+    )
 }
 
 fn facet_guide_anchor_local_overflow(

@@ -4,12 +4,7 @@
 //! local facet band layout, and retargets child measurements before global
 //! coordination aligns matching facet requirements.
 //!
-use std::{
-    any::Any,
-    collections::HashMap,
-    ops::{Deref, DerefMut},
-    sync::Arc,
-};
+use std::{any::Any, collections::HashMap, sync::Arc};
 
 use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl, band::bandwidth};
@@ -36,8 +31,8 @@ use crate::{
         coord_row::compute_band_layout,
         coordination::CoordinationGroupKey,
         coordination_plans::{
-            AxisSlab, BandRetargetAction, CellRetargetAction, CoordinationNodeKey,
-            FacetOwnershipRequirement, PlotAreaSize, RetargetNodeActions, RetargetNodeOutcome,
+            AxisSlab, BandRetargetAction, CoordinationNodeKey, FacetOwnershipRequirement,
+            PlotAreaSize, PlotAreaTarget, RetargetNodeActions, RetargetNodeOutcome,
             RetargetNodeRequirements,
         },
         empty_cell_policy::FacetEmptyCellPolicy,
@@ -54,7 +49,8 @@ use crate::{
         ownership_policy::{has_holes_from_cells, resolve_facet_ownership_policy},
         padding_policy, path_math,
         placement::{
-            FacetBandExplicitPlacement, FacetBandPlacement, compute_explicit_facet_band_placement,
+            FacetBandExplicitPlacement, FacetBandPlacement, FacetBandPlacementModel,
+            compute_explicit_facet_band_placement, resolve_scale_backed_facet_band_placement,
         },
         probe_summary::FacetCellProbeSummary,
         scale_precompute::{
@@ -72,16 +68,15 @@ use crate::{
         CompiledPlot, ComponentsMeasurement, scale_provider::DynamicScaleProvider,
         scales::build_scale_builder_from_marks,
     },
-    render::{
-        EvaluationContext, FacetSubtreeCheckpoint, FacetSubtreeSelector, LegendMeasurements,
-        context::FacetRuntimeSizingMode,
-    },
+    render::{EvaluationContext, FacetSubtreeCheckpoint, FacetSubtreeSelector, LegendMeasurements},
     scales::{
         ConfiguredScaleWithSpec, PlotAreaRangeEndpoint, ScaleBuilder, ScaleRangeBinding,
         domain_extent::{DomainBounds, DomainExtent, RadiusPadding},
     },
 };
 
+#[cfg(test)]
+use crate::facet::coordination_plans::CellRetargetAction;
 #[cfg(test)]
 use crate::facet::overflow_projection::{
     FacetBandNoRenderablePolicy, aggregate_facet_band_overflow_with_policy,
@@ -169,36 +164,28 @@ pub struct FacetBandCoordMeasurement {
     pub(crate) channel_domain_sharing_levels: HashMap<String, SharingLevel>,
     /// Effective policy used when deciding whether empty cells are renderable.
     pub empty_cell_policy: FacetEmptyCellPolicy,
+    /// Whether the facet band's orthogonal physical dimension is constrained
+    /// by the containing canvas/slot instead of fixed by leaf plot size.
+    pub(crate) orthogonal_dimension_canvas_constrained: bool,
+    /// Placement model used to position this facet band's cells.
+    pub(crate) placement_model: FacetBandPlacementModel,
 }
 
-/// Canvas-fit facet band measurement type.
-pub type FacetBandCoordMeasurementCanvasFit = FacetBandCoordMeasurement;
-
-/// Plot-area-sized facet band measurement type.
-///
-/// This wraps the shared facet runtime payload with explicit placement data
-/// for plot-area-sized sizing.
-pub struct FacetBandCoordMeasurementPlotAreaSized {
-    pub(crate) base: FacetBandCoordMeasurement,
-    /// Explicit placement and extent used by plot-area-sized rendering.
-    pub(crate) explicit_placement: FacetBandExplicitPlacement,
-}
-
-impl Deref for FacetBandCoordMeasurementPlotAreaSized {
-    type Target = FacetBandCoordMeasurement;
-
-    fn deref(&self) -> &Self::Target {
-        &self.base
+impl FacetBandCoordMeasurement {
+    pub(crate) fn uses_explicit_placement(&self) -> bool {
+        matches!(self.placement_model, FacetBandPlacementModel::Explicit(_))
     }
-}
 
-impl DerefMut for FacetBandCoordMeasurementPlotAreaSized {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.base
+    pub(crate) fn absorbs_cross_axis_legend_slabs(&self) -> bool {
+        self.orthogonal_dimension_canvas_constrained
     }
-}
 
-impl FacetBandCoordMeasurementPlotAreaSized {
+    pub(crate) fn recompute_explicit_placement_if_needed(&mut self) {
+        if self.uses_explicit_placement() {
+            self.recompute_explicit_placement();
+        }
+    }
+
     pub(crate) fn recompute_explicit_placement(&mut self) {
         let active_layout = self
             .coordinated_layout
@@ -212,10 +199,17 @@ impl FacetBandCoordMeasurementPlotAreaSized {
             FacetAxis::Row => slabs.legend.left,
         };
         placement.cross_axis_size += cross_axis_start_offset.max(0.0);
-        self.explicit_placement = placement;
+        self.placement_model = FacetBandPlacementModel::Explicit(placement);
     }
 
-    pub(crate) fn preserve_empty_slot_plot_area(&mut self, plot_width: f32, plot_height: f32) {
+    pub(crate) fn preserve_empty_slot_plot_area_if_explicit(
+        &mut self,
+        plot_width: f32,
+        plot_height: f32,
+    ) {
+        if !self.uses_explicit_placement() {
+            return;
+        }
         if !self.cells.is_empty() {
             return;
         }
@@ -224,47 +218,85 @@ impl FacetBandCoordMeasurementPlotAreaSized {
             FacetAxis::Column => (plot_width, plot_height),
             FacetAxis::Row => (plot_height, plot_width),
         };
-        self.explicit_placement = FacetBandExplicitPlacement {
+        self.placement_model = FacetBandPlacementModel::Explicit(FacetBandExplicitPlacement {
             main_axis_positions: Vec::new(),
             main_axis_size: main_axis_size.max(0.0),
             cross_axis_size: cross_axis_size.max(0.0),
-        };
+        });
     }
 
-    /// Return the realized explicit-placement extent for this plot-area-sized facet subtree.
-    pub(crate) fn plot_area_sized_extent(&self) -> (f32, f32) {
+    /// Return the realized plot-area extent for this facet subtree.
+    pub(crate) fn plot_area_extent(&self) -> (f32, f32) {
+        let FacetBandPlacementModel::Explicit(explicit_placement) = &self.placement_model else {
+            return match self.axis {
+                FacetAxis::Column => (self.subplot_cross_size, 0.0),
+                FacetAxis::Row => (0.0, self.subplot_cross_size),
+            };
+        };
         match self.axis {
             FacetAxis::Column => (
-                self.explicit_placement.main_axis_size,
-                self.explicit_placement.cross_axis_size,
+                explicit_placement.main_axis_size,
+                explicit_placement.cross_axis_size,
             ),
             FacetAxis::Row => (
-                self.explicit_placement.cross_axis_size,
-                self.explicit_placement.main_axis_size,
+                explicit_placement.cross_axis_size,
+                explicit_placement.main_axis_size,
             ),
         }
     }
 
-    pub(crate) fn resolved_placement(&self) -> Result<FacetBandPlacement, AvengerChartError> {
-        FacetBandPlacement::from_explicit(self.axis, &self.explicit_placement, &self.cells)
+    pub(crate) fn resolved_placement_from_configured_scales(
+        &self,
+        scales: &HashMap<String, ConfiguredScale>,
+    ) -> Result<FacetBandPlacement, AvengerChartError> {
+        match &self.placement_model {
+            FacetBandPlacementModel::Explicit(explicit) => {
+                FacetBandPlacement::from_explicit(self.axis, explicit, &self.cells)
+            }
+            FacetBandPlacementModel::ScaleBacked => {
+                let configured = scales.get(self.axis.scale_name()).ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Missing {} scale while resolving facet placement",
+                        self.axis.scale_name()
+                    ))
+                })?;
+                let cell_values = self.cell_values().cloned().collect::<Vec<_>>();
+                resolve_scale_backed_facet_band_placement(
+                    self.axis,
+                    configured,
+                    &cell_values,
+                    self.cells.len(),
+                    self.coordinated_subplot_cross_size(),
+                )
+            }
+        }
     }
 
-    pub(crate) fn retarget_parent_plot_area_dimension_policy_no_remeasure(
-        &mut self,
-        scales: &mut HashMap<String, ConfiguredScaleWithSpec>,
-        eval_ctx: &EvaluationContext,
-        new_plot_area_width: f32,
-        new_plot_area_height: f32,
-    ) -> Result<(), AvengerChartError> {
-        self.base
-            .retarget_parent_plot_area_dimension_policy_no_remeasure(
-                scales,
-                eval_ctx,
-                new_plot_area_width,
-                new_plot_area_height,
-            )?;
-        self.recompute_explicit_placement();
-        Ok(())
+    pub(crate) fn resolved_placement_from_scale_specs(
+        &self,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
+    ) -> Result<FacetBandPlacement, AvengerChartError> {
+        match &self.placement_model {
+            FacetBandPlacementModel::Explicit(explicit) => {
+                FacetBandPlacement::from_explicit(self.axis, explicit, &self.cells)
+            }
+            FacetBandPlacementModel::ScaleBacked => {
+                let configured = scales.get(self.axis.scale_name()).ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Missing {} scale while resolving facet placement",
+                        self.axis.scale_name()
+                    ))
+                })?;
+                let cell_values = self.cell_values().cloned().collect::<Vec<_>>();
+                resolve_scale_backed_facet_band_placement(
+                    self.axis,
+                    configured.configured(),
+                    &cell_values,
+                    self.cells.len(),
+                    self.coordinated_subplot_cross_size(),
+                )
+            }
+        }
     }
 }
 
@@ -275,7 +307,7 @@ fn sibling_boundary_overflow_for_facet_band(
     project_facet_overflow(&overflow, FacetOverflowProjection::SiblingBoundary { axis })
 }
 
-pub(crate) fn facet_band_canvas_ref(
+pub(crate) fn facet_band_ref(
     coord_measurement: &dyn CoordMeasurement,
 ) -> Option<&FacetBandCoordMeasurement> {
     coord_measurement
@@ -283,37 +315,12 @@ pub(crate) fn facet_band_canvas_ref(
         .downcast_ref::<FacetBandCoordMeasurement>()
 }
 
-pub(crate) fn facet_band_plot_area_sized_ref(
-    coord_measurement: &dyn CoordMeasurement,
-) -> Option<&FacetBandCoordMeasurementPlotAreaSized> {
-    coord_measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
-}
-
-pub(crate) fn facet_band_ref(
-    coord_measurement: &dyn CoordMeasurement,
-) -> Option<&FacetBandCoordMeasurement> {
-    facet_band_canvas_ref(coord_measurement).or_else(|| {
-        facet_band_plot_area_sized_ref(coord_measurement)
-            .map(|plot_area_sized| &plot_area_sized.base)
-    })
-}
-
-pub(crate) fn facet_band_canvas_mut(
+pub(crate) fn facet_band_mut(
     coord_measurement: &mut dyn CoordMeasurement,
 ) -> Option<&mut FacetBandCoordMeasurement> {
     coord_measurement
         .as_any_mut()
         .downcast_mut::<FacetBandCoordMeasurement>()
-}
-
-pub(crate) fn facet_band_plot_area_sized_mut(
-    coord_measurement: &mut dyn CoordMeasurement,
-) -> Option<&mut FacetBandCoordMeasurementPlotAreaSized> {
-    coord_measurement
-        .as_any_mut()
-        .downcast_mut::<FacetBandCoordMeasurementPlotAreaSized>()
 }
 
 /// Probe-only facet band measurement used during estimated-overflow aggregation.
@@ -330,6 +337,7 @@ pub(crate) struct FacetBandProbeMeasurement {
     pub(crate) local_layout: CoordinatedLayout,
     pub(crate) empty_cell_policy: FacetEmptyCellPolicy,
     pub(crate) fixed_plot_area_lock: bool,
+    pub(crate) orthogonal_dimension_canvas_constrained: bool,
 }
 
 impl FacetBandProbeMeasurement {
@@ -368,16 +376,12 @@ impl FacetBandCoordMeasurement {
         self.measured_overflow.clone()
     }
 
-    pub(crate) fn recompute_measured_overflow(&mut self) {
-        self.measured_overflow =
-            measured_overflow_from_cells(self.axis, &self.cells, self.empty_cell_policy);
-    }
-
     #[cfg(test)]
-    pub(crate) fn measured_parent_layout_overflow_value(&self) -> Option<CoordinatedOverflow> {
-        self.measured_overflow_value().map(|overflow| {
-            project_facet_overflow(&overflow, FacetOverflowProjection::ParentLayout)
-        })
+    pub(crate) fn measured_rendered_subtree_overflow_value(&self) -> Option<CoordinatedOverflow> {
+        crate::facet::overflow_projection::rendered_subtree_overflow_from_coord_measurement(
+            self,
+            crate::facet::overflow_projection::FacetOverflowSource::MeasuredLocal,
+        )
     }
 
     pub(crate) fn measured_sibling_boundary_overflow_value(&self) -> Option<CoordinatedOverflow> {
@@ -502,11 +506,12 @@ impl FacetBandCoordMeasurement {
             )?;
         }
         self.apply_coordinated_alignment_slabs_to_child_layouts();
+        self.recompute_explicit_placement_if_needed();
 
         Ok(())
     }
 
-    pub(crate) fn retarget_parent_plot_area_dimension_policy_no_remeasure(
+    pub(crate) fn retarget_parent_plot_area_policy_no_remeasure(
         &mut self,
         scales: &mut HashMap<String, ConfiguredScaleWithSpec>,
         eval_ctx: &EvaluationContext,
@@ -536,13 +541,13 @@ impl FacetBandCoordMeasurement {
         {
             let band_scale = scales.get(self.axis.scale_name()).ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
-                    "FacetBand dimension-policy retarget missing {} scale",
+                    "FacetBand policy retarget missing {} scale",
                     self.axis.scale_name()
                 ))
             })?;
             self.subplot_cross_size = bandwidth(&band_scale.configured().config).map_err(|e| {
                 AvengerChartError::InternalError(format!(
-                    "Failed to get dimension-policy retargeted facet bandwidth: {}",
+                    "Failed to get policy retargeted facet bandwidth: {}",
                     e
                 ))
             })?;
@@ -583,7 +588,7 @@ impl FacetBandCoordMeasurement {
                     }
                 }
             }
-            retarget_measurement_plot_area_dimension_policy_no_remeasure(
+            retarget_measurement_plot_area_policy_no_remeasure(
                 &mut cell.measurement,
                 compiled_subplot.as_ref(),
                 eval_ctx,
@@ -593,6 +598,7 @@ impl FacetBandCoordMeasurement {
             )?;
         }
         self.apply_coordinated_alignment_slabs_to_child_layouts();
+        self.recompute_explicit_placement_if_needed();
 
         Ok(())
     }
@@ -695,6 +701,10 @@ impl CoordMeasurement for FacetBandCoordMeasurement {
     }
 
     fn apply_scale_adjustments(&self, scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
+        if self.uses_explicit_placement() {
+            return;
+        }
+
         // Apply facet band layout adjustments at render-time:
         // - band-scale domain override from cell_values
         // - coordinated padding/outer edges
@@ -720,25 +730,6 @@ impl CoordMeasurement for FacetBandCoordMeasurement {
             has_hole_cells,
             has_adjacent_non_empty,
         );
-    }
-}
-
-impl CoordMeasurement for FacetBandCoordMeasurementPlotAreaSized {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
-    fn coordinated_overflow(&self) -> Option<&CoordinatedOverflow> {
-        Some(&self.base.coordinated_overflow)
-    }
-
-    fn apply_scale_adjustments(&self, _scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
-        // Plot-area-sized mode keeps leaf plot area sizing locked, so render-time
-        // facet band scale rewrites are intentionally disabled.
     }
 }
 
@@ -1024,6 +1015,27 @@ impl FacetBandCoordMeasurement {
         }
     }
 
+    fn coordinated_layout_subplot_cross_size(&self) -> Option<f32> {
+        let layout = self.coordinated_layout.as_ref()?;
+        let cell_values: Vec<ScalarValue> = self.cell_values().cloned().collect();
+        let domain_override = if cell_values.is_empty() {
+            None
+        } else {
+            Some(cell_values.as_slice())
+        };
+        let scale = apply_facet_band_scale_layout(
+            self.axis,
+            &self.original_band_scale,
+            layout,
+            domain_override,
+            Some(layout.n),
+            ScaleLayoutRewriteMode::Retarget {
+                side_specific_outer_edges: true,
+            },
+        );
+        bandwidth(&scale.config).ok()
+    }
+
     pub(crate) fn derive_retarget_requirements(
         &self,
         node_id: CoordinationNodeKey,
@@ -1060,6 +1072,12 @@ impl FacetBandCoordMeasurement {
             .iter()
             .map(|cell| !cell.coordinated_domain_extents.is_empty())
             .collect::<Vec<_>>();
+        let target_subplot_cross_size = if layout_changed {
+            self.coordinated_layout_subplot_cross_size()
+                .unwrap_or(self.subplot_cross_size)
+        } else {
+            self.subplot_cross_size
+        };
 
         RetargetNodeRequirements {
             node_id,
@@ -1076,6 +1094,7 @@ impl FacetBandCoordMeasurement {
                 axis_owner_ignore_empty_cells: policy.axis_owner_ignore_empty_cells,
             },
             child_plot_areas,
+            target_subplot_cross_size,
             child_has_coordinated_extents,
         }
     }
@@ -1127,13 +1146,6 @@ impl FacetBandCoordMeasurement {
 
         self.subplot_cross_size = new_subplot_cross_size;
         Ok(())
-    }
-
-    fn child_plot_area_target_for_retarget_action(&self, main_axis_size: f32) -> (f32, f32) {
-        match self.axis {
-            FacetAxis::Column => (self.subplot_cross_size, main_axis_size.max(1.0)),
-            FacetAxis::Row => (main_axis_size.max(1.0), self.subplot_cross_size),
-        }
     }
 
     pub(crate) async fn apply_retarget_actions(
@@ -1209,16 +1221,19 @@ impl FacetBandCoordMeasurement {
         let compiled_subplot = self.compiled_subplot.clone();
         let shared_scale_builder = self.shared_scale_builder.clone();
         let mut plot_area_retarget_count = 0usize;
+        let mut width_retarget_count = 0usize;
+        let mut height_retarget_count = 0usize;
         let mut domain_rebuild_count = 0usize;
         for idx in 0..self.cells.len() {
             let action = &actions.child_actions[idx];
-            let target = action.main_axis_size().map(|main_axis_size| {
-                self.child_plot_area_target_for_retarget_action(main_axis_size)
-            });
             let cell = &mut self.cells[idx];
-            match (action, target) {
-                (CellRetargetAction::Preserve, _) => {}
-                (CellRetargetAction::RebuildDomains, _) => {
+            let current_plot_area = PlotAreaSize::new(
+                cell.measurement.plot_area_width,
+                cell.measurement.plot_area_height,
+            );
+            match (action.plot_area_target, action.rebuild_domains) {
+                (None, false) => {}
+                (None, true) => {
                     rebuild_measurement_domains_no_remeasure(
                         &mut cell.measurement,
                         compiled_subplot.as_ref(),
@@ -1230,18 +1245,26 @@ impl FacetBandCoordMeasurement {
                     .await?;
                     domain_rebuild_count += 1;
                 }
-                (CellRetargetAction::RetargetPlotArea { .. }, Some((width, height))) => {
+                (Some(target), false) => {
+                    width_retarget_count += usize::from(target.width.is_some());
+                    height_retarget_count += usize::from(target.height.is_some());
+                    let PlotAreaTarget { width, height } = target;
+                    let target = PlotAreaTarget { width, height }.resolve(current_plot_area);
                     retarget_measurement_plot_area_no_remeasure(
                         &mut cell.measurement,
                         compiled_subplot.as_ref(),
                         eval_ctx,
                         &cell.plan.full_path,
-                        width,
-                        height,
+                        target.width,
+                        target.height,
                     )?;
                     plot_area_retarget_count += 1;
                 }
-                (CellRetargetAction::RetargetPlotAreaAndDomains { .. }, Some((width, height))) => {
+                (Some(target), true) => {
+                    width_retarget_count += usize::from(target.width.is_some());
+                    height_retarget_count += usize::from(target.height.is_some());
+                    let PlotAreaTarget { width, height } = target;
+                    let target = PlotAreaTarget { width, height }.resolve(current_plot_area);
                     retarget_measurement_plot_area_and_domains_no_remeasure(
                         &mut cell.measurement,
                         compiled_subplot.as_ref(),
@@ -1249,18 +1272,12 @@ impl FacetBandCoordMeasurement {
                         &cell.plan.full_path,
                         &shared_scale_builder,
                         &cell.coordinated_domain_extents,
-                        width,
-                        height,
+                        target.width,
+                        target.height,
                     )
                     .await?;
                     plot_area_retarget_count += 1;
                     domain_rebuild_count += 1;
-                }
-                _ => {
-                    return Err(AvengerChartError::InternalError(format!(
-                        "Retarget action missing plot-area target for node path {:?}, child {}",
-                        actions.node_id.path, idx
-                    )));
                 }
             }
         }
@@ -1270,6 +1287,8 @@ impl FacetBandCoordMeasurement {
             facet_depth = self.facet_depth,
             cell_count = self.cells.len(),
             plot_area_retarget_count,
+            width_retarget_count,
+            height_retarget_count,
             domain_rebuild_count,
             "FacetBand apply_retarget_actions retargeted cells without remeasure"
         );
@@ -1279,6 +1298,8 @@ impl FacetBandCoordMeasurement {
             subplot_cross_size_after: self.subplot_cross_size,
             band_layout_applied,
             plot_area_retarget_count,
+            width_retarget_count,
+            height_retarget_count,
             domain_rebuild_count,
         })
     }
@@ -1774,6 +1795,67 @@ fn update_measurement_plot_area_metadata(
     );
 }
 
+fn update_measurement_plot_area_metadata_for_policy(
+    measurement: &mut ComponentsMeasurement,
+    compiled_plot: &CompiledPlot,
+    eval_ctx: &EvaluationContext,
+    facet_path: &[ScalarValue],
+    old_plot_area_width: f32,
+    old_plot_area_height: f32,
+    new_plot_area_width: f32,
+    new_plot_area_height: f32,
+) {
+    let width_delta = new_plot_area_width - old_plot_area_width;
+    let height_delta = new_plot_area_height - old_plot_area_height;
+    let policy = eval_ctx.facet_runtime_sizing_mode().policy();
+    let is_root = facet_path.is_empty();
+    let canvas_width_delta = if is_root && policy.width.is_canvas_constrained() {
+        0.0
+    } else {
+        width_delta
+    };
+    let canvas_height_delta = if is_root && policy.height.is_canvas_constrained() {
+        0.0
+    } else {
+        height_delta
+    };
+
+    measurement.plot_area_width = new_plot_area_width;
+    measurement.plot_area_height = new_plot_area_height;
+    measurement.canvas_size.0 = (measurement.canvas_size.0 + canvas_width_delta).max(1.0);
+    measurement.canvas_size.1 = (measurement.canvas_size.1 + canvas_height_delta).max(1.0);
+    measurement.layout.canvas_size = measurement.canvas_size;
+    retarget_layout_for_resized_plot_area(
+        &mut measurement.layout,
+        &measurement.legend_plan.measurements,
+        new_plot_area_width,
+        new_plot_area_height,
+        canvas_width_delta,
+        canvas_height_delta,
+    );
+
+    if !is_root || policy.width.is_leaf_plot_area_sized() {
+        measurement.params.insert(
+            "width".to_string(),
+            ScalarValue::Float32(Some(new_plot_area_width)),
+        );
+    }
+    if !is_root || policy.height.is_leaf_plot_area_sized() {
+        measurement.params.insert(
+            "height".to_string(),
+            ScalarValue::Float32(Some(new_plot_area_height)),
+        );
+    }
+
+    measurement.clip = compiled_plot.resolved_clip_region(
+        eval_ctx,
+        facet_path,
+        &measurement.scales,
+        new_plot_area_width,
+        new_plot_area_height,
+    );
+}
+
 pub(crate) fn retarget_measurement_plot_area_no_remeasure(
     measurement: &mut ComponentsMeasurement,
     compiled_plot: &CompiledPlot,
@@ -1796,13 +1878,17 @@ pub(crate) fn retarget_measurement_plot_area_no_remeasure(
         new_plot_area_height,
     );
 
-    if let Some(facet_band) = facet_band_canvas_mut(measurement.coord_measurement.as_mut()) {
-        facet_band.retarget_parent_plot_area_no_remeasure(
-            &mut measurement.scales,
-            eval_ctx,
-            new_plot_area_width,
-            new_plot_area_height,
-        )?;
+    if let Some(facet_band) = facet_band_mut(measurement.coord_measurement.as_mut()) {
+        if facet_band.uses_explicit_placement() {
+            facet_band.recompute_explicit_placement_if_needed();
+        } else {
+            facet_band.retarget_parent_plot_area_no_remeasure(
+                &mut measurement.scales,
+                eval_ctx,
+                new_plot_area_width,
+                new_plot_area_height,
+            )?;
+        }
     } else {
         measurement
             .coord_measurement
@@ -1823,7 +1909,7 @@ pub(crate) fn retarget_measurement_plot_area_no_remeasure(
     Ok(())
 }
 
-pub(crate) fn retarget_measurement_plot_area_dimension_policy_no_remeasure(
+pub(crate) fn retarget_measurement_plot_area_policy_no_remeasure(
     measurement: &mut ComponentsMeasurement,
     compiled_plot: &CompiledPlot,
     eval_ctx: &EvaluationContext,
@@ -1845,17 +1931,8 @@ pub(crate) fn retarget_measurement_plot_area_dimension_policy_no_remeasure(
         new_plot_area_height,
     );
 
-    if let Some(facet_band) = facet_band_canvas_mut(measurement.coord_measurement.as_mut()) {
-        facet_band.retarget_parent_plot_area_dimension_policy_no_remeasure(
-            &mut measurement.scales,
-            eval_ctx,
-            new_plot_area_width,
-            new_plot_area_height,
-        )?;
-    } else if let Some(facet_band) =
-        facet_band_plot_area_sized_mut(measurement.coord_measurement.as_mut())
-    {
-        facet_band.retarget_parent_plot_area_dimension_policy_no_remeasure(
+    if let Some(facet_band) = facet_band_mut(measurement.coord_measurement.as_mut()) {
+        facet_band.retarget_parent_plot_area_policy_no_remeasure(
             &mut measurement.scales,
             eval_ctx,
             new_plot_area_width,
@@ -1867,7 +1944,7 @@ pub(crate) fn retarget_measurement_plot_area_dimension_policy_no_remeasure(
             .apply_scale_adjustments(&mut measurement.scales);
     }
 
-    update_measurement_plot_area_metadata(
+    update_measurement_plot_area_metadata_for_policy(
         measurement,
         compiled_plot,
         eval_ctx,
@@ -1950,13 +2027,17 @@ async fn retarget_measurement_plot_area_and_domains_no_remeasure(
             &params,
         )
         .await?;
-    if let Some(facet_band) = facet_band_canvas_mut(measurement.coord_measurement.as_mut()) {
-        facet_band.retarget_parent_plot_area_no_remeasure(
-            &mut rebuilt_scales,
-            eval_ctx,
-            new_plot_area_width,
-            new_plot_area_height,
-        )?;
+    if let Some(facet_band) = facet_band_mut(measurement.coord_measurement.as_mut()) {
+        if facet_band.uses_explicit_placement() {
+            facet_band.recompute_explicit_placement_if_needed();
+        } else {
+            facet_band.retarget_parent_plot_area_no_remeasure(
+                &mut rebuilt_scales,
+                eval_ctx,
+                new_plot_area_width,
+                new_plot_area_height,
+            )?;
+        }
     } else {
         measurement
             .coord_measurement
@@ -2083,6 +2164,7 @@ fn empty_facet_band_measurement(
     band_scale: &ConfiguredScaleWithSpec,
     empty_cell_policy: FacetEmptyCellPolicy,
     plot_area_sized_mode: bool,
+    orthogonal_dimension_canvas_constrained: bool,
 ) -> Box<dyn CoordMeasurement> {
     let base = FacetBandCoordMeasurement {
         axis,
@@ -2100,15 +2182,14 @@ fn empty_facet_band_measurement(
         coordination_field_identity: axis.scale_name().to_string(),
         channel_domain_sharing_levels: HashMap::new(),
         empty_cell_policy,
+        orthogonal_dimension_canvas_constrained,
+        placement_model: if plot_area_sized_mode {
+            FacetBandPlacementModel::Explicit(FacetBandExplicitPlacement::default())
+        } else {
+            FacetBandPlacementModel::ScaleBacked
+        },
     };
-    if plot_area_sized_mode {
-        Box::new(FacetBandCoordMeasurementPlotAreaSized {
-            base,
-            explicit_placement: FacetBandExplicitPlacement::default(),
-        })
-    } else {
-        Box::new(base)
-    }
+    Box::new(base)
 }
 
 /// Build a single facet cell context from value and parent path.
@@ -3240,6 +3321,11 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 self.eval_ctx
                     .facet_runtime_sizing_mode()
                     .facet_band_is_leaf_plot_area_sized(self.axis_ops.axis),
+                self.eval_ctx
+                    .facet_runtime_sizing_mode()
+                    .policy()
+                    .facet_orthogonal_dimension(self.axis_ops.axis)
+                    .is_canvas_constrained(),
             ));
         }
         let subplot_band_size = self.resolve_subplot_band_size(&resolved, &cell_values);
@@ -3452,13 +3538,16 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 .prepared_inputs
                 .cell_semantics
                 .empty_cell_policy,
-            fixed_plot_area_lock: matches!(
-                self.eval_ctx.facet_runtime_sizing_mode(),
-                FacetRuntimeSizingMode::PlotAreaSized { .. }
-            ) || self
+            fixed_plot_area_lock: self
                 .eval_ctx
                 .facet_runtime_sizing_mode()
                 .facet_band_is_leaf_plot_area_sized(self.axis_ops.axis),
+            orthogonal_dimension_canvas_constrained: self
+                .eval_ctx
+                .facet_runtime_sizing_mode()
+                .policy()
+                .facet_orthogonal_dimension(self.axis_ops.axis)
+                .is_canvas_constrained(),
         };
 
         let mut adjusted_scales = self.scales.clone();
@@ -3574,6 +3663,11 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 self.eval_ctx
                     .facet_runtime_sizing_mode()
                     .facet_band_is_leaf_plot_area_sized(self.axis_ops.axis),
+                self.eval_ctx
+                    .facet_runtime_sizing_mode()
+                    .policy()
+                    .facet_orthogonal_dimension(self.axis_ops.axis)
+                    .is_canvas_constrained(),
             )));
         };
 
@@ -3690,9 +3784,16 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         let (first_edge_idx, last_edge_idx) =
             effective_edge_indices(&pass1_renderable_cells, pass1.cell_overflows.len())
                 .unwrap_or((0, 0));
-        let (outer_start, outer_end) =
+        let (mut outer_start, mut outer_end) =
             self.axis_ops
                 .derive_outer_edges(pass1, first_edge_idx, last_edge_idx);
+        if self.root_scale_backed_edge_slabs_are_chart_overflow() {
+            // A scale-backed root has no parent facet slot outside its band
+            // range. Edge legend/colorbar slabs belong to the chart overflow;
+            // encoding them as band-scale outer edges would reserve them twice.
+            outer_start = 0.0;
+            outer_end = 0.0;
+        }
 
         debug!(
             axis = ?self.axis_ops.axis,
@@ -3713,6 +3814,16 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             outer_end,
             n: cell_values.len(),
         }
+    }
+
+    fn root_scale_backed_edge_slabs_are_chart_overflow(&self) -> bool {
+        self.facet_path.is_empty()
+            && self
+                .eval_ctx
+                .facet_runtime_sizing_mode()
+                .policy()
+                .facet_band_dimension(self.axis_ops.axis)
+                .is_canvas_constrained()
     }
 
     fn build_pass2_scale(
@@ -3973,22 +4084,26 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             coordination_field_identity,
             channel_domain_sharing_levels,
             empty_cell_policy,
+            orthogonal_dimension_canvas_constrained: self
+                .eval_ctx
+                .facet_runtime_sizing_mode()
+                .policy()
+                .facet_orthogonal_dimension(self.axis_ops.axis)
+                .is_canvas_constrained(),
+            placement_model: if self
+                .eval_ctx
+                .facet_runtime_sizing_mode()
+                .facet_band_is_leaf_plot_area_sized(self.axis_ops.axis)
+            {
+                FacetBandPlacementModel::Explicit(FacetBandExplicitPlacement::default())
+            } else {
+                FacetBandPlacementModel::ScaleBacked
+            },
         };
 
-        if self
-            .eval_ctx
-            .facet_runtime_sizing_mode()
-            .facet_band_is_leaf_plot_area_sized(self.axis_ops.axis)
-        {
-            let mut plot_area_sized = FacetBandCoordMeasurementPlotAreaSized {
-                base,
-                explicit_placement: FacetBandExplicitPlacement::default(),
-            };
-            plot_area_sized.recompute_explicit_placement();
-            Box::new(plot_area_sized)
-        } else {
-            Box::new(base)
-        }
+        let mut measurement = base;
+        measurement.recompute_explicit_placement_if_needed();
+        Box::new(measurement)
     }
 }
 
@@ -4000,56 +4115,17 @@ pub(crate) async fn measure_facet_row(
     compiled_marks: &[Arc<dyn CompiledMark>],
     facet_path: &[ScalarValue],
 ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
-    match eval_ctx.facet_runtime_sizing_mode() {
-        FacetRuntimeSizingMode::CanvasFit => {
-            crate::facet::coord_canvas_fit::measure_facet_row_canvas_fit(
-                scales,
-                plot_width,
-                eval_ctx,
-                data,
-                compiled_marks,
-                facet_path,
-            )
-            .await
-        }
-        FacetRuntimeSizingMode::PlotAreaSized { .. } => {
-            crate::facet::coord_plot_area_sized::measure_facet_row_plot_area_sized(
-                scales,
-                plot_width,
-                eval_ctx,
-                data,
-                compiled_marks,
-                facet_path,
-            )
-            .await
-        }
-        FacetRuntimeSizingMode::DimensionMixed(_) => {
-            if eval_ctx
-                .facet_runtime_sizing_mode()
-                .facet_band_is_leaf_plot_area_sized(FacetAxis::Row)
-            {
-                crate::facet::coord_plot_area_sized::measure_facet_row_plot_area_sized(
-                    scales,
-                    plot_width,
-                    eval_ctx,
-                    data,
-                    compiled_marks,
-                    facet_path,
-                )
-                .await
-            } else {
-                crate::facet::coord_canvas_fit::measure_facet_row_canvas_fit(
-                    scales,
-                    plot_width,
-                    eval_ctx,
-                    data,
-                    compiled_marks,
-                    facet_path,
-                )
-                .await
-            }
-        }
-    }
+    FacetBandMeasurePipeline::new(
+        FacetAxisOps::for_axis(FacetAxis::Row),
+        scales,
+        plot_width,
+        eval_ctx,
+        data,
+        compiled_marks,
+        facet_path,
+    )
+    .run()
+    .await
 }
 
 impl CoordinateSystem for FacetColumn {
@@ -4090,56 +4166,17 @@ impl CoordinateSystemTransform for FacetColumn {
         compiled_marks: &[Arc<dyn CompiledMark>],
         facet_path: &[ScalarValue],
     ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
-        match eval_ctx.facet_runtime_sizing_mode() {
-            FacetRuntimeSizingMode::CanvasFit => {
-                crate::facet::coord_canvas_fit::measure_facet_column_canvas_fit(
-                    scales,
-                    plot_height,
-                    eval_ctx,
-                    data,
-                    compiled_marks,
-                    facet_path,
-                )
-                .await
-            }
-            FacetRuntimeSizingMode::PlotAreaSized { .. } => {
-                crate::facet::coord_plot_area_sized::measure_facet_column_plot_area_sized(
-                    scales,
-                    plot_height,
-                    eval_ctx,
-                    data,
-                    compiled_marks,
-                    facet_path,
-                )
-                .await
-            }
-            FacetRuntimeSizingMode::DimensionMixed(_) => {
-                if eval_ctx
-                    .facet_runtime_sizing_mode()
-                    .facet_band_is_leaf_plot_area_sized(FacetAxis::Column)
-                {
-                    crate::facet::coord_plot_area_sized::measure_facet_column_plot_area_sized(
-                        scales,
-                        plot_height,
-                        eval_ctx,
-                        data,
-                        compiled_marks,
-                        facet_path,
-                    )
-                    .await
-                } else {
-                    crate::facet::coord_canvas_fit::measure_facet_column_canvas_fit(
-                        scales,
-                        plot_height,
-                        eval_ctx,
-                        data,
-                        compiled_marks,
-                        facet_path,
-                    )
-                    .await
-                }
-            }
-        }
+        FacetBandMeasurePipeline::new(
+            FacetAxisOps::for_axis(FacetAxis::Column),
+            scales,
+            plot_height,
+            eval_ctx,
+            data,
+            compiled_marks,
+            facet_path,
+        )
+        .run()
+        .await
     }
 
     fn transform(
@@ -5212,7 +5249,7 @@ mod tests {
             node_id: requirements.node_id.clone(),
             axis: requirements.axis,
             band_action: BandRetargetAction::ApplyCoordinatedLayout,
-            child_actions: vec![CellRetargetAction::Preserve; requirements.child_count],
+            child_actions: vec![CellRetargetAction::preserve(); requirements.child_count],
         };
         let outcome = facet_band
             .apply_retarget_actions(&eval_ctx, &actions)
@@ -5245,13 +5282,16 @@ mod tests {
             .plot_area_height;
         let requirements =
             facet_band.derive_retarget_requirements(CoordinationNodeKey::new(Vec::new()));
-        let main_axis_size = (first_before - requirements.legend_main_axis_slab.total()).max(1.0);
+        let plot_area_target = PlotAreaTarget {
+            width: None,
+            height: Some((first_before - requirements.legend_main_axis_slab.total()).max(1.0)),
+        };
         let actions = RetargetNodeActions {
             node_id: requirements.node_id.clone(),
             axis: requirements.axis,
             band_action: BandRetargetAction::Preserve,
             child_actions: vec![
-                CellRetargetAction::RetargetPlotArea { main_axis_size };
+                CellRetargetAction::retarget_plot_area(plot_area_target);
                 requirements.child_count
             ],
         };

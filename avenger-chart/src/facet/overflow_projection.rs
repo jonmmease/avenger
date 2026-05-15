@@ -5,12 +5,14 @@
 //! - `total`: guide overflow plus rendered content outside the guide slab, such as legends.
 //!
 //! Raw measured overflow and coordinated overflow are both represented by
-//! `CoordinatedOverflow`; callers pass them through unchanged when they need the
-//! full value. The projections here name the cases where a phase intentionally
-//! hides part of that full value:
-//! - `ParentLayout` strips facet-owned legend slabs so ancestors do not reserve them twice.
-//! - `GuideAnchor` uses the same boundary projection as sibling spacing so guides
-//!   align to visible rendered edges.
+//! `CoordinatedOverflow`. The full value is the rendered subtree envelope:
+//! guide overflow plus rendered content outside the guide slab, such as
+//! legends and colorbars. Callers should pass that value upward when an
+//! ancestor needs to reserve space for everything the subtree renders.
+//!
+//! The projections here name narrower questions where a phase intentionally
+//! hides part of the full rendered envelope:
+//! - `GuideAnchor` keeps the boundary slabs used to anchor facet guides.
 //! - `SiblingBoundary` keeps only the rendered boundary slabs that can affect
 //!   adjacent facet-cell spacing.
 //!
@@ -19,14 +21,16 @@
 //! the facet band's main axis.
 
 use crate::{
-    coords::{CoordMeasurement, CoordinatedOverflow, FacetAxis, OverflowSpaceRequirement},
+    coords::{
+        CoordMeasurement, CoordinatedLayout, CoordinatedOverflow, FacetAxis,
+        OverflowSpaceRequirement,
+    },
     facet::coord::{FacetBandProbeMeasurement, facet_band_ref as facet_band_from_coord},
     plot::compiled::ComponentsMeasurement,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum FacetOverflowProjection {
-    ParentLayout,
     GuideAnchor { axis: FacetAxis },
     SiblingBoundary { axis: FacetAxis },
 }
@@ -103,10 +107,6 @@ pub(crate) fn project_facet_overflow(
     projection: FacetOverflowProjection,
 ) -> CoordinatedOverflow {
     match projection {
-        FacetOverflowProjection::ParentLayout => CoordinatedOverflow {
-            guide: overflow.guide.clone(),
-            total: overflow.guide.clone(),
-        },
         FacetOverflowProjection::GuideAnchor { axis }
         | FacetOverflowProjection::SiblingBoundary { axis } => {
             sibling_boundary_overflow(axis, overflow)
@@ -223,13 +223,53 @@ pub(crate) fn aggregate_facet_band_overflow_with_policy(
     Some(CoordinatedOverflow { guide, total })
 }
 
-pub(crate) fn parent_layout_overflow_from_coord_measurement(
+pub(crate) fn rendered_subtree_overflow_from_coord_measurement(
     measurement: &dyn CoordMeasurement,
     source: FacetOverflowSource,
 ) -> Option<CoordinatedOverflow> {
-    facet_measurement_overflow(measurement, source).map(|(_, overflow)| {
-        project_facet_overflow(&overflow, FacetOverflowProjection::ParentLayout)
-    })
+    match source {
+        FacetOverflowSource::MeasuredLocal => {
+            if let Some(facet_measurement) = facet_band_from_coord(measurement) {
+                let active_layout = facet_measurement
+                    .coordinated_layout
+                    .as_ref()
+                    .unwrap_or(&facet_measurement.local_layout);
+                return facet_measurement.measured_overflow_value().map(|overflow| {
+                    rendered_subtree_overflow_for_facet_band(
+                        facet_measurement,
+                        &overflow,
+                        active_layout,
+                    )
+                });
+            }
+            measurement
+                .as_any()
+                .downcast_ref::<FacetBandProbeMeasurement>()
+                .map(|facet_measurement| {
+                    rendered_subtree_residual_overflow_for_absorbed_slot(
+                        facet_measurement.axis,
+                        &facet_measurement.measured_overflow,
+                        &facet_measurement.local_layout,
+                        true,
+                        facet_measurement.orthogonal_dimension_canvas_constrained,
+                    )
+                })
+        }
+        FacetOverflowSource::Coordinated => {
+            if let Some(facet_measurement) = facet_band_from_coord(measurement) {
+                let active_layout = facet_measurement
+                    .coordinated_layout
+                    .as_ref()
+                    .unwrap_or(&facet_measurement.local_layout);
+                return Some(rendered_subtree_overflow_for_facet_band(
+                    facet_measurement,
+                    &facet_measurement.coordinated_overflow,
+                    active_layout,
+                ));
+            }
+            measurement.coordinated_overflow().cloned()
+        }
+    }
 }
 
 pub(crate) fn guide_anchor_overflow_from_coord_measurement(
@@ -340,6 +380,83 @@ fn sibling_boundary_overflow(
         guide: overflow.guide.clone(),
         total,
     }
+}
+
+fn rendered_subtree_residual_overflow_for_absorbed_slot(
+    axis: FacetAxis,
+    overflow: &CoordinatedOverflow,
+    layout: &CoordinatedLayout,
+    absorb_main_axis_outer_slabs: bool,
+    absorb_cross_axis_legend_slabs: bool,
+) -> CoordinatedOverflow {
+    let mut total = overflow.total.clone();
+    let slabs = FacetOverflowSlabs::from_coordinated(overflow);
+
+    if absorb_main_axis_outer_slabs {
+        match axis {
+            FacetAxis::Column => {
+                total.left =
+                    overflow.guide.left + (slabs.legend.left - layout.outer_start).max(0.0);
+                total.right =
+                    overflow.guide.right + (slabs.legend.right - layout.outer_end).max(0.0);
+            }
+            FacetAxis::Row => {
+                total.top = overflow.guide.top + (slabs.legend.top - layout.outer_start).max(0.0);
+                total.bottom =
+                    overflow.guide.bottom + (slabs.legend.bottom - layout.outer_end).max(0.0);
+            }
+        }
+    }
+
+    if absorb_cross_axis_legend_slabs {
+        match axis {
+            FacetAxis::Column => {
+                total.top = overflow.guide.top;
+                total.bottom = overflow.guide.bottom;
+            }
+            FacetAxis::Row => {
+                total.left = overflow.guide.left;
+                total.right = overflow.guide.right;
+            }
+        }
+    }
+
+    CoordinatedOverflow {
+        guide: overflow.guide.clone(),
+        total,
+    }
+}
+
+fn rendered_subtree_overflow_for_facet_band(
+    facet_measurement: &crate::facet::coord::FacetBandCoordMeasurement,
+    overflow: &CoordinatedOverflow,
+    layout: &CoordinatedLayout,
+) -> CoordinatedOverflow {
+    // Scale-backed top-level facet bands have no parent slot that can absorb
+    // main-axis outer slabs, so the root layout must see the full main-axis
+    // envelope. Nested bands and explicit-placement bands already represent
+    // those slabs in a parent slot or in explicit facet placement.
+    let absorb_main_axis_outer_slabs =
+        facet_measurement.facet_depth > 1 || facet_measurement.uses_explicit_placement();
+
+    // When the orthogonal dimension is canvas-constrained, retargeting shrinks
+    // child plot areas by top/bottom legend slabs for column facets, or
+    // left/right legend slabs for row facets. Those slabs are therefore already
+    // inside the facet slot and should not be propagated as additional parent
+    // overflow.
+    let absorb_cross_axis_legend_slabs = facet_measurement.absorbs_cross_axis_legend_slabs();
+
+    if !absorb_main_axis_outer_slabs && !absorb_cross_axis_legend_slabs {
+        return overflow.clone();
+    }
+
+    rendered_subtree_residual_overflow_for_absorbed_slot(
+        facet_measurement.axis,
+        overflow,
+        layout,
+        absorb_main_axis_outer_slabs,
+        absorb_cross_axis_legend_slabs,
+    )
 }
 
 fn facet_measurement_overflow(
@@ -469,11 +586,56 @@ mod tests {
     }
 
     #[test]
-    fn parent_layout_projection_strips_legend_slabs() {
+    fn rendered_subtree_projection_preserves_full_overflow() {
         let raw = overflow((1.0, 2.0, 3.0, 4.0), (5.0, 6.0, 7.0, 8.0));
-        let projected = project_facet_overflow(&raw, FacetOverflowProjection::ParentLayout);
-        assert_eq!(projected.guide, raw.guide);
-        assert_eq!(projected.total, raw.guide);
+        assert_eq!(raw.guide.top, 1.0);
+        assert_eq!(raw.total.right, 6.0);
+    }
+
+    #[test]
+    fn rendered_subtree_residual_removes_main_axis_legend_slab_absorbed_by_layout() {
+        let raw = overflow((10.0, 20.0, 30.0, 40.0), (110.0, 120.0, 130.0, 140.0));
+        let layout = CoordinatedLayout {
+            padding_inner_px: 0.0,
+            outer_start: 100.0,
+            outer_end: 100.0,
+            n: 2,
+        };
+        let projected = rendered_subtree_residual_overflow_for_absorbed_slot(
+            FacetAxis::Column,
+            &raw,
+            &layout,
+            true,
+            false,
+        );
+
+        assert_eq!(projected.total.left, raw.guide.left);
+        assert_eq!(projected.total.right, raw.guide.right);
+        assert_eq!(projected.total.top, raw.total.top);
+        assert_eq!(projected.total.bottom, raw.total.bottom);
+    }
+
+    #[test]
+    fn rendered_subtree_residual_removes_cross_axis_legend_slab_absorbed_by_canvas_slot() {
+        let raw = overflow((10.0, 20.0, 30.0, 40.0), (110.0, 120.0, 130.0, 140.0));
+        let layout = CoordinatedLayout {
+            padding_inner_px: 0.0,
+            outer_start: 0.0,
+            outer_end: 0.0,
+            n: 2,
+        };
+        let projected = rendered_subtree_residual_overflow_for_absorbed_slot(
+            FacetAxis::Column,
+            &raw,
+            &layout,
+            false,
+            true,
+        );
+
+        assert_eq!(projected.total.top, raw.guide.top);
+        assert_eq!(projected.total.bottom, raw.guide.bottom);
+        assert_eq!(projected.total.left, raw.total.left);
+        assert_eq!(projected.total.right, raw.total.right);
     }
 
     #[test]

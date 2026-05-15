@@ -141,6 +141,7 @@ pub(crate) struct RetargetNodeRequirements {
     pub(crate) has_coordinated_extents: bool,
     pub(crate) ownership: FacetOwnershipRequirement,
     pub(crate) child_plot_areas: Vec<PlotAreaSize>,
+    pub(crate) target_subplot_cross_size: f32,
     pub(crate) child_has_coordinated_extents: Vec<bool>,
 }
 
@@ -150,35 +151,68 @@ pub(crate) enum BandRetargetAction {
     ApplyCoordinatedLayout,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) struct PlotAreaTarget {
+    pub(crate) width: Option<f32>,
+    pub(crate) height: Option<f32>,
+}
+
+impl PlotAreaTarget {
+    pub(crate) fn has_any_target(&self) -> bool {
+        self.width.is_some() || self.height.is_some()
+    }
+
+    pub(crate) fn resolve(self, current: PlotAreaSize) -> PlotAreaSize {
+        PlotAreaSize::new(
+            self.width.unwrap_or(current.width).max(1.0),
+            self.height.unwrap_or(current.height).max(1.0),
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum CellRetargetAction {
-    Preserve,
-    RebuildDomains,
-    RetargetPlotArea { main_axis_size: f32 },
-    RetargetPlotAreaAndDomains { main_axis_size: f32 },
+pub(crate) struct CellRetargetAction {
+    pub(crate) plot_area_target: Option<PlotAreaTarget>,
+    pub(crate) rebuild_domains: bool,
 }
 
 impl CellRetargetAction {
+    pub(crate) fn preserve() -> Self {
+        Self {
+            plot_area_target: None,
+            rebuild_domains: false,
+        }
+    }
+
+    pub(crate) fn rebuild_domains() -> Self {
+        Self {
+            plot_area_target: None,
+            rebuild_domains: true,
+        }
+    }
+
+    pub(crate) fn retarget_plot_area(plot_area_target: PlotAreaTarget) -> Self {
+        debug_assert!(plot_area_target.has_any_target());
+        Self {
+            plot_area_target: Some(plot_area_target),
+            rebuild_domains: false,
+        }
+    }
+
+    pub(crate) fn retarget_plot_area_and_domains(plot_area_target: PlotAreaTarget) -> Self {
+        debug_assert!(plot_area_target.has_any_target());
+        Self {
+            plot_area_target: Some(plot_area_target),
+            rebuild_domains: true,
+        }
+    }
+
     pub(crate) fn retargets_plot_area(&self) -> bool {
-        matches!(
-            self,
-            Self::RetargetPlotArea { .. } | Self::RetargetPlotAreaAndDomains { .. }
-        )
+        self.plot_area_target.is_some()
     }
 
     pub(crate) fn rebuilds_domains(&self) -> bool {
-        matches!(
-            self,
-            Self::RebuildDomains | Self::RetargetPlotAreaAndDomains { .. }
-        )
-    }
-
-    pub(crate) fn main_axis_size(&self) -> Option<f32> {
-        match self {
-            Self::RetargetPlotArea { main_axis_size }
-            | Self::RetargetPlotAreaAndDomains { main_axis_size } => Some(*main_axis_size),
-            _ => None,
-        }
+        self.rebuild_domains
     }
 }
 
@@ -188,18 +222,26 @@ pub(crate) struct CellRetargetActionCounts {
     pub(crate) rebuild_domains: usize,
     pub(crate) retarget_plot_area: usize,
     pub(crate) retarget_plot_area_and_domains: usize,
+    pub(crate) width_targets: usize,
+    pub(crate) height_targets: usize,
 }
 
 impl CellRetargetActionCounts {
     pub(crate) fn from_actions(actions: &[CellRetargetAction]) -> Self {
         let mut counts = Self::default();
         for action in actions {
-            match action {
-                CellRetargetAction::Preserve => counts.preserve += 1,
-                CellRetargetAction::RebuildDomains => counts.rebuild_domains += 1,
-                CellRetargetAction::RetargetPlotArea { .. } => counts.retarget_plot_area += 1,
-                CellRetargetAction::RetargetPlotAreaAndDomains { .. } => {
+            match (action.plot_area_target, action.rebuild_domains) {
+                (None, false) => counts.preserve += 1,
+                (None, true) => counts.rebuild_domains += 1,
+                (Some(target), false) => {
+                    counts.retarget_plot_area += 1;
+                    counts.width_targets += usize::from(target.width.is_some());
+                    counts.height_targets += usize::from(target.height.is_some());
+                }
+                (Some(target), true) => {
                     counts.retarget_plot_area_and_domains += 1;
+                    counts.width_targets += usize::from(target.width.is_some());
+                    counts.height_targets += usize::from(target.height.is_some());
                 }
             }
         }
@@ -257,6 +299,8 @@ pub(crate) struct RetargetNodeTrace {
     pub(crate) subplot_cross_size_after: f32,
     pub(crate) band_layout_applied: bool,
     pub(crate) plot_area_retarget_count: usize,
+    pub(crate) width_retarget_count: usize,
+    pub(crate) height_retarget_count: usize,
     pub(crate) domain_rebuild_count: usize,
 }
 
@@ -266,6 +310,8 @@ pub(crate) struct RetargetNodeOutcome {
     pub(crate) subplot_cross_size_after: f32,
     pub(crate) band_layout_applied: bool,
     pub(crate) plot_area_retarget_count: usize,
+    pub(crate) width_retarget_count: usize,
+    pub(crate) height_retarget_count: usize,
     pub(crate) domain_rebuild_count: usize,
 }
 
@@ -277,8 +323,6 @@ pub(crate) struct RetargetTrace {
 #[derive(Debug, Clone)]
 pub(crate) struct FinalPropagationChildPlan {
     pub(crate) child_index: usize,
-    pub(crate) old_plot_area_width: f32,
-    pub(crate) old_plot_area_height: f32,
     pub(crate) target_plot_area_width: Option<f32>,
     pub(crate) target_plot_area_height: Option<f32>,
     pub(crate) target_band_range_end: Option<f32>,

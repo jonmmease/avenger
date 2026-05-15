@@ -1,7 +1,7 @@
 //! Shared facet band placement helpers.
 //!
-//! Canvas-fit facets resolve placement from the active band scale. Plot-area-sized
-//! facets store explicit placement, then expose it through the same
+//! Scale-backed bands resolve placement from the active band scale. Explicit
+//! bands store placement on the measurement, then expose it through the same
 //! resolved placement view.
 
 use std::collections::HashMap;
@@ -15,10 +15,7 @@ use crate::{
     error::AvengerChartError,
     facet::{
         band_positions::{BandPosition, BandPositionIterator},
-        coord::{
-            FacetBandCoordMeasurementCanvasFit, FacetBandCoordMeasurementPlotAreaSized,
-            FacetCellRuntime,
-        },
+        coord::{FacetBandCoordMeasurement, FacetCellRuntime},
         overflow_projection::rendered_boundary_demand_for_measurement,
         padding_policy,
     },
@@ -43,12 +40,25 @@ pub(crate) struct FacetCellPlacement {
     pub(crate) main_axis_size: f32,
 }
 
-/// Explicit placement model used by plot-area-sized facets.
+/// Explicit placement model used when a band dimension is leaf-plot-area-sized.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct FacetBandExplicitPlacement {
     pub(crate) main_axis_positions: Vec<f32>,
     pub(crate) main_axis_size: f32,
     pub(crate) cross_axis_size: f32,
+}
+
+/// Placement model for a facet band.
+///
+/// Scale-backed placement resolves cell positions from the active band scale.
+/// Explicit placement stores the final cell positions on the measurement, which
+/// is needed when the facet band's physical main dimension is leaf-plot-area
+/// sized and the containing plot area grows to fit the rendered subtree.
+#[derive(Debug, Clone, Default)]
+pub(crate) enum FacetBandPlacementModel {
+    #[default]
+    ScaleBacked,
+    Explicit(FacetBandExplicitPlacement),
 }
 
 impl FacetBandPlacement {
@@ -215,68 +225,32 @@ pub(crate) fn resolve_facet_band_placement_from_configured_scales(
     coord_measurement: &dyn CoordMeasurement,
     scales: &HashMap<String, ConfiguredScale>,
 ) -> Result<Option<FacetBandPlacement>, AvengerChartError> {
-    if let Some(facet_band) = coord_measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
-    {
-        return Ok(Some(facet_band.resolved_placement()?));
-    }
-
     let Some(facet_band) = coord_measurement
         .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementCanvasFit>()
+        .downcast_ref::<FacetBandCoordMeasurement>()
     else {
         return Ok(None);
     };
 
-    let configured = scales.get(facet_band.axis.scale_name()).ok_or_else(|| {
-        AvengerChartError::InternalError(format!(
-            "Missing {} scale while resolving facet placement",
-            facet_band.axis.scale_name()
-        ))
-    })?;
-    let cell_values = facet_band.cell_values().cloned().collect::<Vec<_>>();
-    Ok(Some(resolve_scale_backed_facet_band_placement(
-        facet_band.axis,
-        configured,
-        &cell_values,
-        facet_band.cells.len(),
-        facet_band.coordinated_subplot_cross_size(),
-    )?))
+    Ok(Some(
+        facet_band.resolved_placement_from_configured_scales(scales)?,
+    ))
 }
 
 pub(crate) fn resolve_facet_band_placement_from_scale_specs(
     coord_measurement: &dyn CoordMeasurement,
     scales: &HashMap<String, ConfiguredScaleWithSpec>,
 ) -> Result<Option<FacetBandPlacement>, AvengerChartError> {
-    if let Some(facet_band) = coord_measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
-    {
-        return Ok(Some(facet_band.resolved_placement()?));
-    }
-
     let Some(facet_band) = coord_measurement
         .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementCanvasFit>()
+        .downcast_ref::<FacetBandCoordMeasurement>()
     else {
         return Ok(None);
     };
 
-    let configured = scales.get(facet_band.axis.scale_name()).ok_or_else(|| {
-        AvengerChartError::InternalError(format!(
-            "Missing {} scale while resolving facet placement",
-            facet_band.axis.scale_name()
-        ))
-    })?;
-    let cell_values = facet_band.cell_values().cloned().collect::<Vec<_>>();
-    Ok(Some(resolve_scale_backed_facet_band_placement(
-        facet_band.axis,
-        configured.configured(),
-        &cell_values,
-        facet_band.cells.len(),
-        facet_band.coordinated_subplot_cross_size(),
-    )?))
+    Ok(Some(
+        facet_band.resolved_placement_from_scale_specs(scales)?,
+    ))
 }
 
 pub(crate) fn resolve_facet_band_placement(
@@ -358,7 +332,8 @@ fn cell_main_plot_size(axis: FacetAxis, measurement: &ComponentsMeasurement) -> 
     if let Some(facet_band) = measurement
         .coord_measurement
         .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
+        .downcast_ref::<FacetBandCoordMeasurement>()
+        .filter(|facet_band| facet_band.uses_explicit_placement())
     {
         if facet_band.cells.is_empty() {
             return match axis {
@@ -368,7 +343,7 @@ fn cell_main_plot_size(axis: FacetAxis, measurement: &ComponentsMeasurement) -> 
             .max(0.0);
         }
 
-        let (plot_width, plot_height) = facet_band.plot_area_sized_extent();
+        let (plot_width, plot_height) = facet_band.plot_area_extent();
         return match axis {
             FacetAxis::Column => plot_width,
             FacetAxis::Row => plot_height,
@@ -387,7 +362,8 @@ fn cell_cross_plot_size(axis: FacetAxis, measurement: &ComponentsMeasurement) ->
     if let Some(facet_band) = measurement
         .coord_measurement
         .as_any()
-        .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
+        .downcast_ref::<FacetBandCoordMeasurement>()
+        .filter(|facet_band| facet_band.uses_explicit_placement())
     {
         if facet_band.cells.is_empty() {
             return match axis {
@@ -397,7 +373,7 @@ fn cell_cross_plot_size(axis: FacetAxis, measurement: &ComponentsMeasurement) ->
             .max(0.0);
         }
 
-        let (plot_width, plot_height) = facet_band.plot_area_sized_extent();
+        let (plot_width, plot_height) = facet_band.plot_area_extent();
         return match axis {
             FacetAxis::Column => plot_height,
             FacetAxis::Row => plot_width,

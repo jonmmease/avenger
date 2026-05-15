@@ -17,7 +17,6 @@ use crate::marks::{
     ChannelDescriptor, ChannelValue, CompiledMark, CompiledMarkState, Mark, MarkState,
 };
 use crate::plot::{CompiledPlot, Plot};
-use crate::render::context::FacetRuntimeSizingMode;
 use crate::render::{EvaluationContext, RenderContext};
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 use datafusion::prelude::SessionContext;
@@ -26,11 +25,6 @@ use serde_with::serde_as;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::trace;
-
-#[path = "facet_canvas_fit.rs"]
-mod facet_canvas_fit;
-#[path = "facet_plot_area_sized.rs"]
-mod facet_plot_area_sized;
 
 fn facet_cell_main_axis_start_offset(
     facet_measurement: &crate::facet::coord::FacetBandCoordMeasurement,
@@ -276,50 +270,30 @@ async fn render_facet_band_common(
     facet_empty_cell_policy: FacetEmptyCellPolicy,
     context: &RenderContext<'_>,
 ) -> Result<Vec<SceneMark>, AvengerChartError> {
-    let mode = context.eval.facet_runtime_sizing_mode();
-    match mode {
-        FacetRuntimeSizingMode::CanvasFit => {
-            facet_canvas_fit::render_facet_band_canvas_fit(
-                ops,
-                compiled_subplot,
-                facet_empty_cell_policy,
-                context,
+    let facet_measurement = context
+        .coord_measurement()
+        .as_any()
+        .downcast_ref::<FacetBandCoordMeasurement>()
+        .ok_or_else(|| {
+            AvengerChartError::InternalError(
+                "Expected FacetBandCoordMeasurement in coord_measurement".into(),
             )
-            .await
-        }
-        FacetRuntimeSizingMode::PlotAreaSized { .. } => {
-            facet_plot_area_sized::render_facet_band_plot_area_sized(
-                ops,
-                compiled_subplot,
-                facet_empty_cell_policy,
-                context,
-            )
-            .await
-        }
-        FacetRuntimeSizingMode::DimensionMixed(_) => {
-            if context
-                .coord_measurement()
-                .as_any()
-                .is::<crate::facet::coord::FacetBandCoordMeasurementPlotAreaSized>()
-            {
-                facet_plot_area_sized::render_facet_band_plot_area_sized(
-                    ops,
-                    compiled_subplot,
-                    facet_empty_cell_policy,
-                    context,
-                )
-                .await
-            } else {
-                facet_canvas_fit::render_facet_band_canvas_fit(
-                    ops,
-                    compiled_subplot,
-                    facet_empty_cell_policy,
-                    context,
-                )
-                .await
-            }
-        }
+        })?;
+
+    if facet_measurement.cells.is_empty() {
+        return Ok(Vec::new());
     }
+
+    let placement = facet_measurement.resolved_placement_from_scale_specs(context.scales())?;
+    render_facet_band_with_placement(
+        ops,
+        compiled_subplot,
+        facet_empty_cell_policy,
+        context,
+        facet_measurement,
+        placement,
+    )
+    .await
 }
 
 /// Facet mark for FacetRow or FacetCol outer coordinate system.

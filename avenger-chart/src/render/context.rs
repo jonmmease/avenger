@@ -66,6 +66,28 @@ pub(crate) struct FacetRuntimeSizingPolicy {
 }
 
 impl FacetRuntimeSizingPolicy {
+    pub(crate) fn fully_canvas_constrained(canvas_width: f32, canvas_height: f32) -> Self {
+        Self {
+            width: FacetDimensionSizing::CanvasConstrained {
+                canvas_size: canvas_width,
+            },
+            height: FacetDimensionSizing::CanvasConstrained {
+                canvas_size: canvas_height,
+            },
+        }
+    }
+
+    pub(crate) fn fully_leaf_plot_area_sized(leaf_plot_width: f32, leaf_plot_height: f32) -> Self {
+        Self {
+            width: FacetDimensionSizing::LeafPlotAreaSized {
+                leaf_plot_size: leaf_plot_width,
+            },
+            height: FacetDimensionSizing::LeafPlotAreaSized {
+                leaf_plot_size: leaf_plot_height,
+            },
+        }
+    }
+
     pub(crate) fn dimension(self, dimension: PhysicalDimension) -> FacetDimensionSizing {
         match dimension {
             PhysicalDimension::Width => self.width,
@@ -119,32 +141,14 @@ pub(crate) fn facet_orthogonal_physical_dimension(axis: FacetAxis) -> PhysicalDi
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum FacetRuntimeSizingMode {
     CanvasFit,
-    PlotAreaSized {
-        leaf_plot_width: f32,
-        leaf_plot_height: f32,
-    },
-    DimensionMixed(FacetRuntimeSizingPolicy),
+    Policy(FacetRuntimeSizingPolicy),
 }
 
 impl FacetRuntimeSizingMode {
     pub(crate) fn policy(self) -> FacetRuntimeSizingPolicy {
         match self {
-            Self::CanvasFit => FacetRuntimeSizingPolicy {
-                width: FacetDimensionSizing::CanvasConstrained { canvas_size: 0.0 },
-                height: FacetDimensionSizing::CanvasConstrained { canvas_size: 0.0 },
-            },
-            Self::PlotAreaSized {
-                leaf_plot_width,
-                leaf_plot_height,
-            } => FacetRuntimeSizingPolicy {
-                width: FacetDimensionSizing::LeafPlotAreaSized {
-                    leaf_plot_size: leaf_plot_width,
-                },
-                height: FacetDimensionSizing::LeafPlotAreaSized {
-                    leaf_plot_size: leaf_plot_height,
-                },
-            },
-            Self::DimensionMixed(policy) => policy,
+            Self::CanvasFit => FacetRuntimeSizingPolicy::fully_canvas_constrained(0.0, 0.0),
+            Self::Policy(policy) => policy,
         }
     }
 
@@ -188,7 +192,7 @@ pub struct EvaluationContext {
     pub hide_invalid_facet_path_axes: bool,
     /// Shared cache of facet scale precompute artifacts for the current evaluation run.
     pub(crate) facet_scale_precompute_store: Arc<FacetScalePrecomputeStore>,
-    /// Internal facet runtime sizing mode used to dispatch canvas-fit vs plot-area-sized paths.
+    /// Internal facet runtime sizing policy used while measuring and coordinating facets.
     pub(crate) facet_runtime_sizing_mode: FacetRuntimeSizingMode,
     /// Effective debug overlay toggle for layout bounds.
     pub(crate) debug_layout_lines: bool,

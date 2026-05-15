@@ -175,13 +175,7 @@ pub struct CellDomainInfo {
 pub enum FacetCoordinationMode {
     /// Full requirement coordination cycle:
     /// initial requirements -> retarget -> retargeted requirements -> final propagation.
-    CanvasFullCycle,
-    /// Plot-area-sized mode:
-    /// full-cycle coordination with leaf-size preserving retarget behavior.
-    PlotAreaSizedFullCycle,
-    /// Dimension-policy mode:
-    /// full-cycle coordination with per-physical-dimension sizing behavior.
-    DimensionPolicyFullCycle,
+    FullCycle,
 }
 
 pub async fn coordinate_overflow_for_guides(
@@ -191,7 +185,7 @@ pub async fn coordinate_overflow_for_guides(
     coordinate_overflow_for_guides_with_mode(
         measurement,
         eval_ctx,
-        FacetCoordinationMode::CanvasFullCycle,
+        FacetCoordinationMode::FullCycle,
     )
     .await
 }
@@ -202,26 +196,9 @@ pub async fn coordinate_overflow_for_guides_with_mode(
     mode: FacetCoordinationMode,
 ) -> Result<(), AvengerChartError> {
     match mode {
-        FacetCoordinationMode::CanvasFullCycle => {
-            crate::facet::coordination_canvas_fit::coordinate_facet_measurement_tree_canvas_fit(
-                measurement,
-                eval_ctx,
-            )
-            .await
-        }
-        FacetCoordinationMode::PlotAreaSizedFullCycle => {
-            crate::facet::coordination_plot_area_sized::coordinate_facet_measurement_tree_plot_area_sized(
-                measurement,
-                eval_ctx,
-            )
-            .await
-        }
-        FacetCoordinationMode::DimensionPolicyFullCycle => {
-            crate::facet::coordination_dimension_policy::coordinate_facet_measurement_tree_dimension_policy(
-                measurement,
-                eval_ctx,
-            )
-            .await
+        FacetCoordinationMode::FullCycle => {
+            crate::facet::coordination::coordinate_facet_measurement_tree(measurement, eval_ctx)
+                .await
         }
     }
 }
@@ -233,24 +210,8 @@ pub async fn coordinate_overflow_for_guides_with_mode_until(
     checkpoint: CoordinationCheckpoint,
 ) -> Result<(), AvengerChartError> {
     match mode {
-        FacetCoordinationMode::CanvasFullCycle => {
-            crate::facet::coordination_canvas_fit::coordinate_facet_measurement_tree_canvas_fit_until(
-                measurement,
-                eval_ctx,
-                checkpoint,
-            )
-            .await
-        }
-        FacetCoordinationMode::PlotAreaSizedFullCycle => {
-            crate::facet::coordination_plot_area_sized::coordinate_facet_measurement_tree_plot_area_sized_until(
-                measurement,
-                eval_ctx,
-                checkpoint,
-            )
-            .await
-        }
-        FacetCoordinationMode::DimensionPolicyFullCycle => {
-            crate::facet::coordination_dimension_policy::coordinate_facet_measurement_tree_dimension_policy_until(
+        FacetCoordinationMode::FullCycle => {
+            crate::facet::coordination::coordinate_facet_measurement_tree_until(
                 measurement,
                 eval_ctx,
                 checkpoint,

@@ -9,25 +9,20 @@
 //! 4. `placement` and `marks` turn coordinated measurements into renderable facet
 //!    guide and subplot positions.
 //!
-//! Canvas-fit facets start from an outer canvas and resize subplot plot areas to
-//! fit coordinated overflows. Plot-area-sized facets start from requested leaf
-//! plot areas; `subtree_plot_area` provides initial subtree-size estimates, and
-//! final extents come from coordinated explicit placement. Mixed sizing combines
-//! those policies per physical dimension, so one axis can be canvas-constrained
-//! while the other is driven by leaf subplot plot-area size.
+//! Faceted charts use one runtime sizing policy. Each physical dimension is
+//! either canvas-constrained, where final subplot plot areas are derived from
+//! the available canvas after coordinated overflows, or leaf-plot-area-sized,
+//! where requested leaf plot areas determine explicit facet placement and the
+//! outer canvas grows to contain them. Canvas-fit, plot-area-sized, and mixed
+//! sizing are public configurations of this per-dimension policy.
 
 pub(crate) mod band_attributes;
 pub mod band_positions;
 pub mod coord;
-pub(crate) mod coord_canvas_fit;
-pub(crate) mod coord_plot_area_sized;
 pub mod coord_row;
 pub mod coordination;
 pub(crate) mod coordination_apply;
-pub(crate) mod coordination_canvas_fit;
-pub(crate) mod coordination_dimension_policy;
 pub(crate) mod coordination_plans;
-pub(crate) mod coordination_plot_area_sized;
 pub(crate) mod coordination_strategy;
 pub mod debug;
 pub mod dimension_config;

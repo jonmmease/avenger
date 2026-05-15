@@ -19,7 +19,7 @@ use crate::{
 #[cfg(test)]
 use crate::facet::coord::FacetBandCoordMeasurement;
 #[cfg(test)]
-use crate::facet::coordination_strategy::CanvasFitCoordinationStrategy;
+use crate::facet::coordination_strategy::FacetPolicyCoordinationStrategy;
 
 pub(crate) fn visit_facet_bands_with_node_id_for_strategy<S, F>(
     measurement: &ComponentsMeasurement,
@@ -79,7 +79,7 @@ pub(crate) fn visit_facet_bands_with_node_id<F>(
 ) where
     F: FnMut(&CoordinationNodeKey, usize, &FacetBandCoordMeasurement),
 {
-    visit_facet_bands_with_node_id_for_strategy::<CanvasFitCoordinationStrategy, _>(
+    visit_facet_bands_with_node_id_for_strategy::<FacetPolicyCoordinationStrategy, _>(
         measurement,
         depth,
         node_path,
@@ -96,7 +96,7 @@ pub(crate) fn visit_facet_bands_with_node_id_mut<F>(
 ) where
     F: FnMut(&CoordinationNodeKey, usize, &mut FacetBandCoordMeasurement),
 {
-    visit_facet_bands_with_node_id_mut_for_strategy::<CanvasFitCoordinationStrategy, _>(
+    visit_facet_bands_with_node_id_mut_for_strategy::<FacetPolicyCoordinationStrategy, _>(
         measurement,
         depth,
         node_path,
@@ -160,7 +160,7 @@ pub(crate) fn apply_initial_requirement_pass(
     measurement: &mut ComponentsMeasurement,
     initial_requirement_pass: &InitialRequirementPass,
 ) {
-    apply_initial_requirement_pass_with_strategy::<CanvasFitCoordinationStrategy>(
+    apply_initial_requirement_pass_with_strategy::<FacetPolicyCoordinationStrategy>(
         measurement,
         initial_requirement_pass,
     );
@@ -209,27 +209,14 @@ pub(crate) fn apply_retargeted_requirement_pass(
     measurement: &mut ComponentsMeasurement,
     retargeted_requirement_pass: &RetargetedRequirementPass,
 ) {
-    apply_retargeted_requirement_pass_with_strategy::<CanvasFitCoordinationStrategy>(
+    apply_retargeted_requirement_pass_with_strategy::<FacetPolicyCoordinationStrategy>(
         measurement,
         retargeted_requirement_pass,
     );
 }
 
-#[cfg(test)]
 pub(crate) fn build_retarget_plan_with_strategy<S>(
     measurement: &ComponentsMeasurement,
-) -> RetargetPlan
-where
-    S: FacetSizingCoordinationStrategy,
-{
-    let mut node_plans = Vec::new();
-    let mut node_path = Vec::new();
-    build_retarget_plan_recursive::<S>(measurement, &mut node_path, &mut node_plans);
-    RetargetPlan { node_plans }
-}
-
-pub(crate) fn build_retarget_plan_with_strategy_for_eval<S>(
-    measurement: &ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
 ) -> RetargetPlan
 where
@@ -237,44 +224,12 @@ where
 {
     let mut node_plans = Vec::new();
     let mut node_path = Vec::new();
-    build_retarget_plan_recursive_for_eval::<S>(
-        measurement,
-        eval_ctx,
-        &mut node_path,
-        &mut node_plans,
-    );
+    build_retarget_plan_recursive::<S>(measurement, eval_ctx, &mut node_path, &mut node_plans);
     RetargetPlan { node_plans }
 }
 
-#[cfg(test)]
 fn build_retarget_plan_recursive<S>(
     measurement: &ComponentsMeasurement,
-    node_path: &mut Vec<usize>,
-    node_plans: &mut Vec<RetargetNodePlan>,
-) where
-    S: FacetSizingCoordinationStrategy,
-{
-    if let Some(facet_band) = S::facet_band_ref(measurement) {
-        for (idx, child) in facet_band.base().child_measurements_iter().enumerate() {
-            node_path.push(idx);
-            build_retarget_plan_recursive::<S>(child, node_path, node_plans);
-            node_path.pop();
-        }
-
-        let base = facet_band.base();
-        let node_id = CoordinationNodeKey::new(node_path.clone());
-        let requirements = base.derive_retarget_requirements(node_id.clone());
-        let actions = S::build_retarget_actions(facet_band, &requirements);
-        node_plans.push(RetargetNodePlan {
-            node_id,
-            requirements,
-            actions,
-        });
-    }
-}
-
-fn build_retarget_plan_recursive_for_eval<S>(
-    measurement: &ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
     node_path: &mut Vec<usize>,
     node_plans: &mut Vec<RetargetNodePlan>,
@@ -284,14 +239,14 @@ fn build_retarget_plan_recursive_for_eval<S>(
     if let Some(facet_band) = S::facet_band_ref(measurement) {
         for (idx, child) in facet_band.base().child_measurements_iter().enumerate() {
             node_path.push(idx);
-            build_retarget_plan_recursive_for_eval::<S>(child, eval_ctx, node_path, node_plans);
+            build_retarget_plan_recursive::<S>(child, eval_ctx, node_path, node_plans);
             node_path.pop();
         }
 
         let base = facet_band.base();
         let node_id = CoordinationNodeKey::new(node_path.clone());
         let requirements = base.derive_retarget_requirements(node_id.clone());
-        let actions = S::build_retarget_actions_for_eval(facet_band, &requirements, eval_ctx);
+        let actions = S::build_retarget_actions(facet_band, &requirements, eval_ctx);
         node_plans.push(RetargetNodePlan {
             node_id,
             requirements,
@@ -301,8 +256,11 @@ fn build_retarget_plan_recursive_for_eval<S>(
 }
 
 #[cfg(test)]
-pub(crate) fn build_retarget_plan(measurement: &ComponentsMeasurement) -> RetargetPlan {
-    build_retarget_plan_with_strategy::<CanvasFitCoordinationStrategy>(measurement)
+pub(crate) fn build_retarget_plan(
+    measurement: &ComponentsMeasurement,
+    eval_ctx: &EvaluationContext,
+) -> RetargetPlan {
+    build_retarget_plan_with_strategy::<FacetPolicyCoordinationStrategy>(measurement, eval_ctx)
 }
 
 pub(crate) fn run_retarget_with_trace_with_strategy<'a, S>(
@@ -398,6 +356,8 @@ where
                 subplot_cross_size_after: outcome.subplot_cross_size_after,
                 band_layout_applied: outcome.band_layout_applied,
                 plot_area_retarget_count: outcome.plot_area_retarget_count,
+                width_retarget_count: outcome.width_retarget_count,
+                height_retarget_count: outcome.height_retarget_count,
                 domain_rebuild_count: outcome.domain_rebuild_count,
             });
         }
@@ -411,27 +371,44 @@ pub(crate) fn run_retarget_with_trace<'a>(
     eval_ctx: &'a EvaluationContext,
     plan: &'a RetargetPlan,
 ) -> Pin<Box<dyn Future<Output = Result<RetargetTrace, AvengerChartError>> + Send + 'a>> {
-    run_retarget_with_trace_with_strategy::<CanvasFitCoordinationStrategy>(
+    run_retarget_with_trace_with_strategy::<FacetPolicyCoordinationStrategy>(
         measurement,
         eval_ctx,
         plan,
     )
 }
 
+#[cfg(test)]
 pub(crate) fn build_final_propagation_plan_with_strategy<S>(
     measurement: &ComponentsMeasurement,
 ) -> FinalPropagationPlan
 where
     S: FacetSizingCoordinationStrategy,
 {
+    build_final_propagation_plan_with_strategy_for_eval::<S>(measurement, None)
+}
+
+pub(crate) fn build_final_propagation_plan_with_strategy_for_eval<S>(
+    measurement: &ComponentsMeasurement,
+    eval_ctx: Option<&EvaluationContext>,
+) -> FinalPropagationPlan
+where
+    S: FacetSizingCoordinationStrategy,
+{
     let mut node_plans = Vec::new();
     let mut node_path = Vec::new();
-    build_final_propagation_plan_recursive::<S>(measurement, &mut node_path, &mut node_plans);
+    build_final_propagation_plan_recursive::<S>(
+        measurement,
+        eval_ctx,
+        &mut node_path,
+        &mut node_plans,
+    );
     FinalPropagationPlan { node_plans }
 }
 
 fn build_final_propagation_plan_recursive<S>(
     measurement: &ComponentsMeasurement,
+    eval_ctx: Option<&EvaluationContext>,
     node_path: &mut Vec<usize>,
     node_plans: &mut Vec<FinalPropagationNodePlan>,
 ) where
@@ -440,7 +417,7 @@ fn build_final_propagation_plan_recursive<S>(
     if let Some(facet_band) = S::facet_band_ref(measurement) {
         for (idx, child) in facet_band.base().child_measurements_iter().enumerate() {
             node_path.push(idx);
-            build_final_propagation_plan_recursive::<S>(child, node_path, node_plans);
+            build_final_propagation_plan_recursive::<S>(child, eval_ctx, node_path, node_plans);
             node_path.pop();
         }
 
@@ -450,6 +427,7 @@ fn build_final_propagation_plan_recursive<S>(
             base.axis,
             parent_cross_size_target,
             base.child_measurements_iter(),
+            eval_ctx,
         );
         let expected_plot_area_adjustments_count = child_plans
             .iter()
@@ -471,6 +449,7 @@ fn build_final_propagation_child_plans_with_strategy<'a, S, I>(
     axis: FacetAxis,
     parent_cross_size_target: Option<f32>,
     child_measurements: I,
+    eval_ctx: Option<&EvaluationContext>,
 ) -> Vec<FinalPropagationChildPlan>
 where
     S: FacetSizingCoordinationStrategy,
@@ -484,6 +463,7 @@ where
                 axis,
                 parent_cross_size_target,
                 child,
+                eval_ctx,
             )
         })
         .collect()
@@ -494,32 +474,34 @@ fn build_final_propagation_child_plan_with_strategy<S>(
     axis: FacetAxis,
     parent_cross_size_target: Option<f32>,
     child: &ComponentsMeasurement,
+    eval_ctx: Option<&EvaluationContext>,
 ) -> FinalPropagationChildPlan
 where
     S: FacetSizingCoordinationStrategy,
 {
-    let policy = S::final_child_resize_policy(axis, parent_cross_size_target, child);
-    let (target_plot_area_width, target_plot_area_height, adjust_plot_area) =
-        if policy.allow_plot_area_resize {
-            match (axis, parent_cross_size_target) {
-                (FacetAxis::Column, Some(target_width))
-                    if (child.plot_area_width - target_width).abs() > 0.01 =>
-                {
-                    (Some(target_width), None, true)
-                }
-                (FacetAxis::Row, Some(target_height))
-                    if (child.plot_area_height - target_height).abs() > 0.01 =>
-                {
-                    (None, Some(target_height), true)
-                }
-                _ => (None, None, false),
-            }
-        } else {
-            (None, None, false)
-        };
+    let policy = if let Some(eval_ctx) = eval_ctx {
+        S::final_child_resize_policy_for_eval(axis, parent_cross_size_target, child, eval_ctx)
+    } else {
+        S::final_child_resize_policy(axis, parent_cross_size_target, child)
+    };
+    let (target_plot_area_width, target_plot_area_height) = match (axis, parent_cross_size_target) {
+        (FacetAxis::Column, Some(target_width))
+            if policy.allow_width_resize && (child.plot_area_width - target_width).abs() > 0.01 =>
+        {
+            (Some(target_width), None)
+        }
+        (FacetAxis::Row, Some(target_height))
+            if policy.allow_height_resize
+                && (child.plot_area_height - target_height).abs() > 0.01 =>
+        {
+            (None, Some(target_height))
+        }
+        _ => (None, None),
+    };
+    let adjust_plot_area = target_plot_area_width.is_some() || target_plot_area_height.is_some();
 
     let has_band_scale = child.scales.contains_key(axis.scale_name());
-    let target_band_range_end = if policy.allow_scale_range_retarget && has_band_scale {
+    let target_band_range_end = if policy.allow_band_range_retarget(axis) && has_band_scale {
         parent_cross_size_target
     } else {
         None
@@ -528,8 +510,6 @@ where
 
     FinalPropagationChildPlan {
         child_index,
-        old_plot_area_width: child.plot_area_width,
-        old_plot_area_height: child.plot_area_height,
         target_plot_area_width,
         target_plot_area_height,
         target_band_range_end,
@@ -542,7 +522,7 @@ where
 pub(crate) fn build_final_propagation_plan(
     measurement: &ComponentsMeasurement,
 ) -> FinalPropagationPlan {
-    build_final_propagation_plan_with_strategy::<CanvasFitCoordinationStrategy>(measurement)
+    build_final_propagation_plan_with_strategy::<FacetPolicyCoordinationStrategy>(measurement)
 }
 
 pub(crate) fn run_final_propagation_with_trace_with_strategy<S>(
@@ -668,7 +648,7 @@ pub(crate) fn run_final_propagation_with_trace(
     eval_ctx: &EvaluationContext,
     plan: &FinalPropagationPlan,
 ) -> Result<FinalPropagationTrace, AvengerChartError> {
-    run_final_propagation_with_trace_with_strategy::<CanvasFitCoordinationStrategy>(
+    run_final_propagation_with_trace_with_strategy::<FacetPolicyCoordinationStrategy>(
         measurement,
         eval_ctx,
         plan,
