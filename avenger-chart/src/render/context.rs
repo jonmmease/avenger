@@ -15,6 +15,7 @@ use indexmap::IndexMap;
 
 use crate::{
     coords::CoordMeasurement,
+    coords::FacetAxis,
     facet::{
         evaluated_facet_tree::EvaluatedFacetTree, scale_precompute::FacetScalePrecomputeStore,
     },
@@ -29,13 +30,133 @@ pub const INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM: &str =
     "__avenger_hide_invalid_facet_path_axes";
 pub const AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM: &str = "__avenger_axis_owner_ignore_empty_cells";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PhysicalDimension {
+    Width,
+    Height,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum FacetRuntimeSizingMode {
+pub(crate) enum FacetDimensionSizing {
+    CanvasConstrained { canvas_size: f32 },
+    LeafPlotAreaSized { leaf_plot_size: f32 },
+}
+
+impl FacetDimensionSizing {
+    pub(crate) fn is_canvas_constrained(self) -> bool {
+        matches!(self, Self::CanvasConstrained { .. })
+    }
+
+    pub(crate) fn is_leaf_plot_area_sized(self) -> bool {
+        matches!(self, Self::LeafPlotAreaSized { .. })
+    }
+
+    pub(crate) fn leaf_plot_size(self) -> Option<f32> {
+        match self {
+            Self::LeafPlotAreaSized { leaf_plot_size } => Some(leaf_plot_size),
+            Self::CanvasConstrained { .. } => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct FacetRuntimeSizingPolicy {
+    pub(crate) width: FacetDimensionSizing,
+    pub(crate) height: FacetDimensionSizing,
+}
+
+impl FacetRuntimeSizingPolicy {
+    pub(crate) fn dimension(self, dimension: PhysicalDimension) -> FacetDimensionSizing {
+        match dimension {
+            PhysicalDimension::Width => self.width,
+            PhysicalDimension::Height => self.height,
+        }
+    }
+
+    pub(crate) fn facet_band_dimension(self, axis: FacetAxis) -> FacetDimensionSizing {
+        self.dimension(facet_band_physical_dimension(axis))
+    }
+
+    pub(crate) fn facet_orthogonal_dimension(self, axis: FacetAxis) -> FacetDimensionSizing {
+        self.dimension(facet_orthogonal_physical_dimension(axis))
+    }
+
+    pub(crate) fn is_fully_canvas_constrained(self) -> bool {
+        self.width.is_canvas_constrained() && self.height.is_canvas_constrained()
+    }
+
+    pub(crate) fn is_fully_leaf_plot_area_sized(self) -> bool {
+        self.width.is_leaf_plot_area_sized() && self.height.is_leaf_plot_area_sized()
+    }
+
+    pub(crate) fn has_leaf_plot_area_sized_dimension(self) -> bool {
+        self.width.is_leaf_plot_area_sized() || self.height.is_leaf_plot_area_sized()
+    }
+
+    pub(crate) fn leaf_plot_width(self) -> Option<f32> {
+        self.width.leaf_plot_size()
+    }
+
+    pub(crate) fn leaf_plot_height(self) -> Option<f32> {
+        self.height.leaf_plot_size()
+    }
+}
+
+pub(crate) fn facet_band_physical_dimension(axis: FacetAxis) -> PhysicalDimension {
+    match axis {
+        FacetAxis::Column => PhysicalDimension::Width,
+        FacetAxis::Row => PhysicalDimension::Height,
+    }
+}
+
+pub(crate) fn facet_orthogonal_physical_dimension(axis: FacetAxis) -> PhysicalDimension {
+    match axis {
+        FacetAxis::Column => PhysicalDimension::Height,
+        FacetAxis::Row => PhysicalDimension::Width,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum FacetRuntimeSizingMode {
     CanvasFit,
     PlotAreaSized {
         leaf_plot_width: f32,
         leaf_plot_height: f32,
     },
+    DimensionMixed(FacetRuntimeSizingPolicy),
+}
+
+impl FacetRuntimeSizingMode {
+    pub(crate) fn policy(self) -> FacetRuntimeSizingPolicy {
+        match self {
+            Self::CanvasFit => FacetRuntimeSizingPolicy {
+                width: FacetDimensionSizing::CanvasConstrained { canvas_size: 0.0 },
+                height: FacetDimensionSizing::CanvasConstrained { canvas_size: 0.0 },
+            },
+            Self::PlotAreaSized {
+                leaf_plot_width,
+                leaf_plot_height,
+            } => FacetRuntimeSizingPolicy {
+                width: FacetDimensionSizing::LeafPlotAreaSized {
+                    leaf_plot_size: leaf_plot_width,
+                },
+                height: FacetDimensionSizing::LeafPlotAreaSized {
+                    leaf_plot_size: leaf_plot_height,
+                },
+            },
+            Self::DimensionMixed(policy) => policy,
+        }
+    }
+
+    pub(crate) fn has_leaf_plot_area_sized_dimension(self) -> bool {
+        self.policy().has_leaf_plot_area_sized_dimension()
+    }
+
+    pub(crate) fn facet_band_is_leaf_plot_area_sized(self, axis: FacetAxis) -> bool {
+        self.policy()
+            .facet_band_dimension(axis)
+            .is_leaf_plot_area_sized()
+    }
 }
 
 pub(crate) struct FacetSubtreeSnapshotCapture {

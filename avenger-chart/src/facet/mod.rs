@@ -12,7 +12,9 @@
 //! Canvas-fit facets start from an outer canvas and resize subplot plot areas to
 //! fit coordinated overflows. Plot-area-sized facets start from requested leaf
 //! plot areas; `subtree_plot_area` provides initial subtree-size estimates, and
-//! final extents come from coordinated explicit placement.
+//! final extents come from coordinated explicit placement. Mixed sizing combines
+//! those policies per physical dimension, so one axis can be canvas-constrained
+//! while the other is driven by leaf subplot plot-area size.
 
 pub(crate) mod band_attributes;
 pub mod band_positions;
@@ -23,6 +25,7 @@ pub mod coord_row;
 pub mod coordination;
 pub(crate) mod coordination_apply;
 pub(crate) mod coordination_canvas_fit;
+pub(crate) mod coordination_dimension_policy;
 pub(crate) mod coordination_plans;
 pub(crate) mod coordination_plot_area_sized;
 pub(crate) mod coordination_strategy;

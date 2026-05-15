@@ -124,6 +124,14 @@ pub(crate) trait FacetSizingCoordinationStrategy {
         requirements: &RetargetNodeRequirements,
     ) -> RetargetNodeActions;
 
+    fn build_retarget_actions_for_eval(
+        facet_band: FacetBandRef<'_>,
+        requirements: &RetargetNodeRequirements,
+        _eval_ctx: &EvaluationContext,
+    ) -> RetargetNodeActions {
+        Self::build_retarget_actions(facet_band, requirements)
+    }
+
     fn set_child_parent_bandwidth_if_same_axis(
         child: &mut ComponentsMeasurement,
         parent_axis: FacetAxis,
@@ -440,6 +448,179 @@ impl FacetSizingCoordinationStrategy for PlotAreaSizedCoordinationStrategy {
             child.plot_area_height,
         );
         Ok((plot_area_adjusted, retarget_count))
+    }
+}
+
+pub(crate) struct DimensionPolicyCoordinationStrategy;
+
+impl FacetSizingCoordinationStrategy for DimensionPolicyCoordinationStrategy {
+    const LABEL: &'static str = "dimension-policy";
+
+    fn facet_band_ref(measurement: &ComponentsMeasurement) -> Option<FacetBandRef<'_>> {
+        facet_band_plot_area_sized_ref_from_coord(measurement.coord_measurement.as_ref())
+            .map(FacetBandRef::PlotAreaSized)
+            .or_else(|| {
+                facet_band_canvas_ref_from_coord(measurement.coord_measurement.as_ref())
+                    .map(FacetBandRef::CanvasFit)
+            })
+    }
+
+    fn facet_band_mut(measurement: &mut ComponentsMeasurement) -> Option<FacetBandMut<'_>> {
+        if facet_band_plot_area_sized_ref_from_coord(measurement.coord_measurement.as_ref())
+            .is_some()
+        {
+            return facet_band_plot_area_sized_mut_from_coord(
+                measurement.coord_measurement.as_mut(),
+            )
+            .map(FacetBandMut::PlotAreaSized);
+        }
+        facet_band_canvas_mut_from_coord(measurement.coord_measurement.as_mut())
+            .map(FacetBandMut::CanvasFit)
+    }
+
+    fn refresh_placement_after_requirement_patch(
+        facet_band: &mut FacetBandMut<'_>,
+        patch_applied: bool,
+    ) {
+        if patch_applied {
+            facet_band.recompute_explicit_placement_if_plot_area_sized();
+        }
+    }
+
+    fn refresh_placement_after_retarget_node(facet_band: &mut FacetBandMut<'_>) {
+        facet_band.recompute_explicit_placement_if_plot_area_sized();
+    }
+
+    fn refresh_placement_after_final_propagation_node(facet_band: &mut FacetBandMut<'_>) {
+        facet_band.recompute_explicit_placement_if_plot_area_sized();
+    }
+
+    fn build_retarget_actions(
+        facet_band: FacetBandRef<'_>,
+        requirements: &RetargetNodeRequirements,
+    ) -> RetargetNodeActions {
+        CanvasFitCoordinationStrategy::build_retarget_actions(facet_band, requirements)
+    }
+
+    fn build_retarget_actions_for_eval(
+        _facet_band: FacetBandRef<'_>,
+        requirements: &RetargetNodeRequirements,
+        eval_ctx: &EvaluationContext,
+    ) -> RetargetNodeActions {
+        let policy = eval_ctx.facet_runtime_sizing_mode().policy();
+        let band_action = if policy
+            .facet_band_dimension(requirements.axis)
+            .is_canvas_constrained()
+            && requirements.layout_changed
+        {
+            BandRetargetAction::ApplyCoordinatedLayout
+        } else {
+            BandRetargetAction::Preserve
+        };
+
+        let shrink_for_legend = requirements.has_legend_overflow
+            && policy
+                .facet_orthogonal_dimension(requirements.axis)
+                .is_canvas_constrained();
+        let legend_slab_total = requirements.legend_main_axis_slab.total();
+        let child_actions = requirements
+            .child_plot_areas
+            .iter()
+            .enumerate()
+            .map(|(idx, plot_area)| {
+                let child_has_domains = requirements
+                    .child_has_coordinated_extents
+                    .get(idx)
+                    .copied()
+                    .unwrap_or(false);
+                match (shrink_for_legend, child_has_domains) {
+                    (false, false) => CellRetargetAction::Preserve,
+                    (false, true) => CellRetargetAction::RebuildDomains,
+                    (true, false) | (true, true) => {
+                        let original_main_size = match requirements.axis {
+                            FacetAxis::Column => plot_area.height,
+                            FacetAxis::Row => plot_area.width,
+                        };
+                        let main_axis_size = (original_main_size - legend_slab_total).max(1.0);
+                        if child_has_domains {
+                            CellRetargetAction::RetargetPlotAreaAndDomains { main_axis_size }
+                        } else {
+                            CellRetargetAction::RetargetPlotArea { main_axis_size }
+                        }
+                    }
+                }
+            })
+            .collect();
+
+        RetargetNodeActions {
+            node_id: requirements.node_id.clone(),
+            axis: requirements.axis,
+            band_action,
+            child_actions,
+        }
+    }
+
+    fn set_child_parent_bandwidth_if_same_axis(
+        child: &mut ComponentsMeasurement,
+        parent_axis: FacetAxis,
+        cross_size: f32,
+    ) -> bool {
+        if let Some(child_facet_band) = child
+            .coord_measurement
+            .as_any_mut()
+            .downcast_mut::<FacetBandCoordMeasurementPlotAreaSized>()
+            && child_facet_band.axis == parent_axis
+        {
+            child_facet_band.set_parent_bandwidth_value(cross_size);
+            return true;
+        }
+        let Some(child_facet_band) = child
+            .coord_measurement
+            .as_any_mut()
+            .downcast_mut::<FacetBandCoordMeasurement>()
+        else {
+            return false;
+        };
+        if child_facet_band.axis != parent_axis {
+            return false;
+        }
+        child_facet_band.set_parent_bandwidth_value(cross_size);
+        true
+    }
+
+    fn final_child_resize_policy(
+        _axis: FacetAxis,
+        _parent_cross_size_target: Option<f32>,
+        _child: &ComponentsMeasurement,
+    ) -> FinalChildResizePolicy {
+        FinalChildResizePolicy {
+            allow_plot_area_resize: true,
+            allow_scale_range_retarget: true,
+        }
+    }
+
+    fn apply_final_propagation_child_update(
+        axis: FacetAxis,
+        child: &mut ComponentsMeasurement,
+        cell_plan: Option<&FacetCellPlan>,
+        compiled_subplot: &CompiledPlot,
+        eval_ctx: &EvaluationContext,
+        child_plan: &FinalPropagationChildPlan,
+    ) -> Result<(bool, usize), AvengerChartError> {
+        let policy = eval_ctx.facet_runtime_sizing_mode().policy();
+        if policy.facet_band_dimension(axis).is_canvas_constrained() {
+            CanvasFitCoordinationStrategy::apply_final_propagation_child_update(
+                axis,
+                child,
+                cell_plan,
+                compiled_subplot,
+                eval_ctx,
+                child_plan,
+            )
+        } else {
+            let _ = (child, cell_plan, compiled_subplot, child_plan);
+            Ok((false, 0))
+        }
     }
 }
 

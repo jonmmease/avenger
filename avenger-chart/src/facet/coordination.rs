@@ -20,7 +20,7 @@ use crate::{
         coordination_apply::{
             apply_initial_requirement_pass_with_strategy,
             apply_retargeted_requirement_pass_with_strategy,
-            build_final_propagation_plan_with_strategy, build_retarget_plan_with_strategy,
+            build_final_propagation_plan_with_strategy, build_retarget_plan_with_strategy_for_eval,
             run_final_propagation_with_trace_with_strategy, run_retarget_with_trace_with_strategy,
             visit_facet_bands_with_node_id_for_strategy,
         },
@@ -178,7 +178,7 @@ where
     debug_assert_stage_transition(epoch, FacetCoordinationStage::Retarget);
     epoch = Some(FacetCoordinationStage::Retarget);
 
-    let retarget_plan = build_retarget_plan_with_strategy::<S>(measurement);
+    let retarget_plan = build_retarget_plan_with_strategy_for_eval::<S>(measurement, eval_ctx);
     debug_assert_retarget_plan_coverage_with_strategy::<S>(measurement, &retarget_plan);
     let retarget_trace =
         run_retarget_with_trace_with_strategy::<S>(measurement, eval_ctx, &retarget_plan).await?;
@@ -314,7 +314,7 @@ where
     debug_assert_stage_transition(epoch, FacetCoordinationStage::Retarget);
     epoch = Some(FacetCoordinationStage::Retarget);
 
-    let retarget_plan = build_retarget_plan_with_strategy::<S>(measurement);
+    let retarget_plan = build_retarget_plan_with_strategy_for_eval::<S>(measurement, eval_ctx);
     debug_assert_retarget_plan_coverage_with_strategy::<S>(measurement, &retarget_plan);
     let retarget_trace =
         run_retarget_with_trace_with_strategy::<S>(measurement, eval_ctx, &retarget_plan).await?;

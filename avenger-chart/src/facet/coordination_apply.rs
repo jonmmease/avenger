@@ -215,6 +215,7 @@ pub(crate) fn apply_retargeted_requirement_pass(
     );
 }
 
+#[cfg(test)]
 pub(crate) fn build_retarget_plan_with_strategy<S>(
     measurement: &ComponentsMeasurement,
 ) -> RetargetPlan
@@ -227,6 +228,25 @@ where
     RetargetPlan { node_plans }
 }
 
+pub(crate) fn build_retarget_plan_with_strategy_for_eval<S>(
+    measurement: &ComponentsMeasurement,
+    eval_ctx: &EvaluationContext,
+) -> RetargetPlan
+where
+    S: FacetSizingCoordinationStrategy,
+{
+    let mut node_plans = Vec::new();
+    let mut node_path = Vec::new();
+    build_retarget_plan_recursive_for_eval::<S>(
+        measurement,
+        eval_ctx,
+        &mut node_path,
+        &mut node_plans,
+    );
+    RetargetPlan { node_plans }
+}
+
+#[cfg(test)]
 fn build_retarget_plan_recursive<S>(
     measurement: &ComponentsMeasurement,
     node_path: &mut Vec<usize>,
@@ -245,6 +265,33 @@ fn build_retarget_plan_recursive<S>(
         let node_id = CoordinationNodeKey::new(node_path.clone());
         let requirements = base.derive_retarget_requirements(node_id.clone());
         let actions = S::build_retarget_actions(facet_band, &requirements);
+        node_plans.push(RetargetNodePlan {
+            node_id,
+            requirements,
+            actions,
+        });
+    }
+}
+
+fn build_retarget_plan_recursive_for_eval<S>(
+    measurement: &ComponentsMeasurement,
+    eval_ctx: &EvaluationContext,
+    node_path: &mut Vec<usize>,
+    node_plans: &mut Vec<RetargetNodePlan>,
+) where
+    S: FacetSizingCoordinationStrategy,
+{
+    if let Some(facet_band) = S::facet_band_ref(measurement) {
+        for (idx, child) in facet_band.base().child_measurements_iter().enumerate() {
+            node_path.push(idx);
+            build_retarget_plan_recursive_for_eval::<S>(child, eval_ctx, node_path, node_plans);
+            node_path.pop();
+        }
+
+        let base = facet_band.base();
+        let node_id = CoordinationNodeKey::new(node_path.clone());
+        let requirements = base.derive_retarget_requirements(node_id.clone());
+        let actions = S::build_retarget_actions_for_eval(facet_band, &requirements, eval_ctx);
         node_plans.push(RetargetNodePlan {
             node_id,
             requirements,

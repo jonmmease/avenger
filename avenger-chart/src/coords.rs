@@ -179,6 +179,9 @@ pub enum FacetCoordinationMode {
     /// Plot-area-sized mode:
     /// full-cycle coordination with leaf-size preserving retarget behavior.
     PlotAreaSizedFullCycle,
+    /// Dimension-policy mode:
+    /// full-cycle coordination with per-physical-dimension sizing behavior.
+    DimensionPolicyFullCycle,
 }
 
 pub async fn coordinate_overflow_for_guides(
@@ -213,6 +216,13 @@ pub async fn coordinate_overflow_for_guides_with_mode(
             )
             .await
         }
+        FacetCoordinationMode::DimensionPolicyFullCycle => {
+            crate::facet::coordination_dimension_policy::coordinate_facet_measurement_tree_dimension_policy(
+                measurement,
+                eval_ctx,
+            )
+            .await
+        }
     }
 }
 
@@ -233,6 +243,14 @@ pub async fn coordinate_overflow_for_guides_with_mode_until(
         }
         FacetCoordinationMode::PlotAreaSizedFullCycle => {
             crate::facet::coordination_plot_area_sized::coordinate_facet_measurement_tree_plot_area_sized_until(
+                measurement,
+                eval_ctx,
+                checkpoint,
+            )
+            .await
+        }
+        FacetCoordinationMode::DimensionPolicyFullCycle => {
+            crate::facet::coordination_dimension_policy::coordinate_facet_measurement_tree_dimension_policy_until(
                 measurement,
                 eval_ctx,
                 checkpoint,

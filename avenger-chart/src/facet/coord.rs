@@ -248,6 +248,24 @@ impl FacetBandCoordMeasurementPlotAreaSized {
     pub(crate) fn resolved_placement(&self) -> Result<FacetBandPlacement, AvengerChartError> {
         FacetBandPlacement::from_explicit(self.axis, &self.explicit_placement, &self.cells)
     }
+
+    pub(crate) fn retarget_parent_plot_area_dimension_policy_no_remeasure(
+        &mut self,
+        scales: &mut HashMap<String, ConfiguredScaleWithSpec>,
+        eval_ctx: &EvaluationContext,
+        new_plot_area_width: f32,
+        new_plot_area_height: f32,
+    ) -> Result<(), AvengerChartError> {
+        self.base
+            .retarget_parent_plot_area_dimension_policy_no_remeasure(
+                scales,
+                eval_ctx,
+                new_plot_area_width,
+                new_plot_area_height,
+            )?;
+        self.recompute_explicit_placement();
+        Ok(())
+    }
 }
 
 fn sibling_boundary_overflow_for_facet_band(
@@ -487,6 +505,97 @@ impl FacetBandCoordMeasurement {
 
         Ok(())
     }
+
+    pub(crate) fn retarget_parent_plot_area_dimension_policy_no_remeasure(
+        &mut self,
+        scales: &mut HashMap<String, ConfiguredScaleWithSpec>,
+        eval_ctx: &EvaluationContext,
+        new_plot_area_width: f32,
+        new_plot_area_height: f32,
+    ) -> Result<(), AvengerChartError> {
+        let policy = eval_ctx.facet_runtime_sizing_mode().policy();
+        if policy
+            .facet_band_dimension(self.axis)
+            .is_canvas_constrained()
+        {
+            let parent_main_size = match self.axis {
+                FacetAxis::Column => new_plot_area_width,
+                FacetAxis::Row => new_plot_area_height,
+            }
+            .max(1.0);
+            self.original_band_scale = self
+                .original_band_scale
+                .clone()
+                .with_range_interval((0.0, parent_main_size));
+        }
+        self.apply_scale_adjustments(scales);
+
+        if policy
+            .facet_band_dimension(self.axis)
+            .is_canvas_constrained()
+        {
+            let band_scale = scales.get(self.axis.scale_name()).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "FacetBand dimension-policy retarget missing {} scale",
+                    self.axis.scale_name()
+                ))
+            })?;
+            self.subplot_cross_size = bandwidth(&band_scale.configured().config).map_err(|e| {
+                AvengerChartError::InternalError(format!(
+                    "Failed to get dimension-policy retargeted facet bandwidth: {}",
+                    e
+                ))
+            })?;
+        }
+
+        let (legend_start, legend_end) =
+            legend_axis_overflow(self.axis, &self.coordinated_overflow);
+        let orthogonal_canvas_constrained = policy
+            .facet_orthogonal_dimension(self.axis)
+            .is_canvas_constrained();
+        let orthogonal_size = |size: f32| {
+            if orthogonal_canvas_constrained {
+                adjusted_size_for_legend_overflow(size.max(1.0), legend_start, legend_end)
+            } else {
+                size.max(1.0)
+            }
+        };
+
+        let compiled_subplot = self.compiled_subplot.clone();
+        for cell in &mut self.cells {
+            let mut target_plot_area_width = cell.measurement.plot_area_width;
+            let mut target_plot_area_height = cell.measurement.plot_area_height;
+            match self.axis {
+                FacetAxis::Column => {
+                    if policy.width.is_canvas_constrained() {
+                        target_plot_area_width = self.subplot_cross_size;
+                    }
+                    if policy.height.is_canvas_constrained() {
+                        target_plot_area_height = orthogonal_size(new_plot_area_height);
+                    }
+                }
+                FacetAxis::Row => {
+                    if policy.width.is_canvas_constrained() {
+                        target_plot_area_width = orthogonal_size(new_plot_area_width);
+                    }
+                    if policy.height.is_canvas_constrained() {
+                        target_plot_area_height = self.subplot_cross_size;
+                    }
+                }
+            }
+            retarget_measurement_plot_area_dimension_policy_no_remeasure(
+                &mut cell.measurement,
+                compiled_subplot.as_ref(),
+                eval_ctx,
+                &cell.plan.full_path,
+                target_plot_area_width,
+                target_plot_area_height,
+            )?;
+        }
+        self.apply_coordinated_alignment_slabs_to_child_layouts();
+
+        Ok(())
+    }
 }
 
 fn measured_overflow_from_cells(
@@ -496,13 +605,39 @@ fn measured_overflow_from_cells(
 ) -> Option<CoordinatedOverflow> {
     let overflow_inputs = cells
         .iter()
-        .map(|cell| FacetCellOverflowInput {
-            renderable: renderable_for_empty_policy(empty_cell_policy, !cell.plan.has_data_rows),
-            guide: cell.measurement.layout.overflow.clone(),
-            total: cell.measurement.layout.total_overflow.clone(),
+        .map(|cell| {
+            let cell_overflow = parent_cell_overflow_summary(&cell.measurement);
+            FacetCellOverflowInput {
+                renderable: renderable_for_empty_policy(
+                    empty_cell_policy,
+                    !cell.plan.has_data_rows,
+                ),
+                guide: cell_overflow.guide_overflow,
+                total: cell_overflow.total_overflow,
+            }
         })
         .collect::<Vec<_>>();
     aggregate_facet_band_overflow(axis, &overflow_inputs)
+}
+
+fn parent_cell_overflow_summary(measurement: &ComponentsMeasurement) -> FacetCellProbeSummary {
+    let mut guide_overflow = measurement.layout.overflow.clone();
+    let mut total_overflow = measurement.layout.total_overflow.clone();
+    let mut max_child_padding = 0.0f32;
+
+    if let Some(facet_band) = facet_band_ref(measurement.coord_measurement.as_ref()) {
+        max_child_padding = facet_band.active_layout().padding_inner_px;
+        if let Some(boundary) = facet_band.measured_sibling_boundary_overflow_value() {
+            guide_overflow = guide_overflow.max_components(&boundary.guide);
+            total_overflow = total_overflow.max_components(&boundary.total);
+        }
+    }
+
+    FacetCellProbeSummary {
+        guide_overflow,
+        total_overflow,
+        max_child_padding,
+    }
 }
 
 fn apply_facet_band_scale_adjustment(
@@ -1688,6 +1823,64 @@ pub(crate) fn retarget_measurement_plot_area_no_remeasure(
     Ok(())
 }
 
+pub(crate) fn retarget_measurement_plot_area_dimension_policy_no_remeasure(
+    measurement: &mut ComponentsMeasurement,
+    compiled_plot: &CompiledPlot,
+    eval_ctx: &EvaluationContext,
+    facet_path: &[ScalarValue],
+    new_plot_area_width: f32,
+    new_plot_area_height: f32,
+) -> Result<(), AvengerChartError> {
+    let old_plot_area_width = measurement.plot_area_width;
+    let old_plot_area_height = measurement.plot_area_height;
+    if (old_plot_area_width - new_plot_area_width).abs() <= 0.01
+        && (old_plot_area_height - new_plot_area_height).abs() <= 0.01
+    {
+        return Ok(());
+    }
+
+    retarget_scale_ranges_for_plot_area(
+        &mut measurement.scales,
+        new_plot_area_width,
+        new_plot_area_height,
+    );
+
+    if let Some(facet_band) = facet_band_canvas_mut(measurement.coord_measurement.as_mut()) {
+        facet_band.retarget_parent_plot_area_dimension_policy_no_remeasure(
+            &mut measurement.scales,
+            eval_ctx,
+            new_plot_area_width,
+            new_plot_area_height,
+        )?;
+    } else if let Some(facet_band) =
+        facet_band_plot_area_sized_mut(measurement.coord_measurement.as_mut())
+    {
+        facet_band.retarget_parent_plot_area_dimension_policy_no_remeasure(
+            &mut measurement.scales,
+            eval_ctx,
+            new_plot_area_width,
+            new_plot_area_height,
+        )?;
+    } else {
+        measurement
+            .coord_measurement
+            .apply_scale_adjustments(&mut measurement.scales);
+    }
+
+    update_measurement_plot_area_metadata(
+        measurement,
+        compiled_plot,
+        eval_ctx,
+        facet_path,
+        old_plot_area_width,
+        old_plot_area_height,
+        new_plot_area_width,
+        new_plot_area_height,
+    );
+    measurement.legend_plan.retarget_scales(&measurement.scales);
+    Ok(())
+}
+
 async fn rebuild_measurement_domains_no_remeasure(
     measurement: &mut ComponentsMeasurement,
     compiled_plot: &CompiledPlot,
@@ -2633,20 +2826,7 @@ async fn measure_cells_overflow_probe(
                 &cell.plan.full_path,
             )
             .await?;
-            let mut max_child_padding = 0.0f32;
-            measured
-                .measurement
-                .coord_measurement
-                .as_any()
-                .downcast_ref::<FacetBandCoordMeasurement>()
-                .inspect(|child_facet_band| {
-                    max_child_padding = child_facet_band.active_layout().padding_inner_px;
-                });
-            let cell_probe_summary = FacetCellProbeSummary {
-                guide_overflow: measured.measurement.layout.overflow.clone(),
-                total_overflow: measured.measurement.layout.total_overflow.clone(),
-                max_child_padding,
-            };
+            let cell_probe_summary = parent_cell_overflow_summary(&measured.measurement);
             cell.last_cell_scale_builder = measured.cell_scale_builder;
             cell.measurement = Some(measured.measurement);
             cell_probe_summary
@@ -2671,20 +2851,7 @@ async fn measure_cells_overflow_probe(
                 &cell.plan.full_path,
             )
             .await?;
-            let mut max_child_padding = 0.0f32;
-            measured
-                .measurement
-                .coord_measurement
-                .as_any()
-                .downcast_ref::<FacetBandCoordMeasurement>()
-                .inspect(|child_facet_band| {
-                    max_child_padding = child_facet_band.active_layout().padding_inner_px;
-                });
-            let cell_probe_summary = FacetCellProbeSummary {
-                guide_overflow: measured.measurement.layout.overflow.clone(),
-                total_overflow: measured.measurement.layout.total_overflow.clone(),
-                max_child_padding,
-            };
+            let cell_probe_summary = parent_cell_overflow_summary(&measured.measurement);
             cell.last_cell_scale_builder = measured.cell_scale_builder;
             cell.measurement = Some(measured.measurement);
             trace!(
@@ -3070,10 +3237,9 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 resolved.compiled_subplot,
                 resolved.band_scale,
                 resolved.empty_cell_policy,
-                matches!(
-                    self.eval_ctx.facet_runtime_sizing_mode(),
-                    FacetRuntimeSizingMode::PlotAreaSized { .. }
-                ),
+                self.eval_ctx
+                    .facet_runtime_sizing_mode()
+                    .facet_band_is_leaf_plot_area_sized(self.axis_ops.axis),
             ));
         }
         let subplot_band_size = self.resolve_subplot_band_size(&resolved, &cell_values);
@@ -3289,7 +3455,10 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             fixed_plot_area_lock: matches!(
                 self.eval_ctx.facet_runtime_sizing_mode(),
                 FacetRuntimeSizingMode::PlotAreaSized { .. }
-            ),
+            ) || self
+                .eval_ctx
+                .facet_runtime_sizing_mode()
+                .facet_band_is_leaf_plot_area_sized(self.axis_ops.axis),
         };
 
         let mut adjusted_scales = self.scales.clone();
@@ -3402,10 +3571,9 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 compiled_subplot,
                 band_scale,
                 empty_cell_policy,
-                matches!(
-                    self.eval_ctx.facet_runtime_sizing_mode(),
-                    FacetRuntimeSizingMode::PlotAreaSized { .. }
-                ),
+                self.eval_ctx
+                    .facet_runtime_sizing_mode()
+                    .facet_band_is_leaf_plot_area_sized(self.axis_ops.axis),
             )));
         };
 
@@ -3456,29 +3624,33 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         resolved: &FacetBandResolvedNode<'_>,
         cell_values: &[ScalarValue],
     ) -> f32 {
-        match self.eval_ctx.facet_runtime_sizing_mode() {
-            FacetRuntimeSizingMode::CanvasFit => resolved.subplot_band_size,
-            FacetRuntimeSizingMode::PlotAreaSized {
+        let mode = self.eval_ctx.facet_runtime_sizing_mode();
+        if !mode.facet_band_is_leaf_plot_area_sized(self.axis_ops.axis) {
+            return resolved.subplot_band_size;
+        }
+
+        let policy = mode.policy();
+        let leaf_plot_width = policy
+            .leaf_plot_width()
+            .unwrap_or(resolved.subplot_band_size.max(1.0));
+        let leaf_plot_height = policy
+            .leaf_plot_height()
+            .unwrap_or(resolved.subplot_band_size.max(1.0));
+        let mut max_main_size = 0.0f32;
+        for value in cell_values {
+            let mut cell_path = self.facet_path.to_vec();
+            cell_path.push(value.clone());
+            let plot_area_size = self.fixed_subtree_plot_area_for_cell_path(
+                &cell_path,
                 leaf_plot_width,
                 leaf_plot_height,
-            } => {
-                let mut max_main_size = 0.0f32;
-                for value in cell_values {
-                    let mut cell_path = self.facet_path.to_vec();
-                    cell_path.push(value.clone());
-                    let plot_area_size = self.fixed_subtree_plot_area_for_cell_path(
-                        &cell_path,
-                        leaf_plot_width,
-                        leaf_plot_height,
-                    );
-                    max_main_size = max_main_size.max(plot_area_size.main_size(self.axis_ops.axis));
-                }
-                if max_main_size > 0.0 {
-                    max_main_size
-                } else {
-                    resolved.subplot_band_size
-                }
-            }
+            );
+            max_main_size = max_main_size.max(plot_area_size.main_size(self.axis_ops.axis));
+        }
+        if max_main_size > 0.0 {
+            max_main_size
+        } else {
+            resolved.subplot_band_size
         }
     }
 
@@ -3596,10 +3768,11 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             overflow_summary,
             empty_cell_policy,
         );
-        let final_subplot_band_size = if matches!(
-            self.eval_ctx.facet_runtime_sizing_mode(),
-            FacetRuntimeSizingMode::PlotAreaSized { .. }
-        ) {
+        let final_subplot_band_size = if self
+            .eval_ctx
+            .facet_runtime_sizing_mode()
+            .facet_band_is_leaf_plot_area_sized(self.axis_ops.axis)
+        {
             initial_subplot_band_size
         } else {
             self.build_pass2_scale(
@@ -3802,10 +3975,11 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             empty_cell_policy,
         };
 
-        if matches!(
-            self.eval_ctx.facet_runtime_sizing_mode(),
-            FacetRuntimeSizingMode::PlotAreaSized { .. }
-        ) {
+        if self
+            .eval_ctx
+            .facet_runtime_sizing_mode()
+            .facet_band_is_leaf_plot_area_sized(self.axis_ops.axis)
+        {
             let mut plot_area_sized = FacetBandCoordMeasurementPlotAreaSized {
                 base,
                 explicit_placement: FacetBandExplicitPlacement::default(),
@@ -3848,6 +4022,32 @@ pub(crate) async fn measure_facet_row(
                 facet_path,
             )
             .await
+        }
+        FacetRuntimeSizingMode::DimensionMixed(_) => {
+            if eval_ctx
+                .facet_runtime_sizing_mode()
+                .facet_band_is_leaf_plot_area_sized(FacetAxis::Row)
+            {
+                crate::facet::coord_plot_area_sized::measure_facet_row_plot_area_sized(
+                    scales,
+                    plot_width,
+                    eval_ctx,
+                    data,
+                    compiled_marks,
+                    facet_path,
+                )
+                .await
+            } else {
+                crate::facet::coord_canvas_fit::measure_facet_row_canvas_fit(
+                    scales,
+                    plot_width,
+                    eval_ctx,
+                    data,
+                    compiled_marks,
+                    facet_path,
+                )
+                .await
+            }
         }
     }
 }
@@ -3912,6 +4112,32 @@ impl CoordinateSystemTransform for FacetColumn {
                     facet_path,
                 )
                 .await
+            }
+            FacetRuntimeSizingMode::DimensionMixed(_) => {
+                if eval_ctx
+                    .facet_runtime_sizing_mode()
+                    .facet_band_is_leaf_plot_area_sized(FacetAxis::Column)
+                {
+                    crate::facet::coord_plot_area_sized::measure_facet_column_plot_area_sized(
+                        scales,
+                        plot_height,
+                        eval_ctx,
+                        data,
+                        compiled_marks,
+                        facet_path,
+                    )
+                    .await
+                } else {
+                    crate::facet::coord_canvas_fit::measure_facet_column_canvas_fit(
+                        scales,
+                        plot_height,
+                        eval_ctx,
+                        data,
+                        compiled_marks,
+                        facet_path,
+                    )
+                    .await
+                }
             }
         }
     }

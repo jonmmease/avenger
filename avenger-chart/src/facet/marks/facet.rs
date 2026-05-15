@@ -296,6 +296,29 @@ async fn render_facet_band_common(
             )
             .await
         }
+        FacetRuntimeSizingMode::DimensionMixed(_) => {
+            if context
+                .coord_measurement()
+                .as_any()
+                .is::<crate::facet::coord::FacetBandCoordMeasurementPlotAreaSized>()
+            {
+                facet_plot_area_sized::render_facet_band_plot_area_sized(
+                    ops,
+                    compiled_subplot,
+                    facet_empty_cell_policy,
+                    context,
+                )
+                .await
+            } else {
+                facet_canvas_fit::render_facet_band_canvas_fit(
+                    ops,
+                    compiled_subplot,
+                    facet_empty_cell_policy,
+                    context,
+                )
+                .await
+            }
+        }
     }
 }
 

@@ -40,13 +40,14 @@ use crate::{
         value::{ChannelValue, ConditionalValue, strip_trailing_numbers},
     },
     coords::{
-        CoordMeasurement, FacetCoordinationMode, coordinate_overflow_for_guides_with_mode,
-        coordinate_overflow_for_guides_with_mode_until,
+        CoordMeasurement, FacetAxis, FacetCoordinationMode,
+        coordinate_overflow_for_guides_with_mode, coordinate_overflow_for_guides_with_mode_until,
     },
     error::AvengerChartError,
     facet::{
         coord::{
             FacetBandCoordMeasurement, FacetBandCoordMeasurementPlotAreaSized, FacetCellRuntime,
+            retarget_measurement_plot_area_dimension_policy_no_remeasure,
             retarget_scale_ranges_for_plot_area,
         },
         debug as facet_debug,
@@ -64,7 +65,10 @@ use crate::{
     legend::LegendPosition,
     marks::CompiledMark,
     maybe::Maybe,
-    render::context::{FacetRuntimeSizingMode, FacetSubtreeSnapshotCapture},
+    render::context::{
+        FacetDimensionSizing, FacetRuntimeSizingMode, FacetRuntimeSizingPolicy,
+        FacetSubtreeSnapshotCapture,
+    },
     render::{
         CoordinationCheckpoint, EvaluatedPlot, EvaluationContext, EvaluationMetrics,
         EvaluationOptions, FacetSubtreeCheckpoint, FacetSubtreeSelector, FacetSubtreeSnapshot,
@@ -101,6 +105,20 @@ struct RecursiveOverflowSnapshot {
     total: OverflowSpaceRequirement,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ResolvedLayoutDimensions {
+    width: f32,
+    height: f32,
+    width_is_plot_area: bool,
+    height_is_plot_area: bool,
+}
+
+impl ResolvedLayoutDimensions {
+    fn dimensions_are_plot_area(self) -> bool {
+        self.width_is_plot_area && self.height_is_plot_area
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum FacetSizingStrategy {
     CanvasFit,
@@ -108,13 +126,18 @@ enum FacetSizingStrategy {
         leaf_plot_width: f32,
         leaf_plot_height: f32,
     },
+    DimensionPolicy(FacetRuntimeSizingPolicy),
 }
 
 impl FacetSizingStrategy {
+    const DEFAULT_CANVAS_WIDTH: f32 = 400.0;
+    const DEFAULT_CANVAS_HEIGHT: f32 = 300.0;
+
     fn coordination_mode(self) -> FacetCoordinationMode {
         match self {
             Self::CanvasFit => FacetCoordinationMode::CanvasFullCycle,
             Self::PlotAreaSized { .. } => FacetCoordinationMode::PlotAreaSizedFullCycle,
+            Self::DimensionPolicy(_) => FacetCoordinationMode::DimensionPolicyFullCycle,
         }
     }
 
@@ -128,6 +151,7 @@ impl FacetSizingStrategy {
                 leaf_plot_width,
                 leaf_plot_height,
             },
+            Self::DimensionPolicy(policy) => FacetRuntimeSizingMode::DimensionMixed(policy),
         }
     }
 }
@@ -375,10 +399,6 @@ impl CompiledPlot {
             .any(|mark| facet_mark_ref(mark.as_ref()).is_some())
     }
 
-    fn contains_partial_size_mode(mode: &SizeMode) -> bool {
-        matches!(mode, SizeMode::Width(_) | SizeMode::Height(_))
-    }
-
     fn validate_no_nested_subplot_plot_size_under_facet(
         marks: &[Arc<dyn CompiledMark>],
         path: &mut Vec<String>,
@@ -407,6 +427,24 @@ impl CompiledPlot {
         Ok(())
     }
 
+    fn evaluated_width(mode: &EvaluatedSizeMode) -> Option<f32> {
+        match mode {
+            EvaluatedSizeMode::Fixed { width, .. } | EvaluatedSizeMode::Width(width) => {
+                Some(*width)
+            }
+            EvaluatedSizeMode::Height(_) | EvaluatedSizeMode::Auto => None,
+        }
+    }
+
+    fn evaluated_height(mode: &EvaluatedSizeMode) -> Option<f32> {
+        match mode {
+            EvaluatedSizeMode::Fixed { height, .. } | EvaluatedSizeMode::Height(height) => {
+                Some(*height)
+            }
+            EvaluatedSizeMode::Width(_) | EvaluatedSizeMode::Auto => None,
+        }
+    }
+
     fn resolve_facet_sizing_strategy(
         &self,
         evaluated_layout_spec: &EvaluatedLayoutSpec,
@@ -417,38 +455,56 @@ impl CompiledPlot {
 
         Self::validate_no_nested_subplot_plot_size_under_facet(&self.marks, &mut Vec::new())?;
 
-        if Self::contains_partial_size_mode(&self.layout_spec.canvas)
-            || Self::contains_partial_size_mode(&self.layout_spec.plot_area)
-        {
+        let canvas_width = Self::evaluated_width(&evaluated_layout_spec.canvas);
+        let canvas_height = Self::evaluated_height(&evaluated_layout_spec.canvas);
+        let plot_width = Self::evaluated_width(&evaluated_layout_spec.plot_area);
+        let plot_height = Self::evaluated_height(&evaluated_layout_spec.plot_area);
+
+        if canvas_width.is_some() && plot_width.is_some() {
             return Err(AvengerChartError::InvalidArgument(
-                "Faceted charts do not support partial `canvas_constraint`/`plot_constraint` in this mode. \
-                 Use `canvas_size(...)` (canvas-fit mode) or `plot_size(width, height)` (plot-area-sized mode)."
+                "Faceted charts cannot constrain both canvas width and leaf plot width. \
+                 Use either `canvas_size`/`canvas_constraint(width)` or `plot_size`/`plot_constraint(width)` for the width dimension."
+                    .to_string(),
+            ));
+        }
+        if canvas_height.is_some() && plot_height.is_some() {
+            return Err(AvengerChartError::InvalidArgument(
+                "Faceted charts cannot constrain both canvas height and leaf plot height. \
+                 Use either `canvas_size`/`canvas_constraint(height)` or `plot_size`/`plot_constraint(height)` for the height dimension."
                     .to_string(),
             ));
         }
 
-        if let EvaluatedSizeMode::Fixed {
-            width: leaf_plot_width,
-            height: leaf_plot_height,
-        } = evaluated_layout_spec.plot_area
-        {
-            if matches!(
-                evaluated_layout_spec.canvas,
-                EvaluatedSizeMode::Fixed { .. }
-            ) {
-                return Err(AvengerChartError::InvalidArgument(
-                    "Faceted charts cannot combine `canvas_size(...)` and `plot_size(...)`. \
-                     Use exactly one sizing mode."
-                        .to_string(),
-                ));
+        let width_policy = if let Some(leaf_plot_size) = plot_width {
+            FacetDimensionSizing::LeafPlotAreaSized { leaf_plot_size }
+        } else {
+            FacetDimensionSizing::CanvasConstrained {
+                canvas_size: canvas_width.unwrap_or(FacetSizingStrategy::DEFAULT_CANVAS_WIDTH),
             }
+        };
+        let height_policy = if let Some(leaf_plot_size) = plot_height {
+            FacetDimensionSizing::LeafPlotAreaSized { leaf_plot_size }
+        } else {
+            FacetDimensionSizing::CanvasConstrained {
+                canvas_size: canvas_height.unwrap_or(FacetSizingStrategy::DEFAULT_CANVAS_HEIGHT),
+            }
+        };
+        let policy = FacetRuntimeSizingPolicy {
+            width: width_policy,
+            height: height_policy,
+        };
+
+        if policy.is_fully_leaf_plot_area_sized() {
             return Ok(FacetSizingStrategy::PlotAreaSized {
-                leaf_plot_width,
-                leaf_plot_height,
+                leaf_plot_width: plot_width.unwrap_or(FacetSizingStrategy::DEFAULT_CANVAS_WIDTH),
+                leaf_plot_height: plot_height.unwrap_or(FacetSizingStrategy::DEFAULT_CANVAS_HEIGHT),
             });
         }
+        if policy.is_fully_canvas_constrained() {
+            return Ok(FacetSizingStrategy::CanvasFit);
+        }
 
-        Ok(FacetSizingStrategy::CanvasFit)
+        Ok(FacetSizingStrategy::DimensionPolicy(policy))
     }
 
     fn derive_fixed_leaf_subtree_plot_area(
@@ -485,6 +541,65 @@ impl CompiledPlot {
                 adjusted.plot_area = EvaluatedSizeMode::Fixed {
                     width: required_plot_area_width.max(1.0),
                     height: required_plot_area_height.max(1.0),
+                };
+                adjusted
+            }
+            FacetSizingStrategy::DimensionPolicy(policy) => {
+                let leaf_plot_width = policy
+                    .leaf_plot_width()
+                    .unwrap_or(FacetSizingStrategy::DEFAULT_CANVAS_WIDTH);
+                let leaf_plot_height = policy
+                    .leaf_plot_height()
+                    .unwrap_or(FacetSizingStrategy::DEFAULT_CANVAS_HEIGHT);
+                let estimated = Self::derive_fixed_leaf_subtree_plot_area(
+                    facet_tree,
+                    leaf_plot_width,
+                    leaf_plot_height,
+                );
+
+                let mut adjusted = evaluated_layout_spec.clone();
+                adjusted.canvas = match (policy.width, policy.height) {
+                    (
+                        FacetDimensionSizing::CanvasConstrained { canvas_size: width },
+                        FacetDimensionSizing::CanvasConstrained {
+                            canvas_size: height,
+                        },
+                    ) => EvaluatedSizeMode::Fixed { width, height },
+                    (
+                        FacetDimensionSizing::CanvasConstrained { canvas_size: width },
+                        FacetDimensionSizing::LeafPlotAreaSized { .. },
+                    ) => EvaluatedSizeMode::Width(width),
+                    (
+                        FacetDimensionSizing::LeafPlotAreaSized { .. },
+                        FacetDimensionSizing::CanvasConstrained {
+                            canvas_size: height,
+                        },
+                    ) => EvaluatedSizeMode::Height(height),
+                    (
+                        FacetDimensionSizing::LeafPlotAreaSized { .. },
+                        FacetDimensionSizing::LeafPlotAreaSized { .. },
+                    ) => EvaluatedSizeMode::Auto,
+                };
+                adjusted.plot_area = match (policy.width, policy.height) {
+                    (
+                        FacetDimensionSizing::LeafPlotAreaSized { .. },
+                        FacetDimensionSizing::LeafPlotAreaSized { .. },
+                    ) => EvaluatedSizeMode::Fixed {
+                        width: estimated.0.max(1.0),
+                        height: estimated.1.max(1.0),
+                    },
+                    (
+                        FacetDimensionSizing::LeafPlotAreaSized { .. },
+                        FacetDimensionSizing::CanvasConstrained { .. },
+                    ) => EvaluatedSizeMode::Width(estimated.0.max(1.0)),
+                    (
+                        FacetDimensionSizing::CanvasConstrained { .. },
+                        FacetDimensionSizing::LeafPlotAreaSized { .. },
+                    ) => EvaluatedSizeMode::Height(estimated.1.max(1.0)),
+                    (
+                        FacetDimensionSizing::CanvasConstrained { .. },
+                        FacetDimensionSizing::CanvasConstrained { .. },
+                    ) => EvaluatedSizeMode::Auto,
                 };
                 adjusted
             }
@@ -1226,31 +1341,20 @@ impl CompiledPlot {
         // Check for required positional scales before measuring overflow
         self.validate_positional_scales_exist(scales)?;
 
-        // Determine if this is plot-area mode (for overflow estimation dimensions)
-        let is_plot_area_mode = matches!(
-            (&layout_spec.canvas, &layout_spec.plot_area),
-            (EvaluatedSizeMode::Auto, EvaluatedSizeMode::Fixed { .. })
-        );
+        let resolved_dimensions = Self::resolve_dimensions_from_spec(layout_spec);
 
-        // Get dimensions for overflow estimation
-        let (estimate_width, estimate_height) = if is_plot_area_mode {
-            // Plot area mode: use exact plot dimensions
-            match &layout_spec.plot_area {
-                EvaluatedSizeMode::Fixed { width, height } => (*width, *height),
-                _ => (400.0, 300.0), // Fallback
-            }
+        // Get dimensions for overflow estimation. Canvas-constrained dimensions
+        // use a plot-area estimate, while plot-area-sized dimensions use the
+        // exact plot-area size.
+        let estimate_width = if resolved_dimensions.width_is_plot_area {
+            resolved_dimensions.width
         } else {
-            // Canvas mode: estimate plot area as fraction of canvas
-            let (canvas_w, canvas_h) = match &layout_spec.canvas {
-                EvaluatedSizeMode::Fixed { width, height } => (*width, *height),
-                EvaluatedSizeMode::Width(w) => (*w, 300.0),
-                EvaluatedSizeMode::Height(h) => (400.0, *h),
-                EvaluatedSizeMode::Auto => (400.0, 300.0),
-            };
-            (
-                canvas_w * Self::INITIAL_PLOT_AREA_RATIO,
-                canvas_h * Self::INITIAL_PLOT_AREA_RATIO,
-            )
+            resolved_dimensions.width * Self::INITIAL_PLOT_AREA_RATIO
+        };
+        let estimate_height = if resolved_dimensions.height_is_plot_area {
+            resolved_dimensions.height
+        } else {
+            resolved_dimensions.height * Self::INITIAL_PLOT_AREA_RATIO
         };
 
         // Measure guide overflow (axis tick labels, titles, etc.)
@@ -2111,6 +2215,247 @@ impl CompiledPlot {
         Ok(())
     }
 
+    fn facet_subtree_realized_plot_area_extent(
+        measurement: &ComponentsMeasurement,
+    ) -> Option<(f32, f32)> {
+        if let Some(facet_band) = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurementPlotAreaSized>()
+        {
+            if facet_band.cells.is_empty() {
+                return Some((measurement.plot_area_width, measurement.plot_area_height));
+            }
+            return Some(facet_band.plot_area_sized_extent());
+        }
+
+        let facet_band = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()?;
+        if facet_band.cells.is_empty() {
+            return Some((measurement.plot_area_width, measurement.plot_area_height));
+        }
+
+        let child_extents = facet_band
+            .child_measurements_iter()
+            .map(|child| {
+                Self::facet_subtree_realized_plot_area_extent(child)
+                    .unwrap_or((child.plot_area_width, child.plot_area_height))
+            })
+            .collect::<Vec<_>>();
+
+        let (width, height) = match facet_band.axis {
+            FacetAxis::Column => {
+                let height = child_extents
+                    .iter()
+                    .map(|(_, height)| *height)
+                    .fold(0.0_f32, f32::max);
+                (measurement.plot_area_width, height.max(1.0))
+            }
+            FacetAxis::Row => {
+                let width = child_extents
+                    .iter()
+                    .map(|(width, _)| *width)
+                    .fold(0.0_f32, f32::max);
+                (width.max(1.0), measurement.plot_area_height)
+            }
+        };
+        Some((width, height))
+    }
+
+    fn layout_spec_with_dimension_policy_realized_plot_area(
+        evaluated_layout_spec: &EvaluatedLayoutSpec,
+        policy: FacetRuntimeSizingPolicy,
+        plot_area_width: f32,
+        plot_area_height: f32,
+    ) -> EvaluatedLayoutSpec {
+        let mut adjusted = evaluated_layout_spec.clone();
+        adjusted.canvas = match (policy.width, policy.height) {
+            (
+                FacetDimensionSizing::CanvasConstrained { canvas_size: width },
+                FacetDimensionSizing::CanvasConstrained {
+                    canvas_size: height,
+                },
+            ) => EvaluatedSizeMode::Fixed { width, height },
+            (
+                FacetDimensionSizing::CanvasConstrained { canvas_size: width },
+                FacetDimensionSizing::LeafPlotAreaSized { .. },
+            ) => EvaluatedSizeMode::Width(width),
+            (
+                FacetDimensionSizing::LeafPlotAreaSized { .. },
+                FacetDimensionSizing::CanvasConstrained {
+                    canvas_size: height,
+                },
+            ) => EvaluatedSizeMode::Height(height),
+            (
+                FacetDimensionSizing::LeafPlotAreaSized { .. },
+                FacetDimensionSizing::LeafPlotAreaSized { .. },
+            ) => EvaluatedSizeMode::Auto,
+        };
+        adjusted.plot_area = match (policy.width, policy.height) {
+            (
+                FacetDimensionSizing::LeafPlotAreaSized { .. },
+                FacetDimensionSizing::LeafPlotAreaSized { .. },
+            ) => EvaluatedSizeMode::Fixed {
+                width: plot_area_width.max(1.0),
+                height: plot_area_height.max(1.0),
+            },
+            (
+                FacetDimensionSizing::LeafPlotAreaSized { .. },
+                FacetDimensionSizing::CanvasConstrained { .. },
+            ) => EvaluatedSizeMode::Width(plot_area_width.max(1.0)),
+            (
+                FacetDimensionSizing::CanvasConstrained { .. },
+                FacetDimensionSizing::LeafPlotAreaSized { .. },
+            ) => EvaluatedSizeMode::Height(plot_area_height.max(1.0)),
+            (
+                FacetDimensionSizing::CanvasConstrained { .. },
+                FacetDimensionSizing::CanvasConstrained { .. },
+            ) => EvaluatedSizeMode::Auto,
+        };
+        adjusted
+    }
+
+    async fn remeasure_dimension_policy_coord_at_current_plot_area(
+        &self,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        evaluated_layout_spec: &EvaluatedLayoutSpec,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+    ) -> Result<(), AvengerChartError> {
+        let ctx = &*eval_ctx.session_context;
+        let plot_area_width = measurement.plot_area_width.max(1.0);
+        let plot_area_height = measurement.plot_area_height.max(1.0);
+
+        let mut is_facet_band = false;
+        if let Some(facet_band) = measurement
+            .coord_measurement
+            .as_any_mut()
+            .downcast_mut::<FacetBandCoordMeasurementPlotAreaSized>()
+        {
+            is_facet_band = true;
+            let compiled_subplot = facet_band.compiled_subplot.clone();
+            let empty_cell_policy = facet_band.empty_cell_policy;
+            for cell in &mut facet_band.cells {
+                let cell_eval_ctx = if !cell.plan.has_data_rows
+                    && matches!(cell.plan.empty_kind, FacetCellEmptyKind::DomainPlaceholder)
+                    && matches!(
+                        empty_cell_policy.effective(),
+                        FacetEmptyCellPolicy::EmptySubplot
+                    ) {
+                    eval_ctx.with_invalid_facet_path_axis_fallback_hidden(true)
+                } else {
+                    eval_ctx.clone()
+                };
+                Box::pin(
+                    compiled_subplot.remeasure_dimension_policy_coord_at_current_plot_area(
+                        &mut cell.measurement,
+                        &cell_eval_ctx,
+                        evaluated_layout_spec,
+                        Some(&cell.data_override),
+                        &cell.plan.full_path,
+                    ),
+                )
+                .await?;
+            }
+            facet_band.recompute_measured_overflow();
+            facet_band.recompute_explicit_placement();
+        } else if let Some(facet_band) = measurement
+            .coord_measurement
+            .as_any_mut()
+            .downcast_mut::<FacetBandCoordMeasurement>()
+        {
+            is_facet_band = true;
+            let compiled_subplot = facet_band.compiled_subplot.clone();
+            let empty_cell_policy = facet_band.empty_cell_policy;
+            for cell in &mut facet_band.cells {
+                let cell_eval_ctx = if !cell.plan.has_data_rows
+                    && matches!(cell.plan.empty_kind, FacetCellEmptyKind::DomainPlaceholder)
+                    && matches!(
+                        empty_cell_policy.effective(),
+                        FacetEmptyCellPolicy::EmptySubplot
+                    ) {
+                    eval_ctx.with_invalid_facet_path_axis_fallback_hidden(true)
+                } else {
+                    eval_ctx.clone()
+                };
+                Box::pin(
+                    compiled_subplot.remeasure_dimension_policy_coord_at_current_plot_area(
+                        &mut cell.measurement,
+                        &cell_eval_ctx,
+                        evaluated_layout_spec,
+                        Some(&cell.data_override),
+                        &cell.plan.full_path,
+                    ),
+                )
+                .await?;
+            }
+            facet_band.recompute_measured_overflow();
+        }
+
+        if !is_facet_band {
+            let params_with_current_dims = eval_ctx.with_params(measurement.params.clone());
+            let mut final_scales = measurement.scales.clone();
+            let coord_measurement = self
+                .measure_coord_system(
+                    &final_scales,
+                    plot_area_width,
+                    plot_area_height,
+                    &params_with_current_dims,
+                    data_override,
+                    facet_path,
+                    ctx,
+                )
+                .await?;
+            coord_measurement.apply_scale_adjustments(&mut final_scales);
+            measurement.scales = final_scales;
+            measurement.coord_measurement = coord_measurement;
+        }
+
+        let policy = eval_ctx.facet_runtime_sizing_mode().policy();
+        let realized_layout_spec = if facet_path.is_empty() {
+            Self::layout_spec_with_dimension_policy_realized_plot_area(
+                evaluated_layout_spec,
+                policy,
+                plot_area_width,
+                plot_area_height,
+            )
+        } else {
+            Self::nested_fixed_plot_area_layout_spec(plot_area_width, plot_area_height)
+        };
+        let facet_tree = eval_ctx.facet_tree.as_ref();
+        let (_, realized_layout, realized_legend_plan) = self
+            .rebuild_layout_with_coord_overflow(
+                &realized_layout_spec,
+                &measurement.scales,
+                plot_area_width,
+                plot_area_height,
+                &measurement.params,
+                data_override,
+                ctx,
+                facet_tree,
+                facet_path,
+                Some(measurement.coord_measurement.as_ref()),
+            )
+            .await?;
+
+        measurement.layout = realized_layout;
+        measurement.legend_plan = realized_legend_plan;
+        measurement.canvas_size = measurement.layout.canvas_size;
+        measurement.clip = self.resolved_clip_region(
+            eval_ctx,
+            facet_path,
+            &measurement.scales,
+            plot_area_width,
+            plot_area_height,
+        );
+        measurement.legend_plan.retarget_scales(&measurement.scales);
+
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn run_plot_area_sized_refinement_iteration(
         &self,
@@ -2467,47 +2812,438 @@ impl CompiledPlot {
         Ok(())
     }
 
-    /// Extract dimensions and determine layout mode from evaluated layout spec.
-    ///
-    /// Returns (width, height, is_plot_area_mode) where:
-    /// - Plot area mode (`is_plot_area_mode=true`): canvas Auto + plot_area Fixed
-    /// - Canvas mode (`is_plot_area_mode=false`): canvas specified, compute plot area later
-    fn resolve_dimensions_from_spec(layout_spec: &EvaluatedLayoutSpec) -> (f32, f32, bool) {
-        const DEFAULT_WIDTH: f32 = 400.0;
-        const DEFAULT_HEIGHT: f32 = 300.0;
-
-        // Determine if this is plot area mode (canvas Auto + plot_area Fixed)
-        // vs canvas mode (canvas specified, plot_area may or may not be)
-        let is_plot_area_mode = matches!(
-            (&layout_spec.canvas, &layout_spec.plot_area),
-            (EvaluatedSizeMode::Auto, EvaluatedSizeMode::Fixed { .. })
-        );
-
-        let (width, height) = if is_plot_area_mode {
-            // Plot area mode: use plot_area dimensions
-            match &layout_spec.plot_area {
-                EvaluatedSizeMode::Fixed { width, height } => (*width, *height),
-                _ => (DEFAULT_WIDTH, DEFAULT_HEIGHT),
+    async fn realize_dimension_policy_extents_no_remeasure(
+        &self,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        evaluated_layout_spec: &EvaluatedLayoutSpec,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+    ) -> Result<(), AvengerChartError> {
+        if let Some(facet_band) = measurement
+            .coord_measurement
+            .as_any_mut()
+            .downcast_mut::<FacetBandCoordMeasurementPlotAreaSized>()
+        {
+            let compiled_subplot = facet_band.compiled_subplot.clone();
+            for cell in &mut facet_band.cells {
+                let child_layout_spec = Self::nested_fixed_plot_area_layout_spec(
+                    cell.measurement.plot_area_width,
+                    cell.measurement.plot_area_height,
+                );
+                Box::pin(
+                    compiled_subplot.realize_dimension_policy_extents_no_remeasure(
+                        &mut cell.measurement,
+                        eval_ctx,
+                        &child_layout_spec,
+                        Some(&cell.data_override),
+                        &cell.plan.full_path,
+                    ),
+                )
+                .await?;
+            }
+            if facet_band.cells.is_empty() {
+                facet_band.preserve_empty_slot_plot_area(
+                    measurement.plot_area_width,
+                    measurement.plot_area_height,
+                );
+            } else {
+                facet_band.recompute_explicit_placement();
+            }
+        } else if let Some(facet_band) = measurement
+            .coord_measurement
+            .as_any_mut()
+            .downcast_mut::<FacetBandCoordMeasurement>()
+        {
+            let compiled_subplot = facet_band.compiled_subplot.clone();
+            for cell in &mut facet_band.cells {
+                let child_layout_spec = Self::nested_fixed_plot_area_layout_spec(
+                    cell.measurement.plot_area_width,
+                    cell.measurement.plot_area_height,
+                );
+                Box::pin(
+                    compiled_subplot.realize_dimension_policy_extents_no_remeasure(
+                        &mut cell.measurement,
+                        eval_ctx,
+                        &child_layout_spec,
+                        Some(&cell.data_override),
+                        &cell.plan.full_path,
+                    ),
+                )
+                .await?;
             }
         } else {
-            // Canvas mode: use canvas dimensions (or defaults)
-            match &layout_spec.canvas {
-                EvaluatedSizeMode::Fixed { width, height } => (*width, *height),
-                EvaluatedSizeMode::Width(w) => (*w, DEFAULT_HEIGHT),
-                EvaluatedSizeMode::Height(h) => (DEFAULT_WIDTH, *h),
-                EvaluatedSizeMode::Auto => {
-                    // Canvas auto but not plot_area fixed - use plot_area or defaults
-                    match &layout_spec.plot_area {
-                        EvaluatedSizeMode::Fixed { width, height } => (*width, *height),
-                        EvaluatedSizeMode::Width(w) => (*w, DEFAULT_HEIGHT),
-                        EvaluatedSizeMode::Height(h) => (DEFAULT_WIDTH, *h),
-                        EvaluatedSizeMode::Auto => (DEFAULT_WIDTH, DEFAULT_HEIGHT),
-                    }
-                }
-            }
+            return Ok(());
+        }
+
+        let policy = eval_ctx.facet_runtime_sizing_mode().policy();
+        let (subtree_width, subtree_height) =
+            Self::facet_subtree_realized_plot_area_extent(measurement)
+                .unwrap_or((measurement.plot_area_width, measurement.plot_area_height));
+        let mut plot_area_width = measurement.plot_area_width;
+        let mut plot_area_height = measurement.plot_area_height;
+        if policy.width.is_leaf_plot_area_sized() {
+            plot_area_width = subtree_width.max(1.0);
+        }
+        if policy.height.is_leaf_plot_area_sized() {
+            plot_area_height = subtree_height.max(1.0);
+        }
+
+        retarget_scale_ranges_for_plot_area(
+            &mut measurement.scales,
+            plot_area_width,
+            plot_area_height,
+        );
+
+        measurement.plot_area_width = plot_area_width;
+        measurement.plot_area_height = plot_area_height;
+
+        let realized_layout_spec = if facet_path.is_empty() {
+            Self::layout_spec_with_dimension_policy_realized_plot_area(
+                evaluated_layout_spec,
+                policy,
+                plot_area_width,
+                plot_area_height,
+            )
+        } else {
+            Self::nested_fixed_plot_area_layout_spec(plot_area_width, plot_area_height)
+        };
+        let ctx = &*eval_ctx.session_context;
+        let facet_tree = eval_ctx.facet_tree.as_ref();
+        let (_, realized_layout, realized_legend_plan) = self
+            .rebuild_layout_with_coord_overflow(
+                &realized_layout_spec,
+                &measurement.scales,
+                plot_area_width,
+                plot_area_height,
+                &measurement.params,
+                data_override,
+                ctx,
+                facet_tree,
+                facet_path,
+                Some(measurement.coord_measurement.as_ref()),
+            )
+            .await?;
+
+        let plot_bounds = realized_layout.plot_area_bounds();
+        if policy.width.is_canvas_constrained() {
+            plot_area_width = plot_bounds.width.max(1.0);
+        }
+        if policy.height.is_canvas_constrained() {
+            plot_area_height = plot_bounds.height.max(1.0);
+        }
+        if (measurement.plot_area_width - plot_area_width).abs() > 0.01
+            || (measurement.plot_area_height - plot_area_height).abs() > 0.01
+        {
+            retarget_measurement_plot_area_dimension_policy_no_remeasure(
+                measurement,
+                self,
+                eval_ctx,
+                facet_path,
+                plot_area_width,
+                plot_area_height,
+            )?;
+        }
+
+        trace!(
+            facet_path = ?facet_path,
+            plot_area_width,
+            plot_area_height,
+            canvas_width = realized_layout.canvas_size.0,
+            canvas_height = realized_layout.canvas_size.1,
+            "dimension-policy realization computed facet extent"
+        );
+
+        measurement.layout = realized_layout;
+        measurement.legend_plan = realized_legend_plan;
+        measurement.canvas_size = measurement.layout.canvas_size;
+        measurement.clip = self.resolved_clip_region(
+            eval_ctx,
+            facet_path,
+            &measurement.scales,
+            plot_area_width,
+            plot_area_height,
+        );
+        measurement.legend_plan.retarget_scales(&measurement.scales);
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn run_dimension_policy_refinement_iteration(
+        &self,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        evaluated_layout_spec: &EvaluatedLayoutSpec,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+        iteration: usize,
+        target_checkpoint: Option<RefinementCheckpoint>,
+        trace_label: &'static str,
+    ) -> Result<RefinementIterationOutcome, AvengerChartError> {
+        let before = if iteration == 0 {
+            None
+        } else {
+            Some(Self::recursive_overflow_snapshot(measurement))
         };
 
-        (width, height, is_plot_area_mode)
+        if iteration > 0 {
+            self.remeasure_dimension_policy_coord_at_current_plot_area(
+                measurement,
+                eval_ctx,
+                evaluated_layout_spec,
+                data_override,
+                facet_path,
+            )
+            .await?;
+            coordinate_overflow_for_guides_with_mode(
+                measurement,
+                eval_ctx,
+                FacetCoordinationMode::DimensionPolicyFullCycle,
+            )
+            .await?;
+
+            if target_checkpoint == Some(RefinementCheckpoint::Recoordinated) {
+                return Ok(RefinementIterationOutcome {
+                    reached_snapshot_checkpoint: true,
+                    overflow_grew: None,
+                });
+            }
+        }
+
+        self.realize_dimension_policy_extents_no_remeasure(
+            measurement,
+            eval_ctx,
+            evaluated_layout_spec,
+            data_override,
+            facet_path,
+        )
+        .await?;
+
+        if matches!(
+            target_checkpoint,
+            Some(RefinementCheckpoint::CandidateLayoutMeasured)
+                | Some(RefinementCheckpoint::PlotAreaRetargeted)
+        ) {
+            return Ok(RefinementIterationOutcome {
+                reached_snapshot_checkpoint: true,
+                overflow_grew: None,
+            });
+        }
+
+        let overflow_grew = before.map(|before| {
+            let after = Self::recursive_overflow_snapshot(measurement);
+            Self::recursive_overflow_increased(
+                &before,
+                &after,
+                eval_ctx.facet_layout_refinement().overflow_growth_epsilon,
+            )
+        });
+
+        trace!(
+            iteration,
+            overflow_grew,
+            canvas_width = measurement.canvas_size.0,
+            canvas_height = measurement.canvas_size.1,
+            trace_label
+        );
+
+        Ok(RefinementIterationOutcome {
+            reached_snapshot_checkpoint: false,
+            overflow_grew,
+        })
+    }
+
+    async fn refine_dimension_policy_measurement_after_coordination(
+        &self,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        evaluated_layout_spec: &EvaluatedLayoutSpec,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+        max_refinement_passes: usize,
+    ) -> Result<(), AvengerChartError> {
+        self.run_dimension_policy_refinement_iteration(
+            measurement,
+            eval_ctx,
+            evaluated_layout_spec,
+            data_override,
+            facet_path,
+            0,
+            None,
+            "dimension-policy mandatory realization",
+        )
+        .await?;
+
+        if max_refinement_passes == 0 {
+            eval_ctx.record_facet_refinement_converged();
+            trace!("dimension-policy refinement disabled after mandatory realization");
+            return Ok(());
+        }
+
+        for pass in 1..=max_refinement_passes {
+            let outcome = self
+                .run_dimension_policy_refinement_iteration(
+                    measurement,
+                    eval_ctx,
+                    evaluated_layout_spec,
+                    data_override,
+                    facet_path,
+                    pass,
+                    None,
+                    "dimension-policy refinement realization",
+                )
+                .await?;
+
+            eval_ctx.record_facet_refinement_pass();
+            let overflow_grew = outcome.overflow_grew.unwrap_or(false);
+            trace!(
+                pass,
+                overflow_grew, "dimension-policy refinement pass completed"
+            );
+
+            if !overflow_grew {
+                eval_ctx.record_facet_refinement_converged();
+                return Ok(());
+            }
+        }
+
+        eval_ctx.record_facet_refinement_hit_max_passes();
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn refine_dimension_policy_measurement_after_coordination_until(
+        &self,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        evaluated_layout_spec: &EvaluatedLayoutSpec,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+        max_refinement_passes: usize,
+        target_iteration: usize,
+        target_checkpoint: RefinementCheckpoint,
+    ) -> Result<(), AvengerChartError> {
+        if target_iteration > max_refinement_passes {
+            return Err(AvengerChartError::InternalError(format!(
+                "Requested refinement snapshot iteration {} exceeds configured max iteration {}",
+                target_iteration, max_refinement_passes
+            )));
+        }
+        if target_iteration == 0 && target_checkpoint == RefinementCheckpoint::Recoordinated {
+            return Ok(());
+        }
+
+        let target = (target_iteration == 0).then_some(target_checkpoint);
+        let outcome = self
+            .run_dimension_policy_refinement_iteration(
+                measurement,
+                eval_ctx,
+                evaluated_layout_spec,
+                data_override,
+                facet_path,
+                0,
+                target,
+                "dimension-policy refinement snapshot",
+            )
+            .await?;
+        if outcome.reached_snapshot_checkpoint {
+            return Ok(());
+        }
+
+        if max_refinement_passes == 0 {
+            return Err(AvengerChartError::InternalError(format!(
+                "Requested refinement snapshot {:?} at iteration {} was not reached (dimension-policy refinement snapshot)",
+                target_checkpoint, target_iteration
+            )));
+        }
+
+        for pass in 1..=max_refinement_passes {
+            let target = (pass == target_iteration).then_some(target_checkpoint);
+            let outcome = self
+                .run_dimension_policy_refinement_iteration(
+                    measurement,
+                    eval_ctx,
+                    evaluated_layout_spec,
+                    data_override,
+                    facet_path,
+                    pass,
+                    target,
+                    "dimension-policy refinement snapshot",
+                )
+                .await?;
+            if outcome.reached_snapshot_checkpoint {
+                return Ok(());
+            }
+            if !outcome.overflow_grew.unwrap_or(false) {
+                break;
+            }
+        }
+
+        Err(AvengerChartError::InternalError(format!(
+            "Requested refinement snapshot {:?} at iteration {} was not reached (dimension-policy refinement snapshot)",
+            target_checkpoint, target_iteration
+        )))
+    }
+
+    async fn realize_dimension_policy_layout_after_coordination(
+        &self,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        layout_spec: &EvaluatedLayoutSpec,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+        max_refinement_passes: usize,
+    ) -> Result<(), AvengerChartError> {
+        self.refine_dimension_policy_measurement_after_coordination(
+            measurement,
+            eval_ctx,
+            layout_spec,
+            data_override,
+            facet_path,
+            max_refinement_passes,
+        )
+        .await?;
+
+        debug_assert!(
+            Self::legends_within_canvas_recursive(measurement),
+            "dimension-policy invariant: legends must be within canvas after extent realization"
+        );
+        Ok(())
+    }
+
+    /// Extract width and height independently from the evaluated layout spec.
+    ///
+    /// Each physical dimension can be sourced from the canvas constraint or the
+    /// plot-area constraint. This is what lets faceted charts combine a fixed
+    /// canvas width with a fixed per-leaf plot height.
+    fn resolve_dimensions_from_spec(layout_spec: &EvaluatedLayoutSpec) -> ResolvedLayoutDimensions {
+        let canvas_width = Self::evaluated_width(&layout_spec.canvas);
+        let canvas_height = Self::evaluated_height(&layout_spec.canvas);
+        let plot_width = Self::evaluated_width(&layout_spec.plot_area);
+        let plot_height = Self::evaluated_height(&layout_spec.plot_area);
+
+        let width_is_plot_area = plot_width.is_some() && canvas_width.is_none();
+        let height_is_plot_area = plot_height.is_some() && canvas_height.is_none();
+
+        ResolvedLayoutDimensions {
+            width: if width_is_plot_area {
+                plot_width.unwrap_or(FacetSizingStrategy::DEFAULT_CANVAS_WIDTH)
+            } else {
+                canvas_width
+                    .or(plot_width)
+                    .unwrap_or(FacetSizingStrategy::DEFAULT_CANVAS_WIDTH)
+            },
+            height: if height_is_plot_area {
+                plot_height.unwrap_or(FacetSizingStrategy::DEFAULT_CANVAS_HEIGHT)
+            } else {
+                canvas_height
+                    .or(plot_height)
+                    .unwrap_or(FacetSizingStrategy::DEFAULT_CANVAS_HEIGHT)
+            },
+            width_is_plot_area,
+            height_is_plot_area,
+        }
     }
 
     /// Determine clip region from guide or default to plot area rect.
@@ -2545,7 +3281,11 @@ impl CompiledPlot {
             && matches!(
                 eval_ctx.facet_runtime_sizing_mode(),
                 FacetRuntimeSizingMode::PlotAreaSized { .. }
+                    | FacetRuntimeSizingMode::DimensionMixed(_)
             )
+            && eval_ctx
+                .facet_runtime_sizing_mode()
+                .has_leaf_plot_area_sized_dimension()
             && Self::marks_contain_facet(&self.marks)
         {
             // Plot-area-sized top-level facet content can legitimately extend past the
@@ -2567,9 +3307,7 @@ impl CompiledPlot {
     /// Returns (plot_area_width, plot_area_height, canvas_size, layout, legend_plan)
     async fn compute_layout_and_dimensions(
         &self,
-        is_plot_area_mode: bool,
-        width: f32,
-        height: f32,
+        dimensions: ResolvedLayoutDimensions,
         layout_spec: &EvaluatedLayoutSpec,
         scale_provider: &dyn ScaleProvider,
         ctx: &SessionContext,
@@ -2578,10 +3316,10 @@ impl CompiledPlot {
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[ScalarValue],
     ) -> Result<(f32, f32, (f32, f32), LayoutSolution, PreparedLegendPlan), AvengerChartError> {
-        if is_plot_area_mode {
-            // Plot area mode: dimensions specify the plot area size
-            let plot_area_width = width;
-            let plot_area_height = height;
+        if dimensions.dimensions_are_plot_area() {
+            // Plot area mode: dimensions specify the plot area size.
+            let plot_area_width = dimensions.width;
+            let plot_area_height = dimensions.height;
 
             let initial_scales = scale_provider
                 .build_scales(plot_area_width, plot_area_height, ctx, merged_params)
@@ -2607,9 +3345,18 @@ impl CompiledPlot {
                 legend_plan,
             ))
         } else {
-            // Canvas mode: dimensions are canvas size, compute layout to determine plot area
-            let initial_plot_width = width * Self::INITIAL_PLOT_AREA_RATIO;
-            let initial_plot_height = height * Self::INITIAL_PLOT_AREA_RATIO;
+            // Canvas or mixed mode: canvas-sourced dimensions are converted to a
+            // plot-area estimate, while plot-area-sourced dimensions are exact.
+            let initial_plot_width = if dimensions.width_is_plot_area {
+                dimensions.width
+            } else {
+                dimensions.width * Self::INITIAL_PLOT_AREA_RATIO
+            };
+            let initial_plot_height = if dimensions.height_is_plot_area {
+                dimensions.height
+            } else {
+                dimensions.height * Self::INITIAL_PLOT_AREA_RATIO
+            };
 
             let initial_scales = scale_provider
                 .build_scales(initial_plot_width, initial_plot_height, ctx, merged_params)
@@ -2629,8 +3376,16 @@ impl CompiledPlot {
 
             let plot_bounds = layout.plot_area_bounds();
             Ok((
-                plot_bounds.width,
-                plot_bounds.height,
+                if dimensions.width_is_plot_area {
+                    dimensions.width
+                } else {
+                    plot_bounds.width
+                },
+                if dimensions.height_is_plot_area {
+                    dimensions.height
+                } else {
+                    plot_bounds.height
+                },
                 layout.canvas_size,
                 layout,
                 legend_plan,
@@ -2719,23 +3474,24 @@ impl CompiledPlot {
         let facet_tree = &*eval_ctx.facet_tree;
 
         // Phase 1: Extract dimensions from layout spec
-        let (width, height, is_plot_area_mode) = Self::resolve_dimensions_from_spec(layout_spec);
+        let dimensions = Self::resolve_dimensions_from_spec(layout_spec);
 
         debug!(
-            width,
-            height, is_plot_area_mode, "measure_plot_components dimensions"
+            width = dimensions.width,
+            height = dimensions.height,
+            width_is_plot_area = dimensions.width_is_plot_area,
+            height_is_plot_area = dimensions.height_is_plot_area,
+            "measure_plot_components dimensions"
         );
 
         // Add dimensions to params for media queries
-        let params_with_dims = eval_ctx.with_dimension_params(width, height);
+        let params_with_dims = eval_ctx.with_dimension_params(dimensions.width, dimensions.height);
         let merged_params = params_with_dims.params.clone();
 
         // Phase 2: Compute layout and determine plot area dimensions
         let (plot_area_width, plot_area_height, mut canvas_size, mut layout, mut legend_plan) =
             self.compute_layout_and_dimensions(
-                is_plot_area_mode,
-                width,
-                height,
+                dimensions,
                 layout_spec,
                 scale_provider,
                 ctx,
@@ -2768,7 +3524,7 @@ impl CompiledPlot {
         // because it mutates final_scales which is used by later phases)
         coord_measurement.apply_scale_adjustments(&mut final_scales);
 
-        if is_plot_area_mode {
+        if dimensions.width_is_plot_area || dimensions.height_is_plot_area {
             let initial_plot_bounds = *layout.plot_area_bounds();
             let initial_overflow = layout.overflow;
             let initial_total_overflow = layout.total_overflow;
@@ -3438,10 +4194,10 @@ impl CompiledPlot {
         // - propagate final plot-area and scale-range updates.
         coordinate_overflow_for_guides_with_mode(measurement, eval_ctx, coordination_mode).await?;
 
-        let (_, _, is_plot_area_mode) = Self::resolve_dimensions_from_spec(evaluated_layout_spec);
+        let dimensions = Self::resolve_dimensions_from_spec(evaluated_layout_spec);
         match facet_sizing_strategy {
             FacetSizingStrategy::CanvasFit => {
-                if !is_plot_area_mode {
+                if !dimensions.dimensions_are_plot_area() {
                     let refinement = eval_ctx.facet_layout_refinement();
                     self.refine_canvas_measurement_after_coordination(
                         measurement,
@@ -3458,6 +4214,18 @@ impl CompiledPlot {
             FacetSizingStrategy::PlotAreaSized { .. } => {
                 let refinement = eval_ctx.facet_layout_refinement();
                 self.realize_plot_area_sized_layout_after_coordination(
+                    measurement,
+                    eval_ctx,
+                    evaluated_layout_spec,
+                    None,
+                    &[],
+                    refinement.max_refinement_passes,
+                )
+                .await?;
+            }
+            FacetSizingStrategy::DimensionPolicy(_) => {
+                let refinement = eval_ctx.facet_layout_refinement();
+                self.realize_dimension_policy_layout_after_coordination(
                     measurement,
                     eval_ctx,
                     evaluated_layout_spec,
@@ -3484,10 +4252,10 @@ impl CompiledPlot {
         checkpoint: RefinementCheckpoint,
     ) -> Result<(), AvengerChartError> {
         let refinement = eval_ctx.facet_layout_refinement();
-        let (_, _, is_plot_area_mode) = Self::resolve_dimensions_from_spec(evaluated_layout_spec);
+        let dimensions = Self::resolve_dimensions_from_spec(evaluated_layout_spec);
         match facet_sizing_strategy {
             FacetSizingStrategy::CanvasFit => {
-                if is_plot_area_mode {
+                if dimensions.dimensions_are_plot_area() {
                     return Err(AvengerChartError::InternalError(
                         "Refinement snapshots are not available for plot-area mode canvas-fit layouts"
                             .to_string(),
@@ -3508,6 +4276,19 @@ impl CompiledPlot {
             }
             FacetSizingStrategy::PlotAreaSized { .. } => {
                 self.refine_plot_area_sized_measurement_after_coordination_until(
+                    measurement,
+                    eval_ctx,
+                    evaluated_layout_spec,
+                    None,
+                    &[],
+                    refinement.max_refinement_passes,
+                    iteration,
+                    checkpoint,
+                )
+                .await
+            }
+            FacetSizingStrategy::DimensionPolicy(_) => {
+                self.refine_dimension_policy_measurement_after_coordination_until(
                     measurement,
                     eval_ctx,
                     evaluated_layout_spec,
@@ -3746,7 +4527,7 @@ mod tests {
             coordination_plans::CoordinationNodeKey,
             coordination_strategy::PlotAreaSizedCoordinationStrategy,
         },
-        layout::PlotConstraint,
+        layout::{CanvasConstraint, PlotConstraint},
         legend::LegendPosition,
         prelude::*,
         render::FacetLayoutRefinement,
@@ -4703,15 +5484,14 @@ mod tests {
         let coordination_mode = facet_sizing_strategy.coordination_mode();
         coordinate_overflow_for_guides_with_mode(&mut measurement, &eval_ctx, coordination_mode)
             .await?;
-        let (_, _, is_plot_area_mode) =
-            CompiledPlot::resolve_dimensions_from_spec(&evaluated_layout_spec);
+        let dimensions = CompiledPlot::resolve_dimensions_from_spec(&evaluated_layout_spec);
         let provider = DynamicScaleProvider {
             builder: &scale_builder,
             plot: compiled,
         };
         match facet_sizing_strategy {
             FacetSizingStrategy::CanvasFit => {
-                if !is_plot_area_mode {
+                if !dimensions.dimensions_are_plot_area() {
                     compiled
                         .refine_canvas_measurement_after_coordination(
                             &mut measurement,
@@ -4728,6 +5508,18 @@ mod tests {
             FacetSizingStrategy::PlotAreaSized { .. } => {
                 compiled
                     .realize_plot_area_sized_layout_after_coordination(
+                        &mut measurement,
+                        &eval_ctx,
+                        &evaluated_layout_spec,
+                        None,
+                        &[],
+                        eval_ctx.facet_layout_refinement().max_refinement_passes,
+                    )
+                    .await?;
+            }
+            FacetSizingStrategy::DimensionPolicy(_) => {
+                compiled
+                    .realize_dimension_policy_layout_after_coordination(
                         &mut measurement,
                         &eval_ctx,
                         &evaluated_layout_spec,
@@ -5749,13 +6541,13 @@ mod tests {
         };
         let message = err.to_string();
         assert!(
-            message.contains("cannot combine `canvas_size(...)` and `plot_size(...)`"),
+            message.contains("cannot constrain both canvas width and leaf plot width"),
             "unexpected error: {message}"
         );
     }
 
     #[tokio::test]
-    async fn facet_partial_constraints_error_in_plot_area_sized_mode() {
+    async fn facet_partial_plot_width_constraint_evaluates() {
         let ctx = SessionContext::new();
         let df = deeply_nested_dataframe(&ctx);
         let compiled = build_simple_facet_col_plot(df)
@@ -5764,18 +6556,58 @@ mod tests {
             .await
             .expect("compile facet plot with plot_constraint");
 
-        let err = match compiled
+        let evaluated = compiled
             .evaluate_with_options(&ctx, None, EvaluationOptions::default())
             .await
-        {
-            Ok(_) => panic!("faceted partial constraints should error"),
-            Err(err) => err,
-        };
-        let message = err.to_string();
+            .expect("faceted partial plot constraint should evaluate");
         assert!(
-            message.contains("do not support partial `canvas_constraint`/`plot_constraint`"),
-            "unexpected error: {message}"
+            evaluated.scene_graph.width > 200.0,
+            "canvas should include leaf plot width plus guide overflow"
         );
+    }
+
+    #[test]
+    fn facet_mixed_canvas_width_leaf_plot_height_preserves_policy() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let df = deeply_nested_dataframe(&ctx);
+            let compiled = build_deeply_nested_plot(df)
+                .canvas_constraint(CanvasConstraint::width(640.0))
+                .plot_constraint(PlotConstraint::height(72.0))
+                .compile(&ctx)
+                .await
+                .expect("compile mixed dimension facet plot");
+
+            let evaluated = compiled
+                .evaluate_with_options(&ctx, None, EvaluationOptions::default())
+                .await?;
+            assert!(
+                (evaluated.scene_graph.width - 640.0).abs() <= 0.5,
+                "mixed chart should preserve constrained canvas width: {}",
+                evaluated.scene_graph.width
+            );
+
+            let (_, _, measurement) =
+                prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+            let mut leaf_widths = Vec::new();
+            let mut leaf_heights = Vec::new();
+            collect_leaf_plot_areas(&measurement, &mut leaf_widths, &mut leaf_heights);
+            assert!(
+                !leaf_heights.is_empty(),
+                "expected at least one leaf measurement"
+            );
+            assert!(
+                leaf_widths.iter().any(|width| (*width - 72.0).abs() > 0.5),
+                "widths should be solved from canvas, not fixed to the requested leaf height"
+            );
+            for height in leaf_heights {
+                assert!(
+                    (height - 72.0).abs() <= 0.5,
+                    "leaf plot height should remain fixed in mixed mode: {height}"
+                );
+            }
+            Ok(())
+        });
     }
 
     #[tokio::test]

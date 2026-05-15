@@ -24,6 +24,7 @@ pub mod test_data_domain;
 pub mod test_default_axes_visual;
 pub mod test_eight_types_symbol;
 pub mod test_facet_column;
+pub mod test_facet_dimension_mixed;
 pub mod test_facet_domain_edge_cases;
 pub mod test_facet_layout_snapshots;
 pub mod test_facet_legend_sharing;
