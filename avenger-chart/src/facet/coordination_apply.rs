@@ -545,54 +545,32 @@ where
     if let Some(mut facet_band) = S::facet_band_mut(measurement) {
         let node_id = CoordinationNodeKey::new(node_path.clone());
         let axis = facet_band.base().axis;
-        let planned = plan_by_node.get(&node_id);
-        debug_assert!(
-            planned.is_some(),
-            "Missing final propagation plan for node path {:?}",
-            node_id.path
-        );
-        let fallback_child_plans = build_final_propagation_child_plans_with_strategy::<S, _>(
-            axis,
-            facet_band.base().coordinated_subplot_cross_size(),
-            facet_band.base().child_measurements_iter(),
-        );
-        let fallback_expected_plot_area_adjustments_count = fallback_child_plans
-            .iter()
-            .filter(|child_plan| child_plan.adjust_plot_area)
-            .count();
-        let (
-            child_plans,
-            planned_parent_cross_size_target,
-            planned_child_count,
-            planned_plot_area_adjustments_count,
-        ) = if let Some(planned) = planned {
-            (
-                planned.child_plans.clone(),
-                planned.parent_cross_size_target,
-                planned.child_count,
-                planned.expected_plot_area_adjustments_count,
-            )
-        } else {
-            (
-                fallback_child_plans,
-                facet_band.base().coordinated_subplot_cross_size(),
-                facet_band.base().child_measurements_iter().count(),
-                fallback_expected_plot_area_adjustments_count,
-            )
-        };
+        let planned = plan_by_node.get(&node_id).ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "Missing final propagation plan for node path {:?}",
+                node_id.path
+            ))
+        })?;
+        let child_plans = &planned.child_plans;
+        let planned_parent_cross_size_target = planned.parent_cross_size_target;
+        let planned_child_count = planned.child_count;
+        let planned_plot_area_adjustments_count = planned.expected_plot_area_adjustments_count;
+        let actual_child_count = facet_band.base().child_measurements_iter().count();
+        if planned_child_count != actual_child_count || child_plans.len() != actual_child_count {
+            return Err(AvengerChartError::InternalError(format!(
+                "Final propagation plan child count mismatch for node path {:?}: planned child_count={}, child_plans={}, actual_children={}",
+                node_id.path,
+                planned_child_count,
+                child_plans.len(),
+                actual_child_count
+            )));
+        }
         let mut child_plot_area_adjustments_count = 0usize;
         let mut scale_range_retarget_count = 0usize;
         let compiled_subplot = facet_band.base().compiled_subplot.clone();
 
         for (idx, cell) in facet_band.base_mut().cells.iter_mut().enumerate() {
-            let child_plan = child_plans.get(idx).cloned().unwrap_or_else(|| {
-                build_final_propagation_child_plan_with_strategy::<S>(
-                    idx,
-                    axis,
-                    planned_parent_cross_size_target,
-                    &cell.measurement,
-                )
-            });
+            let child_plan = &child_plans[idx];
 
             let (plot_area_adjusted, retarget_count) = {
                 let child = &mut cell.measurement;
@@ -602,7 +580,7 @@ where
                     Some(&cell.plan),
                     compiled_subplot.as_ref(),
                     eval_ctx,
-                    &child_plan,
+                    child_plan,
                 )?
             };
             if plot_area_adjusted {

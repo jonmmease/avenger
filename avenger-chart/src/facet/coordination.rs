@@ -766,6 +766,16 @@ mod tests {
         ));
     }
 
+    fn assert_internal_error_contains(error: AvengerChartError, expected: &str) {
+        match error {
+            AvengerChartError::InternalError(message) => assert!(
+                message.contains(expected),
+                "expected internal error containing '{expected}', got '{message}'"
+            ),
+            other => panic!("expected internal error containing '{expected}', got {other}"),
+        }
+    }
+
     fn depth1_states(measurement: &ComponentsMeasurement) -> Vec<Depth1State> {
         let mut states = Vec::new();
         visit_facet_bands(measurement, 0, &mut |depth, facet_band| {
@@ -1327,6 +1337,44 @@ mod tests {
                 assert_eq!(child_plan.child_index, idx);
             }
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn final_propagation_errors_when_node_plan_missing() -> Result<(), AvengerChartError> {
+        let (mut measurement, eval_ctx) = nested_fixture().await?;
+        let mut plan = build_final_propagation_plan(&measurement);
+        let root_idx = plan
+            .node_plans
+            .iter()
+            .position(|node| node.node_id.path.is_empty())
+            .expect("final propagation plan should include a root node");
+        plan.node_plans.remove(root_idx);
+
+        let error = run_final_propagation_with_trace(&mut measurement, &eval_ctx, &plan)
+            .expect_err("missing final propagation node plan should error");
+        assert_internal_error_contains(error, "Missing final propagation plan");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn final_propagation_errors_when_child_plan_count_mismatches()
+    -> Result<(), AvengerChartError> {
+        let (mut measurement, eval_ctx) = nested_fixture().await?;
+        let mut plan = build_final_propagation_plan(&measurement);
+        let root_plan = plan
+            .node_plans
+            .iter_mut()
+            .find(|node| node.node_id.path.is_empty())
+            .expect("final propagation plan should include a root node");
+        assert!(
+            root_plan.child_plans.pop().is_some(),
+            "fixture root should have at least one child plan"
+        );
+
+        let error = run_final_propagation_with_trace(&mut measurement, &eval_ctx, &plan)
+            .expect_err("final propagation child plan mismatch should error");
+        assert_internal_error_contains(error, "Final propagation plan child count mismatch");
         Ok(())
     }
 
