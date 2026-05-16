@@ -127,15 +127,45 @@ pub(crate) struct FacetCellRuntime {
 pub(crate) struct FacetBandAllocationOwnership {
     pub(crate) parent_owns_main_axis_outer_slabs: bool,
     pub(crate) parent_owns_cross_axis_legend_slabs: bool,
+    pub(crate) realized_owned_legend_slabs: Option<OwnedEdgeSlabs>,
 }
 
 impl FacetBandAllocationOwnership {
+    pub(crate) fn from_policy(
+        parent_owns_main_axis_outer_slabs: bool,
+        parent_owns_cross_axis_legend_slabs: bool,
+    ) -> Self {
+        Self {
+            parent_owns_main_axis_outer_slabs,
+            parent_owns_cross_axis_legend_slabs,
+            realized_owned_legend_slabs: None,
+        }
+    }
+
+    pub(crate) fn with_realized_owned_legend_slabs(self, owned_slabs: OwnedEdgeSlabs) -> Self {
+        Self {
+            realized_owned_legend_slabs: Some(owned_slabs),
+            ..self
+        }
+    }
+
+    pub(crate) fn without_realized_owned_legend_slabs(self) -> Self {
+        Self {
+            realized_owned_legend_slabs: None,
+            ..self
+        }
+    }
+
     pub(crate) fn owned_legend_slabs(
         self,
         axis: FacetAxis,
         overflow: &CoordinatedOverflow,
         layout: &CoordinatedLayout,
     ) -> OwnedEdgeSlabs {
+        if let Some(owned_slabs) = self.realized_owned_legend_slabs {
+            return owned_slabs;
+        }
+
         let slabs = FacetOverflowSlabs::from_coordinated(overflow);
         let mut owned = EdgeSlabs::default();
 
@@ -237,6 +267,12 @@ impl FacetBandCoordMeasurement {
     ) -> OwnedEdgeSlabs {
         self.allocation_ownership
             .owned_legend_slabs(self.axis, overflow, layout)
+    }
+
+    pub(crate) fn set_realized_owned_legend_slabs(&mut self, owned_slabs: OwnedEdgeSlabs) {
+        self.allocation_ownership = self
+            .allocation_ownership
+            .with_realized_owned_legend_slabs(owned_slabs);
     }
 
     pub(crate) fn recompute_explicit_placement_if_needed(&mut self) {
@@ -463,10 +499,16 @@ impl FacetBandCoordMeasurement {
 
     pub fn set_coordinated_overflow_value(&mut self, overflow: CoordinatedOverflow) {
         self.coordinated_overflow = overflow;
+        self.allocation_ownership = self
+            .allocation_ownership
+            .without_realized_owned_legend_slabs();
     }
 
     pub fn set_coordinated_layout_value(&mut self, layout: CoordinatedLayout) {
         self.coordinated_layout = Some(layout);
+        self.allocation_ownership = self
+            .allocation_ownership
+            .without_realized_owned_legend_slabs();
     }
 
     pub(crate) fn apply_coordinated_alignment_slabs_to_child_layouts(&mut self) {
@@ -485,6 +527,7 @@ impl FacetBandCoordMeasurement {
                     overflow_side_value(&coordinated.total, side),
                 );
             }
+            sync_measurement_owned_slabs_from_coord(&mut cell.measurement);
         }
     }
 
@@ -1494,6 +1537,28 @@ fn apply_measurement_side_slab(
 ) {
     apply_frame_side_slab(&mut measurement.layout, side, guide, total);
     measurement.canvas_size = measurement.layout.canvas_size;
+    refresh_measurement_frame_allocation_rect(measurement);
+}
+
+fn refresh_measurement_frame_allocation_rect(measurement: &mut ComponentsMeasurement) {
+    measurement.frame_allocation.rect.width = measurement.canvas_size.0;
+    measurement.frame_allocation.rect.height = measurement.canvas_size.1;
+}
+
+fn sync_measurement_owned_slabs_from_coord(measurement: &mut ComponentsMeasurement) {
+    let owned_slabs = if let Some(facet_band) =
+        facet_band_ref(measurement.coord_measurement.as_ref())
+    {
+        let active_layout = facet_band.active_layout();
+        facet_band.owned_legend_slabs_for_overflow(&facet_band.coordinated_overflow, active_layout)
+    } else {
+        EdgeSlabs::default()
+    };
+
+    measurement.frame_allocation.owned_slabs = owned_slabs;
+    if let Some(facet_band) = facet_band_mut(measurement.coord_measurement.as_mut()) {
+        facet_band.set_realized_owned_legend_slabs(owned_slabs);
+    }
 }
 
 fn update_measurement_plot_area_metadata(
@@ -1513,6 +1578,7 @@ fn update_measurement_plot_area_metadata(
     measurement.canvas_size.0 = (measurement.canvas_size.0 + width_delta).max(1.0);
     measurement.canvas_size.1 = (measurement.canvas_size.1 + height_delta).max(1.0);
     measurement.layout.canvas_size = measurement.canvas_size;
+    refresh_measurement_frame_allocation_rect(measurement);
     retarget_frame_layout_for_plot_area(
         &mut measurement.layout,
         &measurement.legend_plan.measurements,
@@ -1534,6 +1600,7 @@ fn update_measurement_plot_area_metadata(
         new_plot_area_width,
         new_plot_area_height,
     );
+    sync_measurement_owned_slabs_from_coord(measurement);
 }
 
 fn update_measurement_plot_area_metadata_for_policy(
@@ -1566,6 +1633,7 @@ fn update_measurement_plot_area_metadata_for_policy(
     measurement.canvas_size.0 = (measurement.canvas_size.0 + canvas_width_delta).max(1.0);
     measurement.canvas_size.1 = (measurement.canvas_size.1 + canvas_height_delta).max(1.0);
     measurement.layout.canvas_size = measurement.canvas_size;
+    refresh_measurement_frame_allocation_rect(measurement);
     retarget_frame_layout_for_plot_area(
         &mut measurement.layout,
         &measurement.legend_plan.measurements,
@@ -1593,6 +1661,7 @@ fn update_measurement_plot_area_metadata_for_policy(
         new_plot_area_width,
         new_plot_area_height,
     );
+    sync_measurement_owned_slabs_from_coord(measurement);
 }
 
 pub(crate) fn retarget_measurement_plot_area_no_remeasure(
@@ -1921,10 +1990,10 @@ fn empty_facet_band_measurement(
         coordination_field_identity: axis.scale_name().to_string(),
         channel_domain_sharing_levels: HashMap::new(),
         empty_cell_policy,
-        allocation_ownership: FacetBandAllocationOwnership {
-            parent_owns_main_axis_outer_slabs: !facet_path.is_empty() || plot_area_sized_mode,
-            parent_owns_cross_axis_legend_slabs: orthogonal_dimension_canvas_constrained,
-        },
+        allocation_ownership: FacetBandAllocationOwnership::from_policy(
+            !facet_path.is_empty() || plot_area_sized_mode,
+            orthogonal_dimension_canvas_constrained,
+        ),
         placement_model: if plot_area_sized_mode {
             FacetBandPlacementModel::Explicit(FacetBandExplicitPlacement::default())
         } else {
@@ -3290,10 +3359,10 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 .eval_ctx
                 .facet_runtime_sizing_mode()
                 .facet_band_is_leaf_plot_area_sized(self.axis_ops.axis),
-            allocation_ownership: FacetBandAllocationOwnership {
-                parent_owns_main_axis_outer_slabs: true,
-                parent_owns_cross_axis_legend_slabs: orthogonal_dimension_canvas_constrained,
-            },
+            allocation_ownership: FacetBandAllocationOwnership::from_policy(
+                true,
+                orthogonal_dimension_canvas_constrained,
+            ),
         };
 
         let mut adjusted_scales = self.scales.clone();
@@ -3836,11 +3905,10 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             coordination_field_identity,
             channel_domain_sharing_levels,
             empty_cell_policy,
-            allocation_ownership: FacetBandAllocationOwnership {
-                parent_owns_main_axis_outer_slabs: !self
-                    .root_scale_backed_edge_slabs_are_chart_overflow(),
-                parent_owns_cross_axis_legend_slabs: orthogonal_dimension_canvas_constrained,
-            },
+            allocation_ownership: FacetBandAllocationOwnership::from_policy(
+                !self.root_scale_backed_edge_slabs_are_chart_overflow(),
+                orthogonal_dimension_canvas_constrained,
+            ),
             placement_model: if self
                 .eval_ctx
                 .facet_runtime_sizing_mode()
@@ -4610,6 +4678,44 @@ mod tests {
         assert_eq!(fallback.outer_start, local.outer_start);
         assert_eq!(fallback.outer_end, local.outer_end);
         assert_eq!(fallback.n, local.n);
+    }
+
+    #[test]
+    fn realized_allocation_owned_slabs_override_policy_estimate() {
+        let overflow = CoordinatedOverflow {
+            guide: OverflowSpaceRequirement {
+                top: 1.0,
+                right: 2.0,
+                bottom: 3.0,
+                left: 4.0,
+            },
+            total: OverflowSpaceRequirement {
+                top: 11.0,
+                right: 22.0,
+                bottom: 33.0,
+                left: 44.0,
+            },
+        };
+        let layout = CoordinatedLayout {
+            padding_inner_px: 0.0,
+            outer_start: 0.0,
+            outer_end: 0.0,
+            n: 2,
+        };
+        let realized = EdgeSlabs::new(5.0, 6.0, 7.0, 8.0);
+        let ownership = FacetBandAllocationOwnership::from_policy(false, false)
+            .with_realized_owned_legend_slabs(realized);
+
+        assert_eq!(
+            ownership.owned_legend_slabs(FacetAxis::Column, &overflow, &layout),
+            realized
+        );
+        assert_eq!(
+            ownership
+                .without_realized_owned_legend_slabs()
+                .owned_legend_slabs(FacetAxis::Column, &overflow, &layout),
+            EdgeSlabs::default()
+        );
     }
 
     #[test]

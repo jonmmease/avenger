@@ -570,11 +570,9 @@ mod tests {
             outer_end: 100.0,
             n: 2,
         };
-        let owned_slabs = crate::facet::coord::FacetBandAllocationOwnership {
-            parent_owns_main_axis_outer_slabs: true,
-            parent_owns_cross_axis_legend_slabs: false,
-        }
-        .owned_legend_slabs(FacetAxis::Column, &raw, &layout);
+        let owned_slabs =
+            crate::facet::coord::FacetBandAllocationOwnership::from_policy(true, false)
+                .owned_legend_slabs(FacetAxis::Column, &raw, &layout);
         let projected = residual_overflow_for_owned_legend_slabs(&raw, owned_slabs);
 
         assert_eq!(projected.total.left, raw.guide.left);
@@ -592,11 +590,9 @@ mod tests {
             outer_end: 0.0,
             n: 2,
         };
-        let owned_slabs = crate::facet::coord::FacetBandAllocationOwnership {
-            parent_owns_main_axis_outer_slabs: false,
-            parent_owns_cross_axis_legend_slabs: true,
-        }
-        .owned_legend_slabs(FacetAxis::Column, &raw, &layout);
+        let owned_slabs =
+            crate::facet::coord::FacetBandAllocationOwnership::from_policy(false, true)
+                .owned_legend_slabs(FacetAxis::Column, &raw, &layout);
         let projected = residual_overflow_for_owned_legend_slabs(&raw, owned_slabs);
 
         assert_eq!(projected.total.top, raw.guide.top);

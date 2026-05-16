@@ -21,6 +21,7 @@ use crate::{
     coords::CoordinateSystemTransform,
     error::AvengerChartError,
     guide::CompiledGuide,
+    layout::FrameAllocation,
     layout::LayoutSpec,
     legend::Legend,
     marks::CompiledMark,
@@ -241,6 +242,9 @@ pub struct ComponentsMeasurement {
     /// Layout solution (contains overflow, total_overflow, legends/titles positioning)
     pub layout: crate::render::LayoutSolution,
 
+    /// Allocation granted to this measured chart frame by its parent.
+    pub frame_allocation: FrameAllocation,
+
     /// Merged params (defaults + provided + canvas dimensions)
     pub params: indexmap::IndexMap<String, datafusion::common::ScalarValue>,
 
@@ -257,6 +261,7 @@ impl std::fmt::Debug for ComponentsMeasurement {
             .field("plot_area_height", &self.plot_area_height)
             .field("canvas_size", &self.canvas_size)
             .field("layout", &"LayoutSolution")
+            .field("frame_allocation", &self.frame_allocation)
             .field("legend_plan", &"<legend_plan>")
             .finish()
     }

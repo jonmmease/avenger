@@ -498,12 +498,12 @@ Plan:
 
 Goal: replace top-level/nested special behavior with explicit ownership.
 
-- [ ] Add `FrameAllocation` to `ComponentsMeasurement` or to a sibling
+- [x] Add `FrameAllocation` to `ComponentsMeasurement` or to a sibling
   realization structure.
-- [ ] Teach facet coordination to produce child allocations with
+- [x] Teach facet coordination to produce child allocations with
   `owned_slabs`.
-- [ ] Express root chart behavior as the root allocation's owned slabs.
-- [ ] Express nested facet slot absorption as child allocation owned slabs.
+- [x] Express root chart behavior as the root allocation's owned slabs.
+- [x] Express nested facet slot absorption as child allocation owned slabs.
 - [x] Move top-level/nested ownership decisions out of overflow projection and
   onto `FacetBandAllocationOwnership`.
 - [x] Update `overflow_projection.rs` to work from `FrameDemand` and

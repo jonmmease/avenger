@@ -58,8 +58,9 @@ use crate::{
     },
     guide::OverflowSpaceRequirement,
     layout::{
-        EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, FrameLayoutInput, LayoutBounds,
-        LayoutSpec, Margins, Size2D, SizeMode, TaffyFrameLayoutSolver,
+        EdgeSlabs, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, FrameAllocation,
+        FrameDimensionSizing, FrameLayoutInput, FrameSizingPolicy, LayoutBounds, LayoutSpec,
+        Margins, Size2D, SizeMode, TaffyFrameLayoutSolver,
     },
     legend::LegendPosition,
     marks::CompiledMark,
@@ -143,6 +144,26 @@ impl ResolvedLayoutDimensions {
 
     fn height_value(self) -> f32 {
         self.height.value
+    }
+
+    fn frame_sizing_policy(self) -> FrameSizingPolicy {
+        FrameSizingPolicy {
+            width: self.width.frame_dimension_sizing(),
+            height: self.height.frame_dimension_sizing(),
+        }
+    }
+}
+
+impl ResolvedLayoutDimension {
+    fn frame_dimension_sizing(self) -> FrameDimensionSizing {
+        match self.source {
+            LayoutDimensionSource::Canvas => FrameDimensionSizing::CanvasConstrained {
+                canvas_size: self.value,
+            },
+            LayoutDimensionSource::PlotArea => FrameDimensionSizing::ContentSized {
+                content_size: self.value,
+            },
+        }
     }
 }
 
@@ -3026,6 +3047,16 @@ impl CompiledPlot {
 
         // Note: Overflow info is available via layout.overflow (guide only) and
         // layout.total_overflow (guide + legends), computed during layout phase.
+        let frame_allocation = FrameAllocation {
+            rect: LayoutBounds {
+                x: 0.0,
+                y: 0.0,
+                width: canvas_size.0,
+                height: canvas_size.1,
+            },
+            sizing: dimensions.frame_sizing_policy(),
+            owned_slabs: EdgeSlabs::default(),
+        };
 
         Ok(ComponentsMeasurement {
             coord_measurement,
@@ -3035,6 +3066,7 @@ impl CompiledPlot {
             canvas_size,
             clip,
             layout,
+            frame_allocation,
             params: merged_params,
             legend_plan,
         })
@@ -4973,6 +5005,36 @@ mod tests {
             LegendPosition::Right => overflow.total.right,
             LegendPosition::Bottom => overflow.total.bottom,
             LegendPosition::Left => overflow.total.left,
+        }
+    }
+
+    #[test]
+    fn resolved_dimensions_encode_frame_sizing_policy() {
+        let layout_spec = EvaluatedLayoutSpec {
+            canvas: EvaluatedSizeMode::Width(640.0),
+            plot_area: EvaluatedSizeMode::Height(120.0),
+            margins: EvaluatedMargins {
+                top: 0.0,
+                right: 0.0,
+                bottom: 0.0,
+                left: 0.0,
+            },
+        };
+
+        let dimensions = CompiledPlot::resolve_dimensions_from_spec(&layout_spec);
+        let policy = dimensions.frame_sizing_policy();
+
+        match policy.width {
+            FrameDimensionSizing::CanvasConstrained { canvas_size } => {
+                assert_eq!(canvas_size, 640.0);
+            }
+            other => panic!("expected canvas-constrained width, got {other:?}"),
+        }
+        match policy.height {
+            FrameDimensionSizing::ContentSized { content_size } => {
+                assert_eq!(content_size, 120.0);
+            }
+            other => panic!("expected content-sized height, got {other:?}"),
         }
     }
 
