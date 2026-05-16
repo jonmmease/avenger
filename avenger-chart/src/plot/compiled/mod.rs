@@ -21,8 +21,11 @@ use crate::{
     coords::CoordinateSystemTransform,
     error::AvengerChartError,
     guide::CompiledGuide,
-    layout::FrameAllocation,
-    layout::LayoutSpec,
+    layout::{
+        ContentAllocation, ContentLayout, ContentLayoutSolver, FacetBandContentMeasurement,
+        FacetBandContentSolver, FrameAllocation, FrameDemand, LayoutSpec,
+        SinglePlotContentMeasurement, SinglePlotContentSolver,
+    },
     legend::Legend,
     marks::CompiledMark,
     scales::{ConfiguredScaleWithSpec, ScaleBuilder, ScaleRangeBinding},
@@ -264,6 +267,51 @@ impl std::fmt::Debug for ComponentsMeasurement {
             .field("frame_allocation", &self.frame_allocation)
             .field("legend_plan", &"<legend_plan>")
             .finish()
+    }
+}
+
+impl ComponentsMeasurement {
+    pub(crate) fn frame_demand(&self) -> FrameDemand {
+        FrameDemand::from_guide_and_rendered_envelope(
+            self.layout.overflow.clone(),
+            self.layout.total_overflow.clone(),
+        )
+    }
+
+    pub(crate) fn content_allocation(&self) -> ContentAllocation {
+        ContentAllocation::new(self.frame_allocation, *self.layout.plot_area_bounds())
+    }
+
+    pub(crate) fn content_layout(&self) -> Result<ContentLayout, AvengerChartError> {
+        let allocation = self.content_allocation();
+        let frame_demand = self.frame_demand();
+
+        if let Some(facet_band) =
+            crate::facet::coord::facet_band_ref(self.coord_measurement.as_ref())
+        {
+            let solver = FacetBandContentSolver;
+            let child_frame_allocations = facet_band
+                .child_measurements_iter()
+                .map(|child| child.frame_allocation)
+                .collect::<Vec<_>>();
+            let demand = solver.measure_content_demand(
+                &allocation,
+                &FacetBandContentMeasurement {
+                    frame_demand,
+                    child_frame_allocations,
+                },
+            )?;
+            let plan = solver.coordinate_content(&allocation, &demand)?;
+            solver.realize_content(allocation, demand, plan)
+        } else {
+            let solver = SinglePlotContentSolver;
+            let demand = solver.measure_content_demand(
+                &allocation,
+                &SinglePlotContentMeasurement { frame_demand },
+            )?;
+            let plan = solver.coordinate_content(&allocation, &demand)?;
+            solver.realize_content(allocation, demand, plan)
+        }
     }
 }
 

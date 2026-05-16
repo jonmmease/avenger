@@ -195,10 +195,23 @@ pub async fn coordinate_overflow_for_guides_with_mode(
     eval_ctx: &EvaluationContext,
     mode: FacetCoordinationMode,
 ) -> Result<(), AvengerChartError> {
-    match mode {
-        FacetCoordinationMode::FullCycle => {
-            crate::facet::coordination::coordinate_facet_measurement_tree(measurement, eval_ctx)
-                .await
+    crate::layout::FacetBandContentSolver
+        .coordinate_existing_measurement_tree(measurement, eval_ctx, mode)
+        .await
+}
+
+impl crate::layout::FacetBandContentSolver {
+    pub(crate) async fn coordinate_existing_measurement_tree(
+        &self,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        mode: FacetCoordinationMode,
+    ) -> Result<(), AvengerChartError> {
+        match mode {
+            FacetCoordinationMode::FullCycle => {
+                crate::facet::coordination::coordinate_facet_measurement_tree(measurement, eval_ctx)
+                    .await
+            }
         }
     }
 }

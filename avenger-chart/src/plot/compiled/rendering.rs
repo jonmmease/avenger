@@ -3949,6 +3949,16 @@ impl CompiledPlot {
         )
         .await?;
 
+        let content_layout = measurement.content_layout()?;
+        trace!(
+            child_frame_allocation_count = content_layout.child_frame_allocations.len(),
+            content_x = content_layout.allocation.content_rect.x,
+            content_y = content_layout.allocation.content_rect.y,
+            content_width = content_layout.allocation.content_rect.width,
+            content_height = content_layout.allocation.content_rect.height,
+            "resolved content layout"
+        );
+
         // Build plot components using measurement
         let components = self
             .build_plot_components(
@@ -5036,6 +5046,61 @@ mod tests {
             }
             other => panic!("expected content-sized height, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn single_plot_measurement_content_layout_has_no_child_allocations()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let df = deeply_nested_dataframe(&ctx);
+        let compiled = Plot::<Cartesian>::new()
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x(col("value"))
+                    .y(col("value"))
+                    .size(24.0)
+                    .fill("#4682b4"),
+            )
+            .compile(&ctx)
+            .await?;
+        let (_, _, _, measurement) = prepare_top_level_measurement(&compiled, &ctx).await?;
+        let content_layout = measurement.content_layout()?;
+
+        assert!(content_layout.child_frame_allocations.is_empty());
+        assert_eq!(
+            content_layout.allocation.frame,
+            measurement.frame_allocation
+        );
+        assert_eq!(
+            content_layout.allocation.content_rect,
+            *measurement.layout.plot_area_bounds()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn facet_measurement_content_layout_exposes_child_allocations()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = compile_simple_facet_plot_with_plot_size(&ctx).await?;
+        let (_, _, _, measurement) = prepare_top_level_measurement(&compiled, &ctx).await?;
+        let facet_band = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("fixture should produce a top-level facet measurement");
+        let content_layout = measurement.content_layout()?;
+
+        assert_eq!(
+            content_layout.child_frame_allocations.len(),
+            facet_band.cells.len()
+        );
+        assert_eq!(
+            content_layout.child_frame_allocations[0],
+            facet_band.cells[0].measurement.frame_allocation
+        );
+        Ok(())
     }
 
     fn measured_legend_slab_for_position(

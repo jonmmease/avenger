@@ -520,14 +520,14 @@ Goal: replace top-level/nested special behavior with explicit ownership.
 Goal: make top-level regular content and facet content use the same content
 allocation interface.
 
-- [ ] Add `ContentAllocation`, `ContentDemand`, `ContentCoordinationPlan`, and
+- [x] Add `ContentAllocation`, `ContentDemand`, `ContentCoordinationPlan`, and
   `ContentLayout` types or aliases that compose with the frame types.
-- [ ] Add `ContentLayoutSolver` as the interface below `FrameLayoutSolver`.
-- [ ] Implement `SinglePlotContentSolver` for non-faceted coordinate content.
-- [ ] Wrap the existing facet coordination path as `FacetBandContentSolver`.
-- [ ] Keep `FacetBandContentSolver` richer than the single-plot solver without
+- [x] Add `ContentLayoutSolver` as the interface below `FrameLayoutSolver`.
+- [x] Implement `SinglePlotContentSolver` for non-faceted coordinate content.
+- [x] Wrap the existing facet coordination path as `FacetBandContentSolver`.
+- [x] Keep `FacetBandContentSolver` richer than the single-plot solver without
   forcing facet-only concepts onto regular charts.
-- [ ] Ensure both content solvers can participate in:
+- [x] Ensure both content solvers can participate in:
   - estimated measurement,
   - coordination,
   - realization,
@@ -621,9 +621,9 @@ Goal: decide whether Taffy still earns its dependency.
 - [ ] Every physical dimension has one sizing owner.
 - [ ] Every side slab has one owner at a given parent/child boundary.
 - [ ] `FrameLayoutSolver` never recursively measures children.
-- [ ] `ContentLayoutSolver` owns child allocation inside a frame content rect.
-- [ ] `SinglePlotContentSolver` is the regular-chart degenerate content case.
-- [ ] `FacetBandContentSolver` is the multi-child coordinated content case.
+- [x] `ContentLayoutSolver` owns child allocation inside a frame content rect.
+- [x] `SinglePlotContentSolver` is the regular-chart degenerate content case.
+- [x] `FacetBandContentSolver` is the multi-child coordinated content case.
 - [ ] Facet coordination never hand-edits realized frame component bounds.
 - [ ] Refinement is the only phase that can remeasure guide/legend overflow
   after realization.
