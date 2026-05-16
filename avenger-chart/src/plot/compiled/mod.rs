@@ -271,6 +271,16 @@ impl std::fmt::Debug for ComponentsMeasurement {
 }
 
 impl ComponentsMeasurement {
+    pub(crate) fn refresh_frame_allocation_rect(&mut self) {
+        self.frame_allocation.rect.width = self.canvas_size.0;
+        self.frame_allocation.rect.height = self.canvas_size.1;
+    }
+
+    pub(crate) fn sync_canvas_size_from_layout(&mut self) {
+        self.canvas_size = self.layout.canvas_size;
+        self.refresh_frame_allocation_rect();
+    }
+
     pub(crate) fn frame_demand(&self) -> FrameDemand {
         FrameDemand::from_guide_and_rendered_envelope(
             self.layout.overflow.clone(),

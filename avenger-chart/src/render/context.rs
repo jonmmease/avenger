@@ -21,6 +21,7 @@ use crate::{
     },
     render::types::{
         EvaluatedPlot, EvaluationMetrics, FacetLayoutRefinement, FacetSubtreeSnapshot,
+        LayoutDebugOverlayMode,
     },
     scales::ConfiguredScaleWithSpec,
     theme::{Theme, ThemeContext, ThemeValue},
@@ -194,8 +195,8 @@ pub struct EvaluationContext {
     pub(crate) facet_scale_precompute_store: Arc<FacetScalePrecomputeStore>,
     /// Internal facet runtime sizing policy used while measuring and coordinating facets.
     pub(crate) facet_runtime_sizing_mode: FacetRuntimeSizingMode,
-    /// Effective debug overlay toggle for layout bounds.
-    pub(crate) debug_layout_lines: bool,
+    /// Effective layout debug overlay mode.
+    pub(crate) debug_layout_overlay: LayoutDebugOverlayMode,
     /// Facet refinement policy for final layout evaluation.
     pub(crate) facet_layout_refinement: FacetLayoutRefinement,
     /// Optional estimated-overflow probe-size seed from a previous realized facet tree.
@@ -223,7 +224,7 @@ impl EvaluationContext {
             hide_invalid_facet_path_axes: false,
             facet_scale_precompute_store: Arc::new(FacetScalePrecomputeStore::default()),
             facet_runtime_sizing_mode: FacetRuntimeSizingMode::CanvasFit,
-            debug_layout_lines: false,
+            debug_layout_overlay: LayoutDebugOverlayMode::Off,
             facet_layout_refinement: FacetLayoutRefinement::default(),
             facet_probe_size_overrides: None,
             facet_coord_node_path: Vec::new(),
@@ -242,7 +243,7 @@ impl EvaluationContext {
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
-            debug_layout_lines: self.debug_layout_lines,
+            debug_layout_overlay: self.debug_layout_overlay,
             facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
@@ -264,7 +265,7 @@ impl EvaluationContext {
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
-            debug_layout_lines: self.debug_layout_lines,
+            debug_layout_overlay: self.debug_layout_overlay,
             facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
@@ -288,7 +289,7 @@ impl EvaluationContext {
             hide_invalid_facet_path_axes: hidden,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
-            debug_layout_lines: self.debug_layout_lines,
+            debug_layout_overlay: self.debug_layout_overlay,
             facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
@@ -312,7 +313,7 @@ impl EvaluationContext {
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
-            debug_layout_lines: self.debug_layout_lines,
+            debug_layout_overlay: self.debug_layout_overlay,
             facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
@@ -330,7 +331,7 @@ impl EvaluationContext {
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: mode,
-            debug_layout_lines: self.debug_layout_lines,
+            debug_layout_overlay: self.debug_layout_overlay,
             facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
@@ -343,7 +344,7 @@ impl EvaluationContext {
         self.facet_runtime_sizing_mode
     }
 
-    pub(crate) fn with_debug_layout_lines(&self, enabled: bool) -> Self {
+    pub(crate) fn with_debug_layout_overlay(&self, mode: LayoutDebugOverlayMode) -> Self {
         Self {
             theme: self.theme.clone(),
             session_context: self.session_context.clone(),
@@ -352,7 +353,7 @@ impl EvaluationContext {
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
-            debug_layout_lines: enabled,
+            debug_layout_overlay: mode,
             facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
@@ -370,7 +371,7 @@ impl EvaluationContext {
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
-            debug_layout_lines: self.debug_layout_lines,
+            debug_layout_overlay: self.debug_layout_overlay,
             facet_layout_refinement: refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
@@ -395,7 +396,7 @@ impl EvaluationContext {
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
-            debug_layout_lines: self.debug_layout_lines,
+            debug_layout_overlay: self.debug_layout_overlay,
             facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: Some(overrides),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
@@ -413,8 +414,8 @@ impl EvaluationContext {
             .and_then(|overrides| overrides.get(facet_path).copied())
     }
 
-    pub(crate) fn debug_layout_lines_enabled(&self) -> bool {
-        self.debug_layout_lines
+    pub(crate) fn debug_layout_overlay(&self) -> LayoutDebugOverlayMode {
+        self.debug_layout_overlay
     }
 
     pub(crate) fn facet_scale_precompute_store(&self) -> &Arc<FacetScalePrecomputeStore> {
@@ -430,7 +431,7 @@ impl EvaluationContext {
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
-            debug_layout_lines: self.debug_layout_lines,
+            debug_layout_overlay: self.debug_layout_overlay,
             facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
@@ -451,7 +452,7 @@ impl EvaluationContext {
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
-            debug_layout_lines: self.debug_layout_lines,
+            debug_layout_overlay: self.debug_layout_overlay,
             facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
@@ -471,7 +472,7 @@ impl EvaluationContext {
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
-            debug_layout_lines: self.debug_layout_lines,
+            debug_layout_overlay: self.debug_layout_overlay,
             facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
             facet_coord_node_path,

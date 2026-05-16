@@ -25,5 +25,5 @@ pub(crate) use sizing::{
 };
 pub use types::{
     EdgeSlabs, FrameAllocation, FrameDemand, FrameDimensionSizing, FrameLayout, FrameSizingPolicy,
-    LayoutBounds, LayoutResult, OwnedEdgeSlabs, Size2D,
+    LayoutBounds, LayoutResult, OverflowSide, OwnedEdgeSlabs, Size2D,
 };

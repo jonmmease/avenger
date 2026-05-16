@@ -14,7 +14,7 @@ pub use context::{EvaluationContext, RenderContext, RenderState};
 pub use types::{
     CoordinationCheckpoint, EvaluatedPlot, EvaluationMetrics, EvaluationOptions,
     FacetLayoutMetrics, FacetLayoutRefinement, FacetSubtreeCheckpoint, FacetSubtreeSelector,
-    FacetSubtreeSnapshot, LayoutSnapshot, LayoutSolution, LegendMeasurements, RefinementCheckpoint,
-    WholeChartSnapshot,
+    FacetSubtreeSnapshot, LayoutDebugOverlayMode, LayoutSnapshot, LayoutSolution,
+    LegendMeasurements, RefinementCheckpoint, WholeChartSnapshot,
 };
 pub use wgpu::WgpuRenderer;

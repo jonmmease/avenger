@@ -78,8 +78,8 @@ pub use crate::polar::PolarAxis;
 pub use crate::render::CanvasExt;
 pub use crate::render::{
     CoordinationCheckpoint, EvaluationOptions, FacetLayoutRefinement, FacetSubtreeCheckpoint,
-    FacetSubtreeSelector, FacetSubtreeSnapshot, LayoutSnapshot, RefinementCheckpoint,
-    WholeChartSnapshot,
+    FacetSubtreeSelector, FacetSubtreeSnapshot, LayoutDebugOverlayMode, LayoutSnapshot,
+    RefinementCheckpoint, WholeChartSnapshot,
 };
 
 // Re-export error type

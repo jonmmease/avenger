@@ -47,6 +47,7 @@ pub mod test_formatting;
 pub mod test_grid_zindex;
 pub mod test_hsl_colors;
 pub mod test_lab_lch_colors;
+pub mod test_layout_debug_snapshots;
 pub mod test_legend;
 pub mod test_legend_background;
 pub mod test_legend_channels;

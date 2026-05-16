@@ -220,7 +220,7 @@ fn facet_layout_snapshot_initial_with_debug_overlay() {
             None,
             EvaluationOptions {
                 layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::LocalMeasured),
-                debug_layout_lines: true,
+                debug_layout_overlay: LayoutDebugOverlayMode::Components,
                 ..EvaluationOptions::default()
             },
             "facet_debug",
@@ -244,7 +244,7 @@ fn nested_mixed_facet_layout_snapshot_final_with_debug_overlay() {
             None,
             EvaluationOptions {
                 layout_snapshot: LayoutSnapshot::Final,
-                debug_layout_lines: true,
+                debug_layout_overlay: LayoutDebugOverlayMode::Components,
                 ..EvaluationOptions::default()
             },
             "facet_debug",
@@ -268,7 +268,7 @@ fn nested_column_facet_layout_snapshot_final_with_debug_overlay() {
             None,
             EvaluationOptions {
                 layout_snapshot: LayoutSnapshot::Final,
-                debug_layout_lines: true,
+                debug_layout_overlay: LayoutDebugOverlayMode::Components,
                 ..EvaluationOptions::default()
             },
             "facet_debug",
@@ -292,7 +292,7 @@ fn plot_size_numeric_facet_layout_snapshot_final_with_debug_overlay() {
             None,
             EvaluationOptions {
                 layout_snapshot: LayoutSnapshot::Final,
-                debug_layout_lines: true,
+                debug_layout_overlay: LayoutDebugOverlayMode::Components,
                 ..EvaluationOptions::default()
             },
             "facet_debug",
@@ -318,7 +318,7 @@ fn facet_layout_snapshot_coordinated_with_debug_overlay() {
                 layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
                     CoordinationCheckpoint::FinalPropagationComplete,
                 )),
-                debug_layout_lines: true,
+                debug_layout_overlay: LayoutDebugOverlayMode::Components,
                 ..EvaluationOptions::default()
             },
             "facet_debug",
@@ -342,11 +342,157 @@ fn facet_layout_snapshot_final_with_debug_overlay() {
             None,
             EvaluationOptions {
                 layout_snapshot: LayoutSnapshot::Final,
-                debug_layout_lines: true,
+                debug_layout_overlay: LayoutDebugOverlayMode::Components,
                 ..EvaluationOptions::default()
             },
             "facet_debug",
             "facet_row_varied_overflow_debug_final",
+        )
+        .await;
+    });
+}
+
+#[test]
+fn facet_layout_snapshot_initial_with_allocation_debug_overlay() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let compiled = compile_facet_debug_snapshot_plot(&ctx)
+            .await
+            .expect("compile facet debug snapshot plot");
+
+        assert_visual_match_default_with_options(
+            &compiled,
+            &ctx,
+            None,
+            EvaluationOptions {
+                layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::LocalMeasured),
+                debug_layout_overlay: LayoutDebugOverlayMode::AllocationDemand,
+                ..EvaluationOptions::default()
+            },
+            "facet_debug_allocation",
+            "facet_row_varied_overflow_debug_initial",
+        )
+        .await;
+    });
+}
+
+#[test]
+fn facet_layout_snapshot_coordinated_with_allocation_debug_overlay() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let compiled = compile_facet_debug_snapshot_plot(&ctx)
+            .await
+            .expect("compile facet debug snapshot plot");
+
+        assert_visual_match_default_with_options(
+            &compiled,
+            &ctx,
+            None,
+            EvaluationOptions {
+                layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
+                    CoordinationCheckpoint::FinalPropagationComplete,
+                )),
+                debug_layout_overlay: LayoutDebugOverlayMode::AllocationDemand,
+                ..EvaluationOptions::default()
+            },
+            "facet_debug_allocation",
+            "facet_row_varied_overflow_debug_coordinated",
+        )
+        .await;
+    });
+}
+
+#[test]
+fn facet_layout_snapshot_final_with_allocation_debug_overlay() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let compiled = compile_facet_debug_snapshot_plot(&ctx)
+            .await
+            .expect("compile facet debug snapshot plot");
+
+        assert_visual_match_default_with_options(
+            &compiled,
+            &ctx,
+            None,
+            EvaluationOptions {
+                layout_snapshot: LayoutSnapshot::Final,
+                debug_layout_overlay: LayoutDebugOverlayMode::AllocationDemand,
+                ..EvaluationOptions::default()
+            },
+            "facet_debug_allocation",
+            "facet_row_varied_overflow_debug_final",
+        )
+        .await;
+    });
+}
+
+#[test]
+fn nested_mixed_facet_layout_snapshot_final_with_allocation_debug_overlay() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let compiled = compile_nested_mixed_facet_debug_snapshot_plot(&ctx)
+            .await
+            .expect("compile nested mixed facet debug snapshot plot");
+
+        assert_visual_match_default_with_options(
+            &compiled,
+            &ctx,
+            None,
+            EvaluationOptions {
+                layout_snapshot: LayoutSnapshot::Final,
+                debug_layout_overlay: LayoutDebugOverlayMode::AllocationDemand,
+                ..EvaluationOptions::default()
+            },
+            "facet_debug_allocation",
+            "facet_nested_mixed_debug_final",
+        )
+        .await;
+    });
+}
+
+#[test]
+fn nested_column_facet_layout_snapshot_final_with_allocation_debug_overlay() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let compiled = compile_nested_column_facet_debug_snapshot_plot(&ctx)
+            .await
+            .expect("compile nested column facet debug snapshot plot");
+
+        assert_visual_match_default_with_options(
+            &compiled,
+            &ctx,
+            None,
+            EvaluationOptions {
+                layout_snapshot: LayoutSnapshot::Final,
+                debug_layout_overlay: LayoutDebugOverlayMode::AllocationDemand,
+                ..EvaluationOptions::default()
+            },
+            "facet_debug_allocation",
+            "facet_nested_column_debug_final",
+        )
+        .await;
+    });
+}
+
+#[test]
+fn plot_size_numeric_facet_layout_snapshot_final_with_allocation_debug_overlay() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let compiled = compile_plot_size_numeric_facet_debug_snapshot_plot(&ctx)
+            .await
+            .expect("compile plot-size numeric facet debug snapshot plot");
+
+        assert_visual_match_default_with_options(
+            &compiled,
+            &ctx,
+            None,
+            EvaluationOptions {
+                layout_snapshot: LayoutSnapshot::Final,
+                debug_layout_overlay: LayoutDebugOverlayMode::AllocationDemand,
+                ..EvaluationOptions::default()
+            },
+            "facet_debug_allocation",
+            "facet_plot_size_nested_col_col_row_numeric_domain_order_debug_final",
         )
         .await;
     });

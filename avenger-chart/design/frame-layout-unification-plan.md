@@ -668,17 +668,105 @@ per-leaf-subplot semantics, not generic single-plot semantics.
 
 Goal: make debug images explain the new model.
 
-- [ ] Render `FrameAllocation.rect`.
-- [ ] Render `content_rect`.
-- [ ] Render owned side slabs.
-- [ ] Render residual overflow.
-- [ ] Render facet child allocations with depth-based colors.
-- [ ] Keep existing snapshot names stable where possible.
-- [ ] Add at least one debug baseline that shows:
-  - initial measured demand,
-  - coordinated allocations,
-  - final realized layout,
-  - one refinement pass result.
+Design direction: introduce a small debug overlay model for allocation and
+demand geometry, then make it selectable separately from the existing
+frame-component overlay. Do not keep adding ad hoc arguments to
+`create_debug_layout_rects`.
+
+### Phase 9A: Define the Debug Overlay Model
+
+- [x] Add a `LayoutDebugOverlay` or `FrameDebugOverlay` data structure in
+  `render/debug.rs` or `layout/debug.rs`.
+- [x] Build the model from `ComponentsMeasurement::content_layout()` plus the
+  measured `FrameDemand`.
+- [x] Include explicit optional layers:
+  - [x] frame allocation rect,
+  - [x] content rect,
+  - [x] guide/frame component bounds from the existing `FrameLayout`,
+  - [x] owned side slabs,
+  - [x] residual overflow slabs,
+  - [x] child frame allocations.
+- [x] Keep the model coordinate-system neutral: the builder should accept a
+  translation or origin so top-level and subplot overlays use the same path.
+- [x] Keep labels data-driven so the renderer does not hard-code every label
+  branch in multiple places.
+
+### Phase 9B: Render Allocation/Demand Layers
+
+- [x] Keep `create_debug_layout_rects` as the frame-component overlay for plot
+  area, guide overflow, legends, title, and subtitle.
+- [x] Add `LayoutDebugOverlayMode` so callers can choose `Components`,
+  `AllocationDemand`, `All`, or `Off`.
+- [x] Add a renderer for the new overlay model:
+  - [x] draw `FrameAllocation.rect`,
+  - [x] draw `content_rect`,
+  - [x] draw owned side slabs,
+  - [x] draw residual overflow slabs,
+  - [x] draw child frame allocations.
+- [x] Use an explicit color vocabulary:
+  - [x] existing magenta/light-blue/Okabe-Ito facet colors for frame components,
+  - [x] a separate restrained color for frame allocation,
+  - [x] a separate restrained color for content allocation,
+  - [x] distinguish owned slabs from residual overflow.
+- [x] Keep labels legible with the existing depth-based alignment flip for
+  nested facets.
+- [x] Avoid filled overlays that obscure chart content; prefer strokes and very
+  light transparent fills only where slab area needs to be visible.
+
+### Phase 9C: Centralize Top-Level vs Subplot Coordinates
+
+- [x] Replace the current duplicated "top-level debug overlay" and "translated
+  subplot debug overlay" logic with one helper.
+- [x] The helper should take:
+  - [x] the `ComponentsMeasurement`,
+  - [x] the `FrameLayout`,
+  - [x] the desired local origin/translation,
+  - [x] facet depth/path for color and label alignment.
+- [x] Ensure subplot debug overlays show their actual local coordinates and, if
+  useful, the frame allocation granted by the parent.
+- [x] Keep existing facet color cycling behavior for nested facet frame
+  component overlays.
+
+### Phase 9D: Snapshot Semantics
+
+- [x] Keep existing snapshot names stable where possible.
+- [x] Make each snapshot visibly answer a distinct question:
+  - [x] local measured: measured frame demand before coordination,
+  - [x] coordinated: coordinated child allocations before final realization,
+  - [x] final: realized frame/content allocation after refinement policy,
+  - [x] refinement: iteration-specific remeasured demand and allocation.
+- [x] Decide whether whole-chart snapshots should show child allocations at
+  every facet level by default, or only the active/top-level content allocation.
+- [x] Ensure facet-subtree snapshots use the same overlay renderer as whole
+  chart snapshots.
+
+### Phase 9E: Tests and Baselines
+
+- [x] Add unit tests for overlay-model construction:
+  - [x] single plot has no child allocations,
+  - [x] facet band exposes child frame allocation rectangles,
+  - [x] owned slab rectangles match `FrameAllocation.owned_slabs`,
+  - [x] residual overflow rectangles match `FrameDemand::residual_overflow`.
+- [x] Add or update debug baselines that show:
+  - [x] initial measured demand,
+  - [x] coordinated allocations,
+  - [x] final realized layout,
+  - [x] one refinement pass result.
+- [x] Keep existing `facet_debug` baselines component-only and add separate
+  `facet_debug_allocation` baselines for allocation/demand-only views.
+- [x] Prefer one compact nested-facet fixture over many broad baseline changes
+  while the vocabulary settles.
+- [x] Run focused debug layout tests first, then the full release visual suite.
+
+### Phase 9 Acceptance Checklist
+
+- [x] Debug overlays render the shared frame/content vocabulary, not only
+  legacy plot-area/overflow boxes.
+- [x] Component and allocation/demand overlays can be rendered independently.
+- [x] Top-level and subplot overlays use the same rendering helper.
+- [x] Regular charts and facet charts both get meaningful overlays.
+- [x] Existing non-debug baselines are unchanged.
+- [x] Debug baseline drift is intentional and reviewed.
 
 ## Phase 10: Prototype NativeFrameLayoutSolver
 

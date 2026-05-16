@@ -1536,13 +1536,11 @@ fn apply_measurement_side_slab(
     total: f32,
 ) {
     apply_frame_side_slab(&mut measurement.layout, side, guide, total);
-    measurement.canvas_size = measurement.layout.canvas_size;
-    refresh_measurement_frame_allocation_rect(measurement);
+    measurement.sync_canvas_size_from_layout();
 }
 
 fn refresh_measurement_frame_allocation_rect(measurement: &mut ComponentsMeasurement) {
-    measurement.frame_allocation.rect.width = measurement.canvas_size.0;
-    measurement.frame_allocation.rect.height = measurement.canvas_size.1;
+    measurement.refresh_frame_allocation_rect();
 }
 
 fn sync_measurement_owned_slabs_from_coord(measurement: &mut ComponentsMeasurement) {

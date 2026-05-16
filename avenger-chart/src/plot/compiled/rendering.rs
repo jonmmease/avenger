@@ -46,7 +46,7 @@ use crate::{
     error::AvengerChartError,
     facet::{
         coord::{
-            FacetBandCoordMeasurement, FacetCellRuntime,
+            FacetBandCoordMeasurement, FacetCellRuntime, facet_band_ref,
             retarget_measurement_plot_area_policy_no_remeasure,
             retarget_scale_ranges_for_plot_area,
         },
@@ -54,13 +54,14 @@ use crate::{
         empty_cell_policy::FacetEmptyCellPolicy,
         evaluated_facet_tree::EvaluatedFacetTree,
         marks::facet::{FacetMarkRef, facet_mark_ref},
+        overflow_projection::FacetOverflowSlabs,
         subtree_plot_area::{LeafPlotAreaSize, estimate_root_plot_area_from_leaf_size},
     },
     guide::OverflowSpaceRequirement,
     layout::{
         EdgeSlabs, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, FrameAllocation,
-        FrameLayoutInput, LayoutBounds, LayoutSpec, Margins, ResolvedLayoutDimensions, Size2D,
-        SizeMode, TaffyFrameLayoutSolver,
+        FrameLayout, FrameLayoutInput, LayoutBounds, LayoutSpec, Margins, ResolvedLayoutDimensions,
+        Size2D, SizeMode, TaffyFrameLayoutSolver,
     },
     legend::LegendPosition,
     marks::CompiledMark,
@@ -72,8 +73,9 @@ use crate::{
     render::{
         CoordinationCheckpoint, EvaluatedPlot, EvaluationContext, EvaluationMetrics,
         EvaluationOptions, FacetSubtreeCheckpoint, FacetSubtreeSelector, FacetSubtreeSnapshot,
-        LayoutSnapshot, LayoutSolution, RefinementCheckpoint, RenderContext, RenderState,
-        WholeChartSnapshot, debug::create_debug_layout_rects,
+        LayoutDebugOverlayMode, LayoutSnapshot, LayoutSolution, RefinementCheckpoint,
+        RenderContext, RenderState, WholeChartSnapshot,
+        debug::{FrameDebugOverlay, create_debug_layout_rects, create_debug_overlay_rects},
     },
     scales::{ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec},
     serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
@@ -185,6 +187,29 @@ fn facet_debug_layout_color(facet_coord_node_path: &[usize]) -> String {
 
 fn facet_debug_layout_flip_label_align(facet_coord_node_path: &[usize]) -> bool {
     facet_coord_node_path.len() % 2 == 1
+}
+
+fn translate_layout_bounds(bounds: &mut LayoutBounds, dx: f32, dy: f32) {
+    bounds.x += dx;
+    bounds.y += dy;
+}
+
+fn translated_frame_layout(layout: &FrameLayout, origin: [f32; 2]) -> FrameLayout {
+    let mut layout = layout.clone();
+    translate_layout_bounds(&mut layout.plot_area, origin[0], origin[1]);
+    for bounds in layout.guide_overflows.values_mut() {
+        translate_layout_bounds(bounds, origin[0], origin[1]);
+    }
+    for bounds in layout.legends.values_mut() {
+        translate_layout_bounds(bounds, origin[0], origin[1]);
+    }
+    if let Some(bounds) = &mut layout.title {
+        translate_layout_bounds(bounds, origin[0], origin[1]);
+    }
+    if let Some(bounds) = &mut layout.subtitle {
+        translate_layout_bounds(bounds, origin[0], origin[1]);
+    }
+    layout
 }
 
 struct RefinementIterationOutcome {
@@ -626,8 +651,8 @@ impl CompiledPlot {
         )
         .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode())
         .with_facet_layout_refinement(options.facet_layout_refinement)
-        .with_debug_layout_lines(facet_debug::resolve_layout_overlay_enabled(
-            options.debug_layout_lines,
+        .with_debug_layout_overlay(facet_debug::resolve_layout_overlay_mode(
+            options.debug_layout_overlay,
         ));
 
         let mut measurement = self
@@ -1714,7 +1739,7 @@ impl CompiledPlot {
 
         measurement.layout = candidate_layout;
         measurement.legend_plan = candidate_legend_plan;
-        measurement.canvas_size = measurement.layout.canvas_size;
+        measurement.sync_canvas_size_from_layout();
         Ok(candidate_bounds)
     }
 
@@ -2213,7 +2238,7 @@ impl CompiledPlot {
 
         measurement.layout = realized_layout;
         measurement.legend_plan = realized_legend_plan;
-        measurement.canvas_size = measurement.layout.canvas_size;
+        measurement.sync_canvas_size_from_layout();
         measurement.clip = self.resolved_clip_region(
             eval_ctx,
             facet_path,
@@ -2341,7 +2366,7 @@ impl CompiledPlot {
         let plot_bounds = *realized_layout.plot_area_bounds();
         measurement.layout = realized_layout;
         measurement.legend_plan = realized_legend_plan;
-        measurement.canvas_size = measurement.layout.canvas_size;
+        measurement.sync_canvas_size_from_layout();
 
         if policy.width.is_canvas_constrained() {
             plot_area_width = plot_bounds.width.max(1.0);
@@ -2683,6 +2708,103 @@ impl CompiledPlot {
         } else {
             self.get_clip_region(scales, plot_area_width, plot_area_height)
         }
+    }
+
+    fn placed_child_frame_debug_rects(
+        measurement: &ComponentsMeasurement,
+        content_rect: LayoutBounds,
+    ) -> Result<Option<Vec<LayoutBounds>>, AvengerChartError> {
+        let Some(facet_band) = facet_band_ref(measurement.coord_measurement.as_ref()) else {
+            return Ok(None);
+        };
+
+        let placement = facet_band.resolved_placement_from_scale_specs(&measurement.scales)?;
+        let slabs = FacetOverflowSlabs::from_coordinated(&facet_band.coordinated_overflow);
+        let (origin_offset_x, origin_offset_y) = match facet_band.axis {
+            FacetAxis::Column => (0.0, slabs.legend.top),
+            FacetAxis::Row => (slabs.legend.left, 0.0),
+        };
+
+        let mut rects = Vec::with_capacity(placement.cells.len());
+        for cell_placement in &placement.cells {
+            let cell = facet_band
+                .cells
+                .get(cell_placement.cell_index)
+                .ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Missing facet debug child frame for cell index {}",
+                        cell_placement.cell_index
+                    ))
+                })?;
+            let child_rect = cell.measurement.frame_allocation.rect;
+            let child_plot_bounds = cell.measurement.layout.plot_area_bounds();
+            let (x, y) = match facet_band.axis {
+                FacetAxis::Column => (
+                    content_rect.x + origin_offset_x + cell_placement.main_axis_start,
+                    content_rect.y + origin_offset_y,
+                ),
+                FacetAxis::Row => (
+                    content_rect.x + origin_offset_x,
+                    content_rect.y + origin_offset_y + cell_placement.main_axis_start,
+                ),
+            };
+            rects.push(LayoutBounds {
+                x: x + child_rect.x - child_plot_bounds.x,
+                y: y + child_rect.y - child_plot_bounds.y,
+                width: child_rect.width,
+                height: child_rect.height,
+            });
+        }
+
+        Ok(Some(rects))
+    }
+
+    fn debug_layout_marks_for_measurement(
+        measurement: &ComponentsMeasurement,
+        origin: [f32; 2],
+        color: Option<String>,
+        zindex: i32,
+        flip_label_align: bool,
+        overlay_mode: LayoutDebugOverlayMode,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        let mut marks = Vec::new();
+        if overlay_mode.components_enabled() {
+            let frame_layout = translated_frame_layout(&measurement.layout.frame_layout, origin);
+            marks.extend(create_debug_layout_rects(
+                &frame_layout,
+                color.clone(),
+                Some(1.0),
+                Some(zindex),
+                flip_label_align,
+            ));
+        }
+        if overlay_mode.allocation_demand_enabled() {
+            let content_layout = measurement.content_layout()?;
+            let child_rects = Self::placed_child_frame_debug_rects(
+                measurement,
+                content_layout.allocation.content_rect,
+            )?
+            .unwrap_or_else(|| {
+                content_layout
+                    .child_frame_allocations
+                    .iter()
+                    .map(|allocation| allocation.rect)
+                    .collect()
+            });
+            let overlay = FrameDebugOverlay::from_content_layout_with_child_rects(
+                &content_layout,
+                origin,
+                child_rects,
+            );
+            marks.extend(create_debug_overlay_rects(
+                &overlay,
+                color,
+                Some(1.0),
+                Some(zindex + 5),
+                flip_label_align,
+            ));
+        }
+        Ok(marks)
     }
 
     /// Compute layout and determine plot area dimensions.
@@ -3138,14 +3260,16 @@ impl CompiledPlot {
                     };
 
                 let mut debug_marks = vec![];
-                if eval_ctx.debug_layout_lines_enabled() {
-                    debug_marks.extend(create_debug_layout_rects(
-                        &layout_initial.frame_layout,
+                let debug_overlay = eval_ctx.debug_layout_overlay();
+                if debug_overlay.enabled() {
+                    debug_marks.extend(Self::debug_layout_marks_for_measurement(
+                        measurement,
+                        [0.0, 0.0],
                         None,
-                        None,
-                        None,
+                        20,
                         false,
-                    ));
+                        debug_overlay,
+                    )?);
                 }
 
                 (
@@ -3223,43 +3347,23 @@ impl CompiledPlot {
                 // (Subplots typically don't have titles, but the layout might include them)
 
                 let mut debug_marks = vec![];
-                if eval_ctx.debug_layout_lines_enabled() {
-                    // Use the actual computed layout which includes legends
-                    // The layout has plot area at an offset due to overflow/legends
-                    // We need to translate it to (0,0) for subplot coordinates
+                let debug_overlay = eval_ctx.debug_layout_overlay();
+                if debug_overlay.enabled() {
                     let plot_bounds = layout_initial.plot_area_bounds();
-
-                    // Create a translated copy of the layout with plot area at (0,0)
-                    let mut subplot_layout = layout_initial.frame_layout.clone();
-
-                    // Translate plot_area
-                    subplot_layout.plot_area.x -= plot_bounds.x;
-                    subplot_layout.plot_area.y -= plot_bounds.y;
-
-                    // Translate guide_overflows
-                    for (_, bounds) in subplot_layout.guide_overflows.iter_mut() {
-                        bounds.x -= plot_bounds.x;
-                        bounds.y -= plot_bounds.y;
-                    }
-
-                    // Translate legends
-                    for (_, bounds) in subplot_layout.legends.iter_mut() {
-                        bounds.x -= plot_bounds.x;
-                        bounds.y -= plot_bounds.y;
-                    }
-
+                    let origin = [-plot_bounds.x, -plot_bounds.y];
                     let subplot_color_string =
                         facet_debug_layout_color(eval_ctx.facet_coord_node_path());
                     let flip_label_align =
                         facet_debug_layout_flip_label_align(eval_ctx.facet_coord_node_path());
 
-                    debug_marks.extend(create_debug_layout_rects(
-                        &subplot_layout,
+                    debug_marks.extend(Self::debug_layout_marks_for_measurement(
+                        measurement,
+                        origin,
                         Some(subplot_color_string),
-                        Some(1.0), // Same width as outer lines
-                        Some(100), // Higher z-index to render on top
+                        100,
                         flip_label_align,
-                    ));
+                        debug_overlay,
+                    )?);
                 }
 
                 (
@@ -3811,8 +3915,8 @@ impl CompiledPlot {
         )
         .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode())
         .with_facet_layout_refinement(options.facet_layout_refinement)
-        .with_debug_layout_lines(facet_debug::resolve_layout_overlay_enabled(
-            options.debug_layout_lines,
+        .with_debug_layout_overlay(facet_debug::resolve_layout_overlay_mode(
+            options.debug_layout_overlay,
         ));
         if let LayoutSnapshot::FacetSubtree(snapshot) = &options.layout_snapshot
             && snapshot.checkpoint == FacetSubtreeCheckpoint::EstimatedOverflowProbe
@@ -5478,7 +5582,7 @@ mod tests {
                     None,
                     EvaluationOptions {
                         layout_snapshot: LayoutSnapshot::Final,
-                        debug_layout_lines: false,
+                        debug_layout_overlay: LayoutDebugOverlayMode::Off,
                         ..EvaluationOptions::default()
                     },
                 )
@@ -5521,7 +5625,7 @@ mod tests {
                     None,
                     EvaluationOptions {
                         layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::LocalMeasured),
-                        debug_layout_lines: false,
+                        debug_layout_overlay: LayoutDebugOverlayMode::Off,
                         ..EvaluationOptions::default()
                     },
                 )
@@ -5534,7 +5638,7 @@ mod tests {
                         layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
                             CoordinationCheckpoint::FinalPropagationComplete,
                         )),
-                        debug_layout_lines: false,
+                        debug_layout_overlay: LayoutDebugOverlayMode::Off,
                         ..EvaluationOptions::default()
                     },
                 )
@@ -5582,7 +5686,7 @@ mod tests {
                             selector: selector.clone(),
                             checkpoint: FacetSubtreeCheckpoint::EstimatedOverflowProbe,
                         }),
-                        debug_layout_lines: true,
+                        debug_layout_overlay: LayoutDebugOverlayMode::Components,
                         ..EvaluationOptions::default()
                     },
                 )
@@ -5596,7 +5700,7 @@ mod tests {
                             selector: FacetSubtreeSelector::ByCoordinationNodePath(vec![0, 0]),
                             checkpoint: FacetSubtreeCheckpoint::EstimatedOverflowProbe,
                         }),
-                        debug_layout_lines: true,
+                        debug_layout_overlay: LayoutDebugOverlayMode::Components,
                         ..EvaluationOptions::default()
                     },
                 )
@@ -5610,7 +5714,7 @@ mod tests {
                             selector,
                             checkpoint: FacetSubtreeCheckpoint::LocalRetargetedLayout,
                         }),
-                        debug_layout_lines: true,
+                        debug_layout_overlay: LayoutDebugOverlayMode::Components,
                         ..EvaluationOptions::default()
                     },
                 )
@@ -5624,7 +5728,7 @@ mod tests {
                             selector: FacetSubtreeSelector::ByCoordinationNodePath(vec![0, 0]),
                             checkpoint: FacetSubtreeCheckpoint::LocalRetargetedLayout,
                         }),
-                        debug_layout_lines: true,
+                        debug_layout_overlay: LayoutDebugOverlayMode::Components,
                         ..EvaluationOptions::default()
                     },
                 )
@@ -5667,7 +5771,7 @@ mod tests {
                     None,
                     EvaluationOptions {
                         layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::LocalMeasured),
-                        debug_layout_lines: false,
+                        debug_layout_overlay: LayoutDebugOverlayMode::Off,
                         ..EvaluationOptions::default()
                     },
                 )
@@ -5726,7 +5830,7 @@ mod tests {
                     None,
                     EvaluationOptions {
                         layout_snapshot: LayoutSnapshot::Final,
-                        debug_layout_lines: false,
+                        debug_layout_overlay: LayoutDebugOverlayMode::Off,
                         facet_layout_refinement: FacetLayoutRefinement {
                             max_refinement_passes: 0,
                             overflow_growth_epsilon: 0.5,
@@ -5764,7 +5868,7 @@ mod tests {
                             selector: selector.clone(),
                             checkpoint: FacetSubtreeCheckpoint::FinalLayout,
                         }),
-                        debug_layout_lines: true,
+                        debug_layout_overlay: LayoutDebugOverlayMode::Components,
                         facet_layout_refinement: FacetLayoutRefinement {
                             max_refinement_passes: 0,
                             overflow_growth_epsilon: 0.5,
@@ -5781,7 +5885,7 @@ mod tests {
                             selector,
                             checkpoint: FacetSubtreeCheckpoint::FinalLayout,
                         }),
-                        debug_layout_lines: true,
+                        debug_layout_overlay: LayoutDebugOverlayMode::Components,
                         facet_layout_refinement: FacetLayoutRefinement {
                             max_refinement_passes: 1,
                             overflow_growth_epsilon: 0.5,
@@ -5834,7 +5938,7 @@ mod tests {
                             selector: selector.clone(),
                             checkpoint: FacetSubtreeCheckpoint::FinalLayout,
                         }),
-                        debug_layout_lines: true,
+                        debug_layout_overlay: LayoutDebugOverlayMode::Components,
                         facet_layout_refinement: FacetLayoutRefinement {
                             max_refinement_passes: 0,
                             overflow_growth_epsilon: 0.5,
@@ -5851,7 +5955,7 @@ mod tests {
                             selector,
                             checkpoint: FacetSubtreeCheckpoint::FinalLayout,
                         }),
-                        debug_layout_lines: true,
+                        debug_layout_overlay: LayoutDebugOverlayMode::Components,
                         facet_layout_refinement: FacetLayoutRefinement {
                             max_refinement_passes: 1,
                             overflow_growth_epsilon: 0.5,
@@ -5890,7 +5994,7 @@ mod tests {
                             iteration: 1,
                             checkpoint: RefinementCheckpoint::Recoordinated,
                         }),
-                        debug_layout_lines: false,
+                        debug_layout_overlay: LayoutDebugOverlayMode::Off,
                         facet_layout_refinement: FacetLayoutRefinement {
                             max_refinement_passes: 1,
                             overflow_growth_epsilon: 0.5,
@@ -5920,7 +6024,7 @@ mod tests {
                     None,
                     EvaluationOptions {
                         layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::LocalMeasured),
-                        debug_layout_lines: false,
+                        debug_layout_overlay: LayoutDebugOverlayMode::Off,
                         facet_layout_refinement: FacetLayoutRefinement {
                             max_refinement_passes: 3,
                             overflow_growth_epsilon: 0.5,
@@ -5951,7 +6055,7 @@ mod tests {
                         layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
                             CoordinationCheckpoint::FinalPropagationComplete,
                         )),
-                        debug_layout_lines: false,
+                        debug_layout_overlay: LayoutDebugOverlayMode::Off,
                         ..EvaluationOptions::default()
                     },
                 )
@@ -5962,7 +6066,7 @@ mod tests {
                     None,
                     EvaluationOptions {
                         layout_snapshot: LayoutSnapshot::Final,
-                        debug_layout_lines: false,
+                        debug_layout_overlay: LayoutDebugOverlayMode::Off,
                         ..EvaluationOptions::default()
                     },
                 )
@@ -6071,7 +6175,7 @@ mod tests {
                 None,
                 EvaluationOptions {
                     layout_snapshot: LayoutSnapshot::Final,
-                    debug_layout_lines: false,
+                    debug_layout_overlay: LayoutDebugOverlayMode::Off,
                     ..EvaluationOptions::default()
                 },
             )
@@ -6625,7 +6729,7 @@ mod tests {
     }
 
     #[test]
-    fn debug_layout_lines_option_enables_overlay_without_env() {
+    fn debug_layout_overlay_option_enables_components_without_env() {
         run_with_large_stack(|| async {
             if crate::facet::debug::env_layout_overlay_enabled() {
                 return Ok(());
@@ -6639,7 +6743,7 @@ mod tests {
                     None,
                     EvaluationOptions {
                         layout_snapshot: LayoutSnapshot::Final,
-                        debug_layout_lines: false,
+                        debug_layout_overlay: LayoutDebugOverlayMode::Off,
                         ..EvaluationOptions::default()
                     },
                 )
@@ -6650,7 +6754,7 @@ mod tests {
                     None,
                     EvaluationOptions {
                         layout_snapshot: LayoutSnapshot::Final,
-                        debug_layout_lines: true,
+                        debug_layout_overlay: LayoutDebugOverlayMode::Components,
                         ..EvaluationOptions::default()
                     },
                 )

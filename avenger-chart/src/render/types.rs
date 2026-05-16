@@ -91,13 +91,41 @@ pub enum FacetSubtreeCheckpoint {
     FinalLayout,
 }
 
+/// Selects which layout debug overlay geometry to render.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LayoutDebugOverlayMode {
+    /// Do not render layout debug overlays.
+    #[default]
+    Off,
+    /// Render frame components: plot area, guide overflows, legends, titles, and subtitles.
+    Components,
+    /// Render frame/content allocation and demand: frame, content, owned slabs, residual overflow, and child allocations.
+    AllocationDemand,
+    /// Render both component bounds and allocation/demand geometry.
+    All,
+}
+
+impl LayoutDebugOverlayMode {
+    pub(crate) fn components_enabled(self) -> bool {
+        matches!(self, Self::Components | Self::All)
+    }
+
+    pub(crate) fn allocation_demand_enabled(self) -> bool {
+        matches!(self, Self::AllocationDemand | Self::All)
+    }
+
+    pub(crate) fn enabled(self) -> bool {
+        self != Self::Off
+    }
+}
+
 /// Runtime evaluation options for selecting layout snapshots and debug overlays.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EvaluationOptions {
     /// Which layout snapshot to render.
     pub layout_snapshot: LayoutSnapshot,
-    /// Whether to draw layout debug overlays when no env override is set.
-    pub debug_layout_lines: bool,
+    /// Which layout debug overlay to draw when no env override is set.
+    pub debug_layout_overlay: LayoutDebugOverlayMode,
     /// Controls optional facet layout refinement after the mandatory measure-once pass.
     pub facet_layout_refinement: FacetLayoutRefinement,
 }
@@ -127,7 +155,7 @@ impl Default for EvaluationOptions {
     fn default() -> Self {
         Self {
             layout_snapshot: LayoutSnapshot::Final,
-            debug_layout_lines: false,
+            debug_layout_overlay: LayoutDebugOverlayMode::Off,
             facet_layout_refinement: FacetLayoutRefinement::default(),
         }
     }
