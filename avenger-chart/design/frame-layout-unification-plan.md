@@ -504,11 +504,13 @@ Goal: replace top-level/nested special behavior with explicit ownership.
   `owned_slabs`.
 - [ ] Express root chart behavior as the root allocation's owned slabs.
 - [ ] Express nested facet slot absorption as child allocation owned slabs.
-- [ ] Update `overflow_projection.rs` to work from `FrameDemand` and
+- [x] Move top-level/nested ownership decisions out of overflow projection and
+  onto `FacetBandAllocationOwnership`.
+- [x] Update `overflow_projection.rs` to work from `FrameDemand` and
   `OwnedEdgeSlabs`.
-- [ ] Replace "rendered subtree residual for absorbed slot" style helpers with
+- [x] Replace "rendered subtree residual for absorbed slot" style helpers with
   a direct residual-overflow calculation.
-- [ ] Add targeted tests:
+- [x] Add targeted tests:
   - root right legend residual is retained,
   - nested right legend residual is absorbed only when the parent owns it,
   - facet guide slabs are not subtracted from unrelated rendered legend slabs.

@@ -62,8 +62,8 @@ use crate::{
         subtree_plot_area::{LeafPlotAreaSize, estimate_path_plot_area_from_leaf_size},
     },
     layout::{
-        EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, apply_frame_side_slab,
-        overflow_side_value, retarget_frame_layout_for_plot_area,
+        EdgeSlabs, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, OwnedEdgeSlabs,
+        apply_frame_side_slab, overflow_side_value, retarget_frame_layout_for_plot_area,
     },
     marks::CompiledMark,
     plot::compiled::{
@@ -118,6 +118,57 @@ pub(crate) struct FacetCellRuntime {
     pub(crate) coordinated_domain_extents: HashMap<String, DomainExtent>,
 }
 
+/// Which rendered legend slabs are already owned by the parent facet slot.
+///
+/// The actual owned pixel values depend on the active coordinated layout and
+/// the current overflow source, so this stores ownership policy rather than a
+/// stale measured slab.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct FacetBandAllocationOwnership {
+    pub(crate) parent_owns_main_axis_outer_slabs: bool,
+    pub(crate) parent_owns_cross_axis_legend_slabs: bool,
+}
+
+impl FacetBandAllocationOwnership {
+    pub(crate) fn owned_legend_slabs(
+        self,
+        axis: FacetAxis,
+        overflow: &CoordinatedOverflow,
+        layout: &CoordinatedLayout,
+    ) -> OwnedEdgeSlabs {
+        let slabs = FacetOverflowSlabs::from_coordinated(overflow);
+        let mut owned = EdgeSlabs::default();
+
+        if self.parent_owns_main_axis_outer_slabs {
+            match axis {
+                FacetAxis::Column => {
+                    owned.left = slabs.legend.left.min(layout.outer_start.max(0.0));
+                    owned.right = slabs.legend.right.min(layout.outer_end.max(0.0));
+                }
+                FacetAxis::Row => {
+                    owned.top = slabs.legend.top.min(layout.outer_start.max(0.0));
+                    owned.bottom = slabs.legend.bottom.min(layout.outer_end.max(0.0));
+                }
+            }
+        }
+
+        if self.parent_owns_cross_axis_legend_slabs {
+            match axis {
+                FacetAxis::Column => {
+                    owned.top = slabs.legend.top;
+                    owned.bottom = slabs.legend.bottom;
+                }
+                FacetAxis::Row => {
+                    owned.left = slabs.legend.left;
+                    owned.right = slabs.legend.right;
+                }
+            }
+        }
+
+        owned
+    }
+}
+
 /// Measurement data for a facet band coordinate system.
 ///
 /// This captures the computed padding from overflow measurement and precomputed
@@ -168,9 +219,8 @@ pub struct FacetBandCoordMeasurement {
     pub(crate) channel_domain_sharing_levels: HashMap<String, SharingLevel>,
     /// Effective policy used when deciding whether empty cells are renderable.
     pub empty_cell_policy: FacetEmptyCellPolicy,
-    /// Whether the facet band's orthogonal physical dimension is constrained
-    /// by the containing canvas/slot instead of fixed by leaf plot size.
-    pub(crate) orthogonal_dimension_canvas_constrained: bool,
+    /// Rendered legend slabs owned by this facet band's parent allocation.
+    pub(crate) allocation_ownership: FacetBandAllocationOwnership,
     /// Placement model used to position this facet band's cells.
     pub(crate) placement_model: FacetBandPlacementModel,
 }
@@ -180,8 +230,13 @@ impl FacetBandCoordMeasurement {
         matches!(self.placement_model, FacetBandPlacementModel::Explicit(_))
     }
 
-    pub(crate) fn absorbs_cross_axis_legend_slabs(&self) -> bool {
-        self.orthogonal_dimension_canvas_constrained
+    pub(crate) fn owned_legend_slabs_for_overflow(
+        &self,
+        overflow: &CoordinatedOverflow,
+        layout: &CoordinatedLayout,
+    ) -> OwnedEdgeSlabs {
+        self.allocation_ownership
+            .owned_legend_slabs(self.axis, overflow, layout)
     }
 
     pub(crate) fn recompute_explicit_placement_if_needed(&mut self) {
@@ -341,7 +396,7 @@ pub(crate) struct FacetBandProbeMeasurement {
     pub(crate) local_layout: CoordinatedLayout,
     pub(crate) empty_cell_policy: FacetEmptyCellPolicy,
     pub(crate) fixed_plot_area_lock: bool,
-    pub(crate) orthogonal_dimension_canvas_constrained: bool,
+    pub(crate) allocation_ownership: FacetBandAllocationOwnership,
 }
 
 impl FacetBandProbeMeasurement {
@@ -352,6 +407,15 @@ impl FacetBandProbeMeasurement {
     #[cfg(test)]
     pub(crate) fn measured_overflow_value(&self) -> CoordinatedOverflow {
         self.measured_overflow.clone()
+    }
+
+    pub(crate) fn owned_legend_slabs_for_overflow(
+        &self,
+        overflow: &CoordinatedOverflow,
+        layout: &CoordinatedLayout,
+    ) -> OwnedEdgeSlabs {
+        self.allocation_ownership
+            .owned_legend_slabs(self.axis, overflow, layout)
     }
 }
 
@@ -1857,7 +1921,10 @@ fn empty_facet_band_measurement(
         coordination_field_identity: axis.scale_name().to_string(),
         channel_domain_sharing_levels: HashMap::new(),
         empty_cell_policy,
-        orthogonal_dimension_canvas_constrained,
+        allocation_ownership: FacetBandAllocationOwnership {
+            parent_owns_main_axis_outer_slabs: !facet_path.is_empty() || plot_area_sized_mode,
+            parent_owns_cross_axis_legend_slabs: orthogonal_dimension_canvas_constrained,
+        },
         placement_model: if plot_area_sized_mode {
             FacetBandPlacementModel::Explicit(FacetBandExplicitPlacement::default())
         } else {
@@ -3198,6 +3265,12 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             &overflow_probe.prepared_inputs.renderable_mask,
             &final_overflow_summary.cell_overflows,
         );
+        let orthogonal_dimension_canvas_constrained = self
+            .eval_ctx
+            .facet_runtime_sizing_mode()
+            .policy()
+            .facet_orthogonal_dimension(self.axis_ops.axis)
+            .is_canvas_constrained();
         let probe_measurement = FacetBandProbeMeasurement {
             axis: self.axis_ops.axis,
             cell_values: plan.cell_values.clone(),
@@ -3217,12 +3290,10 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 .eval_ctx
                 .facet_runtime_sizing_mode()
                 .facet_band_is_leaf_plot_area_sized(self.axis_ops.axis),
-            orthogonal_dimension_canvas_constrained: self
-                .eval_ctx
-                .facet_runtime_sizing_mode()
-                .policy()
-                .facet_orthogonal_dimension(self.axis_ops.axis)
-                .is_canvas_constrained(),
+            allocation_ownership: FacetBandAllocationOwnership {
+                parent_owns_main_axis_outer_slabs: true,
+                parent_owns_cross_axis_legend_slabs: orthogonal_dimension_canvas_constrained,
+            },
         };
 
         let mut adjusted_scales = self.scales.clone();
@@ -3740,6 +3811,12 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         };
         let measured_overflow =
             measured_overflow_from_cells(self.axis_ops.axis, &cell_runtimes, empty_cell_policy);
+        let orthogonal_dimension_canvas_constrained = self
+            .eval_ctx
+            .facet_runtime_sizing_mode()
+            .policy()
+            .facet_orthogonal_dimension(self.axis_ops.axis)
+            .is_canvas_constrained();
         let base = FacetBandCoordMeasurement {
             axis: self.axis_ops.axis,
             cells: cell_runtimes,
@@ -3759,12 +3836,11 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             coordination_field_identity,
             channel_domain_sharing_levels,
             empty_cell_policy,
-            orthogonal_dimension_canvas_constrained: self
-                .eval_ctx
-                .facet_runtime_sizing_mode()
-                .policy()
-                .facet_orthogonal_dimension(self.axis_ops.axis)
-                .is_canvas_constrained(),
+            allocation_ownership: FacetBandAllocationOwnership {
+                parent_owns_main_axis_outer_slabs: !self
+                    .root_scale_backed_edge_slabs_are_chart_overflow(),
+                parent_owns_cross_axis_legend_slabs: orthogonal_dimension_canvas_constrained,
+            },
             placement_model: if self
                 .eval_ctx
                 .facet_runtime_sizing_mode()

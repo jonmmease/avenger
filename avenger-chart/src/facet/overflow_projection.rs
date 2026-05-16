@@ -10,6 +10,11 @@
 //! legends and colorbars. Callers should pass that value upward when an
 //! ancestor needs to reserve space for everything the subtree renders.
 //!
+//! When a parent facet allocation already owns some rendered side slabs, the
+//! subtree reports only the residual rendered envelope. The residual calculation
+//! is expressed as `FrameDemand - OwnedEdgeSlabs` and deliberately subtracts
+//! only legend/rendered slabs, never axis or facet-guide slabs.
+//!
 //! The projections here name narrower questions where a phase intentionally
 //! hides part of the full rendered envelope:
 //! - `GuideAnchor` keeps the boundary slabs used to anchor facet guides.
@@ -26,6 +31,7 @@ use crate::{
         OverflowSpaceRequirement,
     },
     facet::coord::{FacetBandProbeMeasurement, facet_band_ref as facet_band_from_coord},
+    layout::{EdgeSlabs, FrameDemand, OwnedEdgeSlabs},
     plot::compiled::ComponentsMeasurement,
 };
 
@@ -246,12 +252,13 @@ pub(crate) fn rendered_subtree_overflow_from_coord_measurement(
                 .as_any()
                 .downcast_ref::<FacetBandProbeMeasurement>()
                 .map(|facet_measurement| {
-                    rendered_subtree_residual_overflow_for_absorbed_slot(
-                        facet_measurement.axis,
+                    let owned_slabs = facet_measurement.owned_legend_slabs_for_overflow(
                         &facet_measurement.measured_overflow,
                         &facet_measurement.local_layout,
-                        true,
-                        facet_measurement.orthogonal_dimension_canvas_constrained,
+                    );
+                    residual_overflow_for_owned_legend_slabs(
+                        &facet_measurement.measured_overflow,
+                        owned_slabs,
                     )
                 })
         }
@@ -382,48 +389,19 @@ fn sibling_boundary_overflow(
     }
 }
 
-fn rendered_subtree_residual_overflow_for_absorbed_slot(
-    axis: FacetAxis,
+fn residual_overflow_for_owned_legend_slabs(
     overflow: &CoordinatedOverflow,
-    layout: &CoordinatedLayout,
-    absorb_main_axis_outer_slabs: bool,
-    absorb_cross_axis_legend_slabs: bool,
+    owned_legend_slabs: OwnedEdgeSlabs,
 ) -> CoordinatedOverflow {
-    let mut total = overflow.total.clone();
-    let slabs = FacetOverflowSlabs::from_coordinated(overflow);
-
-    if absorb_main_axis_outer_slabs {
-        match axis {
-            FacetAxis::Column => {
-                total.left =
-                    overflow.guide.left + (slabs.legend.left - layout.outer_start).max(0.0);
-                total.right =
-                    overflow.guide.right + (slabs.legend.right - layout.outer_end).max(0.0);
-            }
-            FacetAxis::Row => {
-                total.top = overflow.guide.top + (slabs.legend.top - layout.outer_start).max(0.0);
-                total.bottom =
-                    overflow.guide.bottom + (slabs.legend.bottom - layout.outer_end).max(0.0);
-            }
-        }
-    }
-
-    if absorb_cross_axis_legend_slabs {
-        match axis {
-            FacetAxis::Column => {
-                total.top = overflow.guide.top;
-                total.bottom = overflow.guide.bottom;
-            }
-            FacetAxis::Row => {
-                total.left = overflow.guide.left;
-                total.right = overflow.guide.right;
-            }
-        }
-    }
-
+    let demand = FrameDemand::from_guide_and_rendered_envelope(
+        overflow.guide.clone(),
+        overflow.total.clone(),
+    );
     CoordinatedOverflow {
         guide: overflow.guide.clone(),
-        total,
+        total: demand
+            .residual_overflow_after_owned_legend_slabs(owned_legend_slabs)
+            .into(),
     }
 }
 
@@ -432,31 +410,13 @@ fn rendered_subtree_overflow_for_facet_band(
     overflow: &CoordinatedOverflow,
     layout: &CoordinatedLayout,
 ) -> CoordinatedOverflow {
-    // Scale-backed top-level facet bands have no parent slot that can absorb
-    // main-axis outer slabs, so the root layout must see the full main-axis
-    // envelope. Nested bands and explicit-placement bands already represent
-    // those slabs in a parent slot or in explicit facet placement.
-    let absorb_main_axis_outer_slabs =
-        facet_measurement.facet_depth > 1 || facet_measurement.uses_explicit_placement();
+    let owned_slabs = facet_measurement.owned_legend_slabs_for_overflow(overflow, layout);
 
-    // When the orthogonal dimension is canvas-constrained, retargeting shrinks
-    // child plot areas by top/bottom legend slabs for column facets, or
-    // left/right legend slabs for row facets. Those slabs are therefore already
-    // inside the facet slot and should not be propagated as additional parent
-    // overflow.
-    let absorb_cross_axis_legend_slabs = facet_measurement.absorbs_cross_axis_legend_slabs();
-
-    if !absorb_main_axis_outer_slabs && !absorb_cross_axis_legend_slabs {
+    if owned_slabs == EdgeSlabs::default() {
         return overflow.clone();
     }
 
-    rendered_subtree_residual_overflow_for_absorbed_slot(
-        facet_measurement.axis,
-        overflow,
-        layout,
-        absorb_main_axis_outer_slabs,
-        absorb_cross_axis_legend_slabs,
-    )
+    residual_overflow_for_owned_legend_slabs(overflow, owned_slabs)
 }
 
 fn facet_measurement_overflow(
@@ -593,7 +553,16 @@ mod tests {
     }
 
     #[test]
-    fn rendered_subtree_residual_removes_main_axis_legend_slab_absorbed_by_layout() {
+    fn root_residual_retains_unowned_right_legend_slab() {
+        let raw = overflow((0.0, 20.0, 0.0, 0.0), (0.0, 70.0, 0.0, 0.0));
+        let projected = residual_overflow_for_owned_legend_slabs(&raw, EdgeSlabs::default());
+
+        assert_eq!(projected.total.right, 70.0);
+        assert_eq!(projected.guide.right, 20.0);
+    }
+
+    #[test]
+    fn rendered_subtree_residual_removes_main_axis_legend_slab_owned_by_layout() {
         let raw = overflow((10.0, 20.0, 30.0, 40.0), (110.0, 120.0, 130.0, 140.0));
         let layout = CoordinatedLayout {
             padding_inner_px: 0.0,
@@ -601,13 +570,12 @@ mod tests {
             outer_end: 100.0,
             n: 2,
         };
-        let projected = rendered_subtree_residual_overflow_for_absorbed_slot(
-            FacetAxis::Column,
-            &raw,
-            &layout,
-            true,
-            false,
-        );
+        let owned_slabs = crate::facet::coord::FacetBandAllocationOwnership {
+            parent_owns_main_axis_outer_slabs: true,
+            parent_owns_cross_axis_legend_slabs: false,
+        }
+        .owned_legend_slabs(FacetAxis::Column, &raw, &layout);
+        let projected = residual_overflow_for_owned_legend_slabs(&raw, owned_slabs);
 
         assert_eq!(projected.total.left, raw.guide.left);
         assert_eq!(projected.total.right, raw.guide.right);
@@ -616,7 +584,7 @@ mod tests {
     }
 
     #[test]
-    fn rendered_subtree_residual_removes_cross_axis_legend_slab_absorbed_by_canvas_slot() {
+    fn rendered_subtree_residual_removes_cross_axis_legend_slab_owned_by_canvas_slot() {
         let raw = overflow((10.0, 20.0, 30.0, 40.0), (110.0, 120.0, 130.0, 140.0));
         let layout = CoordinatedLayout {
             padding_inner_px: 0.0,
@@ -624,18 +592,29 @@ mod tests {
             outer_end: 0.0,
             n: 2,
         };
-        let projected = rendered_subtree_residual_overflow_for_absorbed_slot(
-            FacetAxis::Column,
-            &raw,
-            &layout,
-            false,
-            true,
-        );
+        let owned_slabs = crate::facet::coord::FacetBandAllocationOwnership {
+            parent_owns_main_axis_outer_slabs: false,
+            parent_owns_cross_axis_legend_slabs: true,
+        }
+        .owned_legend_slabs(FacetAxis::Column, &raw, &layout);
+        let projected = residual_overflow_for_owned_legend_slabs(&raw, owned_slabs);
 
         assert_eq!(projected.total.top, raw.guide.top);
         assert_eq!(projected.total.bottom, raw.guide.bottom);
         assert_eq!(projected.total.left, raw.total.left);
         assert_eq!(projected.total.right, raw.total.right);
+    }
+
+    #[test]
+    fn owned_legend_slabs_never_consume_facet_guide_slabs() {
+        let raw = overflow((10.0, 20.0, 30.0, 40.0), (15.0, 70.0, 45.0, 60.0));
+        let projected = residual_overflow_for_owned_legend_slabs(
+            &raw,
+            EdgeSlabs::new(100.0, 100.0, 100.0, 100.0),
+        );
+
+        assert_eq!(projected.guide, raw.guide);
+        assert_eq!(projected.total, raw.guide);
     }
 
     #[test]

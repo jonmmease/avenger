@@ -73,6 +73,15 @@ impl EdgeSlabs {
         }
     }
 
+    pub fn min(self, other: Self) -> Self {
+        Self {
+            top: self.top.min(other.top),
+            right: self.right.min(other.right),
+            bottom: self.bottom.min(other.bottom),
+            left: self.left.min(other.left),
+        }
+    }
+
     pub fn side(self, side: OverflowSide) -> f32 {
         match side {
             OverflowSide::Top => self.top,
@@ -188,8 +197,30 @@ pub struct FrameDemand {
 }
 
 impl FrameDemand {
+    pub fn from_guide_and_rendered_envelope(
+        guide: OverflowSpaceRequirement,
+        rendered_envelope: OverflowSpaceRequirement,
+    ) -> Self {
+        let guide_slabs = EdgeSlabs::from(guide);
+        let rendered_envelope = EdgeSlabs::from(rendered_envelope);
+        let legend_slabs = rendered_envelope.subtract_clamped(guide_slabs);
+        Self {
+            guide_slabs,
+            legend_slabs,
+            rendered_envelope,
+            ..Default::default()
+        }
+    }
+
     pub fn residual_overflow(self, owned_slabs: OwnedEdgeSlabs) -> EdgeSlabs {
         self.rendered_envelope.subtract_clamped(owned_slabs)
+    }
+
+    pub fn residual_overflow_after_owned_legend_slabs(
+        self,
+        owned_legend_slabs: OwnedEdgeSlabs,
+    ) -> EdgeSlabs {
+        self.residual_overflow(owned_legend_slabs.min(self.legend_slabs))
     }
 }
 
@@ -230,6 +261,32 @@ mod tests {
         assert_eq!(
             demand.residual_overflow(owned),
             EdgeSlabs::new(7.0, 0.0, 30.0, 25.0)
+        );
+    }
+
+    #[test]
+    fn residual_overflow_after_owned_legend_slabs_preserves_guides() {
+        let demand = FrameDemand::from_guide_and_rendered_envelope(
+            OverflowSpaceRequirement {
+                top: 10.0,
+                right: 20.0,
+                bottom: 30.0,
+                left: 40.0,
+            },
+            OverflowSpaceRequirement {
+                top: 15.0,
+                right: 70.0,
+                bottom: 45.0,
+                left: 60.0,
+            },
+        );
+
+        assert_eq!(demand.legend_slabs, EdgeSlabs::new(5.0, 50.0, 15.0, 20.0));
+        assert_eq!(
+            demand.residual_overflow_after_owned_legend_slabs(EdgeSlabs::new(
+                100.0, 100.0, 100.0, 100.0
+            )),
+            EdgeSlabs::new(10.0, 20.0, 30.0, 40.0)
         );
     }
 
