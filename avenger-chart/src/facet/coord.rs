@@ -18,8 +18,8 @@ use crate::{
     cartesian::axis::AxisPosition,
     coords::{
         CellDomainInfo, CoordMeasurement, CoordinateSystem, CoordinateSystemTransform,
-        CoordinatedLayout, CoordinatedOverflow, FacetAxis, OverflowSpaceRequirement, PaddingSpec,
-        PlotGeometry, SubplotGeometry, SubplotRect,
+        CoordinatedLayout, CoordinatedOverflow, FacetAxis, PaddingSpec, PlotGeometry,
+        SubplotGeometry, SubplotRect,
     },
     error::AvengerChartError,
     facet::{
@@ -61,20 +61,24 @@ use crate::{
         sharing_policy,
         subtree_plot_area::{LeafPlotAreaSize, estimate_path_plot_area_from_leaf_size},
     },
-    layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, LayoutBounds},
-    legend::LegendPosition,
+    layout::{
+        EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, apply_frame_side_slab,
+        overflow_side_value, retarget_frame_layout_for_plot_area,
+    },
     marks::CompiledMark,
     plot::compiled::{
         CompiledPlot, ComponentsMeasurement, scale_provider::DynamicScaleProvider,
         scales::build_scale_builder_from_marks,
     },
-    render::{EvaluationContext, FacetSubtreeCheckpoint, FacetSubtreeSelector, LegendMeasurements},
+    render::{EvaluationContext, FacetSubtreeCheckpoint, FacetSubtreeSelector},
     scales::{
         ConfiguredScaleWithSpec, PlotAreaRangeEndpoint, ScaleBuilder, ScaleRangeBinding,
         domain_extent::{DomainBounds, DomainExtent, RadiusPadding},
     },
 };
 
+#[cfg(test)]
+use crate::coords::OverflowSpaceRequirement;
 #[cfg(test)]
 use crate::facet::coordination_plans::CellRetargetAction;
 #[cfg(test)]
@@ -1418,339 +1422,14 @@ pub(crate) fn retarget_scale_ranges_for_plot_area(
     retarget_count
 }
 
-#[derive(Clone, Copy)]
-enum LegendMainAxis {
-    Horizontal,
-    Vertical,
-}
-
-fn legend_main_axis_span(bounds: &LayoutBounds, axis: LegendMainAxis) -> f32 {
-    match axis {
-        LegendMainAxis::Horizontal => bounds.width,
-        LegendMainAxis::Vertical => bounds.height,
-    }
-}
-
-fn set_legend_main_axis_bounds(
-    bounds: &mut LayoutBounds,
-    axis: LegendMainAxis,
-    start: f32,
-    span: f32,
-) {
-    match axis {
-        LegendMainAxis::Horizontal => {
-            bounds.x = start;
-            bounds.width = span;
-        }
-        LegendMainAxis::Vertical => {
-            bounds.y = start;
-            bounds.height = span;
-        }
-    }
-}
-
-fn retarget_flexible_legend_group_main_axis(
-    legends: &mut indexmap::IndexMap<String, LayoutBounds>,
-    legend_measurements: &LegendMeasurements,
-    legend_keys: &[String],
-    axis: LegendMainAxis,
-    origin: f32,
-    new_span: f32,
-) {
-    let mut flexible_count = 0usize;
-    let mut old_flexible_total = 0.0f32;
-    let mut fixed_total = 0.0f32;
-
-    for key in legend_keys {
-        let Some(bounds) = legends.get(key) else {
-            continue;
-        };
-        let span = legend_main_axis_span(bounds, axis).max(0.0);
-        let is_flexible = legend_measurements
-            .get(key)
-            .map(|measurement| measurement.flexible)
-            .unwrap_or(false);
-        if is_flexible {
-            flexible_count += 1;
-            old_flexible_total += span;
-        } else {
-            fixed_total += span;
-        }
-    }
-
-    if flexible_count == 0 {
-        return;
-    }
-
-    let flexible_available = (new_span - fixed_total).max(0.0);
-    let mut cursor = origin;
-    for key in legend_keys {
-        let Some(bounds) = legends.get_mut(key) else {
-            continue;
-        };
-        let old_span = legend_main_axis_span(bounds, axis).max(0.0);
-        let is_flexible = legend_measurements
-            .get(key)
-            .map(|measurement| measurement.flexible)
-            .unwrap_or(false);
-        let span = if is_flexible {
-            if old_flexible_total > 0.01 {
-                flexible_available * old_span / old_flexible_total
-            } else {
-                flexible_available / flexible_count as f32
-            }
-        } else {
-            old_span
-        };
-        set_legend_main_axis_bounds(bounds, axis, cursor, span);
-        cursor += span;
-    }
-}
-
-fn overflow_side_value(overflow: &OverflowSpaceRequirement, side: AxisPosition) -> f32 {
-    match side {
-        AxisPosition::Top => overflow.top,
-        AxisPosition::Right => overflow.right,
-        AxisPosition::Bottom => overflow.bottom,
-        AxisPosition::Left => overflow.left,
-    }
-}
-
-fn set_overflow_side_value(
-    overflow: &mut OverflowSpaceRequirement,
-    side: AxisPosition,
-    value: f32,
-) {
-    let value = value.max(0.0);
-    match side {
-        AxisPosition::Top => overflow.top = value,
-        AxisPosition::Right => overflow.right = value,
-        AxisPosition::Bottom => overflow.bottom = value,
-        AxisPosition::Left => overflow.left = value,
-    }
-}
-
-fn legend_position_for_axis_side(side: AxisPosition) -> LegendPosition {
-    match side {
-        AxisPosition::Top => LegendPosition::Top,
-        AxisPosition::Right => LegendPosition::Right,
-        AxisPosition::Bottom => LegendPosition::Bottom,
-        AxisPosition::Left => LegendPosition::Left,
-    }
-}
-
-fn legend_cross_axis_extent(layout: &crate::layout::LayoutResult, side: AxisPosition) -> f32 {
-    let position = legend_position_for_axis_side(side);
-    let Some(keys) = layout.legends_by_position.get(&position) else {
-        return 0.0;
-    };
-
-    keys.iter()
-        .filter_map(|key| layout.legends.get(key))
-        .map(|bounds| match side {
-            AxisPosition::Left | AxisPosition::Right => bounds.width,
-            AxisPosition::Top | AxisPosition::Bottom => bounds.height,
-        })
-        .fold(0.0, f32::max)
-}
-
-fn translate_layout_result(layout: &mut crate::layout::LayoutResult, dx: f32, dy: f32) {
-    if dx.abs() <= 0.01 && dy.abs() <= 0.01 {
-        return;
-    }
-
-    layout.plot_area.x += dx;
-    layout.plot_area.y += dy;
-
-    for bounds in layout.guide_overflows.values_mut() {
-        bounds.x += dx;
-        bounds.y += dy;
-    }
-    for bounds in layout.legends.values_mut() {
-        bounds.x += dx;
-        bounds.y += dy;
-    }
-    if let Some(bounds) = &mut layout.title {
-        bounds.x += dx;
-        bounds.y += dy;
-    }
-    if let Some(bounds) = &mut layout.subtitle {
-        bounds.x += dx;
-        bounds.y += dy;
-    }
-}
-
-fn guide_overflow_bounds(plot_area: LayoutBounds, side: AxisPosition, guide: f32) -> LayoutBounds {
-    let guide = guide.max(0.0);
-    match side {
-        AxisPosition::Top => LayoutBounds {
-            x: plot_area.x,
-            y: plot_area.y - guide,
-            width: plot_area.width,
-            height: guide,
-        },
-        AxisPosition::Right => LayoutBounds {
-            x: plot_area.x + plot_area.width,
-            y: plot_area.y,
-            width: guide,
-            height: plot_area.height,
-        },
-        AxisPosition::Bottom => LayoutBounds {
-            x: plot_area.x,
-            y: plot_area.y + plot_area.height,
-            width: plot_area.width,
-            height: guide,
-        },
-        AxisPosition::Left => LayoutBounds {
-            x: plot_area.x - guide,
-            y: plot_area.y,
-            width: guide,
-            height: plot_area.height,
-        },
-    }
-}
-
-fn set_guide_overflow_geometry(
-    layout: &mut crate::layout::LayoutResult,
-    side: AxisPosition,
-    guide: f32,
-) {
-    if guide <= 0.01 {
-        layout.guide_overflows.remove(&side);
-        return;
-    }
-
-    layout
-        .guide_overflows
-        .insert(side, guide_overflow_bounds(layout.plot_area, side, guide));
-}
-
-fn anchor_legends_for_side(
-    layout: &mut crate::layout::LayoutResult,
-    side: AxisPosition,
-    guide: f32,
-) {
-    let position = legend_position_for_axis_side(side);
-    let Some(keys) = layout.legends_by_position.get(&position).cloned() else {
-        return;
-    };
-
-    for key in keys {
-        let Some(bounds) = layout.legends.get_mut(&key) else {
-            continue;
-        };
-        match side {
-            AxisPosition::Top => {
-                bounds.y = layout.plot_area.y - guide.max(0.0) - bounds.height;
-            }
-            AxisPosition::Right => {
-                bounds.x = layout.plot_area.x + layout.plot_area.width + guide.max(0.0);
-            }
-            AxisPosition::Bottom => {
-                bounds.y = layout.plot_area.y + layout.plot_area.height + guide.max(0.0);
-            }
-            AxisPosition::Left => {
-                bounds.x = layout.plot_area.x - guide.max(0.0) - bounds.width;
-            }
-        }
-    }
-}
-
-fn apply_layout_side_slab(
-    layout: &mut crate::render::LayoutSolution,
-    side: AxisPosition,
-    guide: f32,
-    total: f32,
-) {
-    let guide = guide
-        .max(overflow_side_value(&layout.overflow, side))
-        .max(0.0);
-    let total = total
-        .max(guide)
-        .max(guide + legend_cross_axis_extent(&layout.taffy_layout, side));
-    let old_total = overflow_side_value(&layout.total_overflow, side)
-        .max(overflow_side_value(&layout.overflow, side));
-    let delta = total - old_total;
-
-    match side {
-        AxisPosition::Left => {
-            translate_layout_result(&mut layout.taffy_layout, delta, 0.0);
-            layout.canvas_size.0 = (layout.canvas_size.0 + delta).max(1.0);
-        }
-        AxisPosition::Top => {
-            translate_layout_result(&mut layout.taffy_layout, 0.0, delta);
-            layout.canvas_size.1 = (layout.canvas_size.1 + delta).max(1.0);
-        }
-        AxisPosition::Right => {
-            layout.canvas_size.0 = (layout.canvas_size.0 + delta).max(1.0);
-        }
-        AxisPosition::Bottom => {
-            layout.canvas_size.1 = (layout.canvas_size.1 + delta).max(1.0);
-        }
-    }
-
-    set_overflow_side_value(&mut layout.overflow, side, guide);
-    set_overflow_side_value(&mut layout.total_overflow, side, total);
-    set_guide_overflow_geometry(&mut layout.taffy_layout, side, guide);
-    anchor_legends_for_side(&mut layout.taffy_layout, side, guide);
-}
-
 fn apply_measurement_side_slab(
     measurement: &mut ComponentsMeasurement,
     side: AxisPosition,
     guide: f32,
     total: f32,
 ) {
-    apply_layout_side_slab(&mut measurement.layout, side, guide, total);
+    apply_frame_side_slab(&mut measurement.layout, side, guide, total);
     measurement.canvas_size = measurement.layout.canvas_size;
-}
-
-fn retarget_layout_for_resized_plot_area(
-    layout: &mut crate::render::LayoutSolution,
-    legend_measurements: &LegendMeasurements,
-    new_plot_area_width: f32,
-    new_plot_area_height: f32,
-    _width_delta: f32,
-    _height_delta: f32,
-) {
-    layout.taffy_layout.plot_area.width = new_plot_area_width;
-    layout.taffy_layout.plot_area.height = new_plot_area_height;
-
-    for (position, legend_keys) in layout.taffy_layout.legends_by_position.clone() {
-        match position {
-            LegendPosition::Left | LegendPosition::Right => {
-                retarget_flexible_legend_group_main_axis(
-                    &mut layout.taffy_layout.legends,
-                    legend_measurements,
-                    &legend_keys,
-                    LegendMainAxis::Vertical,
-                    layout.taffy_layout.plot_area.y,
-                    new_plot_area_height,
-                );
-            }
-            LegendPosition::Top | LegendPosition::Bottom => {
-                retarget_flexible_legend_group_main_axis(
-                    &mut layout.taffy_layout.legends,
-                    legend_measurements,
-                    &legend_keys,
-                    LegendMainAxis::Horizontal,
-                    layout.taffy_layout.plot_area.x,
-                    new_plot_area_width,
-                );
-            }
-        }
-    }
-
-    for side in [
-        AxisPosition::Top,
-        AxisPosition::Right,
-        AxisPosition::Bottom,
-        AxisPosition::Left,
-    ] {
-        let guide = overflow_side_value(&layout.overflow, side);
-        set_guide_overflow_geometry(&mut layout.taffy_layout, side, guide);
-        anchor_legends_for_side(&mut layout.taffy_layout, side, guide);
-    }
 }
 
 fn update_measurement_plot_area_metadata(
@@ -1770,13 +1449,11 @@ fn update_measurement_plot_area_metadata(
     measurement.canvas_size.0 = (measurement.canvas_size.0 + width_delta).max(1.0);
     measurement.canvas_size.1 = (measurement.canvas_size.1 + height_delta).max(1.0);
     measurement.layout.canvas_size = measurement.canvas_size;
-    retarget_layout_for_resized_plot_area(
+    retarget_frame_layout_for_plot_area(
         &mut measurement.layout,
         &measurement.legend_plan.measurements,
         new_plot_area_width,
         new_plot_area_height,
-        width_delta,
-        height_delta,
     );
     measurement.params.insert(
         "width".to_string(),
@@ -1825,13 +1502,11 @@ fn update_measurement_plot_area_metadata_for_policy(
     measurement.canvas_size.0 = (measurement.canvas_size.0 + canvas_width_delta).max(1.0);
     measurement.canvas_size.1 = (measurement.canvas_size.1 + canvas_height_delta).max(1.0);
     measurement.layout.canvas_size = measurement.canvas_size;
-    retarget_layout_for_resized_plot_area(
+    retarget_frame_layout_for_plot_area(
         &mut measurement.layout,
         &measurement.legend_plan.measurements,
         new_plot_area_width,
         new_plot_area_height,
-        canvas_width_delta,
-        canvas_height_delta,
     );
 
     if !is_root || policy.width.is_leaf_plot_area_sized() {
@@ -4261,7 +3936,10 @@ mod tests {
     use super::*;
     use crate::facet::evaluated_facet_tree::{EvaluatedFacetTree, PartitionNode};
     use crate::guide::FacetDirection;
+    use crate::layout::{LayoutBounds, Size2D};
+    use crate::legend::LegendPosition;
     use crate::prelude::*;
+    use crate::render::LegendMeasurements;
     use crate::render::types::LegendMeasurement;
     use crate::scales::{Linear, Scale};
     use crate::theme::Theme;
@@ -4269,7 +3947,6 @@ mod tests {
     use datafusion::prelude::SessionContext;
     use indexmap::IndexMap;
     use std::sync::Arc;
-    use taffy::Size;
 
     fn make_band_scale(range: (f32, f32)) -> ConfiguredScale {
         let domain = ScalarValue::iter_to_array(vec![
@@ -4358,7 +4035,7 @@ mod tests {
         legends_by_position: IndexMap<LegendPosition, Vec<String>>,
     ) -> crate::render::LayoutSolution {
         crate::render::LayoutSolution {
-            taffy_layout: crate::layout::LayoutResult {
+            frame_layout: crate::layout::LayoutResult {
                 plot_area: LayoutBounds {
                     x: 10.0,
                     y: 20.0,
@@ -4379,7 +4056,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_layout_side_slab_reanchors_right_legend_after_guide_coordination() {
+    fn apply_frame_side_slab_reanchors_right_legend_after_guide_coordination() {
         let mut legends = IndexMap::new();
         legends.insert(
             "fill".to_string(),
@@ -4394,13 +4071,13 @@ mod tests {
         legends_by_position.insert(LegendPosition::Right, vec!["fill".to_string()]);
         let mut layout = sample_layout_solution(legends, legends_by_position);
 
-        apply_layout_side_slab(&mut layout, AxisPosition::Right, 5.0, 66.0);
+        apply_frame_side_slab(&mut layout, AxisPosition::Right, 5.0, 66.0);
 
         assert_close(layout.overflow.right, 5.0);
         assert_close(layout.total_overflow.right, 66.0);
         assert_close(layout.canvas_size.0, 266.0);
         let guide = layout
-            .taffy_layout
+            .frame_layout
             .guide_overflows
             .get(&AxisPosition::Right)
             .expect("expected right guide overflow bounds");
@@ -4410,7 +4087,7 @@ mod tests {
         assert_close(guide.height, 157.0);
 
         let bounds = layout
-            .taffy_layout
+            .frame_layout
             .legends
             .get("fill")
             .expect("expected fill legend bounds");
@@ -4421,7 +4098,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_layout_side_slab_preserves_measured_bottom_guide_for_legend_only_slab() {
+    fn apply_frame_side_slab_preserves_measured_bottom_guide_for_legend_only_slab() {
         let mut legends = IndexMap::new();
         legends.insert(
             "color".to_string(),
@@ -4438,12 +4115,12 @@ mod tests {
         layout.overflow.bottom = 34.0;
         layout.total_overflow.bottom = 82.0;
 
-        apply_layout_side_slab(&mut layout, AxisPosition::Bottom, 0.0, 48.0);
+        apply_frame_side_slab(&mut layout, AxisPosition::Bottom, 0.0, 48.0);
 
         assert_close(layout.overflow.bottom, 34.0);
         assert_close(layout.total_overflow.bottom, 82.0);
         let guide = layout
-            .taffy_layout
+            .frame_layout
             .guide_overflows
             .get(&AxisPosition::Bottom)
             .expect("expected bottom guide overflow bounds");
@@ -4451,7 +4128,7 @@ mod tests {
         assert_close(guide.height, 34.0);
 
         let bounds = layout
-            .taffy_layout
+            .frame_layout
             .legends
             .get("color")
             .expect("expected color legend bounds");
@@ -4479,7 +4156,7 @@ mod tests {
         legend_measurements.insert(
             "fill".to_string(),
             LegendMeasurement {
-                size: Size {
+                size: Size2D {
                     width: 61.0,
                     height: 157.0,
                 },
@@ -4488,17 +4165,10 @@ mod tests {
             },
         );
 
-        retarget_layout_for_resized_plot_area(
-            &mut layout,
-            &legend_measurements,
-            100.0,
-            246.0,
-            20.0,
-            89.0,
-        );
+        retarget_frame_layout_for_plot_area(&mut layout, &legend_measurements, 100.0, 246.0);
 
         let bounds = layout
-            .taffy_layout
+            .frame_layout
             .legends
             .get("fill")
             .expect("expected fill legend bounds");
@@ -4540,7 +4210,7 @@ mod tests {
         legend_measurements.insert(
             "shape".to_string(),
             LegendMeasurement {
-                size: Size {
+                size: Size2D {
                     width: 80.0,
                     height: 40.0,
                 },
@@ -4551,7 +4221,7 @@ mod tests {
         legend_measurements.insert(
             "fill".to_string(),
             LegendMeasurement {
-                size: Size {
+                size: Size2D {
                     width: 61.0,
                     height: 117.0,
                 },
@@ -4560,17 +4230,10 @@ mod tests {
             },
         );
 
-        retarget_layout_for_resized_plot_area(
-            &mut layout,
-            &legend_measurements,
-            80.0,
-            246.0,
-            0.0,
-            89.0,
-        );
+        retarget_frame_layout_for_plot_area(&mut layout, &legend_measurements, 80.0, 246.0);
 
         let shape_bounds = layout
-            .taffy_layout
+            .frame_layout
             .legends
             .get("shape")
             .expect("expected shape legend bounds");
@@ -4578,7 +4241,7 @@ mod tests {
         assert_close(shape_bounds.height, 40.0);
 
         let fill_bounds = layout
-            .taffy_layout
+            .frame_layout
             .legends
             .get("fill")
             .expect("expected fill legend bounds");

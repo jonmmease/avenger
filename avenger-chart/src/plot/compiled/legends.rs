@@ -15,8 +15,8 @@ use crate::{
     facet::{
         evaluated_facet_tree::EvaluatedFacetTree, sharing_level::SharingLevel, sharing_policy,
     },
-    layout::LayoutResult,
     layout::legend::measure_legend_size_with_channels,
+    layout::{LayoutResult, Size2D},
     legend::{
         ChannelInfo, Legend, LegendChannel, LegendPosition, MergeKey, renderer::LegendRenderer,
     },
@@ -958,7 +958,7 @@ impl CompiledPlot {
     pub(super) async fn prepare_legend_plan(
         &self,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
-        available_space: taffy::Size<f32>,
+        available_space: Size2D,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
         facet_tree: &EvaluatedFacetTree,
@@ -1148,7 +1148,7 @@ impl CompiledPlot {
         &self,
         legend_plan: &mut PreparedLegendPlan,
         requests: Vec<HoistedLegendRequest>,
-        available_space: taffy::Size<f32>,
+        available_space: Size2D,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
     ) -> Result<(), AvengerChartError> {

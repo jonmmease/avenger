@@ -27,7 +27,9 @@ use super::{
     grid::{GridBuilder, GridLayout},
     info::LegendLayoutInfo,
     sizing::{EvaluatedLayoutSpec, EvaluatedSizeMode},
-    types::{ComponentType, LayoutBounds, LayoutResult, MIN_GUIDE_OVERFLOW_SIZE, OverflowSide},
+    types::{
+        ComponentType, LayoutBounds, LayoutResult, MIN_GUIDE_OVERFLOW_SIZE, OverflowSide, Size2D,
+    },
 };
 
 /// Dynamic grid-based layout manager for data visualization charts.
@@ -90,7 +92,7 @@ use super::{
 /// collapsing empty rows and columns automatically. The outer margin
 /// is implemented as fixed-size rows/columns in the Taffy grid.
 #[derive(Debug)]
-pub struct ChartLayout {
+pub(crate) struct ChartLayout {
     taffy: TaffyTree,
     nodes: TaffyNodes,
     grid_layout: GridLayout,
@@ -173,7 +175,7 @@ impl ChartLayout {
         }
 
         // Extract sizes for grid building
-        let legend_sizes: HashMap<String, Size<f32>> = legend_measurements
+        let legend_sizes: HashMap<String, Size2D> = legend_measurements
             .iter()
             .map(|(k, m)| (k.clone(), m.size))
             .collect();
@@ -361,11 +363,11 @@ impl ChartLayout {
         let canvas_size = (root_layout.size.width, root_layout.size.height);
 
         // Extract layout result
-        let taffy_layout = self.extract_layout_result()?;
+        let frame_layout = self.extract_layout_result()?;
 
         // Overflow for the whole plot is the union of guide overflow nodes; use max per side.
         let mut overflow = OverflowSpaceRequirement::default();
-        for (pos, bounds) in &taffy_layout.guide_overflows {
+        for (pos, bounds) in &frame_layout.guide_overflows {
             match pos {
                 AxisPosition::Left => {
                     overflow.left = overflow.left.max(bounds.width);
@@ -384,7 +386,7 @@ impl ChartLayout {
 
         // Update legend_info with actual positions from Taffy layout
         let mut legend_info = self.legend_info.clone();
-        for (_channel, bounds) in &taffy_layout.legends {
+        for (_channel, bounds) in &frame_layout.legends {
             // Find which position this legend belongs to
             for (position, legend_keys) in &self.legends_by_position {
                 if legend_keys.contains(_channel) {
@@ -416,7 +418,7 @@ impl ChartLayout {
         }
 
         Ok(LayoutSolution {
-            taffy_layout,
+            frame_layout,
             canvas_size,
             // Guide-only overflow (axes, tick labels, titles)
             overflow: overflow.clone(),
@@ -613,7 +615,7 @@ fn build_taffy_tree(
     grid_layout: &GridLayout,
     overflow: &OverflowSpaceRequirement,
     legend_positions: &IndexMap<String, LegendPosition>,
-    legend_sizes: &HashMap<String, Size<f32>>,
+    legend_sizes: &HashMap<String, Size2D>,
     legend_flexible: &HashMap<String, bool>,
     title: Option<&PlotTitle>,
     subtitle: Option<&PlotSubtitle>,
@@ -838,7 +840,7 @@ fn create_legend_nodes(
     nodes: &mut TaffyNodes,
     grid_layout: &GridLayout,
     legend_positions: &IndexMap<String, LegendPosition>,
-    legend_sizes: &HashMap<String, Size<f32>>,
+    legend_sizes: &HashMap<String, Size2D>,
     legend_flexible: &HashMap<String, bool>,
 ) -> Result<(), AvengerChartError> {
     let mut legend_nodes_by_container: HashMap<LegendPosition, Vec<NodeId>> = HashMap::new();

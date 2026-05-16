@@ -499,7 +499,7 @@ fn legend_bounds_overflow_edges(measurement: &ComponentsMeasurement) -> (f32, f3
     let plot_width = measurement.plot_area_width;
     let plot_height = measurement.plot_area_height;
 
-    for bounds in measurement.layout.taffy_layout.legends.values() {
+    for bounds in measurement.layout.frame_layout.legends.values() {
         left = left.max((-bounds.x).max(0.0));
         right = right.max((bounds.x + bounds.width - plot_width).max(0.0));
         top = top.max((-bounds.y).max(0.0));

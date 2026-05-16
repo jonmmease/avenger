@@ -5,7 +5,7 @@
 /// Legend position info for a single subplot used for cross-subplot alignment
 ///
 /// Stores the X/Y positions of legends at each position (right, left, top, bottom).
-/// These positions are populated from Taffy layout bounds after layout computation.
+/// These positions are populated from frame layout bounds after layout computation.
 #[derive(Debug, Clone, Default)]
 pub struct LegendLayoutInfo {
     /// X position of right legends (for alignment across subplots)

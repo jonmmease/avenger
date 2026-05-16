@@ -9,7 +9,7 @@ use avenger_text::{
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
-use taffy::{Size, prelude::*};
+use taffy::prelude::*;
 use tracing::debug;
 
 use crate::{
@@ -27,7 +27,7 @@ use crate::{
 
 use super::{
     sizing::EvaluatedLayoutSpec,
-    types::{ComponentType, MIN_GUIDE_OVERFLOW_SIZE, OverflowSide},
+    types::{ComponentType, MIN_GUIDE_OVERFLOW_SIZE, OverflowSide, Size2D},
 };
 
 /// Spacing multipliers for title and subtitle rows
@@ -259,7 +259,7 @@ impl GridBuilder {
     pub fn measure_legend_container_width(
         &self,
         channels: &[String],
-        legend_sizes: &HashMap<String, Size<f32>>,
+        legend_sizes: &HashMap<String, Size2D>,
     ) -> f32 {
         let mut max_width: f32 = 0.0;
         for channel in channels {
@@ -275,7 +275,7 @@ impl GridBuilder {
     pub fn measure_legend_container_height(
         &self,
         channels: &[String],
-        legend_sizes: &HashMap<String, Size<f32>>,
+        legend_sizes: &HashMap<String, Size2D>,
     ) -> f32 {
         let mut max_height: f32 = 0.0;
         for channel in channels {
@@ -296,7 +296,7 @@ impl GridBuilder {
         subtitle: Option<&PlotSubtitle>,
         theme: &Theme,
         layout_spec: &EvaluatedLayoutSpec,
-        legend_sizes: &HashMap<String, Size<f32>>,
+        legend_sizes: &HashMap<String, Size2D>,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
     ) -> Result<GridLayout, AvengerChartError> {

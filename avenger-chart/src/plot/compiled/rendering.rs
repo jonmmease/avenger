@@ -58,8 +58,8 @@ use crate::{
     },
     guide::OverflowSpaceRequirement,
     layout::{
-        ChartLayout, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, LayoutBounds,
-        LayoutSpec, Margins, SizeMode,
+        EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, FrameLayoutInput, LayoutBounds,
+        LayoutSpec, Margins, Size2D, SizeMode, TaffyFrameLayoutSolver,
     },
     legend::LegendPosition,
     marks::CompiledMark,
@@ -331,7 +331,7 @@ impl CompiledPlot {
     fn legends_within_canvas_recursive(measurement: &ComponentsMeasurement) -> bool {
         let canvas_width = measurement.canvas_size.0;
         let canvas_height = measurement.canvas_size.1;
-        for bounds in measurement.layout.taffy_layout.legends.values() {
+        for bounds in measurement.layout.frame_layout.legends.values() {
             if bounds.x < -0.5
                 || bounds.y < -0.5
                 || bounds.x + bounds.width > canvas_width + 0.5
@@ -1309,7 +1309,7 @@ impl CompiledPlot {
             OverflowSpaceRequirement::default()
         };
 
-        let available_size = taffy::Size {
+        let available_size = Size2D {
             width: estimate_width,
             height: estimate_height,
         };
@@ -1337,7 +1337,7 @@ impl CompiledPlot {
         overflow: &OverflowSpaceRequirement,
         layout_spec: &EvaluatedLayoutSpec,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
-        available_size: taffy::Size<f32>,
+        available_size: Size2D,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
         facet_tree: &EvaluatedFacetTree,
@@ -1365,7 +1365,7 @@ impl CompiledPlot {
         overflow: &OverflowSpaceRequirement,
         layout_spec: &EvaluatedLayoutSpec,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
-        available_size: taffy::Size<f32>,
+        available_size: Size2D,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
         facet_tree: &EvaluatedFacetTree,
@@ -1403,7 +1403,7 @@ impl CompiledPlot {
         &self,
         overflow: &OverflowSpaceRequirement,
         layout_spec: &EvaluatedLayoutSpec,
-        available_size: taffy::Size<f32>,
+        available_size: Size2D,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
         facet_path: &[ScalarValue],
@@ -1422,20 +1422,19 @@ impl CompiledPlot {
             .await?;
         }
 
-        let mut layout = ChartLayout::new(
+        let mut result = TaffyFrameLayoutSolver::solve(FrameLayoutInput {
             overflow,
             layout_spec,
-            self.get_title(),
-            self.get_subtitle(),
-            self.get_theme().as_ref(),
-            &legend_plan.measurements,
+            title: self.get_title(),
+            subtitle: self.get_subtitle(),
+            theme: self.get_theme().as_ref(),
+            legend_measurements: &legend_plan.measurements,
             ctx,
             params,
-        )
+        })
         .await?;
-        let mut result = layout.compute(layout_spec)?;
 
-        // ChartLayout.compute() sets total_overflow to guide-only; add legend dimensions.
+        // The frame solver sets total_overflow to guide-only; add legend dimensions.
         for measurement in legend_plan.measurements.values() {
             match measurement.position {
                 LegendPosition::Left => {
@@ -1485,7 +1484,7 @@ impl CompiledPlot {
         legend_plan: &mut PreparedLegendPlan,
         coord_measurement: &dyn CoordMeasurement,
         facet_path: &[ScalarValue],
-        available_size: taffy::Size<f32>,
+        available_size: Size2D,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
     ) -> Result<(), AvengerChartError> {
@@ -1528,7 +1527,7 @@ impl CompiledPlot {
                 guide_overflow,
                 layout_spec,
                 scales,
-                taffy::Size {
+                Size2D {
                     width: plot_area_width,
                     height: plot_area_height,
                 },
@@ -1621,7 +1620,7 @@ impl CompiledPlot {
                 &overflow,
                 layout_spec,
                 scales,
-                taffy::Size {
+                Size2D {
                     width: plot_area_width,
                     height: plot_area_height,
                 },
@@ -3158,13 +3157,13 @@ impl CompiledPlot {
                 let legend_marks = self
                     .render_legends_from_plan(
                         &legend_plan_initial,
-                        &layout_initial.taffy_layout,
+                        &layout_initial.frame_layout,
                         ctx,
                         &merged_params,
                     )
                     .await?;
 
-                let title_marks = if let Some(title_bounds) = &layout_initial.taffy_layout.title {
+                let title_marks = if let Some(title_bounds) = &layout_initial.frame_layout.title {
                     self.create_title(Some(*title_bounds), ctx, &merged_params)
                         .await?
                 } else {
@@ -3172,7 +3171,7 @@ impl CompiledPlot {
                 };
 
                 let subtitle_marks =
-                    if let Some(subtitle_bounds) = &layout_initial.taffy_layout.subtitle {
+                    if let Some(subtitle_bounds) = &layout_initial.frame_layout.subtitle {
                         self.create_subtitle(Some(*subtitle_bounds), ctx, &merged_params)
                             .await?
                     } else {
@@ -3182,7 +3181,7 @@ impl CompiledPlot {
                 let mut debug_marks = vec![];
                 if eval_ctx.debug_layout_lines_enabled() {
                     debug_marks.extend(create_debug_layout_rects(
-                        &layout_initial.taffy_layout,
+                        &layout_initial.frame_layout,
                         None,
                         None,
                         None,
@@ -3235,7 +3234,7 @@ impl CompiledPlot {
                 let legend_marks_raw = self
                     .render_legends_from_plan(
                         &legend_plan_initial,
-                        &layout_initial.taffy_layout,
+                        &layout_initial.frame_layout,
                         ctx,
                         &merged_params,
                     )
@@ -3272,7 +3271,7 @@ impl CompiledPlot {
                     let plot_bounds = layout_initial.plot_area_bounds();
 
                     // Create a translated copy of the layout with plot area at (0,0)
-                    let mut subplot_layout = layout_initial.taffy_layout.clone();
+                    let mut subplot_layout = layout_initial.frame_layout.clone();
 
                     // Translate plot_area
                     subplot_layout.plot_area.x -= plot_bounds.x;
@@ -5152,7 +5151,7 @@ mod tests {
     fn assert_legends_within_canvas(measurement: &ComponentsMeasurement) {
         let canvas_width = measurement.canvas_size.0;
         let canvas_height = measurement.canvas_size.1;
-        for (legend_key, bounds) in &measurement.layout.taffy_layout.legends {
+        for (legend_key, bounds) in &measurement.layout.frame_layout.legends {
             assert!(
                 bounds.x >= -0.5,
                 "legend {legend_key} starts left of canvas: x={}, canvas_width={canvas_width}",

@@ -9,7 +9,7 @@ use avenger_text::types::{TextAlign, TextBaseline};
 
 use crate::{cartesian::axis::AxisPosition, layout::LayoutResult};
 
-/// Create debug rectangles to visualize Taffy layout bounds
+/// Create debug rectangles to visualize frame layout bounds.
 ///
 /// # Arguments
 /// * `layout` - The layout result to visualize

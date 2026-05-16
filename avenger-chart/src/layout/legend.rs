@@ -4,10 +4,10 @@ use std::sync::Arc;
 
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
-use taffy::Size;
 
 use crate::{
     error::AvengerChartError,
+    layout::Size2D,
     legend::{Legend, LegendChannel, LegendRenderer},
     plot::compiled::expr_eval::evaluate_bool_expr,
     serialization::LogicalExprNodeExt,
@@ -19,11 +19,11 @@ pub async fn measure_legend_size_with_channels(
     legend_channels: &[LegendChannel],
     legend: &Legend,
     renderer: Arc<dyn LegendRenderer>,
-    available_space: Size<f32>,
+    available_space: Size2D,
     theme: &Theme,
     params: &IndexMap<String, ScalarValue>,
     ctx: &SessionContext,
-) -> Result<(Size<f32>, bool), AvengerChartError> {
+) -> Result<(Size2D, bool), AvengerChartError> {
     // Evaluate visibility expression - skip measurement if not visible
     let visible = if let Some(node) = legend.visible.as_option().and_then(|o| o.as_ref()) {
         let expr = node.to_expr(ctx)?;
@@ -35,7 +35,7 @@ pub async fn measure_legend_size_with_channels(
     if !visible {
         // Return zero size for invisible legends
         return Ok((
-            Size {
+            Size2D {
                 width: 0.0,
                 height: 0.0,
             },

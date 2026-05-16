@@ -21,10 +21,10 @@ use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::group::SceneGroup;
 use datafusion::{common::ScalarValue, logical_expr::Expr, prelude::SessionContext};
 use indexmap::IndexMap;
-use taffy::Size;
 
 use crate::{
     error::AvengerChartError,
+    layout::Size2D,
     legend::Legend,
     scales::{ConfiguredScaleLegendExt, DomainValues},
     theme::Theme,
@@ -89,11 +89,11 @@ pub trait LegendRenderer: Send + Sync + 'static {
         &self,
         channels: &[LegendChannel],
         config: &Legend,
-        available_space: Size<f32>,
+        available_space: Size2D,
         theme: &Theme,
         params: &IndexMap<String, ScalarValue>,
         ctx: &SessionContext,
-    ) -> Result<Size<f32>, AvengerChartError> {
+    ) -> Result<Size2D, AvengerChartError> {
         // Default implementation: render at origin and measure bounds
 
         if let Some(group) = self
@@ -120,12 +120,12 @@ pub trait LegendRenderer: Send + Sync + 'static {
                 0.0
             };
 
-            Ok(Size {
+            Ok(Size2D {
                 width: bounds.width() - stroke_adjustment,
                 height: bounds.height() - stroke_adjustment,
             })
         } else {
-            Ok(Size {
+            Ok(Size2D {
                 width: 0.0,
                 height: 0.0,
             })
