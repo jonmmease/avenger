@@ -20,7 +20,9 @@ pub(crate) use frame_solver::{
 };
 pub use info::LegendLayoutInfo;
 pub use sizing::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint};
-pub(crate) use sizing::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, SizeMode};
+pub(crate) use sizing::{
+    EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, ResolvedLayoutDimensions, SizeMode,
+};
 pub use types::{
     EdgeSlabs, FrameAllocation, FrameDemand, FrameDimensionSizing, FrameLayout, FrameSizingPolicy,
     LayoutBounds, LayoutResult, OwnedEdgeSlabs, Size2D,

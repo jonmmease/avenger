@@ -59,8 +59,8 @@ use crate::{
     guide::OverflowSpaceRequirement,
     layout::{
         EdgeSlabs, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, FrameAllocation,
-        FrameDimensionSizing, FrameLayoutInput, FrameSizingPolicy, LayoutBounds, LayoutSpec,
-        Margins, Size2D, SizeMode, TaffyFrameLayoutSolver,
+        FrameLayoutInput, LayoutBounds, LayoutSpec, Margins, ResolvedLayoutDimensions, Size2D,
+        SizeMode, TaffyFrameLayoutSolver,
     },
     legend::LegendPosition,
     marks::CompiledMark,
@@ -105,89 +105,40 @@ struct RecursiveOverflowSnapshot {
     total: OverflowSpaceRequirement,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum LayoutDimensionSource {
-    Canvas,
-    PlotArea,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ResolvedLayoutDimension {
-    value: f32,
-    source: LayoutDimensionSource,
-}
-
-impl ResolvedLayoutDimension {
-    fn is_plot_area(self) -> bool {
-        matches!(self.source, LayoutDimensionSource::PlotArea)
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ResolvedLayoutDimensions {
-    width: ResolvedLayoutDimension,
-    height: ResolvedLayoutDimension,
-}
-
-impl ResolvedLayoutDimensions {
-    fn dimensions_are_plot_area(self) -> bool {
-        self.width.is_plot_area() && self.height.is_plot_area()
-    }
-
-    fn has_plot_area_dimension(self) -> bool {
-        self.width.is_plot_area() || self.height.is_plot_area()
-    }
-
-    fn width_value(self) -> f32 {
-        self.width.value
-    }
-
-    fn height_value(self) -> f32 {
-        self.height.value
-    }
-
-    fn frame_sizing_policy(self) -> FrameSizingPolicy {
-        FrameSizingPolicy {
-            width: self.width.frame_dimension_sizing(),
-            height: self.height.frame_dimension_sizing(),
-        }
-    }
-}
-
-impl ResolvedLayoutDimension {
-    fn frame_dimension_sizing(self) -> FrameDimensionSizing {
-        match self.source {
-            LayoutDimensionSource::Canvas => FrameDimensionSizing::CanvasConstrained {
-                canvas_size: self.value,
-            },
-            LayoutDimensionSource::PlotArea => FrameDimensionSizing::ContentSized {
-                content_size: self.value,
-            },
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResolvedContentKind {
+    SinglePlot,
+    FacetBand,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum ResolvedFacetSizing {
-    NonFacet,
-    Policy(FacetRuntimeSizingPolicy),
+enum ResolvedChartSizing {
+    SinglePlot,
+    FacetBand(FacetRuntimeSizingPolicy),
 }
 
-impl ResolvedFacetSizing {
+impl ResolvedChartSizing {
     const DEFAULT_CANVAS_WIDTH: f32 = 400.0;
     const DEFAULT_CANVAS_HEIGHT: f32 = 300.0;
 
-    fn coordination_mode(self) -> FacetCoordinationMode {
+    fn content_kind(self) -> ResolvedContentKind {
         match self {
-            Self::NonFacet => FacetCoordinationMode::FullCycle,
-            Self::Policy(_) => FacetCoordinationMode::FullCycle,
+            Self::SinglePlot => ResolvedContentKind::SinglePlot,
+            Self::FacetBand(_) => ResolvedContentKind::FacetBand,
         }
     }
 
-    fn runtime_sizing_mode(self) -> FacetRuntimeSizingMode {
+    fn facet_coordination_mode(self) -> Option<FacetCoordinationMode> {
         match self {
-            Self::NonFacet => FacetRuntimeSizingMode::CanvasFit,
-            Self::Policy(policy) => FacetRuntimeSizingMode::Policy(policy),
+            Self::SinglePlot => None,
+            Self::FacetBand(_) => Some(FacetCoordinationMode::FullCycle),
+        }
+    }
+
+    fn facet_runtime_sizing_mode(self) -> FacetRuntimeSizingMode {
+        match self {
+            Self::SinglePlot => FacetRuntimeSizingMode::CanvasFit,
+            Self::FacetBand(policy) => FacetRuntimeSizingMode::Policy(policy),
         }
     }
 }
@@ -453,15 +404,27 @@ impl CompiledPlot {
         }
     }
 
-    fn resolve_facet_sizing(
+    fn resolve_content_kind(&self) -> ResolvedContentKind {
+        if Self::marks_contain_facet(&self.marks) {
+            ResolvedContentKind::FacetBand
+        } else {
+            ResolvedContentKind::SinglePlot
+        }
+    }
+
+    fn resolve_chart_sizing(
         &self,
         evaluated_layout_spec: &EvaluatedLayoutSpec,
-    ) -> Result<ResolvedFacetSizing, AvengerChartError> {
-        if !Self::marks_contain_facet(&self.marks) {
-            return Ok(ResolvedFacetSizing::NonFacet);
+    ) -> Result<ResolvedChartSizing, AvengerChartError> {
+        match self.resolve_content_kind() {
+            ResolvedContentKind::SinglePlot => return Ok(ResolvedChartSizing::SinglePlot),
+            ResolvedContentKind::FacetBand => {
+                Self::validate_no_nested_subplot_plot_size_under_facet(
+                    &self.marks,
+                    &mut Vec::new(),
+                )?;
+            }
         }
-
-        Self::validate_no_nested_subplot_plot_size_under_facet(&self.marks, &mut Vec::new())?;
 
         let canvas_width = Self::evaluated_width(&evaluated_layout_spec.canvas);
         let canvas_height = Self::evaluated_height(&evaluated_layout_spec.canvas);
@@ -487,14 +450,14 @@ impl CompiledPlot {
             FacetDimensionSizing::LeafPlotAreaSized { leaf_plot_size }
         } else {
             FacetDimensionSizing::CanvasConstrained {
-                canvas_size: canvas_width.unwrap_or(ResolvedFacetSizing::DEFAULT_CANVAS_WIDTH),
+                canvas_size: canvas_width.unwrap_or(ResolvedChartSizing::DEFAULT_CANVAS_WIDTH),
             }
         };
         let height_policy = if let Some(leaf_plot_size) = plot_height {
             FacetDimensionSizing::LeafPlotAreaSized { leaf_plot_size }
         } else {
             FacetDimensionSizing::CanvasConstrained {
-                canvas_size: canvas_height.unwrap_or(ResolvedFacetSizing::DEFAULT_CANVAS_HEIGHT),
+                canvas_size: canvas_height.unwrap_or(ResolvedChartSizing::DEFAULT_CANVAS_HEIGHT),
             }
         };
         let policy = match (width_policy, height_policy) {
@@ -515,7 +478,7 @@ impl CompiledPlot {
             (width, height) => FacetRuntimeSizingPolicy { width, height },
         };
 
-        Ok(ResolvedFacetSizing::Policy(policy))
+        Ok(ResolvedChartSizing::FacetBand(policy))
     }
 
     fn derive_fixed_leaf_subtree_plot_area(
@@ -536,20 +499,20 @@ impl CompiledPlot {
     /// resulting policy assigns each physical dimension to exactly one owner:
     /// canvas-constrained dimensions keep the evaluated canvas constraint, while
     /// leaf-plot-area-sized dimensions contribute an estimated subtree plot area.
-    fn layout_spec_for_resolved_facet_sizing(
+    fn layout_spec_for_resolved_chart_sizing(
         evaluated_layout_spec: &EvaluatedLayoutSpec,
         facet_tree: &EvaluatedFacetTree,
-        strategy: ResolvedFacetSizing,
+        strategy: ResolvedChartSizing,
     ) -> EvaluatedLayoutSpec {
         match strategy {
-            ResolvedFacetSizing::NonFacet => evaluated_layout_spec.clone(),
-            ResolvedFacetSizing::Policy(policy) => {
+            ResolvedChartSizing::SinglePlot => evaluated_layout_spec.clone(),
+            ResolvedChartSizing::FacetBand(policy) => {
                 let leaf_plot_width = policy
                     .leaf_plot_width()
-                    .unwrap_or(ResolvedFacetSizing::DEFAULT_CANVAS_WIDTH);
+                    .unwrap_or(ResolvedChartSizing::DEFAULT_CANVAS_WIDTH);
                 let leaf_plot_height = policy
                     .leaf_plot_height()
-                    .unwrap_or(ResolvedFacetSizing::DEFAULT_CANVAS_HEIGHT);
+                    .unwrap_or(ResolvedChartSizing::DEFAULT_CANVAS_HEIGHT);
                 let (plot_area_width, plot_area_height) = Self::derive_fixed_leaf_subtree_plot_area(
                     facet_tree,
                     leaf_plot_width,
@@ -621,10 +584,10 @@ impl CompiledPlot {
             self.get_theme().as_ref(),
         )
         .await?;
-        let resolved_facet_sizing = self.resolve_facet_sizing(&evaluated_layout_spec)?;
+        let resolved_chart_sizing = self.resolve_chart_sizing(&evaluated_layout_spec)?;
         if !matches!(
-            resolved_facet_sizing,
-            ResolvedFacetSizing::Policy(policy) if policy.is_fully_canvas_constrained()
+            resolved_chart_sizing,
+            ResolvedChartSizing::FacetBand(policy) if policy.is_fully_canvas_constrained()
         ) {
             return Err(AvengerChartError::InvalidArgument(
                 "Derived plot-size baselines must start from a canvas-sized faceted plot"
@@ -632,10 +595,10 @@ impl CompiledPlot {
             ));
         }
 
-        let measured_layout_spec = Self::layout_spec_for_resolved_facet_sizing(
+        let measured_layout_spec = Self::layout_spec_for_resolved_chart_sizing(
             &evaluated_layout_spec,
             facet_tree.as_ref(),
-            resolved_facet_sizing,
+            resolved_chart_sizing,
         );
 
         let scale_builder = build_scale_builder_from_marks(
@@ -661,7 +624,7 @@ impl CompiledPlot {
             merged_params,
             facet_tree,
         )
-        .with_facet_runtime_sizing_mode(resolved_facet_sizing.runtime_sizing_mode())
+        .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode())
         .with_facet_layout_refinement(options.facet_layout_refinement)
         .with_debug_layout_lines(facet_debug::resolve_layout_overlay_enabled(
             options.debug_layout_lines,
@@ -677,8 +640,7 @@ impl CompiledPlot {
             &eval_ctx,
             &measured_layout_spec,
             &provider,
-            resolved_facet_sizing,
-            resolved_facet_sizing.coordination_mode(),
+            resolved_chart_sizing,
         )
         .await?;
 
@@ -2667,46 +2629,11 @@ impl CompiledPlot {
     /// plot-area constraint. This is what lets faceted charts combine a fixed
     /// canvas width with a fixed per-leaf plot height.
     fn resolve_dimensions_from_spec(layout_spec: &EvaluatedLayoutSpec) -> ResolvedLayoutDimensions {
-        let canvas_width = Self::evaluated_width(&layout_spec.canvas);
-        let canvas_height = Self::evaluated_height(&layout_spec.canvas);
-        let plot_width = Self::evaluated_width(&layout_spec.plot_area);
-        let plot_height = Self::evaluated_height(&layout_spec.plot_area);
-
-        let width_source = if plot_width.is_some() && canvas_width.is_none() {
-            LayoutDimensionSource::PlotArea
-        } else {
-            LayoutDimensionSource::Canvas
-        };
-        let height_source = if plot_height.is_some() && canvas_height.is_none() {
-            LayoutDimensionSource::PlotArea
-        } else {
-            LayoutDimensionSource::Canvas
-        };
-
-        ResolvedLayoutDimensions {
-            width: ResolvedLayoutDimension {
-                value: match width_source {
-                    LayoutDimensionSource::PlotArea => {
-                        plot_width.unwrap_or(ResolvedFacetSizing::DEFAULT_CANVAS_WIDTH)
-                    }
-                    LayoutDimensionSource::Canvas => canvas_width
-                        .or(plot_width)
-                        .unwrap_or(ResolvedFacetSizing::DEFAULT_CANVAS_WIDTH),
-                },
-                source: width_source,
-            },
-            height: ResolvedLayoutDimension {
-                value: match height_source {
-                    LayoutDimensionSource::PlotArea => {
-                        plot_height.unwrap_or(ResolvedFacetSizing::DEFAULT_CANVAS_HEIGHT)
-                    }
-                    LayoutDimensionSource::Canvas => canvas_height
-                        .or(plot_height)
-                        .unwrap_or(ResolvedFacetSizing::DEFAULT_CANVAS_HEIGHT),
-                },
-                source: height_source,
-            },
-        }
+        ResolvedLayoutDimensions::from_spec(
+            layout_spec,
+            ResolvedChartSizing::DEFAULT_CANVAS_WIDTH,
+            ResolvedChartSizing::DEFAULT_CANVAS_HEIGHT,
+        )
     }
 
     /// Determine clip region from guide or default to plot area rect.
@@ -3601,8 +3528,7 @@ impl CompiledPlot {
         eval_ctx: &EvaluationContext,
         evaluated_layout_spec: &EvaluatedLayoutSpec,
         provider: &dyn ScaleProvider,
-        resolved_facet_sizing: ResolvedFacetSizing,
-        coordination_mode: FacetCoordinationMode,
+        resolved_chart_sizing: ResolvedChartSizing,
     ) -> Result<(), AvengerChartError> {
         match snapshot {
             LayoutSnapshot::Final => {
@@ -3611,38 +3537,43 @@ impl CompiledPlot {
                     eval_ctx,
                     evaluated_layout_spec,
                     provider,
-                    resolved_facet_sizing,
-                    coordination_mode,
+                    resolved_chart_sizing,
                 )
                 .await
             }
             LayoutSnapshot::Whole(WholeChartSnapshot::LocalMeasured) => Ok(()),
             LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(checkpoint)) => {
-                coordinate_overflow_for_guides_with_mode_until(
-                    measurement,
-                    eval_ctx,
-                    coordination_mode,
-                    *checkpoint,
-                )
-                .await
+                if let Some(coordination_mode) = resolved_chart_sizing.facet_coordination_mode() {
+                    coordinate_overflow_for_guides_with_mode_until(
+                        measurement,
+                        eval_ctx,
+                        coordination_mode,
+                        *checkpoint,
+                    )
+                    .await
+                } else {
+                    Ok(())
+                }
             }
             LayoutSnapshot::Whole(WholeChartSnapshot::Refinement {
                 iteration,
                 checkpoint,
             }) => {
-                coordinate_overflow_for_guides_with_mode_until(
-                    measurement,
-                    eval_ctx,
-                    coordination_mode,
-                    CoordinationCheckpoint::FinalPropagationComplete,
-                )
-                .await?;
+                if let Some(coordination_mode) = resolved_chart_sizing.facet_coordination_mode() {
+                    coordinate_overflow_for_guides_with_mode_until(
+                        measurement,
+                        eval_ctx,
+                        coordination_mode,
+                        CoordinationCheckpoint::FinalPropagationComplete,
+                    )
+                    .await?;
+                }
                 self.apply_refinement_snapshot(
                     measurement,
                     eval_ctx,
                     evaluated_layout_spec,
                     provider,
-                    resolved_facet_sizing,
+                    resolved_chart_sizing,
                     *iteration,
                     *checkpoint,
                 )
@@ -3652,24 +3583,34 @@ impl CompiledPlot {
         }
     }
 
+    fn validate_single_plot_content_layout(
+        measurement: &ComponentsMeasurement,
+    ) -> Result<(), AvengerChartError> {
+        let content_layout = measurement.content_layout()?;
+        if !content_layout.child_frame_allocations.is_empty() {
+            return Err(AvengerChartError::InternalError(
+                "single-plot content layout unexpectedly produced child frame allocations"
+                    .to_string(),
+            ));
+        }
+        if content_layout.allocation.content_rect != *measurement.layout.plot_area_bounds() {
+            return Err(AvengerChartError::InternalError(
+                "single-plot content rect diverged from the measured plot area".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     async fn apply_final_layout_snapshot(
         &self,
         measurement: &mut ComponentsMeasurement,
         eval_ctx: &EvaluationContext,
         evaluated_layout_spec: &EvaluatedLayoutSpec,
         provider: &dyn ScaleProvider,
-        resolved_facet_sizing: ResolvedFacetSizing,
-        coordination_mode: FacetCoordinationMode,
+        resolved_chart_sizing: ResolvedChartSizing,
     ) -> Result<(), AvengerChartError> {
-        // `coordinate_overflow_for_guides` currently maps to the global coordination cycle:
-        // - build and apply the initial requirement plan,
-        // - run retargeting and capture the immutable execution trace,
-        // - build and apply the retargeted requirement plan,
-        // - propagate final plot-area and scale-range updates.
-        coordinate_overflow_for_guides_with_mode(measurement, eval_ctx, coordination_mode).await?;
-
-        match resolved_facet_sizing {
-            ResolvedFacetSizing::NonFacet => {
+        match resolved_chart_sizing {
+            ResolvedChartSizing::SinglePlot => {
                 let dimensions = Self::resolve_dimensions_from_spec(evaluated_layout_spec);
                 if !dimensions.dimensions_are_plot_area() {
                     let refinement = eval_ctx.facet_layout_refinement();
@@ -3684,8 +3625,17 @@ impl CompiledPlot {
                     )
                     .await?;
                 }
+                Self::validate_single_plot_content_layout(measurement)?;
             }
-            ResolvedFacetSizing::Policy(_) => {
+            ResolvedChartSizing::FacetBand(_) => {
+                // Facet content uses the global coordination cycle:
+                // initial requirements -> retarget -> retargeted requirements -> final propagation.
+                coordinate_overflow_for_guides_with_mode(
+                    measurement,
+                    eval_ctx,
+                    FacetCoordinationMode::FullCycle,
+                )
+                .await?;
                 let refinement = eval_ctx.facet_layout_refinement();
                 self.realize_policy_layout_after_coordination(
                     measurement,
@@ -3709,13 +3659,13 @@ impl CompiledPlot {
         eval_ctx: &EvaluationContext,
         evaluated_layout_spec: &EvaluatedLayoutSpec,
         provider: &dyn ScaleProvider,
-        resolved_facet_sizing: ResolvedFacetSizing,
+        resolved_chart_sizing: ResolvedChartSizing,
         iteration: usize,
         checkpoint: RefinementCheckpoint,
     ) -> Result<(), AvengerChartError> {
         let refinement = eval_ctx.facet_layout_refinement();
-        match resolved_facet_sizing {
-            ResolvedFacetSizing::NonFacet => {
+        match resolved_chart_sizing {
+            ResolvedChartSizing::SinglePlot => {
                 let dimensions = Self::resolve_dimensions_from_spec(evaluated_layout_spec);
                 if dimensions.dimensions_are_plot_area() {
                     return Err(AvengerChartError::InternalError(
@@ -3736,7 +3686,7 @@ impl CompiledPlot {
                 )
                 .await
             }
-            ResolvedFacetSizing::Policy(_) => {
+            ResolvedChartSizing::FacetBand(_) => {
                 self.refine_policy_measurement_after_coordination_until(
                     measurement,
                     eval_ctx,
@@ -3827,11 +3777,11 @@ impl CompiledPlot {
             self.get_theme().as_ref(),
         )
         .await?;
-        let resolved_facet_sizing = self.resolve_facet_sizing(&evaluated_layout_spec)?;
-        let measured_layout_spec = Self::layout_spec_for_resolved_facet_sizing(
+        let resolved_chart_sizing = self.resolve_chart_sizing(&evaluated_layout_spec)?;
+        let measured_layout_spec = Self::layout_spec_for_resolved_chart_sizing(
             &evaluated_layout_spec,
             facet_tree.as_ref(),
-            resolved_facet_sizing,
+            resolved_chart_sizing,
         );
 
         // Build scale provider
@@ -3859,7 +3809,7 @@ impl CompiledPlot {
             merged_params,
             facet_tree.clone(),
         )
-        .with_facet_runtime_sizing_mode(resolved_facet_sizing.runtime_sizing_mode())
+        .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode())
         .with_facet_layout_refinement(options.facet_layout_refinement)
         .with_debug_layout_lines(facet_debug::resolve_layout_overlay_enabled(
             options.debug_layout_lines,
@@ -3915,8 +3865,7 @@ impl CompiledPlot {
                         &eval_ctx,
                         &measured_layout_spec,
                         &provider,
-                        resolved_facet_sizing,
-                        resolved_facet_sizing.coordination_mode(),
+                        resolved_chart_sizing,
                     )
                     .await?;
                 }
@@ -3927,8 +3876,7 @@ impl CompiledPlot {
                         &eval_ctx,
                         &measured_layout_spec,
                         &provider,
-                        resolved_facet_sizing,
-                        resolved_facet_sizing.coordination_mode(),
+                        resolved_chart_sizing,
                     )
                     .await?;
                 }
@@ -3944,13 +3892,13 @@ impl CompiledPlot {
             &eval_ctx,
             &measured_layout_spec,
             &provider,
-            resolved_facet_sizing,
-            resolved_facet_sizing.coordination_mode(),
+            resolved_chart_sizing,
         )
         .await?;
 
         let content_layout = measurement.content_layout()?;
         trace!(
+            content_kind = ?resolved_chart_sizing.content_kind(),
             child_frame_allocation_count = content_layout.child_frame_allocations.len(),
             content_x = content_layout.allocation.content_rect.x,
             content_y = content_layout.allocation.content_rect.y,
@@ -3986,7 +3934,7 @@ mod tests {
             coordination_plans::CoordinationNodeKey,
             coordination_strategy::FacetPolicyCoordinationStrategy,
         },
-        layout::{CanvasConstraint, PlotConstraint},
+        layout::{CanvasConstraint, FrameDimensionSizing, PlotConstraint},
         legend::LegendPosition,
         prelude::*,
         render::FacetLayoutRefinement,
@@ -4009,8 +3957,8 @@ mod tests {
     fn fully_leaf_policy_strategy(
         leaf_plot_width: f32,
         leaf_plot_height: f32,
-    ) -> ResolvedFacetSizing {
-        ResolvedFacetSizing::Policy(FacetRuntimeSizingPolicy::fully_leaf_plot_area_sized(
+    ) -> ResolvedChartSizing {
+        ResolvedChartSizing::FacetBand(FacetRuntimeSizingPolicy::fully_leaf_plot_area_sized(
             leaf_plot_width,
             leaf_plot_height,
         ))
@@ -4874,6 +4822,23 @@ mod tests {
             .await
     }
 
+    async fn compile_simple_regular_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = deeply_nested_dataframe(ctx);
+        Plot::<Cartesian>::new()
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x(col("value"))
+                    .y(col("value"))
+                    .size(24.0)
+                    .fill("#4682b4"),
+            )
+            .compile(ctx)
+            .await
+    }
+
     async fn prepare_top_level_measurement(
         compiled: &CompiledPlot,
         ctx: &SessionContext,
@@ -4895,11 +4860,11 @@ mod tests {
             compiled.get_theme().as_ref(),
         )
         .await?;
-        let resolved_facet_sizing = compiled.resolve_facet_sizing(&evaluated_layout_spec)?;
-        let measured_layout_spec = CompiledPlot::layout_spec_for_resolved_facet_sizing(
+        let resolved_chart_sizing = compiled.resolve_chart_sizing(&evaluated_layout_spec)?;
+        let measured_layout_spec = CompiledPlot::layout_spec_for_resolved_chart_sizing(
             &evaluated_layout_spec,
             facet_tree.as_ref(),
-            resolved_facet_sizing,
+            resolved_chart_sizing,
         );
 
         let scale_builder = build_scale_builder_from_marks(
@@ -4924,7 +4889,7 @@ mod tests {
             merged_params,
             facet_tree,
         )
-        .with_facet_runtime_sizing_mode(resolved_facet_sizing.runtime_sizing_mode());
+        .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode());
 
         let measurement = compiled
             .measure_plot_components(&eval_ctx, &measured_layout_spec, &provider, None, &[])
@@ -4947,44 +4912,21 @@ mod tests {
         let (eval_ctx, evaluated_layout_spec, scale_builder, mut measurement) =
             prepare_top_level_measurement(compiled, ctx).await?;
 
-        let resolved_facet_sizing = compiled.resolve_facet_sizing(&evaluated_layout_spec)?;
-        let coordination_mode = resolved_facet_sizing.coordination_mode();
-        coordinate_overflow_for_guides_with_mode(&mut measurement, &eval_ctx, coordination_mode)
-            .await?;
+        let resolved_chart_sizing = compiled.resolve_chart_sizing(&evaluated_layout_spec)?;
         let provider = DynamicScaleProvider {
             builder: &scale_builder,
             plot: compiled,
         };
-        match resolved_facet_sizing {
-            ResolvedFacetSizing::NonFacet => {
-                let dimensions = CompiledPlot::resolve_dimensions_from_spec(&evaluated_layout_spec);
-                if !dimensions.dimensions_are_plot_area() {
-                    compiled
-                        .refine_canvas_measurement_after_coordination(
-                            &mut measurement,
-                            &eval_ctx,
-                            &evaluated_layout_spec,
-                            &provider,
-                            None,
-                            &[],
-                            eval_ctx.facet_layout_refinement().max_refinement_passes,
-                        )
-                        .await?;
-                }
-            }
-            ResolvedFacetSizing::Policy(_) => {
-                compiled
-                    .realize_policy_layout_after_coordination(
-                        &mut measurement,
-                        &eval_ctx,
-                        &evaluated_layout_spec,
-                        None,
-                        &[],
-                        eval_ctx.facet_layout_refinement().max_refinement_passes,
-                    )
-                    .await?;
-            }
-        }
+        compiled
+            .apply_layout_snapshot(
+                &LayoutSnapshot::Final,
+                &mut measurement,
+                &eval_ctx,
+                &evaluated_layout_spec,
+                &provider,
+                resolved_chart_sizing,
+            )
+            .await?;
 
         Ok((eval_ctx, evaluated_layout_spec, measurement))
     }
@@ -5049,21 +4991,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn regular_plot_resolves_single_plot_content_kind() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = compile_simple_regular_plot(&ctx).await?;
+        let params = compiled.get_default_params().clone();
+        let evaluated_layout_spec = evaluate_layout_spec(
+            compiled.get_layout_spec(),
+            &ctx,
+            &params,
+            compiled.get_theme().as_ref(),
+        )
+        .await?;
+
+        let sizing = compiled.resolve_chart_sizing(&evaluated_layout_spec)?;
+        assert_eq!(sizing.content_kind(), ResolvedContentKind::SinglePlot);
+        assert_eq!(
+            sizing.facet_runtime_sizing_mode(),
+            FacetRuntimeSizingMode::CanvasFit
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn single_plot_measurement_content_layout_has_no_child_allocations()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let df = deeply_nested_dataframe(&ctx);
-        let compiled = Plot::<Cartesian>::new()
-            .data(df)
-            .mark(
-                Symbol::new()
-                    .x(col("value"))
-                    .y(col("value"))
-                    .size(24.0)
-                    .fill("#4682b4"),
-            )
-            .compile(&ctx)
-            .await?;
+        let compiled = compile_simple_regular_plot(&ctx).await?;
         let (_, _, _, measurement) = prepare_top_level_measurement(&compiled, &ctx).await?;
         let content_layout = measurement.content_layout()?;
 
@@ -5076,6 +5029,74 @@ mod tests {
             content_layout.allocation.content_rect,
             *measurement.layout.plot_area_bounds()
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn single_plot_final_layout_remains_one_node_content() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = compile_simple_regular_plot(&ctx).await?;
+        let (eval_ctx, evaluated_layout_spec, scale_builder, mut measurement) =
+            prepare_top_level_measurement(&compiled, &ctx).await?;
+        let sizing = compiled.resolve_chart_sizing(&evaluated_layout_spec)?;
+        let provider = DynamicScaleProvider {
+            builder: &scale_builder,
+            plot: &compiled,
+        };
+
+        compiled
+            .apply_layout_snapshot(
+                &LayoutSnapshot::Final,
+                &mut measurement,
+                &eval_ctx,
+                &evaluated_layout_spec,
+                &provider,
+                sizing,
+            )
+            .await?;
+
+        let content_layout = measurement.content_layout()?;
+        assert!(content_layout.child_frame_allocations.is_empty());
+        assert_eq!(
+            content_layout.allocation.content_rect,
+            *measurement.layout.plot_area_bounds()
+        );
+        assert_eq!(content_layout.frame_demand, measurement.frame_demand());
+        assert_eq!(
+            content_layout
+                .frame_demand
+                .residual_overflow(measurement.frame_allocation.owned_slabs),
+            measurement.frame_demand().rendered_envelope
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn single_plot_coordination_snapshot_is_noop() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = compile_simple_regular_plot(&ctx).await?;
+        let (eval_ctx, evaluated_layout_spec, scale_builder, mut measurement) =
+            prepare_top_level_measurement(&compiled, &ctx).await?;
+        let before = measurement.content_layout()?;
+        let provider = DynamicScaleProvider {
+            builder: &scale_builder,
+            plot: &compiled,
+        };
+
+        compiled
+            .apply_layout_snapshot(
+                &LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
+                    CoordinationCheckpoint::FinalPropagationComplete,
+                )),
+                &mut measurement,
+                &eval_ctx,
+                &evaluated_layout_spec,
+                &provider,
+                ResolvedChartSizing::SinglePlot,
+            )
+            .await?;
+
+        assert_eq!(measurement.content_layout()?, before);
         Ok(())
     }
 
@@ -5954,8 +5975,7 @@ mod tests {
 
             let (eval_ctx, evaluated_layout_spec, scale_builder, mut coordinated_measurement) =
                 prepare_top_level_measurement(&compiled, &ctx).await?;
-            let resolved_facet_sizing = compiled.resolve_facet_sizing(&evaluated_layout_spec)?;
-            let coordination_mode = resolved_facet_sizing.coordination_mode();
+            let resolved_chart_sizing = compiled.resolve_chart_sizing(&evaluated_layout_spec)?;
             let provider = DynamicScaleProvider {
                 builder: &scale_builder,
                 plot: &compiled,
@@ -5969,8 +5989,7 @@ mod tests {
                     &eval_ctx,
                     &evaluated_layout_spec,
                     &provider,
-                    resolved_facet_sizing,
-                    coordination_mode,
+                    resolved_chart_sizing,
                 )
                 .await?;
 
@@ -5993,8 +6012,7 @@ mod tests {
                     &eval_ctx,
                     &evaluated_layout_spec,
                     &provider,
-                    resolved_facet_sizing,
-                    coordination_mode,
+                    resolved_chart_sizing,
                 )
                 .await?;
 
@@ -6025,11 +6043,11 @@ mod tests {
         )
         .await?;
 
-        let strategy = compiled.resolve_facet_sizing(&evaluated_layout_spec)?;
+        let strategy = compiled.resolve_chart_sizing(&evaluated_layout_spec)?;
         assert!(
             matches!(
                 strategy,
-                ResolvedFacetSizing::Policy(FacetRuntimeSizingPolicy {
+                ResolvedChartSizing::FacetBand(FacetRuntimeSizingPolicy {
                     width: FacetDimensionSizing::LeafPlotAreaSized {
                         leaf_plot_size: 120.0
                     },
@@ -6288,7 +6306,6 @@ mod tests {
                     &evaluated_layout_spec,
                     &provider,
                     fully_leaf_policy_strategy(120.0, 90.0),
-                    FacetCoordinationMode::FullCycle,
                 )
                 .await?;
 
@@ -6336,7 +6353,6 @@ mod tests {
                     &evaluated_layout_spec,
                     &provider,
                     fully_leaf_policy_strategy(120.0, 90.0),
-                    FacetCoordinationMode::FullCycle,
                 )
                 .await?;
             let root_facet = measurement
@@ -6405,7 +6421,6 @@ mod tests {
                     &evaluated_layout_spec,
                     &provider,
                     fully_leaf_policy_strategy(120.0, 90.0),
-                    FacetCoordinationMode::FullCycle,
                 )
                 .await?;
 
@@ -6459,7 +6474,6 @@ mod tests {
                     &evaluated_layout_spec,
                     &provider,
                     fully_leaf_policy_strategy(120.0, 90.0),
-                    FacetCoordinationMode::FullCycle,
                 )
                 .await?;
 

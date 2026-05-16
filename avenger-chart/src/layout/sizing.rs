@@ -57,6 +57,8 @@ use crate::{
     serialization::{LogicalExprNodeExt, SerializableExpr},
 };
 
+use super::types::{FrameDimensionSizing, FrameSizingPolicy};
+
 /// Trait for types that can be converted to Expr (for dimensions)
 pub trait IntoExprDimension {
     fn into_expr_dim(self) -> Expr;
@@ -166,6 +168,133 @@ pub(crate) enum EvaluatedSizeMode {
     Width(f32),
     Height(f32),
     Auto,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum LayoutDimensionSource {
+    Canvas,
+    PlotArea,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ResolvedLayoutDimension {
+    value: f32,
+    source: LayoutDimensionSource,
+}
+
+impl ResolvedLayoutDimension {
+    pub(crate) fn new(value: f32, source: LayoutDimensionSource) -> Self {
+        Self { value, source }
+    }
+
+    pub(crate) fn is_plot_area(self) -> bool {
+        matches!(self.source, LayoutDimensionSource::PlotArea)
+    }
+
+    pub(crate) fn value(self) -> f32 {
+        self.value
+    }
+
+    pub(crate) fn frame_dimension_sizing(self) -> FrameDimensionSizing {
+        match self.source {
+            LayoutDimensionSource::Canvas => FrameDimensionSizing::CanvasConstrained {
+                canvas_size: self.value,
+            },
+            LayoutDimensionSource::PlotArea => FrameDimensionSizing::ContentSized {
+                content_size: self.value,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ResolvedLayoutDimensions {
+    pub(crate) width: ResolvedLayoutDimension,
+    pub(crate) height: ResolvedLayoutDimension,
+}
+
+impl ResolvedLayoutDimensions {
+    pub(crate) fn from_spec(
+        layout_spec: &EvaluatedLayoutSpec,
+        default_canvas_width: f32,
+        default_canvas_height: f32,
+    ) -> Self {
+        let canvas_width = evaluated_width(&layout_spec.canvas);
+        let canvas_height = evaluated_height(&layout_spec.canvas);
+        let plot_width = evaluated_width(&layout_spec.plot_area);
+        let plot_height = evaluated_height(&layout_spec.plot_area);
+
+        let width_source = if plot_width.is_some() && canvas_width.is_none() {
+            LayoutDimensionSource::PlotArea
+        } else {
+            LayoutDimensionSource::Canvas
+        };
+        let height_source = if plot_height.is_some() && canvas_height.is_none() {
+            LayoutDimensionSource::PlotArea
+        } else {
+            LayoutDimensionSource::Canvas
+        };
+
+        Self {
+            width: ResolvedLayoutDimension::new(
+                match width_source {
+                    LayoutDimensionSource::PlotArea => plot_width.unwrap_or(default_canvas_width),
+                    LayoutDimensionSource::Canvas => {
+                        canvas_width.or(plot_width).unwrap_or(default_canvas_width)
+                    }
+                },
+                width_source,
+            ),
+            height: ResolvedLayoutDimension::new(
+                match height_source {
+                    LayoutDimensionSource::PlotArea => plot_height.unwrap_or(default_canvas_height),
+                    LayoutDimensionSource::Canvas => canvas_height
+                        .or(plot_height)
+                        .unwrap_or(default_canvas_height),
+                },
+                height_source,
+            ),
+        }
+    }
+
+    pub(crate) fn dimensions_are_plot_area(self) -> bool {
+        self.width.is_plot_area() && self.height.is_plot_area()
+    }
+
+    pub(crate) fn has_plot_area_dimension(self) -> bool {
+        self.width.is_plot_area() || self.height.is_plot_area()
+    }
+
+    pub(crate) fn width_value(self) -> f32 {
+        self.width.value()
+    }
+
+    pub(crate) fn height_value(self) -> f32 {
+        self.height.value()
+    }
+
+    pub(crate) fn frame_sizing_policy(self) -> FrameSizingPolicy {
+        FrameSizingPolicy {
+            width: self.width.frame_dimension_sizing(),
+            height: self.height.frame_dimension_sizing(),
+        }
+    }
+}
+
+fn evaluated_width(mode: &EvaluatedSizeMode) -> Option<f32> {
+    match mode {
+        EvaluatedSizeMode::Fixed { width, .. } | EvaluatedSizeMode::Width(width) => Some(*width),
+        EvaluatedSizeMode::Height(_) | EvaluatedSizeMode::Auto => None,
+    }
+}
+
+fn evaluated_height(mode: &EvaluatedSizeMode) -> Option<f32> {
+    match mode {
+        EvaluatedSizeMode::Fixed { height, .. } | EvaluatedSizeMode::Height(height) => {
+            Some(*height)
+        }
+        EvaluatedSizeMode::Width(_) | EvaluatedSizeMode::Auto => None,
+    }
 }
 
 impl From<CanvasConstraint> for SizeMode {

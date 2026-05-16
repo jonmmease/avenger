@@ -537,21 +537,132 @@ allocation interface.
 
 Goal: make non-faceted charts look like a one-node layout tree.
 
-- [ ] Generalize `FacetRuntimeSizingPolicy` into a chart-level physical
-  dimension policy if naming becomes misleading.
-- [ ] Let `ResolvedFacetSizing::NonFacet` collapse into a general
-  `ResolvedLayoutSizingPolicy` if practical.
-- [ ] Represent a regular chart as:
-  - root allocation,
-  - one local frame,
-  - coordinate content.
-- [ ] Make non-faceted "coordination" either:
-  - a no-op implementation of the same trait, or
-  - a single-node realization pass with no child allocations.
-- [ ] Ensure media query dimensions remain defined from the public sizing
-  contract, not from incidental retargeted inner sizes.
+Design direction: remove the "non-facet as a special facet-sizing branch"
+concept. A regular chart should select the `SinglePlotContentSolver`; a faceted
+chart should select the `FacetBandContentSolver`. The facet runtime sizing
+policy should stay facet-specific for now because its plot-size semantics are
+per-leaf-subplot semantics, not generic single-plot semantics.
+
+### Phase 8A: Resolve Content Kind Explicitly
+
+- [x] Add a small `ResolvedContentKind` or `ContentSolverKind` enum with:
+  - `SinglePlot`,
+  - `FacetBand`.
+- [x] Compute this once near the evaluated facet-tree/layout-spec setup instead
+  of repeatedly asking whether marks contain a facet.
+- [x] Replace `ResolvedFacetSizing::NonFacet` with a content-oriented wrapper
+  such as `ResolvedChartSizing` or `ResolvedContentSizing`.
+- [x] Keep `FacetRuntimeSizingPolicy` inside the facet branch rather than
+  generalizing it prematurely.
+- [x] Preserve one clear conversion from public layout spec to:
+  - regular `ResolvedLayoutDimensions`,
+  - facet `FacetRuntimeSizingPolicy`.
+
+### Phase 8B: Move Dimension Resolution Toward Layout Vocabulary
+
+- [x] Move or prepare to move `ResolvedLayoutDimension`,
+  `ResolvedLayoutDimensions`, and `LayoutDimensionSource` out of
+  `plot/compiled/rendering.rs` into the layout module.
+- [x] Rename `LayoutDimensionSource::PlotArea` only if needed for clarity; for
+  regular charts it means the current plot/content area, while for faceted
+  charts the facet branch still interprets configured plot size as leaf plot
+  size.
+- [x] Keep media-query `width`/`height` params sourced from the public sizing
+  contract:
+  - canvas-constrained dimensions use canvas size,
+  - plot-area-sized regular dimensions use plot-area size,
+  - plot-area-sized facet dimensions use the configured leaf plot size where
+    facet measurement already expects that value.
+- [ ] Add assertions/tests that final retargeted inner sizes do not silently
+  change media-query input dimensions.
+
+### Phase 8C: Dispatch Content Coordination Through the Content Solver
+
+- [x] Add a content-level coordination/realization helper that dispatches by
+  `ResolvedContentKind`.
+- [x] For `SinglePlot`, run `SinglePlotContentSolver` and perform no facet
+  coordination.
+- [x] For `FacetBand`, run `FacetBandContentSolver` and delegate to the existing
+  facet coordination pipeline.
+- [x] Stop calling `coordinate_overflow_for_guides_with_mode` for regular
+  charts. A regular chart should not enter facet coordination just to no-op.
+- [x] Keep layout snapshot behavior explicit:
+  - local measured snapshots are available to both content kinds,
+  - coordination snapshots are a single-plot no-op,
+  - existing regular canvas refinement snapshots are preserved,
+  - final layout works for both.
+
+### Phase 8D: Represent the Regular Chart as One Node
+
+- [x] Treat a regular chart measurement as:
+  - a root `FrameAllocation`,
+  - one local `FrameLayout`,
+  - a `ContentAllocation` whose `content_rect` is the plot area,
+  - a `SinglePlotContentSolver` demand/plan/layout with no child allocations.
+- [x] Make `ComponentsMeasurement::content_layout()` the checked access point
+  for this one-node layout result.
+- [x] Add invariants for the regular case:
+  - child allocation count is zero,
+  - content rect equals frame plot area,
+  - frame demand equals measured guide/rendered overflow,
+  - residual overflow follows `FrameDemand::residual_overflow`.
+- [x] Avoid changing `build_plot_components` behavior in this phase unless a
+  small call-site cleanup is required; the first goal is a shared model, not a
+  rendering rewrite.
+
+### Phase 8E: Preserve Existing Refinement Semantics
+
+- [x] Keep existing regular canvas refinement behavior, but call it from the
+  single-plot final realization branch rather than from a `NonFacet` sizing
+  branch.
+- [x] Keep regular plot-area-sized measurement's coord-aware overflow rebuild
+  where it is, unless the implementation naturally folds it into
+  `SinglePlotContentSolver`.
+- [x] Keep facet refinement under the facet branch and continue using the
+  current max-iteration/convergence policy.
+- [x] No new TODO needed; the existing regular canvas refinement snapshot
+  behavior remains explicit.
+
+### Phase 8F: Tests and Acceptance Criteria
+
+- [x] Add unit tests for the new content-kind/sizing dispatch:
+  - regular plot selects `SinglePlot`,
+  - faceted plot selects `FacetBand`,
+  - regular plot never calls facet coordination,
+  - facet plot still calls the facet coordination path.
+- [ ] Add regular chart equivalence tests for the new one-node model:
+  - fixed canvas,
+  - fixed plot area,
+  - mixed canvas-width / plot-height,
+  - mixed plot-width / canvas-height,
+  - legend on each side if practical.
 - [ ] Add regular vs one-cell facet equivalence tests where facet guides are
-  hidden or zero-sized.
+  hidden or zero-sized:
+  - same final canvas size when canvas-sized,
+  - same final plot/content rect when plot-sized,
+  - same guide and legend bounds within tolerance.
+- [ ] Add media-query regression tests that cover regular charts in canvas,
+  plot-area, and mixed sizing modes.
+- [x] Run focused tests first:
+  - `cargo test -p avenger-chart --lib layout::content_solver -- --nocapture`,
+  - targeted regular sizing/measurement tests,
+  - targeted facet sizing/measurement tests.
+- [x] Run final validation:
+  - `cargo fmt --all`,
+  - `cargo clippy -p avenger-chart --all-targets`,
+  - `cargo test --release -p avenger-chart --test visual_regression -- --nocapture`.
+
+### Phase 8 Acceptance Checklist
+
+- [x] There is no `ResolvedFacetSizing::NonFacet` concept left.
+- [x] The top-level evaluation path dispatches by content kind, not by treating
+  regular charts as a facet special case.
+- [x] Regular charts produce and validate a `SinglePlotContentSolver` layout.
+- [x] Faceted charts still produce the same accepted visual output.
+- [x] Media-query dimensions are unchanged for existing regular and facet
+  charts.
+- [x] The working tree has no baseline drift except intentional accepted
+  equivalence/debug additions.
 
 ## Phase 9: Unify Debug Layout Snapshots
 
