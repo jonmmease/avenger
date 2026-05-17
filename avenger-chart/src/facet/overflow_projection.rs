@@ -594,13 +594,13 @@ fn sibling_boundary_overflow(
     let mut total = overflow.total.clone();
     match axis {
         FacetAxis::Column => {
-            total.left = overflow.guide.left;
-            total.right = overflow.guide.right;
+            total.left = overflow.total.left;
+            total.right = overflow.total.right;
             total.top = overflow.guide.top;
         }
         FacetAxis::Row => {
-            total.top = overflow.guide.top;
-            total.bottom = overflow.guide.bottom;
+            total.top = overflow.total.top;
+            total.bottom = overflow.total.bottom;
             total.left = overflow.guide.left;
         }
     }
@@ -795,7 +795,7 @@ mod tests {
     }
 
     #[test]
-    fn sibling_boundary_projection_preserves_only_cross_axis_end_legend_slab() {
+    fn sibling_boundary_projection_preserves_same_axis_and_cross_axis_end_legend_slabs() {
         let raw = overflow((10.0, 20.0, 30.0, 40.0), (110.0, 120.0, 130.0, 140.0));
 
         let row = project_facet_overflow(
@@ -804,8 +804,8 @@ mod tests {
                 axis: FacetAxis::Row,
             },
         );
-        assert_eq!(row.total.top, raw.guide.top);
-        assert_eq!(row.total.bottom, raw.guide.bottom);
+        assert_eq!(row.total.top, raw.total.top);
+        assert_eq!(row.total.bottom, raw.total.bottom);
         assert_eq!(row.total.left, raw.guide.left);
         assert_eq!(row.total.right, raw.total.right);
 
@@ -815,8 +815,8 @@ mod tests {
                 axis: FacetAxis::Column,
             },
         );
-        assert_eq!(column.total.left, raw.guide.left);
-        assert_eq!(column.total.right, raw.guide.right);
+        assert_eq!(column.total.left, raw.total.left);
+        assert_eq!(column.total.right, raw.total.right);
         assert_eq!(column.total.top, raw.guide.top);
         assert_eq!(column.total.bottom, raw.total.bottom);
     }

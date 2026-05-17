@@ -3682,23 +3682,25 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         let (first_edge_idx, last_edge_idx) =
             effective_edge_indices(&pass1_renderable_cells, pass1.cell_overflows.len())
                 .unwrap_or((0, 0));
-        let (mut outer_start, mut outer_end) =
+        // Edge legend slabs are not part of this facet band's own scale range.
+        // They are routed upward as sibling-boundary demand, or as root residual
+        // demand at the true chart edge, so leaf plot-area sizes stay uniform
+        // across sibling facet subtrees.
+        let (raw_outer_start, raw_outer_end) =
             self.axis_ops
                 .derive_outer_edges(pass1, first_edge_idx, last_edge_idx);
         let start_edge_is_chart_overflow = self.scale_backed_edge_slab_is_chart_overflow(true);
         let end_edge_is_chart_overflow = self.scale_backed_edge_slab_is_chart_overflow(false);
-        if start_edge_is_chart_overflow {
-            outer_start = 0.0;
-        }
-        if end_edge_is_chart_overflow {
-            outer_end = 0.0;
-        }
+        let outer_start = 0.0;
+        let outer_end = 0.0;
         debug!(
             axis = ?self.axis_ops.axis,
             padding_inner_px,
             guide_padding_inner_px,
             outer_start,
             outer_end,
+            raw_outer_start,
+            raw_outer_end,
             cell_count = cell_values.len(),
             first_edge_idx,
             last_edge_idx,
