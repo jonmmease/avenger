@@ -511,7 +511,7 @@ pub(crate) fn realized_boundary_demand_components_for_measurement(
     measurement: &ComponentsMeasurement,
 ) -> FacetBoundaryDemandComponents {
     let overflow = realized_sibling_boundary_overflow_for_measurement(measurement);
-    boundary_demand_components_from_overflow(axis, measurement, &overflow)
+    boundary_demand_components_from_overflow(axis, &overflow)
 }
 
 pub(crate) fn overflow_from_boundary_demand(
@@ -534,42 +534,10 @@ pub(crate) fn overflow_from_boundary_demand(
 
 fn boundary_demand_components_from_overflow(
     axis: FacetAxis,
-    measurement: &ComponentsMeasurement,
     overflow: &CoordinatedOverflow,
 ) -> FacetBoundaryDemandComponents {
-    const LEGEND_EDGE_BREATHING_ROOM: f32 = 8.0;
-
     let guide = &overflow.guide;
     let total = &overflow.total;
-    let (
-        legend_left_from_bounds,
-        legend_right_from_bounds,
-        legend_top_from_bounds,
-        legend_bottom_from_bounds,
-    ) = legend_bounds_overflow_edges(measurement);
-    let (
-        coordinated_legend_left,
-        coordinated_legend_right,
-        coordinated_legend_top,
-        coordinated_legend_bottom,
-    ) = coordinated_legend_overflow_edges(measurement);
-
-    let legend_left = (total.left - guide.left)
-        .max(0.0)
-        .max(coordinated_legend_left)
-        .max(legend_left_from_bounds);
-    let legend_right = (total.right - guide.right)
-        .max(0.0)
-        .max(coordinated_legend_right)
-        .max(legend_right_from_bounds);
-    let legend_top = (total.top - guide.top)
-        .max(0.0)
-        .max(coordinated_legend_top)
-        .max(legend_top_from_bounds);
-    let legend_bottom = (total.bottom - guide.bottom)
-        .max(0.0)
-        .max(coordinated_legend_bottom)
-        .max(legend_bottom_from_bounds);
 
     match axis {
         FacetAxis::Column => FacetBoundaryDemandComponents {
@@ -578,18 +546,8 @@ fn boundary_demand_components_from_overflow(
                 after: guide.right.max(0.0),
             },
             total: FacetBoundaryDemand {
-                before: total.left.max(0.0)
-                    + if legend_left > 0.0 {
-                        LEGEND_EDGE_BREATHING_ROOM
-                    } else {
-                        0.0
-                    },
-                after: total.right.max(0.0)
-                    + if legend_right > 0.0 {
-                        LEGEND_EDGE_BREATHING_ROOM
-                    } else {
-                        0.0
-                    },
+                before: total.left.max(0.0),
+                after: total.right.max(0.0),
             },
         },
         FacetAxis::Row => FacetBoundaryDemandComponents {
@@ -598,18 +556,8 @@ fn boundary_demand_components_from_overflow(
                 after: guide.bottom.max(0.0),
             },
             total: FacetBoundaryDemand {
-                before: total.top.max(0.0)
-                    + if legend_top > 0.0 {
-                        LEGEND_EDGE_BREATHING_ROOM
-                    } else {
-                        0.0
-                    },
-                after: total.bottom.max(0.0)
-                    + if legend_bottom > 0.0 {
-                        LEGEND_EDGE_BREATHING_ROOM
-                    } else {
-                        0.0
-                    },
+                before: total.top.max(0.0),
+                after: total.bottom.max(0.0),
             },
         },
     }
@@ -728,38 +676,6 @@ fn facet_measurement_overflow(
             })
         }
     }
-}
-
-fn legend_bounds_overflow_edges(measurement: &ComponentsMeasurement) -> (f32, f32, f32, f32) {
-    let mut left = 0.0f32;
-    let mut right = 0.0f32;
-    let mut top = 0.0f32;
-    let mut bottom = 0.0f32;
-    let plot_width = measurement.plot_area_width;
-    let plot_height = measurement.plot_area_height;
-
-    for bounds in measurement.layout.frame_layout.legends.values() {
-        left = left.max((-bounds.x).max(0.0));
-        right = right.max((bounds.x + bounds.width - plot_width).max(0.0));
-        top = top.max((-bounds.y).max(0.0));
-        bottom = bottom.max((bounds.y + bounds.height - plot_height).max(0.0));
-    }
-
-    (left, right, top, bottom)
-}
-
-fn coordinated_legend_overflow_edges(measurement: &ComponentsMeasurement) -> (f32, f32, f32, f32) {
-    let Some(facet_band) = facet_band_from_coord(measurement.coord_measurement.as_ref()) else {
-        return (0.0, 0.0, 0.0, 0.0);
-    };
-
-    let slabs = FacetOverflowSlabs::from_coordinated(facet_band.active_boundary_overflow());
-    (
-        slabs.legend.left,
-        slabs.legend.right,
-        slabs.legend.top,
-        slabs.legend.bottom,
-    )
 }
 
 #[cfg(test)]

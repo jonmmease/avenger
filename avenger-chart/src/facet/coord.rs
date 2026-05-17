@@ -125,7 +125,8 @@ pub(crate) struct FacetCellRuntime {
 /// stale measured slab.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct FacetBandAllocationOwnership {
-    pub(crate) parent_owns_main_axis_outer_slabs: bool,
+    pub(crate) parent_owns_main_axis_start_slab: bool,
+    pub(crate) parent_owns_main_axis_end_slab: bool,
     pub(crate) parent_owns_cross_axis_legend_slabs: bool,
     pub(crate) realized_owned_legend_slabs: Option<OwnedEdgeSlabs>,
 }
@@ -135,8 +136,21 @@ impl FacetBandAllocationOwnership {
         parent_owns_main_axis_outer_slabs: bool,
         parent_owns_cross_axis_legend_slabs: bool,
     ) -> Self {
-        Self {
+        Self::from_axis_policy(
             parent_owns_main_axis_outer_slabs,
+            parent_owns_main_axis_outer_slabs,
+            parent_owns_cross_axis_legend_slabs,
+        )
+    }
+
+    pub(crate) fn from_axis_policy(
+        parent_owns_main_axis_start_slab: bool,
+        parent_owns_main_axis_end_slab: bool,
+        parent_owns_cross_axis_legend_slabs: bool,
+    ) -> Self {
+        Self {
+            parent_owns_main_axis_start_slab,
+            parent_owns_main_axis_end_slab,
             parent_owns_cross_axis_legend_slabs,
             realized_owned_legend_slabs: None,
         }
@@ -169,14 +183,20 @@ impl FacetBandAllocationOwnership {
         let slabs = FacetOverflowSlabs::from_coordinated(overflow);
         let mut owned = EdgeSlabs::default();
 
-        if self.parent_owns_main_axis_outer_slabs {
-            match axis {
-                FacetAxis::Column => {
+        match axis {
+            FacetAxis::Column => {
+                if self.parent_owns_main_axis_start_slab {
                     owned.left = slabs.legend.left.min(layout.outer_start.max(0.0));
+                }
+                if self.parent_owns_main_axis_end_slab {
                     owned.right = slabs.legend.right.min(layout.outer_end.max(0.0));
                 }
-                FacetAxis::Row => {
+            }
+            FacetAxis::Row => {
+                if self.parent_owns_main_axis_start_slab {
                     owned.top = slabs.legend.top.min(layout.outer_start.max(0.0));
+                }
+                if self.parent_owns_main_axis_end_slab {
                     owned.bottom = slabs.legend.bottom.min(layout.outer_end.max(0.0));
                 }
             }
@@ -3387,8 +3407,8 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             .eval_ctx
             .facet_runtime_sizing_mode()
             .facet_band_is_leaf_plot_area_sized(self.axis_ops.axis);
-        let parent_owns_main_axis_outer_slabs =
-            !self.root_scale_backed_edge_slabs_are_chart_overflow();
+        let parent_owns_main_axis_start_slab = !self.scale_backed_edge_slab_is_chart_overflow(true);
+        let parent_owns_main_axis_end_slab = !self.scale_backed_edge_slab_is_chart_overflow(false);
         let probe_measurement = FacetBandProbeMeasurement {
             axis: self.axis_ops.axis,
             cell_values: plan.cell_values.clone(),
@@ -3405,8 +3425,9 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 .cell_semantics
                 .empty_cell_policy,
             fixed_plot_area_lock,
-            allocation_ownership: FacetBandAllocationOwnership::from_policy(
-                parent_owns_main_axis_outer_slabs,
+            allocation_ownership: FacetBandAllocationOwnership::from_axis_policy(
+                parent_owns_main_axis_start_slab,
+                parent_owns_main_axis_end_slab,
                 orthogonal_dimension_canvas_constrained,
             ),
         };
@@ -3672,7 +3693,6 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         if end_edge_is_chart_overflow {
             outer_end = 0.0;
         }
-
         debug!(
             axis = ?self.axis_ops.axis,
             padding_inner_px,
@@ -3696,14 +3716,43 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         }
     }
 
-    fn root_scale_backed_edge_slabs_are_chart_overflow(&self) -> bool {
-        self.facet_path.is_empty()
-            && self
-                .eval_ctx
-                .facet_runtime_sizing_mode()
-                .policy()
-                .facet_band_dimension(self.axis_ops.axis)
-                .is_canvas_constrained()
+    fn build_pass2_scale(
+        &self,
+        band_scale: &ConfiguredScale,
+        band_plan: &FacetBandPlan,
+        cell_values: &[ScalarValue],
+        initial_subplot_band_size: f32,
+    ) -> Result<f32, AvengerChartError> {
+        let pass2_layout = CoordinatedLayout {
+            padding_inner_px: band_plan.padding_inner_px,
+            outer_start: band_plan.outer_start,
+            outer_end: band_plan.outer_end,
+            n: band_plan.n,
+        };
+
+        let updated_band_scale = apply_facet_band_scale_layout(
+            self.axis_ops.axis,
+            band_scale,
+            &pass2_layout,
+            Some(cell_values),
+            None,
+            ScaleLayoutRewriteMode::Measurement {
+                side_specific_outer_edges: true,
+            },
+        );
+
+        let final_subplot_band_size = bandwidth(&updated_band_scale.config).map_err(|e| {
+            AvengerChartError::InternalError(format!("Failed to get final bandwidth: {}", e))
+        })?;
+
+        debug!(
+            axis = ?self.axis_ops.axis,
+            initial_subplot_band_size,
+            final_subplot_band_size,
+            "FacetBand local layout scale bandwidth"
+        );
+
+        Ok(final_subplot_band_size)
     }
 
     fn scale_backed_edge_slab_is_chart_overflow(&self, is_start: bool) -> bool {
@@ -3759,45 +3808,6 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         }
 
         true
-    }
-
-    fn build_pass2_scale(
-        &self,
-        band_scale: &ConfiguredScale,
-        band_plan: &FacetBandPlan,
-        cell_values: &[ScalarValue],
-        initial_subplot_band_size: f32,
-    ) -> Result<f32, AvengerChartError> {
-        let pass2_layout = CoordinatedLayout {
-            padding_inner_px: band_plan.padding_inner_px,
-            outer_start: band_plan.outer_start,
-            outer_end: band_plan.outer_end,
-            n: band_plan.n,
-        };
-
-        let updated_band_scale = apply_facet_band_scale_layout(
-            self.axis_ops.axis,
-            band_scale,
-            &pass2_layout,
-            Some(cell_values),
-            None,
-            ScaleLayoutRewriteMode::Measurement {
-                side_specific_outer_edges: true,
-            },
-        );
-
-        let final_subplot_band_size = bandwidth(&updated_band_scale.config).map_err(|e| {
-            AvengerChartError::InternalError(format!("Failed to get final bandwidth: {}", e))
-        })?;
-
-        debug!(
-            axis = ?self.axis_ops.axis,
-            initial_subplot_band_size,
-            final_subplot_band_size,
-            "FacetBand local layout scale bandwidth"
-        );
-
-        Ok(final_subplot_band_size)
     }
 
     fn derive_local_layout_from_probe(
@@ -4026,8 +4036,9 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             coordination_field_identity,
             channel_domain_sharing_levels,
             empty_cell_policy,
-            allocation_ownership: FacetBandAllocationOwnership::from_policy(
-                !self.root_scale_backed_edge_slabs_are_chart_overflow(),
+            allocation_ownership: FacetBandAllocationOwnership::from_axis_policy(
+                !self.scale_backed_edge_slab_is_chart_overflow(true),
+                !self.scale_backed_edge_slab_is_chart_overflow(false),
                 orthogonal_dimension_canvas_constrained,
             ),
             placement_model: if self
