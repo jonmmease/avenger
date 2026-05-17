@@ -6,8 +6,11 @@ use crate::cartesian::axis::CartesianAxis;
 use crate::error::AvengerChartError;
 use crate::facet::guide::band_guide_engine::{self, ColGuideAxisOps, FacetGuideState};
 use crate::facet::marks::facet::CompiledFacetCol;
+use crate::facet::overflow_projection::FacetOverflowResolutionPhase;
 use crate::facet::sharing_level::SharingLevel;
-use crate::guide::{CompiledGuide, CoordinateGuide, MeasurementResult, OverflowSpaceRequirement};
+use crate::guide::{
+    CompiledGuide, CoordinateGuide, GuideOverflowPhase, MeasurementResult, OverflowSpaceRequirement,
+};
 use crate::layout::LayoutBounds;
 use crate::marks::CompiledMark;
 use crate::plot::compiled::CompiledPlot;
@@ -154,6 +157,40 @@ impl CompiledGuide for FacetColGuide {
         facet_path: &[datafusion::common::ScalarValue],
         coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
+        self.measure_overflow_for_phase(
+            scales,
+            plot_width,
+            plot_height,
+            theme,
+            params,
+            data_override,
+            ctx,
+            facet_tree,
+            facet_path,
+            coord_measurement,
+            GuideOverflowPhase::Measurement,
+        )
+        .await
+    }
+
+    async fn measure_overflow_for_phase(
+        &self,
+        scales: &HashMap<String, ConfiguredScale>,
+        plot_width: f32,
+        plot_height: f32,
+        theme: &crate::theme::Theme,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        data_override: Option<&datafusion::dataframe::DataFrame>,
+        ctx: &SessionContext,
+        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        facet_path: &[datafusion::common::ScalarValue],
+        coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
+        phase: GuideOverflowPhase,
+    ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
+        let phase = match phase {
+            GuideOverflowPhase::Measurement => FacetOverflowResolutionPhase::Measurement,
+            GuideOverflowPhase::Final => FacetOverflowResolutionPhase::Final,
+        };
         band_guide_engine::measure_overflow_common::<ColGuideAxisOps>(
             &self.as_engine_state(),
             scales,
@@ -166,6 +203,7 @@ impl CompiledGuide for FacetColGuide {
             facet_tree,
             facet_path,
             coord_measurement,
+            phase,
         )
         .await
     }
@@ -314,13 +352,13 @@ mod tests {
     }
 
     #[test]
-    fn resolve_guide_anchor_top_hidden_title_prefers_local_total_when_both_present() {
+    fn resolve_guide_anchor_top_hidden_title_prefers_coordinated_when_both_present() {
         let local = coordinated_overflow(12.0, 8.0, 60.0, 40.0);
         let coordinated = coordinated_overflow(5.0, 39.0, 5.0, 39.0);
         let (resolved, source) =
             resolve_guide_anchor_overflow(false, false, Some(&coordinated), Some(&local));
-        assert_eq!(resolved, 60.0);
-        assert_eq!(source, GuideAnchorSource::LocalGuide);
+        assert_eq!(resolved, 5.0);
+        assert_eq!(source, GuideAnchorSource::CoordinatedGuide);
     }
 
     #[test]

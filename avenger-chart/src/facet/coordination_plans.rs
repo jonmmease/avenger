@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use datafusion::common::ScalarValue;
 
 use crate::{
+    cartesian::axis::AxisPosition,
     coords::{CellDomainInfo, CoordinatedLayout, CoordinatedOverflow, FacetAxis},
     facet::{
         coord::union_domain_extents, coordination::CoordinationGroupKey,
@@ -30,6 +31,8 @@ pub(crate) struct InitialRequirementNodeSnapshot {
     pub(crate) measured_overflow: Option<CoordinatedOverflow>,
     pub(crate) local_layout: CoordinatedLayout,
     pub(crate) guide_padding_inner_px: f32,
+    pub(crate) first_edge_index: usize,
+    pub(crate) last_edge_index: usize,
     pub(crate) domain_infos: Vec<CellDomainInfo>,
 }
 
@@ -41,6 +44,7 @@ pub(crate) struct InitialRequirementSnapshot {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct InitialRequirementAggregates {
     pub(crate) merged_overflow_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow>,
+    pub(crate) merged_boundary_overflow_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow>,
     pub(crate) merged_layout_by_key: HashMap<CoordinationGroupKey, CoordinatedLayout>,
     pub(crate) unified_domain_extents: HashMap<(String, Vec<ScalarValue>), DomainExtent>,
 }
@@ -48,6 +52,7 @@ pub(crate) struct InitialRequirementAggregates {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct InitialRequirementDistributionPlan {
     pub(crate) overflow_patches_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
+    pub(crate) boundary_overflow_patches_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     pub(crate) layout_patches_by_node: HashMap<CoordinationNodeKey, CoordinatedLayout>,
     pub(crate) domain_target_nodes: HashSet<CoordinationNodeKey>,
     pub(crate) unified_domain_extents: HashMap<(String, Vec<ScalarValue>), DomainExtent>,
@@ -68,6 +73,8 @@ pub(crate) struct RetargetedRequirementNodeSnapshot {
     pub(crate) measured_overflow: Option<CoordinatedOverflow>,
     pub(crate) local_layout: CoordinatedLayout,
     pub(crate) guide_padding_inner_px: f32,
+    pub(crate) first_edge_index: usize,
+    pub(crate) last_edge_index: usize,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -78,12 +85,14 @@ pub(crate) struct RetargetedRequirementSnapshot {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RetargetedRequirementAggregates {
     pub(crate) merged_overflow_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow>,
+    pub(crate) merged_boundary_overflow_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow>,
     pub(crate) merged_layout_by_key: HashMap<CoordinationGroupKey, CoordinatedLayout>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RetargetedRequirementDistributionPlan {
     pub(crate) overflow_patches_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
+    pub(crate) boundary_overflow_patches_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     pub(crate) layout_patches_by_node: HashMap<CoordinationNodeKey, CoordinatedLayout>,
 }
 
@@ -440,6 +449,8 @@ struct RoundCollectionInput {
     measured_overflow: Option<CoordinatedOverflow>,
     local_layout: CoordinatedLayout,
     guide_padding_inner_px: f32,
+    first_edge_index: usize,
+    last_edge_index: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -451,8 +462,10 @@ struct AxisPaddingGroupKey {
 #[derive(Debug, Clone, Default)]
 struct RoundCollectionOutput {
     merged_overflow_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow>,
+    merged_boundary_overflow_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow>,
     merged_layout_by_key: HashMap<CoordinationGroupKey, CoordinatedLayout>,
     overflow_patches_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
+    boundary_overflow_patches_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     layout_patches_by_node: HashMap<CoordinationNodeKey, CoordinatedLayout>,
     unified_domain_extents: HashMap<(String, Vec<ScalarValue>), DomainExtent>,
     domain_target_nodes: HashSet<CoordinationNodeKey>,
@@ -495,6 +508,90 @@ fn axis_padding_group_keys(
     group_by_node
 }
 
+fn side_axis(side: AxisPosition) -> FacetAxis {
+    match side {
+        AxisPosition::Left | AxisPosition::Right => FacetAxis::Column,
+        AxisPosition::Top | AxisPosition::Bottom => FacetAxis::Row,
+    }
+}
+
+fn side_is_start(side: AxisPosition) -> bool {
+    matches!(side, AxisPosition::Left | AxisPosition::Top)
+}
+
+fn set_overflow_side(
+    overflow: &mut crate::coords::OverflowSpaceRequirement,
+    side: AxisPosition,
+    value: f32,
+) {
+    match side {
+        AxisPosition::Top => overflow.top = value,
+        AxisPosition::Right => overflow.right = value,
+        AxisPosition::Bottom => overflow.bottom = value,
+        AxisPosition::Left => overflow.left = value,
+    }
+}
+
+fn node_global_edge_for_side(
+    node: &RoundCollectionInput,
+    side: AxisPosition,
+    axis_by_path: &HashMap<Vec<usize>, FacetAxis>,
+    edge_indices_by_path: &HashMap<Vec<usize>, (usize, usize)>,
+) -> bool {
+    let axis = side_axis(side);
+    let is_start = side_is_start(side);
+    let mut governed_by_axis = node.axis == axis;
+    let mut parent_path = Vec::new();
+
+    for idx in &node.node_id.path {
+        let Some(parent_axis) = axis_by_path.get(&parent_path) else {
+            return false;
+        };
+
+        if *parent_axis == axis {
+            governed_by_axis = true;
+            let Some((first_edge_index, last_edge_index)) =
+                edge_indices_by_path.get(&parent_path).copied()
+            else {
+                return false;
+            };
+            let expected_edge = if is_start {
+                first_edge_index
+            } else {
+                last_edge_index
+            };
+            if *idx != expected_edge {
+                return false;
+            }
+        }
+
+        parent_path.push(*idx);
+    }
+
+    governed_by_axis
+}
+
+fn strip_global_edge_overflow_for_boundary_coordination(
+    node: &RoundCollectionInput,
+    overflow: &CoordinatedOverflow,
+    axis_by_path: &HashMap<Vec<usize>, FacetAxis>,
+    edge_indices_by_path: &HashMap<Vec<usize>, (usize, usize)>,
+) -> CoordinatedOverflow {
+    let mut boundary = overflow.clone();
+    for side in [
+        AxisPosition::Top,
+        AxisPosition::Right,
+        AxisPosition::Bottom,
+        AxisPosition::Left,
+    ] {
+        if node_global_edge_for_side(node, side, axis_by_path, edge_indices_by_path) {
+            set_overflow_side(&mut boundary.guide, side, 0.0);
+            set_overflow_side(&mut boundary.total, side, 0.0);
+        }
+    }
+    boundary
+}
+
 fn build_round_collection(
     nodes: &[RoundCollectionInput],
     include_domains: bool,
@@ -502,7 +599,22 @@ fn build_round_collection(
 ) -> RoundCollectionOutput {
     let mut overflow_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedOverflow>> =
         HashMap::new();
+    let mut boundary_overflow_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedOverflow>> =
+        HashMap::new();
     let mut layout_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedLayout>> = HashMap::new();
+    let axis_by_path = nodes
+        .iter()
+        .map(|node| (node.node_id.path.clone(), node.axis))
+        .collect::<HashMap<_, _>>();
+    let edge_indices_by_path = nodes
+        .iter()
+        .map(|node| {
+            (
+                node.node_id.path.clone(),
+                (node.first_edge_index, node.last_edge_index),
+            )
+        })
+        .collect::<HashMap<_, _>>();
     let axis_padding_group_by_node = axis_padding_group_keys(nodes);
     let mut max_guide_padding_by_axis_group: HashMap<AxisPaddingGroupKey, f32> = HashMap::new();
 
@@ -511,7 +623,17 @@ fn build_round_collection(
             overflow_by_key
                 .entry(node.key.clone())
                 .or_default()
-                .push(measured_overflow);
+                .push(measured_overflow.clone());
+            let boundary_overflow = strip_global_edge_overflow_for_boundary_coordination(
+                node,
+                &measured_overflow,
+                &axis_by_path,
+                &edge_indices_by_path,
+            );
+            boundary_overflow_by_key
+                .entry(node.key.clone())
+                .or_default()
+                .push(boundary_overflow);
         }
         layout_by_key
             .entry(node.key.clone())
@@ -526,6 +648,7 @@ fn build_round_collection(
     }
 
     let merged_overflow_by_key = merge_overflow_groups(overflow_by_key);
+    let merged_boundary_overflow_by_key = merge_overflow_groups(boundary_overflow_by_key);
     let merged_layout_by_key = merge_layout_groups(layout_by_key);
     let unified_domain_extents = if include_domains && !domain_infos.is_empty() {
         aggregate_domain_extents(domain_infos)
@@ -534,6 +657,7 @@ fn build_round_collection(
     };
 
     let mut overflow_patches_by_node = HashMap::new();
+    let mut boundary_overflow_patches_by_node = HashMap::new();
     let mut layout_patches_by_node = HashMap::new();
     let mut domain_target_nodes = HashSet::new();
 
@@ -541,12 +665,25 @@ fn build_round_collection(
         if let Some(merged) = merged_overflow_by_key.get(&node.key).cloned() {
             overflow_patches_by_node.insert(node.node_id.clone(), merged);
         }
+        if let Some(merged) = merged_boundary_overflow_by_key.get(&node.key).cloned() {
+            boundary_overflow_patches_by_node.insert(node.node_id.clone(), merged);
+        }
         if let Some(merged) = merged_layout_by_key.get(&node.key).cloned() {
             let mut layout = merged;
             if let Some(axis_group) = axis_padding_group_by_node.get(&node.node_id)
                 && let Some(group_padding) = max_guide_padding_by_axis_group.get(axis_group)
             {
                 layout.padding_inner_px = layout.padding_inner_px.max(*group_padding);
+            }
+            let (start_side, end_side) = match node.axis {
+                FacetAxis::Column => (AxisPosition::Left, AxisPosition::Right),
+                FacetAxis::Row => (AxisPosition::Top, AxisPosition::Bottom),
+            };
+            if node_global_edge_for_side(node, start_side, &axis_by_path, &edge_indices_by_path) {
+                layout.outer_start = node.local_layout.outer_start;
+            }
+            if node_global_edge_for_side(node, end_side, &axis_by_path, &edge_indices_by_path) {
+                layout.outer_end = node.local_layout.outer_end;
             }
             layout_patches_by_node.insert(node.node_id.clone(), layout);
         }
@@ -557,8 +694,10 @@ fn build_round_collection(
 
     RoundCollectionOutput {
         merged_overflow_by_key,
+        merged_boundary_overflow_by_key,
         merged_layout_by_key,
         overflow_patches_by_node,
+        boundary_overflow_patches_by_node,
         layout_patches_by_node,
         unified_domain_extents,
         domain_target_nodes,
@@ -578,6 +717,8 @@ pub(crate) fn build_initial_requirement_pass(
             measured_overflow: node.measured_overflow.clone(),
             local_layout: node.local_layout.clone(),
             guide_padding_inner_px: node.guide_padding_inner_px,
+            first_edge_index: node.first_edge_index,
+            last_edge_index: node.last_edge_index,
         })
         .collect::<Vec<_>>();
     let domain_infos = snapshot
@@ -591,11 +732,13 @@ pub(crate) fn build_initial_requirement_pass(
         snapshot,
         aggregates: InitialRequirementAggregates {
             merged_overflow_by_key: round.merged_overflow_by_key,
+            merged_boundary_overflow_by_key: round.merged_boundary_overflow_by_key,
             merged_layout_by_key: round.merged_layout_by_key,
             unified_domain_extents: round.unified_domain_extents.clone(),
         },
         distribution: InitialRequirementDistributionPlan {
             overflow_patches_by_node: round.overflow_patches_by_node,
+            boundary_overflow_patches_by_node: round.boundary_overflow_patches_by_node,
             layout_patches_by_node: round.layout_patches_by_node,
             domain_target_nodes: round.domain_target_nodes,
             unified_domain_extents: round.unified_domain_extents,
@@ -616,6 +759,8 @@ pub(crate) fn build_retargeted_requirement_pass(
             measured_overflow: node.measured_overflow.clone(),
             local_layout: node.local_layout.clone(),
             guide_padding_inner_px: node.guide_padding_inner_px,
+            first_edge_index: node.first_edge_index,
+            last_edge_index: node.last_edge_index,
         })
         .collect::<Vec<_>>();
     let round = build_round_collection(&nodes, false, &[]);
@@ -624,10 +769,12 @@ pub(crate) fn build_retargeted_requirement_pass(
         snapshot,
         aggregates: RetargetedRequirementAggregates {
             merged_overflow_by_key: round.merged_overflow_by_key,
+            merged_boundary_overflow_by_key: round.merged_boundary_overflow_by_key,
             merged_layout_by_key: round.merged_layout_by_key,
         },
         distribution: RetargetedRequirementDistributionPlan {
             overflow_patches_by_node: round.overflow_patches_by_node,
+            boundary_overflow_patches_by_node: round.boundary_overflow_patches_by_node,
             layout_patches_by_node: round.layout_patches_by_node,
         },
     }
@@ -679,6 +826,8 @@ mod tests {
                         n: 2,
                     },
                     guide_padding_inner_px: 2.0,
+                    first_edge_index: 0,
+                    last_edge_index: 1,
                     domain_infos: vec![CellDomainInfo {
                         full_cell_path: vec![s("A")],
                         channel: "x".to_string(),
@@ -699,6 +848,8 @@ mod tests {
                         n: 4,
                     },
                     guide_padding_inner_px: 4.0,
+                    first_edge_index: 0,
+                    last_edge_index: 1,
                     domain_infos: vec![CellDomainInfo {
                         full_cell_path: vec![s("B")],
                         channel: "x".to_string(),
@@ -753,6 +904,8 @@ mod tests {
                 measured_overflow: None,
                 local_layout: CoordinatedLayout::default(),
                 guide_padding_inner_px: 0.0,
+                first_edge_index: 0,
+                last_edge_index: 0,
                 domain_infos: vec![info_a.clone(), info_b.clone(), info_c.clone()],
             }],
         };
@@ -804,6 +957,8 @@ mod tests {
                         n: 2,
                     },
                     guide_padding_inner_px: 36.0,
+                    first_edge_index: 0,
+                    last_edge_index: 1,
                     domain_infos: Vec::new(),
                 },
                 InitialRequirementNodeSnapshot {
@@ -818,6 +973,8 @@ mod tests {
                         n: 2,
                     },
                     guide_padding_inner_px: 27.0,
+                    first_edge_index: 0,
+                    last_edge_index: 1,
                     domain_infos: Vec::new(),
                 },
                 InitialRequirementNodeSnapshot {
@@ -832,6 +989,8 @@ mod tests {
                         n: 2,
                     },
                     guide_padding_inner_px: 9.0,
+                    first_edge_index: 0,
+                    last_edge_index: 1,
                     domain_infos: Vec::new(),
                 },
             ],
@@ -902,6 +1061,8 @@ mod tests {
                         n: 2,
                     },
                     guide_padding_inner_px: 8.0,
+                    first_edge_index: 0,
+                    last_edge_index: 1,
                     domain_infos: Vec::new(),
                 },
                 InitialRequirementNodeSnapshot {
@@ -916,6 +1077,8 @@ mod tests {
                         n: 2,
                     },
                     guide_padding_inner_px: 12.0,
+                    first_edge_index: 0,
+                    last_edge_index: 1,
                     domain_infos: Vec::new(),
                 },
                 InitialRequirementNodeSnapshot {
@@ -930,6 +1093,8 @@ mod tests {
                         n: 2,
                     },
                     guide_padding_inner_px: 40.0,
+                    first_edge_index: 0,
+                    last_edge_index: 1,
                     domain_infos: Vec::new(),
                 },
             ],
@@ -974,6 +1139,8 @@ mod tests {
                         n: 2,
                     },
                     guide_padding_inner_px: 24.0,
+                    first_edge_index: 0,
+                    last_edge_index: 1,
                     domain_infos: Vec::new(),
                 },
                 InitialRequirementNodeSnapshot {
@@ -988,6 +1155,8 @@ mod tests {
                         n: 2,
                     },
                     guide_padding_inner_px: 24.0,
+                    first_edge_index: 0,
+                    last_edge_index: 1,
                     domain_infos: Vec::new(),
                 },
             ],
@@ -1014,6 +1183,90 @@ mod tests {
     }
 
     #[test]
+    fn requirement_pass_strips_global_edges_from_boundary_overflow_only() {
+        let root_key = CoordinationGroupKey::new(1, "col:division");
+        let row_key = CoordinationGroupKey::new(2, "row:team");
+        let left_row_node = CoordinationNodeKey::new(vec![0]);
+        let right_row_node = CoordinationNodeKey::new(vec![1]);
+
+        let snapshot = InitialRequirementSnapshot {
+            nodes: vec![
+                InitialRequirementNodeSnapshot {
+                    node_id: CoordinationNodeKey::new(vec![]),
+                    key: root_key,
+                    axis: FacetAxis::Column,
+                    measured_overflow: None,
+                    local_layout: CoordinatedLayout {
+                        padding_inner_px: 0.0,
+                        outer_start: 0.0,
+                        outer_end: 0.0,
+                        n: 2,
+                    },
+                    guide_padding_inner_px: 0.0,
+                    first_edge_index: 0,
+                    last_edge_index: 1,
+                    domain_infos: Vec::new(),
+                },
+                InitialRequirementNodeSnapshot {
+                    node_id: left_row_node.clone(),
+                    key: row_key.clone(),
+                    axis: FacetAxis::Row,
+                    measured_overflow: Some(overflow(0.0, 3.0, 0.0, 39.0)),
+                    local_layout: CoordinatedLayout::default(),
+                    guide_padding_inner_px: 0.0,
+                    first_edge_index: 0,
+                    last_edge_index: 1,
+                    domain_infos: Vec::new(),
+                },
+                InitialRequirementNodeSnapshot {
+                    node_id: right_row_node.clone(),
+                    key: row_key.clone(),
+                    axis: FacetAxis::Row,
+                    measured_overflow: Some(overflow(0.0, 8.0, 0.0, 8.0)),
+                    local_layout: CoordinatedLayout::default(),
+                    guide_padding_inner_px: 0.0,
+                    first_edge_index: 0,
+                    last_edge_index: 1,
+                    domain_infos: Vec::new(),
+                },
+            ],
+        };
+
+        let pass = build_initial_requirement_pass(snapshot);
+        let full = pass
+            .aggregates
+            .merged_overflow_by_key
+            .get(&row_key)
+            .expect("row group should have full overflow");
+        let boundary = pass
+            .aggregates
+            .merged_boundary_overflow_by_key
+            .get(&row_key)
+            .expect("row group should have boundary overflow");
+
+        assert_eq!(full.guide.left, 39.0);
+        assert_eq!(boundary.guide.left, 8.0);
+        assert_eq!(
+            pass.distribution
+                .boundary_overflow_patches_by_node
+                .get(&left_row_node)
+                .unwrap()
+                .guide
+                .left,
+            8.0
+        );
+        assert_eq!(
+            pass.distribution
+                .boundary_overflow_patches_by_node
+                .get(&right_row_node)
+                .unwrap()
+                .guide
+                .left,
+            8.0
+        );
+    }
+
+    #[test]
     fn retargeted_requirement_pass_reconciles_overflow_layout_without_domains() {
         let key = CoordinationGroupKey::new(1, "row:group");
         let snapshot = RetargetedRequirementSnapshot {
@@ -1030,6 +1283,8 @@ mod tests {
                         n: 2,
                     },
                     guide_padding_inner_px: 3.0,
+                    first_edge_index: 0,
+                    last_edge_index: 1,
                 },
                 RetargetedRequirementNodeSnapshot {
                     node_id: CoordinationNodeKey::new(vec![1]),
@@ -1043,6 +1298,8 @@ mod tests {
                         n: 5,
                     },
                     guide_padding_inner_px: 5.0,
+                    first_edge_index: 0,
+                    last_edge_index: 1,
                 },
             ],
         };

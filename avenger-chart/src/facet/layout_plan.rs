@@ -6,6 +6,7 @@
 use crate::coords::{FacetAxis, OverflowSpaceRequirement};
 use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
 use datafusion::{common::ScalarValue, logical_expr::Expr};
+use std::collections::HashMap;
 use tracing::trace;
 
 /// Canonical per-cell plan representation for facet-band measurement.
@@ -49,6 +50,15 @@ pub(crate) struct FacetBandPlan {
     pub outer_end: f32,
     pub n: usize,
 }
+
+/// Realized inner-padding lower bounds from a previous refinement pass.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct FacetBandPaddingFeedback {
+    pub padding_inner_px: f32,
+    pub guide_padding_inner_px: f32,
+}
+
+pub(crate) type FacetBandPaddingFeedbackMap = HashMap<Vec<usize>, FacetBandPaddingFeedback>;
 
 #[inline]
 pub(crate) fn is_renderable_slot(renderable: bool) -> bool {

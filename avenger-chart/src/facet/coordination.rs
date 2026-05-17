@@ -17,6 +17,7 @@ use tracing::{debug, trace};
 use crate::{
     error::AvengerChartError,
     facet::{
+        coord::renderable_for_empty_policy,
         coordination_apply::{
             apply_initial_requirement_pass_with_strategy,
             apply_retargeted_requirement_pass_with_strategy,
@@ -33,6 +34,7 @@ use crate::{
             build_retargeted_requirement_pass,
         },
         coordination_strategy::{FacetPolicyCoordinationStrategy, FacetSizingCoordinationStrategy},
+        layout_plan::effective_edge_indices,
         overflow_projection::FacetOverflowSlabs,
     },
     plot::compiled::ComponentsMeasurement,
@@ -186,6 +188,10 @@ where
             .aggregates
             .merged_overflow_by_key
             .len(),
+        boundary_overflow_groups = initial_requirement_pass
+            .aggregates
+            .merged_boundary_overflow_by_key
+            .len(),
         layout_groups = initial_requirement_pass
             .aggregates
             .merged_layout_by_key
@@ -267,6 +273,10 @@ where
         overflow_groups = retargeted_requirement_pass
             .aggregates
             .merged_overflow_by_key
+            .len(),
+        boundary_overflow_groups = retargeted_requirement_pass
+            .aggregates
+            .merged_boundary_overflow_by_key
             .len(),
         layout_groups = retargeted_requirement_pass
             .aggregates
@@ -417,6 +427,7 @@ where
             let facet_band = facet_band.base();
             let mut domain_infos = Vec::new();
             facet_band.collect_cell_domain_infos(&mut domain_infos);
+            let (first_edge_index, last_edge_index) = facet_band_edge_indices(facet_band);
             nodes.push(InitialRequirementNodeSnapshot {
                 node_id: node_id.clone(),
                 key: facet_band.coordination_group_key_for_depth(depth),
@@ -424,6 +435,8 @@ where
                 measured_overflow: facet_band.measured_overflow_value(),
                 local_layout: facet_band.local_layout_value(),
                 guide_padding_inner_px: facet_band.guide_padding_inner_px_value(),
+                first_edge_index,
+                last_edge_index,
                 domain_infos,
             });
         },
@@ -454,6 +467,7 @@ where
         &mut node_path,
         &mut |node_id, depth, facet_band| {
             let facet_band = facet_band.base();
+            let (first_edge_index, last_edge_index) = facet_band_edge_indices(facet_band);
             nodes.push(RetargetedRequirementNodeSnapshot {
                 node_id: node_id.clone(),
                 key: facet_band.coordination_group_key_for_depth(depth),
@@ -461,10 +475,25 @@ where
                 measured_overflow: facet_band.measured_overflow_value(),
                 local_layout: facet_band.local_layout_value(),
                 guide_padding_inner_px: facet_band.guide_padding_inner_px_value(),
+                first_edge_index,
+                last_edge_index,
             });
         },
     );
     RetargetedRequirementSnapshot { nodes }
+}
+
+fn facet_band_edge_indices(
+    facet_band: &crate::facet::coord::FacetBandCoordMeasurement,
+) -> (usize, usize) {
+    let renderable_cells = facet_band
+        .cells
+        .iter()
+        .map(|cell| {
+            renderable_for_empty_policy(facet_band.empty_cell_policy, !cell.plan.has_data_rows)
+        })
+        .collect::<Vec<_>>();
+    effective_edge_indices(&renderable_cells, facet_band.cells.len()).unwrap_or((0, 0))
 }
 
 #[cfg(test)]

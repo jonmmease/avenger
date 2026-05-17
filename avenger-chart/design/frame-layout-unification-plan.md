@@ -768,7 +768,143 @@ frame-component overlay. Do not keep adding ad hoc arguments to
 - [x] Existing non-debug baselines are unchanged.
 - [x] Debug baseline drift is intentional and reviewed.
 
-## Phase 10: Prototype NativeFrameLayoutSolver
+## Phase 10: Enforce Coordinated Overflow Contracts
+
+Goal: make local overflow an input to coordination only; final geometry should
+come from coordinated overflow contracts and explicit projections.
+
+### Phase 10A: Define The Contract
+
+- [x] Document the phase invariant:
+  - local measured overflow is valid during measurement and requirement
+    collection,
+  - coordinated overflow is the source of truth after coordination,
+  - final rendering, final placement, final debug overlays, and final frame
+    allocations must not pick local overflow when a coordinated contract exists.
+- [x] Define the supported projection purposes explicitly:
+  - rendered subtree envelope for ancestors,
+  - guide anchor overflow for facet-guide placement,
+  - sibling boundary overflow for facet-cell gaps,
+  - residual rendered overflow after parent-owned slabs are subtracted,
+  - explicit boundary demand for leaf-plot-area-sized placement.
+- [x] Clarify that "global" means scoped by coordination key, not one max value
+  across unrelated facet levels:
+  - facet depth,
+  - facet group identity,
+  - facet axis,
+  - slot-sharing/ownership policy,
+  - sizing strategy.
+
+### Phase 10B: Centralize Overflow Resolution
+
+- [x] Add a small resolver API near `overflow_projection.rs` that answers:
+  "given this measurement, phase, and projection purpose, which overflow should
+  be used?"
+- [x] Represent phase/purpose with explicit enums rather than booleans:
+  - measurement/probe requirement collection,
+  - coordinated/final realization,
+  - refinement remeasurement.
+- [x] Avoid using all-zero overflow as a proxy for "not coordinated"; use an
+  explicit optional coordination state or resolver fallback policy.
+- [x] Make fallback behavior visible:
+  - final coordinated facet bands should normally require coordinated overflow,
+  - uncoordinated regular charts and pre-coordination probes can use local
+    overflow,
+  - any final local fallback should be deliberate and logged/tested.
+
+### Phase 10C: Move Guides Onto The Contract
+
+- [x] Replace row-guide local-first final anchoring with coordinated guide-anchor
+  projection.
+- [x] Revisit column-guide special cases such as
+  `local_first_hidden_top_title_if_nonzero`; keep only behavior that follows
+  from a named projection or ownership rule.
+- [x] Ensure guide measurement and guide evaluation use the same resolver with
+  different phases:
+  - measurement can use local/probe overflow,
+  - final evaluation uses coordinated overflow,
+  - refinement uses the current iteration's coordinated result.
+- [x] Update row/column guide unit tests so they assert coordinated-final
+  behavior and local-only fallback behavior separately.
+
+### Phase 10D: Audit Final Geometry Call Sites
+
+- [x] Search final render/realization paths for direct local overflow usage:
+  - `measured_overflow_value`,
+  - `FacetOverflowSource::MeasuredLocal`,
+  - `facet_guide_anchor_local_overflow`,
+  - `facet_rendered_subtree_local_overflow`,
+  - local-first helper names.
+- [x] Classify each remaining local usage as one of:
+  - requirement collection,
+  - refinement measurement,
+  - final fallback for genuinely uncoordinated measurements.
+- [x] Update debug allocation/component overlays so final snapshots display
+  coordinated contracts consistently.
+- [x] Add assertions where possible that final facet rendering does not use local
+  overflow when coordinated overflow is present.
+
+### Phase 10E: Tests and Baselines
+
+- [x] Add or update focused coverage for the mixed tree:
+  `row(division) -> column(department) -> row(team)`.
+- [x] Add assertions that same-level `team` row facet guide anchors match across
+  outer `division` rows after coordination.
+- [x] Cover both canvas-constrained and leaf-plot-area-sized/mixed sizing where
+  practical.
+- [x] Refresh and review:
+  - `facet_debug/facet_nested_mixed_debug_final.png`,
+  - matching `facet_debug_allocation` image if it changes,
+  - any guide/legend-sharing baselines affected by the column-guide policy.
+- [x] Run focused guide and coordination tests first, then the release visual
+  suite.
+
+### Phase 10 Acceptance Checklist
+
+- [x] Final rendering has one coordinated overflow source of truth per
+  projection purpose.
+- [x] Local overflow no longer changes final guide anchors once coordination has
+  completed.
+- [x] Mixed-axis nested facets keep same-level guides aligned across orthogonal
+  ancestors.
+- [x] Any remaining local-overflow fallback is explicitly named, tested, and not
+  used for coordinated facet bands.
+
+## Phase 10F: Feed Realized Boundary Demand Back Into Refinement
+
+Goal: make refinement correct the sibling-gap cases where a child only reveals a
+larger boundary demand after coordinated realization.
+
+- [x] Add an explicit `FacetBandPaddingFeedback` map keyed by facet coordinate
+  node path.
+- [x] Collect realized sibling-boundary demand from each facet band after
+  realization, including guide demand and total rendered boundary demand.
+- [x] Convert realized demand back through the same
+  `compute_padding_from_overflows` path used during measurement.
+- [x] Feed the realized inner-padding lower bounds into the next refinement
+  measurement instead of permanently mutating the layout plan.
+- [x] Treat padding-feedback growth as refinement growth, alongside recursive
+  overflow growth.
+- [x] Apply the feedback path to canvas-sized, plot-area-sized, and mixed
+  dimension policies through the shared refinement loop.
+- [x] Increase the default refinement budget to two optional passes so the first
+  pass can discover realized sibling gaps and the second can apply them.
+- [x] Keep `max_refinement_passes = 0` as the fastest measure-once path.
+- [x] Add unit coverage for monotonic padding-feedback growth detection.
+- [x] Refresh affected visual baselines and rerun the release visual suite.
+
+### Phase 10F Acceptance Checklist
+
+- [x] Sibling gaps are at least the max of the realized right/left or
+  bottom/top boundary demands of adjacent renderable children.
+- [x] Globally outer overflows are still excluded from same-level sibling-gap
+  coordination, except where they affect the subtree's rendered envelope.
+- [x] Refinement can fix gaps that were not visible during the first measured
+  layout.
+- [x] No new sizing owner is introduced; realized feedback only supplies lower
+  bounds for the existing facet-band padding calculation.
+
+## Phase 11: Prototype NativeFrameLayoutSolver
 
 Goal: decide whether Taffy still earns its dependency.
 
@@ -795,7 +931,7 @@ Goal: decide whether Taffy still earns its dependency.
   - `From<taffy::TaffyError>` is removed,
   - `Cargo.toml` no longer references Taffy.
 
-## Phase 11: Cleanup and Documentation
+## Phase 12: Cleanup and Documentation
 
 - [ ] Update `layout/mod.rs` module docs to describe the frame solver model
   rather than Taffy.
@@ -826,6 +962,8 @@ Goal: decide whether Taffy still earns its dependency.
 - [ ] Facet coordination never hand-edits realized frame component bounds.
 - [ ] Refinement is the only phase that can remeasure guide/legend overflow
   after realization.
+- [ ] Local overflow feeds requirement collection; coordinated overflow
+  projections drive final geometry.
 - [ ] Realization can re-solve frame placement from existing measurements
   without remeasuring text, legends, or guides.
 - [ ] Regular charts and one-cell facets share the same frame semantics.

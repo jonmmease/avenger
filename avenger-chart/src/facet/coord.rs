@@ -39,12 +39,12 @@ use crate::{
         guide::FacetColGuideConfig,
         layout_plan::{
             FacetBandPlan, FacetCellEmptyKind, FacetCellPlan, compute_padding_from_overflows,
-            effective_edge_indices,
+            effective_edge_indices, effective_edge_indices_for_values_at_path,
         },
         marks::facet::{FacetMarkRef, facet_mark_ref},
         overflow_projection::{
-            FacetCellOverflowInput, FacetOverflowProjection, FacetOverflowSlabs,
-            aggregate_facet_band_overflow, project_facet_overflow,
+            FacetCellOverflowInput, FacetOverflowPurpose, FacetOverflowResolutionPhase,
+            FacetOverflowSlabs, aggregate_facet_band_overflow, resolve_facet_overflow,
         },
         ownership_policy::{has_holes_from_cells, resolve_facet_ownership_policy},
         padding_policy, path_math,
@@ -217,6 +217,13 @@ pub struct FacetBandCoordMeasurement {
     /// Coordinated overflow values aggregated across ALL facets at this nesting level.
     /// Populated by facet coordination after local measurement.
     pub coordinated_overflow: CoordinatedOverflow,
+    /// Coordinated sibling-boundary/allocation overflow with true chart-edge
+    /// slabs removed.
+    ///
+    /// Guide anchors still use `coordinated_overflow`; explicit sibling gaps
+    /// and parent-projected child frame allocations use this boundary contract
+    /// so globally outer axes/titles do not become interior spacing.
+    pub(crate) coordinated_boundary_overflow: Option<CoordinatedOverflow>,
     /// Overflow measured from this facet band's rendered children before coordination.
     ///
     /// This is the stable "what this subtree actually renders" value. It must
@@ -288,7 +295,7 @@ impl FacetBandCoordMeasurement {
             .unwrap_or(&self.local_layout);
         let mut placement =
             compute_explicit_facet_band_placement(self.axis, &self.cells, active_layout);
-        let slabs = FacetOverflowSlabs::from_coordinated(&self.coordinated_overflow);
+        let slabs = FacetOverflowSlabs::from_coordinated(self.active_boundary_overflow());
         let cross_axis_start_offset = match self.axis {
             FacetAxis::Column => slabs.legend.top,
             FacetAxis::Row => slabs.legend.left,
@@ -395,13 +402,6 @@ impl FacetBandCoordMeasurement {
     }
 }
 
-fn sibling_boundary_overflow_for_facet_band(
-    axis: FacetAxis,
-    overflow: CoordinatedOverflow,
-) -> CoordinatedOverflow {
-    project_facet_overflow(&overflow, FacetOverflowProjection::SiblingBoundary { axis })
-}
-
 pub(crate) fn facet_band_ref(
     coord_measurement: &dyn CoordMeasurement,
 ) -> Option<&FacetBandCoordMeasurement> {
@@ -482,15 +482,21 @@ impl FacetBandCoordMeasurement {
 
     #[cfg(test)]
     pub(crate) fn measured_rendered_subtree_overflow_value(&self) -> Option<CoordinatedOverflow> {
-        crate::facet::overflow_projection::rendered_subtree_overflow_from_coord_measurement(
+        resolve_facet_overflow(
             self,
-            crate::facet::overflow_projection::FacetOverflowSource::MeasuredLocal,
+            FacetOverflowResolutionPhase::Measurement,
+            FacetOverflowPurpose::RenderedSubtree,
         )
+        .map(|resolved| resolved.overflow)
     }
 
     pub(crate) fn measured_sibling_boundary_overflow_value(&self) -> Option<CoordinatedOverflow> {
-        self.measured_overflow_value()
-            .map(|overflow| sibling_boundary_overflow_for_facet_band(self.axis, overflow))
+        resolve_facet_overflow(
+            self,
+            FacetOverflowResolutionPhase::Measurement,
+            FacetOverflowPurpose::SiblingBoundary { axis: self.axis },
+        )
+        .map(|resolved| resolved.overflow)
     }
 
     pub fn local_layout_value(&self) -> CoordinatedLayout {
@@ -504,6 +510,23 @@ impl FacetBandCoordMeasurement {
             .without_realized_owned_legend_slabs();
     }
 
+    pub(crate) fn coordinated_boundary_overflow_value(&self) -> Option<&CoordinatedOverflow> {
+        self.coordinated_boundary_overflow.as_ref()
+    }
+
+    pub(crate) fn active_boundary_overflow(&self) -> &CoordinatedOverflow {
+        self.coordinated_boundary_overflow
+            .as_ref()
+            .unwrap_or(&self.coordinated_overflow)
+    }
+
+    pub fn set_coordinated_boundary_overflow_value(&mut self, overflow: CoordinatedOverflow) {
+        self.coordinated_boundary_overflow = Some(overflow);
+        self.allocation_ownership = self
+            .allocation_ownership
+            .without_realized_owned_legend_slabs();
+    }
+
     pub fn set_coordinated_layout_value(&mut self, layout: CoordinatedLayout) {
         self.coordinated_layout = Some(layout);
         self.allocation_ownership = self
@@ -511,19 +534,32 @@ impl FacetBandCoordMeasurement {
             .without_realized_owned_legend_slabs();
     }
 
-    pub(crate) fn apply_coordinated_alignment_slabs_to_child_layouts(&mut self) {
-        let coordinated = self.coordinated_overflow.clone();
+    /// Realize the parent-owned coordinated cross-axis slabs on each child frame.
+    ///
+    /// Child layouts may be rebuilt during retargeting/refinement after global
+    /// coordination. Re-apply the coordinated slabs at those realization
+    /// boundaries so sibling child frames at the same facet level use the same
+    /// frame allocation.
+    pub(crate) fn realize_coordinated_child_frame_allocations(&mut self) {
+        let coordinated = self.active_boundary_overflow().clone();
         let sides = match self.axis {
             FacetAxis::Column => [AxisPosition::Top, AxisPosition::Bottom],
             FacetAxis::Row => [AxisPosition::Left, AxisPosition::Right],
         };
 
         for cell in &mut self.cells {
+            let child_uses_parent_guide_slab =
+                child_uses_parent_cross_axis_guide_slab(self.axis, &cell.measurement);
             for side in sides {
+                let guide = if child_uses_parent_guide_slab {
+                    overflow_side_value(&coordinated.guide, side)
+                } else {
+                    overflow_side_value(&cell.measurement.layout.overflow, side)
+                };
                 apply_measurement_side_slab(
                     &mut cell.measurement,
                     side,
-                    overflow_side_value(&coordinated.guide, side),
+                    guide,
                     overflow_side_value(&coordinated.total, side),
                 );
             }
@@ -616,7 +652,7 @@ impl FacetBandCoordMeasurement {
                 target_plot_area_height,
             )?;
         }
-        self.apply_coordinated_alignment_slabs_to_child_layouts();
+        self.realize_coordinated_child_frame_allocations();
         self.recompute_explicit_placement_if_needed();
 
         Ok(())
@@ -708,7 +744,7 @@ impl FacetBandCoordMeasurement {
                 target_plot_area_height,
             )?;
         }
-        self.apply_coordinated_alignment_slabs_to_child_layouts();
+        self.realize_coordinated_child_frame_allocations();
         self.recompute_explicit_placement_if_needed();
 
         Ok(())
@@ -1392,7 +1428,7 @@ impl FacetBandCoordMeasurement {
                 }
             }
         }
-        self.apply_coordinated_alignment_slabs_to_child_layouts();
+        self.realize_coordinated_child_frame_allocations();
         trace!(
             axis = ?self.axis,
             facet_depth = self.facet_depth,
@@ -1537,6 +1573,14 @@ fn apply_measurement_side_slab(
 ) {
     apply_frame_side_slab(&mut measurement.layout, side, guide, total);
     measurement.sync_canvas_size_from_layout();
+}
+
+fn child_uses_parent_cross_axis_guide_slab(
+    parent_axis: FacetAxis,
+    child: &ComponentsMeasurement,
+) -> bool {
+    facet_band_ref(child.coord_measurement.as_ref())
+        .is_some_and(|child_facet_band| child_facet_band.axis == parent_axis)
 }
 
 fn refresh_measurement_frame_allocation_rect(measurement: &mut ComponentsMeasurement) {
@@ -1949,7 +1993,7 @@ pub(crate) fn derive_band_overflow_from_probe(
     .unwrap_or_default()
 }
 
-fn renderable_for_empty_policy(policy: FacetEmptyCellPolicy, is_empty: bool) -> bool {
+pub(crate) fn renderable_for_empty_policy(policy: FacetEmptyCellPolicy, is_empty: bool) -> bool {
     if !is_empty {
         return true;
     }
@@ -1977,6 +2021,7 @@ fn empty_facet_band_measurement(
         cells: Vec::new(),
         shared_scale_builder: ScaleBuilder::default(),
         coordinated_overflow: CoordinatedOverflow::default(),
+        coordinated_boundary_overflow: None,
         measured_overflow: None,
         compiled_subplot: compiled_subplot.clone(),
         subplot_cross_size: 0.0,
@@ -3338,6 +3383,12 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             .policy()
             .facet_orthogonal_dimension(self.axis_ops.axis)
             .is_canvas_constrained();
+        let fixed_plot_area_lock = self
+            .eval_ctx
+            .facet_runtime_sizing_mode()
+            .facet_band_is_leaf_plot_area_sized(self.axis_ops.axis);
+        let parent_owns_main_axis_outer_slabs =
+            !self.root_scale_backed_edge_slabs_are_chart_overflow();
         let probe_measurement = FacetBandProbeMeasurement {
             axis: self.axis_ops.axis,
             cell_values: plan.cell_values.clone(),
@@ -3353,12 +3404,9 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 .prepared_inputs
                 .cell_semantics
                 .empty_cell_policy,
-            fixed_plot_area_lock: self
-                .eval_ctx
-                .facet_runtime_sizing_mode()
-                .facet_band_is_leaf_plot_area_sized(self.axis_ops.axis),
+            fixed_plot_area_lock,
             allocation_ownership: FacetBandAllocationOwnership::from_policy(
-                true,
+                parent_owns_main_axis_outer_slabs,
                 orthogonal_dimension_canvas_constrained,
             ),
         };
@@ -3586,13 +3634,29 @@ impl<'a> FacetBandMeasurePipeline<'a> {
     ) -> FacetBandPlan {
         let pass1_renderable_cells = renderable_mask_for_cells(cells, empty_cell_policy);
 
-        let padding_inner_px =
+        let mut padding_inner_px =
             derive_padding_inner_px_from_probe(self.axis_ops.axis, pass1, &pass1_renderable_cells);
-        let guide_padding_inner_px = derive_guide_padding_inner_px_from_probe(
+        let mut guide_padding_inner_px = derive_guide_padding_inner_px_from_probe(
             self.axis_ops.axis,
             pass1,
             &pass1_renderable_cells,
         );
+        if let Some(feedback) = self
+            .eval_ctx
+            .facet_padding_feedback(self.eval_ctx.facet_coord_node_path())
+        {
+            padding_inner_px = padding_inner_px.max(feedback.padding_inner_px);
+            guide_padding_inner_px = guide_padding_inner_px.max(feedback.guide_padding_inner_px);
+            trace!(
+                axis = ?self.axis_ops.axis,
+                facet_coord_node_path = ?self.eval_ctx.facet_coord_node_path(),
+                feedback_padding_inner_px = feedback.padding_inner_px,
+                feedback_guide_padding_inner_px = feedback.guide_padding_inner_px,
+                padding_inner_px,
+                guide_padding_inner_px,
+                "FacetBand applied realized padding feedback"
+            );
+        }
 
         let (first_edge_idx, last_edge_idx) =
             effective_edge_indices(&pass1_renderable_cells, pass1.cell_overflows.len())
@@ -3600,11 +3664,12 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         let (mut outer_start, mut outer_end) =
             self.axis_ops
                 .derive_outer_edges(pass1, first_edge_idx, last_edge_idx);
-        if self.root_scale_backed_edge_slabs_are_chart_overflow() {
-            // A scale-backed root has no parent facet slot outside its band
-            // range. Edge legend/colorbar slabs belong to the chart overflow;
-            // encoding them as band-scale outer edges would reserve them twice.
+        let start_edge_is_chart_overflow = self.scale_backed_edge_slab_is_chart_overflow(true);
+        let end_edge_is_chart_overflow = self.scale_backed_edge_slab_is_chart_overflow(false);
+        if start_edge_is_chart_overflow {
             outer_start = 0.0;
+        }
+        if end_edge_is_chart_overflow {
             outer_end = 0.0;
         }
 
@@ -3617,6 +3682,8 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             cell_count = cell_values.len(),
             first_edge_idx,
             last_edge_idx,
+            start_edge_is_chart_overflow,
+            end_edge_is_chart_overflow,
             "FacetBand derived local layout"
         );
 
@@ -3637,6 +3704,61 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 .policy()
                 .facet_band_dimension(self.axis_ops.axis)
                 .is_canvas_constrained()
+    }
+
+    fn scale_backed_edge_slab_is_chart_overflow(&self, is_start: bool) -> bool {
+        if !self
+            .eval_ctx
+            .facet_runtime_sizing_mode()
+            .policy()
+            .facet_band_dimension(self.axis_ops.axis)
+            .is_canvas_constrained()
+        {
+            return false;
+        }
+
+        let facet_tree = &self.eval_ctx.facet_tree;
+        let Some(resolved) = facet_tree.resolve_path_info(self.facet_path) else {
+            return self.facet_path.is_empty();
+        };
+
+        let mut ancestor_path = Vec::new();
+        for (depth, value) in self.facet_path.iter().enumerate() {
+            let Some(direction) = resolved.level_directions.get(depth).copied() else {
+                return false;
+            };
+            let ancestor_axis = match direction {
+                crate::guide::FacetDirection::Column => FacetAxis::Column,
+                crate::guide::FacetDirection::Row => FacetAxis::Row,
+            };
+
+            if ancestor_axis == self.axis_ops.axis {
+                let Some(node) = facet_tree.node_at_path(&ancestor_path) else {
+                    return false;
+                };
+                let values = node.values().cloned().collect::<Vec<_>>();
+                let Some((first_edge_idx, last_edge_idx)) =
+                    effective_edge_indices_for_values_at_path(facet_tree, &ancestor_path, &values)
+                else {
+                    return false;
+                };
+                let Some(index) = resolved.indices.get(depth).copied() else {
+                    return false;
+                };
+                let expected = if is_start {
+                    first_edge_idx
+                } else {
+                    last_edge_idx
+                };
+                if index != expected {
+                    return false;
+                }
+            }
+
+            ancestor_path.push(value.clone());
+        }
+
+        true
     }
 
     fn build_pass2_scale(
@@ -3892,6 +4014,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 .shared_scale_builder
                 .clone(),
             coordinated_overflow: CoordinatedOverflow::default(),
+            coordinated_boundary_overflow: None,
             measured_overflow,
             compiled_subplot: prepared_runtime.compiled_subplot.clone(),
             subplot_cross_size: final_subplot_cross_size,
@@ -4974,7 +5097,7 @@ mod tests {
         coordinated.guide.right += 100.0;
         coordinated.total.right += 100.0;
         facet_band.set_coordinated_overflow_value(coordinated);
-        facet_band.apply_coordinated_alignment_slabs_to_child_layouts();
+        facet_band.realize_coordinated_child_frame_allocations();
 
         let measured_after = facet_band
             .measured_overflow_value()
@@ -4984,13 +5107,21 @@ mod tests {
         assert_eq!(measured_after.guide.right, measured_before.guide.right);
         assert_eq!(measured_after.total.right, measured_before.total.right);
 
-        let projected_left = facet_band
+        let projected_left_guide = facet_band
             .child_measurements_iter()
             .map(|child| child.layout.overflow.left)
             .fold(0.0f32, f32::max);
         assert!(
-            projected_left >= measured_before.guide.left + 100.0,
-            "child layouts should receive coordinated alignment slabs"
+            projected_left_guide < measured_before.guide.left + 100.0,
+            "orthogonal child guide anchors should not be overwritten by parent alignment slabs"
+        );
+        let projected_left_total = facet_band
+            .child_measurements_iter()
+            .map(|child| child.layout.total_overflow.left)
+            .fold(0.0f32, f32::max);
+        assert!(
+            projected_left_total >= measured_before.total.left + 100.0,
+            "child frames should receive coordinated total allocation slabs"
         );
         Ok(())
     }

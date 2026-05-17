@@ -30,7 +30,10 @@ use crate::{
         CoordMeasurement, CoordinatedLayout, CoordinatedOverflow, FacetAxis,
         OverflowSpaceRequirement,
     },
-    facet::coord::{FacetBandProbeMeasurement, facet_band_ref as facet_band_from_coord},
+    facet::coord::{
+        FacetBandProbeMeasurement, facet_band_ref as facet_band_from_coord,
+        renderable_for_empty_policy,
+    },
     layout::{EdgeSlabs, FrameDemand, OwnedEdgeSlabs},
     plot::compiled::ComponentsMeasurement,
 };
@@ -43,8 +46,43 @@ pub(crate) enum FacetOverflowProjection {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum FacetOverflowSource {
+    /// Stable local requirements captured during measurement.
     MeasuredLocal,
+    /// Current local frame envelope after final guide placement has been rebuilt.
+    RealizedLocal,
+    /// Global coordination contract for aligned guide anchors and sibling gaps.
     Coordinated,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FacetOverflowResolutionPhase {
+    /// Collect local requirements from measured or probe geometry.
+    Measurement,
+    /// Realize final geometry from the coordinated contract when available.
+    Final,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FacetOverflowPurpose {
+    /// Full rendered subtree envelope that an ancestor must reserve.
+    RenderedSubtree,
+    /// Boundary slabs used to anchor facet guide labels/titles.
+    GuideAnchor { axis: FacetAxis },
+    /// Boundary slabs used to size gaps between sibling facet cells.
+    SiblingBoundary { axis: FacetAxis },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FacetOverflowResolvedSource {
+    MeasuredLocal,
+    RealizedLocal,
+    Coordinated,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ResolvedFacetOverflow {
+    pub(crate) overflow: CoordinatedOverflow,
+    pub(crate) source: FacetOverflowResolvedSource,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -83,6 +121,12 @@ pub(crate) struct FacetBoundaryDemand {
     pub(crate) after: f32,
 }
 
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct FacetBoundaryDemandComponents {
+    pub(crate) guide: FacetBoundaryDemand,
+    pub(crate) total: FacetBoundaryDemand,
+}
+
 impl FacetOverflowSlabs {
     pub(crate) fn from_coordinated(overflow: &CoordinatedOverflow) -> Self {
         let legend = OverflowSpaceRequirement {
@@ -118,6 +162,135 @@ pub(crate) fn project_facet_overflow(
             sibling_boundary_overflow(axis, overflow)
         }
     }
+}
+
+pub(crate) fn resolve_facet_overflow(
+    measurement: &dyn CoordMeasurement,
+    phase: FacetOverflowResolutionPhase,
+    purpose: FacetOverflowPurpose,
+) -> Option<ResolvedFacetOverflow> {
+    match phase {
+        FacetOverflowResolutionPhase::Measurement => resolve_facet_overflow_from_source(
+            measurement,
+            FacetOverflowSource::MeasuredLocal,
+            FacetOverflowResolvedSource::MeasuredLocal,
+            purpose,
+        ),
+        FacetOverflowResolutionPhase::Final => match purpose {
+            FacetOverflowPurpose::RenderedSubtree => resolve_facet_overflow_from_source(
+                measurement,
+                FacetOverflowSource::RealizedLocal,
+                FacetOverflowResolvedSource::RealizedLocal,
+                purpose,
+            )
+            .or_else(|| {
+                resolve_facet_overflow_from_source(
+                    measurement,
+                    FacetOverflowSource::MeasuredLocal,
+                    FacetOverflowResolvedSource::MeasuredLocal,
+                    purpose,
+                )
+            }),
+            FacetOverflowPurpose::GuideAnchor { .. }
+            | FacetOverflowPurpose::SiblingBoundary { .. } => resolve_facet_overflow_from_source(
+                measurement,
+                FacetOverflowSource::Coordinated,
+                FacetOverflowResolvedSource::Coordinated,
+                purpose,
+            )
+            .or_else(|| {
+                resolve_facet_overflow_from_source(
+                    measurement,
+                    FacetOverflowSource::MeasuredLocal,
+                    FacetOverflowResolvedSource::MeasuredLocal,
+                    purpose,
+                )
+            }),
+        },
+    }
+}
+
+fn resolved_rendered_subtree_overflow(
+    measurement: &dyn CoordMeasurement,
+    source: FacetOverflowSource,
+) -> Option<CoordinatedOverflow> {
+    match source {
+        FacetOverflowSource::MeasuredLocal => {
+            rendered_subtree_overflow_from_coord_measurement(measurement, source)
+        }
+        FacetOverflowSource::RealizedLocal => {
+            realized_rendered_subtree_overflow_from_coord_measurement(measurement)
+        }
+        FacetOverflowSource::Coordinated => {
+            rendered_subtree_overflow_from_coord_measurement(measurement, source)
+        }
+    }
+}
+
+fn resolve_facet_overflow_from_source(
+    measurement: &dyn CoordMeasurement,
+    source: FacetOverflowSource,
+    resolved_source: FacetOverflowResolvedSource,
+    purpose: FacetOverflowPurpose,
+) -> Option<ResolvedFacetOverflow> {
+    let overflow = match purpose {
+        FacetOverflowPurpose::RenderedSubtree => {
+            resolved_rendered_subtree_overflow(measurement, source)
+        }
+        FacetOverflowPurpose::GuideAnchor { axis } => {
+            resolve_projected_facet_overflow(measurement, source, axis, |axis| {
+                FacetOverflowProjection::GuideAnchor { axis }
+            })
+        }
+        FacetOverflowPurpose::SiblingBoundary { axis } => {
+            resolve_sibling_boundary_overflow(measurement, source, axis)
+        }
+    }?;
+
+    Some(ResolvedFacetOverflow {
+        overflow,
+        source: resolved_source,
+    })
+}
+
+fn resolve_projected_facet_overflow(
+    measurement: &dyn CoordMeasurement,
+    source: FacetOverflowSource,
+    fallback_axis: FacetAxis,
+    projection: impl FnOnce(FacetAxis) -> FacetOverflowProjection,
+) -> Option<CoordinatedOverflow> {
+    if let Some((axis, overflow)) = facet_measurement_overflow(measurement, source) {
+        return Some(project_facet_overflow(&overflow, projection(axis)));
+    }
+
+    match source {
+        FacetOverflowSource::MeasuredLocal | FacetOverflowSource::RealizedLocal => None,
+        FacetOverflowSource::Coordinated => measurement
+            .coordinated_overflow()
+            .map(|overflow| project_facet_overflow(overflow, projection(fallback_axis))),
+    }
+}
+
+fn resolve_sibling_boundary_overflow(
+    measurement: &dyn CoordMeasurement,
+    source: FacetOverflowSource,
+    fallback_axis: FacetAxis,
+) -> Option<CoordinatedOverflow> {
+    if matches!(source, FacetOverflowSource::Coordinated)
+        && let Some(facet_measurement) = facet_band_from_coord(measurement)
+        && let Some(boundary_overflow) = facet_measurement.coordinated_boundary_overflow_value()
+    {
+        return Some(project_facet_overflow(
+            boundary_overflow,
+            FacetOverflowProjection::SiblingBoundary {
+                axis: facet_measurement.axis,
+            },
+        ));
+    }
+
+    resolve_projected_facet_overflow(measurement, source, fallback_axis, |axis| {
+        FacetOverflowProjection::SiblingBoundary { axis }
+    })
 }
 
 pub(crate) fn aggregate_facet_band_overflow(
@@ -262,6 +435,9 @@ pub(crate) fn rendered_subtree_overflow_from_coord_measurement(
                     )
                 })
         }
+        FacetOverflowSource::RealizedLocal => {
+            realized_rendered_subtree_overflow_from_coord_measurement(measurement)
+        }
         FacetOverflowSource::Coordinated => {
             if let Some(facet_measurement) = facet_band_from_coord(measurement) {
                 let active_layout = facet_measurement
@@ -279,20 +455,47 @@ pub(crate) fn rendered_subtree_overflow_from_coord_measurement(
     }
 }
 
-pub(crate) fn guide_anchor_overflow_from_coord_measurement(
+fn realized_rendered_subtree_overflow_from_coord_measurement(
     measurement: &dyn CoordMeasurement,
-    source: FacetOverflowSource,
 ) -> Option<CoordinatedOverflow> {
-    if let Some((axis, overflow)) = facet_measurement_overflow(measurement, source) {
-        return Some(project_facet_overflow(
-            &overflow,
-            FacetOverflowProjection::GuideAnchor { axis },
-        ));
-    }
+    let facet_measurement = facet_band_from_coord(measurement)?;
+    let active_layout = facet_measurement
+        .coordinated_layout
+        .as_ref()
+        .unwrap_or(&facet_measurement.local_layout);
+    let overflow = realized_facet_band_overflow(facet_measurement)?;
+    Some(rendered_subtree_overflow_for_facet_band(
+        facet_measurement,
+        &overflow,
+        active_layout,
+    ))
+}
 
-    match source {
-        FacetOverflowSource::MeasuredLocal => None,
-        FacetOverflowSource::Coordinated => measurement.coordinated_overflow().cloned(),
+fn realized_facet_band_overflow(
+    facet_measurement: &crate::facet::coord::FacetBandCoordMeasurement,
+) -> Option<CoordinatedOverflow> {
+    let overflow_inputs = facet_measurement
+        .cells
+        .iter()
+        .map(|cell| {
+            let overflow = realized_cell_overflow(&cell.measurement);
+            FacetCellOverflowInput {
+                renderable: renderable_for_empty_policy(
+                    facet_measurement.empty_cell_policy,
+                    !cell.plan.has_data_rows,
+                ),
+                guide: overflow.guide,
+                total: overflow.total,
+            }
+        })
+        .collect::<Vec<_>>();
+    aggregate_facet_band_overflow(facet_measurement.axis, &overflow_inputs)
+}
+
+fn realized_cell_overflow(measurement: &ComponentsMeasurement) -> CoordinatedOverflow {
+    CoordinatedOverflow {
+        guide: measurement.layout.overflow.clone(),
+        total: measurement.layout.total_overflow.clone(),
     }
 }
 
@@ -300,10 +503,44 @@ pub(crate) fn rendered_boundary_demand_for_measurement(
     axis: FacetAxis,
     measurement: &ComponentsMeasurement,
 ) -> FacetBoundaryDemand {
+    realized_boundary_demand_components_for_measurement(axis, measurement).total
+}
+
+pub(crate) fn realized_boundary_demand_components_for_measurement(
+    axis: FacetAxis,
+    measurement: &ComponentsMeasurement,
+) -> FacetBoundaryDemandComponents {
+    let overflow = realized_sibling_boundary_overflow_for_measurement(measurement);
+    boundary_demand_components_from_overflow(axis, measurement, &overflow)
+}
+
+pub(crate) fn overflow_from_boundary_demand(
+    axis: FacetAxis,
+    demand: FacetBoundaryDemand,
+) -> OverflowSpaceRequirement {
+    match axis {
+        FacetAxis::Column => OverflowSpaceRequirement {
+            left: demand.before,
+            right: demand.after,
+            ..Default::default()
+        },
+        FacetAxis::Row => OverflowSpaceRequirement {
+            top: demand.before,
+            bottom: demand.after,
+            ..Default::default()
+        },
+    }
+}
+
+fn boundary_demand_components_from_overflow(
+    axis: FacetAxis,
+    measurement: &ComponentsMeasurement,
+    overflow: &CoordinatedOverflow,
+) -> FacetBoundaryDemandComponents {
     const LEGEND_EDGE_BREATHING_ROOM: f32 = 8.0;
 
-    let total = sibling_boundary_total_overflow_for_explicit_placement(measurement);
-    let guide = &measurement.layout.overflow;
+    let guide = &overflow.guide;
+    let total = &overflow.total;
     let (
         legend_left_from_bounds,
         legend_right_from_bounds,
@@ -335,35 +572,71 @@ pub(crate) fn rendered_boundary_demand_for_measurement(
         .max(legend_bottom_from_bounds);
 
     match axis {
-        FacetAxis::Column => FacetBoundaryDemand {
-            before: total.left.max(0.0)
-                + if legend_left > 0.0 {
-                    LEGEND_EDGE_BREATHING_ROOM
-                } else {
-                    0.0
-                },
-            after: total.right.max(0.0)
-                + if legend_right > 0.0 {
-                    LEGEND_EDGE_BREATHING_ROOM
-                } else {
-                    0.0
-                },
+        FacetAxis::Column => FacetBoundaryDemandComponents {
+            guide: FacetBoundaryDemand {
+                before: guide.left.max(0.0),
+                after: guide.right.max(0.0),
+            },
+            total: FacetBoundaryDemand {
+                before: total.left.max(0.0)
+                    + if legend_left > 0.0 {
+                        LEGEND_EDGE_BREATHING_ROOM
+                    } else {
+                        0.0
+                    },
+                after: total.right.max(0.0)
+                    + if legend_right > 0.0 {
+                        LEGEND_EDGE_BREATHING_ROOM
+                    } else {
+                        0.0
+                    },
+            },
         },
-        FacetAxis::Row => FacetBoundaryDemand {
-            before: total.top.max(0.0)
-                + if legend_top > 0.0 {
-                    LEGEND_EDGE_BREATHING_ROOM
-                } else {
-                    0.0
-                },
-            after: total.bottom.max(0.0)
-                + if legend_bottom > 0.0 {
-                    LEGEND_EDGE_BREATHING_ROOM
-                } else {
-                    0.0
-                },
+        FacetAxis::Row => FacetBoundaryDemandComponents {
+            guide: FacetBoundaryDemand {
+                before: guide.top.max(0.0),
+                after: guide.bottom.max(0.0),
+            },
+            total: FacetBoundaryDemand {
+                before: total.top.max(0.0)
+                    + if legend_top > 0.0 {
+                        LEGEND_EDGE_BREATHING_ROOM
+                    } else {
+                        0.0
+                    },
+                after: total.bottom.max(0.0)
+                    + if legend_bottom > 0.0 {
+                        LEGEND_EDGE_BREATHING_ROOM
+                    } else {
+                        0.0
+                    },
+            },
         },
     }
+}
+
+fn realized_sibling_boundary_overflow_for_measurement(
+    measurement: &ComponentsMeasurement,
+) -> CoordinatedOverflow {
+    let mut overflow = CoordinatedOverflow {
+        guide: measurement.layout.overflow.clone(),
+        total: measurement.layout.total_overflow.clone(),
+    };
+
+    if let Some(facet_band) = facet_band_from_coord(measurement.coord_measurement.as_ref())
+        && let Some(realized) = realized_facet_band_overflow(facet_band)
+    {
+        let boundary = project_facet_overflow(
+            &realized,
+            FacetOverflowProjection::SiblingBoundary {
+                axis: facet_band.axis,
+            },
+        );
+        overflow.guide = overflow.guide.max_components(&boundary.guide);
+        overflow.total = overflow.total.max_components(&boundary.total);
+    }
+
+    overflow
 }
 
 fn sibling_boundary_overflow(
@@ -440,6 +713,12 @@ fn facet_measurement_overflow(
                     )
                 })
         }
+        FacetOverflowSource::RealizedLocal => {
+            facet_band_from_coord(measurement).and_then(|facet_measurement| {
+                realized_facet_band_overflow(facet_measurement)
+                    .map(|overflow| (facet_measurement.axis, overflow))
+            })
+        }
         FacetOverflowSource::Coordinated => {
             facet_band_from_coord(measurement).map(|facet_measurement| {
                 (
@@ -474,27 +753,13 @@ fn coordinated_legend_overflow_edges(measurement: &ComponentsMeasurement) -> (f3
         return (0.0, 0.0, 0.0, 0.0);
     };
 
-    let slabs = FacetOverflowSlabs::from_coordinated(&facet_band.coordinated_overflow);
+    let slabs = FacetOverflowSlabs::from_coordinated(facet_band.active_boundary_overflow());
     (
         slabs.legend.left,
         slabs.legend.right,
         slabs.legend.top,
         slabs.legend.bottom,
     )
-}
-
-fn sibling_boundary_total_overflow_for_explicit_placement(
-    measurement: &ComponentsMeasurement,
-) -> OverflowSpaceRequirement {
-    let mut total = measurement.layout.total_overflow.clone();
-
-    if let Some(facet_band) = facet_band_from_coord(measurement.coord_measurement.as_ref())
-        && let Some(boundary) = facet_band.measured_sibling_boundary_overflow_value()
-    {
-        total = total.max_components(&boundary.total);
-    }
-
-    total
 }
 
 #[cfg(test)]

@@ -47,17 +47,23 @@ use crate::{
     facet::{
         coord::{
             FacetBandCoordMeasurement, FacetCellRuntime, facet_band_ref,
-            retarget_measurement_plot_area_policy_no_remeasure,
+            renderable_for_empty_policy, retarget_measurement_plot_area_policy_no_remeasure,
             retarget_scale_ranges_for_plot_area,
         },
         debug as facet_debug,
         empty_cell_policy::FacetEmptyCellPolicy,
         evaluated_facet_tree::EvaluatedFacetTree,
+        layout_plan::{
+            FacetBandPaddingFeedback, FacetBandPaddingFeedbackMap, compute_padding_from_overflows,
+        },
         marks::facet::{FacetMarkRef, facet_mark_ref},
-        overflow_projection::FacetOverflowSlabs,
+        overflow_projection::{
+            FacetOverflowSlabs, overflow_from_boundary_demand,
+            realized_boundary_demand_components_for_measurement,
+        },
         subtree_plot_area::{LeafPlotAreaSize, estimate_root_plot_area_from_leaf_size},
     },
-    guide::OverflowSpaceRequirement,
+    guide::{GuideOverflowPhase, OverflowSpaceRequirement},
     layout::{
         EdgeSlabs, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, FrameAllocation,
         FrameLayout, FrameLayoutInput, LayoutBounds, LayoutSpec, Margins, ResolvedLayoutDimensions,
@@ -215,6 +221,7 @@ fn translated_frame_layout(layout: &FrameLayout, origin: [f32; 2]) -> FrameLayou
 struct RefinementIterationOutcome {
     reached_snapshot_checkpoint: bool,
     overflow_grew: Option<bool>,
+    realized_padding_feedback: Arc<FacetBandPaddingFeedbackMap>,
 }
 
 impl CompiledPlot {
@@ -284,6 +291,85 @@ impl CompiledPlot {
             let next = next.get(idx).unwrap_or(&empty);
             if Self::overflow_increased(&previous.guide, &next.guide, epsilon)
                 || Self::overflow_increased(&previous.total, &next.total, epsilon)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn collect_realized_padding_feedback(
+        measurement: &ComponentsMeasurement,
+        node_path: &mut Vec<usize>,
+        feedback: &mut FacetBandPaddingFeedbackMap,
+    ) {
+        let Some(facet_band) = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+        else {
+            return;
+        };
+
+        let renderable_cells = facet_band
+            .cells
+            .iter()
+            .map(|cell| {
+                renderable_for_empty_policy(facet_band.empty_cell_policy, !cell.plan.has_data_rows)
+            })
+            .collect::<Vec<_>>();
+        let mut guide_overflows = Vec::with_capacity(facet_band.cells.len());
+        let mut total_overflows = Vec::with_capacity(facet_band.cells.len());
+
+        for cell in &facet_band.cells {
+            let demand = realized_boundary_demand_components_for_measurement(
+                facet_band.axis,
+                &cell.measurement,
+            );
+            guide_overflows.push(overflow_from_boundary_demand(facet_band.axis, demand.guide));
+            total_overflows.push(overflow_from_boundary_demand(facet_band.axis, demand.total));
+        }
+
+        let guide_padding_inner_px =
+            compute_padding_from_overflows(facet_band.axis, &guide_overflows, &renderable_cells);
+        let padding_inner_px =
+            compute_padding_from_overflows(facet_band.axis, &total_overflows, &renderable_cells);
+        if guide_padding_inner_px > 0.0 || padding_inner_px > 0.0 {
+            feedback.insert(
+                node_path.clone(),
+                FacetBandPaddingFeedback {
+                    padding_inner_px,
+                    guide_padding_inner_px,
+                },
+            );
+        }
+
+        for (idx, child) in facet_band.child_measurements_iter().enumerate() {
+            node_path.push(idx);
+            Self::collect_realized_padding_feedback(child, node_path, feedback);
+            node_path.pop();
+        }
+    }
+
+    fn realized_padding_feedback_snapshot(
+        measurement: &ComponentsMeasurement,
+    ) -> FacetBandPaddingFeedbackMap {
+        let mut feedback = HashMap::new();
+        let mut node_path = Vec::new();
+        Self::collect_realized_padding_feedback(measurement, &mut node_path, &mut feedback);
+        feedback
+    }
+
+    fn padding_feedback_increased(
+        previous: &FacetBandPaddingFeedbackMap,
+        next: &FacetBandPaddingFeedbackMap,
+        epsilon: f32,
+    ) -> bool {
+        for (node_path, next_feedback) in next {
+            let previous_feedback = previous.get(node_path).copied().unwrap_or_default();
+            if next_feedback.padding_inner_px > previous_feedback.padding_inner_px + epsilon
+                || next_feedback.guide_padding_inner_px
+                    > previous_feedback.guide_padding_inner_px + epsilon
             {
                 return true;
             }
@@ -1569,6 +1655,7 @@ impl CompiledPlot {
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[ScalarValue],
         coord_measurement: Option<&dyn CoordMeasurement>,
+        phase: GuideOverflowPhase,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         let Some(compiled_guide) = &self.compiled_guide else {
             return Ok(OverflowSpaceRequirement::default());
@@ -1580,7 +1667,7 @@ impl CompiledPlot {
             .collect();
 
         compiled_guide
-            .measure_overflow(
+            .measure_overflow_for_phase(
                 &configured_scales,
                 plot_width,
                 plot_height,
@@ -1591,6 +1678,7 @@ impl CompiledPlot {
                 facet_tree,
                 facet_path,
                 coord_measurement,
+                phase,
             )
             .await
     }
@@ -1607,6 +1695,7 @@ impl CompiledPlot {
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[ScalarValue],
         coord_measurement: Option<&dyn CoordMeasurement>,
+        phase: GuideOverflowPhase,
     ) -> Result<(OverflowSpaceRequirement, LayoutSolution, PreparedLegendPlan), AvengerChartError>
     {
         let overflow = self
@@ -1620,6 +1709,7 @@ impl CompiledPlot {
                 facet_tree,
                 facet_path,
                 coord_measurement,
+                phase,
             )
             .await?;
 
@@ -1642,6 +1732,94 @@ impl CompiledPlot {
             .await?;
 
         Ok((overflow, layout, legend_plan))
+    }
+
+    async fn refresh_final_child_layouts_bottom_up(
+        &self,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+    ) -> Result<(), AvengerChartError> {
+        let Some(facet_band) = measurement
+            .coord_measurement
+            .as_any_mut()
+            .downcast_mut::<FacetBandCoordMeasurement>()
+        else {
+            return Ok(());
+        };
+
+        let compiled_subplot = facet_band.compiled_subplot.clone();
+        for cell in &mut facet_band.cells {
+            let child_layout_spec = Self::nested_fixed_plot_area_layout_spec(
+                cell.measurement.plot_area_width,
+                cell.measurement.plot_area_height,
+            );
+            Box::pin(compiled_subplot.refresh_final_layout_bottom_up(
+                &mut cell.measurement,
+                eval_ctx,
+                &child_layout_spec,
+                Some(&cell.data_override),
+                &cell.plan.full_path,
+            ))
+            .await?;
+        }
+
+        facet_band.realize_coordinated_child_frame_allocations();
+        if facet_band.uses_explicit_placement() && facet_band.cells.is_empty() {
+            facet_band.preserve_empty_slot_plot_area_if_explicit(
+                measurement.plot_area_width,
+                measurement.plot_area_height,
+            );
+        } else if facet_band.uses_explicit_placement() {
+            facet_band.recompute_explicit_placement_if_needed();
+        }
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn refresh_final_layout_bottom_up(
+        &self,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        layout_spec: &EvaluatedLayoutSpec,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+    ) -> Result<LayoutBounds, AvengerChartError> {
+        self.refresh_final_child_layouts_bottom_up(measurement, eval_ctx)
+            .await?;
+
+        let ctx = &*eval_ctx.session_context;
+        let facet_tree = eval_ctx.facet_tree.as_ref();
+        let (_, realized_layout, realized_legend_plan) = self
+            .rebuild_layout_with_coord_overflow(
+                layout_spec,
+                &measurement.scales,
+                measurement.plot_area_width,
+                measurement.plot_area_height,
+                &measurement.params,
+                data_override,
+                ctx,
+                facet_tree,
+                facet_path,
+                Some(measurement.coord_measurement.as_ref()),
+                GuideOverflowPhase::Final,
+            )
+            .await?;
+
+        let plot_bounds = *realized_layout.plot_area_bounds();
+        measurement.layout = realized_layout;
+        measurement.legend_plan = realized_legend_plan;
+        measurement.sync_canvas_size_from_layout();
+        measurement.clip = self.resolved_clip_region(
+            eval_ctx,
+            facet_path,
+            &measurement.scales,
+            measurement.plot_area_width,
+            measurement.plot_area_height,
+        );
+        measurement.legend_plan.retarget_scales(&measurement.scales);
+
+        Ok(plot_bounds)
     }
 
     fn realize_canvas_plot_area_no_overflow_remeasure(
@@ -1706,24 +1884,16 @@ impl CompiledPlot {
         iter: usize,
         trace_label: &'static str,
     ) -> Result<LayoutBounds, AvengerChartError> {
-        let ctx = &*eval_ctx.session_context;
-        let facet_tree = eval_ctx.facet_tree.as_ref();
-        let (_, candidate_layout, candidate_legend_plan) = self
-            .rebuild_layout_with_coord_overflow(
+        let candidate_bounds = self
+            .refresh_final_layout_bottom_up(
+                measurement,
+                eval_ctx,
                 layout_spec,
-                &measurement.scales,
-                measurement.plot_area_width,
-                measurement.plot_area_height,
-                &measurement.params,
                 data_override,
-                ctx,
-                facet_tree,
                 facet_path,
-                Some(measurement.coord_measurement.as_ref()),
             )
             .await?;
 
-        let candidate_bounds = *candidate_layout.plot_area_bounds();
         let delta_w = (candidate_bounds.width - measurement.plot_area_width).abs();
         let delta_h = (candidate_bounds.height - measurement.plot_area_height).abs();
         trace!(
@@ -1737,9 +1907,6 @@ impl CompiledPlot {
             trace_label
         );
 
-        measurement.layout = candidate_layout;
-        measurement.legend_plan = candidate_legend_plan;
-        measurement.sync_canvas_size_from_layout();
         Ok(candidate_bounds)
     }
 
@@ -1806,10 +1973,15 @@ impl CompiledPlot {
         scale_provider: &dyn ScaleProvider,
         data_override: Option<&DataFrame>,
         facet_path: &[ScalarValue],
+        padding_feedback: Option<Arc<FacetBandPaddingFeedbackMap>>,
         iteration: usize,
         target_checkpoint: Option<RefinementCheckpoint>,
         trace_label: &'static str,
     ) -> Result<RefinementIterationOutcome, AvengerChartError> {
+        let feedback_eval_ctx = padding_feedback
+            .as_ref()
+            .map(|feedback| eval_ctx.with_facet_padding_feedback(feedback.clone()));
+        let active_eval_ctx = feedback_eval_ctx.as_ref().unwrap_or(eval_ctx);
         let before = if iteration == 0 {
             None
         } else {
@@ -1819,7 +1991,7 @@ impl CompiledPlot {
         if iteration > 0 {
             self.remeasure_canvas_coord_at_current_plot_area(
                 measurement,
-                eval_ctx,
+                active_eval_ctx,
                 scale_provider,
                 data_override,
                 facet_path,
@@ -1827,7 +1999,7 @@ impl CompiledPlot {
             .await?;
             coordinate_overflow_for_guides_with_mode(
                 measurement,
-                eval_ctx,
+                active_eval_ctx,
                 FacetCoordinationMode::FullCycle,
             )
             .await?;
@@ -1836,6 +2008,7 @@ impl CompiledPlot {
                 return Ok(RefinementIterationOutcome {
                     reached_snapshot_checkpoint: true,
                     overflow_grew: None,
+                    realized_padding_feedback: Arc::new(HashMap::new()),
                 });
             }
         }
@@ -1843,7 +2016,7 @@ impl CompiledPlot {
         let candidate_bounds = self
             .measure_canvas_candidate_layout_from_current_measurement(
                 measurement,
-                eval_ctx,
+                active_eval_ctx,
                 layout_spec,
                 data_override,
                 facet_path,
@@ -1856,12 +2029,13 @@ impl CompiledPlot {
             return Ok(RefinementIterationOutcome {
                 reached_snapshot_checkpoint: true,
                 overflow_grew: None,
+                realized_padding_feedback: Arc::new(HashMap::new()),
             });
         }
 
         self.realize_canvas_plot_area_no_overflow_remeasure(
             measurement,
-            eval_ctx,
+            active_eval_ctx,
             facet_path,
             candidate_bounds.width.max(1.0),
             candidate_bounds.height.max(1.0),
@@ -1871,21 +2045,37 @@ impl CompiledPlot {
             return Ok(RefinementIterationOutcome {
                 reached_snapshot_checkpoint: true,
                 overflow_grew: None,
+                realized_padding_feedback: Arc::new(HashMap::new()),
             });
         }
 
+        let realized_padding_feedback =
+            Arc::new(Self::realized_padding_feedback_snapshot(measurement));
+        let padding_feedback_grew = padding_feedback.as_ref().map(|previous| {
+            Self::padding_feedback_increased(
+                previous.as_ref(),
+                realized_padding_feedback.as_ref(),
+                active_eval_ctx
+                    .facet_layout_refinement()
+                    .overflow_growth_epsilon,
+            )
+        });
         let overflow_grew = before.map(|before| {
             let after = Self::recursive_overflow_snapshot(measurement);
-            Self::recursive_overflow_increased(
+            let recursive_overflow_grew = Self::recursive_overflow_increased(
                 &before,
                 &after,
-                eval_ctx.facet_layout_refinement().overflow_growth_epsilon,
-            )
+                active_eval_ctx
+                    .facet_layout_refinement()
+                    .overflow_growth_epsilon,
+            );
+            recursive_overflow_grew || padding_feedback_grew.unwrap_or(false)
         });
 
         Ok(RefinementIterationOutcome {
             reached_snapshot_checkpoint: false,
             overflow_grew,
+            realized_padding_feedback,
         })
     }
 
@@ -1899,18 +2089,21 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
         max_refinement_passes: usize,
     ) -> Result<(), AvengerChartError> {
-        self.run_canvas_refinement_iteration(
-            measurement,
-            eval_ctx,
-            layout_spec,
-            scale_provider,
-            data_override,
-            facet_path,
-            0,
-            None,
-            "canvas layout mandatory realization",
-        )
-        .await?;
+        let mut padding_feedback = self
+            .run_canvas_refinement_iteration(
+                measurement,
+                eval_ctx,
+                layout_spec,
+                scale_provider,
+                data_override,
+                facet_path,
+                None,
+                0,
+                None,
+                "canvas layout mandatory realization",
+            )
+            .await?
+            .realized_padding_feedback;
 
         if max_refinement_passes == 0 {
             eval_ctx.record_facet_refinement_converged();
@@ -1927,6 +2120,7 @@ impl CompiledPlot {
                     scale_provider,
                     data_override,
                     facet_path,
+                    Some(padding_feedback.clone()),
                     pass,
                     None,
                     "canvas layout refinement realization",
@@ -1944,6 +2138,7 @@ impl CompiledPlot {
                 eval_ctx.record_facet_refinement_converged();
                 return Ok(());
             }
+            padding_feedback = outcome.realized_padding_feedback;
         }
 
         eval_ctx.record_facet_refinement_hit_max_passes();
@@ -1979,6 +2174,7 @@ impl CompiledPlot {
                 scale_provider,
                 data_override,
                 facet_path,
+                None,
                 0,
                 target,
                 "canvas layout refinement snapshot",
@@ -1996,6 +2192,7 @@ impl CompiledPlot {
             )));
         }
 
+        let mut padding_feedback = outcome.realized_padding_feedback;
         for pass in 1..=max_refinement_passes {
             let target = (pass == target_iteration).then_some(target_checkpoint);
             let outcome = self
@@ -2006,6 +2203,7 @@ impl CompiledPlot {
                     scale_provider,
                     data_override,
                     facet_path,
+                    Some(padding_feedback.clone()),
                     pass,
                     target,
                     "canvas layout refinement snapshot",
@@ -2019,6 +2217,7 @@ impl CompiledPlot {
             if !outcome.overflow_grew.unwrap_or(false) {
                 break;
             }
+            padding_feedback = outcome.realized_padding_feedback;
         }
 
         Err(AvengerChartError::InternalError(format!(
@@ -2233,6 +2432,7 @@ impl CompiledPlot {
                 facet_tree,
                 facet_path,
                 Some(measurement.coord_measurement.as_ref()),
+                GuideOverflowPhase::Final,
             )
             .await?;
 
@@ -2264,8 +2464,8 @@ impl CompiledPlot {
             .coord_measurement
             .as_any_mut()
             .downcast_mut::<FacetBandCoordMeasurement>()
-            .filter(|facet_band| facet_band.uses_explicit_placement())
         {
+            let uses_explicit_placement = facet_band.uses_explicit_placement();
             let compiled_subplot = facet_band.compiled_subplot.clone();
             for cell in &mut facet_band.cells {
                 let child_layout_spec = Self::nested_fixed_plot_area_layout_spec(
@@ -2281,35 +2481,15 @@ impl CompiledPlot {
                 ))
                 .await?;
             }
-            if facet_band.cells.is_empty() {
+
+            facet_band.realize_coordinated_child_frame_allocations();
+            if uses_explicit_placement && facet_band.cells.is_empty() {
                 facet_band.preserve_empty_slot_plot_area_if_explicit(
                     measurement.plot_area_width,
                     measurement.plot_area_height,
                 );
-            } else {
+            } else if uses_explicit_placement {
                 facet_band.recompute_explicit_placement_if_needed();
-            }
-        } else if let Some(facet_band) = measurement
-            .coord_measurement
-            .as_any_mut()
-            .downcast_mut::<FacetBandCoordMeasurement>()
-        {
-            if policy.has_leaf_plot_area_sized_dimension() {
-                let compiled_subplot = facet_band.compiled_subplot.clone();
-                for cell in &mut facet_band.cells {
-                    let child_layout_spec = Self::nested_fixed_plot_area_layout_spec(
-                        cell.measurement.plot_area_width,
-                        cell.measurement.plot_area_height,
-                    );
-                    Box::pin(compiled_subplot.realize_policy_extents_no_remeasure(
-                        &mut cell.measurement,
-                        eval_ctx,
-                        &child_layout_spec,
-                        Some(&cell.data_override),
-                        &cell.plan.full_path,
-                    ))
-                    .await?;
-                }
             }
         } else {
             return Ok(());
@@ -2360,6 +2540,7 @@ impl CompiledPlot {
                 facet_tree,
                 facet_path,
                 Some(measurement.coord_measurement.as_ref()),
+                GuideOverflowPhase::Final,
             )
             .await?;
 
@@ -2416,10 +2597,15 @@ impl CompiledPlot {
         evaluated_layout_spec: &EvaluatedLayoutSpec,
         data_override: Option<&DataFrame>,
         facet_path: &[ScalarValue],
+        padding_feedback: Option<Arc<FacetBandPaddingFeedbackMap>>,
         iteration: usize,
         target_checkpoint: Option<RefinementCheckpoint>,
         trace_label: &'static str,
     ) -> Result<RefinementIterationOutcome, AvengerChartError> {
+        let feedback_eval_ctx = padding_feedback
+            .as_ref()
+            .map(|feedback| eval_ctx.with_facet_padding_feedback(feedback.clone()));
+        let active_eval_ctx = feedback_eval_ctx.as_ref().unwrap_or(eval_ctx);
         let before = if iteration == 0 {
             None
         } else {
@@ -2429,7 +2615,7 @@ impl CompiledPlot {
         if iteration > 0 {
             self.remeasure_policy_coord_at_current_plot_area(
                 measurement,
-                eval_ctx,
+                active_eval_ctx,
                 evaluated_layout_spec,
                 data_override,
                 facet_path,
@@ -2437,7 +2623,7 @@ impl CompiledPlot {
             .await?;
             coordinate_overflow_for_guides_with_mode(
                 measurement,
-                eval_ctx,
+                active_eval_ctx,
                 FacetCoordinationMode::FullCycle,
             )
             .await?;
@@ -2446,13 +2632,14 @@ impl CompiledPlot {
                 return Ok(RefinementIterationOutcome {
                     reached_snapshot_checkpoint: true,
                     overflow_grew: None,
+                    realized_padding_feedback: Arc::new(HashMap::new()),
                 });
             }
         }
 
         self.realize_policy_extents_no_remeasure(
             measurement,
-            eval_ctx,
+            active_eval_ctx,
             evaluated_layout_spec,
             data_override,
             facet_path,
@@ -2467,16 +2654,31 @@ impl CompiledPlot {
             return Ok(RefinementIterationOutcome {
                 reached_snapshot_checkpoint: true,
                 overflow_grew: None,
+                realized_padding_feedback: Arc::new(HashMap::new()),
             });
         }
 
+        let realized_padding_feedback =
+            Arc::new(Self::realized_padding_feedback_snapshot(measurement));
+        let padding_feedback_grew = padding_feedback.as_ref().map(|previous| {
+            Self::padding_feedback_increased(
+                previous.as_ref(),
+                realized_padding_feedback.as_ref(),
+                active_eval_ctx
+                    .facet_layout_refinement()
+                    .overflow_growth_epsilon,
+            )
+        });
         let overflow_grew = before.map(|before| {
             let after = Self::recursive_overflow_snapshot(measurement);
-            Self::recursive_overflow_increased(
+            let recursive_overflow_grew = Self::recursive_overflow_increased(
                 &before,
                 &after,
-                eval_ctx.facet_layout_refinement().overflow_growth_epsilon,
-            )
+                active_eval_ctx
+                    .facet_layout_refinement()
+                    .overflow_growth_epsilon,
+            );
+            recursive_overflow_grew || padding_feedback_grew.unwrap_or(false)
         });
 
         trace!(
@@ -2490,6 +2692,7 @@ impl CompiledPlot {
         Ok(RefinementIterationOutcome {
             reached_snapshot_checkpoint: false,
             overflow_grew,
+            realized_padding_feedback,
         })
     }
 
@@ -2502,17 +2705,20 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
         max_refinement_passes: usize,
     ) -> Result<(), AvengerChartError> {
-        self.run_policy_refinement_iteration(
-            measurement,
-            eval_ctx,
-            evaluated_layout_spec,
-            data_override,
-            facet_path,
-            0,
-            None,
-            "policy mandatory realization",
-        )
-        .await?;
+        let mut padding_feedback = self
+            .run_policy_refinement_iteration(
+                measurement,
+                eval_ctx,
+                evaluated_layout_spec,
+                data_override,
+                facet_path,
+                None,
+                0,
+                None,
+                "policy mandatory realization",
+            )
+            .await?
+            .realized_padding_feedback;
 
         if max_refinement_passes == 0 {
             eval_ctx.record_facet_refinement_converged();
@@ -2528,6 +2734,7 @@ impl CompiledPlot {
                     evaluated_layout_spec,
                     data_override,
                     facet_path,
+                    Some(padding_feedback.clone()),
                     pass,
                     None,
                     "policy refinement realization",
@@ -2542,6 +2749,7 @@ impl CompiledPlot {
                 eval_ctx.record_facet_refinement_converged();
                 return Ok(());
             }
+            padding_feedback = outcome.realized_padding_feedback;
         }
 
         eval_ctx.record_facet_refinement_hit_max_passes();
@@ -2578,6 +2786,7 @@ impl CompiledPlot {
                 evaluated_layout_spec,
                 data_override,
                 facet_path,
+                None,
                 0,
                 target,
                 "policy refinement snapshot",
@@ -2594,6 +2803,7 @@ impl CompiledPlot {
             )));
         }
 
+        let mut padding_feedback = outcome.realized_padding_feedback;
         for pass in 1..=max_refinement_passes {
             let target = (pass == target_iteration).then_some(target_checkpoint);
             let outcome = self
@@ -2603,6 +2813,7 @@ impl CompiledPlot {
                     evaluated_layout_spec,
                     data_override,
                     facet_path,
+                    Some(padding_feedback.clone()),
                     pass,
                     target,
                     "policy refinement snapshot",
@@ -2614,6 +2825,7 @@ impl CompiledPlot {
             if !outcome.overflow_grew.unwrap_or(false) {
                 break;
             }
+            padding_feedback = outcome.realized_padding_feedback;
         }
 
         Err(AvengerChartError::InternalError(format!(
@@ -3052,6 +3264,7 @@ impl CompiledPlot {
                     facet_tree,
                     facet_path,
                     Some(coord_measurement.as_ref()),
+                    GuideOverflowPhase::Measurement,
                 )
                 .await?;
             let refined_plot_bounds = refined_layout.plot_area_bounds();
@@ -4090,6 +4303,44 @@ mod tests {
             .expect("join large-stack rendering test thread");
     }
 
+    #[test]
+    fn padding_feedback_increased_tracks_growth_only() {
+        let mut previous = HashMap::new();
+        previous.insert(
+            vec![0, 1],
+            FacetBandPaddingFeedback {
+                padding_inner_px: 40.0,
+                guide_padding_inner_px: 20.0,
+            },
+        );
+
+        let mut unchanged_or_smaller = HashMap::new();
+        unchanged_or_smaller.insert(
+            vec![0, 1],
+            FacetBandPaddingFeedback {
+                padding_inner_px: 39.0,
+                guide_padding_inner_px: 20.25,
+            },
+        );
+        assert!(!CompiledPlot::padding_feedback_increased(
+            &previous,
+            &unchanged_or_smaller,
+            0.5
+        ));
+
+        let mut grown = unchanged_or_smaller;
+        grown.insert(
+            vec![0, 1],
+            FacetBandPaddingFeedback {
+                padding_inner_px: 40.6,
+                guide_padding_inner_px: 20.25,
+            },
+        );
+        assert!(CompiledPlot::padding_feedback_increased(
+            &previous, &grown, 0.5
+        ));
+    }
+
     fn deeply_nested_dataframe(ctx: &SessionContext) -> DataFrame {
         let outer_groups = StringArray::from(vec![
             "G1", "G1", "G1", "G1", // S1: A,B; S2: B,C
@@ -4497,6 +4748,38 @@ mod tests {
             )
     }
 
+    fn build_two_level_col_free_legend_plot(
+        df: DataFrame,
+        position: LegendPosition,
+    ) -> Plot<FacetColumn> {
+        Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(960.0, 420.0)
+            .mark(
+                Facet::new().column(col("division")).subplot(
+                    Plot::<FacetColumn>::new().mark(
+                        Facet::new().column(col("department")).subplot(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("x_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                    })
+                                    .y_with(col("y_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                    })
+                                    .fill_with(col("category"), move |c| {
+                                        c.with_scale_sharing(ScaleSharing::Free).legend(|legend| {
+                                            legend.title("Category").position(position)
+                                        })
+                                    })
+                                    .size(70.0),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+    }
+
     fn build_three_level_col_legend_sharing_plot(
         df: DataFrame,
         position: LegendPosition,
@@ -4736,6 +5019,16 @@ mod tests {
     ) -> Result<CompiledPlot, AvengerChartError> {
         let df = legend_sharing_dataframe(ctx).await;
         build_two_level_col_legend_sharing_plot(df, position)
+            .compile(ctx)
+            .await
+    }
+
+    async fn compile_two_level_col_free_legend_plot(
+        ctx: &SessionContext,
+        position: LegendPosition,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = legend_sharing_three_level_dataframe(ctx).await;
+        build_two_level_col_free_legend_plot(df, position)
             .compile(ctx)
             .await
     }
@@ -5429,6 +5722,66 @@ mod tests {
         if let Some(facet_band) = facet_band_ref(measurement) {
             for child in facet_band.child_measurements_iter() {
                 assert_legends_within_canvas(child);
+            }
+        }
+    }
+
+    fn assert_legends_within_root_canvas(
+        measurement: &ComponentsMeasurement,
+        root_canvas: (f32, f32),
+        origin: (f32, f32),
+    ) {
+        for (legend_key, bounds) in &measurement.layout.frame_layout.legends {
+            let left = origin.0 + bounds.x;
+            let top = origin.1 + bounds.y;
+            let right = left + bounds.width;
+            let bottom = top + bounds.height;
+            assert!(
+                left >= -0.5,
+                "legend {legend_key} starts left of root canvas: left={left}, root_width={}",
+                root_canvas.0
+            );
+            assert!(
+                top >= -0.5,
+                "legend {legend_key} starts above root canvas: top={top}, root_height={}",
+                root_canvas.1
+            );
+            assert!(
+                right <= root_canvas.0 + 0.5,
+                "legend {legend_key} exceeds root canvas width: right={right}, root_width={}",
+                root_canvas.0
+            );
+            assert!(
+                bottom <= root_canvas.1 + 0.5,
+                "legend {legend_key} exceeds root canvas height: bottom={bottom}, root_height={}",
+                root_canvas.1
+            );
+        }
+
+        if let Some(facet_band) = facet_band_ref(measurement) {
+            let placement = crate::facet::placement::resolve_facet_band_placement(measurement)
+                .expect("resolve facet placement")
+                .expect("facet placement");
+            let slabs = crate::facet::overflow_projection::FacetOverflowSlabs::from_coordinated(
+                &facet_band.coordinated_overflow,
+            );
+            let (origin_offset_x, origin_offset_y) = match facet_band.axis {
+                FacetAxis::Column => (0.0, slabs.legend.top),
+                FacetAxis::Row => (slabs.legend.left, 0.0),
+            };
+            for (idx, child) in facet_band.child_measurements_iter().enumerate() {
+                let cell = placement.cell(idx).expect("cell placement");
+                let child_origin = match facet_band.axis {
+                    FacetAxis::Column => (
+                        origin.0 + cell.main_axis_start + origin_offset_x,
+                        origin.1 + origin_offset_y,
+                    ),
+                    FacetAxis::Row => (
+                        origin.0 + origin_offset_x,
+                        origin.1 + cell.main_axis_start + origin_offset_y,
+                    ),
+                };
+                assert_legends_within_root_canvas(child, root_canvas, child_origin);
             }
         }
     }
@@ -6900,6 +7253,21 @@ mod tests {
     }
 
     #[test]
+    fn level0_right_free_legends_stay_inside_canvas() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled =
+                compile_two_level_col_free_legend_plot(&ctx, LegendPosition::Right).await?;
+            let (_, _, measurement) =
+                prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+
+            assert_legends_within_canvas(&measurement);
+            assert_legends_within_root_canvas(&measurement, measurement.canvas_size, (0.0, 0.0));
+            Ok(())
+        });
+    }
+
+    #[test]
     fn level1_bottom_legend_slab_contributes_to_rendered_subtree() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
@@ -7491,6 +7859,7 @@ mod tests {
                     eval_ctx.facet_tree.as_ref(),
                     &first_non_empty.plan.full_path,
                     Some(child_measurement.coord_measurement.as_ref()),
+                    GuideOverflowPhase::Final,
                 )
                 .await?;
             let (_, no_coord_layout, _) = child_plot
@@ -7505,6 +7874,7 @@ mod tests {
                     eval_ctx.facet_tree.as_ref(),
                     &first_non_empty.plan.full_path,
                     None,
+                    GuideOverflowPhase::Measurement,
                 )
                 .await?;
 

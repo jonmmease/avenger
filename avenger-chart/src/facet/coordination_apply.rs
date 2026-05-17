@@ -128,6 +128,17 @@ pub(crate) fn apply_initial_requirement_pass_with_strategy<S>(
                     .set_coordinated_overflow_value(overflow);
                 patch_applied = true;
             }
+            if let Some(boundary_overflow) = initial_requirement_pass
+                .distribution
+                .boundary_overflow_patches_by_node
+                .get(node_id)
+                .cloned()
+            {
+                facet_band
+                    .base_mut()
+                    .set_coordinated_boundary_overflow_value(boundary_overflow);
+                patch_applied = true;
+            }
             if let Some(layout) = initial_requirement_pass
                 .distribution
                 .layout_patches_by_node
@@ -188,6 +199,17 @@ pub(crate) fn apply_retargeted_requirement_pass_with_strategy<S>(
                 facet_band
                     .base_mut()
                     .set_coordinated_overflow_value(overflow);
+                patch_applied = true;
+            }
+            if let Some(boundary_overflow) = retargeted_requirement_pass
+                .distribution
+                .boundary_overflow_patches_by_node
+                .get(node_id)
+                .cloned()
+            {
+                facet_band
+                    .base_mut()
+                    .set_coordinated_boundary_overflow_value(boundary_overflow);
                 patch_applied = true;
             }
             if let Some(layout) = retargeted_requirement_pass
@@ -624,7 +646,7 @@ where
 
         facet_band
             .base_mut()
-            .apply_coordinated_alignment_slabs_to_child_layouts();
+            .realize_coordinated_child_frame_allocations();
         S::refresh_placement_after_final_propagation_node(&mut facet_band);
 
         node_results.push(FinalPropagationNodeTrace {

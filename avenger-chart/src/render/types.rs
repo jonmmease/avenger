@@ -132,7 +132,7 @@ pub struct EvaluationOptions {
 
 /// Controls optional repeated facet measurement/layout passes.
 ///
-/// One mandatory pass is always performed. The default runs one refinement pass;
+/// One mandatory pass is always performed. The default allows two refinement passes;
 /// set `max_refinement_passes` to zero for the fastest measure-once path.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FacetLayoutRefinement {
@@ -145,7 +145,7 @@ pub struct FacetLayoutRefinement {
 impl Default for FacetLayoutRefinement {
     fn default() -> Self {
         Self {
-            max_refinement_passes: 1,
+            max_refinement_passes: 2,
             overflow_growth_epsilon: 0.5,
         }
     }

@@ -67,6 +67,15 @@ pub trait CoordinateGuide: Clone + Default + Send + Sync {
     fn build(self) -> Box<dyn CompiledGuide>;
 }
 
+/// Which overflow contract a guide should use while measuring frame demand.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GuideOverflowPhase {
+    /// Initial/local measurement before facet coordination has produced a contract.
+    Measurement,
+    /// Final realization after facet coordination has produced a contract.
+    Final,
+}
+
 #[async_trait::async_trait]
 #[typetag::serde(tag = "type")]
 pub trait CompiledGuide: Send + Sync + 'static {
@@ -98,6 +107,40 @@ pub trait CompiledGuide: Send + Sync + 'static {
         facet_path: &[ScalarValue],
         coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError>;
+
+    /// Measure overflow for a specific layout phase.
+    ///
+    /// Most guides have no coordinated-vs-local distinction and can use the
+    /// default implementation. Facet guides override this so final frame
+    /// solving reserves coordinated guide slots before geometry is solved.
+    async fn measure_overflow_for_phase(
+        &self,
+        scales: &HashMap<String, ConfiguredScale>,
+        plot_width: f32,
+        plot_height: f32,
+        theme: &Theme,
+        params: &IndexMap<String, ScalarValue>,
+        data_override: Option<&DataFrame>,
+        ctx: &SessionContext,
+        facet_tree: &EvaluatedFacetTree,
+        facet_path: &[ScalarValue],
+        coord_measurement: Option<&dyn CoordMeasurement>,
+        _phase: GuideOverflowPhase,
+    ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
+        self.measure_overflow(
+            scales,
+            plot_width,
+            plot_height,
+            theme,
+            params,
+            data_override,
+            ctx,
+            facet_tree,
+            facet_path,
+            coord_measurement,
+        )
+        .await
+    }
 
     /// Measure only the intrinsic subplot overflow, excluding facet-level decorative content
     ///

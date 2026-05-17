@@ -17,7 +17,9 @@ use crate::{
     coords::CoordMeasurement,
     coords::FacetAxis,
     facet::{
-        evaluated_facet_tree::EvaluatedFacetTree, scale_precompute::FacetScalePrecomputeStore,
+        evaluated_facet_tree::EvaluatedFacetTree,
+        layout_plan::{FacetBandPaddingFeedback, FacetBandPaddingFeedbackMap},
+        scale_precompute::FacetScalePrecomputeStore,
     },
     render::types::{
         EvaluatedPlot, EvaluationMetrics, FacetLayoutRefinement, FacetSubtreeSnapshot,
@@ -201,6 +203,8 @@ pub struct EvaluationContext {
     pub(crate) facet_layout_refinement: FacetLayoutRefinement,
     /// Optional estimated-overflow probe-size seed from a previous realized facet tree.
     pub(crate) facet_probe_size_overrides: Option<Arc<HashMap<Vec<ScalarValue>, (f32, f32)>>>,
+    /// Optional realized inner-padding lower bounds from the previous refinement pass.
+    pub(crate) facet_padding_feedback: Option<Arc<FacetBandPaddingFeedbackMap>>,
     /// Child-index path from the root facet coord to the currently evaluated facet cell.
     pub(crate) facet_coord_node_path: Vec<usize>,
     /// Optional shared collector for focused evaluation diagnostics.
@@ -227,6 +231,7 @@ impl EvaluationContext {
             debug_layout_overlay: LayoutDebugOverlayMode::Off,
             facet_layout_refinement: FacetLayoutRefinement::default(),
             facet_probe_size_overrides: None,
+            facet_padding_feedback: None,
             facet_coord_node_path: Vec::new(),
             evaluation_metrics: None,
             facet_subtree_snapshot_capture: None,
@@ -246,6 +251,7 @@ impl EvaluationContext {
             debug_layout_overlay: self.debug_layout_overlay,
             facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
@@ -268,6 +274,7 @@ impl EvaluationContext {
             debug_layout_overlay: self.debug_layout_overlay,
             facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
@@ -292,6 +299,7 @@ impl EvaluationContext {
             debug_layout_overlay: self.debug_layout_overlay,
             facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
@@ -316,6 +324,7 @@ impl EvaluationContext {
             debug_layout_overlay: self.debug_layout_overlay,
             facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
@@ -334,6 +343,7 @@ impl EvaluationContext {
             debug_layout_overlay: self.debug_layout_overlay,
             facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
@@ -356,6 +366,7 @@ impl EvaluationContext {
             debug_layout_overlay: mode,
             facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
@@ -374,6 +385,7 @@ impl EvaluationContext {
             debug_layout_overlay: self.debug_layout_overlay,
             facet_layout_refinement: refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
@@ -399,6 +411,7 @@ impl EvaluationContext {
             debug_layout_overlay: self.debug_layout_overlay,
             facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: Some(overrides),
+            facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
@@ -412,6 +425,37 @@ impl EvaluationContext {
         self.facet_probe_size_overrides
             .as_ref()
             .and_then(|overrides| overrides.get(facet_path).copied())
+    }
+
+    pub(crate) fn with_facet_padding_feedback(
+        &self,
+        feedback: Arc<FacetBandPaddingFeedbackMap>,
+    ) -> Self {
+        Self {
+            theme: self.theme.clone(),
+            session_context: self.session_context.clone(),
+            params: self.params.clone(),
+            facet_tree: self.facet_tree.clone(),
+            hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
+            facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
+            debug_layout_overlay: self.debug_layout_overlay,
+            facet_layout_refinement: self.facet_layout_refinement,
+            facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_padding_feedback: Some(feedback),
+            facet_coord_node_path: self.facet_coord_node_path.clone(),
+            evaluation_metrics: self.evaluation_metrics.clone(),
+            facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+        }
+    }
+
+    pub(crate) fn facet_padding_feedback(
+        &self,
+        facet_coord_node_path: &[usize],
+    ) -> Option<FacetBandPaddingFeedback> {
+        self.facet_padding_feedback
+            .as_ref()
+            .and_then(|feedback| feedback.get(facet_coord_node_path).copied())
     }
 
     pub(crate) fn debug_layout_overlay(&self) -> LayoutDebugOverlayMode {
@@ -434,6 +478,7 @@ impl EvaluationContext {
             debug_layout_overlay: self.debug_layout_overlay,
             facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: Some(metrics),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
@@ -455,6 +500,7 @@ impl EvaluationContext {
             debug_layout_overlay: self.debug_layout_overlay,
             facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: Some(capture),
@@ -475,6 +521,7 @@ impl EvaluationContext {
             debug_layout_overlay: self.debug_layout_overlay,
             facet_layout_refinement: self.facet_layout_refinement,
             facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path,
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
