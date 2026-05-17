@@ -148,19 +148,6 @@ pub(crate) fn apply_initial_requirement_pass_with_strategy<S>(
                 facet_band.base_mut().set_coordinated_layout_value(layout);
                 patch_applied = true;
             }
-            if initial_requirement_pass
-                .distribution
-                .domain_target_nodes
-                .contains(node_id)
-                && !initial_requirement_pass
-                    .distribution
-                    .unified_domain_extents
-                    .is_empty()
-            {
-                facet_band.base_mut().distribute_coordinated_domain_extents(
-                    &initial_requirement_pass.distribution.unified_domain_extents,
-                );
-            }
             S::refresh_placement_after_requirement_patch(facet_band, patch_applied);
         },
     );
@@ -364,7 +351,6 @@ where
                 node_id,
                 axis: planned.requirements.axis,
                 planned_has_legend_overflow: planned.requirements.has_legend_overflow,
-                planned_has_coordinated_extents: planned.requirements.has_coordinated_extents,
                 planned_layout_changed: planned.requirements.layout_changed,
                 planned_axis_owner_ignore_empty_cells: planned
                     .requirements
@@ -380,7 +366,6 @@ where
                 plot_area_retarget_count: outcome.plot_area_retarget_count,
                 width_retarget_count: outcome.width_retarget_count,
                 height_retarget_count: outcome.height_retarget_count,
-                domain_rebuild_count: outcome.domain_rebuild_count,
             });
         }
         Ok(())

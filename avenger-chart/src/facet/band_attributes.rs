@@ -19,6 +19,7 @@ use crate::{
     },
     plot::compiled::{CompiledPlot, ComponentsMeasurement},
     render::EvaluationContext,
+    scales::domain_extent::DomainExtent,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -73,7 +74,6 @@ pub(crate) struct FacetBandLocalLayout {
     pub(crate) overflow_probe: FacetBandOverflowProbe,
     pub(crate) band_layout_plan: FacetBandPlan,
     pub(crate) final_subplot_cross_size: f32,
-    pub(crate) channel_domain_sharing_levels: HashMap<String, SharingLevel>,
 }
 
 pub(crate) struct FacetBandPreparedRuntime {
@@ -89,6 +89,7 @@ pub(crate) struct FacetBandPreparedRuntime {
 pub(crate) struct FacetBandMeasuredRuntime {
     pub(crate) measurements: Vec<ComponentsMeasurement>,
     pub(crate) local_domain_extents: Vec<HashMap<String, ChannelDomainExtent>>,
+    pub(crate) coordinated_domain_extents: Vec<HashMap<String, DomainExtent>>,
 }
 
 impl FacetBandSemantics {

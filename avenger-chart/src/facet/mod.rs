@@ -2,10 +2,11 @@
 //!
 //! Facet layout is split into a few phases:
 //! 1. `evaluated_facet_tree` builds the data-driven facet hierarchy and path metadata.
-//! 2. `coord` measures each facet band locally: cell semantics, estimated subplot
-//!    overflows, local band layout, and child measurements.
+//! 2. `coord` measures each facet band locally: cell semantics, coordinated
+//!    plot-scale domains, estimated subplot overflows, local band layout, and
+//!    child measurements.
 //! 3. `coordination` reconciles requirements across matching facet bands:
-//!    overflows, layout, shared domains, final plot-area sizes, and scale ranges.
+//!    overflows, layout, final plot-area sizes, and scale ranges.
 //! 4. `placement` and `marks` turn coordinated measurements into renderable facet
 //!    guide and subplot positions.
 //!
@@ -26,6 +27,7 @@ pub(crate) mod coordination_plans;
 pub(crate) mod coordination_strategy;
 pub mod debug;
 pub mod dimension_config;
+pub(crate) mod domain_coordination;
 pub mod empty_cell_policy;
 pub mod evaluated_facet_tree;
 pub mod guide;

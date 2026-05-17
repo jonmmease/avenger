@@ -144,7 +144,7 @@ impl CoordMeasurement for EmptyCoordMeasurement {
     // Use default implementations for coordination methods (return None/empty)
 }
 
-/// Cell domain extent info collected during the initial requirements pass.
+/// Cell domain extent info collected before facet overflow measurement.
 ///
 /// Contains all the information needed to group and aggregate domain extents
 /// across cells at the appropriate channel-domain sharing level.
@@ -167,10 +167,11 @@ pub struct CellDomainInfo {
 /// 2. Computes max overflow at each depth level
 /// 3. Distributes coordinated values to all facets
 /// 4. Coordinates layout parameters (padding, cell count) by depth
-/// 5. Coordinates domain extents for level-aware channel-domain sharing
-/// 6. Re-measures any subplots affected by legend overflow or layout coordination
+/// 5. Retargets subplot geometry and scale ranges affected by legend overflow
+///    or layout coordination
 ///
-/// This ensures measurements are correct before `build_plot_components` is called.
+/// Shared plot-scale domains are coordinated before facet overflow measurement,
+/// so this pass only reconciles measured layout requirements.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FacetCoordinationMode {
     /// Full requirement coordination cycle:
@@ -521,7 +522,7 @@ pub trait CoordinateSystemTransform: Send + Sync {
     /// Get the default range binding for a coordinate channel.
     ///
     /// The binding records whether the range is dimension-dependent. It is used
-    /// both for initial scale construction and for no-remeasure retargeting.
+    /// both for initial scale construction and for plot-area retargeting.
     fn default_range_binding(&self, _channel: &str) -> Option<ScaleRangeBinding> {
         None
     }

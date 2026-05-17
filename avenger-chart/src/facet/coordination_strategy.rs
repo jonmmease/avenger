@@ -239,37 +239,22 @@ impl FacetSizingCoordinationStrategy for FacetPolicyCoordinationStrategy {
         let band_dimension_canvas = policy
             .facet_band_dimension(requirements.axis)
             .is_canvas_constrained();
-        let fully_canvas = band_dimension_canvas
-            && policy
-                .facet_orthogonal_dimension(requirements.axis)
-                .is_canvas_constrained();
-        let retarget_for_canvas_domains = fully_canvas && requirements.has_coordinated_extents;
         let legend_slab_total = requirements.legend_main_axis_slab.total();
         let child_actions = requirements
             .child_plot_areas
             .iter()
-            .enumerate()
-            .map(|(idx, plot_area)| {
-                let child_has_domains = requirements
-                    .child_has_coordinated_extents
-                    .get(idx)
-                    .copied()
-                    .unwrap_or(false);
+            .map(|plot_area| {
                 let plot_area_target = facet_child_plot_area_target(
                     requirements.axis,
                     *plot_area,
                     requirements.target_subplot_cross_size,
-                    band_dimension_canvas && (shrink_for_legend || retarget_for_canvas_domains),
-                    shrink_for_legend || retarget_for_canvas_domains,
+                    band_dimension_canvas && shrink_for_legend,
+                    shrink_for_legend,
                     legend_slab_total,
                 );
-                match (plot_area_target, child_has_domains) {
-                    (None, false) => CellRetargetAction::preserve(),
-                    (None, true) => CellRetargetAction::rebuild_domains(),
-                    (Some(target), false) => CellRetargetAction::retarget_plot_area(target),
-                    (Some(target), true) => {
-                        CellRetargetAction::retarget_plot_area_and_domains(target)
-                    }
+                match plot_area_target {
+                    None => CellRetargetAction::preserve(),
+                    Some(target) => CellRetargetAction::retarget_plot_area(target),
                 }
             })
             .collect();

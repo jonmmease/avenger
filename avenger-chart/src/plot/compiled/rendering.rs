@@ -5912,7 +5912,7 @@ mod tests {
                 out.push((
                     slabs.legend.right.max(0.0),
                     requirements.layout_changed,
-                    requirements.has_legend_overflow || requirements.has_coordinated_extents,
+                    requirements.has_legend_overflow,
                 ));
             }
 
@@ -6856,7 +6856,7 @@ mod tests {
     }
 
     #[test]
-    fn plot_area_sized_retarget_actions_rebuild_domains_without_plot_area_retarget() {
+    fn plot_area_sized_retarget_actions_are_geometry_only_after_precoordination() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
             let compiled =
@@ -6885,25 +6885,12 @@ mod tests {
                 &measurement,
                 &eval_ctx,
             );
-            let domain_nodes = plan
-                .node_plans
-                .iter()
-                .filter(|node| node.requirements.has_coordinated_extents)
-                .collect::<Vec<_>>();
-            assert!(
-                !domain_nodes.is_empty(),
-                "fixture should produce coordinated domain requirements"
-            );
-            for node in domain_nodes {
+            for node in &plan.node_plans {
                 let counts = node.actions.child_action_counts();
                 assert_eq!(
-                    counts.plot_area_retarget_count(),
-                    0,
-                    "plot-area-sized domain coordination should preserve child plot areas"
-                );
-                assert!(
-                    counts.domain_rebuild_count() > 0,
-                    "coordinated domains should produce domain rebuild actions"
+                    counts.preserve + counts.retarget_plot_area,
+                    node.requirements.child_count,
+                    "retarget actions should only preserve or retarget plot areas"
                 );
             }
             Ok(())

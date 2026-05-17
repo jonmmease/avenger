@@ -7,6 +7,7 @@ use datafusion::{common::ScalarValue, dataframe::DataFrame};
 use tracing::{debug, trace};
 
 use crate::{
+    coords::CellDomainInfo,
     error::AvengerChartError,
     facet::{
         evaluated_facet_tree::EvaluatedFacetTree,
@@ -62,10 +63,19 @@ pub(crate) struct FacetScaleNodeArtifacts {
     pub(crate) per_cell_scale_builder_cache: HashMap<Vec<ScalarValue>, ScaleBuilder>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct FacetDomainInfoKey {
+    subplot_ptr: usize,
+    canonical_full_cell_path: Vec<ScalarValue>,
+    channel: String,
+    facet_depth: u8,
+}
+
 #[derive(Default)]
 struct FacetScalePrecomputeState {
     precomputed_subtrees: HashSet<FacetScaleSubtreeKey>,
     node_artifacts: HashMap<FacetScaleNodeKey, Arc<FacetScaleNodeArtifacts>>,
+    domain_infos: HashMap<FacetDomainInfoKey, CellDomainInfo>,
 }
 
 #[derive(Default)]
@@ -112,6 +122,37 @@ impl FacetScalePrecomputeStore {
             .expect("FacetScalePrecomputeStore lock poisoned")
             .node_artifacts
             .insert(key, artifacts);
+    }
+
+    pub(crate) fn insert_domain_infos(
+        &self,
+        compiled_subplot: &Arc<CompiledPlot>,
+        infos: Vec<CellDomainInfo>,
+    ) {
+        let subplot_ptr = Arc::as_ptr(compiled_subplot) as usize;
+        let mut state = self
+            .state
+            .lock()
+            .expect("FacetScalePrecomputeStore lock poisoned");
+        for info in infos {
+            let key = FacetDomainInfoKey {
+                subplot_ptr,
+                canonical_full_cell_path: canonicalize_path(&info.full_cell_path),
+                channel: info.channel.clone(),
+                facet_depth: info.facet_depth,
+            };
+            state.domain_infos.insert(key, info);
+        }
+    }
+
+    pub(crate) fn domain_infos(&self) -> Vec<CellDomainInfo> {
+        self.state
+            .lock()
+            .expect("FacetScalePrecomputeStore lock poisoned")
+            .domain_infos
+            .values()
+            .cloned()
+            .collect()
     }
 }
 
@@ -359,6 +400,74 @@ pub(crate) async fn build_node_artifacts(
     })
 }
 
+async fn collect_node_domain_infos(
+    cell_values: &[ScalarValue],
+    facet_path: &[ScalarValue],
+    inherited_data_df: &DataFrame,
+    compiled_subplot: &Arc<CompiledPlot>,
+    facet_tree: &EvaluatedFacetTree,
+    eval_ctx: &EvaluationContext,
+    artifacts: &FacetScaleNodeArtifacts,
+) -> Result<Vec<CellDomainInfo>, AvengerChartError> {
+    let mut infos = Vec::new();
+
+    for value in cell_values {
+        let mut full_path = facet_path.to_vec();
+        full_path.push(value.clone());
+        if !facet_tree.cell_exists(&full_path) || !facet_tree.cell_has_data(&full_path) {
+            continue;
+        }
+
+        let canonical_full_path = canonicalize_path(&full_path);
+        let cached_builder = artifacts
+            .per_cell_scale_builder_cache
+            .get(&canonical_full_path)
+            .or_else(|| artifacts.per_cell_scale_builder_cache.get(&full_path));
+        let scale_builder;
+        let builder = if let Some(cached_builder) = cached_builder {
+            cached_builder
+        } else {
+            let data_override = if let Some(predicate) = facet_tree.cell_predicate(&full_path, 0) {
+                inherited_data_df.clone().filter(predicate).map_err(|e| {
+                    AvengerChartError::InternalError(format!(
+                        "Failed to filter data for domain precompute cell {:?}: {}",
+                        full_path, e
+                    ))
+                })?
+            } else {
+                inherited_data_df.clone()
+            };
+
+            scale_builder = build_scale_builder_from_marks(
+                &compiled_subplot.marks,
+                &compiled_subplot.scale_specs,
+                &compiled_subplot.coord_transform,
+                &compiled_subplot.data,
+                Some(data_override),
+                &eval_ctx.session_context,
+                &eval_ctx.params,
+                compiled_subplot.get_theme().as_ref(),
+            )
+            .await?;
+            &scale_builder
+        };
+
+        let facet_depth = full_path.len() as u8;
+        for (channel, extent) in builder.extract_domain_extents(&["x", "y", "x2", "y2"]) {
+            let domain_sharing_level = facet_tree.channel_domain_sharing_level(&channel);
+            infos.push(CellDomainInfo {
+                full_cell_path: full_path.clone(),
+                channel,
+                domain_sharing_level,
+                facet_depth,
+                extent,
+            });
+        }
+    }
+
+    Ok(infos)
+}
+
 async fn ensure_subtree_precomputed_internal(
     compiled_marks: &[Arc<dyn CompiledMark>],
     facet_path: &[ScalarValue],
@@ -377,7 +486,9 @@ async fn ensure_subtree_precomputed_internal(
 
     let cell_values =
         enumerate_cell_values_for_node(facet_tree, facet_path, current_facet_slot_sharing);
-    if store.get_node_artifacts(&node_key).is_none() {
+    let artifacts = if let Some(artifacts) = store.get_node_artifacts(&node_key) {
+        artifacts
+    } else {
         let artifacts = build_node_artifacts(
             &cell_values,
             facet_path,
@@ -387,9 +498,23 @@ async fn ensure_subtree_precomputed_internal(
             eval_ctx,
         )
         .await?;
-        store.insert_node_artifacts(node_key.clone(), Arc::new(artifacts));
+        let artifacts = Arc::new(artifacts);
+        store.insert_node_artifacts(node_key.clone(), artifacts.clone());
         trace!(facet_path = ?facet_path, "facet scale precompute built node artifacts");
-    }
+        artifacts
+    };
+
+    let domain_infos = collect_node_domain_infos(
+        &cell_values,
+        facet_path,
+        inherited_data_df,
+        compiled_subplot,
+        facet_tree,
+        eval_ctx,
+        &artifacts,
+    )
+    .await?;
+    store.insert_domain_infos(compiled_subplot, domain_infos);
 
     for value in &cell_values {
         let mut full_path = facet_path.to_vec();

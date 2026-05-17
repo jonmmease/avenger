@@ -130,7 +130,7 @@ where
     );
 }
 
-/// Coordinate overflow, layout, and domains across the measurement tree.
+/// Coordinate overflow, layout, plot-area retargeting, and scale ranges across the measurement tree.
 ///
 /// This is the facet-specific coordination entrypoint invoked from `coords.rs`.
 pub async fn coordinate_facet_measurement_tree(
@@ -196,10 +196,6 @@ where
             .aggregates
             .merged_layout_by_key
             .len(),
-        domain_groups = initial_requirement_pass
-            .aggregates
-            .unified_domain_extents
-            .len(),
         "coordinate_facet_measurement_tree initial requirements global aggregate + distribution"
     );
     apply_initial_requirement_pass_with_strategy::<S>(measurement, &initial_requirement_pass);
@@ -253,11 +249,6 @@ where
             .iter()
             .map(|result| result.height_retarget_count)
             .sum::<usize>(),
-        domain_rebuild_nodes = retarget_trace
-            .node_results
-            .iter()
-            .filter(|result| result.domain_rebuild_count > 0)
-            .count(),
         "coordinate_facet_measurement_tree retarget complete"
     );
 
@@ -425,8 +416,6 @@ where
         &mut node_path,
         &mut |node_id, depth, facet_band| {
             let facet_band = facet_band.base();
-            let mut domain_infos = Vec::new();
-            facet_band.collect_cell_domain_infos(&mut domain_infos);
             let (first_edge_index, last_edge_index) = facet_band_edge_indices(facet_band);
             nodes.push(InitialRequirementNodeSnapshot {
                 node_id: node_id.clone(),
@@ -437,7 +426,6 @@ where
                 guide_padding_inner_px: facet_band.guide_padding_inner_px_value(),
                 first_edge_index,
                 last_edge_index,
-                domain_infos,
             });
         },
     );
@@ -575,17 +563,6 @@ pub(crate) fn debug_assert_initial_requirement_coverage(
         layout_patch_nodes, snapshot_nodes,
         "initial requirements layout patch coverage must match snapshot nodes"
     );
-
-    if !initial_requirement_pass
-        .aggregates
-        .unified_domain_extents
-        .is_empty()
-    {
-        debug_assert_eq!(
-            initial_requirement_pass.distribution.domain_target_nodes, snapshot_nodes,
-            "initial requirements domain target coverage must match snapshot nodes when domain aggregates exist"
-        );
-    }
 }
 
 pub(crate) fn debug_assert_retargeted_requirement_coverage(
@@ -636,11 +613,6 @@ pub(crate) fn debug_assert_retarget_plan_coverage_with_strategy<S>(
             node.requirements.child_count,
             node.requirements.child_plot_areas.len(),
             "retarget requirements must include one child plot-area size per child"
-        );
-        debug_assert_eq!(
-            node.requirements.child_count,
-            node.requirements.child_has_coordinated_extents.len(),
-            "retarget requirements must include one coordinated-domain flag per child"
         );
         debug_assert_eq!(
             node.requirements.child_count,
@@ -715,10 +687,6 @@ pub(crate) fn debug_assert_retarget_trace_alignment(plan: &RetargetPlan, trace: 
             planned.requirements.has_legend_overflow
         );
         debug_assert_eq!(
-            trace_result.planned_has_coordinated_extents,
-            planned.requirements.has_coordinated_extents
-        );
-        debug_assert_eq!(
             trace_result.planned_layout_changed,
             planned.requirements.layout_changed
         );
@@ -752,10 +720,6 @@ pub(crate) fn debug_assert_retarget_trace_alignment(plan: &RetargetPlan, trace: 
         debug_assert_eq!(
             trace_result.height_retarget_count,
             planned.actions.child_action_counts().height_targets
-        );
-        debug_assert_eq!(
-            trace_result.domain_rebuild_count,
-            planned.actions.child_action_counts().domain_rebuild_count()
         );
     }
 }
@@ -828,7 +792,6 @@ mod tests {
         },
         prelude::*,
         render::EvaluationContext,
-        scales::domain_extent::DomainExtent,
         theme::Theme,
     };
     use datafusion::{dataframe::DataFrame, prelude::SessionContext};
@@ -1314,19 +1277,6 @@ mod tests {
                 .len()
                 <= initial_requirement_pass.snapshot.nodes.len()
         );
-        if !initial_requirement_pass
-            .aggregates
-            .unified_domain_extents
-            .is_empty()
-        {
-            assert_eq!(
-                initial_requirement_pass
-                    .distribution
-                    .domain_target_nodes
-                    .len(),
-                initial_requirement_pass.snapshot.nodes.len()
-            );
-        }
         Ok(())
     }
 
@@ -1338,18 +1288,6 @@ mod tests {
             build_initial_requirement_pass(collect_initial_requirement_snapshot(&measurement));
         apply_initial_requirement_pass(&mut measurement, &initial_requirement_pass);
 
-        {
-            let root = facet_band_mut(&mut measurement)
-                .expect("fixture should produce root facet-band measurement");
-            let first_cell = root
-                .cells
-                .first_mut()
-                .expect("fixture should include at least one facet cell");
-            first_cell
-                .coordinated_domain_extents
-                .insert("x".to_string(), DomainExtent::numeric(0.0, 10.0));
-        }
-
         let retarget_plan = build_retarget_plan(&measurement, &eval_ctx);
         let retarget_trace =
             run_retarget_with_trace(&mut measurement, &eval_ctx, &retarget_plan).await?;
@@ -1360,21 +1298,13 @@ mod tests {
             .find(|result| result.node_id.path.is_empty())
             .expect("retarget should include a root node trace");
         assert!(root_result.parent_cross_size_propagated);
-        assert!(root_result.planned_has_coordinated_extents);
         assert!(
             root_result
                 .planned_child_action_counts
                 .plot_area_retarget_count()
                 > 0
         );
-        assert!(
-            root_result
-                .planned_child_action_counts
-                .domain_rebuild_count()
-                > 0
-        );
         assert!(root_result.plot_area_retarget_count > 0);
-        assert!(root_result.domain_rebuild_count > 0);
         Ok(())
     }
 
@@ -1715,9 +1645,6 @@ mod tests {
             forced_layout.n = forced_layout.n.saturating_add(8);
             forced_layout.padding_inner_px += 12.0;
             root.set_coordinated_layout_value(forced_layout);
-            root.cells[0]
-                .coordinated_domain_extents
-                .insert("x".to_string(), DomainExtent::numeric(0.0, 15.0));
         }
 
         let plan = build_retarget_plan(&measurement, &eval_ctx);
@@ -1731,21 +1658,13 @@ mod tests {
             .expect("retarget should include a root node trace");
         assert_eq!(root_result.axis, FacetAxis::Column);
         assert!(root_result.subplot_cross_size_after > 0.0);
-        assert!(root_result.planned_has_coordinated_extents);
         assert!(
             root_result
                 .planned_child_action_counts
                 .plot_area_retarget_count()
                 > 0
         );
-        assert!(
-            root_result
-                .planned_child_action_counts
-                .domain_rebuild_count()
-                > 0
-        );
         assert!(root_result.plot_area_retarget_count > 0);
-        assert!(root_result.domain_rebuild_count > 0);
         Ok(())
     }
 
