@@ -225,23 +225,15 @@ impl CompiledGuide for PolarGuide {
             max_y = max_y.max(upper[1]);
         }
 
-        // Polar coordinate systems are centered, so calculate overflow from center
-        let center_x = plot_width / 2.0;
-        let center_y = plot_height / 2.0;
-        let radius = plot_width.min(plot_height) / 2.0;
-
-        // Calculate the circular bounds
-        let circle_left = center_x - radius;
-        let circle_right = center_x + radius;
-        let circle_top = center_y - radius;
-        let circle_bottom = center_y + radius;
-
-        // Calculate overflow relative to circular bounds
+        // The polar active circle is an internal coordinate-system region
+        // centered inside the allocated plot rectangle. Empty bands between a
+        // non-square plot rectangle and the circle are still part of the plot
+        // area, so they should not become external overflow.
         const THRESHOLD: f32 = 1.0;
-        let left = (circle_left - min_x).max(0.0);
-        let right = (max_x - circle_right).max(0.0);
-        let top = (circle_top - min_y).max(0.0);
-        let bottom = (max_y - circle_bottom).max(0.0);
+        let left = (0.0 - min_x).max(0.0);
+        let right = (max_x - plot_width).max(0.0);
+        let top = (0.0 - min_y).max(0.0);
+        let bottom = (max_y - plot_height).max(0.0);
 
         // Round very small overflows to zero
         let left = if left < THRESHOLD { 0.0 } else { left };
