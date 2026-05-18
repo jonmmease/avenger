@@ -35,6 +35,7 @@ use indexmap::IndexMap;
 use tracing::{Level, debug, trace};
 
 use crate::{
+    cartesian::axis::AxisPosition,
     channel::{
         resolution::resolve_all_channel_refs,
         value::{ChannelValue, ConditionalValue, strip_trailing_numbers},
@@ -218,40 +219,149 @@ fn translated_frame_layout(layout: &FrameLayout, origin: [f32; 2]) -> FrameLayou
     layout
 }
 
-fn shrink_start_edge(bounds: &mut LayoutBounds, amount: f32, is_horizontal: bool) {
-    if amount <= 0.0 {
+fn set_debug_side_overflow(layout: &mut FrameLayout, side: AxisPosition, total: f32) {
+    if total <= 0.01 {
+        layout.guide_overflows.remove(&side);
         return;
     }
-    if is_horizontal {
-        bounds.width = (bounds.width - amount).max(0.0);
-    } else {
-        bounds.height = (bounds.height - amount).max(0.0);
+
+    let plot_area = layout.plot_area;
+    let bounds = match side {
+        AxisPosition::Top => LayoutBounds {
+            x: plot_area.x,
+            y: plot_area.y - total,
+            width: plot_area.width,
+            height: total,
+        },
+        AxisPosition::Right => LayoutBounds {
+            x: plot_area.x + plot_area.width,
+            y: plot_area.y,
+            width: total,
+            height: plot_area.height,
+        },
+        AxisPosition::Bottom => LayoutBounds {
+            x: plot_area.x,
+            y: plot_area.y + plot_area.height,
+            width: plot_area.width,
+            height: total,
+        },
+        AxisPosition::Left => LayoutBounds {
+            x: plot_area.x - total,
+            y: plot_area.y,
+            width: total,
+            height: plot_area.height,
+        },
+    };
+    layout.guide_overflows.insert(side, bounds);
+}
+
+fn add_debug_side_extent(
+    extents: &mut EdgeSlabs,
+    side: AxisPosition,
+    content: LayoutBounds,
+    bounds: LayoutBounds,
+) {
+    let content_right = content.x + content.width;
+    let content_bottom = content.y + content.height;
+    let bounds_right = bounds.x + bounds.width;
+    let bounds_bottom = bounds.y + bounds.height;
+    match side {
+        AxisPosition::Top => {
+            extents.top = extents.top.max(content.y - bounds.y);
+        }
+        AxisPosition::Right => {
+            extents.right = extents.right.max(bounds_right - content_right);
+        }
+        AxisPosition::Bottom => {
+            extents.bottom = extents.bottom.max(bounds_bottom - content_bottom);
+        }
+        AxisPosition::Left => {
+            extents.left = extents.left.max(content.x - bounds.x);
+        }
     }
 }
 
-fn shrink_end_edge(bounds: &mut LayoutBounds, amount: f32, is_horizontal: bool) {
-    if amount <= 0.0 {
-        return;
-    }
-    if is_horizontal {
-        bounds.x += amount;
-        bounds.width = (bounds.width - amount).max(0.0);
-    } else {
-        bounds.y += amount;
-        bounds.height = (bounds.height - amount).max(0.0);
+fn legend_side(position: LegendPosition) -> AxisPosition {
+    match position {
+        LegendPosition::Top => AxisPosition::Top,
+        LegendPosition::Right => AxisPosition::Right,
+        LegendPosition::Bottom => AxisPosition::Bottom,
+        LegendPosition::Left => AxisPosition::Left,
     }
 }
 
-fn child_facet_component_debug_legend_expansion(
+fn union_layout_bounds(bounds: &mut Option<LayoutBounds>, next: LayoutBounds) {
+    let Some(current) = bounds else {
+        *bounds = Some(next);
+        return;
+    };
+
+    let x0 = current.x.min(next.x);
+    let y0 = current.y.min(next.y);
+    let x1 = (current.x + current.width).max(next.x + next.width);
+    let y1 = (current.y + current.height).max(next.y + next.height);
+    *current = LayoutBounds {
+        x: x0,
+        y: y0,
+        width: (x1 - x0).max(0.0),
+        height: (y1 - y0).max(0.0),
+    };
+}
+
+fn projected_facet_child_plot_area_envelope(
     layout: &FrameLayout,
     measurement: &ComponentsMeasurement,
     facet_band: &FacetBandCoordMeasurement,
-) -> Result<EdgeSlabs, AvengerChartError> {
+) -> Result<Option<LayoutBounds>, AvengerChartError> {
     let child_render_placements = resolve_facet_cell_render_placements(measurement, facet_band)?;
     let parent_content_origin = [layout.plot_area.x, layout.plot_area.y];
-    let plot_right = layout.plot_area.x + layout.plot_area.width;
-    let plot_bottom = layout.plot_area.y + layout.plot_area.height;
-    let mut expansion = EdgeSlabs::default();
+    let mut envelope = None;
+
+    for cell_render_placement in &child_render_placements {
+        let cell = facet_band
+            .cells
+            .get(cell_render_placement.cell_index)
+            .ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Missing facet component debug cell for index {}",
+                    cell_render_placement.cell_index
+                ))
+            })?;
+        let child_plot_bounds = *cell.measurement.layout.plot_area_bounds();
+        let projected_plot_bounds = project_child_layout_bounds(
+            parent_content_origin,
+            cell_render_placement.origin,
+            child_plot_bounds,
+            child_plot_bounds,
+        );
+        union_layout_bounds(&mut envelope, projected_plot_bounds);
+    }
+
+    Ok(envelope)
+}
+
+fn facet_component_debug_side_extents(
+    layout: &FrameLayout,
+    measurement: &ComponentsMeasurement,
+    facet_band: &FacetBandCoordMeasurement,
+    content: LayoutBounds,
+) -> Result<EdgeSlabs, AvengerChartError> {
+    let mut extents = EdgeSlabs::default();
+
+    for (side, bounds) in &layout.guide_overflows {
+        add_debug_side_extent(&mut extents, *side, content, *bounds);
+    }
+    for (position, legend_ids) in &layout.legends_by_position {
+        let side = legend_side(*position);
+        for legend_id in legend_ids {
+            if let Some(bounds) = layout.legends.get(legend_id) {
+                add_debug_side_extent(&mut extents, side, content, *bounds);
+            }
+        }
+    }
+
+    let child_render_placements = resolve_facet_cell_render_placements(measurement, facet_band)?;
+    let parent_content_origin = [layout.plot_area.x, layout.plot_area.y];
 
     for cell_render_placement in &child_render_placements {
         let cell = facet_band
@@ -280,6 +390,7 @@ fn child_facet_component_debug_legend_expansion(
             else {
                 continue;
             };
+            let side = legend_side(position);
             for legend_id in legend_ids {
                 let Some(bounds) = cell.measurement.layout.frame_layout.legends.get(legend_id)
                 else {
@@ -291,33 +402,16 @@ fn child_facet_component_debug_legend_expansion(
                     *child_plot_bounds,
                     *bounds,
                 );
-                match position {
-                    LegendPosition::Top => {
-                        expansion.top = expansion.top.max(layout.plot_area.y - projected.y);
-                    }
-                    LegendPosition::Bottom => {
-                        expansion.bottom = expansion
-                            .bottom
-                            .max(projected.y + projected.height - plot_bottom);
-                    }
-                    LegendPosition::Left => {
-                        expansion.left = expansion.left.max(layout.plot_area.x - projected.x);
-                    }
-                    LegendPosition::Right => {
-                        expansion.right = expansion
-                            .right
-                            .max(projected.x + projected.width - plot_right);
-                    }
-                }
+                add_debug_side_extent(&mut extents, side, content, projected);
             }
         }
     }
 
     Ok(EdgeSlabs {
-        top: expansion.top.max(0.0),
-        right: expansion.right.max(0.0),
-        bottom: expansion.bottom.max(0.0),
-        left: expansion.left.max(0.0),
+        top: extents.top.max(0.0),
+        right: extents.right.max(0.0),
+        bottom: extents.bottom.max(0.0),
+        left: extents.left.max(0.0),
     })
 }
 
@@ -326,44 +420,17 @@ fn expand_facet_component_debug_plot_area(
     measurement: &ComponentsMeasurement,
     facet_band: &FacetBandCoordMeasurement,
 ) -> Result<(), AvengerChartError> {
-    let expansion = child_facet_component_debug_legend_expansion(layout, measurement, facet_band)?;
-    layout.plot_area.x -= expansion.left;
-    layout.plot_area.y -= expansion.top;
-    layout.plot_area.width = (layout.plot_area.width + expansion.left + expansion.right).max(0.0);
-    layout.plot_area.height = (layout.plot_area.height + expansion.top + expansion.bottom).max(0.0);
+    let Some(content) = projected_facet_child_plot_area_envelope(layout, measurement, facet_band)?
+    else {
+        return Ok(());
+    };
+    let extents = facet_component_debug_side_extents(layout, measurement, facet_band, content)?;
 
-    if let Some(bounds) = layout
-        .guide_overflows
-        .get_mut(&crate::cartesian::axis::AxisPosition::Top)
-    {
-        bounds.x -= expansion.left;
-        bounds.width = (bounds.width + expansion.left + expansion.right).max(0.0);
-        shrink_start_edge(bounds, expansion.top, false);
-    }
-    if let Some(bounds) = layout
-        .guide_overflows
-        .get_mut(&crate::cartesian::axis::AxisPosition::Bottom)
-    {
-        bounds.x -= expansion.left;
-        bounds.width = (bounds.width + expansion.left + expansion.right).max(0.0);
-        shrink_end_edge(bounds, expansion.bottom, false);
-    }
-    if let Some(bounds) = layout
-        .guide_overflows
-        .get_mut(&crate::cartesian::axis::AxisPosition::Left)
-    {
-        bounds.y -= expansion.top;
-        bounds.height = (bounds.height + expansion.top + expansion.bottom).max(0.0);
-        shrink_start_edge(bounds, expansion.left, true);
-    }
-    if let Some(bounds) = layout
-        .guide_overflows
-        .get_mut(&crate::cartesian::axis::AxisPosition::Right)
-    {
-        bounds.y -= expansion.top;
-        bounds.height = (bounds.height + expansion.top + expansion.bottom).max(0.0);
-        shrink_end_edge(bounds, expansion.right, true);
-    }
+    layout.plot_area = content;
+    set_debug_side_overflow(layout, AxisPosition::Top, extents.top);
+    set_debug_side_overflow(layout, AxisPosition::Right, extents.right);
+    set_debug_side_overflow(layout, AxisPosition::Bottom, extents.bottom);
+    set_debug_side_overflow(layout, AxisPosition::Left, extents.left);
     Ok(())
 }
 
@@ -3626,7 +3693,7 @@ impl CompiledPlot {
                         measurement,
                         [0.0, 0.0],
                         None,
-                        20,
+                        200,
                         false,
                         debug_overlay,
                     )?);
