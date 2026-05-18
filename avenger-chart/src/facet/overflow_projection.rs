@@ -1143,6 +1143,7 @@ mod tests {
         let raw = overflow((10.0, 20.0, 30.0, 40.0), (110.0, 120.0, 130.0, 140.0));
         let layout = CoordinatedLayout {
             padding_inner_px: 0.0,
+            guide_slot_gap_px: 0.0,
             outer_start: 100.0,
             outer_end: 100.0,
             n: 2,
@@ -1163,6 +1164,7 @@ mod tests {
         let raw = overflow((10.0, 20.0, 30.0, 40.0), (110.0, 120.0, 130.0, 140.0));
         let layout = CoordinatedLayout {
             padding_inner_px: 0.0,
+            guide_slot_gap_px: 0.0,
             outer_start: 0.0,
             outer_end: 0.0,
             n: 2,

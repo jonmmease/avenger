@@ -3273,6 +3273,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
 
         let local_layout = CoordinatedLayout {
             padding_inner_px: band_layout_plan.padding_inner_px,
+            guide_slot_gap_px: band_layout_plan.guide_padding_inner_px,
             outer_start: band_layout_plan.outer_start,
             outer_end: band_layout_plan.outer_end,
             n: band_layout_plan.n,
@@ -3617,6 +3618,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
     ) -> Result<f32, AvengerChartError> {
         let pass2_layout = CoordinatedLayout {
             padding_inner_px: band_plan.padding_inner_px,
+            guide_slot_gap_px: band_plan.guide_padding_inner_px,
             outer_start: band_plan.outer_start,
             outer_end: band_plan.outer_end,
             n: band_plan.n,
@@ -3908,6 +3910,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
 
         let local_layout = CoordinatedLayout {
             padding_inner_px: band_layout_plan.padding_inner_px,
+            guide_slot_gap_px: band_layout_plan.guide_padding_inner_px,
             outer_start: band_layout_plan.outer_start,
             outer_end: band_layout_plan.outer_end,
             n: band_layout_plan.n,
@@ -4692,24 +4695,28 @@ mod tests {
     fn layout_from_measurement_or_local_prefers_coordinated() {
         let local = CoordinatedLayout {
             padding_inner_px: 4.0,
+            guide_slot_gap_px: 4.0,
             outer_start: 1.0,
             outer_end: 2.0,
             n: 2,
         };
         let coordinated = CoordinatedLayout {
             padding_inner_px: 10.0,
+            guide_slot_gap_px: 14.0,
             outer_start: 5.0,
             outer_end: 6.0,
             n: 4,
         };
         let selected = layout_from_measurement_or_local(&local, Some(&coordinated));
         assert_eq!(selected.padding_inner_px, coordinated.padding_inner_px);
+        assert_eq!(selected.guide_slot_gap_px, coordinated.guide_slot_gap_px);
         assert_eq!(selected.outer_start, coordinated.outer_start);
         assert_eq!(selected.outer_end, coordinated.outer_end);
         assert_eq!(selected.n, coordinated.n);
 
         let fallback = layout_from_measurement_or_local(&local, None);
         assert_eq!(fallback.padding_inner_px, local.padding_inner_px);
+        assert_eq!(fallback.guide_slot_gap_px, local.guide_slot_gap_px);
         assert_eq!(fallback.outer_start, local.outer_start);
         assert_eq!(fallback.outer_end, local.outer_end);
         assert_eq!(fallback.n, local.n);
@@ -4733,6 +4740,7 @@ mod tests {
         };
         let layout = CoordinatedLayout {
             padding_inner_px: 0.0,
+            guide_slot_gap_px: 0.0,
             outer_start: 0.0,
             outer_end: 0.0,
             n: 2,
@@ -4758,6 +4766,7 @@ mod tests {
         let base = make_band_scale((0.0, 300.0));
         let layout = CoordinatedLayout {
             padding_inner_px: 12.0,
+            guide_slot_gap_px: 99.0,
             outer_start: 10.0,
             outer_end: 20.0,
             n: 3,
@@ -4799,12 +4808,14 @@ mod tests {
     fn coordinated_layout_merge_uses_shared_outer_edges() {
         let mut merged = CoordinatedLayout {
             padding_inner_px: 6.0,
+            guide_slot_gap_px: 7.0,
             outer_start: 11.0,
             outer_end: 12.0,
             n: 2,
         };
         let coordinated = CoordinatedLayout {
             padding_inner_px: 18.0,
+            guide_slot_gap_px: 27.0,
             outer_start: 91.0,
             outer_end: 92.0,
             n: 4,
@@ -4812,6 +4823,7 @@ mod tests {
 
         merged.merge(&coordinated);
         assert_eq!(merged.padding_inner_px, coordinated.padding_inner_px);
+        assert_eq!(merged.guide_slot_gap_px, coordinated.guide_slot_gap_px);
         assert_eq!(merged.n, coordinated.n);
         assert_eq!(merged.outer_start, coordinated.outer_start);
         assert_eq!(merged.outer_end, coordinated.outer_end);
@@ -4822,6 +4834,7 @@ mod tests {
         let base = make_band_scale((0.0, 200.0));
         let layout = CoordinatedLayout {
             padding_inner_px: 0.0,
+            guide_slot_gap_px: 0.0,
             outer_start: 0.0,
             outer_end: 0.0,
             n: 2,
@@ -4885,6 +4898,7 @@ mod tests {
         )]);
         let layout = CoordinatedLayout {
             padding_inner_px: 0.0,
+            guide_slot_gap_px: 0.0,
             outer_start: 0.0,
             outer_end: 0.0,
             n: 1,
@@ -4919,6 +4933,7 @@ mod tests {
         let base = make_band_scale((0.0, 300.0));
         let layout = CoordinatedLayout {
             padding_inner_px: 12.0,
+            guide_slot_gap_px: 12.0,
             outer_start: 10.0,
             outer_end: 20.0,
             n: 3,
@@ -4943,18 +4958,21 @@ mod tests {
     fn has_coordinated_layout_change_detects_any_dimension_shift() {
         let local = CoordinatedLayout {
             padding_inner_px: 6.0,
+            guide_slot_gap_px: 6.0,
             outer_start: 1.0,
             outer_end: 2.0,
             n: 3,
         };
         let same = CoordinatedLayout {
             padding_inner_px: 6.0,
+            guide_slot_gap_px: 99.0,
             outer_start: 1.0,
             outer_end: 2.0,
             n: 3,
         };
         let changed = CoordinatedLayout {
             padding_inner_px: 6.0,
+            guide_slot_gap_px: 6.0,
             outer_start: 1.0,
             outer_end: 2.0,
             n: 4,

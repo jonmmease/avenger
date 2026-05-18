@@ -94,7 +94,7 @@ pub trait CoordMeasurement: Send + Sync + 'static {
     ///
     /// This allows coordinate systems to adjust scale configurations based on
     /// measurement results. For example, FacetColumn updates the column scale
-    /// with `padding_inner_px` computed from cell overflow measurements.
+    /// with physical `padding_inner_px` computed from cell overflow measurements.
     ///
     /// # Arguments
     /// * `scales` - Mutable map of scales to update
@@ -105,13 +105,22 @@ pub trait CoordMeasurement: Send + Sync + 'static {
     }
 }
 
-/// Layout parameters coordinated across all FacetCol nodes at the same depth.
+/// Layout parameters coordinated across all facet-band nodes at the same depth.
 ///
 /// Ensures subplot widths and gaps are consistent across all branches at each
 /// nesting depth, even when branches have different overflow patterns or cell counts.
 #[derive(Default, Clone, Debug)]
 pub struct CoordinatedLayout {
+    /// Physical gap between adjacent subplot plot areas.
+    ///
+    /// This value is written to band scales and explicit plot-area placement.
     pub padding_inner_px: f32,
+    /// Virtual same-axis guide slot gap used for facet-guide alignment.
+    ///
+    /// This may be larger than `padding_inner_px` in deeply nested same-axis
+    /// facet chains, where labels and guide titles need a common slot model but
+    /// subplot plot areas should not inherit that extra guide-only space.
+    pub guide_slot_gap_px: f32,
     pub outer_start: f32,
     pub outer_end: f32,
     pub n: usize,
@@ -120,6 +129,7 @@ pub struct CoordinatedLayout {
 impl CoordinatedLayout {
     pub fn merge(&mut self, other: &CoordinatedLayout) {
         self.padding_inner_px = self.padding_inner_px.max(other.padding_inner_px);
+        self.guide_slot_gap_px = self.guide_slot_gap_px.max(other.guide_slot_gap_px);
         self.outer_start = self.outer_start.max(other.outer_start);
         self.outer_end = self.outer_end.max(other.outer_end);
         self.n = self.n.max(other.n);

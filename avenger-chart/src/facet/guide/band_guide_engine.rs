@@ -1104,9 +1104,12 @@ fn coordinated_col_title_midpoint_override(
         .coordinated_layout
         .as_ref()
         .unwrap_or(&facet_measurement.local_layout);
+    let guide_slot_gap_px = active_layout
+        .guide_slot_gap_px
+        .max(active_layout.padding_inner_px);
     coordinated_col_title_midpoint_override_for_layout(
         active_layout.n,
-        active_layout.padding_inner_px,
+        guide_slot_gap_px,
         band_positions,
         plot_bounds,
     )
@@ -1114,7 +1117,7 @@ fn coordinated_col_title_midpoint_override(
 
 fn coordinated_col_title_midpoint_override_for_layout(
     effective_slot_count: usize,
-    padding_inner_px: f32,
+    guide_slot_gap_px: f32,
     band_positions: &[BandPosition],
     plot_bounds: &LayoutBounds,
 ) -> Option<f32> {
@@ -1124,7 +1127,7 @@ fn coordinated_col_title_midpoint_override_for_layout(
     }
 
     let first = band_positions.first()?;
-    let slot_step = first.bandwidth + padding_inner_px;
+    let slot_step = first.bandwidth + guide_slot_gap_px;
     if !slot_step.is_finite() || slot_step <= 0.0 {
         return None;
     }

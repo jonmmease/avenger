@@ -529,7 +529,7 @@ fn build_round_collection(nodes: &[RoundCollectionInput]) -> RoundCollectionOutp
         })
         .collect::<HashMap<_, _>>();
     let axis_padding_group_by_node = axis_padding_group_keys(nodes);
-    let mut max_guide_padding_by_axis_group: HashMap<AxisPaddingGroupKey, f32> = HashMap::new();
+    let mut max_guide_slot_gap_by_axis_group: HashMap<AxisPaddingGroupKey, f32> = HashMap::new();
 
     for node in nodes {
         if let Some(measured_overflow) = node.measured_overflow.clone() {
@@ -553,10 +553,10 @@ fn build_round_collection(nodes: &[RoundCollectionInput]) -> RoundCollectionOutp
             .or_default()
             .push(node.local_layout.clone());
         if let Some(group) = axis_padding_group_by_node.get(&node.node_id) {
-            let max_padding = max_guide_padding_by_axis_group
+            let max_gap = max_guide_slot_gap_by_axis_group
                 .entry(group.clone())
                 .or_default();
-            *max_padding = max_padding.max(node.guide_padding_inner_px);
+            *max_gap = max_gap.max(node.guide_padding_inner_px);
         }
     }
 
@@ -577,9 +577,9 @@ fn build_round_collection(nodes: &[RoundCollectionInput]) -> RoundCollectionOutp
         if let Some(merged) = merged_layout_by_key.get(&node.key).cloned() {
             let mut layout = merged;
             if let Some(axis_group) = axis_padding_group_by_node.get(&node.node_id)
-                && let Some(group_padding) = max_guide_padding_by_axis_group.get(axis_group)
+                && let Some(group_gap) = max_guide_slot_gap_by_axis_group.get(axis_group)
             {
-                layout.padding_inner_px = layout.padding_inner_px.max(*group_padding);
+                layout.guide_slot_gap_px = layout.guide_slot_gap_px.max(*group_gap);
             }
             let (start_side, end_side) = match node.axis {
                 FacetAxis::Column => (AxisPosition::Left, AxisPosition::Right),
@@ -707,6 +707,7 @@ mod tests {
                     measured_overflow: Some(overflow(1.0, 2.0, 3.0, 4.0)),
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 2.0,
+                        guide_slot_gap_px: 2.0,
                         outer_start: 1.0,
                         outer_end: 2.0,
                         n: 2,
@@ -722,6 +723,7 @@ mod tests {
                     measured_overflow: Some(overflow(3.0, 1.0, 5.0, 2.0)),
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 4.0,
+                        guide_slot_gap_px: 4.0,
                         outer_start: 2.0,
                         outer_end: 1.0,
                         n: 4,
@@ -742,7 +744,7 @@ mod tests {
     }
 
     #[test]
-    fn requirement_pass_shares_inner_padding_across_same_axis_groups() {
+    fn requirement_pass_shares_guide_slot_gap_across_same_axis_groups() {
         let outer_col_key = CoordinationGroupKey::new(1, "col:division");
         let inner_col_key = CoordinationGroupKey::new(2, "col:dept");
         let row_key = CoordinationGroupKey::new(3, "row:team");
@@ -759,6 +761,7 @@ mod tests {
                     measured_overflow: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 36.0,
+                        guide_slot_gap_px: 36.0,
                         outer_start: 1.0,
                         outer_end: 2.0,
                         n: 2,
@@ -774,6 +777,7 @@ mod tests {
                     measured_overflow: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 27.0,
+                        guide_slot_gap_px: 27.0,
                         outer_start: 3.0,
                         outer_end: 4.0,
                         n: 2,
@@ -789,6 +793,7 @@ mod tests {
                     measured_overflow: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 9.0,
+                        guide_slot_gap_px: 9.0,
                         outer_start: 5.0,
                         outer_end: 6.0,
                         n: 2,
@@ -807,13 +812,21 @@ mod tests {
                 .merged_layout_by_key
                 .get(&outer_col_key)
                 .unwrap()
-                .padding_inner_px,
+                .guide_slot_gap_px,
             36.0
         );
         assert_eq!(
             pass.aggregates
                 .merged_layout_by_key
                 .get(&inner_col_key)
+                .unwrap()
+                .guide_slot_gap_px,
+            27.0
+        );
+        assert_eq!(
+            pass.distribution
+                .layout_patches_by_node
+                .get(&inner_node)
                 .unwrap()
                 .padding_inner_px,
             27.0
@@ -823,7 +836,7 @@ mod tests {
                 .layout_patches_by_node
                 .get(&inner_node)
                 .unwrap()
-                .padding_inner_px,
+                .guide_slot_gap_px,
             36.0
         );
         assert_eq!(
@@ -831,7 +844,7 @@ mod tests {
                 .merged_layout_by_key
                 .get(&row_key)
                 .unwrap()
-                .padding_inner_px,
+                .guide_slot_gap_px,
             9.0
         );
         assert_eq!(
@@ -860,6 +873,7 @@ mod tests {
                     measured_overflow: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 8.0,
+                        guide_slot_gap_px: 8.0,
                         outer_start: 0.0,
                         outer_end: 0.0,
                         n: 2,
@@ -875,6 +889,7 @@ mod tests {
                     measured_overflow: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 12.0,
+                        guide_slot_gap_px: 12.0,
                         outer_start: 0.0,
                         outer_end: 0.0,
                         n: 2,
@@ -890,6 +905,7 @@ mod tests {
                     measured_overflow: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 40.0,
+                        guide_slot_gap_px: 40.0,
                         outer_start: 0.0,
                         outer_end: 0.0,
                         n: 2,
@@ -908,7 +924,7 @@ mod tests {
                 .layout_patches_by_node
                 .get(&outer_node)
                 .unwrap()
-                .padding_inner_px,
+                .guide_slot_gap_px,
             8.0
         );
         assert_eq!(
@@ -916,7 +932,7 @@ mod tests {
                 .layout_patches_by_node
                 .get(&inner_node)
                 .unwrap()
-                .padding_inner_px,
+                .guide_slot_gap_px,
             40.0
         );
     }
@@ -935,6 +951,7 @@ mod tests {
                     measured_overflow: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 160.0,
+                        guide_slot_gap_px: 24.0,
                         outer_start: 0.0,
                         outer_end: 0.0,
                         n: 2,
@@ -950,6 +967,7 @@ mod tests {
                     measured_overflow: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 24.0,
+                        guide_slot_gap_px: 24.0,
                         outer_start: 0.0,
                         outer_end: 0.0,
                         n: 2,
@@ -970,6 +988,14 @@ mod tests {
                 .unwrap()
                 .padding_inner_px,
             160.0
+        );
+        assert_eq!(
+            pass.distribution
+                .layout_patches_by_node
+                .get(&CoordinationNodeKey::new(vec![0]))
+                .unwrap()
+                .guide_slot_gap_px,
+            24.0
         );
         assert_eq!(
             pass.aggregates
@@ -997,6 +1023,7 @@ mod tests {
                     measured_overflow: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 0.0,
+                        guide_slot_gap_px: 0.0,
                         outer_start: 0.0,
                         outer_end: 0.0,
                         n: 2,
@@ -1074,6 +1101,7 @@ mod tests {
                     measured_overflow: Some(overflow(1.0, 1.0, 2.0, 3.0)),
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 3.0,
+                        guide_slot_gap_px: 3.0,
                         outer_start: 1.0,
                         outer_end: 2.0,
                         n: 2,
@@ -1089,6 +1117,7 @@ mod tests {
                     measured_overflow: Some(overflow(2.0, 4.0, 1.0, 1.0)),
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 5.0,
+                        guide_slot_gap_px: 5.0,
                         outer_start: 2.0,
                         outer_end: 1.0,
                         n: 5,
