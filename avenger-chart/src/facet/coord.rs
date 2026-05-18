@@ -47,7 +47,8 @@ use crate::{
         marks::facet::{FacetMarkRef, facet_mark_ref},
         overflow_projection::{
             FacetCellOverflowInput, FacetOverflowPurpose, FacetOverflowResolutionPhase,
-            FacetOverflowSlabs, aggregate_facet_band_overflow, resolve_facet_overflow,
+            FacetOverflowSlabs, aggregate_facet_band_overflow, boundary_profiles_for_measurement,
+            compute_padding_from_boundary_profiles, resolve_facet_overflow,
         },
         ownership_policy::{has_holes_from_cells, resolve_facet_ownership_policy},
         padding_policy, path_math,
@@ -561,6 +562,10 @@ impl FacetBandCoordMeasurement {
     /// frame allocation.
     pub(crate) fn realize_coordinated_child_frame_allocations(&mut self) {
         let coordinated = self.active_boundary_overflow().clone();
+        let local_child_overflow = self
+            .measured_overflow
+            .clone()
+            .unwrap_or_else(|| coordinated.clone());
         let sides = match self.axis {
             FacetAxis::Column => [AxisPosition::Top, AxisPosition::Bottom],
             FacetAxis::Row => [AxisPosition::Left, AxisPosition::Right],
@@ -570,16 +575,16 @@ impl FacetBandCoordMeasurement {
             let child_uses_parent_guide_slab =
                 child_uses_parent_cross_axis_guide_slab(self.axis, &cell.measurement);
             for side in sides {
-                let guide = if child_uses_parent_guide_slab {
-                    overflow_side_value(&coordinated.guide, side)
+                let allocation_overflow = if child_uses_parent_guide_slab {
+                    &coordinated
                 } else {
-                    overflow_side_value(&cell.measurement.layout.overflow, side)
+                    &local_child_overflow
                 };
                 apply_measurement_side_slab(
                     &mut cell.measurement,
                     side,
-                    guide,
-                    overflow_side_value(&coordinated.total, side),
+                    overflow_side_value(&allocation_overflow.guide, side),
+                    overflow_side_value(&allocation_overflow.total, side),
                 );
             }
             sync_measurement_owned_slabs_from_coord(&mut cell.measurement);
@@ -795,6 +800,7 @@ fn measured_overflow_from_cells(
 fn parent_cell_overflow_summary(measurement: &ComponentsMeasurement) -> FacetCellProbeSummary {
     let mut guide_overflow = measurement.layout.overflow.clone();
     let mut total_overflow = measurement.layout.total_overflow.clone();
+    let boundary_profiles = boundary_profiles_for_measurement(measurement);
     let mut max_child_padding = 0.0f32;
 
     if let Some(facet_band) = facet_band_ref(measurement.coord_measurement.as_ref()) {
@@ -808,6 +814,7 @@ fn parent_cell_overflow_summary(measurement: &ComponentsMeasurement) -> FacetCel
     FacetCellProbeSummary {
         guide_overflow,
         total_overflow,
+        boundary_profiles,
         max_child_padding,
     }
 }
@@ -1729,19 +1736,25 @@ fn derive_padding_inner_px_from_probe_overflows(
     pass1_renderable_cells: &[bool],
     include_total_overflow: bool,
 ) -> f32 {
-    let cell_overflows = pass1
-        .cell_overflows
+    let boundary_profiles = pass1
+        .cell_probe_summaries
         .iter()
-        .map(|(guide, total)| {
-            if include_total_overflow {
-                total.clone()
-            } else {
-                guide.clone()
-            }
-        })
+        .map(|summary| summary.boundary_profiles.clone())
         .collect::<Vec<_>>();
-    let required_parent_padding =
-        compute_padding_from_overflows(axis, &cell_overflows, pass1_renderable_cells);
+    let required_parent_padding = compute_padding_from_boundary_profiles(
+        axis,
+        &boundary_profiles,
+        pass1_renderable_cells,
+        include_total_overflow,
+    )
+    .unwrap_or_else(|| {
+        derive_padding_inner_px_from_probe_overflow_slabs(
+            axis,
+            pass1,
+            pass1_renderable_cells,
+            include_total_overflow,
+        )
+    });
     let renderable_count = pass1_renderable_cells
         .iter()
         .filter(|renderable| **renderable)
@@ -1753,6 +1766,26 @@ fn derive_padding_inner_px_from_probe_overflows(
     };
 
     padding_policy::derive_parent_padding(parent_padding, pass1.max_child_padding)
+}
+
+fn derive_padding_inner_px_from_probe_overflow_slabs(
+    axis: FacetAxis,
+    pass1: &OverflowProbeSummary,
+    pass1_renderable_cells: &[bool],
+    include_total_overflow: bool,
+) -> f32 {
+    let cell_overflows = pass1
+        .cell_overflows
+        .iter()
+        .map(|(guide, total)| {
+            if include_total_overflow {
+                total.clone()
+            } else {
+                guide.clone()
+            }
+        })
+        .collect::<Vec<_>>();
+    compute_padding_from_overflows(axis, &cell_overflows, pass1_renderable_cells)
 }
 
 #[cfg(test)]
@@ -3135,6 +3168,8 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                     cell_probe_summary: FacetCellProbeSummary {
                         guide_overflow: OverflowSpaceRequirement::default(),
                         total_overflow: OverflowSpaceRequirement::default(),
+                        boundary_profiles:
+                            crate::facet::overflow_projection::FacetBoundaryProfiles::default(),
                         max_child_padding: 0.0,
                     },
                 });
@@ -3147,6 +3182,8 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 cell_probe_summary: FacetCellProbeSummary {
                     guide_overflow: OverflowSpaceRequirement::default(),
                     total_overflow: OverflowSpaceRequirement::default(),
+                    boundary_profiles:
+                        crate::facet::overflow_projection::FacetBoundaryProfiles::default(),
                     max_child_padding: 0.0,
                 },
             });
@@ -3320,6 +3357,11 @@ impl<'a> FacetBandMeasurePipeline<'a> {
 
         Ok(FacetBandProbeLayout {
             cell_probe_summary: FacetCellProbeSummary {
+                boundary_profiles:
+                    crate::facet::overflow_projection::FacetBoundaryProfiles::single_from_overflow(
+                        guide_overflow.clone(),
+                        total_overflow.clone(),
+                    ),
                 guide_overflow,
                 total_overflow,
                 max_child_padding: band_layout_plan.padding_inner_px,
@@ -4950,7 +4992,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn measured_overflow_is_stable_after_projecting_alignment_slabs()
+    async fn orthogonal_child_allocations_use_measured_overflow_after_alignment()
     -> Result<(), AvengerChartError> {
         let (mut measurement, _) =
             build_coord_measurement_for_retarget_tests(FacetAxis::Row).await?;
@@ -4982,18 +5024,12 @@ mod tests {
             .child_measurements_iter()
             .map(|child| child.layout.overflow.left)
             .fold(0.0f32, f32::max);
-        assert!(
-            projected_left_guide < measured_before.guide.left + 100.0,
-            "orthogonal child guide anchors should not be overwritten by parent alignment slabs"
-        );
+        assert_close(projected_left_guide, measured_before.guide.left);
         let projected_left_total = facet_band
             .child_measurements_iter()
             .map(|child| child.layout.total_overflow.left)
             .fold(0.0f32, f32::max);
-        assert!(
-            projected_left_total >= measured_before.total.left + 100.0,
-            "child frames should receive coordinated total allocation slabs"
-        );
+        assert_close(projected_left_total, measured_before.total.left);
         Ok(())
     }
 

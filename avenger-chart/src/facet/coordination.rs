@@ -885,6 +885,12 @@ mod tests {
         states
     }
 
+    fn force_root_top_legend_slab(measurement: &mut ComponentsMeasurement, slab: f32) {
+        let root = facet_band_mut(measurement)
+            .expect("fixture should produce root facet-band measurement");
+        root.coordinated_overflow.total.top = root.coordinated_overflow.guide.top + slab;
+    }
+
     fn build_nested_plot(df: DataFrame) -> Plot<FacetColumn> {
         Plot::<FacetColumn>::new()
             .data(df)
@@ -1287,6 +1293,7 @@ mod tests {
         let initial_requirement_pass =
             build_initial_requirement_pass(collect_initial_requirement_snapshot(&measurement));
         apply_initial_requirement_pass(&mut measurement, &initial_requirement_pass);
+        force_root_top_legend_slab(&mut measurement, 18.0);
 
         let retarget_plan = build_retarget_plan(&measurement, &eval_ctx);
         let retarget_trace =
@@ -1646,6 +1653,7 @@ mod tests {
             forced_layout.padding_inner_px += 12.0;
             root.set_coordinated_layout_value(forced_layout);
         }
+        force_root_top_legend_slab(&mut measurement, 18.0);
 
         let plan = build_retarget_plan(&measurement, &eval_ctx);
         let retarget_trace = run_retarget_with_trace(&mut measurement, &eval_ctx, &plan).await?;

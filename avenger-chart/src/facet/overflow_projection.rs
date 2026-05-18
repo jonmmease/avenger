@@ -34,6 +34,7 @@ use crate::{
         FacetBandProbeMeasurement, facet_band_ref as facet_band_from_coord,
         renderable_for_empty_policy,
     },
+    facet::layout_plan::effective_edge_indices,
     layout::{EdgeSlabs, FrameDemand, OwnedEdgeSlabs},
     plot::compiled::ComponentsMeasurement,
 };
@@ -125,6 +126,160 @@ pub(crate) struct FacetBoundaryDemand {
 pub(crate) struct FacetBoundaryDemandComponents {
     pub(crate) guide: FacetBoundaryDemand,
     pub(crate) total: FacetBoundaryDemand,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct FacetBoundaryLane {
+    pub(crate) lane_key: Vec<usize>,
+    pub(crate) guide: FacetBoundaryDemand,
+    pub(crate) total: FacetBoundaryDemand,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct FacetAxisBoundaryProfile {
+    pub(crate) lanes: Vec<FacetBoundaryLane>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct FacetBoundaryProfiles {
+    pub(crate) row: FacetAxisBoundaryProfile,
+    pub(crate) column: FacetAxisBoundaryProfile,
+}
+
+impl FacetAxisBoundaryProfile {
+    fn push_lane(&mut self, lane: FacetBoundaryLane) {
+        if let Some(existing) = self
+            .lanes
+            .iter_mut()
+            .find(|existing| existing.lane_key == lane.lane_key)
+        {
+            existing.guide.before = existing.guide.before.max(lane.guide.before);
+            existing.guide.after = existing.guide.after.max(lane.guide.after);
+            existing.total.before = existing.total.before.max(lane.total.before);
+            existing.total.after = existing.total.after.max(lane.total.after);
+        } else {
+            self.lanes.push(lane);
+        }
+    }
+
+    fn push_lanes_with_prefix(&mut self, prefix: usize, profile: &Self) {
+        for lane in &profile.lanes {
+            let mut lane_key = Vec::with_capacity(lane.lane_key.len() + 1);
+            lane_key.push(prefix);
+            lane_key.extend(lane.lane_key.iter().cloned());
+            self.push_lane(FacetBoundaryLane {
+                lane_key,
+                guide: lane.guide,
+                total: lane.total,
+            });
+        }
+    }
+
+    fn add_uniform_extra(&mut self, guide: FacetBoundaryDemand, total: FacetBoundaryDemand) {
+        if self.lanes.is_empty()
+            && (guide.before > 0.0 || guide.after > 0.0 || total.before > 0.0 || total.after > 0.0)
+        {
+            self.lanes.push(FacetBoundaryLane::default());
+        }
+
+        for lane in &mut self.lanes {
+            lane.guide.before += guide.before;
+            lane.guide.after += guide.after;
+            lane.total.before += total.before;
+            lane.total.after += total.after;
+            lane.total.before = lane.total.before.max(lane.guide.before);
+            lane.total.after = lane.total.after.max(lane.guide.after);
+        }
+    }
+}
+
+impl FacetBoundaryProfiles {
+    pub(crate) fn single_from_overflow(
+        guide: OverflowSpaceRequirement,
+        total: OverflowSpaceRequirement,
+    ) -> Self {
+        Self {
+            row: FacetAxisBoundaryProfile {
+                lanes: vec![FacetBoundaryLane {
+                    lane_key: Vec::new(),
+                    guide: FacetBoundaryDemand {
+                        before: guide.top.max(0.0),
+                        after: guide.bottom.max(0.0),
+                    },
+                    total: FacetBoundaryDemand {
+                        before: total.top.max(0.0),
+                        after: total.bottom.max(0.0),
+                    },
+                }],
+            },
+            column: FacetAxisBoundaryProfile {
+                lanes: vec![FacetBoundaryLane {
+                    lane_key: Vec::new(),
+                    guide: FacetBoundaryDemand {
+                        before: guide.left.max(0.0),
+                        after: guide.right.max(0.0),
+                    },
+                    total: FacetBoundaryDemand {
+                        before: total.left.max(0.0),
+                        after: total.right.max(0.0),
+                    },
+                }],
+            },
+        }
+    }
+
+    pub(crate) fn profile(&self, axis: FacetAxis) -> &FacetAxisBoundaryProfile {
+        match axis {
+            FacetAxis::Row => &self.row,
+            FacetAxis::Column => &self.column,
+        }
+    }
+
+    fn to_overflow(&self) -> CoordinatedOverflow {
+        let mut guide = OverflowSpaceRequirement::default();
+        let mut total = OverflowSpaceRequirement::default();
+        for lane in &self.row.lanes {
+            guide.top = guide.top.max(lane.guide.before);
+            guide.bottom = guide.bottom.max(lane.guide.after);
+            total.top = total.top.max(lane.total.before);
+            total.bottom = total.bottom.max(lane.total.after);
+        }
+        for lane in &self.column.lanes {
+            guide.left = guide.left.max(lane.guide.before);
+            guide.right = guide.right.max(lane.guide.after);
+            total.left = total.left.max(lane.total.before);
+            total.right = total.right.max(lane.total.after);
+        }
+        CoordinatedOverflow { guide, total }
+    }
+
+    fn add_direct_extra_from_layout(
+        &mut self,
+        layout_guide: &OverflowSpaceRequirement,
+        layout_total: &OverflowSpaceRequirement,
+    ) {
+        let child = self.to_overflow();
+        self.row.add_uniform_extra(
+            FacetBoundaryDemand {
+                before: (layout_guide.top - child.guide.top).max(0.0),
+                after: (layout_guide.bottom - child.guide.bottom).max(0.0),
+            },
+            FacetBoundaryDemand {
+                before: (layout_total.top - child.total.top).max(0.0),
+                after: (layout_total.bottom - child.total.bottom).max(0.0),
+            },
+        );
+        self.column.add_uniform_extra(
+            FacetBoundaryDemand {
+                before: (layout_guide.left - child.guide.left).max(0.0),
+                after: (layout_guide.right - child.guide.right).max(0.0),
+            },
+            FacetBoundaryDemand {
+                before: (layout_total.left - child.total.left).max(0.0),
+                after: (layout_total.right - child.total.right).max(0.0),
+            },
+        );
+    }
 }
 
 impl FacetOverflowSlabs {
@@ -514,22 +669,209 @@ pub(crate) fn realized_boundary_demand_components_for_measurement(
     boundary_demand_components_from_overflow(axis, &overflow)
 }
 
-pub(crate) fn overflow_from_boundary_demand(
+pub(crate) fn boundary_profiles_for_measurement(
+    measurement: &ComponentsMeasurement,
+) -> FacetBoundaryProfiles {
+    let Some(facet_measurement) = facet_band_from_coord(measurement.coord_measurement.as_ref())
+    else {
+        return FacetBoundaryProfiles::single_from_overflow(
+            measurement.layout.overflow.clone(),
+            measurement.layout.total_overflow.clone(),
+        );
+    };
+
+    let mut profiles = boundary_profiles_for_facet_band(facet_measurement);
+    profiles.add_direct_extra_from_layout(
+        &measurement.layout.overflow,
+        &measurement.layout.total_overflow,
+    );
+    profiles
+}
+
+pub(crate) fn compute_padding_from_boundary_profiles(
     axis: FacetAxis,
-    demand: FacetBoundaryDemand,
-) -> OverflowSpaceRequirement {
-    match axis {
-        FacetAxis::Column => OverflowSpaceRequirement {
-            left: demand.before,
-            right: demand.after,
-            ..Default::default()
-        },
-        FacetAxis::Row => OverflowSpaceRequirement {
-            top: demand.before,
-            bottom: demand.after,
-            ..Default::default()
-        },
+    profiles: &[FacetBoundaryProfiles],
+    renderable_cells: &[bool],
+    include_total_overflow: bool,
+) -> Option<f32> {
+    let Some((first_renderable_idx, last_renderable_idx)) =
+        effective_edge_indices(renderable_cells, profiles.len())
+    else {
+        return Some(0.0);
+    };
+
+    if first_renderable_idx >= last_renderable_idx {
+        return Some(0.0);
     }
+
+    let renderable_indices = (first_renderable_idx..=last_renderable_idx)
+        .filter(|idx| renderable_cells.get(*idx).copied().unwrap_or(false))
+        .collect::<Vec<_>>();
+    let mut padding_max = 0.0f32;
+    let mut saw_lane = false;
+
+    for boundary in renderable_indices.windows(2) {
+        let [before_idx, after_idx] = boundary else {
+            continue;
+        };
+        let Some(before_profile) = profiles
+            .get(*before_idx)
+            .map(|profiles| profiles.profile(axis))
+        else {
+            continue;
+        };
+        let Some(after_profile) = profiles
+            .get(*after_idx)
+            .map(|profiles| profiles.profile(axis))
+        else {
+            continue;
+        };
+
+        for before_lane in &before_profile.lanes {
+            saw_lane = true;
+            let outgoing = boundary_after(before_lane, include_total_overflow);
+            let matching_after = after_profile
+                .lanes
+                .iter()
+                .find(|after_lane| after_lane.lane_key == before_lane.lane_key);
+            let boundary_padding = if let Some(after_lane) = matching_after {
+                outgoing + boundary_before(after_lane, include_total_overflow)
+            } else {
+                outgoing
+            };
+            padding_max = padding_max.max(boundary_padding);
+        }
+
+        for after_lane in &after_profile.lanes {
+            saw_lane = true;
+            if before_profile
+                .lanes
+                .iter()
+                .any(|before_lane| before_lane.lane_key == after_lane.lane_key)
+            {
+                continue;
+            }
+            padding_max = padding_max.max(boundary_before(after_lane, include_total_overflow));
+        }
+    }
+
+    saw_lane.then_some(padding_max)
+}
+
+fn boundary_before(lane: &FacetBoundaryLane, include_total_overflow: bool) -> f32 {
+    if include_total_overflow {
+        lane.total.before
+    } else {
+        lane.guide.before
+    }
+}
+
+fn boundary_after(lane: &FacetBoundaryLane, include_total_overflow: bool) -> f32 {
+    if include_total_overflow {
+        lane.total.after
+    } else {
+        lane.guide.after
+    }
+}
+
+fn boundary_profiles_for_facet_band(
+    facet_measurement: &crate::facet::coord::FacetBandCoordMeasurement,
+) -> FacetBoundaryProfiles {
+    FacetBoundaryProfiles {
+        row: boundary_profile_for_facet_band_axis(facet_measurement, FacetAxis::Row),
+        column: boundary_profile_for_facet_band_axis(facet_measurement, FacetAxis::Column),
+    }
+}
+
+fn boundary_profile_for_facet_band_axis(
+    facet_measurement: &crate::facet::coord::FacetBandCoordMeasurement,
+    query_axis: FacetAxis,
+) -> FacetAxisBoundaryProfile {
+    let renderable_cells = facet_measurement
+        .cells
+        .iter()
+        .map(|cell| {
+            renderable_for_empty_policy(
+                facet_measurement.empty_cell_policy,
+                !cell.plan.has_data_rows,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    if facet_measurement.axis == query_axis {
+        return same_axis_boundary_profile(facet_measurement, query_axis, &renderable_cells);
+    }
+
+    orthogonal_axis_boundary_profile(facet_measurement, query_axis, &renderable_cells)
+}
+
+fn same_axis_boundary_profile(
+    facet_measurement: &crate::facet::coord::FacetBandCoordMeasurement,
+    query_axis: FacetAxis,
+    renderable_cells: &[bool],
+) -> FacetAxisBoundaryProfile {
+    let Some((first_idx, last_idx)) =
+        effective_edge_indices(renderable_cells, facet_measurement.cells.len())
+    else {
+        return FacetAxisBoundaryProfile::default();
+    };
+
+    let mut profile = FacetAxisBoundaryProfile::default();
+    if let Some(first_cell) = facet_measurement.cells.get(first_idx)
+        && renderable_cells.get(first_idx).copied().unwrap_or(false)
+    {
+        let child_profiles = boundary_profiles_for_measurement(&first_cell.measurement);
+        for lane in &child_profiles.profile(query_axis).lanes {
+            profile.push_lane(FacetBoundaryLane {
+                lane_key: lane.lane_key.clone(),
+                guide: FacetBoundaryDemand {
+                    before: lane.guide.before,
+                    after: 0.0,
+                },
+                total: FacetBoundaryDemand {
+                    before: lane.total.before,
+                    after: 0.0,
+                },
+            });
+        }
+    }
+
+    if let Some(last_cell) = facet_measurement.cells.get(last_idx)
+        && renderable_cells.get(last_idx).copied().unwrap_or(false)
+    {
+        let child_profiles = boundary_profiles_for_measurement(&last_cell.measurement);
+        for lane in &child_profiles.profile(query_axis).lanes {
+            profile.push_lane(FacetBoundaryLane {
+                lane_key: lane.lane_key.clone(),
+                guide: FacetBoundaryDemand {
+                    before: 0.0,
+                    after: lane.guide.after,
+                },
+                total: FacetBoundaryDemand {
+                    before: 0.0,
+                    after: lane.total.after,
+                },
+            });
+        }
+    }
+
+    profile
+}
+
+fn orthogonal_axis_boundary_profile(
+    facet_measurement: &crate::facet::coord::FacetBandCoordMeasurement,
+    query_axis: FacetAxis,
+    renderable_cells: &[bool],
+) -> FacetAxisBoundaryProfile {
+    let mut profile = FacetAxisBoundaryProfile::default();
+    for (idx, cell) in facet_measurement.cells.iter().enumerate() {
+        if !renderable_cells.get(idx).copied().unwrap_or(false) {
+            continue;
+        }
+        let child_profiles = boundary_profiles_for_measurement(&cell.measurement);
+        profile.push_lanes_with_prefix(idx, child_profiles.profile(query_axis));
+    }
+    profile
 }
 
 fn boundary_demand_components_from_overflow(
@@ -721,6 +1063,60 @@ mod tests {
         }
     }
 
+    fn lane_key(slots: &[usize]) -> Vec<usize> {
+        slots.to_vec()
+    }
+
+    fn row_profile_lane(
+        lane_key: Vec<usize>,
+        guide_before: f32,
+        guide_after: f32,
+        total_before: f32,
+        total_after: f32,
+    ) -> FacetBoundaryProfiles {
+        FacetBoundaryProfiles {
+            row: FacetAxisBoundaryProfile {
+                lanes: vec![FacetBoundaryLane {
+                    lane_key,
+                    guide: FacetBoundaryDemand {
+                        before: guide_before,
+                        after: guide_after,
+                    },
+                    total: FacetBoundaryDemand {
+                        before: total_before,
+                        after: total_after,
+                    },
+                }],
+            },
+            column: FacetAxisBoundaryProfile::default(),
+        }
+    }
+
+    fn column_profile_lane(
+        lane_key: Vec<usize>,
+        guide_before: f32,
+        guide_after: f32,
+        total_before: f32,
+        total_after: f32,
+    ) -> FacetBoundaryProfiles {
+        FacetBoundaryProfiles {
+            row: FacetAxisBoundaryProfile::default(),
+            column: FacetAxisBoundaryProfile {
+                lanes: vec![FacetBoundaryLane {
+                    lane_key,
+                    guide: FacetBoundaryDemand {
+                        before: guide_before,
+                        after: guide_after,
+                    },
+                    total: FacetBoundaryDemand {
+                        before: total_before,
+                        after: total_after,
+                    },
+                }],
+            },
+        }
+    }
+
     fn assert_overflow_eq(actual: &CoordinatedOverflow, expected: &CoordinatedOverflow) {
         assert_eq!(actual.guide, expected.guide);
         assert_eq!(actual.total, expected.total);
@@ -849,6 +1245,65 @@ mod tests {
         assert_eq!(slabs.legend.right, 1.0);
         assert_eq!(slabs.legend.bottom, 3.0);
         assert_eq!(slabs.legend.left, 0.0);
+    }
+
+    #[test]
+    fn lane_padding_uses_one_sided_row_overflow_without_matching_lower_lane() {
+        let profiles = vec![
+            row_profile_lane(lane_key(&[0]), 0.0, 3.0, 0.0, 34.0),
+            row_profile_lane(lane_key(&[1]), 7.0, 0.0, 41.0, 0.0),
+        ];
+        let renderable = vec![true, true];
+
+        assert_eq!(
+            compute_padding_from_boundary_profiles(FacetAxis::Row, &profiles, &renderable, true),
+            Some(41.0)
+        );
+        assert_eq!(
+            compute_padding_from_boundary_profiles(FacetAxis::Row, &profiles, &renderable, false),
+            Some(7.0)
+        );
+    }
+
+    #[test]
+    fn lane_padding_counts_row_overflow_with_matching_lower_lane() {
+        let profiles = vec![
+            row_profile_lane(lane_key(&[0]), 0.0, 3.0, 0.0, 34.0),
+            row_profile_lane(lane_key(&[0]), 7.0, 0.0, 41.0, 0.0),
+        ];
+        let renderable = vec![true, true];
+
+        assert_eq!(
+            compute_padding_from_boundary_profiles(FacetAxis::Row, &profiles, &renderable, true),
+            Some(75.0)
+        );
+        assert_eq!(
+            compute_padding_from_boundary_profiles(FacetAxis::Row, &profiles, &renderable, false),
+            Some(10.0)
+        );
+    }
+
+    #[test]
+    fn lane_padding_uses_one_sided_column_overflow_without_matching_lanes() {
+        let profiles = vec![
+            column_profile_lane(lane_key(&[0]), 0.0, 23.0, 0.0, 31.0),
+            column_profile_lane(lane_key(&[1]), 17.0, 0.0, 39.0, 0.0),
+        ];
+        let renderable = vec![true, true];
+
+        assert_eq!(
+            compute_padding_from_boundary_profiles(FacetAxis::Column, &profiles, &renderable, true,),
+            Some(39.0)
+        );
+
+        let profiles = vec![
+            column_profile_lane(lane_key(&[0]), 0.0, 23.0, 0.0, 31.0),
+            column_profile_lane(lane_key(&[0]), 17.0, 0.0, 39.0, 0.0),
+        ];
+        assert_eq!(
+            compute_padding_from_boundary_profiles(FacetAxis::Column, &profiles, &renderable, true,),
+            Some(70.0)
+        );
     }
 
     #[test]

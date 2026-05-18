@@ -54,12 +54,10 @@ use crate::{
         debug as facet_debug,
         empty_cell_policy::FacetEmptyCellPolicy,
         evaluated_facet_tree::EvaluatedFacetTree,
-        layout_plan::{
-            FacetBandPaddingFeedback, FacetBandPaddingFeedbackMap, compute_padding_from_overflows,
-        },
+        layout_plan::{FacetBandPaddingFeedback, FacetBandPaddingFeedbackMap},
         marks::facet::{FacetMarkRef, facet_mark_ref},
         overflow_projection::{
-            overflow_from_boundary_demand, realized_boundary_demand_components_for_measurement,
+            boundary_profiles_for_measurement, compute_padding_from_boundary_profiles,
         },
         placement::{project_child_layout_bounds, resolve_facet_cell_render_placements},
         subtree_plot_area::{LeafPlotAreaSize, estimate_root_plot_area_from_leaf_size},
@@ -545,22 +543,26 @@ impl CompiledPlot {
                 renderable_for_empty_policy(facet_band.empty_cell_policy, !cell.plan.has_data_rows)
             })
             .collect::<Vec<_>>();
-        let mut guide_overflows = Vec::with_capacity(facet_band.cells.len());
-        let mut total_overflows = Vec::with_capacity(facet_band.cells.len());
+        let boundary_profiles = facet_band
+            .cells
+            .iter()
+            .map(|cell| boundary_profiles_for_measurement(&cell.measurement))
+            .collect::<Vec<_>>();
 
-        for cell in &facet_band.cells {
-            let demand = realized_boundary_demand_components_for_measurement(
-                facet_band.axis,
-                &cell.measurement,
-            );
-            guide_overflows.push(overflow_from_boundary_demand(facet_band.axis, demand.guide));
-            total_overflows.push(overflow_from_boundary_demand(facet_band.axis, demand.total));
-        }
-
-        let guide_padding_inner_px =
-            compute_padding_from_overflows(facet_band.axis, &guide_overflows, &renderable_cells);
-        let padding_inner_px =
-            compute_padding_from_overflows(facet_band.axis, &total_overflows, &renderable_cells);
+        let guide_padding_inner_px = compute_padding_from_boundary_profiles(
+            facet_band.axis,
+            &boundary_profiles,
+            &renderable_cells,
+            false,
+        )
+        .unwrap_or(0.0);
+        let padding_inner_px = compute_padding_from_boundary_profiles(
+            facet_band.axis,
+            &boundary_profiles,
+            &renderable_cells,
+            true,
+        )
+        .unwrap_or(0.0);
         if guide_padding_inner_px > 0.0 || padding_inner_px > 0.0 {
             feedback.insert(
                 node_path.clone(),

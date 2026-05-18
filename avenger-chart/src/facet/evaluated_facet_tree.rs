@@ -971,12 +971,6 @@ impl EvaluatedFacetTree {
             title_level_counts.truncate(depth);
         }
 
-        for (idx, count) in title_level_counts.iter_mut().enumerate().take(depth) {
-            if let Some(global_count) = self.level_counts_ref().get(idx) {
-                *count = (*count).max(*global_count);
-            }
-        }
-
         title_level_counts
     }
 
@@ -1249,6 +1243,7 @@ impl EvaluatedFacetTree {
             &resolved.level_directions,
             axis_position,
         );
+        let title_sharing = SharingLevel::from_raw(relevant_depth as u8);
 
         AxisVisibility {
             show_labels: self.non_empty_owner_visible_for_cartesian_axis(
@@ -1258,10 +1253,16 @@ impl EvaluatedFacetTree {
                 labels_sharing,
                 labels_fallback,
             ),
-            // Keep title ownership geometric (domain-slot edge owner) even in
-            // NonEmptySlots mode. This avoids relocating titles into interior
-            // cells when edge owners are holes.
-            show_title: title_fallback,
+            // In hole mode, title ownership follows the same non-empty edge
+            // owner as labels. Otherwise a ragged row/column can lose its axis
+            // title entirely when its geometric edge owner is a hole.
+            show_title: self.non_empty_owner_visible_for_cartesian_axis(
+                path,
+                resolved,
+                axis_position,
+                title_sharing,
+                title_fallback,
+            ),
         }
     }
 
@@ -2713,7 +2714,7 @@ mod tests {
             )
             .unwrap();
         assert!(non_empty_visibility.show_labels);
-        assert!(!non_empty_visibility.show_title);
+        assert!(non_empty_visibility.show_title);
     }
 
     #[test]
@@ -2743,7 +2744,7 @@ mod tests {
             )
             .unwrap();
         assert!(non_empty_visibility.show_labels);
-        assert!(!non_empty_visibility.show_title);
+        assert!(non_empty_visibility.show_title);
     }
 
     #[test]
@@ -2766,7 +2767,7 @@ mod tests {
     }
 
     #[test]
-    fn test_channel_axis_title_uses_geometric_slot_owner_not_local_branch_owner() {
+    fn test_channel_axis_title_uses_branch_local_edge_owner() {
         use crate::cartesian::axis::AxisPosition;
 
         let tree = build_free_row_title_test_tree();
@@ -2782,8 +2783,27 @@ mod tests {
         let narrow_visibility = narrow_visibility.unwrap();
         let medium_visibility = medium_visibility.unwrap();
 
-        assert!(!narrow_visibility.show_title);
+        assert!(narrow_visibility.show_title);
         assert!(medium_visibility.show_title);
+    }
+
+    #[test]
+    fn test_channel_axis_title_non_empty_mode_relocates_to_visible_edge_owner() {
+        use crate::cartesian::axis::AxisPosition;
+
+        let tree = build_free_row_title_test_tree();
+        let narrow_top = vec![scalar("narrow"), scalar("Iris-setosa")];
+
+        let narrow_visibility = tree
+            .channel_axis_visibility_for_path_checked_with_mode(
+                &narrow_top,
+                AxisPosition::Bottom,
+                0,
+                AxisOwnershipMode::NonEmptySlots,
+            )
+            .unwrap();
+
+        assert!(narrow_visibility.show_title);
     }
 
     #[test]

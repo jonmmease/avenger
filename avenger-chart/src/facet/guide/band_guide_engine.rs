@@ -419,7 +419,6 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
         )
         .await?
     };
-
     let (_band_positions, labels) = band_positions_and_labels::<O>(scales, coord_measurement)?;
     let place_at_end = O::place_at_end(state.position.as_deref());
     let axis_position = O::axis_position(place_at_end);
