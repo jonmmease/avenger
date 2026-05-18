@@ -1,8 +1,8 @@
-> **Note**: This is an internal architecture document created during development.
-> For user-facing facet documentation, see [avenger-chart/book](../avenger-chart/book/).
-> For current architecture reference, see [docs/architecture/facet-system](../avenger-chart/docs/architecture/facet-system/).
-
 # Facet Layout and Overflow Model
+
+This document describes the *conceptual* overflow model used by the facet system: how overflow regions at the facet level relate to overflow regions at the subplot level, and how those relationships drive aggregation rules at facet edges.
+
+For the implementation, see `avenger-chart/docs/architecture/facet-system.md` and the `overflow_projection` module. For user-facing facet usage, see `avenger-chart/book/src/docs/coordinate-systems/faceting/`.
 
 ## Core Concept: Overflow Regions Overlap and Stack
 
@@ -108,32 +108,22 @@ When a subplot IS itself a facet (e.g., FacetRow inside FacetColumn):
    = FacetColumn total of-right (50px)
    ```
 
-## Current Bug: Hardcoded Fallback
-
-When measuring a nested facet subplot's overflow, the code returns hardcoded values:
-```rust
-return Ok((30.0, 30.0, 40.0, 20.0));  // (top, bottom, left, right)
-```
-
-This breaks the stacking model because:
-- The inner FacetRow's actual of-right (50px+) is replaced with 20px
-- The outer FacetColumn's of-right becomes 20px
-- The "Petal Width" title (which needs ~50px) gets clipped
-
-## Fix Required
-
-The fix must ensure that when measuring a nested facet subplot, we return its **actual computed total overflow** (including its facet labels and title), not hardcoded estimates. This actual value becomes the base that the outer facet's overflow calculation stacks upon.
-
 ## Overflow Aggregation Rules
 
-For FacetRowGuide:
-- **Left**: first subplot's left (leftmost edge)
-- **Right**: last subplot's right (rightmost edge)
-- **Top/Bottom**: max across all subplots (all rows need same vertical space)
+When a facet asks "how much overflow do I have on side X?", it aggregates across its child subplots using rules that depend on whether side X is a *main-axis* edge (facets cells are arranged along it) or a *cross-axis* edge (perpendicular to the cell arrangement):
 
-For FacetColGuide:
-- **Left/Right**: max across all subplots (all columns need same horizontal space)
-- **Top**: first subplot's top (topmost edge)
-- **Bottom**: last subplot's bottom (bottommost edge)
+**For FacetRow** (cells stacked vertically — main axis is vertical):
+- **Left**: max across all subplots (every row needs the same left margin)
+- **Right**: max across all subplots (every row needs the same right margin)
+- **Top**: first subplot's top (only the top row extends above the facet)
+- **Bottom**: last subplot's bottom (only the bottom row extends below the facet)
 
-The edge-specific selection (first/last) makes sense because only edge subplots' overflow extends to the facet boundary. Interior subplots' overflow is internal spacing.
+**For FacetCol** (cells arranged horizontally — main axis is horizontal):
+- **Left**: first subplot's left (only the leftmost column extends left of the facet)
+- **Right**: last subplot's right (only the rightmost column extends right of the facet)
+- **Top**: max across all subplots
+- **Bottom**: max across all subplots
+
+The edge-specific selection (first/last) on the main axis is what allows facet-level content (labels, titles) to stack *beyond* the subplot overflow rather than overlapping it: only edge subplots' overflow extends to the facet boundary, while interior subplots' overflow becomes internal spacing.
+
+Implementation: `overflow_projection::aggregate_facet_band_overflow_with_policy`.
