@@ -34,8 +34,8 @@ If no exact match found:
    ```
    "Which guide did you mean?"
    - option 1: facet-layout-overflow-model
-   - option 2: grid-facet-detailed-analysis
-   - option 3: nested-facet-implementation
+   - option 2: facet-invariants
+   - option 3: overflow-measurement-analysis
    ```
 3. If no matches, tell user the guide wasn't found and suggest `/guide-list`
 

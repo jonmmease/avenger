@@ -140,8 +140,8 @@ When creating implementation plans (e.g., with jons-plan), include guide referen
 {
   "id": "implement-facet-feature",
   "steps": [
-    "Read guides/facet-layout-overflow-model.md",
-    "Read guides/nested-facet-implementation.md",
+    "Read avenger-chart/docs/architecture/facet-system.md",
+    "Read guides/facet-invariants.md",
     "Implement the new facet behavior",
     "..."
   ]
