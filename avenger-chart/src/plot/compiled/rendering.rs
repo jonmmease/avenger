@@ -58,9 +58,9 @@ use crate::{
         },
         marks::facet::{FacetMarkRef, facet_mark_ref},
         overflow_projection::{
-            FacetOverflowSlabs, overflow_from_boundary_demand,
-            realized_boundary_demand_components_for_measurement,
+            overflow_from_boundary_demand, realized_boundary_demand_components_for_measurement,
         },
+        placement::{project_child_layout_bounds, resolve_facet_cell_render_placements},
         subtree_plot_area::{LeafPlotAreaSize, estimate_root_plot_area_from_leaf_size},
     },
     guide::{GuideOverflowPhase, OverflowSpaceRequirement},
@@ -216,6 +216,166 @@ fn translated_frame_layout(layout: &FrameLayout, origin: [f32; 2]) -> FrameLayou
         translate_layout_bounds(bounds, origin[0], origin[1]);
     }
     layout
+}
+
+fn shrink_start_edge(bounds: &mut LayoutBounds, amount: f32, is_horizontal: bool) {
+    if amount <= 0.0 {
+        return;
+    }
+    if is_horizontal {
+        bounds.width = (bounds.width - amount).max(0.0);
+    } else {
+        bounds.height = (bounds.height - amount).max(0.0);
+    }
+}
+
+fn shrink_end_edge(bounds: &mut LayoutBounds, amount: f32, is_horizontal: bool) {
+    if amount <= 0.0 {
+        return;
+    }
+    if is_horizontal {
+        bounds.x += amount;
+        bounds.width = (bounds.width - amount).max(0.0);
+    } else {
+        bounds.y += amount;
+        bounds.height = (bounds.height - amount).max(0.0);
+    }
+}
+
+fn child_facet_component_debug_legend_expansion(
+    layout: &FrameLayout,
+    measurement: &ComponentsMeasurement,
+    facet_band: &FacetBandCoordMeasurement,
+) -> Result<EdgeSlabs, AvengerChartError> {
+    let child_render_placements = resolve_facet_cell_render_placements(measurement, facet_band)?;
+    let parent_content_origin = [layout.plot_area.x, layout.plot_area.y];
+    let plot_right = layout.plot_area.x + layout.plot_area.width;
+    let plot_bottom = layout.plot_area.y + layout.plot_area.height;
+    let mut expansion = EdgeSlabs::default();
+
+    for cell_render_placement in &child_render_placements {
+        let cell = facet_band
+            .cells
+            .get(cell_render_placement.cell_index)
+            .ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Missing facet component debug cell for index {}",
+                    cell_render_placement.cell_index
+                ))
+            })?;
+        let child_plot_bounds = cell.measurement.layout.plot_area_bounds();
+
+        for position in [
+            LegendPosition::Top,
+            LegendPosition::Right,
+            LegendPosition::Bottom,
+            LegendPosition::Left,
+        ] {
+            let Some(legend_ids) = cell
+                .measurement
+                .layout
+                .frame_layout
+                .legends_by_position
+                .get(&position)
+            else {
+                continue;
+            };
+            for legend_id in legend_ids {
+                let Some(bounds) = cell.measurement.layout.frame_layout.legends.get(legend_id)
+                else {
+                    continue;
+                };
+                let projected = project_child_layout_bounds(
+                    parent_content_origin,
+                    cell_render_placement.origin,
+                    *child_plot_bounds,
+                    *bounds,
+                );
+                match position {
+                    LegendPosition::Top => {
+                        expansion.top = expansion.top.max(layout.plot_area.y - projected.y);
+                    }
+                    LegendPosition::Bottom => {
+                        expansion.bottom = expansion
+                            .bottom
+                            .max(projected.y + projected.height - plot_bottom);
+                    }
+                    LegendPosition::Left => {
+                        expansion.left = expansion.left.max(layout.plot_area.x - projected.x);
+                    }
+                    LegendPosition::Right => {
+                        expansion.right = expansion
+                            .right
+                            .max(projected.x + projected.width - plot_right);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(EdgeSlabs {
+        top: expansion.top.max(0.0),
+        right: expansion.right.max(0.0),
+        bottom: expansion.bottom.max(0.0),
+        left: expansion.left.max(0.0),
+    })
+}
+
+fn expand_facet_component_debug_plot_area(
+    layout: &mut FrameLayout,
+    measurement: &ComponentsMeasurement,
+    facet_band: &FacetBandCoordMeasurement,
+) -> Result<(), AvengerChartError> {
+    let expansion = child_facet_component_debug_legend_expansion(layout, measurement, facet_band)?;
+    layout.plot_area.x -= expansion.left;
+    layout.plot_area.y -= expansion.top;
+    layout.plot_area.width = (layout.plot_area.width + expansion.left + expansion.right).max(0.0);
+    layout.plot_area.height = (layout.plot_area.height + expansion.top + expansion.bottom).max(0.0);
+
+    if let Some(bounds) = layout
+        .guide_overflows
+        .get_mut(&crate::cartesian::axis::AxisPosition::Top)
+    {
+        bounds.x -= expansion.left;
+        bounds.width = (bounds.width + expansion.left + expansion.right).max(0.0);
+        shrink_start_edge(bounds, expansion.top, false);
+    }
+    if let Some(bounds) = layout
+        .guide_overflows
+        .get_mut(&crate::cartesian::axis::AxisPosition::Bottom)
+    {
+        bounds.x -= expansion.left;
+        bounds.width = (bounds.width + expansion.left + expansion.right).max(0.0);
+        shrink_end_edge(bounds, expansion.bottom, false);
+    }
+    if let Some(bounds) = layout
+        .guide_overflows
+        .get_mut(&crate::cartesian::axis::AxisPosition::Left)
+    {
+        bounds.y -= expansion.top;
+        bounds.height = (bounds.height + expansion.top + expansion.bottom).max(0.0);
+        shrink_start_edge(bounds, expansion.left, true);
+    }
+    if let Some(bounds) = layout
+        .guide_overflows
+        .get_mut(&crate::cartesian::axis::AxisPosition::Right)
+    {
+        bounds.y -= expansion.top;
+        bounds.height = (bounds.height + expansion.top + expansion.bottom).max(0.0);
+        shrink_end_edge(bounds, expansion.right, true);
+    }
+    Ok(())
+}
+
+fn translated_component_debug_frame_layout(
+    measurement: &ComponentsMeasurement,
+    origin: [f32; 2],
+) -> Result<FrameLayout, AvengerChartError> {
+    let mut layout = measurement.layout.frame_layout.clone();
+    if let Some(facet_band) = facet_band_ref(measurement.coord_measurement.as_ref()) {
+        expand_facet_component_debug_plot_area(&mut layout, measurement, facet_band)?;
+    }
+    Ok(translated_frame_layout(&layout, origin))
 }
 
 struct RefinementIterationOutcome {
@@ -2930,42 +3090,29 @@ impl CompiledPlot {
             return Ok(None);
         };
 
-        let placement = facet_band.resolved_placement_from_scale_specs(&measurement.scales)?;
-        let slabs = FacetOverflowSlabs::from_coordinated(&facet_band.coordinated_overflow);
-        let (origin_offset_x, origin_offset_y) = match facet_band.axis {
-            FacetAxis::Column => (0.0, slabs.legend.top),
-            FacetAxis::Row => (slabs.legend.left, 0.0),
-        };
+        let child_render_placements =
+            resolve_facet_cell_render_placements(measurement, facet_band)?;
+        let parent_content_origin = [content_rect.x, content_rect.y];
 
-        let mut rects = Vec::with_capacity(placement.cells.len());
-        for cell_placement in &placement.cells {
+        let mut rects = Vec::with_capacity(child_render_placements.len());
+        for child_render_placement in &child_render_placements {
             let cell = facet_band
                 .cells
-                .get(cell_placement.cell_index)
+                .get(child_render_placement.cell_index)
                 .ok_or_else(|| {
                     AvengerChartError::InternalError(format!(
                         "Missing facet debug child frame for cell index {}",
-                        cell_placement.cell_index
+                        child_render_placement.cell_index
                     ))
                 })?;
             let child_rect = cell.measurement.frame_allocation.rect;
             let child_plot_bounds = cell.measurement.layout.plot_area_bounds();
-            let (x, y) = match facet_band.axis {
-                FacetAxis::Column => (
-                    content_rect.x + origin_offset_x + cell_placement.main_axis_start,
-                    content_rect.y + origin_offset_y,
-                ),
-                FacetAxis::Row => (
-                    content_rect.x + origin_offset_x,
-                    content_rect.y + origin_offset_y + cell_placement.main_axis_start,
-                ),
-            };
-            rects.push(LayoutBounds {
-                x: x + child_rect.x - child_plot_bounds.x,
-                y: y + child_rect.y - child_plot_bounds.y,
-                width: child_rect.width,
-                height: child_rect.height,
-            });
+            rects.push(project_child_layout_bounds(
+                parent_content_origin,
+                child_render_placement.origin,
+                *child_plot_bounds,
+                child_rect,
+            ));
         }
 
         Ok(Some(rects))
@@ -2981,7 +3128,7 @@ impl CompiledPlot {
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
         if overlay_mode.components_enabled() {
-            let frame_layout = translated_frame_layout(&measurement.layout.frame_layout, origin);
+            let frame_layout = translated_component_debug_frame_layout(measurement, origin)?;
             marks.extend(create_debug_layout_rects(
                 &frame_layout,
                 color.clone(),

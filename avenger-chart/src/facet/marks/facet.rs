@@ -7,12 +7,13 @@ use crate::facet::dimension_config::{
 };
 use crate::facet::empty_cell_policy::FacetEmptyCellPolicy;
 use crate::facet::marks::facet_config::{FacetColChannelConfig, FacetRowChannelConfig};
-use crate::facet::overflow_projection::FacetOverflowSlabs;
 use crate::facet::ownership_policy::{
     cell_requires_invalid_path_axis_fallback_hidden, has_holes_from_cells,
     resolve_facet_ownership_policy,
 };
-use crate::facet::placement::FacetBandPlacement;
+use crate::facet::placement::{
+    FacetBandPlacement, facet_cell_main_axis_start_offset, facet_cell_render_origin,
+};
 use crate::marks::{
     ChannelDescriptor, ChannelValue, CompiledMark, CompiledMarkState, Mark, MarkState,
 };
@@ -25,16 +26,6 @@ use serde_with::serde_as;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::trace;
-
-fn facet_cell_main_axis_start_offset(
-    facet_measurement: &crate::facet::coord::FacetBandCoordMeasurement,
-) -> (f32, f32) {
-    let slabs = FacetOverflowSlabs::from_coordinated(&facet_measurement.coordinated_overflow);
-    match facet_measurement.axis {
-        crate::coords::FacetAxis::Column => (0.0, slabs.legend.top),
-        crate::coords::FacetAxis::Row => (slabs.legend.left, 0.0),
-    }
-}
 
 #[derive(Clone, Copy, Debug)]
 struct FacetBandRenderOps {
@@ -61,10 +52,7 @@ impl FacetBandRenderOps {
     }
 
     fn subplot_origin(self, position: f32, origin_offset_x: f32, origin_offset_y: f32) -> [f32; 2] {
-        match self.axis {
-            FacetAxis::Column => [position + origin_offset_x, origin_offset_y],
-            FacetAxis::Row => [origin_offset_x, position + origin_offset_y],
-        }
+        facet_cell_render_origin(self.axis, position, origin_offset_x, origin_offset_y)
     }
 
     fn group_name(self, idx: usize, is_empty: bool) -> String {

@@ -16,9 +16,10 @@ use crate::{
     facet::{
         band_positions::{BandPosition, BandPositionIterator},
         coord::{FacetBandCoordMeasurement, FacetCellRuntime},
-        overflow_projection::rendered_boundary_demand_for_measurement,
+        overflow_projection::{FacetOverflowSlabs, rendered_boundary_demand_for_measurement},
         padding_policy,
     },
+    layout::LayoutBounds,
     plot::compiled::ComponentsMeasurement,
     scales::ConfiguredScaleWithSpec,
 };
@@ -38,6 +39,14 @@ pub(crate) struct FacetCellPlacement {
     pub(crate) cell_index: usize,
     pub(crate) main_axis_start: f32,
     pub(crate) main_axis_size: f32,
+}
+
+/// Render-space placement for one facet cell relative to the facet content
+/// rectangle. Facet marks use this origin as the subplot group origin.
+#[derive(Debug, Clone)]
+pub(crate) struct FacetCellRenderPlacement {
+    pub(crate) cell_index: usize,
+    pub(crate) origin: [f32; 2],
 }
 
 /// Explicit placement model used when a band dimension is leaf-plot-area-sized.
@@ -262,6 +271,70 @@ pub(crate) fn resolve_facet_band_placement(
     )
 }
 
+pub(crate) fn facet_cell_main_axis_start_offset(
+    facet_band: &FacetBandCoordMeasurement,
+) -> (f32, f32) {
+    let slabs = FacetOverflowSlabs::from_coordinated(&facet_band.coordinated_overflow);
+    match facet_band.axis {
+        FacetAxis::Column => (0.0, slabs.legend.top),
+        FacetAxis::Row => (slabs.legend.left, 0.0),
+    }
+}
+
+pub(crate) fn facet_cell_render_origin(
+    axis: FacetAxis,
+    main_axis_start: f32,
+    origin_offset_x: f32,
+    origin_offset_y: f32,
+) -> [f32; 2] {
+    match axis {
+        FacetAxis::Column => [main_axis_start + origin_offset_x, origin_offset_y],
+        FacetAxis::Row => [origin_offset_x, main_axis_start + origin_offset_y],
+    }
+}
+
+pub(crate) fn facet_cell_render_placement(
+    facet_band: &FacetBandCoordMeasurement,
+    cell_placement: &FacetCellPlacement,
+) -> FacetCellRenderPlacement {
+    let (origin_offset_x, origin_offset_y) = facet_cell_main_axis_start_offset(facet_band);
+    FacetCellRenderPlacement {
+        cell_index: cell_placement.cell_index,
+        origin: facet_cell_render_origin(
+            facet_band.axis,
+            cell_placement.main_axis_start,
+            origin_offset_x,
+            origin_offset_y,
+        ),
+    }
+}
+
+pub(crate) fn resolve_facet_cell_render_placements(
+    measurement: &ComponentsMeasurement,
+    facet_band: &FacetBandCoordMeasurement,
+) -> Result<Vec<FacetCellRenderPlacement>, AvengerChartError> {
+    let placement = facet_band.resolved_placement_from_scale_specs(&measurement.scales)?;
+    Ok(placement
+        .cells
+        .iter()
+        .map(|cell_placement| facet_cell_render_placement(facet_band, cell_placement))
+        .collect())
+}
+
+pub(crate) fn project_child_layout_bounds(
+    parent_content_origin: [f32; 2],
+    child_render_origin: [f32; 2],
+    child_plot_bounds: LayoutBounds,
+    child_bounds: LayoutBounds,
+) -> LayoutBounds {
+    LayoutBounds {
+        x: parent_content_origin[0] + child_render_origin[0] + child_bounds.x - child_plot_bounds.x,
+        y: parent_content_origin[1] + child_render_origin[1] + child_bounds.y - child_plot_bounds.y,
+        width: child_bounds.width,
+        height: child_bounds.height,
+    }
+}
+
 pub(crate) fn compute_explicit_facet_band_placement(
     axis: FacetAxis,
     cells: &[FacetCellRuntime],
@@ -469,5 +542,35 @@ mod tests {
         let message = format!("{}", err);
         assert!(message.contains("band position order"));
         assert!(message.contains("facet cell order"));
+    }
+
+    #[test]
+    fn child_layout_projection_matches_render_group_transform() {
+        let projected = project_child_layout_bounds(
+            [10.0, 85.0],
+            [20.0, 48.0],
+            LayoutBounds {
+                x: 5.0,
+                y: 89.0,
+                width: 100.0,
+                height: 80.0,
+            },
+            LayoutBounds {
+                x: 7.0,
+                y: 0.0,
+                width: 30.0,
+                height: 20.0,
+            },
+        );
+
+        assert_eq!(
+            projected,
+            LayoutBounds {
+                x: 32.0,
+                y: 44.0,
+                width: 30.0,
+                height: 20.0,
+            }
+        );
     }
 }
