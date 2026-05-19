@@ -1,6 +1,7 @@
 //! Chart frame layout engine.
 
 mod chart_layout;
+mod child_frame;
 mod content_solver;
 mod frame_solver;
 mod grid;
@@ -9,6 +10,7 @@ pub(crate) mod legend;
 mod sizing;
 mod types;
 
+pub(crate) use child_frame::{ChildFrameRenderPlacement, project_child_frame_bounds};
 pub use content_solver::{
     ChildFrameContentMeasurement, ChildFrameContentPlan, ChildFrameContentSolver,
     ContentAllocation, ContentDemand, ContentLayout, ContentLayoutSolver,

@@ -59,14 +59,14 @@ use crate::{
         overflow_projection::{
             boundary_profiles_for_measurement, compute_padding_from_boundary_profiles,
         },
-        placement::{project_child_layout_bounds, resolve_facet_cell_render_placements},
+        placement::resolve_facet_cell_render_placements,
         subtree_plot_area::{LeafPlotAreaSize, estimate_root_plot_area_from_leaf_size},
     },
     guide::{GuideOverflowPhase, OverflowSpaceRequirement},
     layout::{
         EdgeSlabs, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, FrameAllocation,
         FrameLayout, FrameLayoutInput, LayoutBounds, LayoutSpec, Margins, ResolvedLayoutDimensions,
-        Size2D, SizeMode, TaffyFrameLayoutSolver,
+        Size2D, SizeMode, TaffyFrameLayoutSolver, project_child_frame_bounds,
     },
     legend::LegendPosition,
     marks::CompiledMark,
@@ -311,15 +311,15 @@ fn projected_facet_child_plot_area_envelope(
     for cell_render_placement in &child_render_placements {
         let cell = facet_band
             .cells
-            .get(cell_render_placement.cell_index)
+            .get(cell_render_placement.child_index)
             .ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
                     "Missing facet component debug cell for index {}",
-                    cell_render_placement.cell_index
+                    cell_render_placement.child_index
                 ))
             })?;
         let child_plot_bounds = *cell.measurement.layout.plot_area_bounds();
-        let projected_plot_bounds = project_child_layout_bounds(
+        let projected_plot_bounds = project_child_frame_bounds(
             parent_content_origin,
             cell_render_placement.origin,
             child_plot_bounds,
@@ -357,11 +357,11 @@ fn facet_component_debug_side_extents(
     for cell_render_placement in &child_render_placements {
         let cell = facet_band
             .cells
-            .get(cell_render_placement.cell_index)
+            .get(cell_render_placement.child_index)
             .ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
                     "Missing facet component debug cell for index {}",
-                    cell_render_placement.cell_index
+                    cell_render_placement.child_index
                 ))
             })?;
         let child_plot_bounds = cell.measurement.layout.plot_area_bounds();
@@ -387,7 +387,7 @@ fn facet_component_debug_side_extents(
                 else {
                     continue;
                 };
-                let projected = project_child_layout_bounds(
+                let projected = project_child_frame_bounds(
                     parent_content_origin,
                     cell_render_placement.origin,
                     *child_plot_bounds,
@@ -3179,16 +3179,16 @@ impl CompiledPlot {
         for child_render_placement in &child_render_placements {
             let cell = facet_band
                 .cells
-                .get(child_render_placement.cell_index)
+                .get(child_render_placement.child_index)
                 .ok_or_else(|| {
                     AvengerChartError::InternalError(format!(
                         "Missing facet debug child frame for cell index {}",
-                        child_render_placement.cell_index
+                        child_render_placement.child_index
                     ))
                 })?;
             let child_rect = cell.measurement.frame_allocation.rect;
             let child_plot_bounds = cell.measurement.layout.plot_area_bounds();
-            rects.push(project_child_layout_bounds(
+            rects.push(project_child_frame_bounds(
                 parent_content_origin,
                 child_render_placement.origin,
                 *child_plot_bounds,
