@@ -259,7 +259,7 @@ impl<C: CoordinateSystem> Plot<C> {
 
         // 2. Compile all marks, applying aggregation if needed
         let mut compiled_marks: Vec<Arc<dyn CompiledMark>> = Vec::new();
-        for m in &self.marks {
+        for (mark_index, m) in self.marks.iter().enumerate() {
             let mark_state = m.state();
             // Get the DataFrame (or use plot-level data)
             let df_opt = mark_state
@@ -289,11 +289,12 @@ impl<C: CoordinateSystem> Plot<C> {
                         }),
                     )
                 });
-                self.compile_mark_with_aggregation(m, mark_state, df, session_context)
+                self.compile_mark_with_aggregation(mark_index, m, mark_state, df, session_context)
                     .await?
             } else {
                 // No aggregation needed - compile as-is
-                let compiled_state = CompiledMarkState::from_mark_state(mark_state, df_opt);
+                let compiled_state = CompiledMarkState::from_mark_state(mark_state, df_opt)
+                    .with_mark_index(mark_index);
                 m.compile(compiled_state, session_context).await?
             };
             compiled_marks.push(compiled_mark);
@@ -380,6 +381,7 @@ impl<C: CoordinateSystem> Plot<C> {
     /// and updates channel expressions to reference the aggregated output columns.
     async fn compile_mark_with_aggregation(
         &self,
+        mark_index: usize,
         mark: &Arc<dyn Mark<C>>,
         mark_state: &crate::marks::MarkState,
         df: DataFrame,
@@ -464,7 +466,8 @@ impl<C: CoordinateSystem> Plot<C> {
 
         // Create CompiledMarkState with aggregated DataFrame and updated channels
         let compiled_state =
-            CompiledMarkState::from_mark_state_with_channels(mark_state, agg_df, updated_channels);
+            CompiledMarkState::from_mark_state_with_channels(mark_state, agg_df, updated_channels)
+                .with_mark_index(mark_index);
 
         mark.compile(compiled_state, session_context).await
     }

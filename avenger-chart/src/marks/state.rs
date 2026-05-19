@@ -34,6 +34,9 @@ pub struct MarkState {
 pub struct CompiledMarkState {
     pub data: CompiledDataContext,
 
+    /// Stable index of this mark in its compiled plot's mark list.
+    pub mark_index: usize,
+
     // Faceting behavior for this mark
     pub facet_strategy: FacetStrategy,
 
@@ -52,6 +55,7 @@ impl CompiledMarkState {
     pub fn from_mark_state(state: &MarkState, transformed_df: Option<DataFrame>) -> Self {
         Self {
             data: CompiledDataContext::new(transformed_df, state.data.channels().clone()),
+            mark_index: 0,
             facet_strategy: state.facet_strategy.clone(),
             details: state.details.clone(),
             zindex: state.zindex,
@@ -70,10 +74,20 @@ impl CompiledMarkState {
     ) -> Self {
         Self {
             data: CompiledDataContext::new(Some(transformed_df), channels),
+            mark_index: 0,
             facet_strategy: state.facet_strategy.clone(),
             details: state.details.clone(),
             zindex: state.zindex,
             axis_configs: state.axis_configs.clone(),
         }
+    }
+
+    pub fn mark_index(&self) -> usize {
+        self.mark_index
+    }
+
+    pub(crate) fn with_mark_index(mut self, mark_index: usize) -> Self {
+        self.mark_index = mark_index;
+        self
     }
 }

@@ -154,6 +154,10 @@ impl CompiledSubplot {
         self.data_source
     }
 
+    pub fn child_index(&self) -> usize {
+        self.state.mark_index()
+    }
+
     pub fn inherits_parent_data(&self) -> bool {
         self.data_source == SubplotDataSource::InheritParent
     }
@@ -342,5 +346,24 @@ mod tests {
                 .is_some()
         );
         assert!(compiled.compiled_subplot().data.is_none());
+    }
+
+    #[tokio::test]
+    async fn repeated_subplot_marks_receive_stable_child_indexes() {
+        let ctx = SessionContext::new();
+        let compiled_plot = Plot::<ZeroDCoord>::new()
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("first"))
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("second"))
+            .compile(&ctx)
+            .await
+            .unwrap();
+
+        let first = compiled_subplot(compiled_plot.marks()[0].as_ref()).unwrap();
+        let second = compiled_subplot(compiled_plot.marks()[1].as_ref()).unwrap();
+
+        assert_eq!(first.child_index(), 0);
+        assert_eq!(second.child_index(), 1);
+        assert_eq!(first.key(), Some("first"));
+        assert_eq!(second.key(), Some("second"));
     }
 }
