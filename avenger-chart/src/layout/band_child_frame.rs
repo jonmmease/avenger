@@ -13,6 +13,16 @@ pub(crate) enum BandDirection {
     Vertical,
 }
 
+/// Cross-axis alignment for children inside a one-dimensional band.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[allow(dead_code)] // Center/End are exercised by concat once that producer lands.
+pub(crate) enum CrossAxisAlign {
+    #[default]
+    Start,
+    Center,
+    End,
+}
+
 /// Main-axis rendered demand outside one child frame boundary.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(crate) struct BoundaryDemand1D {
@@ -35,6 +45,7 @@ pub(crate) struct BandSpacing {
     pub(crate) outer_start: f32,
     pub(crate) outer_end: f32,
     pub(crate) min_inner_gap: f32,
+    pub(crate) cross_axis_align: CrossAxisAlign,
 }
 
 /// Positioned child frame in main/cross-axis coordinates.
@@ -43,6 +54,36 @@ pub(crate) struct BandPlacedChild {
     pub(crate) child_index: usize,
     pub(crate) main_axis_start: f32,
     pub(crate) main_axis_size: f32,
+    pub(crate) cross_axis_start: f32,
+    pub(crate) cross_axis_size: f32,
+}
+
+impl BandPlacedChild {
+    pub(crate) fn new(child_index: usize, main_axis_start: f32, main_axis_size: f32) -> Self {
+        Self {
+            child_index,
+            main_axis_start,
+            main_axis_size,
+            cross_axis_start: 0.0,
+            cross_axis_size: 0.0,
+        }
+    }
+
+    pub(crate) fn with_cross_axis(
+        child_index: usize,
+        main_axis_start: f32,
+        main_axis_size: f32,
+        cross_axis_start: f32,
+        cross_axis_size: f32,
+    ) -> Self {
+        Self {
+            child_index,
+            main_axis_start,
+            main_axis_size,
+            cross_axis_start: cross_axis_start.max(0.0),
+            cross_axis_size: cross_axis_size.max(0.0),
+        }
+    }
 }
 
 /// Placement result for a one-dimensional band of child frames.
@@ -63,6 +104,19 @@ impl BandChildFramePlacement {
         main_axis_extent: f32,
         cross_axis_extent: Option<f32>,
     ) -> Self {
+        let cross_axis_extent = cross_axis_extent.or_else(|| {
+            if children.is_empty() {
+                None
+            } else {
+                Some(
+                    children
+                        .iter()
+                        .map(|child| child.cross_axis_start + child.cross_axis_size)
+                        .fold(0.0f32, f32::max),
+                )
+            }
+        });
+
         Self {
             direction,
             children,
@@ -79,17 +133,25 @@ impl BandChildFramePlacement {
     ) -> Self {
         let mut placed_children = Vec::with_capacity(children.len());
         let mut cursor = spacing.outer_start.max(0.0);
-        let mut cross_axis_extent = 0.0f32;
+        let cross_axis_extent = children
+            .iter()
+            .map(|child| child.cross_axis_size.max(0.0))
+            .fold(0.0f32, f32::max);
         let min_inner_gap = spacing.min_inner_gap.max(0.0);
 
         for (idx, child) in children.iter().enumerate() {
             let main_axis_size = child.main_axis_size.max(0.0);
-            cross_axis_extent = cross_axis_extent.max(child.cross_axis_size.max(0.0));
-            placed_children.push(BandPlacedChild {
-                child_index: child.child_index,
-                main_axis_start: cursor,
+            let child_cross_axis_size = child.cross_axis_size.max(0.0);
+            let cross_axis_start = spacing
+                .cross_axis_align
+                .offset(cross_axis_extent, child_cross_axis_size);
+            placed_children.push(BandPlacedChild::with_cross_axis(
+                child.child_index,
+                cursor,
                 main_axis_size,
-            });
+                cross_axis_start,
+                child_cross_axis_size,
+            ));
 
             cursor += main_axis_size;
             if let Some(next) = children.get(idx + 1) {
@@ -118,12 +180,14 @@ impl BandChildFramePlacement {
             .iter()
             .map(|child| {
                 let origin = match self.direction {
-                    BandDirection::Horizontal => {
-                        [child.main_axis_start + origin_offset[0], origin_offset[1]]
-                    }
-                    BandDirection::Vertical => {
-                        [origin_offset[0], child.main_axis_start + origin_offset[1]]
-                    }
+                    BandDirection::Horizontal => [
+                        child.main_axis_start + origin_offset[0],
+                        child.cross_axis_start + origin_offset[1],
+                    ],
+                    BandDirection::Vertical => [
+                        child.cross_axis_start + origin_offset[0],
+                        child.main_axis_start + origin_offset[1],
+                    ],
                 };
                 ChildFrameRenderPlacement {
                     child_index: child.child_index,
@@ -146,6 +210,17 @@ impl BandChildFramePlacement {
         };
 
         ChildFramePlacementResult::new(content_size, render_placements)
+    }
+}
+
+impl CrossAxisAlign {
+    fn offset(self, available: f32, child: f32) -> f32 {
+        let extra = (available - child).max(0.0);
+        match self {
+            Self::Start => 0.0,
+            Self::Center => extra / 2.0,
+            Self::End => extra,
+        }
     }
 }
 
@@ -180,6 +255,7 @@ mod tests {
                 outer_start: 5.0,
                 outer_end: 7.0,
                 min_inner_gap: 10.0,
+                ..Default::default()
             },
         );
 
@@ -201,6 +277,7 @@ mod tests {
                 outer_start: 3.0,
                 outer_end: 4.0,
                 min_inner_gap: 6.0,
+                ..Default::default()
             },
         );
 
@@ -208,6 +285,54 @@ mod tests {
         assert_eq!(placement.children[1].main_axis_start, 21.0);
         assert_eq!(placement.main_axis_extent, 43.0);
         assert_eq!(placement.cross_axis_extent, Some(44.0));
+    }
+
+    #[test]
+    fn horizontal_center_alignment_offsets_smaller_children_on_cross_axis() {
+        let placement = BandChildFramePlacement::from_sized_children(
+            BandDirection::Horizontal,
+            &[
+                input(0, 30.0, 40.0, 0.0, 0.0),
+                input(1, 30.0, 80.0, 0.0, 0.0),
+            ],
+            BandSpacing {
+                min_inner_gap: 5.0,
+                cross_axis_align: CrossAxisAlign::Center,
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(placement.cross_axis_extent, Some(80.0));
+        assert_eq!(placement.children[0].cross_axis_start, 20.0);
+        assert_eq!(placement.children[1].cross_axis_start, 0.0);
+
+        let result = placement.to_child_frame_placement_result([0.0, 10.0], Size2D::new(1.0, 2.0));
+        assert_eq!(result.child(0).unwrap().origin, [0.0, 30.0]);
+        assert_eq!(result.child(1).unwrap().origin, [35.0, 10.0]);
+    }
+
+    #[test]
+    fn vertical_end_alignment_offsets_smaller_children_on_cross_axis() {
+        let placement = BandChildFramePlacement::from_sized_children(
+            BandDirection::Vertical,
+            &[
+                input(0, 20.0, 25.0, 0.0, 0.0),
+                input(1, 20.0, 75.0, 0.0, 0.0),
+            ],
+            BandSpacing {
+                min_inner_gap: 5.0,
+                cross_axis_align: CrossAxisAlign::End,
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(placement.cross_axis_extent, Some(75.0));
+        assert_eq!(placement.children[0].cross_axis_start, 50.0);
+        assert_eq!(placement.children[1].cross_axis_start, 0.0);
+
+        let result = placement.to_child_frame_placement_result([7.0, 0.0], Size2D::new(1.0, 2.0));
+        assert_eq!(result.child(0).unwrap().origin, [57.0, 0.0]);
+        assert_eq!(result.child(1).unwrap().origin, [7.0, 25.0]);
     }
 
     #[test]
@@ -251,19 +376,11 @@ mod tests {
         let placement = BandChildFramePlacement::from_positioned_children(
             BandDirection::Horizontal,
             vec![
-                BandPlacedChild {
-                    child_index: 3,
-                    main_axis_start: 20.0,
-                    main_axis_size: 40.0,
-                },
-                BandPlacedChild {
-                    child_index: 1,
-                    main_axis_start: 80.0,
-                    main_axis_size: 30.0,
-                },
+                BandPlacedChild::with_cross_axis(3, 20.0, 40.0, 5.0, 45.0),
+                BandPlacedChild::with_cross_axis(1, 80.0, 30.0, 12.0, 20.0),
             ],
             120.0,
-            Some(50.0),
+            None,
         );
 
         assert_eq!(placement.children[0].child_index, 3);
@@ -271,17 +388,14 @@ mod tests {
         assert_eq!(placement.children[1].main_axis_size, 30.0);
         assert_eq!(placement.main_axis_extent, 120.0);
         assert_eq!(placement.cross_axis_extent, Some(50.0));
+        assert_eq!(placement.children[1].cross_axis_start, 12.0);
     }
 
     #[test]
     fn horizontal_conversion_maps_main_axis_to_x_origin() {
         let placement = BandChildFramePlacement::from_positioned_children(
             BandDirection::Horizontal,
-            vec![BandPlacedChild {
-                child_index: 2,
-                main_axis_start: 30.0,
-                main_axis_size: 40.0,
-            }],
+            vec![BandPlacedChild::new(2, 30.0, 40.0)],
             100.0,
             Some(80.0),
         );
@@ -296,11 +410,7 @@ mod tests {
     fn vertical_conversion_maps_main_axis_to_y_origin() {
         let placement = BandChildFramePlacement::from_positioned_children(
             BandDirection::Vertical,
-            vec![BandPlacedChild {
-                child_index: 2,
-                main_axis_start: 30.0,
-                main_axis_size: 40.0,
-            }],
+            vec![BandPlacedChild::new(2, 30.0, 40.0)],
             100.0,
             Some(80.0),
         );

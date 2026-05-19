@@ -6,6 +6,7 @@ pub mod line;
 pub mod macros;
 pub mod rect;
 pub mod state;
+pub mod subplot;
 pub mod symbol;
 pub mod util;
 
@@ -41,6 +42,7 @@ pub use compiled_data_context::CompiledDataContext;
 pub use data_context::DataContext;
 pub use facet_strategy::FacetStrategy;
 pub use state::{CompiledMarkState, MarkState};
+pub use subplot::{CompiledSubplot, Subplot, SubplotContainerCoordinateSystem, SubplotDataSource};
 pub use util::default_scale_for_data_type;
 
 /// Expression for computing radius/padding requirements for marks

@@ -108,10 +108,12 @@ impl FacetBandPlacement {
             .copied()
             .zip(cells.iter())
             .enumerate()
-            .map(|(child_index, (main_axis_start, cell))| BandPlacedChild {
-                child_index,
-                main_axis_start,
-                main_axis_size: cell_main_plot_size(axis, &cell.measurement),
+            .map(|(child_index, (main_axis_start, cell))| {
+                BandPlacedChild::new(
+                    child_index,
+                    main_axis_start,
+                    cell_main_plot_size(axis, &cell.measurement),
+                )
             })
             .collect();
         let band = BandChildFramePlacement::from_positioned_children(
@@ -179,11 +181,7 @@ impl FacetCellPlacement {
     }
 
     fn to_placed_child(&self) -> BandPlacedChild {
-        BandPlacedChild {
-            child_index: self.cell_index,
-            main_axis_start: self.main_axis_start,
-            main_axis_size: self.main_axis_size,
-        }
+        BandPlacedChild::new(self.cell_index, self.main_axis_start, self.main_axis_size)
     }
 }
 
@@ -245,11 +243,7 @@ pub(crate) fn resolve_scale_backed_facet_band_placement(
     let children = bands
         .into_iter()
         .enumerate()
-        .map(|(child_index, band)| BandPlacedChild {
-            child_index,
-            main_axis_start: band.start(),
-            main_axis_size: band.bandwidth,
-        })
+        .map(|(child_index, band)| BandPlacedChild::new(child_index, band.start(), band.bandwidth))
         .collect();
     let band = BandChildFramePlacement::from_positioned_children(
         band_direction(axis),
@@ -429,6 +423,7 @@ pub(crate) fn compute_explicit_facet_band_placement(
             outer_start: layout.outer_start,
             outer_end: layout.outer_end,
             min_inner_gap: gap,
+            ..Default::default()
         },
     );
     let main_axis_positions = band
