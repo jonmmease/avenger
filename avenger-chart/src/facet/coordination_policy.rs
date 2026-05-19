@@ -1,9 +1,9 @@
-//! Sizing-mode policies for the shared facet coordination driver.
+//! Sizing policy helpers for the facet coordination driver.
 //!
 //! The coordination pipeline is the same across facet sizing modes: collect
 //! requirements, retarget geometry, reconcile requirements, then propagate final
-//! plot-area and scale-range updates. Strategies keep the small sizing-mode
-//! differences explicit without forking that pipeline.
+//! plot-area and scale-range updates. This module keeps the small sizing-policy
+//! decisions explicit without forking that pipeline.
 
 use crate::{
     coords::FacetAxis,
@@ -15,9 +15,8 @@ use crate::{
             retarget_measurement_plot_area_policy_no_remeasure,
         },
         coordination_plans::{
-            BandRetargetAction, CellRetargetAction, FinalPropagationChildPlan,
-            FinalPropagationPlan, FinalPropagationTrace, PlotAreaSize, PlotAreaTarget,
-            RetargetNodeActions, RetargetNodeRequirements, RetargetPlan, RetargetTrace,
+            BandRetargetAction, CellRetargetAction, FinalPropagationChildPlan, PlotAreaSize,
+            PlotAreaTarget, RetargetNodeActions, RetargetNodeRequirements,
         },
         layout_plan::FacetCellPlan,
     },
@@ -79,85 +78,6 @@ impl FinalChildResizePolicy {
     }
 }
 
-pub(crate) trait FacetSizingCoordinationStrategy {
-    const LABEL: &'static str;
-
-    fn facet_band_ref(measurement: &ComponentsMeasurement) -> Option<FacetBandRef<'_>>;
-
-    fn facet_band_mut(measurement: &mut ComponentsMeasurement) -> Option<FacetBandMut<'_>>;
-
-    fn before_run(
-        _measurement: &ComponentsMeasurement,
-        _eval_ctx: &EvaluationContext,
-    ) -> Result<(), AvengerChartError> {
-        Ok(())
-    }
-
-    fn after_retarget_trace(
-        _measurement: &ComponentsMeasurement,
-        _eval_ctx: &EvaluationContext,
-        _plan: &RetargetPlan,
-        _trace: &RetargetTrace,
-    ) -> Result<(), AvengerChartError> {
-        Ok(())
-    }
-
-    fn after_final_propagation_trace(
-        _measurement: &ComponentsMeasurement,
-        _eval_ctx: &EvaluationContext,
-        _plan: &FinalPropagationPlan,
-        _trace: &FinalPropagationTrace,
-    ) -> Result<(), AvengerChartError> {
-        Ok(())
-    }
-
-    fn refresh_placement_after_requirement_patch(
-        _facet_band: &mut FacetBandMut<'_>,
-        _patch_applied: bool,
-    ) {
-    }
-
-    fn refresh_placement_after_retarget_node(_facet_band: &mut FacetBandMut<'_>) {}
-
-    fn refresh_placement_after_final_propagation_node(_facet_band: &mut FacetBandMut<'_>) {}
-
-    fn build_retarget_actions(
-        facet_band: FacetBandRef<'_>,
-        requirements: &RetargetNodeRequirements,
-        eval_ctx: &EvaluationContext,
-    ) -> RetargetNodeActions;
-
-    fn set_child_parent_bandwidth_if_same_axis(
-        child: &mut ComponentsMeasurement,
-        parent_axis: FacetAxis,
-        cross_size: f32,
-    ) -> bool;
-
-    fn final_child_resize_policy(
-        axis: FacetAxis,
-        parent_cross_size_target: Option<f32>,
-        child: &ComponentsMeasurement,
-    ) -> FinalChildResizePolicy;
-
-    fn final_child_resize_policy_for_eval(
-        axis: FacetAxis,
-        parent_cross_size_target: Option<f32>,
-        child: &ComponentsMeasurement,
-        _eval_ctx: &EvaluationContext,
-    ) -> FinalChildResizePolicy {
-        Self::final_child_resize_policy(axis, parent_cross_size_target, child)
-    }
-
-    fn apply_final_propagation_child_update(
-        axis: FacetAxis,
-        child: &mut ComponentsMeasurement,
-        cell_plan: Option<&FacetCellPlan>,
-        compiled_subplot: &CompiledPlot,
-        eval_ctx: &EvaluationContext,
-        child_plan: &FinalPropagationChildPlan,
-    ) -> Result<(bool, usize), AvengerChartError>;
-}
-
 fn facet_child_plot_area_target(
     axis: FacetAxis,
     plot_area: PlotAreaSize,
@@ -186,20 +106,22 @@ fn facet_child_plot_area_target(
     target.has_any_target().then_some(target)
 }
 
-pub(crate) struct FacetPolicyCoordinationStrategy;
+pub(crate) struct FacetCoordinationPolicy;
 
-impl FacetSizingCoordinationStrategy for FacetPolicyCoordinationStrategy {
-    const LABEL: &'static str = "facet-policy";
+impl FacetCoordinationPolicy {
+    pub(crate) const LABEL: &'static str = "facet-coordination-policy";
 
-    fn facet_band_ref(measurement: &ComponentsMeasurement) -> Option<FacetBandRef<'_>> {
+    pub(crate) fn facet_band_ref(measurement: &ComponentsMeasurement) -> Option<FacetBandRef<'_>> {
         facet_band_ref_from_coord(measurement.coord_measurement.as_ref()).map(FacetBandRef::new)
     }
 
-    fn facet_band_mut(measurement: &mut ComponentsMeasurement) -> Option<FacetBandMut<'_>> {
+    pub(crate) fn facet_band_mut(
+        measurement: &mut ComponentsMeasurement,
+    ) -> Option<FacetBandMut<'_>> {
         facet_band_mut_from_coord(measurement.coord_measurement.as_mut()).map(FacetBandMut::new)
     }
 
-    fn refresh_placement_after_requirement_patch(
+    pub(crate) fn refresh_placement_after_requirement_patch(
         facet_band: &mut FacetBandMut<'_>,
         patch_applied: bool,
     ) {
@@ -208,15 +130,17 @@ impl FacetSizingCoordinationStrategy for FacetPolicyCoordinationStrategy {
         }
     }
 
-    fn refresh_placement_after_retarget_node(facet_band: &mut FacetBandMut<'_>) {
+    pub(crate) fn refresh_placement_after_retarget_node(facet_band: &mut FacetBandMut<'_>) {
         facet_band.recompute_explicit_placement_if_needed();
     }
 
-    fn refresh_placement_after_final_propagation_node(facet_band: &mut FacetBandMut<'_>) {
+    pub(crate) fn refresh_placement_after_final_propagation_node(
+        facet_band: &mut FacetBandMut<'_>,
+    ) {
         facet_band.recompute_explicit_placement_if_needed();
     }
 
-    fn build_retarget_actions(
+    pub(crate) fn build_retarget_actions(
         _facet_band: FacetBandRef<'_>,
         requirements: &RetargetNodeRequirements,
         eval_ctx: &EvaluationContext,
@@ -267,7 +191,7 @@ impl FacetSizingCoordinationStrategy for FacetPolicyCoordinationStrategy {
         }
     }
 
-    fn set_child_parent_bandwidth_if_same_axis(
+    pub(crate) fn set_child_parent_bandwidth_if_same_axis(
         child: &mut ComponentsMeasurement,
         parent_axis: FacetAxis,
         cross_size: f32,
@@ -283,7 +207,7 @@ impl FacetSizingCoordinationStrategy for FacetPolicyCoordinationStrategy {
         true
     }
 
-    fn final_child_resize_policy(
+    pub(crate) fn final_child_resize_policy(
         _axis: FacetAxis,
         _parent_cross_size_target: Option<f32>,
         _child: &ComponentsMeasurement,
@@ -296,7 +220,7 @@ impl FacetSizingCoordinationStrategy for FacetPolicyCoordinationStrategy {
         }
     }
 
-    fn final_child_resize_policy_for_eval(
+    pub(crate) fn final_child_resize_policy_for_eval(
         _axis: FacetAxis,
         _parent_cross_size_target: Option<f32>,
         child: &ComponentsMeasurement,
@@ -315,7 +239,7 @@ impl FacetSizingCoordinationStrategy for FacetPolicyCoordinationStrategy {
         }
     }
 
-    fn apply_final_propagation_child_update(
+    pub(crate) fn apply_final_propagation_child_update(
         axis: FacetAxis,
         child: &mut ComponentsMeasurement,
         cell_plan: Option<&FacetCellPlan>,

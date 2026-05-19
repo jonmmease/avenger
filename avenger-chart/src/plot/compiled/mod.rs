@@ -22,8 +22,8 @@ use crate::{
     error::AvengerChartError,
     guide::CompiledGuide,
     layout::{
-        ContentAllocation, ContentLayout, ContentLayoutSolver, FacetBandContentMeasurement,
-        FacetBandContentSolver, FrameAllocation, FrameDemand, LayoutSpec,
+        ChildFrameContentMeasurement, ChildFrameContentSolver, ContentAllocation, ContentLayout,
+        ContentLayoutSolver, FrameAllocation, FrameDemand, LayoutSpec,
         SinglePlotContentMeasurement, SinglePlotContentSolver,
     },
     legend::Legend,
@@ -299,14 +299,14 @@ impl ComponentsMeasurement {
         if let Some(facet_band) =
             crate::facet::coord::facet_band_ref(self.coord_measurement.as_ref())
         {
-            let solver = FacetBandContentSolver;
+            let solver = ChildFrameContentSolver;
             let child_frame_allocations = facet_band
                 .child_measurements_iter()
                 .map(|child| child.frame_allocation)
                 .collect::<Vec<_>>();
             let demand = solver.measure_content_demand(
                 &allocation,
-                &FacetBandContentMeasurement {
+                &ChildFrameContentMeasurement {
                     frame_demand,
                     child_frame_allocations,
                 },

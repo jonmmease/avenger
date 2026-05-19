@@ -182,67 +182,24 @@ pub struct CellDomainInfo {
 ///
 /// Shared plot-scale domains are coordinated before facet overflow measurement,
 /// so this pass only reconciles measured layout requirements.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FacetCoordinationMode {
-    /// Full requirement coordination cycle:
-    /// initial requirements -> retarget -> retargeted requirements -> final propagation.
-    FullCycle,
-}
-
 pub async fn coordinate_overflow_for_guides(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
 ) -> Result<(), AvengerChartError> {
-    coordinate_overflow_for_guides_with_mode(
-        measurement,
-        eval_ctx,
-        FacetCoordinationMode::FullCycle,
-    )
-    .await
+    crate::facet::coordination::coordinate_facet_measurement_tree(measurement, eval_ctx).await
 }
 
-pub async fn coordinate_overflow_for_guides_with_mode(
+pub async fn coordinate_overflow_for_guides_until(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
-    mode: FacetCoordinationMode,
-) -> Result<(), AvengerChartError> {
-    crate::layout::FacetBandContentSolver
-        .coordinate_existing_measurement_tree(measurement, eval_ctx, mode)
-        .await
-}
-
-impl crate::layout::FacetBandContentSolver {
-    pub(crate) async fn coordinate_existing_measurement_tree(
-        &self,
-        measurement: &mut ComponentsMeasurement,
-        eval_ctx: &EvaluationContext,
-        mode: FacetCoordinationMode,
-    ) -> Result<(), AvengerChartError> {
-        match mode {
-            FacetCoordinationMode::FullCycle => {
-                crate::facet::coordination::coordinate_facet_measurement_tree(measurement, eval_ctx)
-                    .await
-            }
-        }
-    }
-}
-
-pub async fn coordinate_overflow_for_guides_with_mode_until(
-    measurement: &mut ComponentsMeasurement,
-    eval_ctx: &EvaluationContext,
-    mode: FacetCoordinationMode,
     checkpoint: CoordinationCheckpoint,
 ) -> Result<(), AvengerChartError> {
-    match mode {
-        FacetCoordinationMode::FullCycle => {
-            crate::facet::coordination::coordinate_facet_measurement_tree_until(
-                measurement,
-                eval_ctx,
-                checkpoint,
-            )
-            .await
-        }
-    }
+    crate::facet::coordination::coordinate_facet_measurement_tree_until(
+        measurement,
+        eval_ctx,
+        checkpoint,
+    )
+    .await
 }
 
 #[typetag::serde(tag = "type")]

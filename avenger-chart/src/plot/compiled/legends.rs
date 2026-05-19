@@ -16,7 +16,7 @@ use crate::{
         evaluated_facet_tree::EvaluatedFacetTree, sharing_level::SharingLevel, sharing_policy,
     },
     layout::legend::measure_legend_size_with_channels,
-    layout::{LayoutResult, Size2D},
+    layout::{FrameLayout, Size2D},
     legend::{
         ChannelInfo, Legend, LegendChannel, LegendPosition, MergeKey, renderer::LegendRenderer,
     },
@@ -1111,7 +1111,7 @@ impl CompiledPlot {
     pub(super) async fn render_legends_from_plan(
         &self,
         legend_plan: &PreparedLegendPlan,
-        layout: &LayoutResult,
+        layout: &FrameLayout,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {

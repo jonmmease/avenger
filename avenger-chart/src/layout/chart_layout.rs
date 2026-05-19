@@ -28,7 +28,7 @@ use super::{
     info::LegendLayoutInfo,
     sizing::{EvaluatedLayoutSpec, EvaluatedSizeMode},
     types::{
-        ComponentType, LayoutBounds, LayoutResult, MIN_GUIDE_OVERFLOW_SIZE, OverflowSide, Size2D,
+        ComponentType, FrameLayout, LayoutBounds, MIN_GUIDE_OVERFLOW_SIZE, OverflowSide, Size2D,
     },
 };
 
@@ -429,8 +429,8 @@ impl ChartLayout {
     }
 
     /// Extract computed positions from Taffy layout
-    fn extract_layout_result(&self) -> Result<LayoutResult, AvengerChartError> {
-        let mut result = LayoutResult {
+    fn extract_layout_result(&self) -> Result<FrameLayout, AvengerChartError> {
+        let mut result = FrameLayout {
             plot_area: LayoutBounds {
                 x: 0.0,
                 y: 0.0,

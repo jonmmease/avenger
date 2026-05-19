@@ -8,7 +8,7 @@
 //!
 //! Immutable coordination plans are built in `coordination_plans`, bounded side
 //! effects are applied through `coordination_apply`, and sizing-mode differences
-//! are supplied by `coordination_strategy`.
+//! are supplied by `coordination_policy`.
 
 use std::collections::HashSet;
 
@@ -19,21 +19,16 @@ use crate::{
     facet::{
         coord::renderable_for_empty_policy,
         coordination_apply::{
-            apply_initial_requirement_pass_with_strategy,
-            apply_retargeted_requirement_pass_with_strategy,
-            build_final_propagation_plan_with_strategy_for_eval, build_retarget_plan_with_strategy,
-            run_final_propagation_with_trace_with_strategy, run_retarget_with_trace_with_strategy,
-            visit_facet_bands_with_node_id_for_strategy,
+            apply_requirement_pass, build_final_propagation_plan_for_eval, build_retarget_plan,
+            run_final_propagation_with_trace, run_retarget_with_trace,
+            visit_facet_bands_with_node_id,
         },
         coordination_plans::{
             CoordinationNodeKey, CoordinationRunArtifacts, FinalPropagationPlan,
-            FinalPropagationTrace, InitialRequirementNodeSnapshot, InitialRequirementPass,
-            InitialRequirementSnapshot, RetargetPlan, RetargetTrace,
-            RetargetedRequirementNodeSnapshot, RetargetedRequirementPass,
-            RetargetedRequirementSnapshot, build_initial_requirement_pass,
-            build_retargeted_requirement_pass,
+            FinalPropagationTrace, RequirementNodeSnapshot, RequirementPass, RequirementSnapshot,
+            RequirementStage, RetargetPlan, RetargetTrace, build_requirement_pass,
         },
-        coordination_strategy::{FacetPolicyCoordinationStrategy, FacetSizingCoordinationStrategy},
+        coordination_policy::FacetCoordinationPolicy,
         layout_plan::effective_edge_indices,
         overflow_projection::FacetOverflowSlabs,
     },
@@ -56,9 +51,7 @@ use crate::facet::coord::{
 };
 #[cfg(test)]
 use crate::facet::coordination_apply::{
-    apply_initial_requirement_pass, apply_retargeted_requirement_pass,
-    build_final_propagation_plan, build_retarget_plan, run_final_propagation_with_trace,
-    run_retarget_with_trace, visit_facet_bands_with_node_id, visit_facet_bands_with_node_id_mut,
+    build_final_propagation_plan, visit_facet_bands_with_node_id_mut,
 };
 #[cfg(test)]
 use crate::render::context::{FacetRuntimeSizingMode, FacetRuntimeSizingPolicy};
@@ -109,7 +102,7 @@ where
         depth,
         &mut node_path,
         &mut |_, d, facet_band| {
-            visit(d, facet_band);
+            visit(d, facet_band.base());
         },
     );
 }
@@ -125,7 +118,7 @@ where
         depth,
         &mut node_path,
         &mut |_, d, facet_band| {
-            visit(d, facet_band);
+            visit(d, facet_band.base_mut());
         },
     );
 }
@@ -137,10 +130,7 @@ pub async fn coordinate_facet_measurement_tree(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
 ) -> Result<(), AvengerChartError> {
-    let artifacts = coordinate_facet_measurement_tree_with_strategy::<
-        FacetPolicyCoordinationStrategy,
-    >(measurement, eval_ctx)
-    .await?;
+    let artifacts = run_facet_coordination_pipeline(measurement, eval_ctx).await?;
     trace!(
         initial_requirement_pass_nodes = artifacts.initial_requirement_pass.snapshot.nodes.len(),
         retarget_trace_nodes = artifacts.retarget_trace.node_results.len(),
@@ -157,33 +147,24 @@ pub(crate) async fn coordinate_facet_measurement_tree_until(
     eval_ctx: &EvaluationContext,
     checkpoint: CoordinationCheckpoint,
 ) -> Result<(), AvengerChartError> {
-    coordinate_facet_measurement_tree_until_with_strategy::<FacetPolicyCoordinationStrategy>(
-        measurement,
-        eval_ctx,
-        checkpoint,
-    )
-    .await
+    run_facet_coordination_until(measurement, eval_ctx, checkpoint).await
 }
 
-pub(crate) async fn coordinate_facet_measurement_tree_with_strategy<S>(
+pub(crate) async fn run_facet_coordination_pipeline(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
-) -> Result<CoordinationRunArtifacts, AvengerChartError>
-where
-    S: FacetSizingCoordinationStrategy + Send + Sync + 'static,
-{
-    S::before_run(measurement, eval_ctx)?;
-
+) -> Result<CoordinationRunArtifacts, AvengerChartError> {
     let mut epoch = None;
     debug_assert_stage_transition(epoch, FacetCoordinationStage::InitialRequirements);
     epoch = Some(FacetCoordinationStage::InitialRequirements);
 
-    let initial_requirement_pass = build_initial_requirement_pass(
-        collect_initial_requirement_snapshot_with_strategy::<S>(measurement),
+    let initial_requirement_pass = build_requirement_pass(
+        RequirementStage::Initial,
+        collect_initial_requirement_snapshot(measurement),
     );
-    debug_assert_initial_requirement_coverage(&initial_requirement_pass);
+    validate_requirement_coverage(&initial_requirement_pass)?;
     debug!(
-        strategy = S::LABEL,
+        policy = FacetCoordinationPolicy::LABEL,
         overflow_groups = initial_requirement_pass
             .aggregates
             .merged_overflow_by_key
@@ -198,21 +179,19 @@ where
             .len(),
         "coordinate_facet_measurement_tree initial requirements global aggregate + distribution"
     );
-    apply_initial_requirement_pass_with_strategy::<S>(measurement, &initial_requirement_pass);
+    apply_requirement_pass(measurement, &initial_requirement_pass)?;
     debug!(
-        strategy = S::LABEL,
+        policy = FacetCoordinationPolicy::LABEL,
         "coordinate_facet_measurement_tree initial requirements complete"
     );
 
     debug_assert_stage_transition(epoch, FacetCoordinationStage::Retarget);
     epoch = Some(FacetCoordinationStage::Retarget);
 
-    let retarget_plan = build_retarget_plan_with_strategy::<S>(measurement, eval_ctx);
-    debug_assert_retarget_plan_coverage_with_strategy::<S>(measurement, &retarget_plan);
-    let retarget_trace =
-        run_retarget_with_trace_with_strategy::<S>(measurement, eval_ctx, &retarget_plan).await?;
-    debug_assert_retarget_trace_alignment(&retarget_plan, &retarget_trace);
-    S::after_retarget_trace(measurement, eval_ctx, &retarget_plan, &retarget_trace)?;
+    let retarget_plan = build_retarget_plan(measurement, eval_ctx)?;
+    validate_retarget_plan_coverage(measurement, &retarget_plan)?;
+    let retarget_trace = run_retarget_with_trace(measurement, eval_ctx, &retarget_plan).await?;
+    validate_retarget_trace_alignment(&retarget_plan, &retarget_trace)?;
     let parent_cross_propagations = retarget_trace
         .node_results
         .iter()
@@ -226,7 +205,7 @@ where
         })
         .count();
     debug!(
-        strategy = S::LABEL,
+        policy = FacetCoordinationPolicy::LABEL,
         parent_cross_propagations,
         cross_size_changes,
         band_layout_nodes = retarget_trace
@@ -255,12 +234,13 @@ where
     debug_assert_stage_transition(epoch, FacetCoordinationStage::RetargetedRequirements);
     epoch = Some(FacetCoordinationStage::RetargetedRequirements);
 
-    let retargeted_requirement_pass = build_retargeted_requirement_pass(
-        collect_retargeted_requirement_snapshot_with_strategy::<S>(measurement),
+    let retargeted_requirement_pass = build_requirement_pass(
+        RequirementStage::Retargeted,
+        collect_retargeted_requirement_snapshot(measurement),
     );
-    debug_assert_retargeted_requirement_coverage(&retargeted_requirement_pass);
+    validate_requirement_coverage(&retargeted_requirement_pass)?;
     debug!(
-        strategy = S::LABEL,
+        policy = FacetCoordinationPolicy::LABEL,
         overflow_groups = retargeted_requirement_pass
             .aggregates
             .merged_overflow_by_key
@@ -275,37 +255,21 @@ where
             .len(),
         "coordinate_facet_measurement_tree retargeted requirements post-retarget reconciliation"
     );
-    apply_retargeted_requirement_pass_with_strategy::<S>(measurement, &retargeted_requirement_pass);
+    apply_requirement_pass(measurement, &retargeted_requirement_pass)?;
     debug!(
-        strategy = S::LABEL,
+        policy = FacetCoordinationPolicy::LABEL,
         "coordinate_facet_measurement_tree retargeted requirements complete"
     );
 
     debug_assert_stage_transition(epoch, FacetCoordinationStage::FinalPropagation);
 
-    let final_propagation_plan =
-        build_final_propagation_plan_with_strategy_for_eval::<S>(measurement, Some(eval_ctx));
-    debug_assert_final_propagation_plan_coverage_with_strategy::<S>(
-        measurement,
-        &final_propagation_plan,
-    );
-    let final_propagation_trace = run_final_propagation_with_trace_with_strategy::<S>(
-        measurement,
-        eval_ctx,
-        &final_propagation_plan,
-    )?;
-    debug_assert_final_propagation_trace_alignment(
-        &final_propagation_plan,
-        &final_propagation_trace,
-    );
-    S::after_final_propagation_trace(
-        measurement,
-        eval_ctx,
-        &final_propagation_plan,
-        &final_propagation_trace,
-    )?;
+    let final_propagation_plan = build_final_propagation_plan_for_eval(measurement, Some(eval_ctx));
+    validate_final_propagation_plan_coverage(measurement, &final_propagation_plan)?;
+    let final_propagation_trace =
+        run_final_propagation_with_trace(measurement, eval_ctx, &final_propagation_plan)?;
+    validate_final_propagation_trace_alignment(&final_propagation_plan, &final_propagation_trace)?;
     debug!(
-        strategy = S::LABEL,
+        policy = FacetCoordinationPolicy::LABEL,
         scale_range_retargets = final_propagation_trace
             .node_results
             .iter()
@@ -327,25 +291,21 @@ where
     })
 }
 
-pub(crate) async fn coordinate_facet_measurement_tree_until_with_strategy<S>(
+async fn run_facet_coordination_until(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
     checkpoint: CoordinationCheckpoint,
-) -> Result<(), AvengerChartError>
-where
-    S: FacetSizingCoordinationStrategy + Send + Sync + 'static,
-{
-    S::before_run(measurement, eval_ctx)?;
-
+) -> Result<(), AvengerChartError> {
     let mut epoch = None;
     debug_assert_stage_transition(epoch, FacetCoordinationStage::InitialRequirements);
     epoch = Some(FacetCoordinationStage::InitialRequirements);
 
-    let initial_requirement_pass = build_initial_requirement_pass(
-        collect_initial_requirement_snapshot_with_strategy::<S>(measurement),
+    let initial_requirement_pass = build_requirement_pass(
+        RequirementStage::Initial,
+        collect_initial_requirement_snapshot(measurement),
     );
-    debug_assert_initial_requirement_coverage(&initial_requirement_pass);
-    apply_initial_requirement_pass_with_strategy::<S>(measurement, &initial_requirement_pass);
+    validate_requirement_coverage(&initial_requirement_pass)?;
+    apply_requirement_pass(measurement, &initial_requirement_pass)?;
     if checkpoint == CoordinationCheckpoint::InitialRequirementsApplied {
         return Ok(());
     }
@@ -353,12 +313,10 @@ where
     debug_assert_stage_transition(epoch, FacetCoordinationStage::Retarget);
     epoch = Some(FacetCoordinationStage::Retarget);
 
-    let retarget_plan = build_retarget_plan_with_strategy::<S>(measurement, eval_ctx);
-    debug_assert_retarget_plan_coverage_with_strategy::<S>(measurement, &retarget_plan);
-    let retarget_trace =
-        run_retarget_with_trace_with_strategy::<S>(measurement, eval_ctx, &retarget_plan).await?;
-    debug_assert_retarget_trace_alignment(&retarget_plan, &retarget_trace);
-    S::after_retarget_trace(measurement, eval_ctx, &retarget_plan, &retarget_trace)?;
+    let retarget_plan = build_retarget_plan(measurement, eval_ctx)?;
+    validate_retarget_plan_coverage(measurement, &retarget_plan)?;
+    let retarget_trace = run_retarget_with_trace(measurement, eval_ctx, &retarget_plan).await?;
+    validate_retarget_trace_alignment(&retarget_plan, &retarget_trace)?;
     if checkpoint == CoordinationCheckpoint::RetargetComplete {
         return Ok(());
     }
@@ -366,97 +324,50 @@ where
     debug_assert_stage_transition(epoch, FacetCoordinationStage::RetargetedRequirements);
     epoch = Some(FacetCoordinationStage::RetargetedRequirements);
 
-    let retargeted_requirement_pass = build_retargeted_requirement_pass(
-        collect_retargeted_requirement_snapshot_with_strategy::<S>(measurement),
+    let retargeted_requirement_pass = build_requirement_pass(
+        RequirementStage::Retargeted,
+        collect_retargeted_requirement_snapshot(measurement),
     );
-    debug_assert_retargeted_requirement_coverage(&retargeted_requirement_pass);
-    apply_retargeted_requirement_pass_with_strategy::<S>(measurement, &retargeted_requirement_pass);
+    validate_requirement_coverage(&retargeted_requirement_pass)?;
+    apply_requirement_pass(measurement, &retargeted_requirement_pass)?;
     if checkpoint == CoordinationCheckpoint::RetargetedRequirementsApplied {
         return Ok(());
     }
 
     debug_assert_stage_transition(epoch, FacetCoordinationStage::FinalPropagation);
 
-    let final_propagation_plan =
-        build_final_propagation_plan_with_strategy_for_eval::<S>(measurement, Some(eval_ctx));
-    debug_assert_final_propagation_plan_coverage_with_strategy::<S>(
-        measurement,
-        &final_propagation_plan,
-    );
-    let final_propagation_trace = run_final_propagation_with_trace_with_strategy::<S>(
-        measurement,
-        eval_ctx,
-        &final_propagation_plan,
-    )?;
-    debug_assert_final_propagation_trace_alignment(
-        &final_propagation_plan,
-        &final_propagation_trace,
-    );
-    S::after_final_propagation_trace(
-        measurement,
-        eval_ctx,
-        &final_propagation_plan,
-        &final_propagation_trace,
-    )?;
+    let final_propagation_plan = build_final_propagation_plan_for_eval(measurement, Some(eval_ctx));
+    validate_final_propagation_plan_coverage(measurement, &final_propagation_plan)?;
+    let final_propagation_trace =
+        run_final_propagation_with_trace(measurement, eval_ctx, &final_propagation_plan)?;
+    validate_final_propagation_trace_alignment(&final_propagation_plan, &final_propagation_trace)?;
 
     Ok(())
 }
 
-pub(crate) fn collect_initial_requirement_snapshot_with_strategy<S>(
-    measurement: &ComponentsMeasurement,
-) -> InitialRequirementSnapshot
-where
-    S: FacetSizingCoordinationStrategy,
-{
-    let mut nodes = Vec::new();
-    let mut node_path = Vec::new();
-    visit_facet_bands_with_node_id_for_strategy::<S, _>(
-        measurement,
-        0,
-        &mut node_path,
-        &mut |node_id, depth, facet_band| {
-            let facet_band = facet_band.base();
-            let (first_edge_index, last_edge_index) = facet_band_edge_indices(facet_band);
-            nodes.push(InitialRequirementNodeSnapshot {
-                node_id: node_id.clone(),
-                key: facet_band.coordination_group_key_for_depth(depth),
-                axis: facet_band.axis,
-                measured_overflow: facet_band.measured_overflow_value(),
-                local_layout: facet_band.local_layout_value(),
-                guide_padding_inner_px: facet_band.guide_padding_inner_px_value(),
-                first_edge_index,
-                last_edge_index,
-            });
-        },
-    );
-    InitialRequirementSnapshot { nodes }
-}
-
-#[cfg(test)]
 pub(crate) fn collect_initial_requirement_snapshot(
     measurement: &ComponentsMeasurement,
-) -> InitialRequirementSnapshot {
-    collect_initial_requirement_snapshot_with_strategy::<FacetPolicyCoordinationStrategy>(
-        measurement,
-    )
+) -> RequirementSnapshot {
+    collect_requirement_snapshot(measurement)
 }
 
-pub(crate) fn collect_retargeted_requirement_snapshot_with_strategy<S>(
+pub(crate) fn collect_retargeted_requirement_snapshot(
     measurement: &ComponentsMeasurement,
-) -> RetargetedRequirementSnapshot
-where
-    S: FacetSizingCoordinationStrategy,
-{
+) -> RequirementSnapshot {
+    collect_requirement_snapshot(measurement)
+}
+
+fn collect_requirement_snapshot(measurement: &ComponentsMeasurement) -> RequirementSnapshot {
     let mut nodes = Vec::new();
     let mut node_path = Vec::new();
-    visit_facet_bands_with_node_id_for_strategy::<S, _>(
+    visit_facet_bands_with_node_id(
         measurement,
         0,
         &mut node_path,
         &mut |node_id, depth, facet_band| {
             let facet_band = facet_band.base();
             let (first_edge_index, last_edge_index) = facet_band_edge_indices(facet_band);
-            nodes.push(RetargetedRequirementNodeSnapshot {
+            nodes.push(RequirementNodeSnapshot {
                 node_id: node_id.clone(),
                 key: facet_band.coordination_group_key_for_depth(depth),
                 axis: facet_band.axis,
@@ -468,7 +379,7 @@ where
             });
         },
     );
-    RetargetedRequirementSnapshot { nodes }
+    RequirementSnapshot { nodes }
 }
 
 fn facet_band_edge_indices(
@@ -484,24 +395,10 @@ fn facet_band_edge_indices(
     effective_edge_indices(&renderable_cells, facet_band.cells.len()).unwrap_or((0, 0))
 }
 
-#[cfg(test)]
-pub(crate) fn collect_retargeted_requirement_snapshot(
-    measurement: &ComponentsMeasurement,
-) -> RetargetedRequirementSnapshot {
-    collect_retargeted_requirement_snapshot_with_strategy::<FacetPolicyCoordinationStrategy>(
-        measurement,
-    )
-}
-
-fn measurement_node_ids_with_strategy<S>(
-    measurement: &ComponentsMeasurement,
-) -> Vec<CoordinationNodeKey>
-where
-    S: FacetSizingCoordinationStrategy,
-{
+fn measurement_node_ids(measurement: &ComponentsMeasurement) -> Vec<CoordinationNodeKey> {
     let mut node_ids = Vec::new();
     let mut node_path = Vec::new();
-    visit_facet_bands_with_node_id_for_strategy::<S, _>(
+    visit_facet_bands_with_node_id(
         measurement,
         0,
         &mut node_path,
@@ -510,11 +407,6 @@ where
         },
     );
     node_ids
-}
-
-#[cfg(test)]
-fn measurement_node_ids(measurement: &ComponentsMeasurement) -> Vec<CoordinationNodeKey> {
-    measurement_node_ids_with_strategy::<FacetPolicyCoordinationStrategy>(measurement)
 }
 
 pub(crate) fn debug_assert_stage_transition(
@@ -543,126 +435,178 @@ pub(crate) fn debug_assert_stage_transition(
     );
 }
 
-pub(crate) fn debug_assert_initial_requirement_coverage(
-    initial_requirement_pass: &InitialRequirementPass,
-) {
-    let snapshot_nodes: HashSet<CoordinationNodeKey> = initial_requirement_pass
+fn validate_node_set_coverage(
+    label: &str,
+    actual: HashSet<CoordinationNodeKey>,
+    expected: HashSet<CoordinationNodeKey>,
+) -> Result<(), AvengerChartError> {
+    if actual == expected {
+        return Ok(());
+    }
+
+    let missing = expected
+        .difference(&actual)
+        .map(|node| node.path.clone())
+        .collect::<Vec<_>>();
+    let unexpected = actual
+        .difference(&expected)
+        .map(|node| node.path.clone())
+        .collect::<Vec<_>>();
+    Err(AvengerChartError::InternalError(format!(
+        "{label} coverage mismatch: missing={missing:?}, unexpected={unexpected:?}"
+    )))
+}
+
+pub(crate) fn validate_requirement_coverage(
+    requirement_pass: &RequirementPass,
+) -> Result<(), AvengerChartError> {
+    let stage_label = requirement_pass.stage.label();
+    let snapshot_nodes: HashSet<CoordinationNodeKey> = requirement_pass
         .snapshot
         .nodes
         .iter()
         .map(|node| node.node_id.clone())
         .collect();
-    let layout_patch_nodes: HashSet<CoordinationNodeKey> = initial_requirement_pass
+    let layout_patch_nodes: HashSet<CoordinationNodeKey> = requirement_pass
         .distribution
         .layout_patches_by_node
         .keys()
         .cloned()
         .collect();
+    validate_node_set_coverage(
+        &format!("{stage_label} layout patch"),
+        layout_patch_nodes,
+        snapshot_nodes.clone(),
+    )?;
 
-    debug_assert_eq!(
-        layout_patch_nodes, snapshot_nodes,
-        "initial requirements layout patch coverage must match snapshot nodes"
-    );
-}
-
-pub(crate) fn debug_assert_retargeted_requirement_coverage(
-    retargeted_requirement_pass: &RetargetedRequirementPass,
-) {
-    let snapshot_nodes: HashSet<CoordinationNodeKey> = retargeted_requirement_pass
+    let overflow_required_nodes: HashSet<CoordinationNodeKey> = requirement_pass
         .snapshot
         .nodes
         .iter()
+        .filter(|node| node.measured_overflow.is_some())
         .map(|node| node.node_id.clone())
         .collect();
-    let layout_patch_nodes: HashSet<CoordinationNodeKey> = retargeted_requirement_pass
+    let overflow_patch_nodes: HashSet<CoordinationNodeKey> = requirement_pass
         .distribution
-        .layout_patches_by_node
+        .overflow_patches_by_node
         .keys()
         .cloned()
         .collect();
-
-    debug_assert_eq!(
-        layout_patch_nodes, snapshot_nodes,
-        "retargeted requirements layout patch coverage must match snapshot nodes"
-    );
+    validate_node_set_coverage(
+        &format!("{stage_label} overflow patch"),
+        overflow_patch_nodes,
+        overflow_required_nodes.clone(),
+    )?;
+    let boundary_patch_nodes: HashSet<CoordinationNodeKey> = requirement_pass
+        .distribution
+        .boundary_overflow_patches_by_node
+        .keys()
+        .cloned()
+        .collect();
+    validate_node_set_coverage(
+        &format!("{stage_label} boundary-overflow patch"),
+        boundary_patch_nodes,
+        overflow_required_nodes.clone(),
+    )?;
+    let guide_anchor_patch_nodes: HashSet<CoordinationNodeKey> = requirement_pass
+        .distribution
+        .guide_anchor_overflow_patches_by_node
+        .keys()
+        .cloned()
+        .collect();
+    validate_node_set_coverage(
+        &format!("{stage_label} guide-anchor-overflow patch"),
+        guide_anchor_patch_nodes,
+        overflow_required_nodes,
+    )?;
+    Ok(())
 }
 
-pub(crate) fn debug_assert_retarget_plan_coverage_with_strategy<S>(
+pub(crate) fn validate_retarget_plan_coverage(
     measurement: &ComponentsMeasurement,
     plan: &RetargetPlan,
-) where
-    S: FacetSizingCoordinationStrategy,
-{
+) -> Result<(), AvengerChartError> {
     let expected_ids: HashSet<CoordinationNodeKey> =
-        measurement_node_ids_with_strategy::<S>(measurement)
-            .into_iter()
-            .collect();
+        measurement_node_ids(measurement).into_iter().collect();
     let actual_ids: HashSet<CoordinationNodeKey> = plan
         .node_plans
         .iter()
         .map(|node| node.node_id.clone())
         .collect();
 
-    debug_assert_eq!(
-        actual_ids, expected_ids,
-        "retarget plan nodes must match current measurement tree node coverage"
-    );
+    validate_node_set_coverage("retarget plan node", actual_ids, expected_ids)?;
 
     for node in &plan.node_plans {
-        debug_assert_eq!(
-            node.requirements.child_count,
-            node.requirements.child_plot_areas.len(),
-            "retarget requirements must include one child plot-area size per child"
-        );
-        debug_assert_eq!(
-            node.requirements.child_count,
-            node.actions.child_actions.len(),
-            "retarget actions must include one action per child"
-        );
+        if node.requirements.child_count != node.requirements.child_plot_areas.len() {
+            return Err(AvengerChartError::InternalError(format!(
+                "retarget requirements for node path {:?} have child_count={} but {} child plot-area sizes",
+                node.node_id.path,
+                node.requirements.child_count,
+                node.requirements.child_plot_areas.len()
+            )));
+        }
+        if node.requirements.child_count != node.actions.child_actions.len() {
+            return Err(AvengerChartError::InternalError(format!(
+                "retarget actions for node path {:?} have child_count={} but {} child actions",
+                node.node_id.path,
+                node.requirements.child_count,
+                node.actions.child_actions.len()
+            )));
+        }
         let slabs = FacetOverflowSlabs::from_coordinated(&node.requirements.coordinated_overflow);
         let (legend_start, legend_end) = match node.requirements.axis {
             crate::coords::FacetAxis::Column => slabs.legend_vertical(),
             crate::coords::FacetAxis::Row => slabs.legend_horizontal(),
         };
-        debug_assert!((node.requirements.legend_main_axis_slab.start - legend_start).abs() <= 0.01);
-        debug_assert!((node.requirements.legend_main_axis_slab.end - legend_end).abs() <= 0.01);
-        if node.requirements.layout_changed {
-            debug_assert!(
-                node.requirements.coordinated_layout.is_some(),
-                "layout_changed requires a coordinated layout requirement"
-            );
+        if (node.requirements.legend_main_axis_slab.start - legend_start).abs() > 0.01
+            || (node.requirements.legend_main_axis_slab.end - legend_end).abs() > 0.01
+        {
+            return Err(AvengerChartError::InternalError(format!(
+                "retarget requirements for node path {:?} have stale legend slab: planned=({:.3}, {:.3}), derived=({:.3}, {:.3})",
+                node.node_id.path,
+                node.requirements.legend_main_axis_slab.start,
+                node.requirements.legend_main_axis_slab.end,
+                legend_start,
+                legend_end
+            )));
         }
-        debug_assert!(
-            node.requirements.ownership.has_holes
-                || !node.requirements.ownership.axis_owner_ignore_empty_cells,
-            "axis-owner empty-cell ignore should only be active when the facet band has holes"
-        );
+        if node.requirements.layout_changed && node.requirements.coordinated_layout.is_none() {
+            return Err(AvengerChartError::InternalError(format!(
+                "retarget requirements for node path {:?} changed layout without a coordinated layout",
+                node.node_id.path
+            )));
+        }
+        if !node.requirements.ownership.has_holes
+            && node.requirements.ownership.axis_owner_ignore_empty_cells
+        {
+            return Err(AvengerChartError::InternalError(format!(
+                "retarget requirements for node path {:?} ignore empty cells without facet holes",
+                node.node_id.path
+            )));
+        }
     }
+    Ok(())
 }
 
-pub(crate) fn debug_assert_final_propagation_plan_coverage_with_strategy<S>(
+pub(crate) fn validate_final_propagation_plan_coverage(
     measurement: &ComponentsMeasurement,
     plan: &FinalPropagationPlan,
-) where
-    S: FacetSizingCoordinationStrategy,
-{
+) -> Result<(), AvengerChartError> {
     let expected_ids: HashSet<CoordinationNodeKey> =
-        measurement_node_ids_with_strategy::<S>(measurement)
-            .into_iter()
-            .collect();
+        measurement_node_ids(measurement).into_iter().collect();
     let actual_ids: HashSet<CoordinationNodeKey> = plan
         .node_plans
         .iter()
         .map(|node| node.node_id.clone())
         .collect();
 
-    debug_assert_eq!(
-        actual_ids, expected_ids,
-        "final propagation plan nodes must match current measurement tree node coverage"
-    );
+    validate_node_set_coverage("final propagation plan node", actual_ids, expected_ids)
 }
 
-pub(crate) fn debug_assert_retarget_trace_alignment(plan: &RetargetPlan, trace: &RetargetTrace) {
+pub(crate) fn validate_retarget_trace_alignment(
+    plan: &RetargetPlan,
+    trace: &RetargetTrace,
+) -> Result<(), AvengerChartError> {
     let derived_ids: Vec<CoordinationNodeKey> = plan
         .node_plans
         .iter()
@@ -674,60 +618,48 @@ pub(crate) fn debug_assert_retarget_trace_alignment(plan: &RetargetPlan, trace: 
         .map(|node| node.node_id.clone())
         .collect();
 
-    debug_assert_eq!(
-        trace_ids, derived_ids,
-        "retarget execution trace nodes must match plan nodes in deterministic order"
-    );
+    if trace_ids != derived_ids {
+        return Err(AvengerChartError::InternalError(format!(
+            "retarget execution trace nodes diverged from plan order: trace={:?}, plan={:?}",
+            trace_ids
+                .iter()
+                .map(|node| node.path.clone())
+                .collect::<Vec<_>>(),
+            derived_ids
+                .iter()
+                .map(|node| node.path.clone())
+                .collect::<Vec<_>>()
+        )));
+    }
 
     for (planned, trace_result) in plan.node_plans.iter().zip(trace.node_results.iter()) {
-        debug_assert_eq!(trace_result.node_id, planned.node_id);
-        debug_assert_eq!(trace_result.axis, planned.requirements.axis);
-        debug_assert_eq!(
-            trace_result.planned_has_legend_overflow,
-            planned.requirements.has_legend_overflow
-        );
-        debug_assert_eq!(
-            trace_result.planned_layout_changed,
-            planned.requirements.layout_changed
-        );
-        debug_assert_eq!(
-            trace_result.planned_axis_owner_ignore_empty_cells,
-            planned.requirements.ownership.axis_owner_ignore_empty_cells
-        );
-        debug_assert_eq!(
-            trace_result.planned_band_action,
-            planned.actions.band_action
-        );
-        debug_assert_eq!(
-            trace_result.planned_child_action_counts,
-            planned.actions.child_action_counts()
-        );
-        debug_assert_eq!(
-            trace_result.planned_child_count,
-            planned.requirements.child_count
-        );
-        debug_assert_eq!(
-            trace_result.plot_area_retarget_count,
-            planned
-                .actions
-                .child_action_counts()
-                .plot_area_retarget_count()
-        );
-        debug_assert_eq!(
-            trace_result.width_retarget_count,
-            planned.actions.child_action_counts().width_targets
-        );
-        debug_assert_eq!(
-            trace_result.height_retarget_count,
-            planned.actions.child_action_counts().height_targets
-        );
+        let expected_counts = planned.actions.child_action_counts();
+        if trace_result.node_id != planned.node_id
+            || trace_result.axis != planned.requirements.axis
+            || trace_result.planned_has_legend_overflow != planned.requirements.has_legend_overflow
+            || trace_result.planned_layout_changed != planned.requirements.layout_changed
+            || trace_result.planned_axis_owner_ignore_empty_cells
+                != planned.requirements.ownership.axis_owner_ignore_empty_cells
+            || trace_result.planned_band_action != planned.actions.band_action
+            || trace_result.planned_child_action_counts != expected_counts
+            || trace_result.planned_child_count != planned.requirements.child_count
+            || trace_result.plot_area_retarget_count != expected_counts.plot_area_retarget_count()
+            || trace_result.width_retarget_count != expected_counts.width_targets
+            || trace_result.height_retarget_count != expected_counts.height_targets
+        {
+            return Err(AvengerChartError::InternalError(format!(
+                "retarget execution trace diverged from plan for node path {:?}",
+                planned.node_id.path
+            )));
+        }
     }
+    Ok(())
 }
 
-pub(crate) fn debug_assert_final_propagation_trace_alignment(
+pub(crate) fn validate_final_propagation_trace_alignment(
     plan: &FinalPropagationPlan,
     trace: &FinalPropagationTrace,
-) {
+) -> Result<(), AvengerChartError> {
     let derived_ids: Vec<CoordinationNodeKey> = plan
         .node_plans
         .iter()
@@ -739,44 +671,53 @@ pub(crate) fn debug_assert_final_propagation_trace_alignment(
         .map(|node| node.node_id.clone())
         .collect();
 
-    debug_assert_eq!(
-        trace_ids, derived_ids,
-        "final propagation execution trace nodes must match plan nodes in deterministic order"
-    );
+    if trace_ids != derived_ids {
+        return Err(AvengerChartError::InternalError(format!(
+            "final propagation execution trace nodes diverged from plan order: trace={:?}, plan={:?}",
+            trace_ids
+                .iter()
+                .map(|node| node.path.clone())
+                .collect::<Vec<_>>(),
+            derived_ids
+                .iter()
+                .map(|node| node.path.clone())
+                .collect::<Vec<_>>()
+        )));
+    }
 
     for (planned, trace_result) in plan.node_plans.iter().zip(trace.node_results.iter()) {
-        debug_assert_eq!(trace_result.node_id, planned.node_id);
-        debug_assert_eq!(trace_result.axis, planned.axis);
-        debug_assert_eq!(
-            trace_result.planned_parent_cross_size_target,
-            planned.parent_cross_size_target
-        );
-        debug_assert_eq!(trace_result.planned_child_count, planned.child_count);
-        debug_assert_eq!(
-            planned.child_plans.len(),
-            planned.child_count,
-            "final propagation child plan count must match planned child count"
-        );
-        for (idx, child_plan) in planned.child_plans.iter().enumerate() {
-            debug_assert_eq!(
-                child_plan.child_index, idx,
-                "final propagation child plans must preserve deterministic child index order"
-            );
+        if trace_result.node_id != planned.node_id
+            || trace_result.axis != planned.axis
+            || trace_result.planned_parent_cross_size_target != planned.parent_cross_size_target
+            || trace_result.planned_child_count != planned.child_count
+            || planned.child_plans.len() != planned.child_count
+        {
+            return Err(AvengerChartError::InternalError(format!(
+                "final propagation execution trace diverged from plan for node path {:?}",
+                planned.node_id.path
+            )));
         }
-        debug_assert_eq!(
-            trace_result.planned_child_plan_count,
-            planned.child_plans.len()
-        );
-        debug_assert_eq!(
-            trace_result.planned_plot_area_adjustments_count,
-            planned.expected_plot_area_adjustments_count
-        );
-        debug_assert!(
-            trace_result.child_plot_area_adjustments_count
-                <= planned.expected_plot_area_adjustments_count,
-            "final propagation may execute fewer plot-area adjustments than planned when an ancestor retarget already propagated the same size"
-        );
+        for (idx, child_plan) in planned.child_plans.iter().enumerate() {
+            if child_plan.child_index != idx {
+                return Err(AvengerChartError::InternalError(format!(
+                    "final propagation child plans for node path {:?} are not in child-index order",
+                    planned.node_id.path
+                )));
+            }
+        }
+        if trace_result.planned_child_plan_count != planned.child_plans.len()
+            || trace_result.planned_plot_area_adjustments_count
+                != planned.expected_plot_area_adjustments_count
+            || trace_result.child_plot_area_adjustments_count
+                > planned.expected_plot_area_adjustments_count
+        {
+            return Err(AvengerChartError::InternalError(format!(
+                "final propagation counts diverged from plan for node path {:?}",
+                planned.node_id.path
+            )));
+        }
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1085,9 +1026,11 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let (mut measurement, _) = nested_fixture().await?;
 
-        let initial_requirement_pass =
-            build_initial_requirement_pass(collect_initial_requirement_snapshot(&measurement));
-        apply_initial_requirement_pass(&mut measurement, &initial_requirement_pass);
+        let initial_requirement_pass = build_requirement_pass(
+            RequirementStage::Initial,
+            collect_initial_requirement_snapshot(&measurement),
+        );
+        apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
 
         let states = depth1_states(&measurement);
         assert!(
@@ -1130,7 +1073,7 @@ mod tests {
             root.set_coordinated_layout_value(forced_layout);
         }
 
-        let retarget_plan = build_retarget_plan(&measurement, &eval_ctx);
+        let retarget_plan = build_retarget_plan(&measurement, &eval_ctx)?;
         let _retarget_trace =
             run_retarget_with_trace(&mut measurement, &eval_ctx, &retarget_plan).await?;
 
@@ -1150,10 +1093,12 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
 
-        let initial_requirement_pass =
-            build_initial_requirement_pass(collect_initial_requirement_snapshot(&measurement));
-        apply_initial_requirement_pass(&mut measurement, &initial_requirement_pass);
-        let retarget_plan = build_retarget_plan(&measurement, &eval_ctx);
+        let initial_requirement_pass = build_requirement_pass(
+            RequirementStage::Initial,
+            collect_initial_requirement_snapshot(&measurement),
+        );
+        apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
+        let retarget_plan = build_retarget_plan(&measurement, &eval_ctx)?;
         let _retarget_trace =
             run_retarget_with_trace(&mut measurement, &eval_ctx, &retarget_plan).await?;
 
@@ -1181,10 +1126,11 @@ mod tests {
             .max()
             .unwrap_or(0);
 
-        let retargeted_requirement_pass = build_retargeted_requirement_pass(
+        let retargeted_requirement_pass = build_requirement_pass(
+            RequirementStage::Retargeted,
             collect_retargeted_requirement_snapshot(&measurement),
         );
-        apply_retargeted_requirement_pass(&mut measurement, &retargeted_requirement_pass);
+        apply_requirement_pass(&mut measurement, &retargeted_requirement_pass)?;
 
         let states = depth1_states(&measurement);
         assert!(
@@ -1260,8 +1206,10 @@ mod tests {
     async fn initial_requirement_pass_contains_expected_group_counts_and_node_targets()
     -> Result<(), AvengerChartError> {
         let (measurement, _) = nested_fixture().await?;
-        let initial_requirement_pass =
-            build_initial_requirement_pass(collect_initial_requirement_snapshot(&measurement));
+        let initial_requirement_pass = build_requirement_pass(
+            RequirementStage::Initial,
+            collect_initial_requirement_snapshot(&measurement),
+        );
         assert!(!initial_requirement_pass.snapshot.nodes.is_empty());
         assert!(
             !initial_requirement_pass
@@ -1290,12 +1238,14 @@ mod tests {
     async fn retarget_trace_records_cell_retarget_and_parent_cross_propagation()
     -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = col_col_fixture().await?;
-        let initial_requirement_pass =
-            build_initial_requirement_pass(collect_initial_requirement_snapshot(&measurement));
-        apply_initial_requirement_pass(&mut measurement, &initial_requirement_pass);
+        let initial_requirement_pass = build_requirement_pass(
+            RequirementStage::Initial,
+            collect_initial_requirement_snapshot(&measurement),
+        );
+        apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
         force_root_top_legend_slab(&mut measurement, 18.0);
 
-        let retarget_plan = build_retarget_plan(&measurement, &eval_ctx);
+        let retarget_plan = build_retarget_plan(&measurement, &eval_ctx)?;
         let retarget_trace =
             run_retarget_with_trace(&mut measurement, &eval_ctx, &retarget_plan).await?;
         assert!(!retarget_trace.node_results.is_empty());
@@ -1319,14 +1269,17 @@ mod tests {
     async fn retargeted_requirement_pass_distribution_stabilizes_layout_values()
     -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
-        let initial_requirement_pass =
-            build_initial_requirement_pass(collect_initial_requirement_snapshot(&measurement));
-        apply_initial_requirement_pass(&mut measurement, &initial_requirement_pass);
-        let retarget_plan = build_retarget_plan(&measurement, &eval_ctx);
+        let initial_requirement_pass = build_requirement_pass(
+            RequirementStage::Initial,
+            collect_initial_requirement_snapshot(&measurement),
+        );
+        apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
+        let retarget_plan = build_retarget_plan(&measurement, &eval_ctx)?;
         let _retarget_trace =
             run_retarget_with_trace(&mut measurement, &eval_ctx, &retarget_plan).await?;
 
-        let retargeted_requirement_pass = build_retargeted_requirement_pass(
+        let retargeted_requirement_pass = build_requirement_pass(
+            RequirementStage::Retargeted,
             collect_retargeted_requirement_snapshot(&measurement),
         );
         assert!(
@@ -1335,7 +1288,7 @@ mod tests {
                 .layout_patches_by_node
                 .is_empty()
         );
-        apply_retargeted_requirement_pass(&mut measurement, &retargeted_requirement_pass);
+        apply_requirement_pass(&mut measurement, &retargeted_requirement_pass)?;
 
         let states = depth1_states(&measurement);
         assert!(states.len() >= 2);
@@ -1560,7 +1513,7 @@ mod tests {
             .expect("fixture should produce root facet-band measurement")
             .subplot_cross_size;
 
-        let plan = build_retarget_plan(&measurement, &eval_ctx);
+        let plan = build_retarget_plan(&measurement, &eval_ctx)?;
 
         let after_node_ids = measurement_node_ids(&measurement);
         let after_cross_size = facet_band_ref(&measurement)
@@ -1585,7 +1538,7 @@ mod tests {
     async fn retarget_plan_contains_requirements_and_actions_for_each_node()
     -> Result<(), AvengerChartError> {
         let (measurement, eval_ctx) = nested_fixture().await?;
-        let plan = build_retarget_plan(&measurement, &eval_ctx);
+        let plan = build_retarget_plan(&measurement, &eval_ctx)?;
         assert!(!plan.node_plans.is_empty());
         for node in &plan.node_plans {
             assert_eq!(node.requirements.node_id, node.node_id);
@@ -1605,7 +1558,7 @@ mod tests {
     #[tokio::test]
     async fn retarget_errors_when_node_plan_missing() -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
-        let mut plan = build_retarget_plan(&measurement, &eval_ctx);
+        let mut plan = build_retarget_plan(&measurement, &eval_ctx)?;
         let root_idx = plan
             .node_plans
             .iter()
@@ -1623,7 +1576,7 @@ mod tests {
     #[tokio::test]
     async fn retarget_errors_when_child_action_count_mismatches() -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
-        let mut plan = build_retarget_plan(&measurement, &eval_ctx);
+        let mut plan = build_retarget_plan(&measurement, &eval_ctx)?;
         let root_plan = plan
             .node_plans
             .iter_mut()
@@ -1655,10 +1608,10 @@ mod tests {
         }
         force_root_top_legend_slab(&mut measurement, 18.0);
 
-        let plan = build_retarget_plan(&measurement, &eval_ctx);
+        let plan = build_retarget_plan(&measurement, &eval_ctx)?;
         let retarget_trace = run_retarget_with_trace(&mut measurement, &eval_ctx, &plan).await?;
 
-        debug_assert_retarget_trace_alignment(&plan, &retarget_trace);
+        validate_retarget_trace_alignment(&plan, &retarget_trace)?;
         let root_result = retarget_trace
             .node_results
             .iter()
@@ -1680,11 +1633,13 @@ mod tests {
     async fn retarget_trace_node_identity_stable_between_plan_and_execution()
     -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
-        let initial_requirement_pass =
-            build_initial_requirement_pass(collect_initial_requirement_snapshot(&measurement));
-        apply_initial_requirement_pass(&mut measurement, &initial_requirement_pass);
+        let initial_requirement_pass = build_requirement_pass(
+            RequirementStage::Initial,
+            collect_initial_requirement_snapshot(&measurement),
+        );
+        apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
 
-        let retarget_plan = build_retarget_plan(&measurement, &eval_ctx);
+        let retarget_plan = build_retarget_plan(&measurement, &eval_ctx)?;
         let retarget_trace =
             run_retarget_with_trace(&mut measurement, &eval_ctx, &retarget_plan).await?;
 
@@ -1745,7 +1700,7 @@ mod tests {
         let plan = build_final_propagation_plan(&measurement);
         let final_propagation_trace =
             run_final_propagation_with_trace(&mut measurement, &eval_ctx, &plan)?;
-        debug_assert_final_propagation_trace_alignment(&plan, &final_propagation_trace);
+        validate_final_propagation_trace_alignment(&plan, &final_propagation_trace)?;
 
         let root_result = final_propagation_trace
             .node_results
@@ -1765,9 +1720,11 @@ mod tests {
     async fn initial_requirement_pass_distribution_patch_coverage_matches_snapshot()
     -> Result<(), AvengerChartError> {
         let (measurement, _) = nested_fixture().await?;
-        let initial_requirement_pass =
-            build_initial_requirement_pass(collect_initial_requirement_snapshot(&measurement));
-        debug_assert_initial_requirement_coverage(&initial_requirement_pass);
+        let initial_requirement_pass = build_requirement_pass(
+            RequirementStage::Initial,
+            collect_initial_requirement_snapshot(&measurement),
+        );
+        validate_requirement_coverage(&initial_requirement_pass)?;
         let snapshot_nodes: std::collections::HashSet<CoordinationNodeKey> =
             initial_requirement_pass
                 .snapshot
@@ -1790,10 +1747,11 @@ mod tests {
     async fn retargeted_requirement_pass_distribution_patch_coverage_matches_snapshot()
     -> Result<(), AvengerChartError> {
         let (measurement, _) = nested_fixture().await?;
-        let retargeted_requirement_pass = build_retargeted_requirement_pass(
+        let retargeted_requirement_pass = build_requirement_pass(
+            RequirementStage::Retargeted,
             collect_retargeted_requirement_snapshot(&measurement),
         );
-        debug_assert_retargeted_requirement_coverage(&retargeted_requirement_pass);
+        validate_requirement_coverage(&retargeted_requirement_pass)?;
         let snapshot_nodes: std::collections::HashSet<CoordinationNodeKey> =
             retargeted_requirement_pass
                 .snapshot
@@ -1816,11 +1774,13 @@ mod tests {
     async fn retarget_and_final_propagation_node_identity_stable_across_plan_and_execution()
     -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
-        let initial_requirement_pass =
-            build_initial_requirement_pass(collect_initial_requirement_snapshot(&measurement));
-        apply_initial_requirement_pass(&mut measurement, &initial_requirement_pass);
+        let initial_requirement_pass = build_requirement_pass(
+            RequirementStage::Initial,
+            collect_initial_requirement_snapshot(&measurement),
+        );
+        apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
 
-        let retarget_plan = build_retarget_plan(&measurement, &eval_ctx);
+        let retarget_plan = build_retarget_plan(&measurement, &eval_ctx)?;
         let retarget_trace =
             run_retarget_with_trace(&mut measurement, &eval_ctx, &retarget_plan).await?;
         assert_eq!(
@@ -1836,10 +1796,11 @@ mod tests {
                 .collect::<Vec<_>>()
         );
 
-        let retargeted_requirement_pass = build_retargeted_requirement_pass(
+        let retargeted_requirement_pass = build_requirement_pass(
+            RequirementStage::Retargeted,
             collect_retargeted_requirement_snapshot(&measurement),
         );
-        apply_retargeted_requirement_pass(&mut measurement, &retargeted_requirement_pass);
+        apply_requirement_pass(&mut measurement, &retargeted_requirement_pass)?;
 
         let final_propagation_plan = build_final_propagation_plan(&measurement);
         let final_propagation_trace =

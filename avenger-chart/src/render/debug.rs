@@ -9,7 +9,7 @@ use avenger_text::types::{TextAlign, TextBaseline};
 
 use crate::{
     cartesian::axis::AxisPosition,
-    layout::{ContentLayout, EdgeSlabs, LayoutBounds, LayoutResult, OverflowSide},
+    layout::{ContentLayout, EdgeSlabs, FrameLayout, LayoutBounds, OverflowSide},
 };
 
 const MIN_DEBUG_RECT_SIZE: f32 = 0.01;
@@ -445,7 +445,7 @@ pub fn create_debug_overlay_rects(
 /// * `zindex` - Optional z-index. Defaults to 20
 /// * `flip_label_align` - If true, align labels on the opposite edge of each debug region.
 pub fn create_debug_layout_rects(
-    layout: &LayoutResult,
+    layout: &FrameLayout,
     color: Option<String>,
     stroke_width: Option<f32>,
     zindex: Option<i32>,

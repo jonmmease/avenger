@@ -112,7 +112,7 @@ pub(crate) struct ChannelDomainExtent {
 pub(crate) struct FacetCellRuntime {
     /// Canonical plan metadata (value, path, emptiness, filter intent).
     pub(crate) plan: FacetCellPlan,
-    /// Per-cell dataframe override used by render and coordinated re-measure paths.
+    /// Per-cell dataframe override used by render and coordinated refinement paths.
     pub(crate) data_override: DataFrame,
     /// Final subplot measurement used for rendering.
     pub(crate) measurement: ComponentsMeasurement,
@@ -1134,8 +1134,16 @@ impl FacetBandCoordMeasurement {
         self.guide_padding_inner_px
     }
 
-    fn coordinated_layout_subplot_cross_size(&self) -> Option<f32> {
-        let layout = self.coordinated_layout.as_ref()?;
+    fn require_coordinated_layout_subplot_cross_size(
+        &self,
+        node_id: &CoordinationNodeKey,
+    ) -> Result<f32, AvengerChartError> {
+        let layout = self.coordinated_layout.as_ref().ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "Facet retarget requirements for node path {:?} need coordinated layout, but none is present",
+                node_id.path
+            ))
+        })?;
         let cell_values: Vec<ScalarValue> = self.cell_values().cloned().collect();
         let domain_override = if cell_values.is_empty() {
             None
@@ -1152,13 +1160,18 @@ impl FacetBandCoordMeasurement {
                 side_specific_outer_edges: true,
             },
         );
-        bandwidth(&scale.config).ok()
+        bandwidth(&scale.config).map_err(|e| {
+            AvengerChartError::InternalError(format!(
+                "Failed to get coordinated bandwidth for node path {:?}: {}",
+                node_id.path, e
+            ))
+        })
     }
 
     pub(crate) fn derive_retarget_requirements(
         &self,
         node_id: CoordinationNodeKey,
-    ) -> RetargetNodeRequirements {
+    ) -> Result<RetargetNodeRequirements, AvengerChartError> {
         let (legend_start, legend_end) =
             legend_axis_overflow(self.axis, &self.coordinated_overflow);
         let legend_main_axis_slab = AxisSlab {
@@ -1183,13 +1196,12 @@ impl FacetBandCoordMeasurement {
             })
             .collect::<Vec<_>>();
         let target_subplot_cross_size = if layout_changed {
-            self.coordinated_layout_subplot_cross_size()
-                .unwrap_or(self.subplot_cross_size)
+            self.require_coordinated_layout_subplot_cross_size(&node_id)?
         } else {
             self.subplot_cross_size
         };
 
-        RetargetNodeRequirements {
+        Ok(RetargetNodeRequirements {
             node_id,
             axis: self.axis,
             child_count: self.cells.len(),
@@ -1204,19 +1216,17 @@ impl FacetBandCoordMeasurement {
             },
             child_plot_areas,
             target_subplot_cross_size,
-        }
+        })
     }
 
     fn apply_coordinated_layout_cross_size(&mut self) -> Result<(), AvengerChartError> {
-        let Some(layout) = self.coordinated_layout.as_ref() else {
-            debug!(
-                axis = ?self.axis,
-                facet_depth = self.facet_depth,
-                coordination_field = %self.coordination_field_identity,
-                "FacetBand apply_retarget_actions missing coordinated layout; skipping layout rewrite"
-            );
-            return Ok(());
-        };
+        let layout = self.coordinated_layout.as_ref().ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "Facet retarget action requested coordinated layout for {} facet at depth {}, but no coordinated layout is present",
+                self.axis.scale_name(),
+                self.facet_depth
+            ))
+        })?;
         let cell_values: Vec<ScalarValue> = self.cell_values().cloned().collect();
         let domain_override = if cell_values.is_empty() {
             None
@@ -1360,7 +1370,7 @@ impl FacetBandCoordMeasurement {
             plot_area_retarget_count,
             width_retarget_count,
             height_retarget_count,
-            "FacetBand apply_retarget_actions retargeted cells without remeasure"
+            "FacetBand apply_retarget_actions retargeted cells without remeasurement"
         );
 
         Ok(RetargetNodeOutcome {
@@ -2141,7 +2151,7 @@ async fn execute_measurement_from_plan(
 /// Measure a single facet cell using a selected scale strategy.
 ///
 /// This is the shared measurement engine used by estimated-overflow probes,
-/// local layout finalization, and coordinated re-measurement.
+/// local layout finalization, and coordinated refinement.
 async fn measure_facet_cell(
     cell: &FacetCellPlan,
     data_override: &DataFrame,
@@ -2575,7 +2585,7 @@ async fn coordinate_cell_domains_before_measurement(
             trace!(
                 cell_path = ?cell.plan.full_path,
                 coordinated_domain_count = cell.coordinated_domain_extents.len(),
-                "FacetBand pre-measurement domain coordination filled empty-cell extents"
+                "FacetBand prefinement domain coordination filled empty-cell extents"
             );
         }
     }
@@ -2839,7 +2849,7 @@ fn retarget_cells_to_final_plot_area(
             subplot_plot_width,
             subplot_plot_height,
             is_empty = !cell.plan.has_data_rows,
-            "FacetBand finalized retargeted cell measurement without remeasure"
+            "FacetBand finalized retargeted cell measurement without remeasurement"
         );
     }
 
@@ -4234,7 +4244,7 @@ mod tests {
         legends_by_position: IndexMap<LegendPosition, Vec<String>>,
     ) -> crate::render::LayoutSolution {
         crate::render::LayoutSolution {
-            frame_layout: crate::layout::LayoutResult {
+            frame_layout: crate::layout::FrameLayout {
                 plot_area: LayoutBounds {
                     x: 10.0,
                     y: 20.0,
@@ -5015,7 +5025,7 @@ mod tests {
         facet_band.set_coordinated_layout_value(coordinated);
 
         let requirements =
-            facet_band.derive_retarget_requirements(CoordinationNodeKey::new(Vec::new()));
+            facet_band.derive_retarget_requirements(CoordinationNodeKey::new(Vec::new()))?;
         assert!(requirements.layout_changed);
         assert!(!requirements.has_legend_overflow);
         assert_eq!(requirements.child_count, facet_band.cells.len());
@@ -5080,7 +5090,7 @@ mod tests {
         facet_band.coordinated_overflow.total.top = 12.0;
 
         let requirements =
-            facet_band.derive_retarget_requirements(CoordinationNodeKey::new(Vec::new()));
+            facet_band.derive_retarget_requirements(CoordinationNodeKey::new(Vec::new()))?;
         assert!(requirements.has_legend_overflow);
         assert_eq!(requirements.legend_main_axis_slab.start, 12.0);
         assert_eq!(requirements.legend_main_axis_slab.end, 0.0);
@@ -5104,7 +5114,7 @@ mod tests {
         }
 
         let no_holes_requirements =
-            facet_band.derive_retarget_requirements(CoordinationNodeKey::new(Vec::new()));
+            facet_band.derive_retarget_requirements(CoordinationNodeKey::new(Vec::new()))?;
         assert!(!no_holes_requirements.ownership.has_holes);
         assert!(
             !no_holes_requirements
@@ -5114,7 +5124,7 @@ mod tests {
 
         facet_band.cells[0].plan.is_empty = true;
         let with_holes_requirements =
-            facet_band.derive_retarget_requirements(CoordinationNodeKey::new(Vec::new()));
+            facet_band.derive_retarget_requirements(CoordinationNodeKey::new(Vec::new()))?;
         assert!(with_holes_requirements.ownership.has_holes);
         assert!(
             with_holes_requirements
@@ -5140,7 +5150,7 @@ mod tests {
 
         let before_cross_size = facet_band.subplot_cross_size;
         let requirements =
-            facet_band.derive_retarget_requirements(CoordinationNodeKey::new(Vec::new()));
+            facet_band.derive_retarget_requirements(CoordinationNodeKey::new(Vec::new()))?;
         let actions = RetargetNodeActions {
             node_id: requirements.node_id.clone(),
             axis: requirements.axis,
@@ -5176,7 +5186,7 @@ mod tests {
             .measurement
             .plot_area_height;
         let requirements =
-            facet_band.derive_retarget_requirements(CoordinationNodeKey::new(Vec::new()));
+            facet_band.derive_retarget_requirements(CoordinationNodeKey::new(Vec::new()))?;
         let plot_area_target = PlotAreaTarget {
             width: None,
             height: Some((first_before - requirements.legend_main_axis_slab.total()).max(1.0)),

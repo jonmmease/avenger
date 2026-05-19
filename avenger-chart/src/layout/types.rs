@@ -20,9 +20,6 @@ pub struct FrameLayout {
     pub subtitle: Option<LayoutBounds>,
 }
 
-/// Backward-compatible alias while call sites migrate to frame terminology.
-pub type LayoutResult = FrameLayout;
-
 /// Bounding box for a layout component
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LayoutBounds {

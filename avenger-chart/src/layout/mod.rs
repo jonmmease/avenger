@@ -10,8 +10,8 @@ mod sizing;
 mod types;
 
 pub use content_solver::{
-    ContentAllocation, ContentCoordinationPlan, ContentDemand, ContentLayout, ContentLayoutSolver,
-    FacetBandContentMeasurement, FacetBandContentPlan, FacetBandContentSolver,
+    ChildFrameContentMeasurement, ChildFrameContentPlan, ChildFrameContentSolver,
+    ContentAllocation, ContentDemand, ContentLayout, ContentLayoutSolver,
     SinglePlotContentMeasurement, SinglePlotContentPlan, SinglePlotContentSolver,
 };
 pub(crate) use frame_solver::{
@@ -25,5 +25,5 @@ pub(crate) use sizing::{
 };
 pub use types::{
     EdgeSlabs, FrameAllocation, FrameDemand, FrameDimensionSizing, FrameLayout, FrameSizingPolicy,
-    LayoutBounds, LayoutResult, OverflowSide, OwnedEdgeSlabs, Size2D,
+    LayoutBounds, OverflowSide, OwnedEdgeSlabs, Size2D,
 };

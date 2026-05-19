@@ -41,8 +41,8 @@ use crate::{
         value::{ChannelValue, ConditionalValue, strip_trailing_numbers},
     },
     coords::{
-        CoordMeasurement, FacetAxis, FacetCoordinationMode,
-        coordinate_overflow_for_guides_with_mode, coordinate_overflow_for_guides_with_mode_until,
+        CoordMeasurement, FacetAxis, coordinate_overflow_for_guides,
+        coordinate_overflow_for_guides_until,
     },
     error::AvengerChartError,
     facet::{
@@ -132,13 +132,6 @@ impl ResolvedChartSizing {
         match self {
             Self::SinglePlot => ResolvedContentKind::SinglePlot,
             Self::FacetBand(_) => ResolvedContentKind::FacetBand,
-        }
-    }
-
-    fn facet_coordination_mode(self) -> Option<FacetCoordinationMode> {
-        match self {
-            Self::SinglePlot => None,
-            Self::FacetBand(_) => Some(FacetCoordinationMode::FullCycle),
         }
     }
 
@@ -447,6 +440,17 @@ struct RefinementIterationOutcome {
     reached_snapshot_checkpoint: bool,
     overflow_grew: Option<bool>,
     realized_padding_feedback: Arc<FacetBandPaddingFeedbackMap>,
+}
+
+#[derive(Clone, Copy)]
+enum FacetRefinementMode<'a> {
+    Canvas {
+        layout_spec: &'a EvaluatedLayoutSpec,
+        scale_provider: &'a dyn ScaleProvider,
+    },
+    Policy {
+        layout_spec: &'a EvaluatedLayoutSpec,
+    },
 }
 
 impl CompiledPlot {
@@ -821,7 +825,7 @@ impl CompiledPlot {
         Ok(ResolvedChartSizing::FacetBand(policy))
     }
 
-    fn derive_fixed_leaf_subtree_plot_area(
+    fn derive_leaf_subtree_plot_area(
         facet_tree: &EvaluatedFacetTree,
         leaf_plot_width: f32,
         leaf_plot_height: f32,
@@ -853,7 +857,7 @@ impl CompiledPlot {
                 let leaf_plot_height = policy
                     .leaf_plot_height()
                     .unwrap_or(ResolvedChartSizing::DEFAULT_CANVAS_HEIGHT);
-                let (plot_area_width, plot_area_height) = Self::derive_fixed_leaf_subtree_plot_area(
+                let (plot_area_width, plot_area_height) = Self::derive_leaf_subtree_plot_area(
                     facet_tree,
                     leaf_plot_width,
                     leaf_plot_height,
@@ -2226,12 +2230,7 @@ impl CompiledPlot {
                 facet_path,
             )
             .await?;
-            coordinate_overflow_for_guides_with_mode(
-                measurement,
-                active_eval_ctx,
-                FacetCoordinationMode::FullCycle,
-            )
-            .await?;
+            coordinate_overflow_for_guides(measurement, active_eval_ctx).await?;
 
             if target_checkpoint == Some(RefinementCheckpoint::Recoordinated) {
                 return Ok(RefinementIterationOutcome {
@@ -2318,60 +2317,19 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
         max_refinement_passes: usize,
     ) -> Result<(), AvengerChartError> {
-        let mut padding_feedback = self
-            .run_canvas_refinement_iteration(
-                measurement,
-                eval_ctx,
+        self.refine_measurement_after_coordination(
+            FacetRefinementMode::Canvas {
                 layout_spec,
                 scale_provider,
-                data_override,
-                facet_path,
-                None,
-                0,
-                None,
-                "canvas layout mandatory realization",
-            )
-            .await?
-            .realized_padding_feedback;
-
-        if max_refinement_passes == 0 {
-            eval_ctx.record_facet_refinement_converged();
-            trace!("canvas layout refinement disabled after mandatory realization");
-            return Ok(());
-        }
-
-        for pass in 1..=max_refinement_passes {
-            let outcome = self
-                .run_canvas_refinement_iteration(
-                    measurement,
-                    eval_ctx,
-                    layout_spec,
-                    scale_provider,
-                    data_override,
-                    facet_path,
-                    Some(padding_feedback.clone()),
-                    pass,
-                    None,
-                    "canvas layout refinement realization",
-                )
-                .await?;
-
-            eval_ctx.record_facet_refinement_pass();
-            let overflow_grew = outcome.overflow_grew.unwrap_or(false);
-            trace!(
-                pass,
-                overflow_grew, "canvas layout refinement pass completed"
-            );
-
-            if !overflow_grew {
-                eval_ctx.record_facet_refinement_converged();
-                return Ok(());
-            }
-            padding_feedback = outcome.realized_padding_feedback;
-        }
-
-        eval_ctx.record_facet_refinement_hit_max_passes();
-        Ok(())
+            },
+            measurement,
+            eval_ctx,
+            data_override,
+            facet_path,
+            max_refinement_passes,
+            "canvas layout",
+        )
+        .await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2387,72 +2345,21 @@ impl CompiledPlot {
         target_iteration: usize,
         target_checkpoint: RefinementCheckpoint,
     ) -> Result<(), AvengerChartError> {
-        if target_iteration > max_refinement_passes {
-            return Err(AvengerChartError::InternalError(format!(
-                "Requested refinement snapshot iteration {} exceeds configured max iteration {}",
-                target_iteration, max_refinement_passes
-            )));
-        }
-
-        let target = (target_iteration == 0).then_some(target_checkpoint);
-        let outcome = self
-            .run_canvas_refinement_iteration(
-                measurement,
-                eval_ctx,
+        self.refine_measurement_after_coordination_until(
+            FacetRefinementMode::Canvas {
                 layout_spec,
                 scale_provider,
-                data_override,
-                facet_path,
-                None,
-                0,
-                target,
-                "canvas layout refinement snapshot",
-            )
-            .await?;
-
-        if outcome.reached_snapshot_checkpoint {
-            return Ok(());
-        }
-
-        if max_refinement_passes == 0 {
-            return Err(AvengerChartError::InternalError(format!(
-                "Requested refinement snapshot {:?} at iteration {} was not reached (canvas layout refinement snapshot)",
-                target_checkpoint, target_iteration
-            )));
-        }
-
-        let mut padding_feedback = outcome.realized_padding_feedback;
-        for pass in 1..=max_refinement_passes {
-            let target = (pass == target_iteration).then_some(target_checkpoint);
-            let outcome = self
-                .run_canvas_refinement_iteration(
-                    measurement,
-                    eval_ctx,
-                    layout_spec,
-                    scale_provider,
-                    data_override,
-                    facet_path,
-                    Some(padding_feedback.clone()),
-                    pass,
-                    target,
-                    "canvas layout refinement snapshot",
-                )
-                .await?;
-
-            if outcome.reached_snapshot_checkpoint {
-                return Ok(());
-            }
-
-            if !outcome.overflow_grew.unwrap_or(false) {
-                break;
-            }
-            padding_feedback = outcome.realized_padding_feedback;
-        }
-
-        Err(AvengerChartError::InternalError(format!(
-            "Requested refinement snapshot {:?} at iteration {} was not reached (canvas layout refinement snapshot)",
-            target_checkpoint, target_iteration
-        )))
+            },
+            measurement,
+            eval_ctx,
+            data_override,
+            facet_path,
+            max_refinement_passes,
+            target_iteration,
+            target_checkpoint,
+            "canvas layout",
+        )
+        .await
     }
 
     fn facet_subtree_realized_plot_area_extent(
@@ -2850,12 +2757,7 @@ impl CompiledPlot {
                 facet_path,
             )
             .await?;
-            coordinate_overflow_for_guides_with_mode(
-                measurement,
-                active_eval_ctx,
-                FacetCoordinationMode::FullCycle,
-            )
-            .await?;
+            coordinate_overflow_for_guides(measurement, active_eval_ctx).await?;
 
             if target_checkpoint == Some(RefinementCheckpoint::Recoordinated) {
                 return Ok(RefinementIterationOutcome {
@@ -2925,54 +2827,111 @@ impl CompiledPlot {
         })
     }
 
-    async fn refine_policy_measurement_after_coordination(
+    #[allow(clippy::too_many_arguments)]
+    async fn run_refinement_iteration(
         &self,
+        mode: FacetRefinementMode<'_>,
         measurement: &mut ComponentsMeasurement,
         eval_ctx: &EvaluationContext,
-        evaluated_layout_spec: &EvaluatedLayoutSpec,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+        padding_feedback: Option<Arc<FacetBandPaddingFeedbackMap>>,
+        iteration: usize,
+        target_checkpoint: Option<RefinementCheckpoint>,
+        trace_label: &'static str,
+    ) -> Result<RefinementIterationOutcome, AvengerChartError> {
+        match mode {
+            FacetRefinementMode::Canvas {
+                layout_spec,
+                scale_provider,
+            } => {
+                self.run_canvas_refinement_iteration(
+                    measurement,
+                    eval_ctx,
+                    layout_spec,
+                    scale_provider,
+                    data_override,
+                    facet_path,
+                    padding_feedback,
+                    iteration,
+                    target_checkpoint,
+                    trace_label,
+                )
+                .await
+            }
+            FacetRefinementMode::Policy { layout_spec } => {
+                self.run_policy_refinement_iteration(
+                    measurement,
+                    eval_ctx,
+                    layout_spec,
+                    data_override,
+                    facet_path,
+                    padding_feedback,
+                    iteration,
+                    target_checkpoint,
+                    trace_label,
+                )
+                .await
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn refine_measurement_after_coordination(
+        &self,
+        mode: FacetRefinementMode<'_>,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
         data_override: Option<&DataFrame>,
         facet_path: &[ScalarValue],
         max_refinement_passes: usize,
+        trace_prefix: &'static str,
     ) -> Result<(), AvengerChartError> {
         let mut padding_feedback = self
-            .run_policy_refinement_iteration(
+            .run_refinement_iteration(
+                mode,
                 measurement,
                 eval_ctx,
-                evaluated_layout_spec,
                 data_override,
                 facet_path,
                 None,
                 0,
                 None,
-                "policy mandatory realization",
+                "mandatory realization",
             )
             .await?
             .realized_padding_feedback;
 
         if max_refinement_passes == 0 {
             eval_ctx.record_facet_refinement_converged();
-            trace!("policy refinement disabled after mandatory realization");
+            trace!(
+                trace_prefix,
+                "refinement disabled after mandatory realization"
+            );
             return Ok(());
         }
 
         for pass in 1..=max_refinement_passes {
             let outcome = self
-                .run_policy_refinement_iteration(
+                .run_refinement_iteration(
+                    mode,
                     measurement,
                     eval_ctx,
-                    evaluated_layout_spec,
                     data_override,
                     facet_path,
                     Some(padding_feedback.clone()),
                     pass,
                     None,
-                    "policy refinement realization",
+                    "refinement realization",
                 )
                 .await?;
 
             eval_ctx.record_facet_refinement_pass();
             let overflow_grew = outcome.overflow_grew.unwrap_or(false);
-            trace!(pass, overflow_grew, "policy refinement pass completed");
+            trace!(
+                trace_prefix,
+                pass, overflow_grew, "refinement pass completed"
+            );
 
             if !overflow_grew {
                 eval_ctx.record_facet_refinement_converged();
@@ -2983,6 +2942,106 @@ impl CompiledPlot {
 
         eval_ctx.record_facet_refinement_hit_max_passes();
         Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn refine_measurement_after_coordination_until(
+        &self,
+        mode: FacetRefinementMode<'_>,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+        max_refinement_passes: usize,
+        target_iteration: usize,
+        target_checkpoint: RefinementCheckpoint,
+        trace_prefix: &'static str,
+    ) -> Result<(), AvengerChartError> {
+        if target_iteration > max_refinement_passes {
+            return Err(AvengerChartError::InternalError(format!(
+                "Requested refinement snapshot iteration {} exceeds configured max iteration {}",
+                target_iteration, max_refinement_passes
+            )));
+        }
+
+        let target = (target_iteration == 0).then_some(target_checkpoint);
+        let outcome = self
+            .run_refinement_iteration(
+                mode,
+                measurement,
+                eval_ctx,
+                data_override,
+                facet_path,
+                None,
+                0,
+                target,
+                "refinement snapshot",
+            )
+            .await?;
+
+        if outcome.reached_snapshot_checkpoint {
+            return Ok(());
+        }
+
+        if max_refinement_passes == 0 {
+            return Err(AvengerChartError::InternalError(format!(
+                "Requested refinement snapshot {:?} at iteration {} was not reached ({trace_prefix} refinement snapshot)",
+                target_checkpoint, target_iteration
+            )));
+        }
+
+        let mut padding_feedback = outcome.realized_padding_feedback;
+        for pass in 1..=max_refinement_passes {
+            let target = (pass == target_iteration).then_some(target_checkpoint);
+            let outcome = self
+                .run_refinement_iteration(
+                    mode,
+                    measurement,
+                    eval_ctx,
+                    data_override,
+                    facet_path,
+                    Some(padding_feedback.clone()),
+                    pass,
+                    target,
+                    "refinement snapshot",
+                )
+                .await?;
+            if outcome.reached_snapshot_checkpoint {
+                return Ok(());
+            }
+            if !outcome.overflow_grew.unwrap_or(false) {
+                break;
+            }
+            padding_feedback = outcome.realized_padding_feedback;
+        }
+
+        Err(AvengerChartError::InternalError(format!(
+            "Requested refinement snapshot {:?} at iteration {} was not reached ({trace_prefix} refinement snapshot)",
+            target_checkpoint, target_iteration
+        )))
+    }
+
+    async fn refine_policy_measurement_after_coordination(
+        &self,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        evaluated_layout_spec: &EvaluatedLayoutSpec,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+        max_refinement_passes: usize,
+    ) -> Result<(), AvengerChartError> {
+        self.refine_measurement_after_coordination(
+            FacetRefinementMode::Policy {
+                layout_spec: evaluated_layout_spec,
+            },
+            measurement,
+            eval_ctx,
+            data_override,
+            facet_path,
+            max_refinement_passes,
+            "policy",
+        )
+        .await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2997,70 +3056,23 @@ impl CompiledPlot {
         target_iteration: usize,
         target_checkpoint: RefinementCheckpoint,
     ) -> Result<(), AvengerChartError> {
-        if target_iteration > max_refinement_passes {
-            return Err(AvengerChartError::InternalError(format!(
-                "Requested refinement snapshot iteration {} exceeds configured max iteration {}",
-                target_iteration, max_refinement_passes
-            )));
-        }
         if target_iteration == 0 && target_checkpoint == RefinementCheckpoint::Recoordinated {
             return Ok(());
         }
-
-        let target = (target_iteration == 0).then_some(target_checkpoint);
-        let outcome = self
-            .run_policy_refinement_iteration(
-                measurement,
-                eval_ctx,
-                evaluated_layout_spec,
-                data_override,
-                facet_path,
-                None,
-                0,
-                target,
-                "policy refinement snapshot",
-            )
-            .await?;
-        if outcome.reached_snapshot_checkpoint {
-            return Ok(());
-        }
-
-        if max_refinement_passes == 0 {
-            return Err(AvengerChartError::InternalError(format!(
-                "Requested refinement snapshot {:?} at iteration {} was not reached (policy refinement snapshot)",
-                target_checkpoint, target_iteration
-            )));
-        }
-
-        let mut padding_feedback = outcome.realized_padding_feedback;
-        for pass in 1..=max_refinement_passes {
-            let target = (pass == target_iteration).then_some(target_checkpoint);
-            let outcome = self
-                .run_policy_refinement_iteration(
-                    measurement,
-                    eval_ctx,
-                    evaluated_layout_spec,
-                    data_override,
-                    facet_path,
-                    Some(padding_feedback.clone()),
-                    pass,
-                    target,
-                    "policy refinement snapshot",
-                )
-                .await?;
-            if outcome.reached_snapshot_checkpoint {
-                return Ok(());
-            }
-            if !outcome.overflow_grew.unwrap_or(false) {
-                break;
-            }
-            padding_feedback = outcome.realized_padding_feedback;
-        }
-
-        Err(AvengerChartError::InternalError(format!(
-            "Requested refinement snapshot {:?} at iteration {} was not reached (policy refinement snapshot)",
-            target_checkpoint, target_iteration
-        )))
+        self.refine_measurement_after_coordination_until(
+            FacetRefinementMode::Policy {
+                layout_spec: evaluated_layout_spec,
+            },
+            measurement,
+            eval_ctx,
+            data_override,
+            facet_path,
+            max_refinement_passes,
+            target_iteration,
+            target_checkpoint,
+            "policy",
+        )
+        .await
     }
 
     async fn realize_policy_layout_after_coordination(
@@ -4076,14 +4088,8 @@ impl CompiledPlot {
             }
             LayoutSnapshot::Whole(WholeChartSnapshot::LocalMeasured) => Ok(()),
             LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(checkpoint)) => {
-                if let Some(coordination_mode) = resolved_chart_sizing.facet_coordination_mode() {
-                    coordinate_overflow_for_guides_with_mode_until(
-                        measurement,
-                        eval_ctx,
-                        coordination_mode,
-                        *checkpoint,
-                    )
-                    .await
+                if matches!(resolved_chart_sizing, ResolvedChartSizing::FacetBand(_)) {
+                    coordinate_overflow_for_guides_until(measurement, eval_ctx, *checkpoint).await
                 } else {
                     Ok(())
                 }
@@ -4092,11 +4098,10 @@ impl CompiledPlot {
                 iteration,
                 checkpoint,
             }) => {
-                if let Some(coordination_mode) = resolved_chart_sizing.facet_coordination_mode() {
-                    coordinate_overflow_for_guides_with_mode_until(
+                if matches!(resolved_chart_sizing, ResolvedChartSizing::FacetBand(_)) {
+                    coordinate_overflow_for_guides_until(
                         measurement,
                         eval_ctx,
-                        coordination_mode,
                         CoordinationCheckpoint::FinalPropagationComplete,
                     )
                     .await?;
@@ -4163,12 +4168,7 @@ impl CompiledPlot {
             ResolvedChartSizing::FacetBand(_) => {
                 // Facet content uses the global coordination cycle:
                 // initial requirements -> retarget -> retargeted requirements -> final propagation.
-                coordinate_overflow_for_guides_with_mode(
-                    measurement,
-                    eval_ctx,
-                    FacetCoordinationMode::FullCycle,
-                )
-                .await?;
+                coordinate_overflow_for_guides(measurement, eval_ctx).await?;
                 let refinement = eval_ctx.facet_layout_refinement();
                 self.realize_policy_layout_after_coordination(
                     measurement,
@@ -4463,9 +4463,8 @@ mod tests {
         facet::{
             band_positions::BandPositionIterator,
             coord::{FacetBandCoordMeasurement, facet_band_ref as facet_band_ref_from_coord},
-            coordination_apply::build_retarget_plan_with_strategy,
+            coordination_apply::build_retarget_plan,
             coordination_plans::CoordinationNodeKey,
-            coordination_strategy::FacetPolicyCoordinationStrategy,
         },
         layout::{CanvasConstraint, FrameDimensionSizing, PlotConstraint},
         legend::LegendPosition,
@@ -4487,7 +4486,7 @@ mod tests {
         facet_band_ref_from_coord(measurement.coord_measurement.as_ref())
     }
 
-    fn fully_leaf_policy_strategy(
+    fn fully_leaf_sizing_policy(
         leaf_plot_width: f32,
         leaf_plot_height: f32,
     ) -> ResolvedChartSizing {
@@ -6117,14 +6116,14 @@ mod tests {
     fn collect_team_level_plot_area_sized_apply_signals(
         measurement: &ComponentsMeasurement,
         out: &mut Vec<(f32, bool, bool)>,
-    ) {
+    ) -> Result<(), AvengerChartError> {
         if let Some(facet_band) = facet_band_ref(measurement) {
             if facet_band.coordination_field_identity == "team" {
                 let slabs = crate::facet::overflow_projection::FacetOverflowSlabs::from_coordinated(
                     &facet_band.coordinated_overflow,
                 );
-                let requirements =
-                    facet_band.derive_retarget_requirements(CoordinationNodeKey::new(Vec::new()));
+                let requirements = facet_band
+                    .derive_retarget_requirements(CoordinationNodeKey::new(Vec::new()))?;
                 out.push((
                     slabs.legend.right.max(0.0),
                     requirements.layout_changed,
@@ -6133,9 +6132,10 @@ mod tests {
             }
 
             for child in facet_band.child_measurements_iter() {
-                collect_team_level_plot_area_sized_apply_signals(child, out);
+                collect_team_level_plot_area_sized_apply_signals(child, out)?;
             }
         }
+        Ok(())
     }
 
     #[test]
@@ -6933,7 +6933,7 @@ mod tests {
                 prepare_refined_top_level_measurement(&compiled, &ctx).await?;
 
             let mut team_signals = Vec::new();
-            collect_team_level_plot_area_sized_apply_signals(&measurement, &mut team_signals);
+            collect_team_level_plot_area_sized_apply_signals(&measurement, &mut team_signals)?;
             assert!(
                 !team_signals.is_empty(),
                 "expected at least one team-level facet node in level2-right scenario"
@@ -6978,7 +6978,7 @@ mod tests {
                     &eval_ctx,
                     &evaluated_layout_spec,
                     &provider,
-                    fully_leaf_policy_strategy(120.0, 90.0),
+                    fully_leaf_sizing_policy(120.0, 90.0),
                 )
                 .await?;
 
@@ -7025,7 +7025,7 @@ mod tests {
                     &eval_ctx,
                     &evaluated_layout_spec,
                     &provider,
-                    fully_leaf_policy_strategy(120.0, 90.0),
+                    fully_leaf_sizing_policy(120.0, 90.0),
                 )
                 .await?;
             let root_facet = measurement
@@ -7045,10 +7045,7 @@ mod tests {
                 }
             }
 
-            let plan = build_retarget_plan_with_strategy::<FacetPolicyCoordinationStrategy>(
-                &measurement,
-                &eval_ctx,
-            );
+            let plan = build_retarget_plan(&measurement, &eval_ctx)?;
             let legend_nodes = plan
                 .node_plans
                 .iter()
@@ -7093,14 +7090,11 @@ mod tests {
                     &eval_ctx,
                     &evaluated_layout_spec,
                     &provider,
-                    fully_leaf_policy_strategy(120.0, 90.0),
+                    fully_leaf_sizing_policy(120.0, 90.0),
                 )
                 .await?;
 
-            let plan = build_retarget_plan_with_strategy::<FacetPolicyCoordinationStrategy>(
-                &measurement,
-                &eval_ctx,
-            );
+            let plan = build_retarget_plan(&measurement, &eval_ctx)?;
             for node in &plan.node_plans {
                 let counts = node.actions.child_action_counts();
                 assert_eq!(
@@ -7133,7 +7127,7 @@ mod tests {
                     &eval_ctx,
                     &evaluated_layout_spec,
                     &provider,
-                    fully_leaf_policy_strategy(120.0, 90.0),
+                    fully_leaf_sizing_policy(120.0, 90.0),
                 )
                 .await?;
 
@@ -7188,7 +7182,7 @@ mod tests {
     }
 
     #[test]
-    fn fixed_retarget_trace_recomputes_positions_after_remeasure() {
+    fn plot_area_sized_retarget_trace_recomputes_positions_after_refinement() {
         run_with_large_stack(|| async {
             let ctx = SessionContext::new();
             let compiled =

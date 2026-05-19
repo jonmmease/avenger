@@ -1,4 +1,8 @@
-use std::{collections::HashMap, future::Future, pin::Pin};
+use std::{
+    collections::{HashMap, HashSet},
+    future::Future,
+    pin::Pin,
+};
 
 use crate::{
     coords::FacetAxis,
@@ -7,50 +11,42 @@ use crate::{
         coordination_plans::{
             CoordinationNodeKey, FinalPropagationChildPlan, FinalPropagationNodePlan,
             FinalPropagationNodeTrace, FinalPropagationPlan, FinalPropagationTrace,
-            InitialRequirementPass, RetargetNodePlan, RetargetNodeTrace, RetargetPlan,
-            RetargetTrace, RetargetedRequirementPass,
+            RequirementPass, RetargetNodePlan, RetargetNodeTrace, RetargetPlan, RetargetTrace,
         },
-        coordination_strategy::{FacetBandMut, FacetBandRef, FacetSizingCoordinationStrategy},
+        coordination_policy::{FacetBandMut, FacetBandRef, FacetCoordinationPolicy},
     },
     plot::compiled::ComponentsMeasurement,
     render::EvaluationContext,
 };
 
-#[cfg(test)]
-use crate::facet::coord::FacetBandCoordMeasurement;
-#[cfg(test)]
-use crate::facet::coordination_strategy::FacetPolicyCoordinationStrategy;
-
-pub(crate) fn visit_facet_bands_with_node_id_for_strategy<S, F>(
+pub(crate) fn visit_facet_bands_with_node_id<F>(
     measurement: &ComponentsMeasurement,
     depth: usize,
     node_path: &mut Vec<usize>,
     visit: &mut F,
 ) where
-    S: FacetSizingCoordinationStrategy,
     F: FnMut(&CoordinationNodeKey, usize, &FacetBandRef<'_>),
 {
-    if let Some(facet_band) = S::facet_band_ref(measurement) {
+    if let Some(facet_band) = FacetCoordinationPolicy::facet_band_ref(measurement) {
         let node_id = CoordinationNodeKey::new(node_path.clone());
         visit(&node_id, depth, &facet_band);
         for (idx, child) in facet_band.base().child_measurements_iter().enumerate() {
             node_path.push(idx);
-            visit_facet_bands_with_node_id_for_strategy::<S, F>(child, depth + 1, node_path, visit);
+            visit_facet_bands_with_node_id(child, depth + 1, node_path, visit);
             node_path.pop();
         }
     }
 }
 
-pub(crate) fn visit_facet_bands_with_node_id_mut_for_strategy<S, F>(
+pub(crate) fn visit_facet_bands_with_node_id_mut<F>(
     measurement: &mut ComponentsMeasurement,
     depth: usize,
     node_path: &mut Vec<usize>,
     visit: &mut F,
 ) where
-    S: FacetSizingCoordinationStrategy,
     F: FnMut(&CoordinationNodeKey, usize, &mut FacetBandMut<'_>),
 {
-    if let Some(mut facet_band) = S::facet_band_mut(measurement) {
+    if let Some(mut facet_band) = FacetCoordinationPolicy::facet_band_mut(measurement) {
         let node_id = CoordinationNodeKey::new(node_path.clone());
         visit(&node_id, depth, &mut facet_band);
         for (idx, child) in facet_band
@@ -59,65 +55,52 @@ pub(crate) fn visit_facet_bands_with_node_id_mut_for_strategy<S, F>(
             .enumerate()
         {
             node_path.push(idx);
-            visit_facet_bands_with_node_id_mut_for_strategy::<S, F>(
-                child,
-                depth + 1,
-                node_path,
-                visit,
-            );
+            visit_facet_bands_with_node_id_mut(child, depth + 1, node_path, visit);
             node_path.pop();
         }
     }
 }
 
-#[cfg(test)]
-pub(crate) fn visit_facet_bands_with_node_id<F>(
-    measurement: &ComponentsMeasurement,
-    depth: usize,
-    node_path: &mut Vec<usize>,
-    visit: &mut F,
-) where
-    F: FnMut(&CoordinationNodeKey, usize, &FacetBandCoordMeasurement),
-{
-    visit_facet_bands_with_node_id_for_strategy::<FacetPolicyCoordinationStrategy, _>(
-        measurement,
-        depth,
-        node_path,
-        &mut |node_id, depth, facet_band| visit(node_id, depth, facet_band.base()),
-    );
-}
-
-#[cfg(test)]
-pub(crate) fn visit_facet_bands_with_node_id_mut<F>(
+pub(crate) fn apply_requirement_pass(
     measurement: &mut ComponentsMeasurement,
-    depth: usize,
-    node_path: &mut Vec<usize>,
-    visit: &mut F,
-) where
-    F: FnMut(&CoordinationNodeKey, usize, &mut FacetBandCoordMeasurement),
-{
-    visit_facet_bands_with_node_id_mut_for_strategy::<FacetPolicyCoordinationStrategy, _>(
-        measurement,
-        depth,
-        node_path,
-        &mut |node_id, depth, facet_band| visit(node_id, depth, facet_band.base_mut()),
-    );
-}
-
-pub(crate) fn apply_initial_requirement_pass_with_strategy<S>(
-    measurement: &mut ComponentsMeasurement,
-    initial_requirement_pass: &InitialRequirementPass,
-) where
-    S: FacetSizingCoordinationStrategy,
-{
+    requirement_pass: &RequirementPass,
+) -> Result<(), AvengerChartError> {
+    let snapshot_keys_by_node = requirement_pass
+        .snapshot
+        .nodes
+        .iter()
+        .map(|node| (node.node_id.clone(), node.key.clone()))
+        .collect::<HashMap<_, _>>();
+    let snapshot_nodes = snapshot_keys_by_node
+        .keys()
+        .cloned()
+        .collect::<HashSet<_>>();
+    let nodes_requiring_overflow = requirement_pass
+        .snapshot
+        .nodes
+        .iter()
+        .filter(|node| node.measured_overflow.is_some())
+        .map(|node| node.node_id.clone())
+        .collect::<HashSet<_>>();
+    let mut error = None;
     let mut node_path = Vec::new();
-    visit_facet_bands_with_node_id_mut_for_strategy::<S, _>(
+    visit_facet_bands_with_node_id_mut(
         measurement,
         0,
         &mut node_path,
         &mut |node_id, _depth, facet_band| {
-            let mut patch_applied = false;
-            if let Some(overflow) = initial_requirement_pass
+            if error.is_some() {
+                return;
+            }
+            if !snapshot_nodes.contains(node_id) {
+                error = Some(AvengerChartError::InternalError(format!(
+                    "{} pass did not include node path {:?}",
+                    requirement_pass.stage.label(),
+                    node_id.path
+                )));
+                return;
+            }
+            if let Some(overflow) = requirement_pass
                 .distribution
                 .overflow_patches_by_node
                 .get(node_id)
@@ -126,9 +109,16 @@ pub(crate) fn apply_initial_requirement_pass_with_strategy<S>(
                 facet_band
                     .base_mut()
                     .set_coordinated_overflow_value(overflow);
-                patch_applied = true;
+            } else if nodes_requiring_overflow.contains(node_id) {
+                error = Some(AvengerChartError::InternalError(format!(
+                    "{} pass missing coordinated overflow patch for node path {:?}, group {:?}",
+                    requirement_pass.stage.label(),
+                    node_id.path,
+                    snapshot_keys_by_node.get(node_id)
+                )));
+                return;
             }
-            if let Some(boundary_overflow) = initial_requirement_pass
+            if let Some(boundary_overflow) = requirement_pass
                 .distribution
                 .boundary_overflow_patches_by_node
                 .get(node_id)
@@ -137,9 +127,16 @@ pub(crate) fn apply_initial_requirement_pass_with_strategy<S>(
                 facet_band
                     .base_mut()
                     .set_coordinated_boundary_overflow_value(boundary_overflow);
-                patch_applied = true;
+            } else if nodes_requiring_overflow.contains(node_id) {
+                error = Some(AvengerChartError::InternalError(format!(
+                    "{} pass missing boundary overflow patch for node path {:?}, group {:?}",
+                    requirement_pass.stage.label(),
+                    node_id.path,
+                    snapshot_keys_by_node.get(node_id)
+                )));
+                return;
             }
-            if let Some(guide_anchor_overflow) = initial_requirement_pass
+            if let Some(guide_anchor_overflow) = requirement_pass
                 .distribution
                 .guide_anchor_overflow_patches_by_node
                 .get(node_id)
@@ -148,160 +145,83 @@ pub(crate) fn apply_initial_requirement_pass_with_strategy<S>(
                 facet_band
                     .base_mut()
                     .set_coordinated_guide_anchor_overflow_value(guide_anchor_overflow);
-                patch_applied = true;
+            } else if nodes_requiring_overflow.contains(node_id) {
+                error = Some(AvengerChartError::InternalError(format!(
+                    "{} pass missing guide-anchor overflow patch for node path {:?}, group {:?}",
+                    requirement_pass.stage.label(),
+                    node_id.path,
+                    snapshot_keys_by_node.get(node_id)
+                )));
+                return;
             }
-            if let Some(layout) = initial_requirement_pass
+            let Some(layout) = requirement_pass
                 .distribution
                 .layout_patches_by_node
                 .get(node_id)
                 .cloned()
-            {
-                facet_band.base_mut().set_coordinated_layout_value(layout);
-                patch_applied = true;
-            }
-            S::refresh_placement_after_requirement_patch(facet_band, patch_applied);
+            else {
+                error = Some(AvengerChartError::InternalError(format!(
+                    "{} pass missing coordinated layout patch for node path {:?}, group {:?}",
+                    requirement_pass.stage.label(),
+                    node_id.path,
+                    snapshot_keys_by_node.get(node_id)
+                )));
+                return;
+            };
+            facet_band.base_mut().set_coordinated_layout_value(layout);
+            FacetCoordinationPolicy::refresh_placement_after_requirement_patch(facet_band, true);
         },
     );
+
+    if let Some(error) = error {
+        return Err(error);
+    }
+
+    Ok(())
 }
 
-#[cfg(test)]
-pub(crate) fn apply_initial_requirement_pass(
-    measurement: &mut ComponentsMeasurement,
-    initial_requirement_pass: &InitialRequirementPass,
-) {
-    apply_initial_requirement_pass_with_strategy::<FacetPolicyCoordinationStrategy>(
-        measurement,
-        initial_requirement_pass,
-    );
-}
-
-pub(crate) fn apply_retargeted_requirement_pass_with_strategy<S>(
-    measurement: &mut ComponentsMeasurement,
-    retargeted_requirement_pass: &RetargetedRequirementPass,
-) where
-    S: FacetSizingCoordinationStrategy,
-{
-    let mut node_path = Vec::new();
-    visit_facet_bands_with_node_id_mut_for_strategy::<S, _>(
-        measurement,
-        0,
-        &mut node_path,
-        &mut |node_id, _depth, facet_band| {
-            let mut patch_applied = false;
-            if let Some(overflow) = retargeted_requirement_pass
-                .distribution
-                .overflow_patches_by_node
-                .get(node_id)
-                .cloned()
-            {
-                facet_band
-                    .base_mut()
-                    .set_coordinated_overflow_value(overflow);
-                patch_applied = true;
-            }
-            if let Some(boundary_overflow) = retargeted_requirement_pass
-                .distribution
-                .boundary_overflow_patches_by_node
-                .get(node_id)
-                .cloned()
-            {
-                facet_band
-                    .base_mut()
-                    .set_coordinated_boundary_overflow_value(boundary_overflow);
-                patch_applied = true;
-            }
-            if let Some(guide_anchor_overflow) = retargeted_requirement_pass
-                .distribution
-                .guide_anchor_overflow_patches_by_node
-                .get(node_id)
-                .cloned()
-            {
-                facet_band
-                    .base_mut()
-                    .set_coordinated_guide_anchor_overflow_value(guide_anchor_overflow);
-                patch_applied = true;
-            }
-            if let Some(layout) = retargeted_requirement_pass
-                .distribution
-                .layout_patches_by_node
-                .get(node_id)
-                .cloned()
-            {
-                facet_band.base_mut().set_coordinated_layout_value(layout);
-                patch_applied = true;
-            }
-            S::refresh_placement_after_requirement_patch(facet_band, patch_applied);
-        },
-    );
-}
-
-#[cfg(test)]
-pub(crate) fn apply_retargeted_requirement_pass(
-    measurement: &mut ComponentsMeasurement,
-    retargeted_requirement_pass: &RetargetedRequirementPass,
-) {
-    apply_retargeted_requirement_pass_with_strategy::<FacetPolicyCoordinationStrategy>(
-        measurement,
-        retargeted_requirement_pass,
-    );
-}
-
-pub(crate) fn build_retarget_plan_with_strategy<S>(
+pub(crate) fn build_retarget_plan(
     measurement: &ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
-) -> RetargetPlan
-where
-    S: FacetSizingCoordinationStrategy,
-{
+) -> Result<RetargetPlan, AvengerChartError> {
     let mut node_plans = Vec::new();
     let mut node_path = Vec::new();
-    build_retarget_plan_recursive::<S>(measurement, eval_ctx, &mut node_path, &mut node_plans);
-    RetargetPlan { node_plans }
+    build_retarget_plan_recursive(measurement, eval_ctx, &mut node_path, &mut node_plans)?;
+    Ok(RetargetPlan { node_plans })
 }
 
-fn build_retarget_plan_recursive<S>(
+fn build_retarget_plan_recursive(
     measurement: &ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
     node_path: &mut Vec<usize>,
     node_plans: &mut Vec<RetargetNodePlan>,
-) where
-    S: FacetSizingCoordinationStrategy,
-{
-    if let Some(facet_band) = S::facet_band_ref(measurement) {
+) -> Result<(), AvengerChartError> {
+    if let Some(facet_band) = FacetCoordinationPolicy::facet_band_ref(measurement) {
         for (idx, child) in facet_band.base().child_measurements_iter().enumerate() {
             node_path.push(idx);
-            build_retarget_plan_recursive::<S>(child, eval_ctx, node_path, node_plans);
+            build_retarget_plan_recursive(child, eval_ctx, node_path, node_plans)?;
             node_path.pop();
         }
 
         let base = facet_band.base();
         let node_id = CoordinationNodeKey::new(node_path.clone());
-        let requirements = base.derive_retarget_requirements(node_id.clone());
-        let actions = S::build_retarget_actions(facet_band, &requirements, eval_ctx);
+        let requirements = base.derive_retarget_requirements(node_id.clone())?;
+        let actions =
+            FacetCoordinationPolicy::build_retarget_actions(facet_band, &requirements, eval_ctx);
         node_plans.push(RetargetNodePlan {
             node_id,
             requirements,
             actions,
         });
     }
+    Ok(())
 }
 
-#[cfg(test)]
-pub(crate) fn build_retarget_plan(
-    measurement: &ComponentsMeasurement,
-    eval_ctx: &EvaluationContext,
-) -> RetargetPlan {
-    build_retarget_plan_with_strategy::<FacetPolicyCoordinationStrategy>(measurement, eval_ctx)
-}
-
-pub(crate) fn run_retarget_with_trace_with_strategy<'a, S>(
+pub(crate) fn run_retarget_with_trace<'a>(
     measurement: &'a mut ComponentsMeasurement,
     eval_ctx: &'a EvaluationContext,
     plan: &'a RetargetPlan,
-) -> Pin<Box<dyn Future<Output = Result<RetargetTrace, AvengerChartError>> + Send + 'a>>
-where
-    S: FacetSizingCoordinationStrategy + Send + Sync + 'static,
-{
+) -> Pin<Box<dyn Future<Output = Result<RetargetTrace, AvengerChartError>> + Send + 'a>> {
     Box::pin(async move {
         let plan_by_node: HashMap<CoordinationNodeKey, RetargetNodePlan> = plan
             .node_plans
@@ -312,7 +232,7 @@ where
 
         let mut node_results = Vec::new();
         let mut node_path = Vec::new();
-        run_retarget_recursive::<S>(
+        run_retarget_recursive(
             measurement,
             eval_ctx,
             &plan_by_node,
@@ -324,18 +244,15 @@ where
     })
 }
 
-fn run_retarget_recursive<'a, S>(
+fn run_retarget_recursive<'a>(
     measurement: &'a mut ComponentsMeasurement,
     eval_ctx: &'a EvaluationContext,
     plan_by_node: &'a HashMap<CoordinationNodeKey, RetargetNodePlan>,
     node_path: &'a mut Vec<usize>,
     node_results: &'a mut Vec<RetargetNodeTrace>,
-) -> Pin<Box<dyn Future<Output = Result<(), AvengerChartError>> + Send + 'a>>
-where
-    S: FacetSizingCoordinationStrategy + Send + Sync + 'static,
-{
+) -> Pin<Box<dyn Future<Output = Result<(), AvengerChartError>> + Send + 'a>> {
     Box::pin(async move {
-        if let Some(mut facet_band) = S::facet_band_mut(measurement) {
+        if let Some(mut facet_band) = FacetCoordinationPolicy::facet_band_mut(measurement) {
             let node_id = CoordinationNodeKey::new(node_path.clone());
             let planned = plan_by_node.get(&node_id).ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
@@ -347,7 +264,7 @@ where
                 .base_mut()
                 .apply_retarget_actions(eval_ctx, &planned.actions)
                 .await?;
-            S::refresh_placement_after_retarget_node(&mut facet_band);
+            FacetCoordinationPolicy::refresh_placement_after_retarget_node(&mut facet_band);
 
             let parent_cross_size = facet_band.base().coordinated_subplot_cross_size();
             let parent_axis = facet_band.base().axis;
@@ -359,12 +276,16 @@ where
                 .enumerate()
             {
                 if let Some(cross_size) = parent_cross_size
-                    && S::set_child_parent_bandwidth_if_same_axis(child, parent_axis, cross_size)
+                    && FacetCoordinationPolicy::set_child_parent_bandwidth_if_same_axis(
+                        child,
+                        parent_axis,
+                        cross_size,
+                    )
                 {
                     parent_cross_size_propagated = true;
                 }
                 node_path.push(idx);
-                run_retarget_recursive::<S>(child, eval_ctx, plan_by_node, node_path, node_results)
+                run_retarget_recursive(child, eval_ctx, plan_by_node, node_path, node_results)
                     .await?;
                 node_path.pop();
             }
@@ -395,64 +316,38 @@ where
 }
 
 #[cfg(test)]
-pub(crate) fn run_retarget_with_trace<'a>(
-    measurement: &'a mut ComponentsMeasurement,
-    eval_ctx: &'a EvaluationContext,
-    plan: &'a RetargetPlan,
-) -> Pin<Box<dyn Future<Output = Result<RetargetTrace, AvengerChartError>> + Send + 'a>> {
-    run_retarget_with_trace_with_strategy::<FacetPolicyCoordinationStrategy>(
-        measurement,
-        eval_ctx,
-        plan,
-    )
-}
-
-#[cfg(test)]
-pub(crate) fn build_final_propagation_plan_with_strategy<S>(
+pub(crate) fn build_final_propagation_plan(
     measurement: &ComponentsMeasurement,
-) -> FinalPropagationPlan
-where
-    S: FacetSizingCoordinationStrategy,
-{
-    build_final_propagation_plan_with_strategy_for_eval::<S>(measurement, None)
+) -> FinalPropagationPlan {
+    build_final_propagation_plan_for_eval(measurement, None)
 }
 
-pub(crate) fn build_final_propagation_plan_with_strategy_for_eval<S>(
+pub(crate) fn build_final_propagation_plan_for_eval(
     measurement: &ComponentsMeasurement,
     eval_ctx: Option<&EvaluationContext>,
-) -> FinalPropagationPlan
-where
-    S: FacetSizingCoordinationStrategy,
-{
+) -> FinalPropagationPlan {
     let mut node_plans = Vec::new();
     let mut node_path = Vec::new();
-    build_final_propagation_plan_recursive::<S>(
-        measurement,
-        eval_ctx,
-        &mut node_path,
-        &mut node_plans,
-    );
+    build_final_propagation_plan_recursive(measurement, eval_ctx, &mut node_path, &mut node_plans);
     FinalPropagationPlan { node_plans }
 }
 
-fn build_final_propagation_plan_recursive<S>(
+fn build_final_propagation_plan_recursive(
     measurement: &ComponentsMeasurement,
     eval_ctx: Option<&EvaluationContext>,
     node_path: &mut Vec<usize>,
     node_plans: &mut Vec<FinalPropagationNodePlan>,
-) where
-    S: FacetSizingCoordinationStrategy,
-{
-    if let Some(facet_band) = S::facet_band_ref(measurement) {
+) {
+    if let Some(facet_band) = FacetCoordinationPolicy::facet_band_ref(measurement) {
         for (idx, child) in facet_band.base().child_measurements_iter().enumerate() {
             node_path.push(idx);
-            build_final_propagation_plan_recursive::<S>(child, eval_ctx, node_path, node_plans);
+            build_final_propagation_plan_recursive(child, eval_ctx, node_path, node_plans);
             node_path.pop();
         }
 
         let base = facet_band.base();
         let parent_cross_size_target = base.coordinated_subplot_cross_size();
-        let child_plans = build_final_propagation_child_plans_with_strategy::<S, _>(
+        let child_plans = build_final_propagation_child_plans(
             base.axis,
             parent_cross_size_target,
             base.child_measurements_iter(),
@@ -474,44 +369,39 @@ fn build_final_propagation_plan_recursive<S>(
     }
 }
 
-fn build_final_propagation_child_plans_with_strategy<'a, S, I>(
+fn build_final_propagation_child_plans<'a, I>(
     axis: FacetAxis,
     parent_cross_size_target: Option<f32>,
     child_measurements: I,
     eval_ctx: Option<&EvaluationContext>,
 ) -> Vec<FinalPropagationChildPlan>
 where
-    S: FacetSizingCoordinationStrategy,
     I: Iterator<Item = &'a ComponentsMeasurement>,
 {
     child_measurements
         .enumerate()
         .map(|(idx, child)| {
-            build_final_propagation_child_plan_with_strategy::<S>(
-                idx,
-                axis,
-                parent_cross_size_target,
-                child,
-                eval_ctx,
-            )
+            build_final_propagation_child_plan(idx, axis, parent_cross_size_target, child, eval_ctx)
         })
         .collect()
 }
 
-fn build_final_propagation_child_plan_with_strategy<S>(
+fn build_final_propagation_child_plan(
     child_index: usize,
     axis: FacetAxis,
     parent_cross_size_target: Option<f32>,
     child: &ComponentsMeasurement,
     eval_ctx: Option<&EvaluationContext>,
-) -> FinalPropagationChildPlan
-where
-    S: FacetSizingCoordinationStrategy,
-{
+) -> FinalPropagationChildPlan {
     let policy = if let Some(eval_ctx) = eval_ctx {
-        S::final_child_resize_policy_for_eval(axis, parent_cross_size_target, child, eval_ctx)
+        FacetCoordinationPolicy::final_child_resize_policy_for_eval(
+            axis,
+            parent_cross_size_target,
+            child,
+            eval_ctx,
+        )
     } else {
-        S::final_child_resize_policy(axis, parent_cross_size_target, child)
+        FacetCoordinationPolicy::final_child_resize_policy(axis, parent_cross_size_target, child)
     };
     let (target_plot_area_width, target_plot_area_height) = match (axis, parent_cross_size_target) {
         (FacetAxis::Column, Some(target_width))
@@ -547,21 +437,11 @@ where
     }
 }
 
-#[cfg(test)]
-pub(crate) fn build_final_propagation_plan(
-    measurement: &ComponentsMeasurement,
-) -> FinalPropagationPlan {
-    build_final_propagation_plan_with_strategy::<FacetPolicyCoordinationStrategy>(measurement)
-}
-
-pub(crate) fn run_final_propagation_with_trace_with_strategy<S>(
+pub(crate) fn run_final_propagation_with_trace(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
     plan: &FinalPropagationPlan,
-) -> Result<FinalPropagationTrace, AvengerChartError>
-where
-    S: FacetSizingCoordinationStrategy,
-{
+) -> Result<FinalPropagationTrace, AvengerChartError> {
     let plan_by_node: HashMap<CoordinationNodeKey, FinalPropagationNodePlan> = plan
         .node_plans
         .iter()
@@ -571,7 +451,7 @@ where
 
     let mut node_results = Vec::new();
     let mut node_path = Vec::new();
-    run_final_propagation_recursive::<S>(
+    run_final_propagation_recursive(
         measurement,
         eval_ctx,
         &plan_by_node,
@@ -581,21 +461,18 @@ where
     Ok(FinalPropagationTrace { node_results })
 }
 
-fn run_final_propagation_recursive<S>(
+fn run_final_propagation_recursive(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
     plan_by_node: &HashMap<CoordinationNodeKey, FinalPropagationNodePlan>,
     node_path: &mut Vec<usize>,
     node_results: &mut Vec<FinalPropagationNodeTrace>,
-) -> Result<(), AvengerChartError>
-where
-    S: FacetSizingCoordinationStrategy,
-{
+) -> Result<(), AvengerChartError> {
     measurement
         .coord_measurement
         .apply_scale_adjustments(&mut measurement.scales);
 
-    if let Some(mut facet_band) = S::facet_band_mut(measurement) {
+    if let Some(mut facet_band) = FacetCoordinationPolicy::facet_band_mut(measurement) {
         let node_id = CoordinationNodeKey::new(node_path.clone());
         let axis = facet_band.base().axis;
         let planned = plan_by_node.get(&node_id).ok_or_else(|| {
@@ -627,7 +504,7 @@ where
 
             let (plot_area_adjusted, retarget_count) = {
                 let child = &mut cell.measurement;
-                S::apply_final_propagation_child_update(
+                FacetCoordinationPolicy::apply_final_propagation_child_update(
                     axis,
                     child,
                     Some(&cell.plan),
@@ -641,7 +518,7 @@ where
             }
             scale_range_retarget_count += retarget_count;
             node_path.push(idx);
-            run_final_propagation_recursive::<S>(
+            run_final_propagation_recursive(
                 &mut cell.measurement,
                 eval_ctx,
                 plan_by_node,
@@ -654,7 +531,7 @@ where
         facet_band
             .base_mut()
             .realize_coordinated_child_frame_allocations();
-        S::refresh_placement_after_final_propagation_node(&mut facet_band);
+        FacetCoordinationPolicy::refresh_placement_after_final_propagation_node(&mut facet_band);
 
         node_results.push(FinalPropagationNodeTrace {
             node_id,
@@ -669,17 +546,4 @@ where
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-pub(crate) fn run_final_propagation_with_trace(
-    measurement: &mut ComponentsMeasurement,
-    eval_ctx: &EvaluationContext,
-    plan: &FinalPropagationPlan,
-) -> Result<FinalPropagationTrace, AvengerChartError> {
-    run_final_propagation_with_trace_with_strategy::<FacetPolicyCoordinationStrategy>(
-        measurement,
-        eval_ctx,
-        plan,
-    )
 }

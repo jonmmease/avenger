@@ -315,7 +315,7 @@ The following examples show the same data with different facet variable scale sh
 
 This example is chosen because setosa ONLY appears in "narrow" (petal_width ≤ 0.8), while versicolor and virginica appear in "medium" and "wide". This makes the difference between free and shared clearly visible.
 
-#### Without `.share_scale()` (Free - Default)
+#### Without `.share_slots()` (Free - Default)
 
 With free facet scaling, each column computes its own domain from its filtered data. Since "medium" and "wide" have no setosa data, they don't show the setosa row:
 
@@ -353,7 +353,7 @@ let plot = Plot::<FacetColumn>::new()
             .subplot(
                 Plot::<FacetRow>::new().mark(
                     Facet::new()
-                        // No share_scale() - uses FREE (default)
+                        // No share_slots() - uses FREE (default)
                         .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
                         .subplot(
                             Plot::<Cartesian>::new().mark(
@@ -379,7 +379,7 @@ Notice that:
 - Each column has a different number of rows based on what species are present
 - Species labels repeat in each column (since arrangement varies)
 
-#### With `.share_scale()` (Shared - Grid-Like)
+#### With `.share_slots()` (Shared - Grid-Like)
 
 With shared facet scaling, all columns show all species from the full dataset, creating a consistent 3x3 grid:
 
@@ -414,8 +414,8 @@ let plot = Plot::<FacetColumn>::new()
             .subplot(
                 Plot::<FacetRow>::new().mark(
                     Facet::new()
-                        // KEY: share_scale() creates grid-like structure
-                        .row_with(col("species"), |c| c.facet(|f| f.title("Species").share_scale()))
+                        // KEY: share_slots() creates grid-like structure
+                        .row_with(col("species"), |c| c.facet(|f| f.title("Species").share_slots()))
                         .subplot(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
@@ -445,10 +445,10 @@ Notice that:
 
 | Use Case | Recommendation |
 |----------|----------------|
-| Grid-like layout with consistent structure | Use `.share_scale()` |
-| Comparing across outer facets (e.g., same row position = same category) | Use `.share_scale()` |
-| Variable inner categories per outer facet | Use `.free_scale()` (default) |
-| Compact layout when categories don't overlap | Use `.free_scale()` (default) |
+| Grid-like layout with consistent structure | Use `.share_slots()` |
+| Comparing across outer facets (e.g., same row position = same category) | Use `.share_slots()` |
+| Variable inner categories per outer facet | Use `.free_slots()` (default) |
+| Compact layout when categories don't overlap | Use `.free_slots()` (default) |
 
 **Note**: Facet variable scale sharing is primarily useful for nested facets. For single-level faceting, all cells always show the same categories based on the faceting column.
 
@@ -543,17 +543,17 @@ impl FacetOptions {
     /// Set a title for the facet dimension
     pub fn title(self, title: impl Into<String>) -> Self
 
-    /// Configure scale sharing for the facet variable domain
+    /// Configure slot sharing for the facet variable domain
     /// Controls whether nested facets share the same categories
-    pub fn with_scale_sharing(self, mode: ScaleSharing) -> Self
+    pub fn with_slot_sharing(self, mode: ScaleSharing) -> Self
 
-    /// Convenience method: Set scale sharing to Shared
+    /// Convenience method: Set slot sharing to Shared
     /// All nested cells will show the same categories (grid-like)
-    pub fn share_scale(self) -> Self
+    pub fn share_slots(self) -> Self
 
-    /// Convenience method: Set scale sharing to Free (default)
+    /// Convenience method: Set slot sharing to Free (default)
     /// Each outer cell computes its own category domain
-    pub fn free_scale(self) -> Self
+    pub fn free_slots(self) -> Self
 }
 ```
 

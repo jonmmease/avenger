@@ -13,6 +13,9 @@ fn main() -> io::Result<()> {
     let mut docs = Vec::new();
     let mut render_blocks = Vec::new();
     collect_markdown(&book_src, &book_src, &mut docs, &mut render_blocks)?;
+    for (_, full_path) in &docs {
+        println!("cargo:rerun-if-changed={}", full_path.display());
+    }
 
     docs.sort_by(|a, b| a.0.cmp(&b.0));
 

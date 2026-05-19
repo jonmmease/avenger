@@ -2,8 +2,8 @@
 //!
 //! A frame solver owns chart chrome around one content rectangle. A content
 //! solver owns what happens inside that rectangle. A regular chart is the
-//! degenerate single-plot content case. A facet band is the multi-child content
-//! case that produces child frame allocations.
+//! degenerate single-plot content case. Child-frame content is the multi-child
+//! content case that produces child frame allocations.
 
 use crate::{
     error::AvengerChartError,
@@ -46,13 +46,6 @@ impl ContentDemand {
     }
 }
 
-/// Mode-neutral content coordination plan.
-#[derive(Clone, Debug, PartialEq)]
-pub enum ContentCoordinationPlan {
-    SinglePlot(SinglePlotContentPlan),
-    FacetBand(FacetBandContentPlan),
-}
-
 /// Realized content layout inside a frame.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ContentLayout {
@@ -75,7 +68,7 @@ impl ContentLayout {
     }
 }
 
-/// Content solver interface shared by single-plot and facet-band content.
+/// Content solver interface shared by single-plot and child-frame content.
 pub trait ContentLayoutSolver {
     type Measurement;
     type Plan;
@@ -151,22 +144,22 @@ impl ContentLayoutSolver for SinglePlotContentSolver {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct FacetBandContentMeasurement {
+pub struct ChildFrameContentMeasurement {
     pub frame_demand: FrameDemand,
     pub child_frame_allocations: Vec<FrameAllocation>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct FacetBandContentPlan {
+pub struct ChildFrameContentPlan {
     pub child_frame_allocations: Vec<FrameAllocation>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct FacetBandContentSolver;
+pub struct ChildFrameContentSolver;
 
-impl ContentLayoutSolver for FacetBandContentSolver {
-    type Measurement = FacetBandContentMeasurement;
-    type Plan = FacetBandContentPlan;
+impl ContentLayoutSolver for ChildFrameContentSolver {
+    type Measurement = ChildFrameContentMeasurement;
+    type Plan = ChildFrameContentPlan;
 
     fn measure_content_demand(
         &self,
@@ -184,7 +177,7 @@ impl ContentLayoutSolver for FacetBandContentSolver {
         _allocation: &ContentAllocation,
         demand: &ContentDemand,
     ) -> Result<Self::Plan, AvengerChartError> {
-        Ok(FacetBandContentPlan {
+        Ok(ChildFrameContentPlan {
             child_frame_allocations: demand.child_frame_allocations.clone(),
         })
     }
@@ -200,18 +193,6 @@ impl ContentLayoutSolver for FacetBandContentSolver {
             demand.frame_demand,
             plan.child_frame_allocations,
         ))
-    }
-}
-
-impl From<SinglePlotContentPlan> for ContentCoordinationPlan {
-    fn from(value: SinglePlotContentPlan) -> Self {
-        Self::SinglePlot(value)
-    }
-}
-
-impl From<FacetBandContentPlan> for ContentCoordinationPlan {
-    fn from(value: FacetBandContentPlan) -> Self {
-        Self::FacetBand(value)
     }
 }
 
@@ -268,8 +249,8 @@ mod tests {
     }
 
     #[test]
-    fn facet_band_content_solver_preserves_child_allocations() {
-        let solver = FacetBandContentSolver;
+    fn child_frame_content_solver_preserves_child_allocations() {
+        let solver = ChildFrameContentSolver;
         let allocation = allocation(EdgeSlabs::default());
         let child_allocation = FrameAllocation {
             rect: LayoutBounds {
@@ -284,7 +265,7 @@ mod tests {
         let demand = solver
             .measure_content_demand(
                 &allocation,
-                &FacetBandContentMeasurement {
+                &ChildFrameContentMeasurement {
                     frame_demand: FrameDemand::default(),
                     child_frame_allocations: vec![child_allocation],
                 },
