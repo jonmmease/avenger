@@ -5,6 +5,7 @@
 //! facet, concat, coordinate-positioned container, or another composition.
 
 use crate::{
+    concat::concat_coord_ref,
     error::AvengerChartError,
     facet::{coord::facet_band_ref, placement::resolve_facet_child_frame_placement},
     layout::{ChildFramePlacementResult, FrameAllocation},
@@ -63,10 +64,28 @@ impl ComponentsMeasurement {
     pub(crate) fn child_frame_container_view(
         &self,
     ) -> Result<Option<ChildFrameContainerView<'_>>, AvengerChartError> {
+        if let Some(concat) = concat_coord_ref(self.coord_measurement.as_ref()) {
+            let placement = concat.child_frame_placement();
+            let child_debug_labels = concat
+                .children()
+                .iter()
+                .map(|child| child.debug_label())
+                .collect::<Vec<_>>();
+            let children = concat
+                .children()
+                .iter()
+                .map(|child| ChildFrameChildView {
+                    child_index: child.child_index,
+                    measurement: &child.measurement,
+                })
+                .collect::<Vec<_>>();
+            validate_container_placements(&placement, &children, Some(&child_debug_labels))?;
+            return Ok(Some(ChildFrameContainerView::new(children, placement)));
+        }
+
         let Some(facet_band) = facet_band_ref(self.coord_measurement.as_ref()) else {
             return Ok(None);
         };
-
         let placement = resolve_facet_child_frame_placement(self, facet_band)?;
         if placement.render_placements().len() != facet_band.cells.len() {
             return Err(AvengerChartError::InternalError(format!(
@@ -94,8 +113,37 @@ impl ComponentsMeasurement {
                 child_index,
                 measurement: &cell.measurement,
             })
-            .collect();
+            .collect::<Vec<_>>();
 
+        validate_container_placements(&placement, &children, None)?;
         Ok(Some(ChildFrameContainerView::new(children, placement)))
     }
+}
+
+fn validate_container_placements(
+    placement: &ChildFramePlacementResult,
+    children: &[ChildFrameChildView<'_>],
+    child_debug_labels: Option<&[String]>,
+) -> Result<(), AvengerChartError> {
+    for render_placement in placement.render_placements() {
+        if !children
+            .iter()
+            .any(|child| child.child_index == render_placement.child_index)
+        {
+            let available = child_debug_labels
+                .map(|labels| labels.join(", "))
+                .unwrap_or_else(|| {
+                    children
+                        .iter()
+                        .map(|child| child.child_index.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                });
+            return Err(AvengerChartError::InternalError(format!(
+                "Child-frame container placement index {} did not resolve to a child measurement; available children: {}",
+                render_placement.child_index, available
+            )));
+        }
+    }
+    Ok(())
 }

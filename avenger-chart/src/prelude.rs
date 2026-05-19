@@ -21,6 +21,7 @@
 // Re-export coordinate systems
 pub use crate::cartesian::Cartesian;
 pub use crate::channel::config_traits::ScaleSharing;
+pub use crate::concat::{HConcat, VConcat};
 pub use crate::facet::coord::{FacetColumn, FacetRow};
 pub use crate::facet::empty_cell_policy::FacetEmptyCellPolicy;
 pub use crate::facet::marks::facet::Facet;
@@ -37,6 +38,7 @@ pub use crate::theme::Theme;
 // Re-export marks
 pub use crate::marks::line::Line;
 pub use crate::marks::rect::Rect;
+pub use crate::marks::subplot::Subplot;
 pub use crate::marks::symbol::Symbol;
 
 // Re-export mark traits and types
