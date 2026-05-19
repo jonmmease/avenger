@@ -139,6 +139,17 @@ pub(crate) fn apply_initial_requirement_pass_with_strategy<S>(
                     .set_coordinated_boundary_overflow_value(boundary_overflow);
                 patch_applied = true;
             }
+            if let Some(guide_anchor_overflow) = initial_requirement_pass
+                .distribution
+                .guide_anchor_overflow_patches_by_node
+                .get(node_id)
+                .cloned()
+            {
+                facet_band
+                    .base_mut()
+                    .set_coordinated_guide_anchor_overflow_value(guide_anchor_overflow);
+                patch_applied = true;
+            }
             if let Some(layout) = initial_requirement_pass
                 .distribution
                 .layout_patches_by_node
@@ -197,6 +208,17 @@ pub(crate) fn apply_retargeted_requirement_pass_with_strategy<S>(
                 facet_band
                     .base_mut()
                     .set_coordinated_boundary_overflow_value(boundary_overflow);
+                patch_applied = true;
+            }
+            if let Some(guide_anchor_overflow) = retargeted_requirement_pass
+                .distribution
+                .guide_anchor_overflow_patches_by_node
+                .get(node_id)
+                .cloned()
+            {
+                facet_band
+                    .base_mut()
+                    .set_coordinated_guide_anchor_overflow_value(guide_anchor_overflow);
                 patch_applied = true;
             }
             if let Some(layout) = retargeted_requirement_pass

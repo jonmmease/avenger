@@ -246,10 +246,16 @@ pub struct FacetBandCoordMeasurement {
     /// Coordinated sibling-boundary/allocation overflow with true chart-edge
     /// slabs removed.
     ///
-    /// Guide anchors still use `coordinated_overflow`; explicit sibling gaps
-    /// and parent-projected child frame allocations use this boundary contract
-    /// so globally outer axes/titles do not become interior spacing.
+    /// Explicit sibling gaps and parent-projected child frame allocations use
+    /// this boundary contract so globally outer axes/titles do not become
+    /// interior spacing.
     pub(crate) coordinated_boundary_overflow: Option<CoordinatedOverflow>,
+    /// Coordinated facet guide anchor overflow for this visual lane.
+    ///
+    /// Unlike `coordinated_overflow`, this is scoped by the orthogonal lane so
+    /// guides align within a row/column lane without borrowing hidden axis
+    /// chrome from unrelated lanes.
+    pub(crate) coordinated_guide_anchor_overflow: Option<CoordinatedOverflow>,
     /// Overflow measured from this facet band's rendered children before coordination.
     ///
     /// This is the stable "what this subtree actually renders" value. It must
@@ -525,6 +531,7 @@ impl FacetBandCoordMeasurement {
 
     pub fn set_coordinated_overflow_value(&mut self, overflow: CoordinatedOverflow) {
         self.coordinated_overflow = overflow;
+        self.coordinated_guide_anchor_overflow = None;
         self.allocation_ownership = self
             .allocation_ownership
             .without_realized_owned_legend_slabs();
@@ -532,6 +539,10 @@ impl FacetBandCoordMeasurement {
 
     pub(crate) fn coordinated_boundary_overflow_value(&self) -> Option<&CoordinatedOverflow> {
         self.coordinated_boundary_overflow.as_ref()
+    }
+
+    pub(crate) fn coordinated_guide_anchor_overflow_value(&self) -> Option<&CoordinatedOverflow> {
+        self.coordinated_guide_anchor_overflow.as_ref()
     }
 
     pub(crate) fn active_boundary_overflow(&self) -> &CoordinatedOverflow {
@@ -545,6 +556,10 @@ impl FacetBandCoordMeasurement {
         self.allocation_ownership = self
             .allocation_ownership
             .without_realized_owned_legend_slabs();
+    }
+
+    pub fn set_coordinated_guide_anchor_overflow_value(&mut self, overflow: CoordinatedOverflow) {
+        self.coordinated_guide_anchor_overflow = Some(overflow);
     }
 
     pub fn set_coordinated_layout_value(&mut self, layout: CoordinatedLayout) {
@@ -1842,6 +1857,7 @@ fn empty_facet_band_measurement(
         shared_scale_builder: ScaleBuilder::default(),
         coordinated_overflow: CoordinatedOverflow::default(),
         coordinated_boundary_overflow: None,
+        coordinated_guide_anchor_overflow: None,
         measured_overflow: None,
         compiled_subplot: compiled_subplot.clone(),
         subplot_cross_size: 0.0,
@@ -3932,6 +3948,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 .clone(),
             coordinated_overflow: CoordinatedOverflow::default(),
             coordinated_boundary_overflow: None,
+            coordinated_guide_anchor_overflow: None,
             measured_overflow,
             compiled_subplot: prepared_runtime.compiled_subplot.clone(),
             subplot_cross_size: final_subplot_cross_size,

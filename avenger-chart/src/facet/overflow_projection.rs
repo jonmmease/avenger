@@ -18,6 +18,9 @@
 //! The projections here name narrower questions where a phase intentionally
 //! hides part of the full rendered envelope:
 //! - `GuideAnchor` keeps the boundary slabs used to anchor facet guides.
+//!   Coordinated guide anchors are scoped to visual lanes by the coordination
+//!   pass so guides align within a lane without borrowing unrelated sibling
+//!   axis chrome.
 //! - `SiblingBoundary` keeps only the rendered boundary slabs that can affect
 //!   adjacent facet-cell spacing.
 //!
@@ -51,7 +54,7 @@ pub(crate) enum FacetOverflowSource {
     MeasuredLocal,
     /// Current local frame envelope after final guide placement has been rebuilt.
     RealizedLocal,
-    /// Global coordination contract for aligned guide anchors and sibling gaps.
+    /// Purpose-specific coordination contract for aligned guide anchors and sibling gaps.
     Coordinated,
 }
 
@@ -393,9 +396,7 @@ fn resolve_facet_overflow_from_source(
             resolved_rendered_subtree_overflow(measurement, source)
         }
         FacetOverflowPurpose::GuideAnchor { axis } => {
-            resolve_projected_facet_overflow(measurement, source, axis, |axis| {
-                FacetOverflowProjection::GuideAnchor { axis }
-            })
+            resolve_guide_anchor_overflow(measurement, source, axis)
         }
         FacetOverflowPurpose::SiblingBoundary { axis } => {
             resolve_sibling_boundary_overflow(measurement, source, axis)
@@ -424,6 +425,24 @@ fn resolve_projected_facet_overflow(
             .coordinated_overflow()
             .map(|overflow| project_facet_overflow(overflow, projection(fallback_axis))),
     }
+}
+
+fn resolve_guide_anchor_overflow(
+    measurement: &dyn CoordMeasurement,
+    source: FacetOverflowSource,
+    fallback_axis: FacetAxis,
+) -> Option<CoordinatedOverflow> {
+    if matches!(source, FacetOverflowSource::Coordinated)
+        && let Some(facet_measurement) = facet_band_from_coord(measurement)
+        && let Some(guide_anchor_overflow) =
+            facet_measurement.coordinated_guide_anchor_overflow_value()
+    {
+        return Some(guide_anchor_overflow.clone());
+    }
+
+    resolve_projected_facet_overflow(measurement, source, fallback_axis, |axis| {
+        FacetOverflowProjection::GuideAnchor { axis }
+    })
 }
 
 fn resolve_sibling_boundary_overflow(
