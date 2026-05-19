@@ -1,12 +1,46 @@
 //! Child-frame placement utilities shared by container-style content.
 
-use crate::layout::LayoutBounds;
+use crate::layout::{LayoutBounds, Size2D};
 
 /// Render-space placement for one child frame relative to its parent content rectangle.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ChildFrameRenderPlacement {
     pub(crate) child_index: usize,
     pub(crate) origin: [f32; 2],
+}
+
+/// Placement result for child frames inside one parent content rectangle.
+///
+/// The result is intentionally independent of how placement was computed. A
+/// facet band, concat container, coordinate-positioned container, or absolute
+/// layout can all produce the same child-frame handoff for rendering and debug
+/// projection.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ChildFramePlacementResult {
+    pub(crate) content_size: Size2D,
+    pub(crate) render_placements: Vec<ChildFrameRenderPlacement>,
+}
+
+impl ChildFramePlacementResult {
+    pub(crate) fn new(
+        content_size: Size2D,
+        render_placements: Vec<ChildFrameRenderPlacement>,
+    ) -> Self {
+        Self {
+            content_size,
+            render_placements,
+        }
+    }
+
+    pub(crate) fn render_placements(&self) -> &[ChildFrameRenderPlacement] {
+        &self.render_placements
+    }
+
+    pub(crate) fn child(&self, child_index: usize) -> Option<&ChildFrameRenderPlacement> {
+        self.render_placements
+            .iter()
+            .find(|placement| placement.child_index == child_index)
+    }
 }
 
 /// Project a child-local component bound into the parent frame's coordinate space.
@@ -56,5 +90,27 @@ mod tests {
                 height: 20.0
             }
         );
+    }
+
+    #[test]
+    fn child_frame_placement_result_finds_child_by_index() {
+        let result = ChildFramePlacementResult::new(
+            Size2D::new(200.0, 120.0),
+            vec![
+                ChildFrameRenderPlacement {
+                    child_index: 3,
+                    origin: [10.0, 20.0],
+                },
+                ChildFrameRenderPlacement {
+                    child_index: 1,
+                    origin: [30.0, 40.0],
+                },
+            ],
+        );
+
+        assert_eq!(result.render_placements().len(), 2);
+        assert_eq!(result.child(1).unwrap().origin, [30.0, 40.0]);
+        assert!(result.child(2).is_none());
+        assert_eq!(result.content_size, Size2D::new(200.0, 120.0));
     }
 }

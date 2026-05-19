@@ -19,7 +19,7 @@ use crate::{
         overflow_projection::{FacetOverflowSlabs, rendered_boundary_demand_for_measurement},
         padding_policy,
     },
-    layout::ChildFrameRenderPlacement,
+    layout::{ChildFramePlacementResult, ChildFrameRenderPlacement, Size2D},
     plot::compiled::ComponentsMeasurement,
     scales::ConfiguredScaleWithSpec,
 };
@@ -263,9 +263,7 @@ pub(crate) fn resolve_facet_band_placement(
     )
 }
 
-pub(crate) fn facet_cell_main_axis_start_offset(
-    facet_band: &FacetBandCoordMeasurement,
-) -> (f32, f32) {
+fn facet_cell_main_axis_start_offset(facet_band: &FacetBandCoordMeasurement) -> (f32, f32) {
     let slabs = FacetOverflowSlabs::from_coordinated(&facet_band.coordinated_overflow);
     match facet_band.axis {
         FacetAxis::Column => (0.0, slabs.legend.top),
@@ -273,44 +271,93 @@ pub(crate) fn facet_cell_main_axis_start_offset(
     }
 }
 
-pub(crate) fn facet_cell_render_origin(
-    axis: FacetAxis,
-    main_axis_start: f32,
-    origin_offset_x: f32,
-    origin_offset_y: f32,
-) -> [f32; 2] {
-    match axis {
-        FacetAxis::Column => [main_axis_start + origin_offset_x, origin_offset_y],
-        FacetAxis::Row => [origin_offset_x, main_axis_start + origin_offset_y],
-    }
-}
-
-pub(crate) fn facet_cell_render_placement(
+pub(crate) fn facet_child_frame_placement_from_band(
     facet_band: &FacetBandCoordMeasurement,
-    cell_placement: &FacetCellPlacement,
-) -> ChildFrameRenderPlacement {
+    placement: &FacetBandPlacement,
+    fallback_content_size: Size2D,
+) -> Result<ChildFramePlacementResult, AvengerChartError> {
+    if placement.axis != facet_band.axis {
+        return Err(AvengerChartError::InternalError(format!(
+            "Facet child-frame placement axis mismatch: placement={:?}, measurement={:?}",
+            placement.axis, facet_band.axis
+        )));
+    }
+    if placement.cell_count() != facet_band.cells.len() {
+        return Err(AvengerChartError::InternalError(format!(
+            "Facet child-frame placement count mismatch: placement={}, cells={}",
+            placement.cell_count(),
+            facet_band.cells.len()
+        )));
+    }
+
     let (origin_offset_x, origin_offset_y) = facet_cell_main_axis_start_offset(facet_band);
-    ChildFrameRenderPlacement {
-        child_index: cell_placement.cell_index,
-        origin: facet_cell_render_origin(
-            facet_band.axis,
-            cell_placement.main_axis_start,
-            origin_offset_x,
-            origin_offset_y,
-        ),
-    }
-}
-
-pub(crate) fn resolve_facet_cell_render_placements(
-    measurement: &ComponentsMeasurement,
-    facet_band: &FacetBandCoordMeasurement,
-) -> Result<Vec<ChildFrameRenderPlacement>, AvengerChartError> {
-    let placement = facet_band.resolved_placement_from_scale_specs(&measurement.scales)?;
-    Ok(placement
+    let render_placements = placement
         .cells
         .iter()
-        .map(|cell_placement| facet_cell_render_placement(facet_band, cell_placement))
-        .collect())
+        .enumerate()
+        .map(|(idx, cell_placement)| {
+            if cell_placement.cell_index != idx {
+                return Err(AvengerChartError::InternalError(format!(
+                    "Facet child-frame placement cell index mismatch: expected={idx}, actual={}",
+                    cell_placement.cell_index
+                )));
+            }
+            let origin = match facet_band.axis {
+                FacetAxis::Column => [
+                    cell_placement.main_axis_start + origin_offset_x,
+                    origin_offset_y,
+                ],
+                FacetAxis::Row => [
+                    origin_offset_x,
+                    cell_placement.main_axis_start + origin_offset_y,
+                ],
+            };
+            Ok(ChildFrameRenderPlacement {
+                child_index: cell_placement.cell_index,
+                origin,
+            })
+        })
+        .collect::<Result<Vec<_>, AvengerChartError>>()?;
+
+    let content_size = match placement.axis {
+        FacetAxis::Column => Size2D::new(
+            placement.main_axis_extent,
+            placement
+                .cross_axis_extent
+                .unwrap_or(fallback_content_size.height),
+        ),
+        FacetAxis::Row => Size2D::new(
+            placement
+                .cross_axis_extent
+                .unwrap_or(fallback_content_size.width),
+            placement.main_axis_extent,
+        ),
+    };
+
+    Ok(ChildFramePlacementResult::new(
+        content_size,
+        render_placements,
+    ))
+}
+
+pub(crate) fn resolve_facet_child_frame_placement_from_scale_specs(
+    facet_band: &FacetBandCoordMeasurement,
+    scales: &HashMap<String, ConfiguredScaleWithSpec>,
+    fallback_content_size: Size2D,
+) -> Result<ChildFramePlacementResult, AvengerChartError> {
+    let placement = facet_band.resolved_placement_from_scale_specs(scales)?;
+    facet_child_frame_placement_from_band(facet_band, &placement, fallback_content_size)
+}
+
+pub(crate) fn resolve_facet_child_frame_placement(
+    measurement: &ComponentsMeasurement,
+    facet_band: &FacetBandCoordMeasurement,
+) -> Result<ChildFramePlacementResult, AvengerChartError> {
+    resolve_facet_child_frame_placement_from_scale_specs(
+        facet_band,
+        &measurement.scales,
+        Size2D::new(measurement.plot_area_width, measurement.plot_area_height),
+    )
 }
 
 pub(crate) fn compute_explicit_facet_band_placement(

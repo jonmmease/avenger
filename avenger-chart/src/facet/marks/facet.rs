@@ -11,9 +11,8 @@ use crate::facet::ownership_policy::{
     cell_requires_invalid_path_axis_fallback_hidden, has_holes_from_cells,
     resolve_facet_ownership_policy,
 };
-use crate::facet::placement::{
-    FacetBandPlacement, facet_cell_main_axis_start_offset, facet_cell_render_origin,
-};
+use crate::facet::placement::{FacetBandPlacement, facet_child_frame_placement_from_band};
+use crate::layout::Size2D;
 use crate::marks::{
     ChannelDescriptor, ChannelValue, CompiledMark, CompiledMarkState, Mark, MarkState,
 };
@@ -51,25 +50,12 @@ impl FacetBandRenderOps {
         }
     }
 
-    fn subplot_origin(self, position: f32, origin_offset_x: f32, origin_offset_y: f32) -> [f32; 2] {
-        facet_cell_render_origin(self.axis, position, origin_offset_x, origin_offset_y)
-    }
-
     fn group_name(self, idx: usize, is_empty: bool) -> String {
         if is_empty {
             format!("{}{idx}_empty", self.group_prefix)
         } else {
             format!("{}{idx}", self.group_prefix)
         }
-    }
-
-    fn trace_main_axis_start_offset(self, origin_offset_x: f32, origin_offset_y: f32) {
-        trace!(
-            legend_start_left = origin_offset_x,
-            legend_start_top = origin_offset_y,
-            "{} render main-axis start slab offset",
-            self.label
-        );
     }
 
     fn trace_position(self, idx: usize, subplot_origin: [f32; 2], position: f32, band_size: f32) {
@@ -119,20 +105,6 @@ async fn render_facet_band_with_placement(
         return Ok(Vec::new());
     }
 
-    if placement.axis != facet_measurement.axis {
-        return Err(AvengerChartError::InternalError(format!(
-            "Facet render placement axis mismatch: placement={:?}, measurement={:?}",
-            placement.axis, facet_measurement.axis
-        )));
-    }
-    if placement.cell_count() != facet_measurement.cells.len() {
-        return Err(AvengerChartError::InternalError(format!(
-            "Facet render placement count mismatch: placement={}, cells={}",
-            placement.cell_count(),
-            facet_measurement.cells.len()
-        )));
-    }
-
     let ownership_policy = resolve_facet_ownership_policy(
         facet_empty_cell_policy,
         has_holes_from_cells(
@@ -148,12 +120,17 @@ async fn render_facet_band_with_placement(
         ownership_policy.axis_owner_ignore_empty_cells,
     );
 
-    let (origin_offset_x, origin_offset_y) = facet_cell_main_axis_start_offset(facet_measurement);
-    ops.trace_main_axis_start_offset(origin_offset_x, origin_offset_y);
+    let child_frame_placement = facet_child_frame_placement_from_band(
+        facet_measurement,
+        &placement,
+        Size2D::new(context.plot_width(), context.plot_height()),
+    )?;
     trace!(
         axis = ?placement.axis,
         main_axis_extent = placement.main_axis_extent,
         cross_axis_extent = ?placement.cross_axis_extent,
+        child_content_width = child_frame_placement.content_size.width,
+        child_content_height = child_frame_placement.content_size.height,
         cell_count = placement.cell_count(),
         "{} render placement resolved",
         ops.label
@@ -166,14 +143,13 @@ async fn render_facet_band_with_placement(
                 "Missing facet render placement for cell index {idx}"
             ))
         })?;
-        if cell_placement.cell_index != idx {
-            return Err(AvengerChartError::InternalError(format!(
-                "Facet render placement cell index mismatch: expected={idx}, actual={}",
-                cell_placement.cell_index
-            )));
-        }
+        let child_render_placement = child_frame_placement.child(idx).ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "Missing facet child-frame placement for cell index {idx}"
+            ))
+        })?;
         let position = cell_placement.main_axis_start;
-        let subplot_origin = ops.subplot_origin(position, origin_offset_x, origin_offset_y);
+        let subplot_origin = child_render_placement.origin;
         let is_empty_cell = cell.plan.is_empty;
         let band_size = cell_placement.main_axis_size;
 
@@ -844,24 +820,6 @@ impl CompiledMark for CompiledFacetCol {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn facet_band_render_ops_origin_mapping_row_vs_col() {
-        let row_ops = FacetBandRenderOps::row();
-        let col_ops = FacetBandRenderOps::col();
-        let position = 25.0;
-        let origin_offset_x = 10.0;
-        let origin_offset_y = 5.0;
-
-        assert_eq!(
-            row_ops.subplot_origin(position, origin_offset_x, origin_offset_y),
-            [10.0, 30.0]
-        );
-        assert_eq!(
-            col_ops.subplot_origin(position, origin_offset_x, origin_offset_y),
-            [35.0, 5.0]
-        );
-    }
 
     #[test]
     fn facet_band_render_ops_group_name_prefixes_row_vs_col() {

@@ -59,7 +59,7 @@ use crate::{
         overflow_projection::{
             boundary_profiles_for_measurement, compute_padding_from_boundary_profiles,
         },
-        placement::resolve_facet_cell_render_placements,
+        placement::resolve_facet_child_frame_placement,
         subtree_plot_area::{LeafPlotAreaSize, estimate_root_plot_area_from_leaf_size},
     },
     guide::{GuideOverflowPhase, OverflowSpaceRequirement},
@@ -304,11 +304,11 @@ fn projected_facet_child_plot_area_envelope(
     measurement: &ComponentsMeasurement,
     facet_band: &FacetBandCoordMeasurement,
 ) -> Result<Option<LayoutBounds>, AvengerChartError> {
-    let child_render_placements = resolve_facet_cell_render_placements(measurement, facet_band)?;
+    let child_frame_placement = resolve_facet_child_frame_placement(measurement, facet_band)?;
     let parent_content_origin = [layout.plot_area.x, layout.plot_area.y];
     let mut envelope = None;
 
-    for cell_render_placement in &child_render_placements {
+    for cell_render_placement in child_frame_placement.render_placements() {
         let cell = facet_band
             .cells
             .get(cell_render_placement.child_index)
@@ -351,10 +351,10 @@ fn facet_component_debug_side_extents(
         }
     }
 
-    let child_render_placements = resolve_facet_cell_render_placements(measurement, facet_band)?;
+    let child_frame_placement = resolve_facet_child_frame_placement(measurement, facet_band)?;
     let parent_content_origin = [layout.plot_area.x, layout.plot_area.y];
 
-    for cell_render_placement in &child_render_placements {
+    for cell_render_placement in child_frame_placement.render_placements() {
         let cell = facet_band
             .cells
             .get(cell_render_placement.child_index)
@@ -3171,12 +3171,11 @@ impl CompiledPlot {
             return Ok(None);
         };
 
-        let child_render_placements =
-            resolve_facet_cell_render_placements(measurement, facet_band)?;
+        let child_frame_placement = resolve_facet_child_frame_placement(measurement, facet_band)?;
         let parent_content_origin = [content_rect.x, content_rect.y];
 
-        let mut rects = Vec::with_capacity(child_render_placements.len());
-        for child_render_placement in &child_render_placements {
+        let mut rects = Vec::with_capacity(child_frame_placement.render_placements().len());
+        for child_render_placement in child_frame_placement.render_placements() {
             let cell = facet_band
                 .cells
                 .get(child_render_placement.child_index)
@@ -5974,28 +5973,20 @@ mod tests {
         }
 
         if let Some(facet_band) = facet_band_ref(measurement) {
-            let placement = crate::facet::placement::resolve_facet_band_placement(measurement)
-                .expect("resolve facet placement")
-                .expect("facet placement");
-            let slabs = crate::facet::overflow_projection::FacetOverflowSlabs::from_coordinated(
-                &facet_band.coordinated_overflow,
-            );
-            let (origin_offset_x, origin_offset_y) = match facet_band.axis {
-                FacetAxis::Column => (0.0, slabs.legend.top),
-                FacetAxis::Row => (slabs.legend.left, 0.0),
-            };
+            let child_frame_placement =
+                crate::facet::placement::resolve_facet_child_frame_placement(
+                    measurement,
+                    facet_band,
+                )
+                .expect("resolve facet child-frame placement");
             for (idx, child) in facet_band.child_measurements_iter().enumerate() {
-                let cell = placement.cell(idx).expect("cell placement");
-                let child_origin = match facet_band.axis {
-                    FacetAxis::Column => (
-                        origin.0 + cell.main_axis_start + origin_offset_x,
-                        origin.1 + origin_offset_y,
-                    ),
-                    FacetAxis::Row => (
-                        origin.0 + origin_offset_x,
-                        origin.1 + cell.main_axis_start + origin_offset_y,
-                    ),
-                };
+                let child_render_placement = child_frame_placement
+                    .child(idx)
+                    .expect("child-frame placement");
+                let child_origin = (
+                    origin.0 + child_render_placement.origin[0],
+                    origin.1 + child_render_placement.origin[1],
+                );
                 assert_legends_within_root_canvas(child, root_canvas, child_origin);
             }
         }

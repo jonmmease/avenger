@@ -10,7 +10,9 @@ pub(crate) mod legend;
 mod sizing;
 mod types;
 
-pub(crate) use child_frame::{ChildFrameRenderPlacement, project_child_frame_bounds};
+pub(crate) use child_frame::{
+    ChildFramePlacementResult, ChildFrameRenderPlacement, project_child_frame_bounds,
+};
 pub use content_solver::{
     ChildFrameContentMeasurement, ChildFrameContentPlan, ChildFrameContentSolver,
     ContentAllocation, ContentDemand, ContentLayout, ContentLayoutSolver,
