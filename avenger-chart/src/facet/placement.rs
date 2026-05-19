@@ -19,7 +19,10 @@ use crate::{
         overflow_projection::{FacetOverflowSlabs, rendered_boundary_demand_for_measurement},
         padding_policy,
     },
-    layout::{ChildFramePlacementResult, ChildFrameRenderPlacement, Size2D},
+    layout::{
+        BandChildFrameInput, BandChildFramePlacement, BandDirection, BandPlacedChild, BandSpacing,
+        BoundaryDemand1D, ChildFramePlacementResult, Size2D,
+    },
     plot::compiled::ComponentsMeasurement,
     scales::ConfiguredScaleWithSpec,
 };
@@ -77,6 +80,15 @@ impl FacetBandPlacement {
         }
     }
 
+    fn from_child_frame_band(axis: FacetAxis, band: BandChildFramePlacement) -> Self {
+        let cells = band
+            .children
+            .iter()
+            .map(FacetCellPlacement::from_placed_child)
+            .collect();
+        Self::new(axis, cells, band.main_axis_extent, band.cross_axis_extent)
+    }
+
     pub(crate) fn from_explicit(
         axis: FacetAxis,
         explicit: &FacetBandExplicitPlacement,
@@ -90,25 +102,26 @@ impl FacetBandPlacement {
             )));
         }
 
-        let cells = explicit
+        let children = explicit
             .main_axis_positions
             .iter()
             .copied()
             .zip(cells.iter())
             .enumerate()
-            .map(|(cell_index, (main_axis_start, cell))| FacetCellPlacement {
-                cell_index,
+            .map(|(child_index, (main_axis_start, cell))| BandPlacedChild {
+                child_index,
                 main_axis_start,
                 main_axis_size: cell_main_plot_size(axis, &cell.measurement),
             })
             .collect();
-
-        Ok(Self::new(
-            axis,
-            cells,
+        let band = BandChildFramePlacement::from_positioned_children(
+            band_direction(axis),
+            children,
             explicit.main_axis_size,
             Some(explicit.cross_axis_size),
-        ))
+        );
+
+        Ok(Self::from_child_frame_band(axis, band))
     }
 
     pub(crate) fn cell_count(&self) -> usize {
@@ -153,6 +166,31 @@ impl FacetBandPlacement {
                 )
             })
             .collect())
+    }
+}
+
+impl FacetCellPlacement {
+    fn from_placed_child(child: &BandPlacedChild) -> Self {
+        Self {
+            cell_index: child.child_index,
+            main_axis_start: child.main_axis_start,
+            main_axis_size: child.main_axis_size,
+        }
+    }
+
+    fn to_placed_child(&self) -> BandPlacedChild {
+        BandPlacedChild {
+            child_index: self.cell_index,
+            main_axis_start: self.main_axis_start,
+            main_axis_size: self.main_axis_size,
+        }
+    }
+}
+
+fn band_direction(axis: FacetAxis) -> BandDirection {
+    match axis {
+        FacetAxis::Column => BandDirection::Horizontal,
+        FacetAxis::Row => BandDirection::Vertical,
     }
 }
 
@@ -204,22 +242,23 @@ pub(crate) fn resolve_scale_backed_facet_band_placement(
             (end - start).abs()
         });
 
-    let cells = bands
+    let children = bands
         .into_iter()
         .enumerate()
-        .map(|(cell_index, band)| FacetCellPlacement {
-            cell_index,
+        .map(|(child_index, band)| BandPlacedChild {
+            child_index,
             main_axis_start: band.start(),
             main_axis_size: band.bandwidth,
         })
         .collect();
-
-    Ok(FacetBandPlacement::new(
-        axis,
-        cells,
+    let band = BandChildFramePlacement::from_positioned_children(
+        band_direction(axis),
+        children,
         main_axis_extent,
         cross_axis_extent,
-    ))
+    );
+
+    Ok(FacetBandPlacement::from_child_frame_band(axis, band))
 }
 
 pub(crate) fn resolve_facet_band_placement_from_configured_scales(
@@ -290,8 +329,7 @@ pub(crate) fn facet_child_frame_placement_from_band(
         )));
     }
 
-    let (origin_offset_x, origin_offset_y) = facet_cell_main_axis_start_offset(facet_band);
-    let render_placements = placement
+    let children = placement
         .cells
         .iter()
         .enumerate()
@@ -302,42 +340,19 @@ pub(crate) fn facet_child_frame_placement_from_band(
                     cell_placement.cell_index
                 )));
             }
-            let origin = match facet_band.axis {
-                FacetAxis::Column => [
-                    cell_placement.main_axis_start + origin_offset_x,
-                    origin_offset_y,
-                ],
-                FacetAxis::Row => [
-                    origin_offset_x,
-                    cell_placement.main_axis_start + origin_offset_y,
-                ],
-            };
-            Ok(ChildFrameRenderPlacement {
-                child_index: cell_placement.cell_index,
-                origin,
-            })
+            Ok(cell_placement.to_placed_child())
         })
         .collect::<Result<Vec<_>, AvengerChartError>>()?;
+    let band = BandChildFramePlacement::from_positioned_children(
+        band_direction(placement.axis),
+        children,
+        placement.main_axis_extent,
+        placement.cross_axis_extent,
+    );
 
-    let content_size = match placement.axis {
-        FacetAxis::Column => Size2D::new(
-            placement.main_axis_extent,
-            placement
-                .cross_axis_extent
-                .unwrap_or(fallback_content_size.height),
-        ),
-        FacetAxis::Row => Size2D::new(
-            placement
-                .cross_axis_extent
-                .unwrap_or(fallback_content_size.width),
-            placement.main_axis_extent,
-        ),
-    };
-
-    Ok(ChildFramePlacementResult::new(
-        content_size,
-        render_placements,
-    ))
+    let (origin_offset_x, origin_offset_y) = facet_cell_main_axis_start_offset(facet_band);
+    Ok(band
+        .to_child_frame_placement_result([origin_offset_x, origin_offset_y], fallback_content_size))
 }
 
 pub(crate) fn resolve_facet_child_frame_placement_from_scale_specs(
@@ -369,44 +384,64 @@ pub(crate) fn compute_explicit_facet_band_placement(
         return FacetBandExplicitPlacement::default();
     }
 
-    let mut positions = Vec::with_capacity(cells.len());
-    let mut cursor = layout.outer_start.max(0.0);
-    let mut cross_axis_size = 0.0f32;
     let gap = layout
         .padding_inner_px
         .max(padding_policy::MIN_SUBPLOT_MAIN_GAP);
 
-    for (idx, cell) in cells.iter().enumerate() {
-        positions.push(cursor);
-        cross_axis_size = cross_axis_size.max(cell_cross_plot_size(axis, &cell.measurement));
-        let cell_size = cell_main_plot_size(axis, &cell.measurement);
-        cursor += cell_size;
-        if idx + 1 < cells.len() {
-            // Fixed plot-area mode keeps leaf plot areas locked, so inter-cell
-            // gaps absorb any rendered content that extends past plot bounds.
-            let current_boundary =
-                rendered_boundary_demand_for_measurement(axis, &cell.measurement);
-            let next_boundary =
-                rendered_boundary_demand_for_measurement(axis, &cells[idx + 1].measurement);
-            let after_current = current_boundary.after;
-            let before_next = next_boundary.before;
-            let gap_size = gap.max(after_current + before_next);
-            trace!(
-                axis = ?axis,
-                cell_index = idx,
-                base_gap = gap,
-                after_current,
-                before_next,
-                gap_size,
-                "plot-area-sized facet placement gap"
-            );
-            cursor += gap_size;
-        }
+    let inputs = cells
+        .iter()
+        .enumerate()
+        .map(|(child_index, cell)| {
+            let boundary = rendered_boundary_demand_for_measurement(axis, &cell.measurement);
+            BandChildFrameInput {
+                child_index,
+                main_axis_size: cell_main_plot_size(axis, &cell.measurement),
+                cross_axis_size: cell_cross_plot_size(axis, &cell.measurement),
+                boundary: BoundaryDemand1D {
+                    before: boundary.before,
+                    after: boundary.after,
+                },
+            }
+        })
+        .collect::<Vec<_>>();
+
+    for window in inputs.windows(2) {
+        let current = &window[0];
+        let next = &window[1];
+        let after_current = current.boundary.after.max(0.0);
+        let before_next = next.boundary.before.max(0.0);
+        let gap_size = gap.max(after_current + before_next);
+        trace!(
+            axis = ?axis,
+            cell_index = current.child_index,
+            base_gap = gap,
+            after_current,
+            before_next,
+            gap_size,
+            "plot-area-sized facet placement gap"
+        );
     }
 
+    let band = BandChildFramePlacement::from_sized_children(
+        band_direction(axis),
+        &inputs,
+        BandSpacing {
+            outer_start: layout.outer_start,
+            outer_end: layout.outer_end,
+            min_inner_gap: gap,
+        },
+    );
+    let main_axis_positions = band
+        .children
+        .iter()
+        .map(|child| child.main_axis_start)
+        .collect();
+    let main_axis_size = band.main_axis_extent;
+    let cross_axis_size = band.cross_axis_extent.unwrap_or(0.0);
+
     FacetBandExplicitPlacement {
-        main_axis_positions: positions,
-        main_axis_size: (cursor + layout.outer_end.max(0.0)).max(0.0),
+        main_axis_positions,
+        main_axis_size,
         cross_axis_size,
     }
 }
