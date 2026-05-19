@@ -47,8 +47,8 @@ use crate::{
     error::AvengerChartError,
     facet::{
         coord::{
-            FacetBandCoordMeasurement, FacetCellRuntime, facet_band_ref,
-            renderable_for_empty_policy, retarget_measurement_plot_area_policy_no_remeasure,
+            FacetBandCoordMeasurement, FacetCellRuntime, renderable_for_empty_policy,
+            retarget_measurement_plot_area_policy_no_remeasure,
             retarget_scale_ranges_for_plot_area,
         },
         debug as facet_debug,
@@ -59,7 +59,6 @@ use crate::{
         overflow_projection::{
             boundary_profiles_for_measurement, compute_padding_from_boundary_profiles,
         },
-        placement::resolve_facet_child_frame_placement,
         subtree_plot_area::{LeafPlotAreaSize, estimate_root_plot_area_from_leaf_size},
     },
     guide::{GuideOverflowPhase, OverflowSpaceRequirement},
@@ -89,7 +88,7 @@ use crate::{
 };
 
 use super::{
-    CompiledPlot, ComponentsMeasurement, PlotComponents,
+    ChildFrameContainerView, CompiledPlot, ComponentsMeasurement, PlotComponents,
     expr_eval::evaluate_f32_expr,
     legends::{HoistedLegendRequest, LegendPlanScope, PreparedLegendPlan},
     scale_provider::{DynamicScaleProvider, ScaleProvider},
@@ -299,29 +298,26 @@ fn union_layout_bounds(bounds: &mut Option<LayoutBounds>, next: LayoutBounds) {
     };
 }
 
-fn projected_facet_child_plot_area_envelope(
+fn projected_child_frame_container_plot_area_envelope(
     layout: &FrameLayout,
-    measurement: &ComponentsMeasurement,
-    facet_band: &FacetBandCoordMeasurement,
+    container: &ChildFrameContainerView<'_>,
 ) -> Result<Option<LayoutBounds>, AvengerChartError> {
-    let child_frame_placement = resolve_facet_child_frame_placement(measurement, facet_band)?;
     let parent_content_origin = [layout.plot_area.x, layout.plot_area.y];
     let mut envelope = None;
 
-    for cell_render_placement in child_frame_placement.render_placements() {
-        let cell = facet_band
-            .cells
-            .get(cell_render_placement.child_index)
+    for child_render_placement in container.placement().render_placements() {
+        let child_measurement = container
+            .child_measurement(child_render_placement.child_index)
             .ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
-                    "Missing facet component debug cell for index {}",
-                    cell_render_placement.child_index
+                    "Missing child-frame container child for index {}",
+                    child_render_placement.child_index
                 ))
             })?;
-        let child_plot_bounds = *cell.measurement.layout.plot_area_bounds();
+        let child_plot_bounds = *child_measurement.layout.plot_area_bounds();
         let projected_plot_bounds = project_child_frame_bounds(
             parent_content_origin,
-            cell_render_placement.origin,
+            child_render_placement.origin,
             child_plot_bounds,
             child_plot_bounds,
         );
@@ -331,10 +327,9 @@ fn projected_facet_child_plot_area_envelope(
     Ok(envelope)
 }
 
-fn facet_component_debug_side_extents(
+fn child_frame_container_component_debug_side_extents(
     layout: &FrameLayout,
-    measurement: &ComponentsMeasurement,
-    facet_band: &FacetBandCoordMeasurement,
+    container: &ChildFrameContainerView<'_>,
     content: LayoutBounds,
 ) -> Result<EdgeSlabs, AvengerChartError> {
     let mut extents = EdgeSlabs::default();
@@ -351,20 +346,18 @@ fn facet_component_debug_side_extents(
         }
     }
 
-    let child_frame_placement = resolve_facet_child_frame_placement(measurement, facet_band)?;
     let parent_content_origin = [layout.plot_area.x, layout.plot_area.y];
 
-    for cell_render_placement in child_frame_placement.render_placements() {
-        let cell = facet_band
-            .cells
-            .get(cell_render_placement.child_index)
+    for child_render_placement in container.placement().render_placements() {
+        let child_measurement = container
+            .child_measurement(child_render_placement.child_index)
             .ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
-                    "Missing facet component debug cell for index {}",
-                    cell_render_placement.child_index
+                    "Missing child-frame container child for index {}",
+                    child_render_placement.child_index
                 ))
             })?;
-        let child_plot_bounds = cell.measurement.layout.plot_area_bounds();
+        let child_plot_bounds = child_measurement.layout.plot_area_bounds();
 
         for position in [
             LegendPosition::Top,
@@ -372,8 +365,7 @@ fn facet_component_debug_side_extents(
             LegendPosition::Bottom,
             LegendPosition::Left,
         ] {
-            let Some(legend_ids) = cell
-                .measurement
+            let Some(legend_ids) = child_measurement
                 .layout
                 .frame_layout
                 .legends_by_position
@@ -383,13 +375,13 @@ fn facet_component_debug_side_extents(
             };
             let side = legend_side(position);
             for legend_id in legend_ids {
-                let Some(bounds) = cell.measurement.layout.frame_layout.legends.get(legend_id)
+                let Some(bounds) = child_measurement.layout.frame_layout.legends.get(legend_id)
                 else {
                     continue;
                 };
                 let projected = project_child_frame_bounds(
                     parent_content_origin,
-                    cell_render_placement.origin,
+                    child_render_placement.origin,
                     *child_plot_bounds,
                     *bounds,
                 );
@@ -406,16 +398,18 @@ fn facet_component_debug_side_extents(
     })
 }
 
-fn expand_facet_component_debug_plot_area(
+fn expand_child_frame_container_component_debug_plot_area(
     layout: &mut FrameLayout,
     measurement: &ComponentsMeasurement,
-    facet_band: &FacetBandCoordMeasurement,
 ) -> Result<(), AvengerChartError> {
-    let Some(content) = projected_facet_child_plot_area_envelope(layout, measurement, facet_band)?
+    let Some(container) = measurement.child_frame_container_view()? else {
+        return Ok(());
+    };
+    let Some(content) = projected_child_frame_container_plot_area_envelope(layout, &container)?
     else {
         return Ok(());
     };
-    let extents = facet_component_debug_side_extents(layout, measurement, facet_band, content)?;
+    let extents = child_frame_container_component_debug_side_extents(layout, &container, content)?;
 
     layout.plot_area = content;
     set_debug_side_overflow(layout, AxisPosition::Top, extents.top);
@@ -430,9 +424,7 @@ fn translated_component_debug_frame_layout(
     origin: [f32; 2],
 ) -> Result<FrameLayout, AvengerChartError> {
     let mut layout = measurement.layout.frame_layout.clone();
-    if let Some(facet_band) = facet_band_ref(measurement.coord_measurement.as_ref()) {
-        expand_facet_component_debug_plot_area(&mut layout, measurement, facet_band)?;
-    }
+    expand_child_frame_container_component_debug_plot_area(&mut layout, measurement)?;
     Ok(translated_frame_layout(&layout, origin))
 }
 
@@ -3167,26 +3159,24 @@ impl CompiledPlot {
         measurement: &ComponentsMeasurement,
         content_rect: LayoutBounds,
     ) -> Result<Option<Vec<LayoutBounds>>, AvengerChartError> {
-        let Some(facet_band) = facet_band_ref(measurement.coord_measurement.as_ref()) else {
+        let Some(container) = measurement.child_frame_container_view()? else {
             return Ok(None);
         };
 
-        let child_frame_placement = resolve_facet_child_frame_placement(measurement, facet_band)?;
         let parent_content_origin = [content_rect.x, content_rect.y];
 
-        let mut rects = Vec::with_capacity(child_frame_placement.render_placements().len());
-        for child_render_placement in child_frame_placement.render_placements() {
-            let cell = facet_band
-                .cells
-                .get(child_render_placement.child_index)
+        let mut rects = Vec::with_capacity(container.placement().render_placements().len());
+        for child_render_placement in container.placement().render_placements() {
+            let child_measurement = container
+                .child_measurement(child_render_placement.child_index)
                 .ok_or_else(|| {
                     AvengerChartError::InternalError(format!(
-                        "Missing facet debug child frame for cell index {}",
+                        "Missing debug child frame for child index {}",
                         child_render_placement.child_index
                     ))
                 })?;
-            let child_rect = cell.measurement.frame_allocation.rect;
-            let child_plot_bounds = cell.measurement.layout.plot_area_bounds();
+            let child_rect = child_measurement.frame_allocation.rect;
+            let child_plot_bounds = child_measurement.layout.plot_area_bounds();
             rects.push(project_child_frame_bounds(
                 parent_content_origin,
                 child_render_placement.origin,
@@ -5732,6 +5722,35 @@ mod tests {
             content_layout.child_frame_allocations[0],
             facet_band.cells[0].measurement.frame_allocation
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn child_frame_container_view_exposes_facet_children() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = compile_simple_facet_plot_with_plot_size(&ctx).await?;
+        let (_, _, _, measurement) = prepare_top_level_measurement(&compiled, &ctx).await?;
+        let facet_band = facet_band_ref(&measurement)
+            .expect("fixture should produce a top-level facet measurement");
+        let container = measurement
+            .child_frame_container_view()?
+            .expect("facet measurement should expose a child-frame container view");
+
+        assert_eq!(
+            container.placement().render_placements().len(),
+            facet_band.cells.len()
+        );
+        for child_render_placement in container.placement().render_placements() {
+            let child_measurement = container
+                .child_measurement(child_render_placement.child_index)
+                .expect("render placement should resolve to a child measurement");
+            assert_eq!(
+                child_measurement.frame_allocation,
+                facet_band.cells[child_render_placement.child_index]
+                    .measurement
+                    .frame_allocation
+            );
+        }
         Ok(())
     }
 

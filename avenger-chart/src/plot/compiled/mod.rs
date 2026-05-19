@@ -1,5 +1,6 @@
 //! CompiledPlot - Immutable, serializable plot ready for rendering
 
+mod child_frame_container;
 pub(crate) mod expr_eval;
 mod legends;
 pub(crate) mod rendering;
@@ -33,6 +34,7 @@ use crate::{
     theme::Theme,
 };
 
+pub(crate) use self::child_frame_container::ChildFrameContainerView;
 use self::legends::PreparedLegendPlan;
 
 use super::{
@@ -296,14 +298,9 @@ impl ComponentsMeasurement {
         let allocation = self.content_allocation();
         let frame_demand = self.frame_demand();
 
-        if let Some(facet_band) =
-            crate::facet::coord::facet_band_ref(self.coord_measurement.as_ref())
-        {
+        if let Some(container) = self.child_frame_container_view()? {
             let solver = ChildFrameContentSolver;
-            let child_frame_allocations = facet_band
-                .child_measurements_iter()
-                .map(|child| child.frame_allocation)
-                .collect::<Vec<_>>();
+            let child_frame_allocations = container.child_frame_allocations();
             let demand = solver.measure_content_demand(
                 &allocation,
                 &ChildFrameContentMeasurement {
