@@ -1,11 +1,15 @@
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
-use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::{arrow::record_batch::RecordBatch, logical_expr::Expr, prelude::SessionContext};
+use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
+use datafusion::{
+    arrow::record_batch::RecordBatch, dataframe::DataFrame, logical_expr::Expr,
+    prelude::SessionContext,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    concat::concat_coord_ref,
     coords::{CoordinateSystem, CoordinateSystemTransform},
     error::AvengerChartError,
     legend::LegendRenderer,
@@ -165,6 +169,31 @@ impl CompiledSubplot {
     pub fn has_explicit_child_data(&self) -> bool {
         self.data_source == SubplotDataSource::ExplicitChild
     }
+
+    fn group_name(&self) -> String {
+        match self.key() {
+            Some(key) => format!("concat_subplot_{}_{}", self.child_index(), key),
+            None => format!("concat_subplot_{}", self.child_index()),
+        }
+    }
+
+    fn inherited_data_override(
+        &self,
+        data: Option<&RecordBatch>,
+        context: &RenderContext<'_>,
+    ) -> Result<Option<DataFrame>, AvengerChartError> {
+        if !self.inherits_parent_data() {
+            return Ok(None);
+        }
+
+        data.map(|batch| {
+            context
+                .session_context()
+                .read_batch(batch.clone())
+                .map_err(AvengerChartError::DataFusionError)
+        })
+        .transpose()
+    }
 }
 
 pub fn compiled_subplot(mark: &dyn CompiledMark) -> Option<&CompiledSubplot> {
@@ -204,14 +233,77 @@ impl CompiledMark for CompiledSubplot {
 
     async fn render_from_data(
         &self,
-        _data: Option<&RecordBatch>,
+        data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
-        _context: &RenderContext,
+        context: &RenderContext,
         _coord: Box<dyn CoordinateSystemTransform>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        Err(AvengerChartError::InternalError(
-            "Subplot marks require a container coordinate system renderer".to_string(),
-        ))
+        let concat_measurement =
+            concat_coord_ref(context.coord_measurement()).ok_or_else(|| {
+                AvengerChartError::InternalError(
+                    "Subplot marks require ConcatCoordMeasurement in coord_measurement".to_string(),
+                )
+            })?;
+        let child = concat_measurement
+            .child(self.child_index())
+            .ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Missing concat child measurement for subplot child index {}",
+                    self.child_index()
+                ))
+            })?;
+        let child_frame_placement = concat_measurement.child_frame_placement();
+        let render_placement =
+            child_frame_placement
+                .child(self.child_index())
+                .ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Missing concat child-frame placement for subplot child index {}",
+                        self.child_index()
+                    ))
+                })?;
+
+        let mut params = self.compiled_subplot.get_default_params().clone();
+        params.extend(context.eval.params.clone());
+        let child_eval_ctx = context.eval.with_params(params);
+        let data_override = self.inherited_data_override(data, context)?;
+        let components = self
+            .compiled_subplot
+            .build_plot_components(
+                &child_eval_ctx,
+                &child.measurement,
+                data_override.as_ref(),
+                true,
+                context.facet_path,
+            )
+            .await?;
+
+        let data_marks_group = SceneGroup {
+            origin: [0.0, 0.0],
+            marks: components.data_marks,
+            clip: components.clip,
+            zindex: Some(0),
+            ..Default::default()
+        };
+        let mut all_marks = vec![SceneMark::Group(data_marks_group)];
+        all_marks.extend(components.guide_marks);
+        all_marks.extend(components.legend_marks);
+        all_marks.extend(components.title_marks);
+        all_marks.extend(components.subtitle_marks);
+        all_marks.extend(components.debug_marks);
+
+        Ok(vec![SceneMark::Group(SceneGroup {
+            name: self.group_name(),
+            origin: render_placement.origin,
+            clip: avenger_scenegraph::marks::group::Clip::None,
+            marks: all_marks,
+            gradients: Vec::new(),
+            fill: None,
+            stroke: None,
+            stroke_width: None,
+            stroke_offset: None,
+            zindex: None,
+        })])
     }
 
     fn preferred_legend_renderer(

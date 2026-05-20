@@ -13,6 +13,7 @@ pub mod test_categorical_scale_sharing;
 pub mod test_color_mix;
 pub mod test_color_mix_stroke_param;
 pub mod test_colorbar_positions;
+pub mod test_concat;
 pub mod test_conditional_encoding;
 pub mod test_css_cardinality_ranges;
 pub mod test_css_guide_subtypes;

@@ -4110,19 +4110,28 @@ impl CompiledPlot {
         }
     }
 
-    fn validate_single_plot_content_layout(
+    fn validate_root_content_layout(
         measurement: &ComponentsMeasurement,
     ) -> Result<(), AvengerChartError> {
         let content_layout = measurement.content_layout()?;
-        if !content_layout.child_frame_allocations.is_empty() {
-            return Err(AvengerChartError::InternalError(
-                "single-plot content layout unexpectedly produced child frame allocations"
-                    .to_string(),
-            ));
-        }
         if content_layout.allocation.content_rect != *measurement.layout.plot_area_bounds() {
             return Err(AvengerChartError::InternalError(
-                "single-plot content rect diverged from the measured plot area".to_string(),
+                "root content rect diverged from the measured plot area".to_string(),
+            ));
+        }
+        if let Some(container) = measurement.child_frame_container_view()? {
+            let expected_count = container.placement().render_placements().len();
+            if content_layout.child_frame_allocations.len() != expected_count {
+                return Err(AvengerChartError::InternalError(format!(
+                    "root child-frame allocation count mismatch: expected {}, got {}",
+                    expected_count,
+                    content_layout.child_frame_allocations.len()
+                )));
+            }
+        } else if !content_layout.child_frame_allocations.is_empty() {
+            return Err(AvengerChartError::InternalError(
+                "root content layout unexpectedly produced child frame allocations without a child-frame container"
+                    .to_string(),
             ));
         }
         Ok(())
@@ -4152,7 +4161,7 @@ impl CompiledPlot {
                     )
                     .await?;
                 }
-                Self::validate_single_plot_content_layout(measurement)?;
+                Self::validate_root_content_layout(measurement)?;
             }
             ResolvedChartSizing::FacetBand(_) => {
                 // Facet content uses the global coordination cycle:

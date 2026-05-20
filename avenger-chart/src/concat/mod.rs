@@ -7,8 +7,9 @@
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
-use avenger_scales::scales::ScaleImpl;
-use datafusion::{common::ScalarValue, dataframe::DataFrame};
+use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
+use avenger_scenegraph::marks::{group::Clip, mark::SceneMark};
+use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
@@ -17,11 +18,12 @@ use crate::{
         CoordMeasurement, CoordinateSystem, CoordinateSystemTransform, PlotGeometry, PointGeometry,
     },
     error::AvengerChartError,
-    guide::NoGuide,
+    facet::evaluated_facet_tree::EvaluatedFacetTree,
+    guide::{CompiledGuide, CoordinateGuide, GuideUpdate, OverflowSpaceRequirement},
     layout::{
         BandChildFrameInput, BandChildFramePlacement, BandDirection, BandSpacing, BoundaryDemand1D,
         ChildFramePlacementResult, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode,
-        Size2D,
+        LayoutBounds, Size2D, project_child_frame_bounds,
     },
     marks::{
         CompiledMark, CompiledSubplot, SubplotContainerCoordinateSystem, subplot::compiled_subplot,
@@ -32,6 +34,7 @@ use crate::{
     },
     render::EvaluationContext,
     scales::{ConfiguredScaleWithSpec, ScaleRangeBinding},
+    theme::Theme,
 };
 
 /// Horizontal concatenation of `Subplot` marks.
@@ -58,7 +61,7 @@ impl SubplotContainerCoordinateSystem for HConcat {}
 impl SubplotContainerCoordinateSystem for VConcat {}
 
 impl CoordinateSystem for HConcat {
-    type Guide = NoGuide;
+    type Guide = ConcatGuide;
 
     fn required_channels(&self) -> &'static [&'static str] {
         &[]
@@ -70,7 +73,7 @@ impl CoordinateSystem for HConcat {
 }
 
 impl CoordinateSystem for VConcat {
-    type Guide = NoGuide;
+    type Guide = ConcatGuide;
 
     fn required_channels(&self) -> &'static [&'static str] {
         &[]
@@ -78,6 +81,90 @@ impl CoordinateSystem for VConcat {
 
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
         Box::new(self.clone())
+    }
+}
+
+/// Guide for concat containers.
+///
+/// Concat does not draw container chrome yet, but the guide participates in
+/// frame measurement so child subplot axes and legends are reserved by the
+/// parent chart frame.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ConcatGuide;
+
+impl GuideUpdate for ConcatGuide {
+    fn update(self, _other: Self) -> Self {
+        self
+    }
+}
+
+impl CoordinateGuide for ConcatGuide {
+    type Axis = ();
+
+    fn set_axes(&mut self, _axes: HashMap<String, Self::Axis>) {}
+
+    fn set_compiled_marks(
+        &mut self,
+        _compiled_marks: Vec<Arc<dyn CompiledMark>>,
+        _session_context: &SessionContext,
+    ) {
+    }
+
+    fn update(&mut self, _other: Self) {}
+
+    fn build(self) -> Box<dyn CompiledGuide> {
+        Box::new(self)
+    }
+}
+
+#[async_trait::async_trait]
+#[typetag::serde]
+impl CompiledGuide for ConcatGuide {
+    async fn measure_overflow(
+        &self,
+        _scales: &HashMap<String, ConfiguredScale>,
+        plot_width: f32,
+        plot_height: f32,
+        _theme: &Theme,
+        _params: &IndexMap<String, ScalarValue>,
+        _data_override: Option<&DataFrame>,
+        _ctx: &SessionContext,
+        _facet_tree: &EvaluatedFacetTree,
+        _facet_path: &[ScalarValue],
+        coord_measurement: Option<&dyn CoordMeasurement>,
+    ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
+        concat_child_frame_overflow(plot_width, plot_height, coord_measurement)
+    }
+
+    async fn evaluate(
+        &self,
+        _scales: &HashMap<String, ConfiguredScale>,
+        _plot_width: f32,
+        _plot_height: f32,
+        _plot_bounds: &LayoutBounds,
+        _guide_overflow: &OverflowSpaceRequirement,
+        _theme: &Theme,
+        _params: &IndexMap<String, ScalarValue>,
+        _ctx: &SessionContext,
+        _data_override: Option<&DataFrame>,
+        _facet_tree: &EvaluatedFacetTree,
+        _facet_path: &[ScalarValue],
+        _coord_measurement: &dyn CoordMeasurement,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        Ok(Vec::new())
+    }
+
+    fn get_clip(
+        &self,
+        _plot_width: f32,
+        _plot_height: f32,
+        _scales: &HashMap<String, ConfiguredScale>,
+    ) -> Clip {
+        Clip::None
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -205,6 +292,12 @@ impl ConcatCoordMeasurement {
         &self.children
     }
 
+    pub(crate) fn child(&self, child_index: usize) -> Option<&ConcatChildMeasurement> {
+        self.children
+            .iter()
+            .find(|child| child.child_index == child_index)
+    }
+
     pub(crate) fn child_frame_placement(&self) -> ChildFramePlacementResult {
         self.child_band_layout
             .to_child_frame_placement_result([0.0, 0.0], self.fallback_content_size)
@@ -248,6 +341,50 @@ pub(crate) fn concat_coord_ref(
     coord_measurement
         .as_any()
         .downcast_ref::<ConcatCoordMeasurement>()
+}
+
+fn concat_child_frame_overflow(
+    plot_width: f32,
+    plot_height: f32,
+    coord_measurement: Option<&dyn CoordMeasurement>,
+) -> Result<OverflowSpaceRequirement, AvengerChartError> {
+    let Some(concat) = coord_measurement.and_then(concat_coord_ref) else {
+        return Ok(OverflowSpaceRequirement::default());
+    };
+
+    let placement = concat.child_frame_placement();
+    let mut min_x = 0.0f32;
+    let mut min_y = 0.0f32;
+    let mut max_x = placement.content_size.width.max(plot_width);
+    let mut max_y = placement.content_size.height.max(plot_height);
+
+    for render_placement in placement.render_placements() {
+        let child = concat.child(render_placement.child_index).ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "Missing concat child measurement for child index {}",
+                render_placement.child_index
+            ))
+        })?;
+        let child_plot_bounds = *child.measurement.layout.plot_area_bounds();
+        let frame_bounds = project_child_frame_bounds(
+            [0.0, 0.0],
+            render_placement.origin,
+            child_plot_bounds,
+            child.measurement.frame_allocation.rect,
+        );
+
+        min_x = min_x.min(frame_bounds.x);
+        min_y = min_y.min(frame_bounds.y);
+        max_x = max_x.max(frame_bounds.x + frame_bounds.width);
+        max_y = max_y.max(frame_bounds.y + frame_bounds.height);
+    }
+
+    Ok(OverflowSpaceRequirement {
+        top: (-min_y).max(0.0),
+        right: (max_x - plot_width).max(0.0),
+        bottom: (max_y - plot_height).max(0.0),
+        left: (-min_x).max(0.0),
+    })
 }
 
 fn fixed_plot_area_layout_spec(width: f32, height: f32) -> EvaluatedLayoutSpec {
@@ -436,13 +573,21 @@ fn container_point_geometry(
 mod tests {
     use std::sync::Arc;
 
-    use datafusion::prelude::SessionContext;
+    use avenger_scenegraph::marks::{mark::SceneMark, symbol::SceneSymbolMark};
+    use datafusion::{
+        arrow::{
+            array::{Array, Float64Array},
+            record_batch::RecordBatch as ArrowRecordBatch,
+        },
+        prelude::{SessionContext, col},
+    };
 
     use super::*;
     use crate::{
+        cartesian::Cartesian,
         facet::evaluated_facet_tree::EvaluatedFacetTree,
         layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
-        marks::Subplot,
+        marks::{Subplot, symbol::Symbol},
         plot::{CompiledPlot, Plot, compiled::scales::build_scale_builder_from_marks},
         render::EvaluationContext,
         zerod::ZeroDCoord,
@@ -493,6 +638,33 @@ mod tests {
         compiled
             .measure_plot_components(&eval_ctx, &layout_spec, &provider, None, &[])
             .await
+    }
+
+    fn xy_dataframe(
+        ctx: &SessionContext,
+        x_values: Vec<f64>,
+        y_values: Vec<f64>,
+    ) -> datafusion::dataframe::DataFrame {
+        let batch = ArrowRecordBatch::try_from_iter(vec![
+            (
+                "x",
+                Arc::new(Float64Array::from(x_values)) as Arc<dyn Array>,
+            ),
+            (
+                "y",
+                Arc::new(Float64Array::from(y_values)) as Arc<dyn Array>,
+            ),
+        ])
+        .expect("create xy record batch");
+        ctx.read_batch(batch).expect("read xy test batch")
+    }
+
+    fn find_symbol_mark(mark: &SceneMark) -> Option<&SceneSymbolMark> {
+        match mark {
+            SceneMark::Symbol(symbol) => Some(symbol),
+            SceneMark::Group(group) => group.marks.iter().find_map(find_symbol_mark),
+            _ => None,
+        }
     }
 
     #[tokio::test]
@@ -576,6 +748,130 @@ mod tests {
             .expect("concat measurement should expose a child-frame container view");
         assert!(container.child_measurement(0).is_some());
         assert!(container.child_measurement(1).is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn hconcat_renders_child_subplot_groups() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<HConcat>::new()
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("left"))
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("right"))
+            .compile(&ctx)
+            .await?;
+
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let group_names = evaluated.scene_graph.group_names();
+        let left_path = group_names
+            .get("concat_subplot_0_left")
+            .expect("left subplot group should render");
+        let right_path = group_names
+            .get("concat_subplot_1_right")
+            .expect("right subplot group should render");
+        let left_origin = evaluated
+            .scene_graph
+            .get_absolute_origin(left_path)
+            .expect("left subplot should have an absolute origin");
+        let right_origin = evaluated
+            .scene_graph
+            .get_absolute_origin(right_path)
+            .expect("right subplot should have an absolute origin");
+
+        assert_eq!(left_origin[1], right_origin[1]);
+        assert!(
+            right_origin[0] > left_origin[0],
+            "horizontal concat should place the second subplot to the right"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn concat_child_rendering_inherits_parent_data() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let data = xy_dataframe(&ctx, vec![1.0, 2.0], vec![3.0, 4.0]);
+        let child_plot = Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y")));
+        let compiled = Plot::<HConcat>::new()
+            .data(data)
+            .mark(Subplot::new(child_plot).key("points"))
+            .compile(&ctx)
+            .await?;
+
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let group_names = evaluated.scene_graph.group_names();
+        let child_path = group_names
+            .get("concat_subplot_0_points")
+            .expect("child subplot group should render");
+        let child_group = evaluated
+            .scene_graph
+            .get_mark(child_path)
+            .expect("child subplot group path should resolve");
+        let symbol = find_symbol_mark(child_group).expect("child subplot should render symbols");
+
+        assert_eq!(symbol.len, 2);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn concat_child_rendering_preserves_explicit_child_data() -> Result<(), AvengerChartError>
+    {
+        let ctx = SessionContext::new();
+        let parent_data = xy_dataframe(&ctx, vec![1.0, 2.0], vec![3.0, 4.0]);
+        let child_data = xy_dataframe(&ctx, vec![5.0], vec![6.0]);
+        let child_plot = Plot::<Cartesian>::new()
+            .data(child_data)
+            .mark(Symbol::new().x(col("x")).y(col("y")));
+        let compiled = Plot::<HConcat>::new()
+            .data(parent_data)
+            .mark(Subplot::new(child_plot).key("points"))
+            .compile(&ctx)
+            .await?;
+
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let group_names = evaluated.scene_graph.group_names();
+        let child_path = group_names
+            .get("concat_subplot_0_points")
+            .expect("child subplot group should render");
+        let child_group = evaluated
+            .scene_graph
+            .get_mark(child_path)
+            .expect("child subplot group path should resolve");
+        let symbol = find_symbol_mark(child_group).expect("child subplot should render symbols");
+
+        assert_eq!(symbol.len, 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn vconcat_renders_child_subplot_groups() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<VConcat>::new()
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("top"))
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("bottom"))
+            .compile(&ctx)
+            .await?;
+
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let group_names = evaluated.scene_graph.group_names();
+        let top_path = group_names
+            .get("concat_subplot_0_top")
+            .expect("top subplot group should render");
+        let bottom_path = group_names
+            .get("concat_subplot_1_bottom")
+            .expect("bottom subplot group should render");
+        let top_origin = evaluated
+            .scene_graph
+            .get_absolute_origin(top_path)
+            .expect("top subplot should have an absolute origin");
+        let bottom_origin = evaluated
+            .scene_graph
+            .get_absolute_origin(bottom_path)
+            .expect("bottom subplot should have an absolute origin");
+
+        assert_eq!(top_origin[0], bottom_origin[0]);
+        assert!(
+            bottom_origin[1] > top_origin[1],
+            "vertical concat should place the second subplot below the first"
+        );
         Ok(())
     }
 }
