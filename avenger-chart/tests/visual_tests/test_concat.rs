@@ -149,6 +149,24 @@ async fn hconcat_plot_size_two_cartesian() {
 }
 
 #[tokio::test]
+async fn hconcat_no_key_no_label() {
+    let ctx = SessionContext::new();
+    let df = iris_with_petal_width_bin(&ctx).await;
+    let plot = Plot::<HConcat>::new()
+        .canvas_size(820.0, 360.0)
+        .data(df)
+        .title("Bare subplot concat")
+        .mark(Subplot::new(sepal_child()))
+        .mark(Subplot::new(petal_child()));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile bare hconcat chart");
+    assert_visual_match_default(&compiled, &ctx, None, "concat", "hconcat_no_key_no_label").await;
+}
+
+#[tokio::test]
 async fn hconcat_cartesian_polar() {
     let ctx = SessionContext::new();
     let df = concat_numeric_data(&ctx).await;
