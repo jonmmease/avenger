@@ -598,7 +598,13 @@ mod tests {
         facet::evaluated_facet_tree::EvaluatedFacetTree,
         layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
         marks::{Subplot, symbol::Symbol},
-        plot::{CompiledPlot, Plot, compiled::scales::build_scale_builder_from_marks},
+        plot::{
+            CompiledPlot, Plot,
+            compiled::{
+                CoordinationAxis, CoordinationKind, CoordinationScopeKey,
+                scales::build_scale_builder_from_marks,
+            },
+        },
         render::EvaluationContext,
         zerod::ZeroDCoord,
     };
@@ -724,6 +730,73 @@ mod tests {
         assert!(container.child_measurement(1).is_some());
         assert_eq!(container.child_scope_key(0), Some(&left_scope));
         assert_eq!(container.child_scope_keys().count(), 2);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn concat_coordination_scope_hooks_group_children_by_container()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<HConcat>::new()
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("left"))
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("right"))
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 200.0, 100.0, &ctx).await?;
+        let concat = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<ConcatCoordMeasurement>()
+            .expect("HConcat should measure as ConcatCoordMeasurement");
+        let left_scope = concat
+            .child_scope_key(0)
+            .expect("left child should have a scope key");
+        let right_scope = concat
+            .child_scope_key(1)
+            .expect("right child should have a scope key");
+
+        let shared_left =
+            CoordinationScopeKey::child_frame_container(CoordinationKind::ScaleDomain, &left_scope)
+                .with_channel("x");
+        let shared_right = CoordinationScopeKey::child_frame_container(
+            CoordinationKind::ScaleDomain,
+            &right_scope,
+        )
+        .with_channel("x");
+        let free_left =
+            CoordinationScopeKey::child_frame(CoordinationKind::ScaleDomain, &left_scope)
+                .with_channel("x");
+        let free_right =
+            CoordinationScopeKey::child_frame(CoordinationKind::ScaleDomain, &right_scope)
+                .with_channel("x");
+
+        assert_eq!(shared_left, shared_right);
+        assert_ne!(free_left, free_right);
+
+        let legend_left = CoordinationScopeKey::child_frame_container(
+            CoordinationKind::LegendOwnership,
+            &left_scope,
+        )
+        .with_channel("fill:Right");
+        let legend_right = CoordinationScopeKey::child_frame_container(
+            CoordinationKind::LegendOwnership,
+            &right_scope,
+        )
+        .with_channel("fill:Right");
+        assert_eq!(legend_left, legend_right);
+
+        let horizontal_lane = CoordinationScopeKey::container_lane(
+            CoordinationKind::GuideLane,
+            CoordinationAxis::Horizontal,
+            vec![],
+        );
+        let vertical_lane = CoordinationScopeKey::container_lane(
+            CoordinationKind::GuideLane,
+            CoordinationAxis::Vertical,
+            vec![],
+        );
+        assert_ne!(horizontal_lane, vertical_lane);
         Ok(())
     }
 

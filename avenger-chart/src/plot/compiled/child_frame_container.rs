@@ -13,7 +13,7 @@ use crate::{
     layout::{ChildFramePlacementResult, FrameAllocation},
 };
 
-use super::{ChildFrameScopeKey, ComponentsMeasurement};
+use super::{ChildFrameScopeKey, ComponentsMeasurement, CoordinationKind, CoordinationScopeKey};
 
 /// One child frame inside a measured child-frame container.
 #[derive(Debug, Clone)]
@@ -163,6 +163,7 @@ impl ChildFrameContainerView<'_> {
         }
 
         let mut seen = HashSet::with_capacity(self.children.len());
+        let mut container_coordination_key: Option<CoordinationScopeKey> = None;
         for child in &self.children {
             let Some(scope_key) = self.child_scope_key(child.child_index) else {
                 return Err(AvengerChartError::InternalError(format!(
@@ -170,7 +171,22 @@ impl ChildFrameContainerView<'_> {
                     child.child_index
                 )));
             };
-            if !seen.insert(scope_key.clone()) {
+            let current_container_key =
+                CoordinationScopeKey::child_frame_container(CoordinationKind::ChildSize, scope_key);
+            if let Some(expected) = &container_coordination_key {
+                if expected != &current_container_key {
+                    return Err(AvengerChartError::InternalError(format!(
+                        "Child-frame scope key for child index {} belongs to a different container: {:?}",
+                        child.child_index, scope_key
+                    )));
+                }
+            } else {
+                container_coordination_key = Some(current_container_key);
+            }
+
+            let child_coordination_key =
+                CoordinationScopeKey::child_frame(CoordinationKind::ChildSize, scope_key);
+            if !seen.insert(child_coordination_key) {
                 return Err(AvengerChartError::InternalError(format!(
                     "Duplicate child-frame scope key for child index {}: {:?}",
                     child.child_index, scope_key

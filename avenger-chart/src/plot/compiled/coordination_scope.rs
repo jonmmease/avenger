@@ -6,7 +6,7 @@
 
 use datafusion::common::ScalarValue;
 
-use super::ContainerPathSegment;
+use super::{ChildFrameKey, ChildFrameScopeKey, ContainerPathSegment};
 
 /// Stable key for one coordination or sharing group.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -50,6 +50,28 @@ impl CoordinationScopeKey {
         path: Vec<ScalarValue>,
     ) -> CoordinationScopeKey {
         Self::new(kind, Vec::new(), CoordinationGroup::PartitionPath(path))
+    }
+
+    pub(crate) fn child_frame_container(
+        kind: CoordinationKind,
+        child_scope: &ChildFrameScopeKey,
+    ) -> CoordinationScopeKey {
+        Self::new(
+            kind,
+            child_scope.container_path.clone(),
+            CoordinationGroup::Container,
+        )
+    }
+
+    pub(crate) fn child_frame(
+        kind: CoordinationKind,
+        child_scope: &ChildFrameScopeKey,
+    ) -> CoordinationScopeKey {
+        Self::new(
+            kind,
+            child_scope.container_path.clone(),
+            CoordinationGroup::ChildFrame(child_scope.child_key.clone()),
+        )
     }
 
     pub(crate) fn container_group(
@@ -118,6 +140,8 @@ pub(crate) enum CoordinationKind {
 pub(crate) enum CoordinationGroup {
     PartitionPath(Vec<ScalarValue>),
     PositionPath(Vec<usize>),
+    Container,
+    ChildFrame(ChildFrameKey),
     ContainerGroup {
         depth: usize,
         identity: String,
@@ -159,10 +183,22 @@ pub(crate) enum CoordinationAxis {
 mod tests {
     use datafusion::common::ScalarValue;
 
+    use crate::coords::FacetAxis;
+
     use super::*;
 
     fn s(value: &str) -> ScalarValue {
         ScalarValue::Utf8(Some(value.to_string()))
+    }
+
+    fn concat_child_scope(index: usize, key: Option<&str>) -> ChildFrameScopeKey {
+        ChildFrameScopeKey::new(
+            Vec::new(),
+            ChildFrameKey::ConcatChild {
+                index,
+                key: key.map(ToOwned::to_owned),
+            },
+        )
     }
 
     #[test]
@@ -217,6 +253,69 @@ mod tests {
         assert_eq!(owner_a, owner_b);
         assert_ne!(owner_a, different_kind);
         assert_ne!(owner_a, different_path);
+    }
+
+    #[test]
+    fn child_frame_container_keys_group_siblings_but_preserve_channel() {
+        let left = concat_child_scope(0, Some("left"));
+        let right = concat_child_scope(1, Some("right"));
+        let left_x =
+            CoordinationScopeKey::child_frame_container(CoordinationKind::ScaleDomain, &left)
+                .with_channel("x");
+        let right_x =
+            CoordinationScopeKey::child_frame_container(CoordinationKind::ScaleDomain, &right)
+                .with_channel("x");
+        let right_y =
+            CoordinationScopeKey::child_frame_container(CoordinationKind::ScaleDomain, &right)
+                .with_channel("y");
+
+        assert_eq!(left_x, right_x);
+        assert_ne!(left_x, right_y);
+    }
+
+    #[test]
+    fn child_frame_keys_separate_concat_children() {
+        let left = concat_child_scope(0, Some("left"));
+        let right = concat_child_scope(1, Some("right"));
+        let left_key = CoordinationScopeKey::child_frame(CoordinationKind::ScaleDomain, &left)
+            .with_channel("x");
+        let right_key = CoordinationScopeKey::child_frame(CoordinationKind::ScaleDomain, &right)
+            .with_channel("x");
+
+        assert_ne!(left_key, right_key);
+    }
+
+    #[test]
+    fn child_frame_container_keys_preserve_ancestor_container_path() {
+        let child_key = ChildFrameKey::ConcatChild {
+            index: 0,
+            key: Some("subplot".to_string()),
+        };
+        let east = ChildFrameScopeKey::new(
+            vec![ContainerPathSegment::facet_value(
+                FacetAxis::Column,
+                0,
+                s("East"),
+            )],
+            child_key.clone(),
+        );
+        let west = ChildFrameScopeKey::new(
+            vec![ContainerPathSegment::facet_value(
+                FacetAxis::Column,
+                0,
+                s("West"),
+            )],
+            child_key,
+        );
+
+        let east_scope =
+            CoordinationScopeKey::child_frame_container(CoordinationKind::LegendOwnership, &east)
+                .with_channel("fill");
+        let west_scope =
+            CoordinationScopeKey::child_frame_container(CoordinationKind::LegendOwnership, &west)
+                .with_channel("fill");
+
+        assert_ne!(east_scope, west_scope);
     }
 
     #[test]
