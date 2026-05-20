@@ -79,6 +79,22 @@ fn numeric_cartesian_child_alt() -> Plot<Cartesian> {
     )
 }
 
+fn shared_x_child(data: DataFrame, title: &str) -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().data(data).title(title).mark(
+        Symbol::<Cartesian>::new()
+            .x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                    .with_scale_sharing(ScaleSharing::Shared)
+                    .axis(|a| a.title("Shared x"))
+            })
+            .y_with(col("y"), |c| c.axis(|a| a.title("y")))
+            .fill("#4682b4")
+            .stroke("#ffffff")
+            .stroke_width(1.0)
+            .size(96.0),
+    )
+}
+
 fn numeric_polar_child() -> Plot<Polar> {
     Plot::<Polar>::new().title("Polar").mark(
         Symbol::<Polar>::new()
@@ -91,6 +107,36 @@ fn numeric_polar_child() -> Plot<Polar> {
             .stroke("#333333")
             .stroke_width(1.0),
     )
+}
+
+#[tokio::test]
+async fn hconcat_shared_x_domains() {
+    let ctx = SessionContext::new();
+    let left = ctx
+        .sql(
+            "SELECT column1 AS x, column2 AS y
+             FROM (VALUES (1.0, 1.0), (1.5, 1.8), (2.0, 2.4))",
+        )
+        .await
+        .expect("create left shared-domain concat data");
+    let right = ctx
+        .sql(
+            "SELECT column1 AS x, column2 AS y
+             FROM (VALUES (100.0, 1.2), (100.5, 2.1), (101.0, 2.8))",
+        )
+        .await
+        .expect("create right shared-domain concat data");
+    let plot = Plot::<HConcat>::new()
+        .canvas_size(780.0, 320.0)
+        .title("Shared concat x domain")
+        .mark(Subplot::new(shared_x_child(left, "Local low x")).key("low"))
+        .mark(Subplot::new(shared_x_child(right, "Local high x")).key("high"));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile shared-domain hconcat chart");
+    assert_visual_match_default(&compiled, &ctx, None, "concat", "hconcat_shared_x_domains").await;
 }
 
 #[tokio::test]

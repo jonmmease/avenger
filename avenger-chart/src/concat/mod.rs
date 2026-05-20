@@ -778,7 +778,7 @@ mod tests {
     use avenger_scenegraph::marks::{mark::SceneMark, symbol::SceneSymbolMark};
     use datafusion::{
         arrow::{
-            array::{Array, Float64Array},
+            array::{Array, Float64Array, StringArray},
             record_batch::RecordBatch as ArrowRecordBatch,
         },
         prelude::{SessionContext, col},
@@ -788,9 +788,12 @@ mod tests {
     use crate::{
         cartesian::Cartesian,
         channel::config_traits::ScaleSharing,
-        facet::evaluated_facet_tree::EvaluatedFacetTree,
+        facet::{
+            coord::{FacetBandCoordMeasurement, FacetColumn},
+            evaluated_facet_tree::EvaluatedFacetTree,
+        },
         layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
-        marks::{Subplot, symbol::Symbol},
+        marks::{Subplot, line::Line, symbol::Symbol},
         plot::{
             CompiledPlot, Plot,
             compiled::{
@@ -799,6 +802,7 @@ mod tests {
             },
         },
         render::EvaluationContext,
+        scales::Linear,
         zerod::ZeroDCoord,
     };
 
@@ -809,11 +813,12 @@ mod tests {
         ctx: &SessionContext,
     ) -> Result<ComponentsMeasurement, AvengerChartError> {
         let params = compiled.get_default_params().clone();
+        let facet_tree = EvaluatedFacetTree::from_compiled_plot(compiled, ctx).await?;
         let eval_ctx = EvaluationContext::new(
             compiled.get_theme(),
             Arc::new(ctx.clone()),
             params.clone(),
-            Arc::new(EvaluatedFacetTree::empty()),
+            Arc::new(facet_tree),
         );
         let layout_spec = EvaluatedLayoutSpec {
             canvas: EvaluatedSizeMode::Auto,
@@ -868,6 +873,26 @@ mod tests {
         ctx.read_batch(batch).expect("read xy test batch")
     }
 
+    fn grouped_xy_dataframe(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
+        let batch = ArrowRecordBatch::try_from_iter(vec![
+            (
+                "x",
+                Arc::new(Float64Array::from(vec![1.0, 2.0, 100.0, 101.0])) as Arc<dyn Array>,
+            ),
+            (
+                "y",
+                Arc::new(Float64Array::from(vec![1.0, 2.0, 1.0, 2.0])) as Arc<dyn Array>,
+            ),
+            (
+                "group",
+                Arc::new(StringArray::from(vec!["left", "left", "right", "right"]))
+                    as Arc<dyn Array>,
+            ),
+        ])
+        .expect("create grouped xy record batch");
+        ctx.read_batch(batch).expect("read grouped xy test batch")
+    }
+
     fn find_symbol_mark(mark: &SceneMark) -> Option<&SceneSymbolMark> {
         match mark {
             SceneMark::Symbol(symbol) => Some(symbol),
@@ -890,15 +915,36 @@ mod tests {
         Plot::<Cartesian>::new().data(data).mark(symbol)
     }
 
+    fn line_mark(share_x: bool) -> Line<Cartesian> {
+        let mark = Line::<Cartesian>::new().y(col("y"));
+        if share_x {
+            mark.x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                    .with_scale_sharing(ScaleSharing::Shared)
+            })
+        } else {
+            mark.x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+            })
+        }
+    }
+
+    fn line_child_plot(data: datafusion::dataframe::DataFrame, share_x: bool) -> Plot<Cartesian> {
+        Plot::<Cartesian>::new().data(data).mark(line_mark(share_x))
+    }
+
     fn child_x_domain(child: &ConcatChildMeasurement) -> (f32, f32) {
-        child
-            .measurement
+        measurement_x_domain(&child.measurement)
+    }
+
+    fn measurement_x_domain(measurement: &ComponentsMeasurement) -> (f32, f32) {
+        measurement
             .scales
             .get("x")
-            .expect("child x scale should exist")
+            .expect("x scale should exist")
             .configured()
             .numeric_interval_domain()
-            .expect("child x scale should have a numeric interval domain")
+            .expect("x scale should have a numeric interval domain")
     }
 
     #[tokio::test]
@@ -1205,6 +1251,58 @@ mod tests {
         assert_eq!(left_domain, right_domain);
         assert!(left_domain.0 <= 1.0);
         assert!(left_domain.1 >= 101.0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn concat_and_facet_shared_domains_use_equivalent_unions() -> Result<(), AvengerChartError>
+    {
+        let ctx = SessionContext::new();
+        let left_data = xy_dataframe(&ctx, vec![1.0, 2.0], vec![1.0, 2.0]);
+        let right_data = xy_dataframe(&ctx, vec![100.0, 101.0], vec![1.0, 2.0]);
+        let concat_compiled = Plot::<HConcat>::new()
+            .mark(Subplot::new(line_child_plot(left_data, true)).key("left"))
+            .mark(Subplot::new(line_child_plot(right_data, true)).key("right"))
+            .compile(&ctx)
+            .await?;
+
+        let grouped_data = grouped_xy_dataframe(&ctx);
+        let facet_compiled = Plot::<FacetColumn>::new()
+            .data(grouped_data)
+            .mark(Subplot::new(Plot::<Cartesian>::new().mark(line_mark(true))).column(col("group")))
+            .compile(&ctx)
+            .await?;
+
+        let concat_measurement = measurement_for_plot(&concat_compiled, 400.0, 160.0, &ctx).await?;
+        let concat = concat_measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<ConcatCoordMeasurement>()
+            .expect("HConcat should measure as ConcatCoordMeasurement");
+        let concat_domains = concat
+            .children()
+            .iter()
+            .map(child_x_domain)
+            .collect::<Vec<_>>();
+
+        let facet_measurement = measurement_for_plot(&facet_compiled, 400.0, 160.0, &ctx).await?;
+        let facet = facet_measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("FacetColumn should measure as FacetBandCoordMeasurement");
+        let facet_domains = facet
+            .cells
+            .iter()
+            .map(|cell| measurement_x_domain(&cell.measurement))
+            .collect::<Vec<_>>();
+
+        assert_eq!(concat_domains.len(), 2);
+        assert_eq!(facet_domains.len(), 2);
+        assert_eq!(concat_domains[0], concat_domains[1]);
+        assert_eq!(facet_domains[0], facet_domains[1]);
+        assert_eq!(concat_domains[0], facet_domains[0]);
+        assert_eq!(concat_domains[0], (1.0, 101.0));
         Ok(())
     }
 
