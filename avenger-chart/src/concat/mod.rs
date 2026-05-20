@@ -14,11 +14,15 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    channel::value::strip_trailing_numbers,
     coords::{
         CoordMeasurement, CoordinateSystem, CoordinateSystemTransform, PlotGeometry, PointGeometry,
     },
     error::AvengerChartError,
-    facet::evaluated_facet_tree::EvaluatedFacetTree,
+    facet::{
+        domain_coordination::aggregate_domain_extents_by_scope,
+        evaluated_facet_tree::EvaluatedFacetTree, sharing_level::SharingLevel,
+    },
     guide::{CompiledGuide, CoordinateGuide, GuideUpdate, OverflowSpaceRequirement},
     layout::{
         BandChildFrameInput, BandChildFramePlacement, BandDirection, BandSpacing, BoundaryDemand1D,
@@ -26,12 +30,16 @@ use crate::{
         LayoutBounds, Size2D, project_child_frame_bounds,
     },
     marks::{CompiledConcatSubplot, CompiledMark, subplot::compiled_subplot},
-    plot::compiled::{
-        ChildFrameKey, ChildFrameScopeKey, ComponentsMeasurement,
-        scale_provider::DynamicScaleProvider, scales::build_scale_builder_from_marks,
+    plot::{
+        CompiledPlot,
+        compiled::{
+            ChildFrameKey, ChildFrameScopeKey, ComponentsMeasurement, CoordinationKind,
+            CoordinationScopeKey, scale_provider::DynamicScaleProvider,
+            scales::build_scale_builder_from_marks,
+        },
     },
     render::EvaluationContext,
-    scales::{ConfiguredScaleWithSpec, ScaleRangeBinding},
+    scales::{ConfiguredScaleWithSpec, DomainExtent, ScaleBuilder, ScaleRangeBinding},
     theme::Theme,
 };
 
@@ -324,13 +332,7 @@ pub(crate) struct ConcatChildMeasurement {
 
 impl ConcatChildMeasurement {
     pub(crate) fn scope_key(&self) -> ChildFrameScopeKey {
-        ChildFrameScopeKey::new(
-            Vec::new(),
-            ChildFrameKey::ConcatChild {
-                index: self.child_index,
-                key: self.key.clone(),
-            },
-        )
+        concat_child_scope_key(self.child_index, self.key.as_deref())
     }
 
     pub(crate) fn debug_label(&self) -> String {
@@ -343,6 +345,16 @@ impl ConcatChildMeasurement {
             (None, None) => self.child_index.to_string(),
         }
     }
+}
+
+fn concat_child_scope_key(child_index: usize, key: Option<&str>) -> ChildFrameScopeKey {
+    ChildFrameScopeKey::new(
+        Vec::new(),
+        ChildFrameKey::ConcatChild {
+            index: child_index,
+            key: key.map(ToOwned::to_owned),
+        },
+    )
 }
 
 pub(crate) fn concat_coord_ref(
@@ -464,35 +476,197 @@ fn band_input_for_child(
     }
 }
 
-async fn measure_concat_child(
-    subplot: &CompiledConcatSubplot,
-    child_plot_area: Size2D,
+struct ConcatChannelDomainExtent {
+    extent: DomainExtent,
+    sharing_level: SharingLevel,
+}
+
+struct PreparedConcatChild<'a> {
+    subplot: &'a CompiledConcatSubplot,
+    child_data_override: Option<DataFrame>,
+    scale_builder: ScaleBuilder,
+    local_domain_extents: HashMap<String, ConcatChannelDomainExtent>,
+    channel_domain_sharing_levels: HashMap<String, SharingLevel>,
+}
+
+impl PreparedConcatChild<'_> {
+    fn child_index(&self) -> usize {
+        self.subplot.child_index()
+    }
+
+    fn key(&self) -> Option<&str> {
+        self.subplot.key()
+    }
+
+    fn label(&self) -> Option<&str> {
+        self.subplot.label()
+    }
+
+    fn scope_key(&self) -> ChildFrameScopeKey {
+        concat_child_scope_key(self.child_index(), self.key())
+    }
+}
+
+fn channel_domain_sharing_levels_for_plot(plot: &CompiledPlot) -> HashMap<String, SharingLevel> {
+    let mut sharing_levels = HashMap::new();
+    for mark in &plot.marks {
+        for (channel, channel_value) in mark.data_context().channels() {
+            let Some(sharing) = channel_value.get_share_mode() else {
+                continue;
+            };
+            let channel = strip_trailing_numbers(channel).to_string();
+            let sharing_level = SharingLevel::from(sharing);
+            sharing_levels
+                .entry(channel)
+                .and_modify(|existing: &mut SharingLevel| {
+                    *existing = (*existing).max(sharing_level);
+                })
+                .or_insert(sharing_level);
+        }
+    }
+    sharing_levels
+}
+
+fn extract_concat_domain_extents(
+    scale_builder: &ScaleBuilder,
+    sharing_levels: &HashMap<String, SharingLevel>,
+) -> HashMap<String, ConcatChannelDomainExtent> {
+    let shared_channels = sharing_levels
+        .iter()
+        .filter_map(|(channel, sharing_level)| {
+            (!sharing_level.is_free()).then_some(channel.as_str())
+        })
+        .collect::<Vec<_>>();
+    if shared_channels.is_empty() {
+        return HashMap::new();
+    }
+
+    scale_builder
+        .extract_domain_extents(&shared_channels)
+        .into_iter()
+        .filter_map(|(channel, extent)| {
+            sharing_levels.get(&channel).map(|sharing_level| {
+                (
+                    channel,
+                    ConcatChannelDomainExtent {
+                        extent,
+                        sharing_level: *sharing_level,
+                    },
+                )
+            })
+        })
+        .collect()
+}
+
+fn concat_domain_scope_key(
+    child_scope: &ChildFrameScopeKey,
+    channel: &str,
+    sharing_level: SharingLevel,
+) -> CoordinationScopeKey {
+    debug_assert!(
+        !sharing_level.is_free(),
+        "Free concat scale domains should not need a coordination scope"
+    );
+    CoordinationScopeKey::child_frame_container(CoordinationKind::ScaleDomain, child_scope)
+        .with_channel(channel)
+}
+
+fn coordinated_domain_extents_for_concat_children(
+    children: &[PreparedConcatChild<'_>],
+) -> Vec<HashMap<String, DomainExtent>> {
+    let unified = aggregate_domain_extents_by_scope(children.iter().flat_map(|child| {
+        let child_scope = child.scope_key();
+        child
+            .local_domain_extents
+            .iter()
+            .filter_map(move |(channel, annotated)| {
+                (!annotated.sharing_level.is_free()).then_some((
+                    concat_domain_scope_key(&child_scope, channel, annotated.sharing_level),
+                    &annotated.extent,
+                ))
+            })
+    }));
+
+    children
+        .iter()
+        .map(|child| {
+            let child_scope = child.scope_key();
+            let mut coordinated = HashMap::new();
+            for (channel, sharing_level) in &child.channel_domain_sharing_levels {
+                if sharing_level.is_free() {
+                    continue;
+                }
+
+                let key = concat_domain_scope_key(&child_scope, channel, *sharing_level);
+                if let Some(unified_extent) = unified.get(&key) {
+                    coordinated.insert(channel.clone(), unified_extent.clone());
+                }
+            }
+            coordinated
+        })
+        .collect()
+}
+
+async fn prepare_concat_child<'a>(
+    subplot: &'a CompiledConcatSubplot,
     eval_ctx: &EvaluationContext,
     inherited_data: Option<&DataFrame>,
-    facet_path: &[ScalarValue],
-) -> Result<ConcatChildMeasurement, AvengerChartError> {
+) -> Result<PreparedConcatChild<'a>, AvengerChartError> {
     let child_plot = subplot.compiled_subplot();
     let child_data_override = if subplot.inherits_parent_data() {
-        inherited_data
+        inherited_data.cloned()
     } else {
         None
     };
-    let child_layout_spec =
-        fixed_plot_area_layout_spec(child_plot_area.width, child_plot_area.height);
     let child_params: IndexMap<String, ScalarValue> = eval_ctx.params.clone();
     let scale_builder = build_scale_builder_from_marks(
         &child_plot.marks,
         &child_plot.scale_specs,
         &child_plot.coord_transform,
         &child_plot.data,
-        child_data_override.cloned(),
+        child_data_override.clone(),
         eval_ctx.session_context.as_ref(),
         &child_params,
         child_plot.get_theme().as_ref(),
     )
     .await?;
+
+    let channel_domain_sharing_levels = channel_domain_sharing_levels_for_plot(child_plot);
+    let local_domain_extents =
+        extract_concat_domain_extents(&scale_builder, &channel_domain_sharing_levels);
+
+    Ok(PreparedConcatChild {
+        subplot,
+        child_data_override,
+        scale_builder,
+        local_domain_extents,
+        channel_domain_sharing_levels,
+    })
+}
+
+async fn measure_prepared_concat_child(
+    prepared: &PreparedConcatChild<'_>,
+    child_plot_area: Size2D,
+    eval_ctx: &EvaluationContext,
+    facet_path: &[ScalarValue],
+    coordinated_domain_extents: &HashMap<String, DomainExtent>,
+) -> Result<ConcatChildMeasurement, AvengerChartError> {
+    let child_plot = prepared.subplot.compiled_subplot();
+    let child_layout_spec =
+        fixed_plot_area_layout_spec(child_plot_area.width, child_plot_area.height);
+    let extended_builder;
+    let scale_builder = if coordinated_domain_extents.is_empty() {
+        &prepared.scale_builder
+    } else {
+        extended_builder = {
+            let mut builder = prepared.scale_builder.clone();
+            builder.extend_with_domain_extents(coordinated_domain_extents);
+            builder
+        };
+        &extended_builder
+    };
     let scale_provider = DynamicScaleProvider {
-        builder: &scale_builder,
+        builder: scale_builder,
         plot: child_plot,
     };
     let measurement = child_plot
@@ -500,15 +674,15 @@ async fn measure_concat_child(
             eval_ctx,
             &child_layout_spec,
             &scale_provider,
-            child_data_override,
+            prepared.child_data_override.as_ref(),
             facet_path,
         )
         .await?;
 
     Ok(ConcatChildMeasurement {
-        child_index: subplot.child_index(),
-        key: subplot.key().map(ToOwned::to_owned),
-        label: subplot.label().map(ToOwned::to_owned),
+        child_index: prepared.child_index(),
+        key: prepared.key().map(ToOwned::to_owned),
+        label: prepared.label().map(ToOwned::to_owned),
         measurement,
     })
 }
@@ -528,10 +702,28 @@ async fn measure_concat_coord_system(
         .collect::<Vec<_>>();
     let child_plot_area = child_plot_area_size(direction, plot_width, plot_height, subplots.len());
 
-    let mut children = Vec::with_capacity(subplots.len());
+    let mut prepared_children = Vec::with_capacity(subplots.len());
     for subplot in subplots {
+        prepared_children.push(prepare_concat_child(subplot, eval_ctx, data).await?);
+    }
+
+    let coordinated_domain_extents =
+        coordinated_domain_extents_for_concat_children(&prepared_children);
+
+    let mut children = Vec::with_capacity(prepared_children.len());
+    for (prepared, coordinated_extents) in prepared_children
+        .iter()
+        .zip(coordinated_domain_extents.iter())
+    {
         children.push(
-            measure_concat_child(subplot, child_plot_area, eval_ctx, data, facet_path).await?,
+            measure_prepared_concat_child(
+                prepared,
+                child_plot_area,
+                eval_ctx,
+                facet_path,
+                coordinated_extents,
+            )
+            .await?,
         );
     }
 
@@ -595,6 +787,7 @@ mod tests {
     use super::*;
     use crate::{
         cartesian::Cartesian,
+        channel::config_traits::ScaleSharing,
         facet::evaluated_facet_tree::EvaluatedFacetTree,
         layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
         marks::{Subplot, symbol::Symbol},
@@ -681,6 +874,31 @@ mod tests {
             SceneMark::Group(group) => group.marks.iter().find_map(find_symbol_mark),
             _ => None,
         }
+    }
+
+    fn child_scatter_plot(
+        data: datafusion::dataframe::DataFrame,
+        share_x: bool,
+    ) -> Plot<Cartesian> {
+        let symbol = if share_x {
+            Symbol::new()
+                .x_with(col("x"), |c| c.with_scale_sharing(ScaleSharing::Shared))
+                .y(col("y"))
+        } else {
+            Symbol::new().x(col("x")).y(col("y"))
+        };
+        Plot::<Cartesian>::new().data(data).mark(symbol)
+    }
+
+    fn child_x_domain(child: &ConcatChildMeasurement) -> (f32, f32) {
+        child
+            .measurement
+            .scales
+            .get("x")
+            .expect("child x scale should exist")
+            .configured()
+            .numeric_interval_domain()
+            .expect("child x scale should have a numeric interval domain")
     }
 
     #[tokio::test]
@@ -934,6 +1152,59 @@ mod tests {
         let symbol = find_symbol_mark(child_group).expect("child subplot should render symbols");
 
         assert_eq!(symbol.len, 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn concat_child_domains_are_free_by_default() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let left_data = xy_dataframe(&ctx, vec![1.0, 2.0], vec![1.0, 2.0]);
+        let right_data = xy_dataframe(&ctx, vec![100.0, 101.0], vec![1.0, 2.0]);
+        let compiled = Plot::<HConcat>::new()
+            .mark(Subplot::new(child_scatter_plot(left_data, false)).key("left"))
+            .mark(Subplot::new(child_scatter_plot(right_data, false)).key("right"))
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 400.0, 160.0, &ctx).await?;
+        let concat = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<ConcatCoordMeasurement>()
+            .expect("HConcat should measure as ConcatCoordMeasurement");
+        let left_domain = child_x_domain(&concat.children()[0]);
+        let right_domain = child_x_domain(&concat.children()[1]);
+
+        assert_ne!(left_domain, right_domain);
+        assert!(left_domain.1 < 50.0);
+        assert!(right_domain.1 > 50.0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn concat_child_domains_share_when_channel_requests_sharing()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let left_data = xy_dataframe(&ctx, vec![1.0, 2.0], vec![1.0, 2.0]);
+        let right_data = xy_dataframe(&ctx, vec![100.0, 101.0], vec![1.0, 2.0]);
+        let compiled = Plot::<HConcat>::new()
+            .mark(Subplot::new(child_scatter_plot(left_data, true)).key("left"))
+            .mark(Subplot::new(child_scatter_plot(right_data, true)).key("right"))
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 400.0, 160.0, &ctx).await?;
+        let concat = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<ConcatCoordMeasurement>()
+            .expect("HConcat should measure as ConcatCoordMeasurement");
+        let left_domain = child_x_domain(&concat.children()[0]);
+        let right_domain = child_x_domain(&concat.children()[1]);
+
+        assert_eq!(left_domain, right_domain);
+        assert!(left_domain.0 <= 1.0);
+        assert!(left_domain.1 >= 101.0);
         Ok(())
     }
 

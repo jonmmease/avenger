@@ -16,16 +16,26 @@ use crate::{
 pub(crate) fn aggregate_domain_extents(
     infos: &[CellDomainInfo],
 ) -> HashMap<CoordinationScopeKey, DomainExtent> {
+    aggregate_domain_extents_by_scope(infos.iter().map(|info| {
+        (
+            domain_coordination_scope_key(
+                &info.channel,
+                &info.full_cell_path,
+                SharingLevel::from_raw(info.domain_sharing_level),
+                info.facet_depth,
+            ),
+            &info.extent,
+        )
+    }))
+}
+
+pub(crate) fn aggregate_domain_extents_by_scope<'a>(
+    infos: impl IntoIterator<Item = (CoordinationScopeKey, &'a DomainExtent)>,
+) -> HashMap<CoordinationScopeKey, DomainExtent> {
     let mut groups: HashMap<CoordinationScopeKey, Vec<&DomainExtent>> = HashMap::new();
 
-    for info in infos {
-        let key = domain_coordination_scope_key(
-            &info.channel,
-            &info.full_cell_path,
-            SharingLevel::from_raw(info.domain_sharing_level),
-            info.facet_depth,
-        );
-        groups.entry(key).or_default().push(&info.extent);
+    for (key, extent) in infos {
+        groups.entry(key).or_default().push(extent);
     }
 
     groups
@@ -34,7 +44,7 @@ pub(crate) fn aggregate_domain_extents(
             let mut extents = extents.into_iter();
             let first = extents
                 .next()
-                .expect("Facet domain coordination invariant violated: non-empty group expected");
+                .expect("Domain coordination invariant violated: non-empty group expected");
             let unified = extents.fold(first.clone(), |acc, extent| {
                 union_domain_extents(&acc, extent)
             });
