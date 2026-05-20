@@ -28,7 +28,7 @@ use crate::{
     error::AvengerChartError,
     facet::{
         keys::FacetKeyExtractor,
-        marks::facet::{FacetMarkRef, facet_mark_ref},
+        marks::facet::{FacetSubplotRef, facet_subplot_ref},
         path_math,
         scalar_cmp::scalar_total_cmp,
         sharing_kernel::{self, SharingGroupEdge},
@@ -297,7 +297,7 @@ impl EvaluatedFacetTree {
 
     /// Build from a compiled plot by discovering facet structure and querying data.
     ///
-    /// This performs the pre-pass: walks the mark tree to find facet marks,
+    /// This performs the pre-pass: walks the mark tree to find facet subplot marks,
     /// queries distinct values for each partition, and builds the tree structure.
     /// Uses a cache to avoid redundant queries for shared facet slots.
     pub async fn from_compiled_plot(
@@ -1637,7 +1637,7 @@ fn extract_channel_domain_sharing_levels(marks: &[Arc<dyn CompiledMark>]) -> Has
     let mut result = HashMap::new();
 
     for mark in marks {
-        if let Some(facet_mark) = facet_mark_ref(mark.as_ref()) {
+        if let Some(facet_mark) = facet_subplot_ref(mark.as_ref()) {
             // Recurse into subplot to find innermost marks
             let inner = extract_channel_domain_sharing_levels(&facet_mark.compiled_subplot().marks);
             result.extend(inner);
@@ -1691,7 +1691,7 @@ fn extract_field_name(expr: &Expr) -> String {
     }
 }
 
-/// Resolved metadata for building a partition node from a facet mark.
+/// Resolved metadata for building a partition node from a facet subplot mark.
 struct FacetPartitionSpec<'a> {
     channels: &'a IndexMap<String, ChannelValue>,
     channel_name: &'static str,
@@ -1701,16 +1701,16 @@ struct FacetPartitionSpec<'a> {
 }
 
 impl<'a> FacetPartitionSpec<'a> {
-    fn from_facet_mark(facet_mark: FacetMarkRef<'a>) -> Self {
+    fn from_facet_mark(facet_mark: FacetSubplotRef<'a>) -> Self {
         match facet_mark {
-            FacetMarkRef::Row(facet_row) => Self {
+            FacetSubplotRef::Row(facet_row) => Self {
                 channels: facet_row.compiled_state().data.channels(),
                 channel_name: "row",
                 direction: FacetDirection::Row,
                 subplot: facet_row.compiled_subplot(),
                 slot_sharing: facet_row.facet_slot_sharing(),
             },
-            FacetMarkRef::Col(facet_col) => Self {
+            FacetSubplotRef::Col(facet_col) => Self {
                 channels: facet_col.compiled_state().data.channels(),
                 channel_name: "column",
                 direction: FacetDirection::Column,
@@ -1739,7 +1739,7 @@ async fn build_partition_tree(
     slot_cache: &mut SharedSlotCache,
 ) -> Result<Option<PartitionNode>, AvengerChartError> {
     for mark in marks {
-        if let Some(facet_mark) = facet_mark_ref(mark.as_ref()) {
+        if let Some(facet_mark) = facet_subplot_ref(mark.as_ref()) {
             let spec = FacetPartitionSpec::from_facet_mark(facet_mark);
             return Box::pin(build_partition_node(
                 &spec,

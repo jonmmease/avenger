@@ -15,7 +15,7 @@ async fn facet_row_iris_polar_scatter() {
     let outer = Plot::<FacetRow>::new()
         .data(df)
         .mark(
-            Facet::new().row(col("species")).subplot(
+            Subplot::new(
                 Plot::<Polar>::new().mark(
                     Symbol::new()
                         .r_with(col("sepal_length"), |c| {
@@ -29,7 +29,8 @@ async fn facet_row_iris_polar_scatter() {
                         .size(36.0)
                         .fill("#cd5c5c"),
                 ),
-            ),
+            )
+            .row(col("species")),
         )
         .canvas_size(600.0, 500.0);
 

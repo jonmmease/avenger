@@ -235,7 +235,7 @@ async fn facet_row_hconcat_shared_data() {
     let plot = Plot::<FacetRow>::new()
         .canvas_size(860.0, 760.0)
         .data(df)
-        .mark(Facet::new().row(col("species")).subplot(subplot));
+        .mark(Subplot::new(subplot).row(col("species")));
 
     let compiled = plot
         .compile(&ctx)

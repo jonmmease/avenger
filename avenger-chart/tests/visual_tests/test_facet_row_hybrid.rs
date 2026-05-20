@@ -15,7 +15,7 @@ async fn facet_row_iris_hybrid_shared_x_free_y() {
     let outer = Plot::<FacetRow>::new()
         .data(df)
         .mark(
-            Facet::<Cartesian>::new().row(col("species")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
@@ -31,7 +31,8 @@ async fn facet_row_iris_hybrid_shared_x_free_y() {
                         .size(28.0)
                         .fill("#2e8b57"),
                 ),
-            ),
+            )
+            .row(col("species")),
         )
         .canvas_size(600.0, 500.0);
 

@@ -14,15 +14,14 @@ use crate::facet::ownership_policy::{
 use crate::facet::placement::{FacetBandPlacement, facet_child_frame_placement_from_band};
 use crate::layout::Size2D;
 use crate::marks::{
-    ChannelDescriptor, ChannelValue, CompiledMark, CompiledMarkState, Mark, MarkState,
+    ChannelDescriptor, ChannelValue, CompiledMark, CompiledMarkState, Mark, MarkState, Subplot,
 };
-use crate::plot::{CompiledPlot, Plot};
+use crate::plot::CompiledPlot;
 use crate::render::{EvaluationContext, RenderContext};
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 use datafusion::prelude::SessionContext;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::trace;
 
@@ -260,73 +259,13 @@ async fn render_facet_band_common(
     .await
 }
 
-/// Facet mark for FacetRow or FacetCol outer coordinate system.
-/// Renders a provided inner plot for each band value in the facet channel.
-#[derive(Clone)]
-pub struct Facet<InnerC: CoordinateSystem> {
-    pub(crate) state: MarkState,
-    pub(crate) subplot: Option<Plot<InnerC>>,
-    pub(crate) facet_row_title: Option<String>,
-    pub(crate) facet_col_title: Option<String>,
-    pub(crate) facet_row_slot_sharing: Option<ScaleSharing>,
-    pub(crate) facet_col_slot_sharing: Option<ScaleSharing>,
-    pub(crate) facet_row_position: Option<String>,
-    pub(crate) facet_col_position: Option<String>,
-    pub(crate) facet_row_empty_cell_policy: Option<FacetEmptyCellPolicy>,
-    pub(crate) facet_col_empty_cell_policy: Option<FacetEmptyCellPolicy>,
-}
-
-impl<InnerC: CoordinateSystem> Default for Facet<InnerC> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<InnerC: CoordinateSystem> Facet<InnerC> {
-    pub fn new() -> Self {
-        Self {
-            state: MarkState {
-                data: crate::marks::DataContext::default(),
-                facet_strategy: crate::marks::FacetStrategy::Filter,
-                details: None,
-                zindex: None,
-                axis_configs: HashMap::new(),
-            },
-            subplot: None,
-            facet_row_title: None,
-            facet_col_title: None,
-            facet_row_slot_sharing: None,
-            facet_col_slot_sharing: None,
-            facet_row_position: None,
-            facet_col_position: None,
-            facet_row_empty_cell_policy: None,
-            facet_col_empty_cell_policy: None,
-        }
-    }
-
-    /// Set explicit data for this mark
-    pub fn data(mut self, dataframe: datafusion::dataframe::DataFrame) -> Self {
-        self.state.data = crate::marks::DataContext::new(dataframe);
-        self
-    }
-
-    /// Set zindex
-    pub fn zindex(mut self, zindex: i32) -> Self {
-        self.state.zindex = Some(zindex);
-        self
-    }
-
-    /// Set the faceting channel for rows
+impl Subplot<FacetRow> {
+    /// Set the faceting channel for rows.
     pub fn row<V: Into<ChannelValue>>(self, value: V) -> Self {
-        let mut s = self;
-        s.state.data = s
-            .state
-            .data
-            .with_channel_value(RowDimensionConfig::channel_name(), value.into());
-        s
+        self.with_channel_value(RowDimensionConfig::channel_name(), value.into())
     }
 
-    /// Configure row with facet options (e.g., title, slot sharing)
+    /// Configure row with facet options (e.g., title, slot sharing).
     pub fn row_with<V, F>(self, value: V, f: F) -> Self
     where
         V: Into<ChannelValue>,
@@ -334,24 +273,22 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
     {
         let mut s = self.row(value);
         let cfg = f(FacetRowChannelConfig::default());
-        s.facet_row_title = cfg.title;
-        s.facet_row_slot_sharing = cfg.slot_sharing;
-        s.facet_row_position = cfg.position;
-        s.facet_row_empty_cell_policy = cfg.empty_cell_policy;
+        let config = s.config_mut();
+        config.facet_row_title = cfg.title;
+        config.facet_row_slot_sharing = cfg.slot_sharing;
+        config.facet_row_position = cfg.position;
+        config.facet_row_empty_cell_policy = cfg.empty_cell_policy;
         s
     }
+}
 
-    /// Set the faceting channel for columns
+impl Subplot<FacetColumn> {
+    /// Set the faceting channel for columns.
     pub fn column<V: Into<ChannelValue>>(self, value: V) -> Self {
-        let mut s = self;
-        s.state.data = s
-            .state
-            .data
-            .with_channel_value(ColumnDimensionConfig::channel_name(), value.into());
-        s
+        self.with_channel_value(ColumnDimensionConfig::channel_name(), value.into())
     }
 
-    /// Configure col with facet options (e.g., title, slot sharing, position)
+    /// Configure column with facet options (e.g., title, slot sharing, position).
     pub fn col_with<V, F>(self, value: V, f: F) -> Self
     where
         V: Into<ChannelValue>,
@@ -359,24 +296,79 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
     {
         let mut s = self.column(value);
         let cfg = f(FacetColChannelConfig::default());
-        s.facet_col_title = cfg.title;
-        s.facet_col_slot_sharing = cfg.slot_sharing;
-        s.facet_col_position = cfg.position;
-        s.facet_col_empty_cell_policy = cfg.empty_cell_policy;
+        let config = s.config_mut();
+        config.facet_col_title = cfg.title;
+        config.facet_col_slot_sharing = cfg.slot_sharing;
+        config.facet_col_position = cfg.position;
+        config.facet_col_empty_cell_policy = cfg.empty_cell_policy;
         s
     }
 
-    /// Provide a subplot Plot<InnerC>
-    pub fn subplot(mut self, plot: Plot<InnerC>) -> Self {
-        self.subplot = Some(plot);
-        self
+    /// Configure column with facet options.
+    pub fn column_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(FacetColChannelConfig) -> FacetColChannelConfig,
+    {
+        self.col_with(value, f)
     }
 }
 
-/// Compiled facet mark specialized for the FacetRow outer coordinate system.
+fn facet_title_for_channel(
+    explicit_title: &Option<String>,
+    channel_name: &str,
+    compiled_state: &CompiledMarkState,
+    session_context: &SessionContext,
+) -> Option<String> {
+    match explicit_title {
+        Some(title) if title.is_empty() => None,
+        Some(title) => Some(title.clone()),
+        None => compiled_state
+            .data
+            .channels()
+            .get(channel_name)
+            .and_then(|cv| cv.expr(session_context))
+            .map(|expr| crate::channel::value::expr_to_string(&expr)),
+    }
+}
+
+async fn compile_facet_subplot_child<OuterC: CoordinateSystem>(
+    subplot: &Subplot<OuterC>,
+    session_context: &SessionContext,
+) -> Result<Arc<CompiledPlot>, AvengerChartError> {
+    if subplot.has_plot_level_data() {
+        return Err(AvengerChartError::InvalidArgument(
+            "Nested facet plots should not have their own data attached. \
+             Data flows from the parent facet to child plots. \
+             Remove the .data() call from the inner Plot."
+                .to_string(),
+        ));
+    }
+
+    subplot.compile_child_plot(session_context).await
+}
+
+fn validate_no_channel(
+    subplot: &Subplot<impl CoordinateSystem>,
+    channel_name: &'static str,
+    outer_label: &str,
+) -> Result<(), AvengerChartError> {
+    if subplot
+        .data_context_ref()
+        .channels()
+        .contains_key(channel_name)
+    {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "{outer_label} subplots do not support channel `{channel_name}`"
+        )));
+    }
+    Ok(())
+}
+
+/// Compiled subplot mark specialized for the FacetRow outer coordinate system.
 #[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
-pub struct CompiledFacetRow {
+pub struct CompiledFacetRowSubplot {
     pub(crate) state: CompiledMarkState,
     pub(crate) compiled_subplot: Arc<CompiledPlot>,
     pub(crate) facet_title: Option<String>,
@@ -386,7 +378,7 @@ pub struct CompiledFacetRow {
     pub(crate) facet_empty_cell_policy: FacetEmptyCellPolicy,
 }
 
-impl CompiledFacetRow {
+impl CompiledFacetRowSubplot {
     pub fn compiled_subplot(&self) -> &Arc<CompiledPlot> {
         &self.compiled_subplot
     }
@@ -408,17 +400,17 @@ impl CompiledFacetRow {
 }
 
 #[async_trait::async_trait]
-impl<InnerC: CoordinateSystem + Clone> Mark<FacetRow> for Facet<InnerC> {
+impl Mark<FacetRow> for Subplot<FacetRow> {
     fn state(&self) -> &MarkState {
-        &self.state
+        self.state_ref()
     }
 
     fn state_mut(&mut self) -> &mut MarkState {
-        &mut self.state
+        self.state_mut_ref()
     }
 
     fn data_context(&self) -> &crate::marks::DataContext {
-        &self.state.data
+        self.data_context_ref()
     }
 
     async fn compile(
@@ -426,58 +418,33 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetRow> for Facet<InnerC> {
         compiled_state: CompiledMarkState,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        let compiled_subplot: Arc<CompiledPlot> = {
-            let plot_ref = self
-                .subplot
-                .as_ref()
-                .ok_or_else(|| AvengerChartError::InternalError("Facet subplot not set".into()))?;
+        validate_no_channel(self, ColumnDimensionConfig::channel_name(), "FacetRow")?;
+        let compiled_subplot = compile_facet_subplot_child(self, session_context).await?;
+        let channel_name = RowDimensionConfig::channel_name();
+        let facet_title = facet_title_for_channel(
+            &self.config().facet_row_title,
+            channel_name,
+            &compiled_state,
+            session_context,
+        );
 
-            // Validate that subplot doesn't have its own data
-            if plot_ref.data.is_some() {
-                return Err(AvengerChartError::InvalidArgument(
-                    "Nested facet plots should not have their own data attached. \
-                     Data flows from the parent facet to child plots. \
-                     Remove the .data() call from the inner Plot."
-                        .to_string(),
-                ));
-            }
-
-            let plot_clone = plot_ref.clone();
-            // Plot<InnerC> implements Clone; explicitly call Clone::clone
-            let plot_owned: Plot<InnerC> = Clone::clone(&plot_clone);
-            Arc::new(plot_owned.compile(session_context).await?)
-        };
-
-        // Derive facet title: explicit title > derived from row name > None (if explicitly disabled)
-        let facet_title = match &self.facet_row_title {
-            Some(title) if title.is_empty() => None, // Explicitly disabled with empty string
-            Some(title) => Some(title.clone()),      // Explicit title
-            None => {
-                // Derive from row expression
-                let channel_name = RowDimensionConfig::channel_name();
-                compiled_state
-                    .data
-                    .channels()
-                    .get(channel_name)
-                    .and_then(|cv| cv.expr(session_context))
-                    .map(|expr| crate::channel::value::expr_to_string(&expr))
-            }
-        };
-
-        Ok(Arc::new(CompiledFacetRow {
+        Ok(Arc::new(CompiledFacetRowSubplot {
             state: compiled_state,
             compiled_subplot,
             facet_title,
-            facet_slot_sharing: self.facet_row_slot_sharing,
-            facet_position: self.facet_row_position.clone(),
-            facet_empty_cell_policy: self.facet_row_empty_cell_policy.unwrap_or_default(),
+            facet_slot_sharing: self.config().facet_row_slot_sharing,
+            facet_position: self.config().facet_row_position.clone(),
+            facet_empty_cell_policy: self
+                .config()
+                .facet_row_empty_cell_policy
+                .unwrap_or_default(),
         }))
     }
 }
 
 #[typetag::serde]
 #[async_trait::async_trait]
-impl CompiledMark for CompiledFacetRow {
+impl CompiledMark for CompiledFacetRowSubplot {
     fn state(&self) -> &CompiledMarkState {
         &self.state
     }
@@ -575,10 +542,10 @@ impl CompiledMark for CompiledFacetRow {
 // FacetCol Implementation
 // ============================================================================
 
-/// Compiled facet mark specialized for the FacetCol outer coordinate system.
+/// Compiled subplot mark specialized for the FacetColumn outer coordinate system.
 #[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
-pub struct CompiledFacetCol {
+pub struct CompiledFacetColumnSubplot {
     pub(crate) state: CompiledMarkState,
     pub(crate) compiled_subplot: Arc<CompiledPlot>,
     pub(crate) facet_title: Option<String>,
@@ -588,7 +555,7 @@ pub struct CompiledFacetCol {
     pub(crate) facet_empty_cell_policy: FacetEmptyCellPolicy,
 }
 
-impl CompiledFacetCol {
+impl CompiledFacetColumnSubplot {
     pub fn compiled_subplot(&self) -> &Arc<CompiledPlot> {
         &self.compiled_subplot
     }
@@ -609,13 +576,56 @@ impl CompiledFacetCol {
     }
 }
 
-/// Typed view over compiled facet marks.
-pub enum FacetMarkRef<'a> {
-    Row(&'a CompiledFacetRow),
-    Col(&'a CompiledFacetCol),
+#[async_trait::async_trait]
+impl Mark<FacetColumn> for Subplot<FacetColumn> {
+    fn state(&self) -> &MarkState {
+        self.state_ref()
+    }
+
+    fn state_mut(&mut self) -> &mut MarkState {
+        self.state_mut_ref()
+    }
+
+    fn data_context(&self) -> &crate::marks::DataContext {
+        self.data_context_ref()
+    }
+
+    async fn compile(
+        &self,
+        compiled_state: CompiledMarkState,
+        session_context: &SessionContext,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        validate_no_channel(self, RowDimensionConfig::channel_name(), "FacetColumn")?;
+        let compiled_subplot = compile_facet_subplot_child(self, session_context).await?;
+        let channel_name = ColumnDimensionConfig::channel_name();
+        let facet_title = facet_title_for_channel(
+            &self.config().facet_col_title,
+            channel_name,
+            &compiled_state,
+            session_context,
+        );
+
+        Ok(Arc::new(CompiledFacetColumnSubplot {
+            state: compiled_state,
+            compiled_subplot,
+            facet_title,
+            facet_slot_sharing: self.config().facet_col_slot_sharing,
+            facet_position: self.config().facet_col_position.clone(),
+            facet_empty_cell_policy: self
+                .config()
+                .facet_col_empty_cell_policy
+                .unwrap_or_default(),
+        }))
+    }
 }
 
-impl<'a> FacetMarkRef<'a> {
+/// Typed view over compiled facet subplot marks.
+pub enum FacetSubplotRef<'a> {
+    Row(&'a CompiledFacetRowSubplot),
+    Col(&'a CompiledFacetColumnSubplot),
+}
+
+impl<'a> FacetSubplotRef<'a> {
     pub fn compiled_subplot(self) -> &'a Arc<CompiledPlot> {
         match self {
             Self::Row(mark) => mark.compiled_subplot(),
@@ -638,91 +648,24 @@ impl<'a> FacetMarkRef<'a> {
     }
 }
 
-/// Downcast a compiled mark into a typed facet mark reference.
-pub fn facet_mark_ref(mark: &dyn CompiledMark) -> Option<FacetMarkRef<'_>> {
+/// Downcast a compiled mark into a typed facet subplot reference.
+pub fn facet_subplot_ref(mark: &dyn CompiledMark) -> Option<FacetSubplotRef<'_>> {
     match mark.mark_type() {
         "facet_col" => mark
             .as_any()
-            .downcast_ref::<CompiledFacetCol>()
-            .map(FacetMarkRef::Col),
+            .downcast_ref::<CompiledFacetColumnSubplot>()
+            .map(FacetSubplotRef::Col),
         "facet_row" => mark
             .as_any()
-            .downcast_ref::<CompiledFacetRow>()
-            .map(FacetMarkRef::Row),
+            .downcast_ref::<CompiledFacetRowSubplot>()
+            .map(FacetSubplotRef::Row),
         _ => None,
-    }
-}
-
-#[async_trait::async_trait]
-impl<InnerC: CoordinateSystem + Clone> Mark<FacetColumn> for Facet<InnerC> {
-    fn state(&self) -> &MarkState {
-        &self.state
-    }
-
-    fn state_mut(&mut self) -> &mut MarkState {
-        &mut self.state
-    }
-
-    fn data_context(&self) -> &crate::marks::DataContext {
-        &self.state.data
-    }
-
-    async fn compile(
-        &self,
-        compiled_state: CompiledMarkState,
-        session_context: &SessionContext,
-    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        let compiled_subplot: Arc<CompiledPlot> = {
-            let plot_ref = self
-                .subplot
-                .as_ref()
-                .ok_or_else(|| AvengerChartError::InternalError("Facet subplot not set".into()))?;
-
-            // Validate that subplot doesn't have its own data
-            if plot_ref.data.is_some() {
-                return Err(AvengerChartError::InvalidArgument(
-                    "Nested facet plots should not have their own data attached. \
-                     Data flows from the parent facet to child plots. \
-                     Remove the .data() call from the inner Plot."
-                        .to_string(),
-                ));
-            }
-
-            let plot_clone = plot_ref.clone();
-            let plot_owned: Plot<InnerC> = Clone::clone(&plot_clone);
-            Arc::new(plot_owned.compile(session_context).await?)
-        };
-
-        // Derive facet title: explicit title > derived from column name > None (if explicitly disabled)
-        let facet_title = match &self.facet_col_title {
-            Some(title) if title.is_empty() => None, // Explicitly disabled with empty string
-            Some(title) => Some(title.clone()),      // Explicit title
-            None => {
-                // Derive from column expression
-                let channel_name = ColumnDimensionConfig::channel_name();
-                compiled_state
-                    .data
-                    .channels()
-                    .get(channel_name)
-                    .and_then(|cv| cv.expr(session_context))
-                    .map(|expr| crate::channel::value::expr_to_string(&expr))
-            }
-        };
-
-        Ok(Arc::new(CompiledFacetCol {
-            state: compiled_state,
-            compiled_subplot,
-            facet_title,
-            facet_slot_sharing: self.facet_col_slot_sharing,
-            facet_position: self.facet_col_position.clone(),
-            facet_empty_cell_policy: self.facet_col_empty_cell_policy.unwrap_or_default(),
-        }))
     }
 }
 
 #[typetag::serde]
 #[async_trait::async_trait]
-impl CompiledMark for CompiledFacetCol {
+impl CompiledMark for CompiledFacetColumnSubplot {
     fn state(&self) -> &CompiledMarkState {
         &self.state
     }
@@ -820,6 +763,8 @@ impl CompiledMark for CompiledFacetCol {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::zerod::ZeroDCoord;
+    use datafusion::prelude::{SessionContext, col};
 
     #[test]
     fn facet_band_render_ops_group_name_prefixes_row_vs_col() {
@@ -830,5 +775,23 @@ mod tests {
         assert_eq!(row_ops.group_name(3, true), "facet_row_3_empty");
         assert_eq!(col_ops.group_name(4, false), "facet_col_4");
         assert_eq!(col_ops.group_name(4, true), "facet_col_4_empty");
+    }
+
+    #[tokio::test]
+    async fn facet_row_subplot_rejects_column_channel() {
+        let ctx = SessionContext::new();
+        let mut subplot =
+            Subplot::<FacetRow>::new(crate::plot::Plot::<ZeroDCoord>::new()).row(col("row"));
+        subplot.state_mut().data = subplot
+            .state()
+            .data
+            .clone()
+            .with_channel_value(ColumnDimensionConfig::channel_name(), col("col").into());
+
+        let compiled_state = CompiledMarkState::from_mark_state(subplot.state(), None);
+        let result =
+            <Subplot<FacetRow> as Mark<FacetRow>>::compile(&subplot, compiled_state, &ctx).await;
+
+        assert!(matches!(result, Err(AvengerChartError::InvalidArgument(_))));
     }
 }

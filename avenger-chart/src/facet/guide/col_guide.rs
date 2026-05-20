@@ -5,7 +5,7 @@
 use crate::cartesian::axis::CartesianAxis;
 use crate::error::AvengerChartError;
 use crate::facet::guide::band_guide_engine::{self, ColGuideAxisOps, FacetGuideState};
-use crate::facet::marks::facet::CompiledFacetCol;
+use crate::facet::marks::facet::CompiledFacetColumnSubplot;
 use crate::facet::overflow_projection::FacetOverflowResolutionPhase;
 use crate::facet::sharing_level::SharingLevel;
 use crate::guide::{
@@ -36,9 +36,9 @@ use crate::facet::guide::band_guide_engine::GuideAnchorSource;
 pub struct FacetColGuideConfig {
     /// Optional facet title
     pub facet_title: Option<String>,
-    /// Compiled subplot extracted from the facet mark
+    /// Compiled subplot extracted from the facet subplot mark
     compiled_subplot: Option<Arc<CompiledPlot>>,
-    /// Logical plan for the facet mark's data (used when data_override is None)
+    /// Logical plan for the facet subplot mark's data (used when data_override is None)
     facet_data_plan: Option<LogicalPlanNode>,
     /// Position of facet labels ("top" or "bottom")
     position: Option<String>,
@@ -72,7 +72,7 @@ impl CoordinateGuide for FacetColGuideConfig {
         _session_context: &SessionContext,
     ) {
         for mark in &compiled_marks {
-            if let Some(facet_col) = mark.as_any().downcast_ref::<CompiledFacetCol>() {
+            if let Some(facet_col) = mark.as_any().downcast_ref::<CompiledFacetColumnSubplot>() {
                 self.compiled_subplot = Some(facet_col.compiled_subplot().clone());
                 self.facet_data_plan = mark.data_context().logical_plan_node().cloned();
                 self.facet_title = facet_col.facet_title().map(|s| s.to_string());
@@ -109,7 +109,7 @@ pub struct FacetColGuide {
     pub facet_title: Option<String>,
     /// Compiled subplot for measuring overflow
     compiled_subplot: Option<Arc<CompiledPlot>>,
-    /// Logical plan for the facet mark's data (used when data_override is None)
+    /// Logical plan for the facet subplot mark's data (used when data_override is None)
     #[serde_as(as = "Option<FromInto<SerializableDataFrame>>")]
     facet_data_plan: Option<LogicalPlanNode>,
     /// Position of facet labels ("top" or "bottom")

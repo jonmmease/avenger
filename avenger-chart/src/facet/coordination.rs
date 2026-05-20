@@ -837,25 +837,21 @@ mod tests {
             .data(df)
             .canvas_size(640, 420)
             .mark(
-                Facet::new()
-                    .col_with(col("outer_group"), |c| c.facet(|f| f.title("Outer Group")))
-                    .subplot(
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("inner_group"), |c| {
-                                    c.facet(|f| f.title("Inner Group"))
-                                })
-                                .subplot(
-                                    Plot::<Cartesian>::new().mark(
-                                        Symbol::new()
-                                            .x(col("x"))
-                                            .y(col("y"))
-                                            .fill("#4682b4")
-                                            .size(42.0),
-                                    ),
-                                ),
-                        ),
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x(col("x"))
+                                    .y(col("y"))
+                                    .fill("#4682b4")
+                                    .size(42.0),
+                            ),
+                        )
+                        .row_with(col("inner_group"), |c| c.facet(|f| f.title("Inner Group"))),
                     ),
+                )
+                .col_with(col("outer_group"), |c| c.facet(|f| f.title("Outer Group"))),
             )
     }
 
@@ -864,25 +860,21 @@ mod tests {
             .data(df)
             .canvas_size(640, 420)
             .mark(
-                Facet::new()
-                    .col_with(col("outer_group"), |c| c.facet(|f| f.title("Outer Group")))
-                    .subplot(
-                        Plot::<FacetColumn>::new().mark(
-                            Facet::new()
-                                .col_with(col("inner_group"), |c| {
-                                    c.facet(|f| f.title("Inner Group"))
-                                })
-                                .subplot(
-                                    Plot::<Cartesian>::new().mark(
-                                        Symbol::new()
-                                            .x(col("x"))
-                                            .y(col("y"))
-                                            .fill("#4682b4")
-                                            .size(42.0),
-                                    ),
-                                ),
-                        ),
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x(col("x"))
+                                    .y(col("y"))
+                                    .fill("#4682b4")
+                                    .size(42.0),
+                            ),
+                        )
+                        .col_with(col("inner_group"), |c| c.facet(|f| f.title("Inner Group"))),
                     ),
+                )
+                .col_with(col("outer_group"), |c| c.facet(|f| f.title("Outer Group"))),
             )
     }
 

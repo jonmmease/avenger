@@ -55,7 +55,7 @@ use crate::{
         empty_cell_policy::FacetEmptyCellPolicy,
         evaluated_facet_tree::EvaluatedFacetTree,
         layout_plan::{FacetBandPaddingFeedback, FacetBandPaddingFeedbackMap},
-        marks::facet::{FacetMarkRef, facet_mark_ref},
+        marks::facet::{FacetSubplotRef, facet_subplot_ref},
         overflow_projection::{
             boundary_profiles_for_measurement, compute_padding_from_boundary_profiles,
         },
@@ -664,9 +664,9 @@ impl CompiledPlot {
 
     fn marks_use_auto_empty_cell_policy(marks: &[Arc<dyn CompiledMark>]) -> bool {
         marks.iter().any(|mark| {
-            if let Some(facet_mark) = facet_mark_ref(mark.as_ref()) {
+            if let Some(facet_mark) = facet_subplot_ref(mark.as_ref()) {
                 return match facet_mark {
-                    FacetMarkRef::Row(facet_row) => {
+                    FacetSubplotRef::Row(facet_row) => {
                         matches!(
                             facet_row.facet_empty_cell_policy(),
                             FacetEmptyCellPolicy::Auto
@@ -674,7 +674,7 @@ impl CompiledPlot {
                             &facet_row.compiled_subplot().marks,
                         )
                     }
-                    FacetMarkRef::Col(facet_col) => {
+                    FacetSubplotRef::Col(facet_col) => {
                         matches!(
                             facet_col.facet_empty_cell_policy(),
                             FacetEmptyCellPolicy::Auto
@@ -691,7 +691,7 @@ impl CompiledPlot {
     fn marks_contain_facet(marks: &[Arc<dyn CompiledMark>]) -> bool {
         marks
             .iter()
-            .any(|mark| facet_mark_ref(mark.as_ref()).is_some())
+            .any(|mark| facet_subplot_ref(mark.as_ref()).is_some())
     }
 
     fn validate_no_nested_subplot_plot_size_under_facet(
@@ -699,7 +699,7 @@ impl CompiledPlot {
         path: &mut Vec<String>,
     ) -> Result<(), AvengerChartError> {
         for (idx, mark) in marks.iter().enumerate() {
-            let Some(facet_mark) = facet_mark_ref(mark.as_ref()) else {
+            let Some(facet_mark) = facet_subplot_ref(mark.as_ref()) else {
                 continue;
             };
 
@@ -4639,31 +4639,29 @@ mod tests {
             .data(df)
             .canvas_size(700, 500)
             .mark(
-                Facet::new()
-                    .col_with(col("outer_group"), |c| c.facet(|f| f.title("Outer Group")))
-                    .subplot(
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("sub_group"), |c| c.facet(|f| f.title("Sub Group")))
-                                .subplot(
-                                    Plot::<Cartesian>::new().mark(
-                                        Rect::new()
-                                            .x_with(col("category"), |c| {
-                                                c.scale_with::<Band>(|s| s)
-                                                    .with_scale_sharing(ScaleSharing::Shared)
-                                                    .axis(|a| a.title("Category"))
-                                            })
-                                            .x2_with(col(":x"), |c| c.band(1.0))
-                                            .y(0.0)
-                                            .y2_with(col("value"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Shared)
-                                                    .axis(|a| a.title("Value"))
-                                            })
-                                            .fill("#4682b4"),
-                                    ),
-                                ),
-                        ),
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Rect::new()
+                                    .x_with(col("category"), |c| {
+                                        c.scale_with::<Band>(|s| s)
+                                            .with_scale_sharing(ScaleSharing::Shared)
+                                            .axis(|a| a.title("Category"))
+                                    })
+                                    .x2_with(col(":x"), |c| c.band(1.0))
+                                    .y(0.0)
+                                    .y2_with(col("value"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                            .axis(|a| a.title("Value"))
+                                    })
+                                    .fill("#4682b4"),
+                            ),
+                        )
+                        .row_with(col("sub_group"), |c| c.facet(|f| f.title("Sub Group"))),
                     ),
+                )
+                .col_with(col("outer_group"), |c| c.facet(|f| f.title("Outer Group"))),
             )
     }
 
@@ -4672,58 +4670,47 @@ mod tests {
             .data(df)
             .plot_size(80.0, 60.0)
             .mark(
-                Facet::new()
-                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetColumn>::new().mark(
-                            Facet::new()
-                                .col_with(col("department"), |c| {
-                                    c.facet(|f| f.title("Dept").free_slots())
-                                })
-                                .subplot(
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetColumn>::new().mark(
+                                Subplot::new(
                                     Plot::<FacetColumn>::new().mark(
-                                        Facet::new()
-                                            .col_with(col("team"), |c| {
-                                                c.facet(|f| {
-                                                    f.title("Team")
-                                                        .with_slot_sharing(ScaleSharing::Level(1))
-                                                })
-                                            })
-                                            .subplot(
-                                                Plot::<FacetColumn>::new().mark(
-                                                    Facet::new()
-                                                        .col_with(col("subteam"), |c| {
-                                                            c.facet(|f| f.title("Sub"))
-                                                        })
-                                                        .subplot(
-                                                            Plot::<Cartesian>::new().mark(
-                                                                Symbol::new()
-                                                                    .x_with(col("x_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .y_with(col("y_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .size(24.0)
-                                                                    .fill("#3498db"),
-                                                            ),
-                                                        ),
-                                                ),
+                                        Subplot::new(
+                                            Plot::<Cartesian>::new().mark(
+                                                Symbol::new()
+                                                    .x_with(col("x_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .y_with(col("y_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .size(24.0)
+                                                    .fill("#3498db"),
                                             ),
+                                        )
+                                        .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
                                     ),
-                                ),
-                        ),
+                                )
+                                .col_with(col("team"), |c| {
+                                    c.facet(|f| {
+                                        f.title("Team").with_slot_sharing(ScaleSharing::Level(1))
+                                    })
+                                }),
+                            ),
+                        )
+                        .col_with(col("department"), |c| {
+                            c.facet(|f| f.title("Dept").free_slots())
+                        }),
                     ),
+                )
+                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             )
     }
 
     fn build_simple_facet_col_plot(df: DataFrame) -> Plot<FacetColumn> {
         Plot::<FacetColumn>::new().data(df).mark(
-            Facet::new().column(col("outer_group")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x(col("value"))
@@ -4731,7 +4718,8 @@ mod tests {
                         .size(24.0)
                         .fill("#4682b4"),
                 ),
-            ),
+            )
+            .column(col("outer_group")),
         )
     }
 
@@ -4948,16 +4936,16 @@ mod tests {
             .data(df)
             .canvas_size(960.0, 420.0)
             .mark(
-                Facet::new()
-                    .column(col("division"))
-                    .subplot(
-                        Plot::<FacetColumn>::new().mark(
-                            Facet::new().column(col("department")).subplot(
-                                Plot::<Cartesian>::new()
-                                    .mark(build_level1_fill_legend_symbol(position)),
-                            ),
-                        ),
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new()
+                                .mark(build_level1_fill_legend_symbol(position)),
+                        )
+                        .column(col("department")),
                     ),
+                )
+                .column(col("division")),
             )
     }
 
@@ -4969,9 +4957,9 @@ mod tests {
             .data(df)
             .canvas_size(960.0, 420.0)
             .mark(
-                Facet::new().column(col("division")).subplot(
+                Subplot::new(
                     Plot::<FacetColumn>::new().mark(
-                        Facet::new().column(col("department")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("x_val"), |c| {
@@ -4987,9 +4975,11 @@ mod tests {
                                     })
                                     .size(70.0),
                             ),
-                        ),
+                        )
+                        .column(col("department")),
                     ),
-                ),
+                )
+                .column(col("division")),
             )
     }
 
@@ -5000,13 +4990,23 @@ mod tests {
         Plot::<FacetColumn>::new()
             .data(df)
             .canvas_size(1500.0, 380.0)
-            .mark(Facet::new().column(col("division")).subplot(
-                Plot::<FacetColumn>::new().mark(Facet::new().column(col("department")).subplot(
-                    Plot::<FacetColumn>::new().mark(Facet::new().column(col("team")).subplot(
-                        Plot::<Cartesian>::new().mark(build_level2_fill_legend_symbol(position)),
-                    )),
-                )),
-            ))
+            .mark(
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetColumn>::new().mark(
+                                Subplot::new(
+                                    Plot::<Cartesian>::new()
+                                        .mark(build_level2_fill_legend_symbol(position)),
+                                )
+                                .column(col("team")),
+                            ),
+                        )
+                        .column(col("department")),
+                    ),
+                )
+                .column(col("division")),
+            )
     }
 
     fn build_three_level_col_legend_sharing_plot_area_sized(
@@ -5016,13 +5016,23 @@ mod tests {
         Plot::<FacetColumn>::new()
             .data(df)
             .plot_size(120.0, 90.0)
-            .mark(Facet::new().column(col("division")).subplot(
-                Plot::<FacetColumn>::new().mark(Facet::new().column(col("department")).subplot(
-                    Plot::<FacetColumn>::new().mark(Facet::new().column(col("team")).subplot(
-                        Plot::<Cartesian>::new().mark(build_level2_fill_legend_symbol(position)),
-                    )),
-                )),
-            ))
+            .mark(
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetColumn>::new().mark(
+                                Subplot::new(
+                                    Plot::<Cartesian>::new()
+                                        .mark(build_level2_fill_legend_symbol(position)),
+                                )
+                                .column(col("team")),
+                            ),
+                        )
+                        .column(col("department")),
+                    ),
+                )
+                .column(col("division")),
+            )
     }
 
     fn build_nested_col_row_col_continuous_legend_plot_area_sized(
@@ -5032,11 +5042,11 @@ mod tests {
             .data(df)
             .plot_size(110.0, 80.0)
             .mark(
-                Facet::new().column(col("division")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("department")).subplot(
+                        Subplot::new(
                             Plot::<FacetColumn>::new().mark(
-                                Facet::new().column(col("team")).subplot(
+                                Subplot::new(
                                     Plot::<Cartesian>::new().mark(
                                         Symbol::new()
                                             .x_with(col("x_val"), |c| {
@@ -5056,19 +5066,22 @@ mod tests {
                                             })
                                             .size(58.0),
                                     ),
-                                ),
+                                )
+                                .column(col("team")),
                             ),
-                        ),
+                        )
+                        .row(col("department")),
                     ),
-                ),
+                )
+                .column(col("division")),
             )
     }
 
     fn build_nested_sparse_row_plot(df: DataFrame) -> Plot<FacetRow> {
         Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
-            Facet::new().row(col("species")).subplot(
+            Subplot::new(
                 Plot::<FacetColumn>::new().mark(
-                    Facet::new().column(col("petal_width_bin")).subplot(
+                    Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
@@ -5080,9 +5093,11 @@ mod tests {
                                 .size(25.0)
                                 .fill("#4682b4"),
                         ),
-                    ),
+                    )
+                    .column(col("petal_width_bin")),
                 ),
-            ),
+            )
+            .row(col("species")),
         )
     }
 
@@ -5091,20 +5106,18 @@ mod tests {
             .data(df)
             .canvas_size(760.0, 560.0)
             .mark(
-                Facet::new().column(col("col_group")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new()
-                            .row_with(col("row_group"), |c| {
-                                c.facet(|f| {
-                                    f.with_slot_sharing(ScaleSharing::Shared).position("right")
-                                })
-                            })
-                            .subplot(
-                                Plot::<Cartesian>::new()
-                                    .mark(Symbol::new().x(col("x_val")).y(col("y_val")).size(35.0)),
-                            ),
+                        Subplot::new(
+                            Plot::<Cartesian>::new()
+                                .mark(Symbol::new().x(col("x_val")).y(col("y_val")).size(35.0)),
+                        )
+                        .row_with(col("row_group"), |c| {
+                            c.facet(|f| f.with_slot_sharing(ScaleSharing::Shared).position("right"))
+                        }),
                     ),
-                ),
+                )
+                .column(col("col_group")),
             )
     }
 
@@ -5113,26 +5126,26 @@ mod tests {
             .data(df)
             .canvas_size(760.0, 560.0)
             .mark(
-                Facet::new().column(col("col_group")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new()
-                            .row_with(col("row_group"), |c| {
-                                c.facet(|f| f.with_slot_sharing(ScaleSharing::Shared))
-                            })
-                            .subplot(
-                                Plot::<Cartesian>::new().mark(
-                                    Symbol::new()
-                                        .x_with(col("x_val"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Shared)
-                                        })
-                                        .y_with(col("y_val"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Shared)
-                                        })
-                                        .size(35.0),
-                                ),
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("x_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                    })
+                                    .y_with(col("y_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                    })
+                                    .size(35.0),
                             ),
+                        )
+                        .row_with(col("row_group"), |c| {
+                            c.facet(|f| f.with_slot_sharing(ScaleSharing::Shared))
+                        }),
                     ),
-                ),
+                )
+                .column(col("col_group")),
             )
     }
 
@@ -5144,29 +5157,29 @@ mod tests {
             .data(df)
             .canvas_size(760.0, 560.0)
             .mark(
-                Facet::new().column(col("col_group")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new()
-                            .row_with(col("row_group"), move |c| {
-                                c.facet(|f| {
-                                    f.with_slot_sharing(ScaleSharing::Shared)
-                                        .empty_cell_policy(policy)
-                                })
-                            })
-                            .subplot(
-                                Plot::<Cartesian>::new().mark(
-                                    Symbol::new()
-                                        .x_with(col("x_val"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Shared)
-                                        })
-                                        .y_with(col("y_val"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Shared)
-                                        })
-                                        .size(35.0),
-                                ),
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("x_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                    })
+                                    .y_with(col("y_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                    })
+                                    .size(35.0),
                             ),
+                        )
+                        .row_with(col("row_group"), move |c| {
+                            c.facet(|f| {
+                                f.with_slot_sharing(ScaleSharing::Shared)
+                                    .empty_cell_policy(policy)
+                            })
+                        }),
                     ),
-                ),
+                )
+                .column(col("col_group")),
             )
     }
 
@@ -5175,30 +5188,31 @@ mod tests {
             .data(df)
             .canvas_size(980.0, 700.0)
             .mark(
-                Facet::new().row(col("outer_group")).subplot(
+                Subplot::new(
                     Plot::<FacetColumn>::new().mark(
-                        Facet::new().column(col("inner_col")).subplot(
+                        Subplot::new(
                             Plot::<FacetRow>::new().mark(
-                                Facet::new()
-                                    .row_with(col("row_group"), |c| {
-                                        c.facet(|f| {
-                                            f.with_slot_sharing(ScaleSharing::Level(1))
-                                                .position("right")
-                                        })
-                                    })
-                                    .subplot(
-                                        Plot::<Cartesian>::new().mark(
-                                            Symbol::new()
-                                                .x(col("x_val"))
-                                                .y(col("y_val"))
-                                                .size(25.0)
-                                                .fill("#4682b4"),
-                                        ),
+                                Subplot::new(
+                                    Plot::<Cartesian>::new().mark(
+                                        Symbol::new()
+                                            .x(col("x_val"))
+                                            .y(col("y_val"))
+                                            .size(25.0)
+                                            .fill("#4682b4"),
                                     ),
+                                )
+                                .row_with(col("row_group"), |c| {
+                                    c.facet(|f| {
+                                        f.with_slot_sharing(ScaleSharing::Level(1))
+                                            .position("right")
+                                    })
+                                }),
                             ),
-                        ),
+                        )
+                        .column(col("inner_col")),
                     ),
-                ),
+                )
+                .row(col("outer_group")),
             )
     }
 
@@ -5209,9 +5223,12 @@ mod tests {
         Plot::<FacetRow>::new()
             .data(df)
             .canvas_size(960.0, 420.0)
-            .mark(Facet::new().row(col("department")).subplot(
-                Plot::<Cartesian>::new().mark(build_unshared_fill_legend_symbol(position)),
-            ))
+            .mark(
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(build_unshared_fill_legend_symbol(position)),
+                )
+                .row(col("department")),
+            )
     }
 
     fn build_single_level_col_legend_plot(
@@ -5221,9 +5238,12 @@ mod tests {
         Plot::<FacetColumn>::new()
             .data(df)
             .canvas_size(960.0, 420.0)
-            .mark(Facet::new().column(col("division")).subplot(
-                Plot::<Cartesian>::new().mark(build_unshared_fill_legend_symbol(position)),
-            ))
+            .mark(
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(build_unshared_fill_legend_symbol(position)),
+                )
+                .column(col("division")),
+            )
     }
 
     async fn compile_two_level_col_legend_sharing_plot(
@@ -5274,27 +5294,25 @@ mod tests {
             .data(df)
             .canvas_size(1800, 500)
             .mark(
-                Facet::new()
-                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetColumn>::new().mark(
-                            Facet::new()
-                                .col_with(col("department"), |c| c.facet(|f| f.title("Dept")))
-                                .subplot(
-                                    Plot::<Cartesian>::new().mark(
-                                        Symbol::new()
-                                            .x_with(col("x_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Level(2))
-                                            })
-                                            .y_with(col("y_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Level(2))
-                                            })
-                                            .size(40.0)
-                                            .fill("#9b59b6"),
-                                    ),
-                                ),
-                        ),
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("x_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Level(2))
+                                    })
+                                    .y_with(col("y_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Level(2))
+                                    })
+                                    .size(40.0)
+                                    .fill("#9b59b6"),
+                            ),
+                        )
+                        .col_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
                     ),
+                )
+                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             )
             .compile(ctx)
             .await
@@ -5317,11 +5335,11 @@ mod tests {
             .data(df)
             .plot_size(110.0, 80.0)
             .mark(
-                Facet::new().row(col("division")).subplot(
+                Subplot::new(
                     Plot::<FacetColumn>::new().mark(
-                        Facet::new().column(col("department")).subplot(
+                        Subplot::new(
                             Plot::<FacetRow>::new().mark(
-                                Facet::new().row(col("team")).subplot(
+                                Subplot::new(
                                     Plot::<Cartesian>::new().mark(
                                         Symbol::new()
                                             .x_with(col("x_val"), |c| {
@@ -5335,11 +5353,14 @@ mod tests {
                                             })
                                             .size(58.0),
                                     ),
-                                ),
+                                )
+                                .row(col("team")),
                             ),
-                        ),
+                        )
+                        .column(col("department")),
                     ),
-                ),
+                )
+                .row(col("division")),
             )
             .compile(ctx)
             .await
@@ -6870,11 +6891,12 @@ mod tests {
             .data(df)
             .plot_size(120.0, 90.0)
             .mark(
-                Facet::new().column(col("outer_group")).subplot(
+                Subplot::new(
                     Plot::<Cartesian>::new()
                         .plot_size(80.0, 60.0)
                         .mark(Symbol::new().x(col("value")).y(col("value")).size(24.0)),
-                ),
+                )
+                .column(col("outer_group")),
             );
 
         let compiled = plot

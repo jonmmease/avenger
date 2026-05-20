@@ -22,7 +22,7 @@ async fn test_facet_row_free_scales_with_free_color_legend() {
     let plot = Plot::<FacetRow>::new()
         .data(df)
         .mark(
-            Facet::new().row(col("species")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
@@ -47,7 +47,8 @@ async fn test_facet_row_free_scales_with_free_color_legend() {
                         })
                         .size(48.0),
                 ),
-            ),
+            )
+            .row(col("species")),
         )
         .canvas_size(700.0, 550.0);
 
@@ -76,7 +77,7 @@ async fn test_facet_row_free_scales_with_left_color_legend() {
     let plot = Plot::<FacetRow>::new()
         .data(df)
         .mark(
-            Facet::new().row(col("species")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
@@ -101,7 +102,8 @@ async fn test_facet_row_free_scales_with_left_color_legend() {
                         })
                         .size(48.0),
                 ),
-            ),
+            )
+            .row(col("species")),
         )
         .canvas_size(700.0, 550.0);
 
@@ -131,7 +133,7 @@ async fn test_facet_row_shared_scales_with_shared_color_legend() {
     let plot = Plot::<FacetRow>::new()
         .data(df)
         .mark(
-            Facet::new().row(col("species")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
@@ -156,7 +158,8 @@ async fn test_facet_row_shared_scales_with_shared_color_legend() {
                         })
                         .size(48.0),
                 ),
-            ),
+            )
+            .row(col("species")),
         )
         .canvas_size(700.0, 550.0);
 
@@ -185,7 +188,7 @@ async fn test_facet_row_mixed_sharing_free_color_shared_axes() {
     let plot = Plot::<FacetRow>::new()
         .data(df)
         .mark(
-            Facet::new().row(col("species")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
@@ -211,7 +214,8 @@ async fn test_facet_row_mixed_sharing_free_color_shared_axes() {
                         })
                         .size(48.0),
                 ),
-            ),
+            )
+            .row(col("species")),
         )
         .canvas_size(700.0, 550.0);
 
@@ -257,7 +261,7 @@ async fn test_facet_col_shared_color_legend() {
     let plot = Plot::<FacetColumn>::new()
         .data(df)
         .mark(
-            Facet::new().column(col("species")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
@@ -276,7 +280,8 @@ async fn test_facet_col_shared_color_legend() {
                         })
                         .size(48.0),
                 ),
-            ),
+            )
+            .column(col("species")),
         )
         .canvas_size(800.0, 400.0);
 
@@ -305,7 +310,7 @@ async fn test_facet_col_legend_left() {
     let plot = Plot::<FacetColumn>::new()
         .data(df)
         .mark(
-            Facet::new().column(col("species")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
@@ -328,7 +333,8 @@ async fn test_facet_col_legend_left() {
                         })
                         .size(48.0),
                 ),
-            ),
+            )
+            .column(col("species")),
         )
         .canvas_size(800.0, 400.0);
 
@@ -357,7 +363,7 @@ async fn test_facet_col_legend_right() {
     let plot = Plot::<FacetColumn>::new()
         .data(df)
         .mark(
-            Facet::new().column(col("species")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
@@ -380,7 +386,8 @@ async fn test_facet_col_legend_right() {
                         })
                         .size(48.0),
                 ),
-            ),
+            )
+            .column(col("species")),
         )
         .canvas_size(800.0, 400.0);
 
@@ -409,7 +416,7 @@ async fn test_facet_col_legend_top() {
     let plot = Plot::<FacetColumn>::new()
         .data(df)
         .mark(
-            Facet::new().column(col("species")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
@@ -432,7 +439,8 @@ async fn test_facet_col_legend_top() {
                         })
                         .size(48.0),
                 ),
-            ),
+            )
+            .column(col("species")),
         )
         .canvas_size(800.0, 450.0);
 
@@ -461,7 +469,7 @@ async fn test_facet_col_legend_bottom() {
     let plot = Plot::<FacetColumn>::new()
         .data(df)
         .mark(
-            Facet::new().column(col("species")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
@@ -484,7 +492,8 @@ async fn test_facet_col_legend_bottom() {
                         })
                         .size(48.0),
                 ),
-            ),
+            )
+            .column(col("species")),
         )
         .canvas_size(800.0, 550.0);
 
@@ -525,7 +534,7 @@ async fn test_facet_row_two_rows_free_legend() {
     let plot = Plot::<FacetRow>::new()
         .data(df)
         .mark(
-            Facet::new().row(col("column4")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("column1"), |c| {
@@ -550,7 +559,8 @@ async fn test_facet_row_two_rows_free_legend() {
                         })
                         .size(60.0),
                 ),
-            ),
+            )
+            .row(col("column4")),
         )
         .canvas_size(600.0, 400.0);
 

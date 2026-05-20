@@ -73,9 +73,9 @@ fn test_nested_free_row_free_scales() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
@@ -87,9 +87,11 @@ fn test_nested_free_row_free_scales() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -120,9 +122,9 @@ fn test_nested_free_row_with_line_mark() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Line::new()
                                     .x(col("sepal_length"))
@@ -130,9 +132,11 @@ fn test_nested_free_row_with_line_mark() {
                                     .stroke("#4682b4")
                                     .stroke_width(2.0),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -167,9 +171,9 @@ fn test_nested_free_row_shared_both() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
@@ -181,9 +185,11 @@ fn test_nested_free_row_shared_both() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -214,9 +220,9 @@ fn test_nested_free_row_shared_x() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
@@ -228,9 +234,11 @@ fn test_nested_free_row_shared_x() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer.compile(&ctx).await.expect("compile nested shared x");
@@ -258,9 +266,9 @@ fn test_nested_free_row_shared_y() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
@@ -272,9 +280,11 @@ fn test_nested_free_row_shared_y() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer.compile(&ctx).await.expect("compile nested shared y");
@@ -321,9 +331,9 @@ fn test_nested_free_row_basic() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("length_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x(col("sepal_length"))
@@ -331,9 +341,11 @@ fn test_nested_free_row_basic() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("length_bin")),
             );
 
         let compiled = outer.compile(&ctx).await.expect("compile nested basic");
@@ -361,25 +373,23 @@ fn test_nested_free_row_with_titles() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new()
-                    .col_with(col("petal_width_bin"), |c| {
-                        c.facet(|f| f.title("Petal Width"))
-                    })
-                    .subplot(
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
-                                .subplot(
-                                    Plot::<Cartesian>::new().mark(
-                                        Symbol::new()
-                                            .x(col("sepal_length"))
-                                            .y(col("sepal_width"))
-                                            .size(25.0)
-                                            .fill("#4682b4"),
-                                    ),
-                                ),
-                        ),
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x(col("sepal_length"))
+                                    .y(col("sepal_width"))
+                                    .size(25.0)
+                                    .fill("#4682b4"),
+                            ),
+                        )
+                        .row_with(col("species"), |c| c.facet(|f| f.title("Species"))),
                     ),
+                )
+                .col_with(col("petal_width_bin"), |c| {
+                    c.facet(|f| f.title("Petal Width"))
+                }),
             );
 
         let compiled = outer
@@ -410,31 +420,29 @@ fn test_nested_free_row_with_unified_titles() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new()
-                    .col_with(col("petal_width_bin"), |c| {
-                        c.facet(|f| f.title("Petal Width"))
-                    })
-                    .subplot(
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
-                                .subplot(
-                                    Plot::<Cartesian>::new().mark(
-                                        Symbol::new()
-                                            .x_with(col("sepal_length"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Shared)
-                                                    .axis(|a| a.title("Sepal Length (cm)"))
-                                            })
-                                            .y_with(col("sepal_width"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Shared)
-                                                    .axis(|a| a.title("Sepal Width (cm)"))
-                                            })
-                                            .size(25.0)
-                                            .fill("#4682b4"),
-                                    ),
-                                ),
-                        ),
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                            .axis(|a| a.title("Sepal Length (cm)"))
+                                    })
+                                    .y_with(col("sepal_width"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                            .axis(|a| a.title("Sepal Width (cm)"))
+                                    })
+                                    .size(25.0)
+                                    .fill("#4682b4"),
+                            ),
+                        )
+                        .row_with(col("species"), |c| c.facet(|f| f.title("Species"))),
                     ),
+                )
+                .col_with(col("petal_width_bin"), |c| {
+                    c.facet(|f| f.title("Petal Width"))
+                }),
             );
 
         let compiled = outer
@@ -469,9 +477,9 @@ fn test_nested_free_row_x_axis_top() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| c.axis(|a| a.position("top")))
@@ -479,9 +487,11 @@ fn test_nested_free_row_x_axis_top() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -512,9 +522,9 @@ fn test_nested_free_row_y_axis_right() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x(col("sepal_length"))
@@ -522,9 +532,11 @@ fn test_nested_free_row_y_axis_right() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -555,9 +567,9 @@ fn test_nested_free_row_hybrid_sharing() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
@@ -569,9 +581,11 @@ fn test_nested_free_row_hybrid_sharing() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -617,9 +631,9 @@ fn test_nested_free_row_shared_in_row_both() {
         // Inner: FacetColumn by petal_width_bin (3 columns per row)
         // Level(1): each row shares scales across columns
         let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
-            Facet::new().row(col("species")).subplot(
+            Subplot::new(
                 Plot::<FacetColumn>::new().mark(
-                    Facet::new().column(col("petal_width_bin")).subplot(
+                    Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
@@ -631,9 +645,11 @@ fn test_nested_free_row_shared_in_row_both() {
                                 .size(25.0)
                                 .fill("#4682b4"),
                         ),
-                    ),
+                    )
+                    .column(col("petal_width_bin")),
                 ),
-            ),
+            )
+            .row(col("species")),
         );
 
         let compiled = outer
@@ -662,9 +678,9 @@ fn test_nested_free_row_shared_in_row_x() {
         let df = iris_with_binned_petal_width().await;
 
         let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
-            Facet::new().row(col("species")).subplot(
+            Subplot::new(
                 Plot::<FacetColumn>::new().mark(
-                    Facet::new().column(col("petal_width_bin")).subplot(
+                    Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
@@ -676,9 +692,11 @@ fn test_nested_free_row_shared_in_row_x() {
                                 .size(25.0)
                                 .fill("#4682b4"),
                         ),
-                    ),
+                    )
+                    .column(col("petal_width_bin")),
                 ),
-            ),
+            )
+            .row(col("species")),
         );
 
         let compiled = outer
@@ -707,9 +725,9 @@ fn test_nested_free_row_shared_in_row_y() {
         let df = iris_with_binned_petal_width().await;
 
         let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
-            Facet::new().row(col("species")).subplot(
+            Subplot::new(
                 Plot::<FacetColumn>::new().mark(
-                    Facet::new().column(col("petal_width_bin")).subplot(
+                    Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
@@ -721,9 +739,11 @@ fn test_nested_free_row_shared_in_row_y() {
                                 .size(25.0)
                                 .fill("#4682b4"),
                         ),
-                    ),
+                    )
+                    .column(col("petal_width_bin")),
                 ),
-            ),
+            )
+            .row(col("species")),
         );
 
         let compiled = outer
@@ -752,9 +772,9 @@ fn test_nested_free_row_mixed_shared_and_shared_in_row() {
         let df = iris_with_binned_petal_width().await;
 
         let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
-            Facet::new().row(col("species")).subplot(
+            Subplot::new(
                 Plot::<FacetColumn>::new().mark(
-                    Facet::new().column(col("petal_width_bin")).subplot(
+                    Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
@@ -766,9 +786,11 @@ fn test_nested_free_row_mixed_shared_and_shared_in_row() {
                                 .size(25.0)
                                 .fill("#4682b4"),
                         ),
-                    ),
+                    )
+                    .column(col("petal_width_bin")),
                 ),
-            ),
+            )
+            .row(col("species")),
         );
 
         let compiled = outer
@@ -815,9 +837,9 @@ fn test_nested_free_row_shared_in_column_both() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
@@ -829,9 +851,11 @@ fn test_nested_free_row_shared_in_column_both() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -862,9 +886,9 @@ fn test_nested_free_row_shared_in_column_x() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
@@ -876,9 +900,11 @@ fn test_nested_free_row_shared_in_column_x() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -909,9 +935,9 @@ fn test_nested_free_row_shared_in_column_y() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
@@ -923,9 +949,11 @@ fn test_nested_free_row_shared_in_column_y() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -959,9 +987,9 @@ fn test_nested_free_row_mixed_shared_in_column_and_shared_in_row() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
@@ -975,9 +1003,11 @@ fn test_nested_free_row_mixed_shared_in_column_and_shared_in_row() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -1041,22 +1071,22 @@ fn test_nested_shared_row_basic() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("length_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new()
-                            // KEY: share_slots() causes domain to be computed from full dataset
-                            .row_with(col("species"), |c| c.facet(|f| f.share_slots()))
-                            .subplot(
-                                Plot::<Cartesian>::new().mark(
-                                    Symbol::new()
-                                        .x(col("sepal_length"))
-                                        .y(col("sepal_width"))
-                                        .size(25.0)
-                                        .fill("#4682b4"),
-                                ),
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x(col("sepal_length"))
+                                    .y(col("sepal_width"))
+                                    .size(25.0)
+                                    .fill("#4682b4"),
                             ),
+                        )
+                        // KEY: share_slots() causes domain to be computed from full dataset
+                        .row_with(col("species"), |c| c.facet(|f| f.share_slots())),
                     ),
-                ),
+                )
+                .column(col("length_bin")),
             );
 
         let compiled = outer
@@ -1085,27 +1115,25 @@ fn test_nested_shared_row_with_titles() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new()
-                    .col_with(col("petal_width_bin"), |c| {
-                        c.facet(|f| f.title("Petal Width"))
-                    })
-                    .subplot(
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("species"), |c| {
-                                    c.facet(|f| f.title("Species").share_slots())
-                                })
-                                .subplot(
-                                    Plot::<Cartesian>::new().mark(
-                                        Symbol::new()
-                                            .x(col("sepal_length"))
-                                            .y(col("sepal_width"))
-                                            .size(25.0)
-                                            .fill("#4682b4"),
-                                    ),
-                                ),
-                        ),
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x(col("sepal_length"))
+                                    .y(col("sepal_width"))
+                                    .size(25.0)
+                                    .fill("#4682b4"),
+                            ),
+                        )
+                        .row_with(col("species"), |c| {
+                            c.facet(|f| f.title("Species").share_slots())
+                        }),
                     ),
+                )
+                .col_with(col("petal_width_bin"), |c| {
+                    c.facet(|f| f.title("Petal Width"))
+                }),
             );
 
         let compiled = outer
@@ -1134,25 +1162,25 @@ fn test_nested_shared_row_shared_both() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new()
-                            .row_with(col("species"), |c| c.facet(|f| f.share_slots()))
-                            .subplot(
-                                Plot::<Cartesian>::new().mark(
-                                    Symbol::new()
-                                        .x_with(col("sepal_length"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Shared)
-                                        })
-                                        .y_with(col("sepal_width"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Shared)
-                                        })
-                                        .size(25.0)
-                                        .fill("#4682b4"),
-                                ),
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                    })
+                                    .y_with(col("sepal_width"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                    })
+                                    .size(25.0)
+                                    .fill("#4682b4"),
                             ),
+                        )
+                        .row_with(col("species"), |c| c.facet(|f| f.share_slots())),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -1181,30 +1209,30 @@ fn test_nested_shared_row_shared_both_empty_subplot() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new()
-                            .row_with(col("species"), |c| {
-                                c.facet(|f| {
-                                    f.share_slots()
-                                        .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
-                                })
-                            })
-                            .subplot(
-                                Plot::<Cartesian>::new().mark(
-                                    Symbol::new()
-                                        .x_with(col("sepal_length"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Shared)
-                                        })
-                                        .y_with(col("sepal_width"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Shared)
-                                        })
-                                        .size(25.0)
-                                        .fill("#4682b4"),
-                                ),
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                    })
+                                    .y_with(col("sepal_width"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                    })
+                                    .size(25.0)
+                                    .fill("#4682b4"),
                             ),
+                        )
+                        .row_with(col("species"), |c| {
+                            c.facet(|f| {
+                                f.share_slots()
+                                    .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
+                            })
+                        }),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -1233,25 +1261,25 @@ fn test_nested_shared_row_free_scales() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new()
-                            .row_with(col("species"), |c| c.facet(|f| f.share_slots()))
-                            .subplot(
-                                Plot::<Cartesian>::new().mark(
-                                    Symbol::new()
-                                        .x_with(col("sepal_length"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Free)
-                                        })
-                                        .y_with(col("sepal_width"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Free)
-                                        })
-                                        .size(25.0)
-                                        .fill("#4682b4"),
-                                ),
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Free)
+                                    })
+                                    .y_with(col("sepal_width"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Free)
+                                    })
+                                    .size(25.0)
+                                    .fill("#4682b4"),
                             ),
+                        )
+                        .row_with(col("species"), |c| c.facet(|f| f.share_slots())),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -1280,25 +1308,25 @@ fn test_nested_shared_row_shared_x() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new()
-                            .row_with(col("species"), |c| c.facet(|f| f.share_slots()))
-                            .subplot(
-                                Plot::<Cartesian>::new().mark(
-                                    Symbol::new()
-                                        .x_with(col("sepal_length"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Shared)
-                                        })
-                                        .y_with(col("sepal_width"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Free)
-                                        })
-                                        .size(25.0)
-                                        .fill("#4682b4"),
-                                ),
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                    })
+                                    .y_with(col("sepal_width"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Free)
+                                    })
+                                    .size(25.0)
+                                    .fill("#4682b4"),
                             ),
+                        )
+                        .row_with(col("species"), |c| c.facet(|f| f.share_slots())),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -1327,25 +1355,25 @@ fn test_nested_shared_row_shared_y() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new()
-                            .row_with(col("species"), |c| c.facet(|f| f.share_slots()))
-                            .subplot(
-                                Plot::<Cartesian>::new().mark(
-                                    Symbol::new()
-                                        .x_with(col("sepal_length"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Free)
-                                        })
-                                        .y_with(col("sepal_width"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Shared)
-                                        })
-                                        .size(25.0)
-                                        .fill("#4682b4"),
-                                ),
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Free)
+                                    })
+                                    .y_with(col("sepal_width"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                    })
+                                    .size(25.0)
+                                    .fill("#4682b4"),
                             ),
+                        )
+                        .row_with(col("species"), |c| c.facet(|f| f.share_slots())),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -1374,33 +1402,31 @@ fn test_nested_shared_row_with_unified_titles() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new()
-                    .col_with(col("petal_width_bin"), |c| {
-                        c.facet(|f| f.title("Petal Width"))
-                    })
-                    .subplot(
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("species"), |c| {
-                                    c.facet(|f| f.title("Species").share_slots())
-                                })
-                                .subplot(
-                                    Plot::<Cartesian>::new().mark(
-                                        Symbol::new()
-                                            .x_with(col("sepal_length"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Shared)
-                                                    .axis(|a| a.title("Sepal Length (cm)"))
-                                            })
-                                            .y_with(col("sepal_width"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Shared)
-                                                    .axis(|a| a.title("Sepal Width (cm)"))
-                                            })
-                                            .size(25.0)
-                                            .fill("#4682b4"),
-                                    ),
-                                ),
-                        ),
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                            .axis(|a| a.title("Sepal Length (cm)"))
+                                    })
+                                    .y_with(col("sepal_width"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                            .axis(|a| a.title("Sepal Width (cm)"))
+                                    })
+                                    .size(25.0)
+                                    .fill("#4682b4"),
+                            ),
+                        )
+                        .row_with(col("species"), |c| {
+                            c.facet(|f| f.title("Species").share_slots())
+                        }),
                     ),
+                )
+                .col_with(col("petal_width_bin"), |c| {
+                    c.facet(|f| f.title("Petal Width"))
+                }),
             );
 
         let compiled = outer
@@ -1429,23 +1455,21 @@ fn test_nested_shared_row_x_axis_top() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new()
-                            .row_with(col("species"), |c| c.facet(|f| f.share_slots()))
-                            .subplot(
-                                Plot::<Cartesian>::new().mark(
-                                    Symbol::new()
-                                        .x_with(col("sepal_length"), |c| {
-                                            c.axis(|a| a.position("top"))
-                                        })
-                                        .y(col("sepal_width"))
-                                        .size(25.0)
-                                        .fill("#4682b4"),
-                                ),
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| c.axis(|a| a.position("top")))
+                                    .y(col("sepal_width"))
+                                    .size(25.0)
+                                    .fill("#4682b4"),
                             ),
+                        )
+                        .row_with(col("species"), |c| c.facet(|f| f.share_slots())),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -1474,28 +1498,26 @@ fn test_nested_shared_row_x_axis_top_empty_subplot() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new()
-                            .row_with(col("species"), |c| {
-                                c.facet(|f| {
-                                    f.share_slots()
-                                        .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
-                                })
-                            })
-                            .subplot(
-                                Plot::<Cartesian>::new().mark(
-                                    Symbol::new()
-                                        .x_with(col("sepal_length"), |c| {
-                                            c.axis(|a| a.position("top"))
-                                        })
-                                        .y(col("sepal_width"))
-                                        .size(25.0)
-                                        .fill("#4682b4"),
-                                ),
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| c.axis(|a| a.position("top")))
+                                    .y(col("sepal_width"))
+                                    .size(25.0)
+                                    .fill("#4682b4"),
                             ),
+                        )
+                        .row_with(col("species"), |c| {
+                            c.facet(|f| {
+                                f.share_slots()
+                                    .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
+                            })
+                        }),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -1524,23 +1546,21 @@ fn test_nested_shared_row_y_axis_right() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new()
-                            .row_with(col("species"), |c| c.facet(|f| f.share_slots()))
-                            .subplot(
-                                Plot::<Cartesian>::new().mark(
-                                    Symbol::new()
-                                        .x(col("sepal_length"))
-                                        .y_with(col("sepal_width"), |c| {
-                                            c.axis(|a| a.position("right"))
-                                        })
-                                        .size(25.0)
-                                        .fill("#4682b4"),
-                                ),
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x(col("sepal_length"))
+                                    .y_with(col("sepal_width"), |c| c.axis(|a| a.position("right")))
+                                    .size(25.0)
+                                    .fill("#4682b4"),
                             ),
+                        )
+                        .row_with(col("species"), |c| c.facet(|f| f.share_slots())),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -1569,28 +1589,26 @@ fn test_nested_shared_row_y_axis_right_empty_subplot() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new()
-                            .row_with(col("species"), |c| {
-                                c.facet(|f| {
-                                    f.share_slots()
-                                        .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
-                                })
-                            })
-                            .subplot(
-                                Plot::<Cartesian>::new().mark(
-                                    Symbol::new()
-                                        .x(col("sepal_length"))
-                                        .y_with(col("sepal_width"), |c| {
-                                            c.axis(|a| a.position("right"))
-                                        })
-                                        .size(25.0)
-                                        .fill("#4682b4"),
-                                ),
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x(col("sepal_length"))
+                                    .y_with(col("sepal_width"), |c| c.axis(|a| a.position("right")))
+                                    .size(25.0)
+                                    .fill("#4682b4"),
                             ),
+                        )
+                        .row_with(col("species"), |c| {
+                            c.facet(|f| {
+                                f.share_slots()
+                                    .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
+                            })
+                        }),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -1619,21 +1637,21 @@ fn test_nested_shared_row_with_line_mark() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new()
-                            .row_with(col("species"), |c| c.facet(|f| f.share_slots()))
-                            .subplot(
-                                Plot::<Cartesian>::new().mark(
-                                    Line::new()
-                                        .x(col("sepal_length"))
-                                        .y(col("sepal_width"))
-                                        .stroke("#4682b4")
-                                        .stroke_width(2.0),
-                                ),
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Line::new()
+                                    .x(col("sepal_length"))
+                                    .y(col("sepal_width"))
+                                    .stroke("#4682b4")
+                                    .stroke_width(2.0),
                             ),
+                        )
+                        .row_with(col("species"), |c| c.facet(|f| f.share_slots())),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -1662,25 +1680,25 @@ fn test_nested_shared_row_hybrid_sharing() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new()
-                            .row_with(col("species"), |c| c.facet(|f| f.share_slots()))
-                            .subplot(
-                                Plot::<Cartesian>::new().mark(
-                                    Symbol::new()
-                                        .x_with(col("sepal_length"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Shared)
-                                        })
-                                        .y_with(col("sepal_width"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Free)
-                                        })
-                                        .size(25.0)
-                                        .fill("#4682b4"),
-                                ),
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                    })
+                                    .y_with(col("sepal_width"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Free)
+                                    })
+                                    .size(25.0)
+                                    .fill("#4682b4"),
                             ),
+                        )
+                        .row_with(col("species"), |c| c.facet(|f| f.share_slots())),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -1709,30 +1727,30 @@ fn test_nested_shared_row_hybrid_sharing_empty_subplot() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new()
-                            .row_with(col("species"), |c| {
-                                c.facet(|f| {
-                                    f.share_slots()
-                                        .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
-                                })
-                            })
-                            .subplot(
-                                Plot::<Cartesian>::new().mark(
-                                    Symbol::new()
-                                        .x_with(col("sepal_length"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Shared)
-                                        })
-                                        .y_with(col("sepal_width"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Free)
-                                        })
-                                        .size(25.0)
-                                        .fill("#4682b4"),
-                                ),
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                    })
+                                    .y_with(col("sepal_width"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Free)
+                                    })
+                                    .size(25.0)
+                                    .fill("#4682b4"),
                             ),
+                        )
+                        .row_with(col("species"), |c| {
+                            c.facet(|f| {
+                                f.share_slots()
+                                    .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
+                            })
+                        }),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -1775,26 +1793,26 @@ fn test_nested_shared_col_shared_both() {
         // Outer: FacetRow by species (3 rows)
         // Inner: FacetColumn by petal_width_bin with SHARED domain (grid-like)
         let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
-            Facet::new().row(col("species")).subplot(
+            Subplot::new(
                 Plot::<FacetColumn>::new().mark(
-                    Facet::new()
-                        // KEY: share_slots() causes domain to be computed from full dataset
-                        .col_with(col("petal_width_bin"), |c| c.facet(|f| f.share_slots()))
-                        .subplot(
-                            Plot::<Cartesian>::new().mark(
-                                Symbol::new()
-                                    .x_with(col("sepal_length"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Shared)
-                                    })
-                                    .y_with(col("sepal_width"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Shared)
-                                    })
-                                    .size(25.0)
-                                    .fill("#4682b4"),
-                            ),
+                    Subplot::new(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("sepal_length"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Shared)
+                                })
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Shared)
+                                })
+                                .size(25.0)
+                                .fill("#4682b4"),
                         ),
+                    )
+                    // KEY: share_slots() causes domain to be computed from full dataset
+                    .col_with(col("petal_width_bin"), |c| c.facet(|f| f.share_slots())),
                 ),
-            ),
+            )
+            .row(col("species")),
         );
 
         let compiled = outer
@@ -1820,30 +1838,30 @@ fn test_nested_shared_col_shared_both_empty_subplot() {
         let df = iris_with_binned_petal_width().await;
 
         let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
-            Facet::new().row(col("species")).subplot(
+            Subplot::new(
                 Plot::<FacetColumn>::new().mark(
-                    Facet::new()
-                        .col_with(col("petal_width_bin"), |c| {
-                            c.facet(|f| {
-                                f.share_slots()
-                                    .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
-                            })
-                        })
-                        .subplot(
-                            Plot::<Cartesian>::new().mark(
-                                Symbol::new()
-                                    .x_with(col("sepal_length"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Shared)
-                                    })
-                                    .y_with(col("sepal_width"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Shared)
-                                    })
-                                    .size(25.0)
-                                    .fill("#4682b4"),
-                            ),
+                    Subplot::new(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("sepal_length"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Shared)
+                                })
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Shared)
+                                })
+                                .size(25.0)
+                                .fill("#4682b4"),
                         ),
+                    )
+                    .col_with(col("petal_width_bin"), |c| {
+                        c.facet(|f| {
+                            f.share_slots()
+                                .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
+                        })
+                    }),
                 ),
-            ),
+            )
+            .row(col("species")),
         );
 
         let compiled = outer
@@ -1880,9 +1898,9 @@ fn test_nested_level1_y_col_row() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
@@ -1894,9 +1912,11 @@ fn test_nested_level1_y_col_row() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -1927,9 +1947,9 @@ fn test_nested_level1_x_row_col() {
 
         // Note: FacetRow > FacetColumn layout (opposite of most other tests)
         let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
-            Facet::new().row(col("petal_width_bin")).subplot(
+            Subplot::new(
                 Plot::<FacetColumn>::new().mark(
-                    Facet::new().column(col("species")).subplot(
+                    Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
@@ -1941,9 +1961,11 @@ fn test_nested_level1_x_row_col() {
                                 .size(25.0)
                                 .fill("#4682b4"),
                         ),
-                    ),
+                    )
+                    .column(col("species")),
                 ),
-            ),
+            )
+            .row(col("petal_width_bin")),
         );
 
         let compiled = outer
@@ -1974,9 +1996,9 @@ fn test_nested_level1_both_col_row() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
@@ -1988,9 +2010,11 @@ fn test_nested_level1_both_col_row() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -2025,9 +2049,9 @@ fn test_nested_level1_y_left_axis() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
@@ -2040,9 +2064,11 @@ fn test_nested_level1_y_left_axis() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -2073,9 +2099,9 @@ fn test_nested_level1_y_right_axis() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
@@ -2088,9 +2114,11 @@ fn test_nested_level1_y_right_axis() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -2119,9 +2147,9 @@ fn test_nested_level1_x_bottom_axis() {
 
         // Note: FacetRow > FacetColumn layout
         let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
-            Facet::new().row(col("petal_width_bin")).subplot(
+            Subplot::new(
                 Plot::<FacetColumn>::new().mark(
-                    Facet::new().column(col("species")).subplot(
+                    Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
@@ -2134,9 +2162,11 @@ fn test_nested_level1_x_bottom_axis() {
                                 .size(25.0)
                                 .fill("#4682b4"),
                         ),
-                    ),
+                    )
+                    .column(col("species")),
                 ),
-            ),
+            )
+            .row(col("petal_width_bin")),
         );
 
         let compiled = outer
@@ -2165,9 +2195,9 @@ fn test_nested_level1_x_top_axis() {
 
         // Note: FacetRow > FacetColumn layout
         let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
-            Facet::new().row(col("petal_width_bin")).subplot(
+            Subplot::new(
                 Plot::<FacetColumn>::new().mark(
-                    Facet::new().column(col("species")).subplot(
+                    Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
@@ -2180,9 +2210,11 @@ fn test_nested_level1_x_top_axis() {
                                 .size(25.0)
                                 .fill("#4682b4"),
                         ),
-                    ),
+                    )
+                    .column(col("species")),
                 ),
-            ),
+            )
+            .row(col("petal_width_bin")),
         );
 
         let compiled = outer
@@ -2213,9 +2245,9 @@ fn test_nested_level1_mixed_x_free_y_level1() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
@@ -2229,9 +2261,11 @@ fn test_nested_level1_mixed_x_free_y_level1() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -2267,28 +2301,26 @@ fn test_three_level_level2_y_right_axis() {
             .data(df)
             .canvas_size(800, 600)
             .mark(
-                Facet::new()
-                    .col_with(col("region"), |c| c.facet(|f| f.title("Region")))
-                    .subplot(
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("country"), |c| c.facet(|f| f.title("Country")))
-                                .subplot(
-                                    Plot::<Cartesian>::new().mark(
-                                        Symbol::new()
-                                            .x_with(col("x_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Free)
-                                            })
-                                            .y_with(col("y_val"), |c| {
-                                                c.axis(|a| a.position("right"))
-                                                    .with_scale_sharing(ScaleSharing::Level(2))
-                                            })
-                                            .size(40.0)
-                                            .fill("#2ecc71"),
-                                    ),
-                                ),
-                        ),
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("x_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Free)
+                                    })
+                                    .y_with(col("y_val"), |c| {
+                                        c.axis(|a| a.position("right"))
+                                            .with_scale_sharing(ScaleSharing::Level(2))
+                                    })
+                                    .size(40.0)
+                                    .fill("#2ecc71"),
+                            ),
+                        )
+                        .row_with(col("country"), |c| c.facet(|f| f.title("Country"))),
                     ),
+                )
+                .col_with(col("region"), |c| c.facet(|f| f.title("Region"))),
             );
 
         let compiled = outer
@@ -2324,28 +2356,26 @@ fn test_three_level_level2_x_top_axis() {
             .data(df)
             .canvas_size(800, 600)
             .mark(
-                Facet::new()
-                    .col_with(col("region"), |c| c.facet(|f| f.title("Region")))
-                    .subplot(
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("country"), |c| c.facet(|f| f.title("Country")))
-                                .subplot(
-                                    Plot::<Cartesian>::new().mark(
-                                        Symbol::new()
-                                            .x_with(col("x_val"), |c| {
-                                                c.axis(|a| a.position("top"))
-                                                    .with_scale_sharing(ScaleSharing::Level(2))
-                                            })
-                                            .y_with(col("y_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Free)
-                                            })
-                                            .size(40.0)
-                                            .fill("#9b59b6"),
-                                    ),
-                                ),
-                        ),
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("x_val"), |c| {
+                                        c.axis(|a| a.position("top"))
+                                            .with_scale_sharing(ScaleSharing::Level(2))
+                                    })
+                                    .y_with(col("y_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Free)
+                                    })
+                                    .size(40.0)
+                                    .fill("#9b59b6"),
+                            ),
+                        )
+                        .row_with(col("country"), |c| c.facet(|f| f.title("Country"))),
                     ),
+                )
+                .col_with(col("region"), |c| c.facet(|f| f.title("Region"))),
             );
 
         let compiled = outer
@@ -2389,29 +2419,27 @@ fn test_three_level_nesting_level1_y() {
             .data(df)
             .canvas_size(800, 600)
             .mark(
-                Facet::new()
-                    .col_with(col("petal_width_bin"), |c| {
-                        c.facet(|f| f.title("Petal Width"))
-                    })
-                    .subplot(
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
-                                .subplot(
-                                    Plot::<Cartesian>::new().mark(
-                                        Symbol::new()
-                                            .x_with(col("sepal_length"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Free)
-                                            })
-                                            .y_with(col("sepal_width"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Level(1))
-                                            })
-                                            .size(25.0)
-                                            .fill("#4682b4"),
-                                    ),
-                                ),
-                        ),
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Free)
+                                    })
+                                    .y_with(col("sepal_width"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Level(1))
+                                    })
+                                    .size(25.0)
+                                    .fill("#4682b4"),
+                            ),
+                        )
+                        .row_with(col("species"), |c| c.facet(|f| f.title("Species"))),
                     ),
+                )
+                .col_with(col("petal_width_bin"), |c| {
+                    c.facet(|f| f.title("Petal Width"))
+                }),
             );
 
         let compiled = outer
@@ -2444,29 +2472,27 @@ fn test_three_level_nesting_shared_y() {
             .data(df)
             .canvas_size(800, 600)
             .mark(
-                Facet::new()
-                    .col_with(col("petal_width_bin"), |c| {
-                        c.facet(|f| f.title("Petal Width"))
-                    })
-                    .subplot(
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
-                                .subplot(
-                                    Plot::<Cartesian>::new().mark(
-                                        Symbol::new()
-                                            .x_with(col("sepal_length"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Shared)
-                                            })
-                                            .y_with(col("sepal_width"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Shared)
-                                            })
-                                            .size(25.0)
-                                            .fill("#4682b4"),
-                                    ),
-                                ),
-                        ),
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                    })
+                                    .y_with(col("sepal_width"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                    })
+                                    .size(25.0)
+                                    .fill("#4682b4"),
+                            ),
+                        )
+                        .row_with(col("species"), |c| c.facet(|f| f.title("Species"))),
                     ),
+                )
+                .col_with(col("petal_width_bin"), |c| {
+                    c.facet(|f| f.title("Petal Width"))
+                }),
             );
 
         let compiled = outer
@@ -2570,27 +2596,25 @@ fn test_three_level_level2_y() {
             .data(df)
             .canvas_size(800, 600)
             .mark(
-                Facet::new()
-                    .col_with(col("region"), |c| c.facet(|f| f.title("Region")))
-                    .subplot(
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("country"), |c| c.facet(|f| f.title("Country")))
-                                .subplot(
-                                    Plot::<Cartesian>::new().mark(
-                                        Symbol::new()
-                                            .x_with(col("x_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Free)
-                                            })
-                                            .y_with(col("y_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Level(2))
-                                            })
-                                            .size(40.0)
-                                            .fill("#e74c3c"),
-                                    ),
-                                ),
-                        ),
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("x_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Free)
+                                    })
+                                    .y_with(col("y_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Level(2))
+                                    })
+                                    .size(40.0)
+                                    .fill("#e74c3c"),
+                            ),
+                        )
+                        .row_with(col("country"), |c| c.facet(|f| f.title("Country"))),
                     ),
+                )
+                .col_with(col("region"), |c| c.facet(|f| f.title("Region"))),
             );
 
         let compiled = outer
@@ -2620,27 +2644,25 @@ fn test_three_level_level1_y() {
             .data(df)
             .canvas_size(800, 600)
             .mark(
-                Facet::new()
-                    .col_with(col("region"), |c| c.facet(|f| f.title("Region")))
-                    .subplot(
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("country"), |c| c.facet(|f| f.title("Country")))
-                                .subplot(
-                                    Plot::<Cartesian>::new().mark(
-                                        Symbol::new()
-                                            .x_with(col("x_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Free)
-                                            })
-                                            .y_with(col("y_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Level(1))
-                                            })
-                                            .size(40.0)
-                                            .fill("#3498db"),
-                                    ),
-                                ),
-                        ),
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("x_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Free)
+                                    })
+                                    .y_with(col("y_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Level(1))
+                                    })
+                                    .size(40.0)
+                                    .fill("#3498db"),
+                            ),
+                        )
+                        .row_with(col("country"), |c| c.facet(|f| f.title("Country"))),
                     ),
+                )
+                .col_with(col("region"), |c| c.facet(|f| f.title("Region"))),
             );
 
         let compiled = outer
@@ -2673,27 +2695,25 @@ fn test_three_level_level2_x() {
             .data(df)
             .canvas_size(800, 600)
             .mark(
-                Facet::new()
-                    .col_with(col("region"), |c| c.facet(|f| f.title("Region")))
-                    .subplot(
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("country"), |c| c.facet(|f| f.title("Country")))
-                                .subplot(
-                                    Plot::<Cartesian>::new().mark(
-                                        Symbol::new()
-                                            .x_with(col("x_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Level(2))
-                                            })
-                                            .y_with(col("y_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Free)
-                                            })
-                                            .size(40.0)
-                                            .fill("#27ae60"),
-                                    ),
-                                ),
-                        ),
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("x_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Level(2))
+                                    })
+                                    .y_with(col("y_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Free)
+                                    })
+                                    .size(40.0)
+                                    .fill("#27ae60"),
+                            ),
+                        )
+                        .row_with(col("country"), |c| c.facet(|f| f.title("Country"))),
                     ),
+                )
+                .col_with(col("region"), |c| c.facet(|f| f.title("Region"))),
             );
 
         let compiled = outer
@@ -2724,27 +2744,25 @@ fn test_three_level_level1_x() {
             .data(df)
             .canvas_size(800, 600)
             .mark(
-                Facet::new()
-                    .col_with(col("region"), |c| c.facet(|f| f.title("Region")))
-                    .subplot(
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("country"), |c| c.facet(|f| f.title("Country")))
-                                .subplot(
-                                    Plot::<Cartesian>::new().mark(
-                                        Symbol::new()
-                                            .x_with(col("x_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Level(1))
-                                            })
-                                            .y_with(col("y_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Free)
-                                            })
-                                            .size(40.0)
-                                            .fill("#9b59b6"),
-                                    ),
-                                ),
-                        ),
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("x_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Level(1))
+                                    })
+                                    .y_with(col("y_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Free)
+                                    })
+                                    .size(40.0)
+                                    .fill("#9b59b6"),
+                            ),
+                        )
+                        .row_with(col("country"), |c| c.facet(|f| f.title("Country"))),
                     ),
+                )
+                .col_with(col("region"), |c| c.facet(|f| f.title("Region"))),
             );
 
         let compiled = outer
@@ -2775,27 +2793,25 @@ fn test_three_level_mixed_x_shared_y_level2() {
             .data(df)
             .canvas_size(800, 600)
             .mark(
-                Facet::new()
-                    .col_with(col("region"), |c| c.facet(|f| f.title("Region")))
-                    .subplot(
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("country"), |c| c.facet(|f| f.title("Country")))
-                                .subplot(
-                                    Plot::<Cartesian>::new().mark(
-                                        Symbol::new()
-                                            .x_with(col("x_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Shared)
-                                            })
-                                            .y_with(col("y_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Level(2))
-                                            })
-                                            .size(40.0)
-                                            .fill("#f39c12"),
-                                    ),
-                                ),
-                        ),
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("x_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                    })
+                                    .y_with(col("y_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Level(2))
+                                    })
+                                    .size(40.0)
+                                    .fill("#f39c12"),
+                            ),
+                        )
+                        .row_with(col("country"), |c| c.facet(|f| f.title("Country"))),
                     ),
+                )
+                .col_with(col("region"), |c| c.facet(|f| f.title("Region"))),
             );
 
         let compiled = outer
@@ -2832,27 +2848,25 @@ fn test_three_level_mixed_x_level2_y_shared() {
             .data(df)
             .canvas_size(800, 600)
             .mark(
-                Facet::new()
-                    .col_with(col("region"), |c| c.facet(|f| f.title("Region")))
-                    .subplot(
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("country"), |c| c.facet(|f| f.title("Country")))
-                                .subplot(
-                                    Plot::<Cartesian>::new().mark(
-                                        Symbol::new()
-                                            .x_with(col("x_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Level(2))
-                                            })
-                                            .y_with(col("y_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Shared)
-                                            })
-                                            .size(40.0)
-                                            .fill("#1abc9c"),
-                                    ),
-                                ),
-                        ),
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("x_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Level(2))
+                                    })
+                                    .y_with(col("y_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                    })
+                                    .size(40.0)
+                                    .fill("#1abc9c"),
+                            ),
+                        )
+                        .row_with(col("country"), |c| c.facet(|f| f.title("Country"))),
                     ),
+                )
+                .col_with(col("region"), |c| c.facet(|f| f.title("Region"))),
             );
 
         let compiled = outer
@@ -3109,35 +3123,30 @@ fn test_four_level_level2_y() {
             .data(df)
             .canvas_size(1000, 800)
             .mark(
-                Facet::new()
-                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("department"), |c| c.facet(|f| f.title("Dept")))
-                                .subplot(
-                                    Plot::<FacetColumn>::new().mark(
-                                        Facet::new()
-                                            .col_with(col("team"), |c| c.facet(|f| f.title("Team")))
-                                            .subplot(
-                                                Plot::<Cartesian>::new().mark(
-                                                    Symbol::new()
-                                                        .x_with(col("x_val"), |c| {
-                                                            c.with_scale_sharing(ScaleSharing::Free)
-                                                        })
-                                                        .y_with(col("y_val"), |c| {
-                                                            c.with_scale_sharing(
-                                                                ScaleSharing::Level(2),
-                                                            )
-                                                        })
-                                                        .size(40.0)
-                                                        .fill("#3498db"),
-                                                ),
-                                            ),
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetColumn>::new().mark(
+                                Subplot::new(
+                                    Plot::<Cartesian>::new().mark(
+                                        Symbol::new()
+                                            .x_with(col("x_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Free)
+                                            })
+                                            .y_with(col("y_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Level(2))
+                                            })
+                                            .size(40.0)
+                                            .fill("#3498db"),
                                     ),
-                                ),
-                        ),
+                                )
+                                .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            ),
+                        )
+                        .row_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
                     ),
+                )
+                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             );
 
         let compiled = outer
@@ -3165,35 +3174,30 @@ fn test_four_level_level3_y() {
             .data(df)
             .canvas_size(1000, 800)
             .mark(
-                Facet::new()
-                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("department"), |c| c.facet(|f| f.title("Dept")))
-                                .subplot(
-                                    Plot::<FacetColumn>::new().mark(
-                                        Facet::new()
-                                            .col_with(col("team"), |c| c.facet(|f| f.title("Team")))
-                                            .subplot(
-                                                Plot::<Cartesian>::new().mark(
-                                                    Symbol::new()
-                                                        .x_with(col("x_val"), |c| {
-                                                            c.with_scale_sharing(ScaleSharing::Free)
-                                                        })
-                                                        .y_with(col("y_val"), |c| {
-                                                            c.with_scale_sharing(
-                                                                ScaleSharing::Level(3),
-                                                            )
-                                                        })
-                                                        .size(40.0)
-                                                        .fill("#9b59b6"),
-                                                ),
-                                            ),
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetColumn>::new().mark(
+                                Subplot::new(
+                                    Plot::<Cartesian>::new().mark(
+                                        Symbol::new()
+                                            .x_with(col("x_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Free)
+                                            })
+                                            .y_with(col("y_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Level(3))
+                                            })
+                                            .size(40.0)
+                                            .fill("#9b59b6"),
                                     ),
-                                ),
-                        ),
+                                )
+                                .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            ),
+                        )
+                        .row_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
                     ),
+                )
+                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             );
 
         let compiled = outer
@@ -3280,9 +3284,9 @@ fn test_level0_equivalent_to_free() {
             .data(df.clone())
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
@@ -3294,9 +3298,11 @@ fn test_level0_equivalent_to_free() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         // Configuration 2: Free on both channels (should be identical)
@@ -3304,9 +3310,9 @@ fn test_level0_equivalent_to_free() {
             .data(df.clone())
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
@@ -3318,9 +3324,11 @@ fn test_level0_equivalent_to_free() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         // Compile and render both
@@ -3364,9 +3372,9 @@ fn test_explicit_domain_with_level1() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
@@ -3379,9 +3387,11 @@ fn test_explicit_domain_with_level1() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -3417,28 +3427,26 @@ fn test_explicit_domain_with_level2() {
             .data(df)
             .canvas_size(800, 600)
             .mark(
-                Facet::new()
-                    .col_with(col("region"), |c| c.facet(|f| f.title("Region")))
-                    .subplot(
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("country"), |c| c.facet(|f| f.title("Country")))
-                                .subplot(
-                                    Plot::<Cartesian>::new().mark(
-                                        Symbol::new()
-                                            .x_with(col("x_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Free)
-                                            })
-                                            .y_with(col("y_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Level(2))
-                                                    .scale(|s| s.domain((0.0, 100.0)))
-                                            })
-                                            .size(40.0)
-                                            .fill("#1abc9c"),
-                                    ),
-                                ),
-                        ),
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("x_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Free)
+                                    })
+                                    .y_with(col("y_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Level(2))
+                                            .scale(|s| s.domain((0.0, 100.0)))
+                                    })
+                                    .size(40.0)
+                                    .fill("#1abc9c"),
+                            ),
+                        )
+                        .row_with(col("country"), |c| c.facet(|f| f.title("Country"))),
                     ),
+                )
+                .col_with(col("region"), |c| c.facet(|f| f.title("Region"))),
             );
 
         let compiled = outer
@@ -3472,19 +3480,18 @@ fn test_level_exceeds_nesting_depth() {
             .data(df)
             .canvas_size(600, 400)
             .mark(
-                Facet::new()
-                    .col_with(col("region"), |c| c.facet(|f| f.title("Region")))
-                    .subplot(
-                        Plot::<Cartesian>::new().mark(
-                            Symbol::new()
-                                .x(col("x_val"))
-                                .y_with(col("y_val"), |c| {
-                                    c.with_scale_sharing(ScaleSharing::Level(3))
-                                })
-                                .size(40.0)
-                                .fill("#c0392b"),
-                        ),
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(
+                        Symbol::new()
+                            .x(col("x_val"))
+                            .y_with(col("y_val"), |c| {
+                                c.with_scale_sharing(ScaleSharing::Level(3))
+                            })
+                            .size(40.0)
+                            .fill("#c0392b"),
                     ),
+                )
+                .col_with(col("region"), |c| c.facet(|f| f.title("Region"))),
             );
 
         let compiled = outer
@@ -3572,9 +3579,9 @@ fn test_color_channel_with_level1() {
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x(col("sepal_length"))
@@ -3584,9 +3591,11 @@ fn test_color_channel_with_level1() {
                                     })
                                     .size(35.0),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         let compiled = outer
@@ -3622,9 +3631,9 @@ fn test_level255_equivalent_to_shared() {
             .data(df.clone())
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
@@ -3636,9 +3645,11 @@ fn test_level255_equivalent_to_shared() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         // Configuration 2: Shared on both channels (should be identical)
@@ -3646,9 +3657,9 @@ fn test_level255_equivalent_to_shared() {
             .data(df.clone())
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
+                Subplot::new(
                     Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                        Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
@@ -3660,9 +3671,11 @@ fn test_level255_equivalent_to_shared() {
                                     .size(25.0)
                                     .fill("#4682b4"),
                             ),
-                        ),
+                        )
+                        .row(col("species")),
                     ),
-                ),
+                )
+                .column(col("petal_width_bin")),
             );
 
         // Compile and render both
@@ -3707,35 +3720,30 @@ fn test_four_level_row_col_row_col() {
             .data(df)
             .canvas_size(1000, 800)
             .mark(
-                Facet::new()
-                    .row_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetColumn>::new().mark(
-                            Facet::new()
-                                .col_with(col("department"), |c| c.facet(|f| f.title("Dept")))
-                                .subplot(
-                                    Plot::<FacetRow>::new().mark(
-                                        Facet::new()
-                                            .row_with(col("team"), |c| c.facet(|f| f.title("Team")))
-                                            .subplot(
-                                                Plot::<Cartesian>::new().mark(
-                                                    Symbol::new()
-                                                        .x_with(col("x_val"), |c| {
-                                                            c.with_scale_sharing(ScaleSharing::Free)
-                                                        })
-                                                        .y_with(col("y_val"), |c| {
-                                                            c.with_scale_sharing(
-                                                                ScaleSharing::Level(3),
-                                                            )
-                                                        })
-                                                        .size(40.0)
-                                                        .fill("#e74c3c"),
-                                                ),
-                                            ),
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetRow>::new().mark(
+                                Subplot::new(
+                                    Plot::<Cartesian>::new().mark(
+                                        Symbol::new()
+                                            .x_with(col("x_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Free)
+                                            })
+                                            .y_with(col("y_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Level(3))
+                                            })
+                                            .size(40.0)
+                                            .fill("#e74c3c"),
                                     ),
-                                ),
-                        ),
+                                )
+                                .row_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            ),
+                        )
+                        .col_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
                     ),
+                )
+                .row_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             );
 
         let compiled = outer
@@ -3767,35 +3775,30 @@ fn test_four_level_col_col_row_row() {
             .data(df)
             .canvas_size(1000, 800)
             .mark(
-                Facet::new()
-                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetColumn>::new().mark(
-                            Facet::new()
-                                .col_with(col("department"), |c| c.facet(|f| f.title("Dept")))
-                                .subplot(
-                                    Plot::<FacetRow>::new().mark(
-                                        Facet::new()
-                                            .row_with(col("team"), |c| c.facet(|f| f.title("Team")))
-                                            .subplot(
-                                                Plot::<Cartesian>::new().mark(
-                                                    Symbol::new()
-                                                        .x_with(col("x_val"), |c| {
-                                                            c.with_scale_sharing(ScaleSharing::Free)
-                                                        })
-                                                        .y_with(col("y_val"), |c| {
-                                                            c.with_scale_sharing(
-                                                                ScaleSharing::Level(3),
-                                                            )
-                                                        })
-                                                        .size(40.0)
-                                                        .fill("#27ae60"),
-                                                ),
-                                            ),
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetRow>::new().mark(
+                                Subplot::new(
+                                    Plot::<Cartesian>::new().mark(
+                                        Symbol::new()
+                                            .x_with(col("x_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Free)
+                                            })
+                                            .y_with(col("y_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Level(3))
+                                            })
+                                            .size(40.0)
+                                            .fill("#27ae60"),
                                     ),
-                                ),
-                        ),
+                                )
+                                .row_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            ),
+                        )
+                        .col_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
                     ),
+                )
+                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             );
 
         let compiled = outer
@@ -3827,35 +3830,30 @@ fn test_four_level_row_row_col_col() {
             .data(df)
             .canvas_size(1000, 800)
             .mark(
-                Facet::new()
-                    .row_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("department"), |c| c.facet(|f| f.title("Dept")))
-                                .subplot(
-                                    Plot::<FacetColumn>::new().mark(
-                                        Facet::new()
-                                            .col_with(col("team"), |c| c.facet(|f| f.title("Team")))
-                                            .subplot(
-                                                Plot::<Cartesian>::new().mark(
-                                                    Symbol::new()
-                                                        .x_with(col("x_val"), |c| {
-                                                            c.with_scale_sharing(ScaleSharing::Free)
-                                                        })
-                                                        .y_with(col("y_val"), |c| {
-                                                            c.with_scale_sharing(
-                                                                ScaleSharing::Level(3),
-                                                            )
-                                                        })
-                                                        .size(40.0)
-                                                        .fill("#f39c12"),
-                                                ),
-                                            ),
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetColumn>::new().mark(
+                                Subplot::new(
+                                    Plot::<Cartesian>::new().mark(
+                                        Symbol::new()
+                                            .x_with(col("x_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Free)
+                                            })
+                                            .y_with(col("y_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Level(3))
+                                            })
+                                            .size(40.0)
+                                            .fill("#f39c12"),
                                     ),
-                                ),
-                        ),
+                                )
+                                .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            ),
+                        )
+                        .row_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
                     ),
+                )
+                .row_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             );
 
         let compiled = outer
@@ -3885,45 +3883,35 @@ fn test_four_level_row_row_row_row() {
             .data(df)
             .canvas_size(1000, 1400)
             .mark(
-                Facet::new()
-                    .row_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("department"), |c| c.facet(|f| f.title("Dept")))
-                                .subplot(
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetRow>::new().mark(
+                                Subplot::new(
                                     Plot::<FacetRow>::new().mark(
-                                        Facet::new()
-                                            .row_with(col("team"), |c| c.facet(|f| f.title("Team")))
-                                            .subplot(
-                                                Plot::<FacetRow>::new().mark(
-                                                    Facet::new()
-                                                        .row_with(col("subteam"), |c| {
-                                                            c.facet(|f| f.title("Sub"))
-                                                        })
-                                                        .subplot(
-                                                            Plot::<Cartesian>::new().mark(
-                                                                Symbol::new()
-                                                                    .x_with(col("x_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .y_with(col("y_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .size(40.0)
-                                                                    .fill("#e74c3c"),
-                                                            ),
-                                                        ),
-                                                ),
+                                        Subplot::new(
+                                            Plot::<Cartesian>::new().mark(
+                                                Symbol::new()
+                                                    .x_with(col("x_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .y_with(col("y_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .size(40.0)
+                                                    .fill("#e74c3c"),
                                             ),
+                                        )
+                                        .row_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
                                     ),
-                                ),
-                        ),
+                                )
+                                .row_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            ),
+                        )
+                        .row_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
                     ),
+                )
+                .row_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             );
 
         let compiled = outer
@@ -3953,45 +3941,35 @@ fn test_four_level_col_col_col_col() {
             .data(df)
             .canvas_size(1800, 500)
             .mark(
-                Facet::new()
-                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetColumn>::new().mark(
-                            Facet::new()
-                                .col_with(col("department"), |c| c.facet(|f| f.title("Dept")))
-                                .subplot(
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetColumn>::new().mark(
+                                Subplot::new(
                                     Plot::<FacetColumn>::new().mark(
-                                        Facet::new()
-                                            .col_with(col("team"), |c| c.facet(|f| f.title("Team")))
-                                            .subplot(
-                                                Plot::<FacetColumn>::new().mark(
-                                                    Facet::new()
-                                                        .col_with(col("subteam"), |c| {
-                                                            c.facet(|f| f.title("Sub"))
-                                                        })
-                                                        .subplot(
-                                                            Plot::<Cartesian>::new().mark(
-                                                                Symbol::new()
-                                                                    .x_with(col("x_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .y_with(col("y_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .size(40.0)
-                                                                    .fill("#9b59b6"),
-                                                            ),
-                                                        ),
-                                                ),
+                                        Subplot::new(
+                                            Plot::<Cartesian>::new().mark(
+                                                Symbol::new()
+                                                    .x_with(col("x_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .y_with(col("y_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .size(40.0)
+                                                    .fill("#9b59b6"),
                                             ),
+                                        )
+                                        .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
                                     ),
-                                ),
-                        ),
+                                )
+                                .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            ),
+                        )
+                        .col_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
                     ),
+                )
+                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             );
 
         let compiled = outer
@@ -4022,47 +4000,37 @@ fn test_four_level_col_col_col_col_dept_free() {
             .data(df)
             .canvas_size(1800, 500)
             .mark(
-                Facet::new()
-                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetColumn>::new().mark(
-                            Facet::new()
-                                .col_with(col("department"), |c| {
-                                    c.facet(|f| f.title("Dept").free_slots())
-                                })
-                                .subplot(
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetColumn>::new().mark(
+                                Subplot::new(
                                     Plot::<FacetColumn>::new().mark(
-                                        Facet::new()
-                                            .col_with(col("team"), |c| c.facet(|f| f.title("Team")))
-                                            .subplot(
-                                                Plot::<FacetColumn>::new().mark(
-                                                    Facet::new()
-                                                        .col_with(col("subteam"), |c| {
-                                                            c.facet(|f| f.title("Sub"))
-                                                        })
-                                                        .subplot(
-                                                            Plot::<Cartesian>::new().mark(
-                                                                Symbol::new()
-                                                                    .x_with(col("x_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .y_with(col("y_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .size(40.0)
-                                                                    .fill("#9b59b6"),
-                                                            ),
-                                                        ),
-                                                ),
+                                        Subplot::new(
+                                            Plot::<Cartesian>::new().mark(
+                                                Symbol::new()
+                                                    .x_with(col("x_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .y_with(col("y_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .size(40.0)
+                                                    .fill("#9b59b6"),
                                             ),
+                                        )
+                                        .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
                                     ),
-                                ),
-                        ),
+                                )
+                                .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            ),
+                        )
+                        .col_with(col("department"), |c| {
+                            c.facet(|f| f.title("Dept").free_slots())
+                        }),
                     ),
+                )
+                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             );
 
         let compiled = outer
@@ -4092,45 +4060,35 @@ fn test_four_level_col_col_col_col_y_level2() {
             .data(df)
             .canvas_size(1800, 500)
             .mark(
-                Facet::new()
-                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetColumn>::new().mark(
-                            Facet::new()
-                                .col_with(col("department"), |c| c.facet(|f| f.title("Dept")))
-                                .subplot(
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetColumn>::new().mark(
+                                Subplot::new(
                                     Plot::<FacetColumn>::new().mark(
-                                        Facet::new()
-                                            .col_with(col("team"), |c| c.facet(|f| f.title("Team")))
-                                            .subplot(
-                                                Plot::<FacetColumn>::new().mark(
-                                                    Facet::new()
-                                                        .col_with(col("subteam"), |c| {
-                                                            c.facet(|f| f.title("Sub"))
-                                                        })
-                                                        .subplot(
-                                                            Plot::<Cartesian>::new().mark(
-                                                                Symbol::new()
-                                                                    .x_with(col("x_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .y_with(col("y_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(2),
-                                                                        )
-                                                                    })
-                                                                    .size(40.0)
-                                                                    .fill("#9b59b6"),
-                                                            ),
-                                                        ),
-                                                ),
+                                        Subplot::new(
+                                            Plot::<Cartesian>::new().mark(
+                                                Symbol::new()
+                                                    .x_with(col("x_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .y_with(col("y_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(2))
+                                                    })
+                                                    .size(40.0)
+                                                    .fill("#9b59b6"),
                                             ),
+                                        )
+                                        .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
                                     ),
-                                ),
-                        ),
+                                )
+                                .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            ),
+                        )
+                        .col_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
                     ),
+                )
+                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             );
 
         let compiled = outer
@@ -4160,27 +4118,25 @@ fn test_two_level_col_col() {
             .data(df)
             .canvas_size(1800, 500)
             .mark(
-                Facet::new()
-                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetColumn>::new().mark(
-                            Facet::new()
-                                .col_with(col("department"), |c| c.facet(|f| f.title("Dept")))
-                                .subplot(
-                                    Plot::<Cartesian>::new().mark(
-                                        Symbol::new()
-                                            .x_with(col("x_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Level(2))
-                                            })
-                                            .y_with(col("y_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Level(2))
-                                            })
-                                            .size(40.0)
-                                            .fill("#9b59b6"),
-                                    ),
-                                ),
-                        ),
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("x_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Level(2))
+                                    })
+                                    .y_with(col("y_val"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Level(2))
+                                    })
+                                    .size(40.0)
+                                    .fill("#9b59b6"),
+                            ),
+                        )
+                        .col_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
                     ),
+                )
+                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             );
 
         let compiled = outer.compile(&ctx).await.expect("compile col>col nesting");
@@ -4201,50 +4157,38 @@ fn test_four_level_col_col_col_col_y_level2_right() {
             .data(df)
             .canvas_size(1800, 500)
             .mark(
-                Facet::new()
-                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetColumn>::new().mark(
-                            Facet::new()
-                                .col_with(col("department"), |c| c.facet(|f| f.title("Dept")))
-                                .subplot(
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetColumn>::new().mark(
+                                Subplot::new(
                                     Plot::<FacetColumn>::new().mark(
-                                        Facet::new()
-                                            .col_with(col("team"), |c| c.facet(|f| f.title("Team")))
-                                            .subplot(
-                                                Plot::<FacetColumn>::new().mark(
-                                                    Facet::new()
-                                                        .col_with(col("subteam"), |c| {
-                                                            c.facet(|f| f.title("Sub"))
-                                                        })
-                                                        .subplot(
-                                                            Plot::<Cartesian>::new().mark(
-                                                                Symbol::new()
-                                                                    .x_with(col("x_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .y_with(col("y_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(2),
-                                                                        )
-                                                                        .axis(|a| {
-                                                                            a.position(
-                                                                                AxisPosition::Right,
-                                                                            )
-                                                                        })
-                                                                    })
-                                                                    .size(40.0)
-                                                                    .fill("#9b59b6"),
-                                                            ),
-                                                        ),
-                                                ),
+                                        Subplot::new(
+                                            Plot::<Cartesian>::new().mark(
+                                                Symbol::new()
+                                                    .x_with(col("x_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .y_with(col("y_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(2))
+                                                            .axis(|a| {
+                                                                a.position(AxisPosition::Right)
+                                                            })
+                                                    })
+                                                    .size(40.0)
+                                                    .fill("#9b59b6"),
                                             ),
+                                        )
+                                        .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
                                     ),
-                                ),
-                        ),
+                                )
+                                .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            ),
+                        )
+                        .col_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
                     ),
+                )
+                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             );
 
         let compiled = outer
@@ -4275,45 +4219,35 @@ fn test_four_level_col_col_col_col_y_free() {
             .data(df)
             .canvas_size(1800, 500)
             .mark(
-                Facet::new()
-                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetColumn>::new().mark(
-                            Facet::new()
-                                .col_with(col("department"), |c| c.facet(|f| f.title("Dept")))
-                                .subplot(
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetColumn>::new().mark(
+                                Subplot::new(
                                     Plot::<FacetColumn>::new().mark(
-                                        Facet::new()
-                                            .col_with(col("team"), |c| c.facet(|f| f.title("Team")))
-                                            .subplot(
-                                                Plot::<FacetColumn>::new().mark(
-                                                    Facet::new()
-                                                        .col_with(col("subteam"), |c| {
-                                                            c.facet(|f| f.title("Sub"))
-                                                        })
-                                                        .subplot(
-                                                            Plot::<Cartesian>::new().mark(
-                                                                Symbol::new()
-                                                                    .x_with(col("x_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .y_with(col("y_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Free,
-                                                                        )
-                                                                    })
-                                                                    .size(40.0)
-                                                                    .fill("#9b59b6"),
-                                                            ),
-                                                        ),
-                                                ),
+                                        Subplot::new(
+                                            Plot::<Cartesian>::new().mark(
+                                                Symbol::new()
+                                                    .x_with(col("x_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .y_with(col("y_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Free)
+                                                    })
+                                                    .size(40.0)
+                                                    .fill("#9b59b6"),
                                             ),
+                                        )
+                                        .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
                                     ),
-                                ),
-                        ),
+                                )
+                                .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            ),
+                        )
+                        .col_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
                     ),
+                )
+                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             );
 
         let compiled = outer
@@ -4344,45 +4278,35 @@ fn test_four_level_col_col_col_col_y_level1() {
             .data(df)
             .canvas_size(1800, 500)
             .mark(
-                Facet::new()
-                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetColumn>::new().mark(
-                            Facet::new()
-                                .col_with(col("department"), |c| c.facet(|f| f.title("Dept")))
-                                .subplot(
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetColumn>::new().mark(
+                                Subplot::new(
                                     Plot::<FacetColumn>::new().mark(
-                                        Facet::new()
-                                            .col_with(col("team"), |c| c.facet(|f| f.title("Team")))
-                                            .subplot(
-                                                Plot::<FacetColumn>::new().mark(
-                                                    Facet::new()
-                                                        .col_with(col("subteam"), |c| {
-                                                            c.facet(|f| f.title("Sub"))
-                                                        })
-                                                        .subplot(
-                                                            Plot::<Cartesian>::new().mark(
-                                                                Symbol::new()
-                                                                    .x_with(col("x_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .y_with(col("y_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(1),
-                                                                        )
-                                                                    })
-                                                                    .size(40.0)
-                                                                    .fill("#9b59b6"),
-                                                            ),
-                                                        ),
-                                                ),
+                                        Subplot::new(
+                                            Plot::<Cartesian>::new().mark(
+                                                Symbol::new()
+                                                    .x_with(col("x_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .y_with(col("y_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(1))
+                                                    })
+                                                    .size(40.0)
+                                                    .fill("#9b59b6"),
                                             ),
+                                        )
+                                        .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
                                     ),
-                                ),
-                        ),
+                                )
+                                .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            ),
+                        )
+                        .col_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
                     ),
+                )
+                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             );
 
         let compiled = outer
@@ -4413,47 +4337,37 @@ fn test_four_level_col_col_col_col_y_level2_dept_free() {
             .data(df)
             .canvas_size(1800, 500)
             .mark(
-                Facet::new()
-                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetColumn>::new().mark(
-                            Facet::new()
-                                .col_with(col("department"), |c| {
-                                    c.facet(|f| f.title("Dept").free_slots())
-                                })
-                                .subplot(
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetColumn>::new().mark(
+                                Subplot::new(
                                     Plot::<FacetColumn>::new().mark(
-                                        Facet::new()
-                                            .col_with(col("team"), |c| c.facet(|f| f.title("Team")))
-                                            .subplot(
-                                                Plot::<FacetColumn>::new().mark(
-                                                    Facet::new()
-                                                        .col_with(col("subteam"), |c| {
-                                                            c.facet(|f| f.title("Sub"))
-                                                        })
-                                                        .subplot(
-                                                            Plot::<Cartesian>::new().mark(
-                                                                Symbol::new()
-                                                                    .x_with(col("x_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .y_with(col("y_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(2),
-                                                                        )
-                                                                    })
-                                                                    .size(40.0)
-                                                                    .fill("#9b59b6"),
-                                                            ),
-                                                        ),
-                                                ),
+                                        Subplot::new(
+                                            Plot::<Cartesian>::new().mark(
+                                                Symbol::new()
+                                                    .x_with(col("x_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .y_with(col("y_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(2))
+                                                    })
+                                                    .size(40.0)
+                                                    .fill("#9b59b6"),
                                             ),
+                                        )
+                                        .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
                                     ),
-                                ),
-                        ),
+                                )
+                                .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            ),
+                        )
+                        .col_with(col("department"), |c| {
+                            c.facet(|f| f.title("Dept").free_slots())
+                        }),
                     ),
+                )
+                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             );
 
         let compiled = outer
@@ -4484,52 +4398,40 @@ fn test_four_level_col_col_col_col_y_level2_right_dept_free() {
             .data(df)
             .canvas_size(1800, 500)
             .mark(
-                Facet::new()
-                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetColumn>::new().mark(
-                            Facet::new()
-                                .col_with(col("department"), |c| {
-                                    c.facet(|f| f.title("Dept").free_slots())
-                                })
-                                .subplot(
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetColumn>::new().mark(
+                                Subplot::new(
                                     Plot::<FacetColumn>::new().mark(
-                                        Facet::new()
-                                            .col_with(col("team"), |c| c.facet(|f| f.title("Team")))
-                                            .subplot(
-                                                Plot::<FacetColumn>::new().mark(
-                                                    Facet::new()
-                                                        .col_with(col("subteam"), |c| {
-                                                            c.facet(|f| f.title("Sub"))
-                                                        })
-                                                        .subplot(
-                                                            Plot::<Cartesian>::new().mark(
-                                                                Symbol::new()
-                                                                    .x_with(col("x_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .y_with(col("y_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(2),
-                                                                        )
-                                                                        .axis(|a| {
-                                                                            a.position(
-                                                                                AxisPosition::Right,
-                                                                            )
-                                                                        })
-                                                                    })
-                                                                    .size(40.0)
-                                                                    .fill("#9b59b6"),
-                                                            ),
-                                                        ),
-                                                ),
+                                        Subplot::new(
+                                            Plot::<Cartesian>::new().mark(
+                                                Symbol::new()
+                                                    .x_with(col("x_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .y_with(col("y_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(2))
+                                                            .axis(|a| {
+                                                                a.position(AxisPosition::Right)
+                                                            })
+                                                    })
+                                                    .size(40.0)
+                                                    .fill("#9b59b6"),
                                             ),
+                                        )
+                                        .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
                                     ),
-                                ),
-                        ),
+                                )
+                                .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            ),
+                        )
+                        .col_with(col("department"), |c| {
+                            c.facet(|f| f.title("Dept").free_slots())
+                        }),
                     ),
+                )
+                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             );
 
         let compiled = outer
@@ -4561,47 +4463,37 @@ fn test_four_level_col_col_col_col_y_free_dept_free() {
             .data(df)
             .canvas_size(1800, 500)
             .mark(
-                Facet::new()
-                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetColumn>::new().mark(
-                            Facet::new()
-                                .col_with(col("department"), |c| {
-                                    c.facet(|f| f.title("Dept").free_slots())
-                                })
-                                .subplot(
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetColumn>::new().mark(
+                                Subplot::new(
                                     Plot::<FacetColumn>::new().mark(
-                                        Facet::new()
-                                            .col_with(col("team"), |c| c.facet(|f| f.title("Team")))
-                                            .subplot(
-                                                Plot::<FacetColumn>::new().mark(
-                                                    Facet::new()
-                                                        .col_with(col("subteam"), |c| {
-                                                            c.facet(|f| f.title("Sub"))
-                                                        })
-                                                        .subplot(
-                                                            Plot::<Cartesian>::new().mark(
-                                                                Symbol::new()
-                                                                    .x_with(col("x_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .y_with(col("y_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Free,
-                                                                        )
-                                                                    })
-                                                                    .size(40.0)
-                                                                    .fill("#9b59b6"),
-                                                            ),
-                                                        ),
-                                                ),
+                                        Subplot::new(
+                                            Plot::<Cartesian>::new().mark(
+                                                Symbol::new()
+                                                    .x_with(col("x_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .y_with(col("y_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Free)
+                                                    })
+                                                    .size(40.0)
+                                                    .fill("#9b59b6"),
                                             ),
+                                        )
+                                        .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
                                     ),
-                                ),
-                        ),
+                                )
+                                .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            ),
+                        )
+                        .col_with(col("department"), |c| {
+                            c.facet(|f| f.title("Dept").free_slots())
+                        }),
                     ),
+                )
+                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             );
 
         let compiled = outer
@@ -4632,47 +4524,37 @@ fn test_four_level_col_col_col_col_y_level1_dept_free() {
             .data(df)
             .canvas_size(1800, 500)
             .mark(
-                Facet::new()
-                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetColumn>::new().mark(
-                            Facet::new()
-                                .col_with(col("department"), |c| {
-                                    c.facet(|f| f.title("Dept").free_slots())
-                                })
-                                .subplot(
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetColumn>::new().mark(
+                                Subplot::new(
                                     Plot::<FacetColumn>::new().mark(
-                                        Facet::new()
-                                            .col_with(col("team"), |c| c.facet(|f| f.title("Team")))
-                                            .subplot(
-                                                Plot::<FacetColumn>::new().mark(
-                                                    Facet::new()
-                                                        .col_with(col("subteam"), |c| {
-                                                            c.facet(|f| f.title("Sub"))
-                                                        })
-                                                        .subplot(
-                                                            Plot::<Cartesian>::new().mark(
-                                                                Symbol::new()
-                                                                    .x_with(col("x_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .y_with(col("y_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(1),
-                                                                        )
-                                                                    })
-                                                                    .size(40.0)
-                                                                    .fill("#9b59b6"),
-                                                            ),
-                                                        ),
-                                                ),
+                                        Subplot::new(
+                                            Plot::<Cartesian>::new().mark(
+                                                Symbol::new()
+                                                    .x_with(col("x_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .y_with(col("y_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(1))
+                                                    })
+                                                    .size(40.0)
+                                                    .fill("#9b59b6"),
                                             ),
+                                        )
+                                        .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
                                     ),
-                                ),
-                        ),
+                                )
+                                .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            ),
+                        )
+                        .col_with(col("department"), |c| {
+                            c.facet(|f| f.title("Dept").free_slots())
+                        }),
                     ),
+                )
+                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             );
 
         let compiled = outer
@@ -4702,37 +4584,32 @@ fn test_four_level_col_col_row_row_dept_free() {
             .data(df)
             .canvas_size(1000, 800)
             .mark(
-                Facet::new()
-                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetColumn>::new().mark(
-                            Facet::new()
-                                .col_with(col("department"), |c| {
-                                    c.facet(|f| f.title("Dept").free_slots())
-                                })
-                                .subplot(
-                                    Plot::<FacetRow>::new().mark(
-                                        Facet::new()
-                                            .row_with(col("team"), |c| c.facet(|f| f.title("Team")))
-                                            .subplot(
-                                                Plot::<Cartesian>::new().mark(
-                                                    Symbol::new()
-                                                        .x_with(col("x_val"), |c| {
-                                                            c.with_scale_sharing(ScaleSharing::Free)
-                                                        })
-                                                        .y_with(col("y_val"), |c| {
-                                                            c.with_scale_sharing(
-                                                                ScaleSharing::Level(3),
-                                                            )
-                                                        })
-                                                        .size(40.0)
-                                                        .fill("#27ae60"),
-                                                ),
-                                            ),
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetRow>::new().mark(
+                                Subplot::new(
+                                    Plot::<Cartesian>::new().mark(
+                                        Symbol::new()
+                                            .x_with(col("x_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Free)
+                                            })
+                                            .y_with(col("y_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Level(3))
+                                            })
+                                            .size(40.0)
+                                            .fill("#27ae60"),
                                     ),
-                                ),
-                        ),
+                                )
+                                .row_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            ),
+                        )
+                        .col_with(col("department"), |c| {
+                            c.facet(|f| f.title("Dept").free_slots())
+                        }),
                     ),
+                )
+                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             );
 
         let compiled = outer
@@ -4767,47 +4644,37 @@ fn test_four_level_col_col_col_col_team_free_asymmetric() {
             .data(df)
             .canvas_size(1800, 500)
             .mark(
-                Facet::new()
-                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetColumn>::new().mark(
-                            Facet::new()
-                                .col_with(col("department"), |c| c.facet(|f| f.title("Dept")))
-                                .subplot(
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetColumn>::new().mark(
+                                Subplot::new(
                                     Plot::<FacetColumn>::new().mark(
-                                        Facet::new()
-                                            .col_with(col("team"), |c| {
-                                                c.facet(|f| f.title("Team").free_slots())
-                                            })
-                                            .subplot(
-                                                Plot::<FacetColumn>::new().mark(
-                                                    Facet::new()
-                                                        .col_with(col("subteam"), |c| {
-                                                            c.facet(|f| f.title("Sub"))
-                                                        })
-                                                        .subplot(
-                                                            Plot::<Cartesian>::new().mark(
-                                                                Symbol::new()
-                                                                    .x_with(col("x_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .y_with(col("y_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .size(40.0)
-                                                                    .fill("#9b59b6"),
-                                                            ),
-                                                        ),
-                                                ),
+                                        Subplot::new(
+                                            Plot::<Cartesian>::new().mark(
+                                                Symbol::new()
+                                                    .x_with(col("x_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .y_with(col("y_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .size(40.0)
+                                                    .fill("#9b59b6"),
                                             ),
+                                        )
+                                        .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
                                     ),
-                                ),
-                        ),
+                                )
+                                .col_with(col("team"), |c| {
+                                    c.facet(|f| f.title("Team").free_slots())
+                                }),
+                            ),
+                        )
+                        .col_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
                     ),
+                )
+                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             );
 
         let compiled = outer
@@ -4842,52 +4709,41 @@ fn test_four_level_col_col_col_col_dept_free_team_level2() {
             .data(df)
             .canvas_size(4000, 500)
             .mark(
-                Facet::new()
-                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetColumn>::new().mark(
-                            Facet::new()
-                                .col_with(col("department"), |c| {
-                                    c.facet(|f| f.title("Dept").free_slots())
-                                })
-                                .subplot(
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetColumn>::new().mark(
+                                Subplot::new(
                                     Plot::<FacetColumn>::new().mark(
-                                        Facet::new()
-                                            .col_with(col("team"), |c| {
-                                                c.facet(|f| {
-                                                    f.title("Team")
-                                                        .with_slot_sharing(ScaleSharing::Level(2))
-                                                })
-                                            })
-                                            .subplot(
-                                                Plot::<FacetColumn>::new().mark(
-                                                    Facet::new()
-                                                        .col_with(col("subteam"), |c| {
-                                                            c.facet(|f| f.title("Sub"))
-                                                        })
-                                                        .subplot(
-                                                            Plot::<Cartesian>::new().mark(
-                                                                Symbol::new()
-                                                                    .x_with(col("x_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .y_with(col("y_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .size(40.0)
-                                                                    .fill("#9b59b6"),
-                                                            ),
-                                                        ),
-                                                ),
+                                        Subplot::new(
+                                            Plot::<Cartesian>::new().mark(
+                                                Symbol::new()
+                                                    .x_with(col("x_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .y_with(col("y_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .size(40.0)
+                                                    .fill("#9b59b6"),
                                             ),
+                                        )
+                                        .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
                                     ),
-                                ),
-                        ),
+                                )
+                                .col_with(col("team"), |c| {
+                                    c.facet(|f| {
+                                        f.title("Team").with_slot_sharing(ScaleSharing::Level(2))
+                                    })
+                                }),
+                            ),
+                        )
+                        .col_with(col("department"), |c| {
+                            c.facet(|f| f.title("Dept").free_slots())
+                        }),
                     ),
+                )
+                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             );
 
         let compiled = outer
@@ -4923,52 +4779,41 @@ fn test_four_level_col_col_col_col_dept_free_team_level1() {
             .data(df)
             .canvas_size(3600, 500)
             .mark(
-                Facet::new()
-                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
-                    .subplot(
-                        Plot::<FacetColumn>::new().mark(
-                            Facet::new()
-                                .col_with(col("department"), |c| {
-                                    c.facet(|f| f.title("Dept").free_slots())
-                                })
-                                .subplot(
+                Subplot::new(
+                    Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            Plot::<FacetColumn>::new().mark(
+                                Subplot::new(
                                     Plot::<FacetColumn>::new().mark(
-                                        Facet::new()
-                                            .col_with(col("team"), |c| {
-                                                c.facet(|f| {
-                                                    f.title("Team")
-                                                        .with_slot_sharing(ScaleSharing::Level(1))
-                                                })
-                                            })
-                                            .subplot(
-                                                Plot::<FacetColumn>::new().mark(
-                                                    Facet::new()
-                                                        .col_with(col("subteam"), |c| {
-                                                            c.facet(|f| f.title("Sub"))
-                                                        })
-                                                        .subplot(
-                                                            Plot::<Cartesian>::new().mark(
-                                                                Symbol::new()
-                                                                    .x_with(col("x_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .y_with(col("y_val"), |c| {
-                                                                        c.with_scale_sharing(
-                                                                            ScaleSharing::Level(4),
-                                                                        )
-                                                                    })
-                                                                    .size(40.0)
-                                                                    .fill("#3498db"),
-                                                            ),
-                                                        ),
-                                                ),
+                                        Subplot::new(
+                                            Plot::<Cartesian>::new().mark(
+                                                Symbol::new()
+                                                    .x_with(col("x_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .y_with(col("y_val"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                    })
+                                                    .size(40.0)
+                                                    .fill("#3498db"),
                                             ),
+                                        )
+                                        .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
                                     ),
-                                ),
-                        ),
+                                )
+                                .col_with(col("team"), |c| {
+                                    c.facet(|f| {
+                                        f.title("Team").with_slot_sharing(ScaleSharing::Level(1))
+                                    })
+                                }),
+                            ),
+                        )
+                        .col_with(col("department"), |c| {
+                            c.facet(|f| f.title("Dept").free_slots())
+                        }),
                     ),
+                )
+                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
             );
 
         let compiled = outer

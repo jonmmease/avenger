@@ -24,7 +24,6 @@ pub use crate::channel::config_traits::ScaleSharing;
 pub use crate::concat::{ConcatGuide, HConcat, VConcat};
 pub use crate::facet::coord::{FacetColumn, FacetRow};
 pub use crate::facet::empty_cell_policy::FacetEmptyCellPolicy;
-pub use crate::facet::marks::facet::Facet;
 pub use crate::polar::Polar;
 pub use crate::zerod::ZeroDCoord;
 

@@ -15,23 +15,22 @@ async fn facet_row_iris_y_axis_right() {
     let outer = Plot::<FacetRow>::new()
         .data(df)
         .mark(
-            Facet::<Cartesian>::new()
-                .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
-                .subplot(
-                    Plot::<Cartesian>::new().mark(
-                        Symbol::new()
-                            .x_with(col("sepal_length"), |c| {
-                                c.scale_with::<Linear>(|s| s)
-                                    .axis(|a| a.title("Sepal Length"))
-                            })
-                            .y_with(col("sepal_width"), |c| {
-                                c.scale_with::<Linear>(|s| s)
-                                    .axis(|a| a.title("Sepal Width").position("right"))
-                            })
-                            .size(28.0)
-                            .fill("#2e8b57"),
-                    ),
+            Subplot::new(
+                Plot::<Cartesian>::new().mark(
+                    Symbol::new()
+                        .x_with(col("sepal_length"), |c| {
+                            c.scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Length"))
+                        })
+                        .y_with(col("sepal_width"), |c| {
+                            c.scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Width").position("right"))
+                        })
+                        .size(28.0)
+                        .fill("#2e8b57"),
                 ),
+            )
+            .row_with(col("species"), |c| c.facet(|f| f.title("Species"))),
         )
         .canvas_size(600.0, 500.0);
 

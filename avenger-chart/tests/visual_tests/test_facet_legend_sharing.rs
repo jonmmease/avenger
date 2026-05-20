@@ -60,11 +60,17 @@ fn make_two_level_col_plot(
     Plot::<FacetColumn>::new()
         .data(df)
         .canvas_size(960.0, 420.0)
-        .mark(Facet::new().column(col("division")).subplot(
-            Plot::<FacetColumn>::new().mark(Facet::new().column(col("department")).subplot(
-                Plot::<Cartesian>::new().mark(make_fill_legend_symbol(sharing, position)),
-            )),
-        ))
+        .mark(
+            Subplot::new(
+                Plot::<FacetColumn>::new().mark(
+                    Subplot::new(
+                        Plot::<Cartesian>::new().mark(make_fill_legend_symbol(sharing, position)),
+                    )
+                    .column(col("department")),
+                ),
+            )
+            .column(col("division")),
+        )
 }
 
 fn make_three_level_col_plot(
@@ -76,13 +82,21 @@ fn make_three_level_col_plot(
         .data(df)
         .canvas_size(1500.0, 380.0)
         .mark(
-            Facet::new().column(col("division")).subplot(
-                Plot::<FacetColumn>::new().mark(Facet::new().column(col("department")).subplot(
-                    Plot::<FacetColumn>::new().mark(Facet::new().column(col("team")).subplot(
-                        Plot::<Cartesian>::new().mark(make_fill_legend_symbol(sharing, position)),
-                    )),
-                )),
-            ),
+            Subplot::new(
+                Plot::<FacetColumn>::new().mark(
+                    Subplot::new(
+                        Plot::<FacetColumn>::new().mark(
+                            Subplot::new(
+                                Plot::<Cartesian>::new()
+                                    .mark(make_fill_legend_symbol(sharing, position)),
+                            )
+                            .column(col("team")),
+                        ),
+                    )
+                    .column(col("department")),
+                ),
+            )
+            .column(col("division")),
         )
 }
 
@@ -91,9 +105,9 @@ fn make_two_level_col_plot_merged_group(df: DataFrame) -> Plot<FacetColumn> {
         .data(df)
         .canvas_size(960.0, 420.0)
         .mark(
-            Facet::new().column(col("division")).subplot(
+            Subplot::new(
                 Plot::<FacetColumn>::new().mark(
-                    Facet::new().column(col("department")).subplot(
+                    Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("x_val"), |c| {
@@ -113,9 +127,11 @@ fn make_two_level_col_plot_merged_group(df: DataFrame) -> Plot<FacetColumn> {
                                 .stroke_width(2.0)
                                 .size(70.0),
                         ),
-                    ),
+                    )
+                    .column(col("department")),
                 ),
-            ),
+            )
+            .column(col("division")),
         )
 }
 

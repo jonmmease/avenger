@@ -15,23 +15,22 @@ async fn facet_row_iris_x_axis_top() {
     let outer = Plot::<FacetRow>::new()
         .data(df)
         .mark(
-            Facet::<Cartesian>::new()
-                .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
-                .subplot(
-                    Plot::<Cartesian>::new().mark(
-                        Symbol::new()
-                            .x_with(col("sepal_length"), |c| {
-                                c.scale_with::<Linear>(|s| s)
-                                    .axis(|a| a.title("Sepal Length").position("top"))
-                            })
-                            .y_with(col("sepal_width"), |c| {
-                                c.scale_with::<Linear>(|s| s)
-                                    .axis(|a| a.title("Sepal Width"))
-                            })
-                            .size(28.0)
-                            .fill("#1f78b4"),
-                    ),
+            Subplot::new(
+                Plot::<Cartesian>::new().mark(
+                    Symbol::new()
+                        .x_with(col("sepal_length"), |c| {
+                            c.scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Length").position("top"))
+                        })
+                        .y_with(col("sepal_width"), |c| {
+                            c.scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Width"))
+                        })
+                        .size(28.0)
+                        .fill("#1f78b4"),
                 ),
+            )
+            .row_with(col("species"), |c| c.facet(|f| f.title("Species"))),
         )
         .canvas_size(600.0, 500.0);
 

@@ -1,6 +1,6 @@
 pub mod facet;
 pub mod facet_config;
 
-// Re-export compiled facet marks for convenience
-pub use facet::{CompiledFacetCol, CompiledFacetRow};
+// Re-export compiled facet subplot marks for convenience
+pub use facet::{CompiledFacetColumnSubplot, CompiledFacetRowSubplot};
 pub use facet_config::{FacetColChannelConfig, FacetRowChannelConfig};

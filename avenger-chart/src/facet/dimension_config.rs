@@ -1,6 +1,6 @@
 //! Minimal row/column channel identifiers for faceting.
 
-/// Dimension configuration trait used by facet marks.
+/// Dimension configuration trait used by facet subplot marks.
 pub trait FacetDimensionConfig: Clone + Send + Sync + 'static {
     /// Channel name used for this facet dimension ("row" or "column").
     fn channel_name() -> &'static str;

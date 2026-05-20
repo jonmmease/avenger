@@ -51,27 +51,25 @@ fn test_col_with_nested_row() {
                     .data(df.clone())
                     .canvas_size(800, 600)
                     .mark(
-                        Facet::new()
-                            .col_with(col("species"), |c| c.facet(|f| f.title("Species")))
-                            .subplot(
-                                // Middle layer: FacetRow (data flows from parent via data_override)
-                                Plot::<FacetRow>::new().mark(
-                                    Facet::new()
-                                        .row_with(col("petal_width_bin"), |c| {
-                                            c.facet(|f| f.title("Petal Width"))
-                                        })
-                                        .subplot(
-                                            // Innermost: Cartesian plot (receives doubly-filtered data)
-                                            Plot::<Cartesian>::new().mark(
-                                                Symbol::new()
-                                                    .x(col("sepal_length"))
-                                                    .y(col("sepal_width"))
-                                                    .size(25.0)
-                                                    .fill("#4682b4"),
-                                            ),
-                                        ),
-                                ),
+                        Subplot::new(
+                            // Middle layer: FacetRow (data flows from parent via data_override)
+                            Plot::<FacetRow>::new().mark(
+                                Subplot::new(
+                                    // Innermost: Cartesian plot (receives doubly-filtered data)
+                                    Plot::<Cartesian>::new().mark(
+                                        Symbol::new()
+                                            .x(col("sepal_length"))
+                                            .y(col("sepal_width"))
+                                            .size(25.0)
+                                            .fill("#4682b4"),
+                                    ),
+                                )
+                                .row_with(col("petal_width_bin"), |c| {
+                                    c.facet(|f| f.title("Petal Width"))
+                                }),
                             ),
+                        )
+                        .col_with(col("species"), |c| c.facet(|f| f.title("Species"))),
                     );
 
                 let compiled = outer.compile(&ctx).await.expect("compile nested facets");

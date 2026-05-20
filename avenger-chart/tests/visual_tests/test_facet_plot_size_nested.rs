@@ -33,9 +33,9 @@ fn nested_col_row_plot(
         .data(df)
         .plot_size(120.0, 90.0)
         .mark(
-            Facet::new().column(col("petal_width_bin")).subplot(
+            Subplot::new(
                 Plot::<FacetRow>::new().mark(
-                    Facet::new().row(col("species")).subplot(
+                    Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), move |c| {
@@ -47,9 +47,11 @@ fn nested_col_row_plot(
                                 .size(24.0)
                                 .fill("#4682b4"),
                         ),
-                    ),
+                    )
+                    .row(col("species")),
                 ),
-            ),
+            )
+            .column(col("petal_width_bin")),
         )
 }
 
@@ -62,9 +64,9 @@ fn nested_row_col_plot(
         .data(df)
         .plot_size(120.0, 90.0)
         .mark(
-            Facet::new().row(col("species")).subplot(
+            Subplot::new(
                 Plot::<FacetColumn>::new().mark(
-                    Facet::new().column(col("petal_width_bin")).subplot(
+                    Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), move |c| {
@@ -76,9 +78,11 @@ fn nested_row_col_plot(
                                 .size(24.0)
                                 .fill("#4682b4"),
                         ),
-                    ),
+                    )
+                    .column(col("petal_width_bin")),
                 ),
-            ),
+            )
+            .row(col("species")),
         )
 }
 
@@ -91,9 +95,9 @@ fn two_level_col_legend_plot(
         .data(df)
         .plot_size(120.0, 90.0)
         .mark(
-            Facet::new().column(col("division")).subplot(
+            Subplot::new(
                 Plot::<FacetColumn>::new().mark(
-                    Facet::new().column(col("department")).subplot(
+                    Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("x_val"), |c| {
@@ -108,9 +112,11 @@ fn two_level_col_legend_plot(
                                 })
                                 .size(64.0),
                         ),
-                    ),
+                    )
+                    .column(col("department")),
                 ),
-            ),
+            )
+            .column(col("division")),
         )
 }
 

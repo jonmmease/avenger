@@ -11,7 +11,7 @@ use crate::{
     error::AvengerChartError,
     facet::{
         evaluated_facet_tree::EvaluatedFacetTree,
-        marks::facet::{FacetMarkRef, facet_mark_ref},
+        marks::facet::{FacetSubplotRef, facet_subplot_ref},
         path_math,
         sharing_level::SharingLevel,
     },
@@ -176,9 +176,9 @@ fn resolve_current_facet_node(
     compiled_marks: &[Arc<dyn CompiledMark>],
 ) -> Option<(&Arc<CompiledPlot>, SharingLevel)> {
     for mark in compiled_marks {
-        if let Some(facet_mark) = facet_mark_ref(mark.as_ref()) {
+        if let Some(facet_mark) = facet_subplot_ref(mark.as_ref()) {
             match facet_mark {
-                FacetMarkRef::Row(facet_row) => {
+                FacetSubplotRef::Row(facet_row) => {
                     return Some((
                         facet_row.compiled_subplot(),
                         facet_row
@@ -187,7 +187,7 @@ fn resolve_current_facet_node(
                             .unwrap_or(SharingLevel::FREE),
                     ));
                 }
-                FacetMarkRef::Col(facet_col) => {
+                FacetSubplotRef::Col(facet_col) => {
                     return Some((
                         facet_col.compiled_subplot(),
                         facet_col
@@ -205,9 +205,13 @@ fn resolve_current_facet_node(
 
 fn resolve_child_facet_slot_sharing(compiled_subplot: &Arc<CompiledPlot>) -> Option<SharingLevel> {
     compiled_subplot.marks.iter().find_map(|mark| {
-        facet_mark_ref(mark.as_ref()).and_then(|facet_mark| match facet_mark {
-            FacetMarkRef::Row(facet_row) => facet_row.facet_slot_sharing().map(SharingLevel::from),
-            FacetMarkRef::Col(facet_col) => facet_col.facet_slot_sharing().map(SharingLevel::from),
+        facet_subplot_ref(mark.as_ref()).and_then(|facet_mark| match facet_mark {
+            FacetSubplotRef::Row(facet_row) => {
+                facet_row.facet_slot_sharing().map(SharingLevel::from)
+            }
+            FacetSubplotRef::Col(facet_col) => {
+                facet_col.facet_slot_sharing().map(SharingLevel::from)
+            }
         })
     })
 }

@@ -18,7 +18,7 @@ async fn facet_plot_size_row_iris_scatter() {
         .data(df)
         .plot_size(140.0, 100.0)
         .mark(
-            Facet::new().row(col("species")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x(col("sepal_length"))
@@ -26,7 +26,8 @@ async fn facet_plot_size_row_iris_scatter() {
                         .size(30.0)
                         .fill("#4682b4"),
                 ),
-            ),
+            )
+            .row(col("species")),
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
@@ -49,7 +50,7 @@ async fn facet_plot_size_col_iris_scatter() {
         .data(df)
         .plot_size(140.0, 100.0)
         .mark(
-            Facet::new().column(col("species")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x(col("sepal_length"))
@@ -57,7 +58,8 @@ async fn facet_plot_size_col_iris_scatter() {
                         .size(30.0)
                         .fill("#4682b4"),
                 ),
-            ),
+            )
+            .column(col("species")),
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
@@ -80,7 +82,7 @@ async fn facet_plot_size_row_shared_scales() {
         .data(df)
         .plot_size(140.0, 100.0)
         .mark(
-            Facet::new().row(col("species")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
@@ -92,7 +94,8 @@ async fn facet_plot_size_row_shared_scales() {
                         .size(30.0)
                         .fill("#4682b4"),
                 ),
-            ),
+            )
+            .row(col("species")),
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
@@ -115,7 +118,7 @@ async fn facet_plot_size_col_free_scales() {
         .data(df)
         .plot_size(140.0, 100.0)
         .mark(
-            Facet::new().column(col("species")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
@@ -127,7 +130,8 @@ async fn facet_plot_size_col_free_scales() {
                         .size(30.0)
                         .fill("#4682b4"),
                 ),
-            ),
+            )
+            .column(col("species")),
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
@@ -150,7 +154,7 @@ async fn facet_plot_size_row_hybrid_shared_x_free_y() {
         .data(df)
         .plot_size(140.0, 100.0)
         .mark(
-            Facet::new().row(col("species")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
@@ -162,7 +166,8 @@ async fn facet_plot_size_row_hybrid_shared_x_free_y() {
                         .size(30.0)
                         .fill("#4682b4"),
                 ),
-            ),
+            )
+            .row(col("species")),
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
@@ -185,17 +190,16 @@ async fn facet_plot_size_col_with_title() {
         .data(df)
         .plot_size(140.0, 100.0)
         .mark(
-            Facet::new()
-                .col_with(col("species"), |c| c.facet(|f| f.title("Iris Species")))
-                .subplot(
-                    Plot::<Cartesian>::new().mark(
-                        Symbol::new()
-                            .x(col("sepal_length"))
-                            .y(col("sepal_width"))
-                            .size(30.0)
-                            .fill("#4682b4"),
-                    ),
+            Subplot::new(
+                Plot::<Cartesian>::new().mark(
+                    Symbol::new()
+                        .x(col("sepal_length"))
+                        .y(col("sepal_width"))
+                        .size(30.0)
+                        .fill("#4682b4"),
                 ),
+            )
+            .col_with(col("species"), |c| c.facet(|f| f.title("Iris Species"))),
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
@@ -218,7 +222,7 @@ async fn facet_plot_size_col_line_mark() {
         .data(df)
         .plot_size(140.0, 100.0)
         .mark(
-            Facet::new().column(col("species")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Line::new()
                         .x(col("sepal_length"))
@@ -226,7 +230,8 @@ async fn facet_plot_size_col_line_mark() {
                         .stroke("#4682b4")
                         .stroke_width(2.0),
                 ),
-            ),
+            )
+            .column(col("species")),
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
@@ -249,7 +254,7 @@ async fn facet_plot_size_col_x_axis_top() {
         .data(df)
         .plot_size(140.0, 100.0)
         .mark(
-            Facet::new().column(col("species")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| c.axis(|a| a.position("top")))
@@ -257,7 +262,8 @@ async fn facet_plot_size_col_x_axis_top() {
                         .size(30.0)
                         .fill("#4682b4"),
                 ),
-            ),
+            )
+            .column(col("species")),
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
@@ -280,7 +286,7 @@ async fn facet_plot_size_row_y_axis_right() {
         .data(df)
         .plot_size(140.0, 100.0)
         .mark(
-            Facet::new().row(col("species")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x(col("sepal_length"))
@@ -288,7 +294,8 @@ async fn facet_plot_size_row_y_axis_right() {
                         .size(30.0)
                         .fill("#4682b4"),
                 ),
-            ),
+            )
+            .row(col("species")),
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
@@ -311,7 +318,7 @@ async fn facet_plot_size_row_polar() {
         .data(df)
         .plot_size(140.0, 100.0)
         .mark(
-            Facet::new().row(col("species")).subplot(
+            Subplot::new(
                 Plot::<Polar>::new().mark(
                     Symbol::new()
                         .r_with(col("sepal_length"), |c| {
@@ -325,7 +332,8 @@ async fn facet_plot_size_row_polar() {
                         .size(30.0)
                         .fill("#cd5c5c"),
                 ),
-            ),
+            )
+            .row(col("species")),
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");

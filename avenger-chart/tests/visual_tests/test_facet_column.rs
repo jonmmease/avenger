@@ -13,7 +13,7 @@ async fn facet_column_iris_scatter() {
 
     // Build outer facet column plot
     let outer = Plot::<FacetColumn>::new().data(df).mark(
-        Facet::new().column(col("species")).subplot(
+        Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
                     .x(col("sepal_length"))
@@ -21,7 +21,8 @@ async fn facet_column_iris_scatter() {
                     .size(36.0)
                     .fill("#4682b4"),
             ),
-        ),
+        )
+        .column(col("species")),
     );
 
     let compiled = outer.compile(&ctx).await.expect("compile outer");
@@ -39,7 +40,7 @@ async fn facet_column_shared_y_scale() {
 
     // Test shared y-scale across columns (y should have unified axis)
     let outer = Plot::<FacetColumn>::new().data(df).mark(
-        Facet::new().column(col("species")).subplot(
+        Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
                     .x(col("sepal_length"))
@@ -51,7 +52,8 @@ async fn facet_column_shared_y_scale() {
                     .size(36.0)
                     .fill("#4682b4"),
             ),
-        ),
+        )
+        .column(col("species")),
     );
 
     let compiled = outer.compile(&ctx).await.expect("compile outer");
@@ -69,7 +71,7 @@ async fn facet_column_free_scales() {
 
     // Test free scales (each column gets independent x and y scales)
     let outer = Plot::<FacetColumn>::new().data(df).mark(
-        Facet::new().column(col("species")).subplot(
+        Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
                     .x_with(col("sepal_length"), |c| {
@@ -81,7 +83,8 @@ async fn facet_column_free_scales() {
                     .size(36.0)
                     .fill("#4682b4"),
             ),
-        ),
+        )
+        .column(col("species")),
     );
 
     let compiled = outer.compile(&ctx).await.expect("compile outer");
@@ -99,17 +102,16 @@ async fn facet_column_with_title() {
 
     // Test facet title configuration
     let outer = Plot::<FacetColumn>::new().data(df).mark(
-        Facet::new()
-            .col_with(col("species"), |c| c.facet(|f| f.title("Iris Species")))
-            .subplot(
-                Plot::<Cartesian>::new().mark(
-                    Symbol::new()
-                        .x(col("sepal_length"))
-                        .y(col("sepal_width"))
-                        .size(36.0)
-                        .fill("#4682b4"),
-                ),
+        Subplot::new(
+            Plot::<Cartesian>::new().mark(
+                Symbol::new()
+                    .x(col("sepal_length"))
+                    .y(col("sepal_width"))
+                    .size(36.0)
+                    .fill("#4682b4"),
             ),
+        )
+        .col_with(col("species"), |c| c.facet(|f| f.title("Iris Species"))),
     );
 
     let compiled = outer.compile(&ctx).await.expect("compile outer");
@@ -127,7 +129,7 @@ async fn facet_column_with_line_mark() {
 
     // Test with line marks instead of symbols
     let outer = Plot::<FacetColumn>::new().data(df).mark(
-        Facet::new().column(col("species")).subplot(
+        Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Line::new()
                     .x(col("sepal_length"))
@@ -135,7 +137,8 @@ async fn facet_column_with_line_mark() {
                     .stroke("#4682b4")
                     .stroke_width(2.0),
             ),
-        ),
+        )
+        .column(col("species")),
     );
 
     let compiled = outer.compile(&ctx).await.expect("compile outer");
@@ -153,7 +156,7 @@ async fn facet_column_hybrid_sharing() {
 
     // Test hybrid scale sharing: y shared, x free
     let outer = Plot::<FacetColumn>::new().data(df).mark(
-        Facet::new().column(col("species")).subplot(
+        Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
                     .x_with(col("sepal_length"), |c| {
@@ -165,7 +168,8 @@ async fn facet_column_hybrid_sharing() {
                     .size(36.0)
                     .fill("#4682b4"),
             ),
-        ),
+        )
+        .column(col("species")),
     );
 
     let compiled = outer.compile(&ctx).await.expect("compile outer");
@@ -183,7 +187,7 @@ async fn facet_column_x_axis_top() {
 
     // Test with x-axis on top - facet labels should be below plot
     let outer = Plot::<FacetColumn>::new().data(df).mark(
-        Facet::new().column(col("species")).subplot(
+        Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
                     .x_with(col("sepal_length"), |c| c.axis(|a| a.position("top")))
@@ -191,7 +195,8 @@ async fn facet_column_x_axis_top() {
                     .size(36.0)
                     .fill("#4682b4"),
             ),
-        ),
+        )
+        .column(col("species")),
     );
 
     let compiled = outer.compile(&ctx).await.expect("compile outer");
@@ -209,17 +214,16 @@ async fn facet_column_bottom_x_bottom() {
 
     // Test with facet labels at bottom and x-axis at bottom (default position)
     let outer = Plot::<FacetColumn>::new().data(df).mark(
-        Facet::new()
-            .col_with(col("species"), |c| c.facet(|f| f.position("bottom")))
-            .subplot(
-                Plot::<Cartesian>::new().mark(
-                    Symbol::new()
-                        .x(col("sepal_length"))
-                        .y(col("sepal_width"))
-                        .size(36.0)
-                        .fill("#4682b4"),
-                ),
+        Subplot::new(
+            Plot::<Cartesian>::new().mark(
+                Symbol::new()
+                    .x(col("sepal_length"))
+                    .y(col("sepal_width"))
+                    .size(36.0)
+                    .fill("#4682b4"),
             ),
+        )
+        .col_with(col("species"), |c| c.facet(|f| f.position("bottom"))),
     );
 
     let compiled = outer.compile(&ctx).await.expect("compile outer");
@@ -237,17 +241,16 @@ async fn facet_column_bottom_x_top() {
 
     // Test with facet labels at bottom and x-axis at top
     let outer = Plot::<FacetColumn>::new().data(df).mark(
-        Facet::new()
-            .col_with(col("species"), |c| c.facet(|f| f.position("bottom")))
-            .subplot(
-                Plot::<Cartesian>::new().mark(
-                    Symbol::new()
-                        .x_with(col("sepal_length"), |c| c.axis(|a| a.position("top")))
-                        .y(col("sepal_width"))
-                        .size(36.0)
-                        .fill("#4682b4"),
-                ),
+        Subplot::new(
+            Plot::<Cartesian>::new().mark(
+                Symbol::new()
+                    .x_with(col("sepal_length"), |c| c.axis(|a| a.position("top")))
+                    .y(col("sepal_width"))
+                    .size(36.0)
+                    .fill("#4682b4"),
             ),
+        )
+        .col_with(col("species"), |c| c.facet(|f| f.position("bottom"))),
     );
 
     let compiled = outer.compile(&ctx).await.expect("compile outer");

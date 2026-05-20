@@ -47,7 +47,7 @@ async fn mixed_width_canvas_height_plot_row_iris_scatter() {
         .canvas_constraint(CanvasConstraint::width(520.0))
         .plot_constraint(PlotConstraint::height(82.0))
         .mark(
-            Facet::new().row(col("species")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x(col("sepal_length"))
@@ -55,7 +55,8 @@ async fn mixed_width_canvas_height_plot_row_iris_scatter() {
                         .size(30.0)
                         .fill("#4682b4"),
                 ),
-            ),
+            )
+            .row(col("species")),
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
@@ -79,29 +80,25 @@ async fn mixed_width_canvas_height_plot_nested_col_row_shared() {
         .canvas_constraint(CanvasConstraint::width(760.0))
         .plot_constraint(PlotConstraint::height(74.0))
         .mark(
-            Facet::new()
-                .col_with(col("division"), |c| c.facet(|f| f.title("division")))
-                .subplot(
-                    Plot::<FacetRow>::new().mark(
-                        Facet::new()
-                            .row_with(col("team"), |c| c.facet(|f| f.title("team")))
-                            .subplot(
-                                Plot::<Cartesian>::new().mark(
-                                    Symbol::new()
-                                        .x_with(col("x_val"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Shared)
-                                        })
-                                        .y_with(col("y_val"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Shared)
-                                        })
-                                        .fill_with(col("category"), |c| {
-                                            c.legend(|l| l.title("Category"))
-                                        })
-                                        .size(48.0),
-                                ),
-                            ),
-                    ),
+            Subplot::new(
+                Plot::<FacetRow>::new().mark(
+                    Subplot::new(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("x_val"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Shared)
+                                })
+                                .y_with(col("y_val"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Shared)
+                                })
+                                .fill_with(col("category"), |c| c.legend(|l| l.title("Category")))
+                                .size(48.0),
+                        ),
+                    )
+                    .row_with(col("team"), |c| c.facet(|f| f.title("team"))),
                 ),
+            )
+            .col_with(col("division"), |c| c.facet(|f| f.title("division"))),
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
@@ -125,7 +122,7 @@ async fn mixed_height_canvas_width_plot_col_iris_scatter() {
         .canvas_constraint(CanvasConstraint::height(360.0))
         .plot_constraint(PlotConstraint::width(96.0))
         .mark(
-            Facet::new().column(col("species")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x(col("sepal_length"))
@@ -133,7 +130,8 @@ async fn mixed_height_canvas_width_plot_col_iris_scatter() {
                         .size(30.0)
                         .fill("#4682b4"),
                 ),
-            ),
+            )
+            .column(col("species")),
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");

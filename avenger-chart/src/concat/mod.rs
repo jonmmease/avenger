@@ -25,9 +25,7 @@ use crate::{
         ChildFramePlacementResult, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode,
         LayoutBounds, Size2D, project_child_frame_bounds,
     },
-    marks::{
-        CompiledMark, CompiledSubplot, SubplotContainerCoordinateSystem, subplot::compiled_subplot,
-    },
+    marks::{CompiledConcatSubplot, CompiledMark, subplot::compiled_subplot},
     plot::compiled::{
         ComponentsMeasurement, scale_provider::DynamicScaleProvider,
         scales::build_scale_builder_from_marks,
@@ -56,9 +54,6 @@ impl VConcat {
         Self
     }
 }
-
-impl SubplotContainerCoordinateSystem for HConcat {}
-impl SubplotContainerCoordinateSystem for VConcat {}
 
 impl CoordinateSystem for HConcat {
     type Guide = ConcatGuide;
@@ -455,7 +450,7 @@ fn band_input_for_child(
 }
 
 async fn measure_concat_child(
-    subplot: &CompiledSubplot,
+    subplot: &CompiledConcatSubplot,
     child_plot_area: Size2D,
     eval_ctx: &EvaluationContext,
     inherited_data: Option<&DataFrame>,

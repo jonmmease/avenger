@@ -1,4 +1,4 @@
-use std::{any::Any, collections::HashMap, sync::Arc};
+use std::{any::Any, collections::HashMap, marker::PhantomData, sync::Arc};
 
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
@@ -9,26 +9,20 @@ use datafusion::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    concat::concat_coord_ref,
+    concat::{HConcat, VConcat, concat_coord_ref},
     coords::{CoordinateSystem, CoordinateSystemTransform},
     error::AvengerChartError,
+    facet::dimension_config::{ColumnDimensionConfig, FacetDimensionConfig, RowDimensionConfig},
     legend::LegendRenderer,
     marks::{
-        ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkState, DataContext,
-        FacetStrategy, Mark, MarkState, RadiusExpression,
+        ChannelDescriptor, ChannelValue, CompiledDataContext, CompiledMark, CompiledMarkState,
+        DataContext, FacetStrategy, Mark, MarkState, RadiusExpression,
     },
     plot::{CompiledPlot, Plot},
     render::RenderContext,
     scales::{ResolvedDomain, ScaleRange, ScaleSpec},
     theme::Theme,
 };
-
-/// Marker trait for coordinate systems that place child plot frames.
-///
-/// Facets have a specialized subplot mark today. General composition containers
-/// such as concat should implement this trait and render `Subplot` marks through
-/// their coordinate-system measurement.
-pub trait SubplotContainerCoordinateSystem: CoordinateSystem {}
 
 /// Data source selected for a compiled subplot's child plot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,17 +33,78 @@ pub enum SubplotDataSource {
     InheritParent,
 }
 
-/// Mark that owns one child plot inside a container coordinate system.
-#[derive(Clone)]
-pub struct Subplot<InnerC: CoordinateSystem> {
-    state: MarkState,
-    subplot: Plot<InnerC>,
-    label: Option<String>,
-    key: Option<String>,
+#[async_trait::async_trait]
+pub(crate) trait SubplotPlotSpec: Send + Sync {
+    fn clone_box(&self) -> Box<dyn SubplotPlotSpec>;
+    fn has_plot_level_data(&self) -> bool;
+    async fn compile_boxed(
+        &self,
+        session_context: &SessionContext,
+    ) -> Result<Arc<CompiledPlot>, AvengerChartError>;
 }
 
-impl<InnerC: CoordinateSystem> Subplot<InnerC> {
-    pub fn new(subplot: Plot<InnerC>) -> Self {
+impl Clone for Box<dyn SubplotPlotSpec> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
+}
+
+#[async_trait::async_trait]
+impl<C> SubplotPlotSpec for Plot<C>
+where
+    C: CoordinateSystem + Clone + 'static,
+{
+    fn clone_box(&self) -> Box<dyn SubplotPlotSpec> {
+        Box::new(self.clone())
+    }
+
+    fn has_plot_level_data(&self) -> bool {
+        self.data.is_some()
+    }
+
+    async fn compile_boxed(
+        &self,
+        session_context: &SessionContext,
+    ) -> Result<Arc<CompiledPlot>, AvengerChartError> {
+        Ok(Arc::new(self.clone().compile(session_context).await?))
+    }
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct SubplotConfig {
+    pub(crate) label: Option<String>,
+    pub(crate) key: Option<String>,
+    pub(crate) facet_row_title: Option<String>,
+    pub(crate) facet_col_title: Option<String>,
+    pub(crate) facet_row_slot_sharing: Option<crate::channel::config_traits::ScaleSharing>,
+    pub(crate) facet_col_slot_sharing: Option<crate::channel::config_traits::ScaleSharing>,
+    pub(crate) facet_row_position: Option<String>,
+    pub(crate) facet_col_position: Option<String>,
+    pub(crate) facet_row_empty_cell_policy:
+        Option<crate::facet::empty_cell_policy::FacetEmptyCellPolicy>,
+    pub(crate) facet_col_empty_cell_policy:
+        Option<crate::facet::empty_cell_policy::FacetEmptyCellPolicy>,
+}
+
+/// Mark that owns one child plot inside an outer coordinate system.
+///
+/// `Subplot<OuterC>` is parameterized by the coordinate system that positions
+/// the child plot, not by the child plot's own coordinate system. This keeps
+/// concat, facet, and future coordinate-positioned subplots under one public
+/// mark concept while still allowing mixed child coordinate systems.
+#[derive(Clone)]
+pub struct Subplot<OuterC: CoordinateSystem> {
+    state: MarkState,
+    subplot: Box<dyn SubplotPlotSpec>,
+    config: SubplotConfig,
+    _outer: PhantomData<fn() -> OuterC>,
+}
+
+impl<OuterC: CoordinateSystem> Subplot<OuterC> {
+    pub fn new<C>(subplot: Plot<C>) -> Self
+    where
+        C: CoordinateSystem + Clone + 'static,
+    {
         Self {
             state: MarkState {
                 data: DataContext::default(),
@@ -58,41 +113,92 @@ impl<InnerC: CoordinateSystem> Subplot<InnerC> {
                 zindex: None,
                 axis_configs: HashMap::new(),
             },
-            subplot,
-            label: None,
-            key: None,
+            subplot: Box::new(subplot),
+            config: SubplotConfig::default(),
+            _outer: PhantomData,
         }
     }
 
+    /// Set explicit data for this subplot mark.
+    pub fn data(mut self, dataframe: datafusion::dataframe::DataFrame) -> Self {
+        self.state.data = DataContext::new(dataframe);
+        self
+    }
+
+    /// Set zindex.
+    pub fn zindex(mut self, zindex: i32) -> Self {
+        self.state.zindex = Some(zindex);
+        self
+    }
+
     pub fn label(mut self, label: impl Into<String>) -> Self {
-        self.label = Some(label.into());
+        self.config.label = Some(label.into());
         self
     }
 
     pub fn key(mut self, key: impl Into<String>) -> Self {
-        self.key = Some(key.into());
+        self.config.key = Some(key.into());
         self
     }
 
-    pub fn subplot(&self) -> &Plot<InnerC> {
-        &self.subplot
+    pub(crate) fn state_ref(&self) -> &MarkState {
+        &self.state
     }
 
-    pub fn label_value(&self) -> Option<&str> {
-        self.label.as_deref()
+    pub(crate) fn state_mut_ref(&mut self) -> &mut MarkState {
+        &mut self.state
     }
 
-    pub fn key_value(&self) -> Option<&str> {
-        self.key.as_deref()
+    pub(crate) fn data_context_ref(&self) -> &DataContext {
+        &self.state.data
+    }
+
+    pub(crate) fn config(&self) -> &SubplotConfig {
+        &self.config
+    }
+
+    pub(crate) fn config_mut(&mut self) -> &mut SubplotConfig {
+        &mut self.config
+    }
+
+    pub(crate) fn has_plot_level_data(&self) -> bool {
+        self.subplot.has_plot_level_data()
+    }
+
+    pub(crate) async fn compile_child_plot(
+        &self,
+        session_context: &SessionContext,
+    ) -> Result<Arc<CompiledPlot>, AvengerChartError> {
+        self.subplot.compile_boxed(session_context).await
+    }
+
+    pub(crate) fn with_channel_value(
+        mut self,
+        channel_name: &'static str,
+        value: ChannelValue,
+    ) -> Self {
+        self.state.data = self.state.data.with_channel_value(channel_name, value);
+        self
+    }
+
+    fn validate_no_facet_channels(&self, outer_label: &str) -> Result<(), AvengerChartError> {
+        let channels = self.state.data.channels();
+        for channel_name in [
+            RowDimensionConfig::channel_name(),
+            ColumnDimensionConfig::channel_name(),
+        ] {
+            if channels.contains_key(channel_name) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "{outer_label} subplots do not support facet channel `{channel_name}`"
+                )));
+            }
+        }
+        Ok(())
     }
 }
 
 #[async_trait::async_trait]
-impl<C, InnerC> Mark<C> for Subplot<InnerC>
-where
-    C: SubplotContainerCoordinateSystem,
-    InnerC: CoordinateSystem + Clone,
-{
+impl Mark<HConcat> for Subplot<HConcat> {
     fn state(&self) -> &MarkState {
         &self.state
     }
@@ -110,18 +216,56 @@ where
         compiled_state: CompiledMarkState,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        let data_source = if self.subplot.data.is_some() {
+        self.validate_no_facet_channels("HConcat")?;
+        let data_source = if self.has_plot_level_data() {
             SubplotDataSource::ExplicitChild
         } else {
             SubplotDataSource::InheritParent
         };
-        let compiled_subplot = Arc::new(self.subplot.clone().compile(session_context).await?);
+        let compiled_subplot = self.compile_child_plot(session_context).await?;
 
-        Ok(Arc::new(CompiledSubplot {
+        Ok(Arc::new(CompiledConcatSubplot {
             state: compiled_state,
             compiled_subplot,
-            label: self.label.clone(),
-            key: self.key.clone(),
+            label: self.config.label.clone(),
+            key: self.config.key.clone(),
+            data_source,
+        }))
+    }
+}
+
+#[async_trait::async_trait]
+impl Mark<VConcat> for Subplot<VConcat> {
+    fn state(&self) -> &MarkState {
+        &self.state
+    }
+
+    fn state_mut(&mut self) -> &mut MarkState {
+        &mut self.state
+    }
+
+    fn data_context(&self) -> &DataContext {
+        &self.state.data
+    }
+
+    async fn compile(
+        &self,
+        compiled_state: CompiledMarkState,
+        session_context: &SessionContext,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        self.validate_no_facet_channels("VConcat")?;
+        let data_source = if self.has_plot_level_data() {
+            SubplotDataSource::ExplicitChild
+        } else {
+            SubplotDataSource::InheritParent
+        };
+        let compiled_subplot = self.compile_child_plot(session_context).await?;
+
+        Ok(Arc::new(CompiledConcatSubplot {
+            state: compiled_state,
+            compiled_subplot,
+            label: self.config.label.clone(),
+            key: self.config.key.clone(),
             data_source,
         }))
     }
@@ -129,7 +273,7 @@ where
 
 /// Compiled child-plot mark for container coordinate systems.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct CompiledSubplot {
+pub struct CompiledConcatSubplot {
     state: CompiledMarkState,
     compiled_subplot: Arc<CompiledPlot>,
     label: Option<String>,
@@ -137,7 +281,7 @@ pub struct CompiledSubplot {
     data_source: SubplotDataSource,
 }
 
-impl CompiledSubplot {
+impl CompiledConcatSubplot {
     pub fn compiled_subplot(&self) -> &Arc<CompiledPlot> {
         &self.compiled_subplot
     }
@@ -196,13 +340,13 @@ impl CompiledSubplot {
     }
 }
 
-pub fn compiled_subplot(mark: &dyn CompiledMark) -> Option<&CompiledSubplot> {
-    mark.as_any().downcast_ref::<CompiledSubplot>()
+pub fn compiled_subplot(mark: &dyn CompiledMark) -> Option<&CompiledConcatSubplot> {
+    mark.as_any().downcast_ref::<CompiledConcatSubplot>()
 }
 
 #[typetag::serde]
 #[async_trait::async_trait]
-impl CompiledMark for CompiledSubplot {
+impl CompiledMark for CompiledConcatSubplot {
     fn state(&self) -> &CompiledMarkState {
         &self.state
     }
@@ -358,13 +502,15 @@ mod tests {
 
     use datafusion::{
         arrow::{array::Float32Array, record_batch::RecordBatch},
-        prelude::SessionContext,
+        prelude::{SessionContext, col},
     };
 
     use super::*;
-    use crate::zerod::ZeroDCoord;
-
-    impl SubplotContainerCoordinateSystem for ZeroDCoord {}
+    use crate::{
+        concat::HConcat,
+        facet::dimension_config::{FacetDimensionConfig, RowDimensionConfig},
+        zerod::ZeroDCoord,
+    };
 
     fn single_column_df(ctx: &SessionContext, value: f32) -> datafusion::dataframe::DataFrame {
         let batch = RecordBatch::try_from_iter(vec![(
@@ -378,15 +524,14 @@ mod tests {
     #[tokio::test]
     async fn subplot_compilation_preserves_label_key_and_child_plot() {
         let ctx = SessionContext::new();
-        let subplot = Subplot::new(Plot::<ZeroDCoord>::new())
+        let subplot = Subplot::<HConcat>::new(Plot::<ZeroDCoord>::new())
             .label("overview")
             .key("overview-key");
 
         let compiled_state = CompiledMarkState::from_mark_state(&subplot.state, None);
-        let compiled =
-            <Subplot<ZeroDCoord> as Mark<ZeroDCoord>>::compile(&subplot, compiled_state, &ctx)
-                .await
-                .unwrap();
+        let compiled = <Subplot<HConcat> as Mark<HConcat>>::compile(&subplot, compiled_state, &ctx)
+            .await
+            .unwrap();
         let compiled = compiled_subplot(compiled.as_ref()).unwrap();
 
         assert_eq!(compiled.mark_type(), "subplot");
@@ -401,13 +546,12 @@ mod tests {
     async fn subplot_compilation_keeps_explicit_child_plot_data() {
         let ctx = SessionContext::new();
         let child_data = single_column_df(&ctx, 1.0);
-        let subplot = Subplot::new(Plot::<ZeroDCoord>::new().data(child_data));
+        let subplot = Subplot::<HConcat>::new(Plot::<ZeroDCoord>::new().data(child_data));
 
         let compiled_state = CompiledMarkState::from_mark_state(&subplot.state, None);
-        let compiled =
-            <Subplot<ZeroDCoord> as Mark<ZeroDCoord>>::compile(&subplot, compiled_state, &ctx)
-                .await
-                .unwrap();
+        let compiled = <Subplot<HConcat> as Mark<HConcat>>::compile(&subplot, compiled_state, &ctx)
+            .await
+            .unwrap();
         let compiled = compiled_subplot(compiled.as_ref()).unwrap();
 
         assert_eq!(compiled.data_source(), SubplotDataSource::ExplicitChild);
@@ -416,12 +560,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn concat_subplot_rejects_facet_channels() {
+        let ctx = SessionContext::new();
+        let mut subplot = Subplot::<HConcat>::new(Plot::<ZeroDCoord>::new());
+        subplot.state.data = subplot
+            .state
+            .data
+            .with_channel_value(RowDimensionConfig::channel_name(), col("group").into());
+
+        let compiled_state = CompiledMarkState::from_mark_state(&subplot.state, None);
+        let result =
+            <Subplot<HConcat> as Mark<HConcat>>::compile(&subplot, compiled_state, &ctx).await;
+
+        assert!(matches!(result, Err(AvengerChartError::InvalidArgument(_))));
+    }
+
+    #[tokio::test]
     async fn plot_compile_passes_parent_data_to_subplot_mark_state() {
         let ctx = SessionContext::new();
         let parent_data = single_column_df(&ctx, 2.0);
-        let subplot = Subplot::new(Plot::<ZeroDCoord>::new());
+        let subplot = Subplot::<HConcat>::new(Plot::<ZeroDCoord>::new());
 
-        let compiled_plot = Plot::<ZeroDCoord>::new()
+        let compiled_plot = Plot::<HConcat>::new()
             .data(parent_data)
             .mark(subplot)
             .compile(&ctx)
@@ -443,7 +603,7 @@ mod tests {
     #[tokio::test]
     async fn repeated_subplot_marks_receive_stable_child_indexes() {
         let ctx = SessionContext::new();
-        let compiled_plot = Plot::<ZeroDCoord>::new()
+        let compiled_plot = Plot::<HConcat>::new()
             .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("first"))
             .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("second"))
             .compile(&ctx)

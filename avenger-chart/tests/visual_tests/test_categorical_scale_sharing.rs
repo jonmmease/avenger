@@ -29,25 +29,24 @@ fn test_nested_facet_shared_categorical_x() {
                     .data(df)
                     .canvas_size(600, 300)
                     .mark(
-                        Facet::new()
-                            .col_with(col("group"), |c| c.facet(|f| f.title("Group")))
-                            .subplot(
-                                Plot::<Cartesian>::new().mark(
-                                    Rect::new()
-                                        .x_with(col("category"), |c| {
-                                            c.scale_with::<Band>(|s| s)
-                                                .with_scale_sharing(ScaleSharing::Shared)
-                                                .axis(|a| a.title("Category"))
-                                        })
-                                        .x2_with(col(":x"), |c| c.band(1.0))
-                                        .y(0.0)
-                                        .y2_with(col("value"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Shared)
-                                                .axis(|a| a.title("Value"))
-                                        })
-                                        .fill("#4682b4"),
-                                ),
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Rect::new()
+                                    .x_with(col("category"), |c| {
+                                        c.scale_with::<Band>(|s| s)
+                                            .with_scale_sharing(ScaleSharing::Shared)
+                                            .axis(|a| a.title("Category"))
+                                    })
+                                    .x2_with(col(":x"), |c| c.band(1.0))
+                                    .y(0.0)
+                                    .y2_with(col("value"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                            .axis(|a| a.title("Value"))
+                                    })
+                                    .fill("#4682b4"),
                             ),
+                        )
+                        .col_with(col("group"), |c| c.facet(|f| f.title("Group"))),
                     );
 
                 let compiled = outer.compile(&ctx).await.expect("compile nested facets");
@@ -87,25 +86,24 @@ fn test_nested_facet_shared_categorical_y() {
                 let df = datasets::categorical_sharing_test_data();
 
                 let outer = Plot::<FacetRow>::new().data(df).canvas_size(400, 400).mark(
-                    Facet::new()
-                        .row_with(col("group"), |c| c.facet(|f| f.title("Group")))
-                        .subplot(
-                            Plot::<Cartesian>::new().mark(
-                                Rect::new()
-                                    .y_with(col("category"), |c| {
-                                        c.scale_with::<Band>(|s| s)
-                                            .with_scale_sharing(ScaleSharing::Shared)
-                                            .axis(|a| a.title("Category"))
-                                    })
-                                    .y2_with(col(":y"), |c| c.band(1.0))
-                                    .x(0.0)
-                                    .x2_with(col("value"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Shared)
-                                            .axis(|a| a.title("Value"))
-                                    })
-                                    .fill("#4682b4"),
-                            ),
+                    Subplot::new(
+                        Plot::<Cartesian>::new().mark(
+                            Rect::new()
+                                .y_with(col("category"), |c| {
+                                    c.scale_with::<Band>(|s| s)
+                                        .with_scale_sharing(ScaleSharing::Shared)
+                                        .axis(|a| a.title("Category"))
+                                })
+                                .y2_with(col(":y"), |c| c.band(1.0))
+                                .x(0.0)
+                                .x2_with(col("value"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Shared)
+                                        .axis(|a| a.title("Value"))
+                                })
+                                .fill("#4682b4"),
                         ),
+                    )
+                    .row_with(col("group"), |c| c.facet(|f| f.title("Group"))),
                 );
 
                 let compiled = outer.compile(&ctx).await.expect("compile nested facets");
@@ -200,35 +198,29 @@ fn test_deeply_nested_categorical_scale_sharing() {
                     .data(df)
                     .canvas_size(700, 500)
                     .mark(
-                        Facet::new()
-                            .col_with(col("outer_group"), |c| c.facet(|f| f.title("Outer Group")))
-                            .subplot(
-                                Plot::<FacetRow>::new().mark(
-                                    Facet::new()
-                                        .row_with(col("sub_group"), |c| {
-                                            c.facet(|f| f.title("Sub Group"))
-                                        })
-                                        .subplot(
-                                            Plot::<Cartesian>::new().mark(
-                                                Rect::new()
-                                                    .x_with(col("category"), |c| {
-                                                        c.scale_with::<Band>(|s| s)
-                                                            .with_scale_sharing(
-                                                                ScaleSharing::Shared,
-                                                            )
-                                                            .axis(|a| a.title("Category"))
-                                                    })
-                                                    .x2_with(col(":x"), |c| c.band(1.0))
-                                                    .y(0.0)
-                                                    .y2_with(col("value"), |c| {
-                                                        c.with_scale_sharing(ScaleSharing::Shared)
-                                                            .axis(|a| a.title("Value"))
-                                                    })
-                                                    .fill("#4682b4"),
-                                            ),
-                                        ),
-                                ),
+                        Subplot::new(
+                            Plot::<FacetRow>::new().mark(
+                                Subplot::new(
+                                    Plot::<Cartesian>::new().mark(
+                                        Rect::new()
+                                            .x_with(col("category"), |c| {
+                                                c.scale_with::<Band>(|s| s)
+                                                    .with_scale_sharing(ScaleSharing::Shared)
+                                                    .axis(|a| a.title("Category"))
+                                            })
+                                            .x2_with(col(":x"), |c| c.band(1.0))
+                                            .y(0.0)
+                                            .y2_with(col("value"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Shared)
+                                                    .axis(|a| a.title("Value"))
+                                            })
+                                            .fill("#4682b4"),
+                                    ),
+                                )
+                                .row_with(col("sub_group"), |c| c.facet(|f| f.title("Sub Group"))),
                             ),
+                        )
+                        .col_with(col("outer_group"), |c| c.facet(|f| f.title("Outer Group"))),
                     );
 
                 let compiled = outer
@@ -313,27 +305,26 @@ fn test_numeric_coded_categorical_sharing() {
                     .data(df)
                     .canvas_size(600, 300)
                     .mark(
-                        Facet::new()
-                            .col_with(col("group"), |c| c.facet(|f| f.title("Group")))
-                            .subplot(
-                                Plot::<Cartesian>::new().mark(
-                                    Rect::new()
-                                        .x_with(col("category_id"), |c| {
-                                            // Explicitly configure as Band scale (categorical)
-                                            // This triggers the scale-driven categorical detection
-                                            c.scale_with::<Band>(|s| s)
-                                                .with_scale_sharing(ScaleSharing::Shared)
-                                                .axis(|a| a.title("Category ID"))
-                                        })
-                                        .x2_with(col(":x"), |c| c.band(1.0))
-                                        .y(0.0)
-                                        .y2_with(col("value"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Shared)
-                                                .axis(|a| a.title("Value"))
-                                        })
-                                        .fill("#4682b4"),
-                                ),
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Rect::new()
+                                    .x_with(col("category_id"), |c| {
+                                        // Explicitly configure as Band scale (categorical)
+                                        // This triggers the scale-driven categorical detection
+                                        c.scale_with::<Band>(|s| s)
+                                            .with_scale_sharing(ScaleSharing::Shared)
+                                            .axis(|a| a.title("Category ID"))
+                                    })
+                                    .x2_with(col(":x"), |c| c.band(1.0))
+                                    .y(0.0)
+                                    .y2_with(col("value"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                            .axis(|a| a.title("Value"))
+                                    })
+                                    .fill("#4682b4"),
                             ),
+                        )
+                        .col_with(col("group"), |c| c.facet(|f| f.title("Group"))),
                     );
 
                 let compiled = outer.compile(&ctx).await.expect("compile nested facets");
@@ -375,25 +366,24 @@ fn test_nested_facet_level1_categorical() {
                     .data(df)
                     .canvas_size(600, 300)
                     .mark(
-                        Facet::new()
-                            .col_with(col("group"), |c| c.facet(|f| f.title("Group")))
-                            .subplot(
-                                Plot::<Cartesian>::new().mark(
-                                    Rect::new()
-                                        .x_with(col("category"), |c| {
-                                            c.scale_with::<Band>(|s| s)
-                                                .with_scale_sharing(ScaleSharing::Level(1))
-                                                .axis(|a| a.title("Category"))
-                                        })
-                                        .x2_with(col(":x"), |c| c.band(1.0))
-                                        .y(0.0)
-                                        .y2_with(col("value"), |c| {
-                                            c.with_scale_sharing(ScaleSharing::Level(1))
-                                                .axis(|a| a.title("Value"))
-                                        })
-                                        .fill("#4682b4"),
-                                ),
+                        Subplot::new(
+                            Plot::<Cartesian>::new().mark(
+                                Rect::new()
+                                    .x_with(col("category"), |c| {
+                                        c.scale_with::<Band>(|s| s)
+                                            .with_scale_sharing(ScaleSharing::Level(1))
+                                            .axis(|a| a.title("Category"))
+                                    })
+                                    .x2_with(col(":x"), |c| c.band(1.0))
+                                    .y(0.0)
+                                    .y2_with(col("value"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Level(1))
+                                            .axis(|a| a.title("Value"))
+                                    })
+                                    .fill("#4682b4"),
                             ),
+                        )
+                        .col_with(col("group"), |c| c.facet(|f| f.title("Group"))),
                     );
 
                 let compiled = outer.compile(&ctx).await.expect("compile nested facets");

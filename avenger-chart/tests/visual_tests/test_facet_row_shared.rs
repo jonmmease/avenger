@@ -15,7 +15,7 @@ async fn facet_row_iris_shared_scatter() {
     let outer = Plot::<FacetRow>::new()
         .data(df)
         .mark(
-            Facet::new().row(col("species")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
@@ -31,7 +31,8 @@ async fn facet_row_iris_shared_scatter() {
                         .size(36.0)
                         .fill("#4682b4"),
                 ),
-            ),
+            )
+            .row(col("species")),
         )
         .canvas_size(600.0, 500.0);
 

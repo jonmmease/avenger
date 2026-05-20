@@ -44,7 +44,7 @@ use crate::{
             FacetBandPlan, FacetCellEmptyKind, FacetCellPlan, compute_padding_from_overflows,
             effective_edge_indices, effective_edge_indices_for_values_at_path,
         },
-        marks::facet::{FacetMarkRef, facet_mark_ref},
+        marks::facet::{FacetSubplotRef, facet_subplot_ref},
         overflow_projection::{
             FacetCellOverflowInput, FacetOverflowPurpose, FacetOverflowResolutionPhase,
             FacetOverflowSlabs, aggregate_facet_band_overflow, boundary_profiles_for_measurement,
@@ -1105,7 +1105,7 @@ fn is_leaf_subplot(compiled_subplot: &CompiledPlot) -> bool {
     !compiled_subplot
         .marks
         .iter()
-        .any(|mark| facet_mark_ref(mark.as_ref()).is_some())
+        .any(|mark| facet_subplot_ref(mark.as_ref()).is_some())
 }
 
 #[cfg(test)]
@@ -2938,11 +2938,10 @@ fn union_radius_padding(
 /// let plot = Plot::<FacetColumn>::new()
 ///     .data(df)
 ///     .mark(
-///         Facet::new()
-///             .column(col("year"))
-///             .subplot(
-///                 Plot::<Cartesian>::new().mark(Symbol::new()...),
-///             ),
+///         Subplot::new(
+///             Plot::<Cartesian>::new().mark(Symbol::new()...),
+///         )
+///         .column(col("year")),
 ///     );
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -2965,22 +2964,23 @@ impl FacetAxisOps {
                 scale_name: "column",
                 facet_label: "FacetColumn",
                 missing_scale_err: "No column scale found",
-                missing_mark_err: "FacetColumn coord requires a CompiledFacetCol mark",
+                missing_mark_err: "FacetColumn coord requires a facet column subplot mark",
             },
             FacetAxis::Row => Self {
                 axis,
                 scale_name: "row",
                 facet_label: "FacetRow",
                 missing_scale_err: "No row scale found",
-                missing_mark_err: "FacetRow coord requires a CompiledFacetRow mark",
+                missing_mark_err: "FacetRow coord requires a facet row subplot mark",
             },
         }
     }
 
-    fn matches_mark(self, facet_mark: &FacetMarkRef<'_>) -> bool {
+    fn matches_mark(self, facet_mark: &FacetSubplotRef<'_>) -> bool {
         matches!(
             (self.axis, facet_mark),
-            (FacetAxis::Column, FacetMarkRef::Col(_)) | (FacetAxis::Row, FacetMarkRef::Row(_))
+            (FacetAxis::Column, FacetSubplotRef::Col(_))
+                | (FacetAxis::Row, FacetSubplotRef::Row(_))
         )
     }
 
@@ -3401,7 +3401,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             .compiled_marks
             .iter()
             .find_map(|m| {
-                let mark = facet_mark_ref(m.as_ref())?;
+                let mark = facet_subplot_ref(m.as_ref())?;
                 self.axis_ops.matches_mark(&mark).then_some(mark)
             })
             .ok_or_else(|| {
@@ -3409,14 +3409,14 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             })?;
 
         let (compiled_subplot, current_facet_slot_sharing, empty_cell_policy) = match facet_mark {
-            FacetMarkRef::Col(mark) => (
+            FacetSubplotRef::Col(mark) => (
                 mark.compiled_subplot(),
                 mark.facet_slot_sharing()
                     .map(SharingLevel::from)
                     .unwrap_or(SharingLevel::FREE),
                 mark.facet_empty_cell_policy(),
             ),
-            FacetMarkRef::Row(mark) => (
+            FacetSubplotRef::Row(mark) => (
                 mark.compiled_subplot(),
                 mark.facet_slot_sharing()
                     .map(SharingLevel::from)
@@ -4509,22 +4509,14 @@ mod tests {
             FacetAxis::Column => {
                 Plot::<FacetColumn>::new()
                     .data(data_df.clone())
-                    .mark(
-                        Facet::new()
-                            .col_with(col("col_group"), |c| c)
-                            .subplot(inner_subplot.clone()),
-                    )
+                    .mark(Subplot::new(inner_subplot.clone()).col_with(col("col_group"), |c| c))
                     .compile(&session)
                     .await?
             }
             FacetAxis::Row => {
                 Plot::<FacetRow>::new()
                     .data(data_df.clone())
-                    .mark(
-                        Facet::new()
-                            .row_with(col("row_group"), |c| c)
-                            .subplot(inner_subplot),
-                    )
+                    .mark(Subplot::new(inner_subplot).row_with(col("row_group"), |c| c))
                     .compile(&session)
                     .await?
             }
@@ -4598,18 +4590,11 @@ mod tests {
                 .fill("#4682b4")
                 .size(42.0),
         );
-        let nested_subplot = Plot::<FacetColumn>::new().mark(
-            Facet::new()
-                .col_with(col("team_id"), |c| c)
-                .subplot(leaf_subplot),
-        );
+        let nested_subplot = Plot::<FacetColumn>::new()
+            .mark(Subplot::new(leaf_subplot).col_with(col("team_id"), |c| c));
         let compiled_plot = Plot::<FacetColumn>::new()
             .data(data_df.clone())
-            .mark(
-                Facet::new()
-                    .col_with(col("group_id"), |c| c)
-                    .subplot(nested_subplot),
-            )
+            .mark(Subplot::new(nested_subplot).col_with(col("group_id"), |c| c))
             .compile(&session)
             .await?;
 

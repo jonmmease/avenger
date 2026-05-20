@@ -130,7 +130,7 @@ async fn facet_row_numeric_ordering() {
     let plot = Plot::<FacetRow>::new()
         .data(df)
         .mark(
-            Facet::new().row(col("category")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x(col("x"))
@@ -138,7 +138,8 @@ async fn facet_row_numeric_ordering() {
                         .size(36.0)
                         .fill("#2ecc71"),
                 ),
-            ),
+            )
+            .row(col("category")),
         )
         .canvas_size(400.0, 600.0);
 
@@ -156,7 +157,7 @@ async fn facet_row_integer_ordering() {
     let plot = Plot::<FacetRow>::new()
         .data(df)
         .mark(
-            Facet::new().row(col("category")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x(col("x"))
@@ -164,7 +165,8 @@ async fn facet_row_integer_ordering() {
                         .size(36.0)
                         .fill("#e74c3c"),
                 ),
-            ),
+            )
+            .row(col("category")),
         )
         .canvas_size(400.0, 600.0);
 
@@ -185,7 +187,7 @@ async fn facet_row_string_special_chars() {
     let plot = Plot::<FacetRow>::new()
         .data(df)
         .mark(
-            Facet::new().row(col("category")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x(col("x"))
@@ -193,7 +195,8 @@ async fn facet_row_string_special_chars() {
                         .size(36.0)
                         .fill("#3498db"),
                 ),
-            ),
+            )
+            .row(col("category")),
         )
         .canvas_size(400.0, 500.0);
 
@@ -221,7 +224,7 @@ async fn facet_row_large_range() {
     let plot = Plot::<FacetRow>::new()
         .data(df)
         .mark(
-            Facet::new().row(col("category")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("x"), |c| {
@@ -232,7 +235,8 @@ async fn facet_row_large_range() {
                         .size(36.0)
                         .fill("#9b59b6"),
                 ),
-            ),
+            )
+            .row(col("category")),
         )
         .canvas_size(400.0, 350.0);
 

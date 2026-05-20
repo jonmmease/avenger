@@ -13,7 +13,7 @@ async fn facet_row_iris_scatter() {
 
     // Build outer facet row plot
     let outer = Plot::<FacetRow>::new().data(df).mark(
-        Facet::new().row(col("species")).subplot(
+        Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
                     .x(col("sepal_length"))
@@ -21,7 +21,8 @@ async fn facet_row_iris_scatter() {
                     .size(36.0)
                     .fill("#4682b4"),
             ),
-        ),
+        )
+        .row(col("species")),
     );
 
     let compiled = outer.compile(&ctx).await.expect("compile outer");

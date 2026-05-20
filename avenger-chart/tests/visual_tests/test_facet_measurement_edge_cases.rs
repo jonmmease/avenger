@@ -149,7 +149,7 @@ async fn facet_row_single_cell() {
     let plot = Plot::<FacetRow>::new()
         .data(df)
         .mark(
-            Facet::new().row(col("category")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x(col("x"))
@@ -157,7 +157,8 @@ async fn facet_row_single_cell() {
                         .size(36.0)
                         .fill("#4682b4"),
                 ),
-            ),
+            )
+            .row(col("category")),
         )
         .canvas_size(400.0, 300.0);
 
@@ -173,7 +174,7 @@ async fn facet_column_single_cell() {
     let plot = Plot::<FacetColumn>::new()
         .data(df)
         .mark(
-            Facet::new().column(col("category")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x(col("x"))
@@ -181,7 +182,8 @@ async fn facet_column_single_cell() {
                         .size(36.0)
                         .fill("#228b22"),
                 ),
-            ),
+            )
+            .column(col("category")),
         )
         .canvas_size(400.0, 300.0);
 
@@ -201,7 +203,7 @@ async fn facet_row_two_cells() {
     let plot = Plot::<FacetRow>::new()
         .data(df)
         .mark(
-            Facet::new().row(col("category")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x(col("x"))
@@ -209,7 +211,8 @@ async fn facet_row_two_cells() {
                         .size(36.0)
                         .fill("#dc143c"),
                 ),
-            ),
+            )
+            .row(col("category")),
         )
         .canvas_size(400.0, 350.0);
 
@@ -225,7 +228,7 @@ async fn facet_column_two_cells() {
     let plot = Plot::<FacetColumn>::new()
         .data(df)
         .mark(
-            Facet::new().column(col("category")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x(col("x"))
@@ -233,7 +236,8 @@ async fn facet_column_two_cells() {
                         .size(36.0)
                         .fill("#9932cc"),
                 ),
-            ),
+            )
+            .column(col("category")),
         )
         .canvas_size(500.0, 300.0);
 
@@ -253,7 +257,7 @@ async fn facet_row_many_cells() {
     let plot = Plot::<FacetRow>::new()
         .data(df)
         .mark(
-            Facet::new().row(col("category")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x(col("x"))
@@ -261,7 +265,8 @@ async fn facet_row_many_cells() {
                         .size(20.0)
                         .fill("#4169e1"),
                 ),
-            ),
+            )
+            .row(col("category")),
         )
         .canvas_size(450.0, 800.0);
 
@@ -277,7 +282,7 @@ async fn facet_column_many_cells() {
     let plot = Plot::<FacetColumn>::new()
         .data(df)
         .mark(
-            Facet::new().column(col("category")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x(col("x"))
@@ -285,7 +290,8 @@ async fn facet_column_many_cells() {
                         .size(20.0)
                         .fill("#20b2aa"),
                 ),
-            ),
+            )
+            .column(col("category")),
         )
         .canvas_size(900.0, 350.0);
 
@@ -305,7 +311,7 @@ async fn facet_row_integer_values() {
     let plot = Plot::<FacetRow>::new()
         .data(df)
         .mark(
-            Facet::new().row(col("category")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x(col("x"))
@@ -313,7 +319,8 @@ async fn facet_row_integer_values() {
                         .size(36.0)
                         .fill("#ff6347"),
                 ),
-            ),
+            )
+            .row(col("category")),
         )
         .canvas_size(400.0, 450.0);
 
@@ -334,7 +341,7 @@ async fn facet_row_extreme_values_free() {
     let plot = Plot::<FacetRow>::new()
         .data(df)
         .mark(
-            Facet::new().row(col("category")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("x"), |c| {
@@ -348,7 +355,8 @@ async fn facet_row_extreme_values_free() {
                         .size(36.0)
                         .fill("#8b4513"),
                 ),
-            ),
+            )
+            .row(col("category")),
         )
         .canvas_size(400.0, 450.0);
 
@@ -375,7 +383,7 @@ async fn facet_row_single_cell_free() {
     let plot = Plot::<FacetRow>::new()
         .data(df)
         .mark(
-            Facet::new().row(col("category")).subplot(
+            Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("x"), |c| {
@@ -391,7 +399,8 @@ async fn facet_row_single_cell_free() {
                         .size(36.0)
                         .fill("#2e8b57"),
                 ),
-            ),
+            )
+            .row(col("category")),
         )
         .canvas_size(400.0, 300.0);
 

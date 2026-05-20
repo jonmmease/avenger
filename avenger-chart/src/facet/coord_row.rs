@@ -28,11 +28,10 @@ use crate::{
 /// let plot = Plot::<FacetRow>::new()
 ///     .data(df)
 ///     .mark(
-///         Facet::new()
-///             .row(col("species"))
-///             .subplot(
-///                 Plot::<Cartesian>::new().mark(Symbol::new()...),
-///             ),
+///         Subplot::new(
+///             Plot::<Cartesian>::new().mark(Symbol::new()...),
+///         )
+///         .row(col("species")),
 ///     );
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
