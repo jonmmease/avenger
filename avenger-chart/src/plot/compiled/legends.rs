@@ -145,6 +145,7 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
         sharing_level: SharingLevel,
         legend_position: LegendPosition,
+        primary_channel: &str,
     ) -> bool {
         if sharing_level.is_free() {
             return true;
@@ -162,13 +163,16 @@ impl CompiledPlot {
             return true;
         }
 
-        sharing_policy::legend_owner_for_position(
+        sharing_policy::legend_ownership_scope(
+            primary_channel,
+            facet_path,
             &resolved.indices,
             &resolved.local_level_counts,
             resolved.indices.len() as u8,
             sharing_level,
             legend_position,
         )
+        .current_position_owns()
     }
 
     fn legend_disposition_for_facet_path(
@@ -176,6 +180,7 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
         sharing_level: SharingLevel,
         legend_position: LegendPosition,
+        primary_channel: &str,
     ) -> LegendDisposition {
         if sharing_level.is_free() || facet_path.is_empty() {
             return LegendDisposition::RenderHere;
@@ -189,21 +194,21 @@ impl CompiledPlot {
             return LegendDisposition::RenderHere;
         }
 
-        if !sharing_policy::legend_owner_for_position(
+        let ownership_scope = sharing_policy::legend_ownership_scope(
+            primary_channel,
+            facet_path,
             &resolved.indices,
             &resolved.local_level_counts,
             resolved.indices.len() as u8,
             sharing_level,
             legend_position,
-        ) {
+        );
+
+        if !ownership_scope.current_position_owns() {
             return LegendDisposition::Suppress;
         }
 
-        let anchor_path = sharing_policy::domain_group_key(
-            facet_path,
-            sharing_level,
-            resolved.indices.len() as u8,
-        );
+        let anchor_path = ownership_scope.anchor_path;
         if anchor_path == facet_path {
             LegendDisposition::RenderHere
         } else {
@@ -746,7 +751,7 @@ impl CompiledPlot {
 
     fn legend_disposition(
         &self,
-        _channel: &str,
+        channel: &str,
         scope: LegendPlanScope,
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[ScalarValue],
@@ -762,6 +767,7 @@ impl CompiledPlot {
                 facet_path,
                 effective_sharing_level,
                 resolved_position,
+                channel,
             ),
         }
     }
@@ -1331,6 +1337,7 @@ mod tests {
             &[s("DivA"), s("Dept1")],
             SharingLevel::FREE,
             LegendPosition::Right,
+            "fill",
         );
         assert!(visible);
     }
@@ -1343,18 +1350,21 @@ mod tests {
             &[s("DivA"), s("Dept1")],
             SharingLevel::from_raw(1),
             LegendPosition::Right,
+            "fill",
         ));
         assert!(CompiledPlot::legend_visible_for_facet_cell(
             &tree,
             &[s("DivA"), s("Dept2")],
             SharingLevel::from_raw(1),
             LegendPosition::Right,
+            "fill",
         ));
         assert!(CompiledPlot::legend_visible_for_facet_cell(
             &tree,
             &[s("DivB"), s("Dept2")],
             SharingLevel::from_raw(1),
             LegendPosition::Right,
+            "fill",
         ));
     }
 
@@ -1366,12 +1376,14 @@ mod tests {
             &[s("DivA"), s("Dept1")],
             SharingLevel::from_raw(1),
             LegendPosition::Left,
+            "fill",
         ));
         assert!(!CompiledPlot::legend_visible_for_facet_cell(
             &tree,
             &[s("DivA"), s("Dept2")],
             SharingLevel::from_raw(1),
             LegendPosition::Left,
+            "fill",
         ));
     }
 
@@ -1383,12 +1395,14 @@ mod tests {
             &[s("DivB"), s("Dept1")],
             SharingLevel::from_raw(1),
             LegendPosition::Top,
+            "fill",
         ));
         assert!(!CompiledPlot::legend_visible_for_facet_cell(
             &tree,
             &[s("DivB"), s("Dept2")],
             SharingLevel::from_raw(1),
             LegendPosition::Top,
+            "fill",
         ));
     }
 
@@ -1400,12 +1414,14 @@ mod tests {
             &[s("DivB"), s("Dept1")],
             SharingLevel::from_raw(1),
             LegendPosition::Bottom,
+            "fill",
         ));
         assert!(CompiledPlot::legend_visible_for_facet_cell(
             &tree,
             &[s("DivB"), s("Dept2")],
             SharingLevel::from_raw(1),
             LegendPosition::Bottom,
+            "fill",
         ));
     }
 
@@ -1417,12 +1433,14 @@ mod tests {
             &[s("DivA"), s("Dept2")],
             SharingLevel::from_raw(2),
             LegendPosition::Right,
+            "fill",
         ));
         assert!(CompiledPlot::legend_visible_for_facet_cell(
             &tree,
             &[s("DivB"), s("Dept2")],
             SharingLevel::from_raw(2),
             LegendPosition::Right,
+            "fill",
         ));
     }
 
@@ -1434,12 +1452,14 @@ mod tests {
             &[s("DivA"), s("Dept1")],
             SharingLevel::from_raw(3),
             LegendPosition::Left,
+            "fill",
         ));
         assert!(!CompiledPlot::legend_visible_for_facet_cell(
             &tree,
             &[s("DivB"), s("Dept1")],
             SharingLevel::from_raw(3),
             LegendPosition::Left,
+            "fill",
         ));
     }
 
@@ -1465,6 +1485,7 @@ mod tests {
                 &[s("DivA"), s("Dept1")],
                 SharingLevel::FREE,
                 LegendPosition::Right,
+                "fill",
             ),
             LegendDisposition::RenderHere
         );
@@ -1479,6 +1500,7 @@ mod tests {
                 &[s("DivA"), s("Dept1"), s("Team1")],
                 SharingLevel::from_raw(2),
                 LegendPosition::Right,
+                "fill",
             ),
             LegendDisposition::Suppress
         );
@@ -1493,6 +1515,7 @@ mod tests {
                 &[s("DivA"), s("Dept2"), s("Team2")],
                 SharingLevel::from_raw(2),
                 LegendPosition::Right,
+                "fill",
             ),
             LegendDisposition::HoistToFacetGroup {
                 anchor_path: vec![s("DivA")]
@@ -1509,6 +1532,7 @@ mod tests {
                 &[s("DivB"), s("Dept2"), s("Team2")],
                 SharingLevel::GLOBAL,
                 LegendPosition::Right,
+                "fill",
             ),
             LegendDisposition::HoistToFacetGroup {
                 anchor_path: vec![]

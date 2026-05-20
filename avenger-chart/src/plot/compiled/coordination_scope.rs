@@ -109,6 +109,7 @@ pub(crate) enum CoordinationKind {
     GuideAnchor,
     GuideLane,
     GuideOwnership,
+    LegendOwnership,
     ChildSize,
 }
 

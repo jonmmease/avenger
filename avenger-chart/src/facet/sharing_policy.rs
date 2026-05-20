@@ -3,7 +3,7 @@
 //! This module centralizes sharing-level behavior used by:
 //! - domain coordination grouping keys,
 //! - axis visibility decisions.
-//! - legend owner-cell visibility decisions.
+//! - guide and legend owner-cell visibility decisions.
 
 use datafusion::common::ScalarValue;
 
@@ -38,9 +38,9 @@ pub(crate) enum GuideOwnershipRole {
     CartesianAxisTitle,
 }
 
-/// One semantic guide-ownership group plus the edge rule that picks its owner.
+/// One semantic ownership group plus the edge rule that picks its owner.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct GuideOwnershipScope {
+pub(crate) struct EdgeOwnershipScope {
     pub(crate) key: CoordinationScopeKey,
     pub(crate) edge: SharingGroupEdge,
     pub(crate) position_indices: Vec<usize>,
@@ -48,7 +48,7 @@ pub(crate) struct GuideOwnershipScope {
     pub(crate) boundary: usize,
 }
 
-impl GuideOwnershipScope {
+impl EdgeOwnershipScope {
     pub(crate) fn current_position_owns(&self) -> bool {
         sharing_kernel::owner_for_edge(
             self.edge,
@@ -59,11 +59,47 @@ impl GuideOwnershipScope {
     }
 }
 
-pub(crate) fn guide_owner_for_scope(scope: Option<GuideOwnershipScope>) -> bool {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LegendOwnershipScope {
+    pub(crate) ownership: EdgeOwnershipScope,
+    pub(crate) anchor_path: Vec<ScalarValue>,
+}
+
+impl LegendOwnershipScope {
+    pub(crate) fn current_position_owns(&self) -> bool {
+        self.ownership.current_position_owns()
+    }
+}
+
+pub(crate) fn owner_for_scope(scope: Option<EdgeOwnershipScope>) -> bool {
     scope
         .as_ref()
-        .map(GuideOwnershipScope::current_position_owns)
+        .map(EdgeOwnershipScope::current_position_owns)
         .unwrap_or(true)
+}
+
+fn edge_ownership_scope(
+    kind: CoordinationKind,
+    channel: impl Into<String>,
+    edge: SharingGroupEdge,
+    position_indices: &[usize],
+    level_counts: &[usize],
+    facet_depth: u8,
+    sharing_level: SharingLevel,
+) -> EdgeOwnershipScope {
+    let boundary = sharing_kernel::group_boundary(facet_depth, sharing_level);
+    let group_path = position_indices
+        .get(..boundary.min(position_indices.len()))
+        .unwrap_or(position_indices)
+        .to_vec();
+
+    EdgeOwnershipScope {
+        key: CoordinationScopeKey::position_path(kind, group_path).with_channel(channel.into()),
+        edge,
+        position_indices: position_indices.to_vec(),
+        level_counts: level_counts.to_vec(),
+        boundary,
+    }
 }
 
 fn guide_ownership_scope(
@@ -74,22 +110,16 @@ fn guide_ownership_scope(
     level_counts: &[usize],
     facet_depth: u8,
     sharing_level: SharingLevel,
-) -> GuideOwnershipScope {
-    let boundary = sharing_kernel::group_boundary(facet_depth, sharing_level);
-    let group_path = position_indices
-        .get(..boundary.min(position_indices.len()))
-        .unwrap_or(position_indices)
-        .to_vec();
-    let channel = format!("{role:?}:{axis_position:?}");
-
-    GuideOwnershipScope {
-        key: CoordinationScopeKey::position_path(CoordinationKind::GuideOwnership, group_path)
-            .with_channel(channel),
+) -> EdgeOwnershipScope {
+    edge_ownership_scope(
+        CoordinationKind::GuideOwnership,
+        format!("{role:?}:{axis_position:?}"),
         edge,
-        position_indices: position_indices.to_vec(),
-        level_counts: level_counts.to_vec(),
-        boundary,
-    }
+        position_indices,
+        level_counts,
+        facet_depth,
+        sharing_level,
+    )
 }
 
 pub(crate) fn axis_label_ownership_scope(
@@ -99,7 +129,7 @@ pub(crate) fn axis_label_ownership_scope(
     sharing_level: SharingLevel,
     direction: FacetDirection,
     axis_position: AxisPosition,
-) -> Option<GuideOwnershipScope> {
+) -> Option<EdgeOwnershipScope> {
     axis_edge_for_position(direction, axis_position).map(|edge| {
         guide_ownership_scope(
             GuideOwnershipRole::FacetAxisLabels,
@@ -119,7 +149,7 @@ pub(crate) fn axis_title_ownership_scope(
     facet_depth: u8,
     direction: FacetDirection,
     axis_position: AxisPosition,
-) -> Option<GuideOwnershipScope> {
+) -> Option<EdgeOwnershipScope> {
     axis_edge_for_position(direction, axis_position).map(|edge| {
         guide_ownership_scope(
             GuideOwnershipRole::FacetAxisTitle,
@@ -142,7 +172,7 @@ pub(crate) fn show_axis_labels(
     direction: FacetDirection,
     axis_position: AxisPosition,
 ) -> bool {
-    guide_owner_for_scope(axis_label_ownership_scope(
+    owner_for_scope(axis_label_ownership_scope(
         position_indices,
         level_counts,
         facet_depth,
@@ -162,7 +192,7 @@ pub(crate) fn show_axis_title(
     direction: FacetDirection,
     axis_position: AxisPosition,
 ) -> bool {
-    guide_owner_for_scope(axis_title_ownership_scope(
+    owner_for_scope(axis_title_ownership_scope(
         position_indices,
         level_counts,
         facet_depth,
@@ -184,7 +214,7 @@ pub(crate) fn show_cartesian_axis_labels(
     axis_position: AxisPosition,
     sharing_level: SharingLevel,
 ) -> bool {
-    guide_owner_for_scope(cartesian_axis_label_ownership_scope(
+    owner_for_scope(cartesian_axis_label_ownership_scope(
         position_indices,
         level_counts,
         level_directions,
@@ -199,7 +229,7 @@ pub(crate) fn cartesian_axis_label_ownership_scope(
     level_directions: &[FacetDirection],
     axis_position: AxisPosition,
     sharing_level: SharingLevel,
-) -> Option<GuideOwnershipScope> {
+) -> Option<EdgeOwnershipScope> {
     cartesian_axis_ownership_scope_for_sharing(
         GuideOwnershipRole::CartesianAxisLabels,
         position_indices,
@@ -217,7 +247,7 @@ pub(crate) fn cartesian_axis_ownership_scope_for_sharing(
     level_directions: &[FacetDirection],
     axis_position: AxisPosition,
     sharing_level: SharingLevel,
-) -> Option<GuideOwnershipScope> {
+) -> Option<EdgeOwnershipScope> {
     let Some((projected_indices, projected_counts, relevant_depth, edge)) =
         project_levels_for_cartesian_axis(
             position_indices,
@@ -255,7 +285,7 @@ pub(crate) fn show_cartesian_axis_title(
     level_directions: &[FacetDirection],
     axis_position: AxisPosition,
 ) -> bool {
-    guide_owner_for_scope(cartesian_axis_title_ownership_scope(
+    owner_for_scope(cartesian_axis_title_ownership_scope(
         position_indices,
         level_counts,
         level_directions,
@@ -268,7 +298,7 @@ pub(crate) fn cartesian_axis_title_ownership_scope(
     level_counts: &[usize],
     level_directions: &[FacetDirection],
     axis_position: AxisPosition,
-) -> Option<GuideOwnershipScope> {
+) -> Option<EdgeOwnershipScope> {
     let relevant_depth = level_directions
         .iter()
         .filter(|&&direction| direction == cartesian_relevant_direction_for_axis(axis_position))
@@ -367,21 +397,30 @@ pub(crate) fn legend_edge_for_position(position: LegendPosition) -> SharingGroup
     }
 }
 
-pub(crate) fn legend_owner_for_position(
+pub(crate) fn legend_ownership_scope(
+    legend_channel: &str,
+    facet_path: &[ScalarValue],
     position_indices: &[usize],
     level_counts: &[usize],
     facet_depth: u8,
     sharing_level: SharingLevel,
     legend_position: LegendPosition,
-) -> bool {
-    let edge = legend_edge_for_position(legend_position);
-    sharing_kernel::owner_for_edge_with_sharing(
-        edge,
+) -> LegendOwnershipScope {
+    let ownership = edge_ownership_scope(
+        CoordinationKind::LegendOwnership,
+        format!("{legend_channel}:{legend_position:?}"),
+        legend_edge_for_position(legend_position),
         position_indices,
         level_counts,
         facet_depth,
         sharing_level,
-    )
+    );
+    let anchor_path = domain_group_key(facet_path, sharing_level, facet_depth);
+
+    LegendOwnershipScope {
+        ownership,
+        anchor_path,
+    }
 }
 
 #[cfg(test)]
@@ -714,37 +753,95 @@ mod tests {
     #[test]
     fn legend_owner_matches_axis_start_end_semantics() {
         let counts = vec![2, 2];
-        let facet_depth = 2;
         let idx_start = vec![1, 0];
         let idx_end = vec![1, 1];
 
-        assert!(legend_owner_for_position(
-            &idx_start,
+        assert!(
+            legend_ownership_scope(
+                "fill",
+                &[s("DivB"), s("Dept1")],
+                &idx_start,
+                &counts,
+                2,
+                SharingLevel::from_raw(1),
+                LegendPosition::Top
+            )
+            .current_position_owns()
+        );
+        assert!(
+            legend_ownership_scope(
+                "fill",
+                &[s("DivB"), s("Dept2")],
+                &idx_end,
+                &counts,
+                2,
+                SharingLevel::from_raw(1),
+                LegendPosition::Bottom
+            )
+            .current_position_owns()
+        );
+        assert!(
+            legend_ownership_scope(
+                "fill",
+                &[s("DivB"), s("Dept1")],
+                &idx_start,
+                &counts,
+                2,
+                SharingLevel::from_raw(1),
+                LegendPosition::Left
+            )
+            .current_position_owns()
+        );
+        assert!(
+            legend_ownership_scope(
+                "fill",
+                &[s("DivB"), s("Dept2")],
+                &idx_end,
+                &counts,
+                2,
+                SharingLevel::from_raw(1),
+                LegendPosition::Right
+            )
+            .current_position_owns()
+        );
+    }
+
+    #[test]
+    fn legend_ownership_scope_uses_legend_kind_and_anchor_path() {
+        let counts = vec![2, 2];
+        let owner = legend_ownership_scope(
+            "fill",
+            &[s("DivB"), s("Dept2")],
+            &[1, 1],
             &counts,
-            facet_depth,
+            2,
             SharingLevel::from_raw(1),
-            LegendPosition::Top
-        ));
-        assert!(legend_owner_for_position(
-            &idx_end,
+            LegendPosition::Right,
+        );
+        let peer = legend_ownership_scope(
+            "fill",
+            &[s("DivB"), s("Dept1")],
+            &[1, 0],
             &counts,
-            facet_depth,
+            2,
             SharingLevel::from_raw(1),
-            LegendPosition::Bottom
-        ));
-        assert!(legend_owner_for_position(
-            &idx_start,
+            LegendPosition::Right,
+        );
+        let other_channel = legend_ownership_scope(
+            "stroke",
+            &[s("DivB"), s("Dept2")],
+            &[1, 1],
             &counts,
-            facet_depth,
+            2,
             SharingLevel::from_raw(1),
-            LegendPosition::Left
-        ));
-        assert!(legend_owner_for_position(
-            &idx_end,
-            &counts,
-            facet_depth,
-            SharingLevel::from_raw(1),
-            LegendPosition::Right
-        ));
+            LegendPosition::Right,
+        );
+
+        assert_eq!(owner.ownership.key.kind, CoordinationKind::LegendOwnership);
+        assert_eq!(owner.anchor_path, vec![s("DivB")]);
+        assert_eq!(owner.ownership.key, peer.ownership.key);
+        assert_ne!(owner.ownership.key, other_channel.ownership.key);
+        assert!(owner.current_position_owns());
+        assert!(!peer.current_position_owns());
     }
 }

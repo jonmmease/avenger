@@ -60,18 +60,6 @@ pub(crate) fn owner_for_edge(
 }
 
 #[inline]
-pub(crate) fn owner_for_edge_with_sharing(
-    edge: SharingGroupEdge,
-    position_indices: &[usize],
-    level_counts: &[usize],
-    facet_depth: u8,
-    sharing_level: SharingLevel,
-) -> bool {
-    let boundary = group_boundary(facet_depth, sharing_level);
-    owner_for_edge(edge, position_indices, level_counts, boundary)
-}
-
-#[inline]
 pub(crate) fn domain_group_key(
     full_cell_path: &[ScalarValue],
     sharing_level: SharingLevel,
