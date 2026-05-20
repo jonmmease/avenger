@@ -67,6 +67,10 @@ impl CoordinationScopeKey {
         )
     }
 
+    pub(crate) fn position_path(kind: CoordinationKind, path: Vec<usize>) -> CoordinationScopeKey {
+        Self::new(kind, Vec::new(), CoordinationGroup::PositionPath(path))
+    }
+
     pub(crate) fn container_lane(
         kind: CoordinationKind,
         axis: CoordinationAxis,
@@ -104,6 +108,7 @@ pub(crate) enum CoordinationKind {
     BoundaryResidual,
     GuideAnchor,
     GuideLane,
+    GuideOwnership,
     ChildSize,
 }
 
@@ -111,6 +116,7 @@ pub(crate) enum CoordinationKind {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum CoordinationGroup {
     PartitionPath(Vec<ScalarValue>),
+    PositionPath(Vec<usize>),
     ContainerGroup {
         depth: usize,
         identity: String,
@@ -194,6 +200,22 @@ mod tests {
         assert_eq!(overflow_a, overflow_b);
         assert_ne!(overflow_a, boundary);
         assert_ne!(overflow_a, different_depth);
+    }
+
+    #[test]
+    fn position_path_keys_group_by_kind_and_indices() {
+        let owner_a =
+            CoordinationScopeKey::position_path(CoordinationKind::GuideOwnership, vec![0, 2]);
+        let owner_b =
+            CoordinationScopeKey::position_path(CoordinationKind::GuideOwnership, vec![0, 2]);
+        let different_kind =
+            CoordinationScopeKey::position_path(CoordinationKind::GuideLane, vec![0, 2]);
+        let different_path =
+            CoordinationScopeKey::position_path(CoordinationKind::GuideOwnership, vec![0, 3]);
+
+        assert_eq!(owner_a, owner_b);
+        assert_ne!(owner_a, different_kind);
+        assert_ne!(owner_a, different_path);
     }
 
     #[test]

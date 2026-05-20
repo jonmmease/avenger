@@ -31,7 +31,7 @@ use crate::{
         marks::facet::{FacetSubplotRef, facet_subplot_ref},
         path_math,
         scalar_cmp::scalar_total_cmp,
-        sharing_kernel::{self, SharingGroupEdge},
+        sharing_kernel::SharingGroupEdge,
         sharing_level::SharingLevel,
         sharing_policy,
     },
@@ -974,49 +974,11 @@ impl EvaluatedFacetTree {
         title_level_counts
     }
 
-    fn cartesian_axis_edge_for_position(axis_position: AxisPosition) -> SharingGroupEdge {
-        match axis_position {
-            AxisPosition::Top | AxisPosition::Left => SharingGroupEdge::Start,
-            AxisPosition::Bottom | AxisPosition::Right => SharingGroupEdge::End,
-        }
-    }
-
     fn cartesian_relevant_direction_for_axis(axis_position: AxisPosition) -> FacetDirection {
         match axis_position {
             AxisPosition::Top | AxisPosition::Bottom => FacetDirection::Row,
             AxisPosition::Left | AxisPosition::Right => FacetDirection::Column,
         }
-    }
-
-    fn project_indices_for_cartesian_axis(
-        position_indices: &[usize],
-        level_directions: &[FacetDirection],
-        axis_position: AxisPosition,
-    ) -> Option<(Vec<usize>, usize, SharingGroupEdge)> {
-        if position_indices.len() != level_directions.len() {
-            return None;
-        }
-
-        let edge = Self::cartesian_axis_edge_for_position(axis_position);
-        let relevant_direction = Self::cartesian_relevant_direction_for_axis(axis_position);
-
-        let mut projected_indices = Vec::with_capacity(position_indices.len());
-        let mut relevant_depth = 0usize;
-
-        for (&index, &direction) in position_indices.iter().zip(level_directions.iter()) {
-            if direction != relevant_direction {
-                projected_indices.push(index);
-            }
-        }
-
-        for (&index, &direction) in position_indices.iter().zip(level_directions.iter()) {
-            if direction == relevant_direction {
-                projected_indices.push(index);
-                relevant_depth += 1;
-            }
-        }
-
-        Some((projected_indices, relevant_depth, edge))
     }
 
     fn collect_non_empty_paths_for_axis_strip(
@@ -1125,22 +1087,20 @@ impl EvaluatedFacetTree {
         sharing_level: SharingLevel,
         fallback_visible: bool,
     ) -> bool {
-        let Some((current_projected, relevant_depth, edge)) =
-            Self::project_indices_for_cartesian_axis(
-                &resolved.indices,
-                &resolved.level_directions,
-                axis_position,
-            )
-        else {
+        let Some(scope) = sharing_policy::cartesian_axis_ownership_scope_for_sharing(
+            sharing_policy::GuideOwnershipRole::CartesianAxisLabels,
+            &resolved.indices,
+            &resolved.local_level_counts,
+            &resolved.level_directions,
+            axis_position,
+            sharing_level,
+        ) else {
             return fallback_visible;
         };
 
-        if relevant_depth == 0 {
-            return true;
-        }
-
-        let sharing_level = sharing_level.clamp_to_depth(relevant_depth as u8);
-        let boundary = sharing_kernel::group_boundary(current_projected.len() as u8, sharing_level);
+        let current_projected = &scope.position_indices;
+        let boundary = scope.boundary;
+        let edge = scope.edge;
         let current_prefix = &current_projected[..boundary];
         let current_suffix = &current_projected[boundary..];
 
@@ -1158,13 +1118,17 @@ impl EvaluatedFacetTree {
             let Some(candidate_resolved) = self.resolve_path_info(candidate_path) else {
                 continue;
             };
-            let Some((candidate_projected, _, _)) = Self::project_indices_for_cartesian_axis(
+            let Some(candidate_scope) = sharing_policy::cartesian_axis_ownership_scope_for_sharing(
+                sharing_policy::GuideOwnershipRole::CartesianAxisLabels,
                 &candidate_resolved.indices,
+                &candidate_resolved.local_level_counts,
                 &candidate_resolved.level_directions,
                 axis_position,
+                sharing_level,
             ) else {
                 continue;
             };
+            let candidate_projected = candidate_scope.position_indices;
 
             if candidate_projected.len() != current_projected.len() {
                 continue;
@@ -1215,15 +1179,14 @@ impl EvaluatedFacetTree {
             );
         }
 
-        let Some((_, relevant_depth, _)) = Self::project_indices_for_cartesian_axis(
-            &resolved.indices,
-            &resolved.level_directions,
-            axis_position,
-        ) else {
-            return AxisVisibility::visible();
-        };
-
-        if relevant_depth == 0 {
+        let relevant_depth = resolved
+            .level_directions
+            .iter()
+            .filter(|&&direction| {
+                direction == Self::cartesian_relevant_direction_for_axis(axis_position)
+            })
+            .count();
+        if relevant_depth == 0 || resolved.indices.len() != resolved.level_directions.len() {
             return AxisVisibility::visible();
         }
 
