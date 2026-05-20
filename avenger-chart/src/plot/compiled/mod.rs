@@ -1,6 +1,8 @@
 //! CompiledPlot - Immutable, serializable plot ready for rendering
 
 mod child_frame_container;
+mod child_frame_scope;
+mod coordination_scope;
 pub(crate) mod expr_eval;
 mod legends;
 pub(crate) mod rendering;
@@ -35,6 +37,10 @@ use crate::{
 };
 
 pub(crate) use self::child_frame_container::ChildFrameContainerView;
+pub(crate) use self::child_frame_scope::{ChildFrameKey, ChildFrameScopeKey, ContainerPathSegment};
+pub(crate) use self::coordination_scope::{
+    CoordinationAxis, CoordinationKind, CoordinationScopeKey,
+};
 use self::legends::PreparedLegendPlan;
 
 use super::{

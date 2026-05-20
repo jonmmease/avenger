@@ -1,20 +1,21 @@
 //! Immutable plans for facet requirement coordination and realization.
 //!
-//! The subtle part of facet layout is scope selection. Full overflows
-//! coordinate by facet group, sibling-boundary overflows strip globally outer
-//! edges before coordinating spacing between siblings, and guide anchors
-//! coordinate within branch-local lanes so jagged facet trees can align visible
-//! guides without borrowing space from unrelated branches.
+//! The subtle part of facet layout is scope selection. Requirement snapshots use
+//! semantic `CoordinationScopeKey` values for the behavior being coordinated,
+//! while `CoordinationNodeKey` remains only a plan-local traversal address.
+//! Full overflows, boundary overflows, and child-size/layout requirements derive
+//! kinded keys from each node's semantic scope. Sibling-boundary overflows strip
+//! globally outer edges before coordinating spacing between siblings, and guide
+//! anchors coordinate within branch-local lanes so jagged facet trees can align
+//! visible guides without borrowing space from unrelated branches.
 
 use std::{collections::HashMap, hash::Hash};
 
 use crate::{
     cartesian::axis::AxisPosition,
     coords::{CoordinatedLayout, CoordinatedOverflow, FacetAxis},
-    facet::{
-        coordination::CoordinationGroupKey,
-        overflow_projection::{FacetOverflowProjection, project_facet_overflow},
-    },
+    facet::overflow_projection::{FacetOverflowProjection, project_facet_overflow},
+    plot::compiled::{CoordinationAxis, CoordinationKind, CoordinationScopeKey},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -25,21 +26,6 @@ pub(crate) struct CoordinationNodeKey {
 impl CoordinationNodeKey {
     pub(crate) fn new(path: Vec<usize>) -> Self {
         Self { path }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct GuideAnchorScopeKey {
-    pub(crate) coordination_key: CoordinationGroupKey,
-    pub(crate) lane_path: Vec<usize>,
-}
-
-impl GuideAnchorScopeKey {
-    fn new(coordination_key: CoordinationGroupKey, lane_path: Vec<usize>) -> Self {
-        Self {
-            coordination_key,
-            lane_path,
-        }
     }
 }
 
@@ -61,7 +47,7 @@ impl RequirementStage {
 #[derive(Debug, Clone)]
 pub(crate) struct RequirementNodeSnapshot {
     pub(crate) node_id: CoordinationNodeKey,
-    pub(crate) key: CoordinationGroupKey,
+    pub(crate) key: CoordinationScopeKey,
     pub(crate) axis: FacetAxis,
     pub(crate) measured_overflow: Option<CoordinatedOverflow>,
     pub(crate) local_layout: CoordinatedLayout,
@@ -77,9 +63,9 @@ pub(crate) struct RequirementSnapshot {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RequirementAggregates {
-    pub(crate) merged_overflow_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow>,
-    pub(crate) merged_boundary_overflow_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow>,
-    pub(crate) merged_layout_by_key: HashMap<CoordinationGroupKey, CoordinatedLayout>,
+    pub(crate) merged_overflow_by_key: HashMap<CoordinationScopeKey, CoordinatedOverflow>,
+    pub(crate) merged_boundary_overflow_by_key: HashMap<CoordinationScopeKey, CoordinatedOverflow>,
+    pub(crate) merged_layout_by_key: HashMap<CoordinationScopeKey, CoordinatedLayout>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -365,9 +351,12 @@ where
         .collect()
 }
 
-fn merge_layout_groups(
-    layout_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedLayout>>,
-) -> HashMap<CoordinationGroupKey, CoordinatedLayout> {
+fn merge_layout_groups<K>(
+    layout_by_key: HashMap<K, Vec<CoordinatedLayout>>,
+) -> HashMap<K, CoordinatedLayout>
+where
+    K: Eq + Hash,
+{
     layout_by_key
         .into_iter()
         .map(|(key, values)| {
@@ -383,7 +372,7 @@ fn merge_layout_groups(
 #[derive(Debug, Clone)]
 struct RoundCollectionInput {
     node_id: CoordinationNodeKey,
-    key: CoordinationGroupKey,
+    key: CoordinationScopeKey,
     axis: FacetAxis,
     measured_overflow: Option<CoordinatedOverflow>,
     local_layout: CoordinatedLayout,
@@ -392,24 +381,18 @@ struct RoundCollectionInput {
     last_edge_index: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct AxisLaneScopeKey {
-    axis: FacetAxis,
-    root_path: Vec<usize>,
-}
-
 #[derive(Debug, Clone)]
 struct RequirementScopeMetadata {
     axis_by_path: HashMap<Vec<usize>, FacetAxis>,
     edge_indices_by_path: HashMap<Vec<usize>, (usize, usize)>,
-    axis_lane_scope_by_node: HashMap<CoordinationNodeKey, AxisLaneScopeKey>,
+    axis_lane_scope_by_node: HashMap<CoordinationNodeKey, CoordinationScopeKey>,
 }
 
 #[derive(Debug, Clone, Default)]
 struct RoundCollectionOutput {
-    merged_overflow_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow>,
-    merged_boundary_overflow_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow>,
-    merged_layout_by_key: HashMap<CoordinationGroupKey, CoordinatedLayout>,
+    merged_overflow_by_key: HashMap<CoordinationScopeKey, CoordinatedOverflow>,
+    merged_boundary_overflow_by_key: HashMap<CoordinationScopeKey, CoordinatedOverflow>,
+    merged_layout_by_key: HashMap<CoordinationScopeKey, CoordinatedLayout>,
     overflow_patches_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     guide_anchor_overflow_patches_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     boundary_overflow_patches_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
@@ -418,19 +401,19 @@ struct RoundCollectionOutput {
 
 #[derive(Debug, Clone, Default)]
 struct RoundGroupedRequirements {
-    overflow_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedOverflow>>,
-    guide_anchor_overflow_by_key: HashMap<GuideAnchorScopeKey, Vec<CoordinatedOverflow>>,
-    boundary_overflow_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedOverflow>>,
-    layout_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedLayout>>,
-    max_guide_slot_gap_by_axis_group: HashMap<AxisLaneScopeKey, f32>,
+    overflow_by_key: HashMap<CoordinationScopeKey, Vec<CoordinatedOverflow>>,
+    guide_anchor_overflow_by_key: HashMap<CoordinationScopeKey, Vec<CoordinatedOverflow>>,
+    boundary_overflow_by_key: HashMap<CoordinationScopeKey, Vec<CoordinatedOverflow>>,
+    layout_by_key: HashMap<CoordinationScopeKey, Vec<CoordinatedLayout>>,
+    max_guide_slot_gap_by_axis_group: HashMap<CoordinationScopeKey, f32>,
 }
 
 #[derive(Debug, Clone, Default)]
 struct RoundMergedRequirements {
-    overflow_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow>,
-    guide_anchor_overflow_by_key: HashMap<GuideAnchorScopeKey, CoordinatedOverflow>,
-    boundary_overflow_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow>,
-    layout_by_key: HashMap<CoordinationGroupKey, CoordinatedLayout>,
+    overflow_by_key: HashMap<CoordinationScopeKey, CoordinatedOverflow>,
+    guide_anchor_overflow_by_key: HashMap<CoordinationScopeKey, CoordinatedOverflow>,
+    boundary_overflow_by_key: HashMap<CoordinationScopeKey, CoordinatedOverflow>,
+    layout_by_key: HashMap<CoordinationScopeKey, CoordinatedLayout>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -468,14 +451,14 @@ impl RequirementScopeMetadata {
     fn axis_lane_scope_keys(
         nodes: &[RoundCollectionInput],
         axis_by_path: &HashMap<Vec<usize>, FacetAxis>,
-    ) -> HashMap<CoordinationNodeKey, AxisLaneScopeKey> {
+    ) -> HashMap<CoordinationNodeKey, CoordinationScopeKey> {
         // Share guide-only gutters through uninterrupted same-axis facet chains
         // (`column -> column`, `row -> row`). Orthogonal facets start a new lane.
         let mut node_refs = nodes.iter().collect::<Vec<_>>();
         node_refs.sort_by_key(|node| node.node_id.path.len());
 
-        let mut group_by_path: HashMap<Vec<usize>, AxisLaneScopeKey> = HashMap::new();
-        let mut group_by_node: HashMap<CoordinationNodeKey, AxisLaneScopeKey> = HashMap::new();
+        let mut group_by_path: HashMap<Vec<usize>, CoordinationScopeKey> = HashMap::new();
+        let mut group_by_node: HashMap<CoordinationNodeKey, CoordinationScopeKey> = HashMap::new();
 
         for node in node_refs {
             let parent_group = node.node_id.path.split_last().and_then(|(_, parent_path)| {
@@ -487,9 +470,12 @@ impl RequirementScopeMetadata {
                     None
                 }
             });
-            let group = parent_group.unwrap_or_else(|| AxisLaneScopeKey {
-                axis: node.axis,
-                root_path: node.node_id.path.clone(),
+            let group = parent_group.unwrap_or_else(|| {
+                CoordinationScopeKey::container_lane(
+                    CoordinationKind::GuideLane,
+                    coordination_axis_from_facet_axis(node.axis),
+                    node.node_id.path.clone(),
+                )
             });
 
             group_by_path.insert(node.node_id.path.clone(), group.clone());
@@ -499,7 +485,7 @@ impl RequirementScopeMetadata {
         group_by_node
     }
 
-    fn guide_anchor_scope_key(&self, node: &RoundCollectionInput) -> GuideAnchorScopeKey {
+    fn guide_anchor_scope_key(&self, node: &RoundCollectionInput) -> CoordinationScopeKey {
         let mut lane_path = Vec::new();
         let mut parent_path = Vec::new();
 
@@ -512,7 +498,7 @@ impl RequirementScopeMetadata {
             parent_path.push(*idx);
         }
 
-        GuideAnchorScopeKey::new(node.key.clone(), lane_path)
+        CoordinationScopeKey::lane_from_scope(CoordinationKind::GuideAnchor, &node.key, lane_path)
     }
 
     fn is_global_edge_side(&self, node: &RoundCollectionInput, side: AxisPosition) -> bool {
@@ -628,9 +614,10 @@ fn collect_round_groups(
     let mut grouped = RoundGroupedRequirements::default();
     for node in nodes {
         if let Some(measured_overflow) = node.measured_overflow.clone() {
+            let overflow_key = node.key.with_kind(CoordinationKind::OverflowResidual);
             grouped
                 .overflow_by_key
-                .entry(node.key.clone())
+                .entry(overflow_key)
                 .or_default()
                 .push(measured_overflow.clone());
             let guide_anchor_key = scopes.guide_anchor_scope_key(node);
@@ -641,15 +628,17 @@ fn collect_round_groups(
                 .or_default()
                 .push(guide_anchor_overflow);
             let boundary_overflow = scopes.sibling_boundary_overflow(node, &measured_overflow);
+            let boundary_key = node.key.with_kind(CoordinationKind::BoundaryResidual);
             grouped
                 .boundary_overflow_by_key
-                .entry(node.key.clone())
+                .entry(boundary_key)
                 .or_default()
                 .push(boundary_overflow);
         }
+        let layout_key = node.key.with_kind(CoordinationKind::ChildSize);
         grouped
             .layout_by_key
-            .entry(node.key.clone())
+            .entry(layout_key)
             .or_default()
             .push(node.local_layout.clone());
         if let Some(group) = scopes.axis_lane_scope_by_node.get(&node.node_id) {
@@ -662,6 +651,13 @@ fn collect_round_groups(
     }
 
     grouped
+}
+
+fn coordination_axis_from_facet_axis(axis: FacetAxis) -> CoordinationAxis {
+    match axis {
+        FacetAxis::Column => CoordinationAxis::Horizontal,
+        FacetAxis::Row => CoordinationAxis::Vertical,
+    }
 }
 
 fn merge_round_groups(grouped: &RoundGroupedRequirements) -> RoundMergedRequirements {
@@ -683,7 +679,8 @@ fn build_round_patches(
 ) -> RoundRequirementPatches {
     let mut patches = RoundRequirementPatches::default();
     for node in nodes {
-        if let Some(merged_overflow) = merged.overflow_by_key.get(&node.key).cloned() {
+        let overflow_key = node.key.with_kind(CoordinationKind::OverflowResidual);
+        if let Some(merged_overflow) = merged.overflow_by_key.get(&overflow_key).cloned() {
             patches
                 .overflow_by_node
                 .insert(node.node_id.clone(), merged_overflow);
@@ -698,12 +695,15 @@ fn build_round_patches(
                 .guide_anchor_overflow_by_node
                 .insert(node.node_id.clone(), guide_anchor_overflow);
         }
-        if let Some(boundary_overflow) = merged.boundary_overflow_by_key.get(&node.key).cloned() {
+        let boundary_key = node.key.with_kind(CoordinationKind::BoundaryResidual);
+        if let Some(boundary_overflow) = merged.boundary_overflow_by_key.get(&boundary_key).cloned()
+        {
             patches
                 .boundary_overflow_by_node
                 .insert(node.node_id.clone(), boundary_overflow);
         }
-        if let Some(merged_layout) = merged.layout_by_key.get(&node.key).cloned() {
+        let layout_key = node.key.with_kind(CoordinationKind::ChildSize);
+        if let Some(merged_layout) = merged.layout_by_key.get(&layout_key).cloned() {
             let mut layout = merged_layout;
             if let Some(axis_group) = scopes.axis_lane_scope_by_node.get(&node.node_id)
                 && let Some(group_gap) = grouped.max_guide_slot_gap_by_axis_group.get(axis_group)
@@ -788,7 +788,7 @@ mod tests {
 
     fn snapshot_node(
         path: &[usize],
-        key: &CoordinationGroupKey,
+        key: &CoordinationScopeKey,
         axis: FacetAxis,
         measured_overflow: Option<CoordinatedOverflow>,
     ) -> RequirementNodeSnapshot {
@@ -810,9 +810,13 @@ mod tests {
         }
     }
 
+    fn scope_key(depth: usize, identity: &str) -> CoordinationScopeKey {
+        CoordinationScopeKey::container_group(CoordinationKind::ChildSize, depth, identity)
+    }
+
     #[test]
     fn initial_requirement_pass_groups_and_distributes_overflow_layout() {
-        let key = CoordinationGroupKey::new(1, "col:group");
+        let key = scope_key(1, "col:group");
         let snapshot = RequirementSnapshot {
             nodes: vec![
                 RequirementNodeSnapshot {
@@ -860,9 +864,9 @@ mod tests {
 
     #[test]
     fn guide_anchor_pass_shares_column_guides_within_row_lane() {
-        let outer_col_key = CoordinationGroupKey::new(1, "col:division");
-        let row_key = CoordinationGroupKey::new(2, "row:department");
-        let team_key = CoordinationGroupKey::new(3, "col:team");
+        let outer_col_key = scope_key(1, "col:division");
+        let row_key = scope_key(2, "row:department");
+        let team_key = scope_key(3, "col:team");
         let left_top_team = CoordinationNodeKey::new(vec![0, 0]);
         let right_top_team = CoordinationNodeKey::new(vec![1, 0]);
         let left_bottom_team = CoordinationNodeKey::new(vec![0, 1]);
@@ -927,9 +931,9 @@ mod tests {
 
     #[test]
     fn guide_anchor_pass_shares_row_guides_within_column_lane() {
-        let outer_row_key = CoordinationGroupKey::new(1, "row:division");
-        let col_key = CoordinationGroupKey::new(2, "col:department");
-        let team_key = CoordinationGroupKey::new(3, "row:team");
+        let outer_row_key = scope_key(1, "row:division");
+        let col_key = scope_key(2, "col:department");
+        let team_key = scope_key(3, "row:team");
         let top_left_team = CoordinationNodeKey::new(vec![0, 0]);
         let bottom_left_team = CoordinationNodeKey::new(vec![1, 0]);
         let top_right_team = CoordinationNodeKey::new(vec![0, 1]);
@@ -994,8 +998,8 @@ mod tests {
 
     #[test]
     fn guide_anchor_pass_does_not_split_lanes_for_same_axis_ancestors() {
-        let division_key = CoordinationGroupKey::new(1, "col:division");
-        let team_key = CoordinationGroupKey::new(2, "col:team");
+        let division_key = scope_key(1, "col:division");
+        let team_key = scope_key(2, "col:team");
         let left_team = CoordinationNodeKey::new(vec![0]);
         let right_team = CoordinationNodeKey::new(vec![1]);
 
@@ -1042,9 +1046,9 @@ mod tests {
 
     #[test]
     fn requirement_pass_shares_guide_slot_gap_across_same_axis_groups() {
-        let outer_col_key = CoordinationGroupKey::new(1, "col:division");
-        let inner_col_key = CoordinationGroupKey::new(2, "col:dept");
-        let row_key = CoordinationGroupKey::new(3, "row:team");
+        let outer_col_key = scope_key(1, "col:division");
+        let inner_col_key = scope_key(2, "col:dept");
+        let row_key = scope_key(3, "row:team");
         let outer_node = CoordinationNodeKey::new(vec![0]);
         let inner_node = CoordinationNodeKey::new(vec![0, 0]);
         let row_node = CoordinationNodeKey::new(vec![0, 0, 0]);
@@ -1156,8 +1160,8 @@ mod tests {
 
     #[test]
     fn requirement_pass_does_not_share_inner_padding_across_orthogonal_breaks() {
-        let outer_row_key = CoordinationGroupKey::new(1, "row:division");
-        let inner_row_key = CoordinationGroupKey::new(3, "row:team");
+        let outer_row_key = scope_key(1, "row:division");
+        let inner_row_key = scope_key(3, "row:team");
         let outer_node = CoordinationNodeKey::new(vec![0]);
         let inner_node = CoordinationNodeKey::new(vec![0, 0, 0]);
 
@@ -1181,7 +1185,7 @@ mod tests {
                 },
                 RequirementNodeSnapshot {
                     node_id: CoordinationNodeKey::new(vec![0, 0]),
-                    key: CoordinationGroupKey::new(2, "col:department"),
+                    key: scope_key(2, "col:department"),
                     axis: FacetAxis::Column,
                     measured_overflow: None,
                     local_layout: CoordinatedLayout {
@@ -1236,8 +1240,8 @@ mod tests {
 
     #[test]
     fn requirement_pass_keeps_legend_only_padding_local_to_its_group() {
-        let legend_col_key = CoordinationGroupKey::new(1, "col:legend-owner");
-        let inner_col_key = CoordinationGroupKey::new(2, "col:inner");
+        let legend_col_key = scope_key(1, "col:legend-owner");
+        let inner_col_key = scope_key(2, "col:inner");
 
         let snapshot = RequirementSnapshot {
             nodes: vec![
@@ -1306,8 +1310,8 @@ mod tests {
 
     #[test]
     fn requirement_pass_strips_global_edges_from_boundary_overflow_only() {
-        let root_key = CoordinationGroupKey::new(1, "col:division");
-        let row_key = CoordinationGroupKey::new(2, "row:team");
+        let root_key = scope_key(1, "col:division");
+        let row_key = scope_key(2, "row:team");
         let left_row_node = CoordinationNodeKey::new(vec![0]);
         let right_row_node = CoordinationNodeKey::new(vec![1]);
 
@@ -1356,12 +1360,12 @@ mod tests {
         let full = pass
             .aggregates
             .merged_overflow_by_key
-            .get(&row_key)
+            .get(&row_key.with_kind(CoordinationKind::OverflowResidual))
             .expect("row group should have full overflow");
         let boundary = pass
             .aggregates
             .merged_boundary_overflow_by_key
-            .get(&row_key)
+            .get(&row_key.with_kind(CoordinationKind::BoundaryResidual))
             .expect("row group should have boundary overflow");
 
         assert_eq!(full.guide.left, 39.0);
@@ -1388,7 +1392,7 @@ mod tests {
 
     #[test]
     fn retargeted_requirement_pass_reconciles_overflow_layout() {
-        let key = CoordinationGroupKey::new(1, "row:group");
+        let key = scope_key(1, "row:group");
         let snapshot = RequirementSnapshot {
             nodes: vec![
                 RequirementNodeSnapshot {

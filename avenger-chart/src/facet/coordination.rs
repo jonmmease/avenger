@@ -56,22 +56,6 @@ use crate::facet::coordination_apply::{
 #[cfg(test)]
 use crate::render::context::{FacetRuntimeSizingMode, FacetRuntimeSizingPolicy};
 
-/// Stable key identifying a coordination group in the measurement tree.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct CoordinationGroupKey {
-    pub depth: usize,
-    pub facet_group_identity: String,
-}
-
-impl CoordinationGroupKey {
-    pub fn new(depth: usize, facet_group_identity: impl Into<String>) -> Self {
-        Self {
-            depth,
-            facet_group_identity: facet_group_identity.into(),
-        }
-    }
-}
-
 #[cfg(test)]
 fn facet_band_ref(measurement: &ComponentsMeasurement) -> Option<&FacetBandCoordMeasurement> {
     facet_band_ref_from_coord(measurement.coord_measurement.as_ref())
@@ -369,7 +353,7 @@ fn collect_requirement_snapshot(measurement: &ComponentsMeasurement) -> Requirem
             let (first_edge_index, last_edge_index) = facet_band_edge_indices(facet_band);
             nodes.push(RequirementNodeSnapshot {
                 node_id: node_id.clone(),
-                key: facet_band.coordination_group_key_for_depth(depth),
+                key: facet_band.coordination_scope_key_for_depth(depth),
                 axis: facet_band.axis,
                 measured_overflow: facet_band.measured_overflow_value(),
                 local_layout: facet_band.local_layout_value(),
@@ -728,7 +712,7 @@ mod tests {
         facet::evaluated_facet_tree::EvaluatedFacetTree,
         layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
         plot::compiled::{
-            ComponentsMeasurement, scale_provider::DynamicScaleProvider,
+            ComponentsMeasurement, CoordinationScopeKey, scale_provider::DynamicScaleProvider,
             scales::build_scale_builder_from_marks,
         },
         prelude::*,
@@ -741,7 +725,7 @@ mod tests {
 
     #[derive(Clone)]
     struct Depth1State {
-        key: CoordinationGroupKey,
+        key: CoordinationScopeKey,
         local_layout: CoordinatedLayout,
         coordinated_layout: Option<CoordinatedLayout>,
         coordinated_overflow: CoordinatedOverflow,
@@ -816,7 +800,7 @@ mod tests {
         visit_facet_bands(measurement, 0, &mut |depth, facet_band| {
             if depth == 1 {
                 states.push(Depth1State {
-                    key: facet_band.coordination_group_key_for_depth(depth),
+                    key: facet_band.coordination_scope_key_for_depth(depth),
                     local_layout: facet_band.local_layout.clone(),
                     coordinated_layout: facet_band.coordinated_layout.clone(),
                     coordinated_overflow: facet_band.coordinated_overflow.clone(),

@@ -4,6 +4,8 @@
 //! inspect measured child frames without knowing whether the producer was a
 //! facet, concat, coordinate-positioned container, or another composition.
 
+use std::collections::HashSet;
+
 use crate::{
     concat::concat_coord_ref,
     error::AvengerChartError,
@@ -11,12 +13,13 @@ use crate::{
     layout::{ChildFramePlacementResult, FrameAllocation},
 };
 
-use super::ComponentsMeasurement;
+use super::{ChildFrameScopeKey, ComponentsMeasurement};
 
 /// One child frame inside a measured child-frame container.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct ChildFrameChildView<'a> {
     child_index: usize,
+    scope_key: ChildFrameScopeKey,
     measurement: &'a ComponentsMeasurement,
 }
 
@@ -44,6 +47,14 @@ impl<'a> ChildFrameContainerView<'a> {
         child_index: usize,
     ) -> Option<&'a ComponentsMeasurement> {
         self.child(child_index).map(|child| child.measurement)
+    }
+
+    pub(crate) fn child_scope_key(&self, child_index: usize) -> Option<&ChildFrameScopeKey> {
+        self.child(child_index).map(|child| &child.scope_key)
+    }
+
+    pub(crate) fn child_scope_keys(&self) -> impl Iterator<Item = &ChildFrameScopeKey> {
+        self.children.iter().map(|child| &child.scope_key)
     }
 
     pub(crate) fn child_frame_allocations(&self) -> Vec<FrameAllocation> {
@@ -74,13 +85,24 @@ impl ComponentsMeasurement {
             let children = concat
                 .children()
                 .iter()
-                .map(|child| ChildFrameChildView {
-                    child_index: child.child_index,
-                    measurement: &child.measurement,
+                .map(|child| {
+                    let scope_key = concat.child_scope_key(child.child_index).ok_or_else(|| {
+                        AvengerChartError::InternalError(format!(
+                            "Missing concat scope key for child index {}",
+                            child.child_index
+                        ))
+                    })?;
+                    Ok(ChildFrameChildView {
+                        child_index: child.child_index,
+                        scope_key,
+                        measurement: &child.measurement,
+                    })
                 })
-                .collect::<Vec<_>>();
+                .collect::<Result<Vec<_>, AvengerChartError>>()?;
             validate_container_placements(&placement, &children, Some(&child_debug_labels))?;
-            return Ok(Some(ChildFrameContainerView::new(children, placement)));
+            let view = ChildFrameContainerView::new(children, placement);
+            view.validate_scope_keys()?;
+            return Ok(Some(view));
         }
 
         let Some(facet_band) = facet_band_ref(self.coord_measurement.as_ref()) else {
@@ -109,14 +131,53 @@ impl ComponentsMeasurement {
             .cells
             .iter()
             .enumerate()
-            .map(|(child_index, cell)| ChildFrameChildView {
-                child_index,
-                measurement: &cell.measurement,
+            .map(|(child_index, cell)| {
+                let scope_key = facet_band.child_scope_key(child_index).ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Missing facet scope key for child index {child_index}"
+                    ))
+                })?;
+                Ok(ChildFrameChildView {
+                    child_index,
+                    scope_key,
+                    measurement: &cell.measurement,
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, AvengerChartError>>()?;
 
         validate_container_placements(&placement, &children, None)?;
-        Ok(Some(ChildFrameContainerView::new(children, placement)))
+        let view = ChildFrameContainerView::new(children, placement);
+        view.validate_scope_keys()?;
+        Ok(Some(view))
+    }
+}
+
+impl ChildFrameContainerView<'_> {
+    fn validate_scope_keys(&self) -> Result<(), AvengerChartError> {
+        let scope_count = self.child_scope_keys().count();
+        if scope_count != self.children.len() {
+            return Err(AvengerChartError::InternalError(format!(
+                "Child-frame scope count {scope_count} did not match child count {}",
+                self.children.len()
+            )));
+        }
+
+        let mut seen = HashSet::with_capacity(self.children.len());
+        for child in &self.children {
+            let Some(scope_key) = self.child_scope_key(child.child_index) else {
+                return Err(AvengerChartError::InternalError(format!(
+                    "Missing child-frame scope key for child index {}",
+                    child.child_index
+                )));
+            };
+            if !seen.insert(scope_key.clone()) {
+                return Err(AvengerChartError::InternalError(format!(
+                    "Duplicate child-frame scope key for child index {}: {:?}",
+                    child.child_index, scope_key
+                )));
+            }
+        }
+        Ok(())
     }
 }
 

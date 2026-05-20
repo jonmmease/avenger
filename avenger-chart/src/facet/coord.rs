@@ -29,7 +29,6 @@ use crate::{
             OverflowProbeSummary,
         },
         coord_row::compute_band_layout,
-        coordination::CoordinationGroupKey,
         coordination_plans::{
             AxisSlab, BandRetargetAction, CoordinationNodeKey, FacetOwnershipRequirement,
             PlotAreaSize, PlotAreaTarget, RetargetNodeActions, RetargetNodeOutcome,
@@ -65,14 +64,16 @@ use crate::{
         sharing_level::SharingLevel,
         subtree_plot_area::{LeafPlotAreaSize, estimate_path_plot_area_from_leaf_size},
     },
+    guide::FacetDirection,
     layout::{
         EdgeSlabs, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, OwnedEdgeSlabs,
         apply_frame_side_slab, overflow_side_value, retarget_frame_layout_for_plot_area,
     },
     marks::CompiledMark,
     plot::compiled::{
-        CompiledPlot, ComponentsMeasurement, scale_provider::DynamicScaleProvider,
-        scales::build_scale_builder_from_marks,
+        ChildFrameKey, ChildFrameScopeKey, CompiledPlot, ComponentsMeasurement,
+        ContainerPathSegment, CoordinationKind, CoordinationScopeKey,
+        scale_provider::DynamicScaleProvider, scales::build_scale_builder_from_marks,
     },
     render::{EvaluationContext, FacetSubtreeCheckpoint, FacetSubtreeSelector},
     scales::{
@@ -234,6 +235,8 @@ pub struct FacetBandCoordMeasurement {
     pub axis: FacetAxis,
     /// Enumerated cell runtime state.
     pub(crate) cells: Vec<FacetCellRuntime>,
+    /// Scope path for ancestor facet values that own this facet band.
+    pub(crate) scope_path_prefix: Vec<ContainerPathSegment>,
     /// ScaleBuilder for plot scales (caches data extents for rebuilding with updated dimensions).
     /// Used with DynamicScaleProvider to correctly compute radius-aware domains.
     pub shared_scale_builder: ScaleBuilder,
@@ -289,6 +292,23 @@ pub struct FacetBandCoordMeasurement {
 }
 
 impl FacetBandCoordMeasurement {
+    pub(crate) fn child_scope_key(&self, child_index: usize) -> Option<ChildFrameScopeKey> {
+        self.cells
+            .get(child_index)
+            .map(|cell| self.child_scope_key_for_cell(cell))
+    }
+
+    pub(crate) fn child_scope_key_for_cell(&self, cell: &FacetCellRuntime) -> ChildFrameScopeKey {
+        ChildFrameScopeKey::new(
+            self.scope_path_prefix.clone(),
+            ChildFrameKey::FacetValue {
+                axis: self.axis,
+                level: self.facet_depth,
+                value: cell.plan.value.clone(),
+            },
+        )
+    }
+
     pub(crate) fn uses_explicit_placement(&self) -> bool {
         matches!(self.placement_model, FacetBandPlacementModel::Explicit(_))
     }
@@ -1119,8 +1139,9 @@ fn layout_from_measurement_or_local(
 }
 
 impl FacetBandCoordMeasurement {
-    pub fn coordination_group_key_for_depth(&self, depth: usize) -> CoordinationGroupKey {
-        CoordinationGroupKey::new(
+    pub(crate) fn coordination_scope_key_for_depth(&self, depth: usize) -> CoordinationScopeKey {
+        CoordinationScopeKey::container_group(
+            CoordinationKind::ChildSize,
             depth,
             format!(
                 "{}:{}",
@@ -1534,6 +1555,48 @@ fn sync_measurement_owned_slabs_from_coord(measurement: &mut ComponentsMeasureme
     }
 }
 
+fn facet_direction_to_axis(direction: FacetDirection) -> FacetAxis {
+    match direction {
+        FacetDirection::Row => FacetAxis::Row,
+        FacetDirection::Column => FacetAxis::Column,
+    }
+}
+
+fn facet_scope_path_prefix(
+    facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+    facet_path: &[ScalarValue],
+) -> Result<Vec<ContainerPathSegment>, AvengerChartError> {
+    if facet_path.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let resolved = facet_tree.resolve_path_info(facet_path).ok_or_else(|| {
+        AvengerChartError::InternalError(format!(
+            "Facet scope path prefix requested for unresolved facet path {facet_path:?}"
+        ))
+    })?;
+
+    if resolved.level_directions.len() < facet_path.len() {
+        return Err(AvengerChartError::InternalError(format!(
+            "Facet scope path {facet_path:?} has {} directions for {} values",
+            resolved.level_directions.len(),
+            facet_path.len()
+        )));
+    }
+
+    Ok(facet_path
+        .iter()
+        .enumerate()
+        .map(|(level_index, value)| {
+            ContainerPathSegment::facet_value(
+                facet_direction_to_axis(resolved.level_directions[level_index]),
+                (level_index + 1) as u8,
+                value.clone(),
+            )
+        })
+        .collect())
+}
+
 fn update_measurement_plot_area_metadata(
     measurement: &mut ComponentsMeasurement,
     compiled_plot: &CompiledPlot,
@@ -1864,6 +1927,7 @@ fn empty_facet_band_measurement(
     let base = FacetBandCoordMeasurement {
         axis,
         cells: Vec::new(),
+        scope_path_prefix: Vec::new(),
         shared_scale_builder: ScaleBuilder::default(),
         coordinated_overflow: CoordinatedOverflow::default(),
         coordinated_boundary_overflow: None,
@@ -3163,7 +3227,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             .await?;
 
         let coord_measurement =
-            self.assemble_coord_measurement(local_layout, measured_runtime, &prepared_runtime);
+            self.assemble_coord_measurement(local_layout, measured_runtime, &prepared_runtime)?;
 
         debug!(
             axis = ?self.axis_ops.axis,
@@ -3865,7 +3929,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         local_layout: FacetBandLocalLayout,
         measured_runtime: FacetBandMeasuredRuntime,
         prepared_runtime: &FacetBandPreparedRuntime,
-    ) -> Box<dyn CoordMeasurement> {
+    ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
         let FacetBandLocalLayout {
             overflow_probe,
             band_layout_plan,
@@ -3943,6 +4007,8 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         };
         let measured_overflow =
             measured_overflow_from_cells(self.axis_ops.axis, &cell_runtimes, empty_cell_policy);
+        let scope_path_prefix =
+            facet_scope_path_prefix(self.eval_ctx.facet_tree.as_ref(), self.facet_path)?;
         let orthogonal_dimension_canvas_constrained = self
             .eval_ctx
             .facet_runtime_sizing_mode()
@@ -3952,6 +4018,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         let base = FacetBandCoordMeasurement {
             axis: self.axis_ops.axis,
             cells: cell_runtimes,
+            scope_path_prefix,
             shared_scale_builder: prepared_runtime
                 .scale_artifacts
                 .shared_scale_builder
@@ -3987,7 +4054,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
 
         let mut measurement = base;
         measurement.recompute_explicit_placement_if_needed();
-        Box::new(measurement)
+        Ok(Box::new(measurement))
     }
 }
 
@@ -4472,6 +4539,23 @@ mod tests {
         let root =
             PartitionNode::branch(FacetDirection::Row, 255, "dept".to_string(), None, children);
         crate::facet::evaluated_facet_tree::EvaluatedFacetTree::new(Some(root))
+    }
+
+    #[test]
+    fn facet_scope_path_prefix_preserves_ancestor_axis_and_level() -> Result<(), AvengerChartError>
+    {
+        let tree = sample_tree_for_cell_plan_tests();
+        let prefix = facet_scope_path_prefix(&tree, &[s("Group")])?;
+
+        assert_eq!(
+            prefix,
+            vec![ContainerPathSegment::facet_value(
+                FacetAxis::Row,
+                1,
+                s("Group")
+            )]
+        );
+        Ok(())
     }
 
     struct FacetBandPipelineFixture {
@@ -5933,7 +6017,7 @@ mod tests {
         let expected_n = local_layout.band_layout_plan.n;
         let expected_size = local_layout.final_subplot_cross_size;
         let measurement =
-            pipeline.assemble_coord_measurement(local_layout, measured_runtime, &runtime_state);
+            pipeline.assemble_coord_measurement(local_layout, measured_runtime, &runtime_state)?;
         let facet_band = measurement
             .as_any()
             .downcast_ref::<FacetBandCoordMeasurement>()
@@ -6043,6 +6127,18 @@ mod tests {
             assert_eq!(
                 facet_band.original_band_scale.scale_impl.scale_type(),
                 "band"
+            );
+            let first_scope = facet_band
+                .child_scope_key(0)
+                .expect("first facet cell should have a scope key");
+            assert!(first_scope.container_path.is_empty());
+            assert_eq!(
+                &first_scope.child_key,
+                &ChildFrameKey::FacetValue {
+                    axis,
+                    level: 1,
+                    value: facet_band.cells[0].plan.value.clone()
+                }
             );
         }
 

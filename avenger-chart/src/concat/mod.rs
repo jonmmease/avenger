@@ -27,8 +27,8 @@ use crate::{
     },
     marks::{CompiledConcatSubplot, CompiledMark, subplot::compiled_subplot},
     plot::compiled::{
-        ComponentsMeasurement, scale_provider::DynamicScaleProvider,
-        scales::build_scale_builder_from_marks,
+        ChildFrameKey, ChildFrameScopeKey, ComponentsMeasurement,
+        scale_provider::DynamicScaleProvider, scales::build_scale_builder_from_marks,
     },
     render::EvaluationContext,
     scales::{ConfiguredScaleWithSpec, ScaleRangeBinding},
@@ -293,6 +293,11 @@ impl ConcatCoordMeasurement {
             .find(|child| child.child_index == child_index)
     }
 
+    pub(crate) fn child_scope_key(&self, child_index: usize) -> Option<ChildFrameScopeKey> {
+        self.child(child_index)
+            .map(ConcatChildMeasurement::scope_key)
+    }
+
     pub(crate) fn child_frame_placement(&self) -> ChildFramePlacementResult {
         self.child_band_layout
             .to_child_frame_placement_result([0.0, 0.0], self.fallback_content_size)
@@ -318,6 +323,16 @@ pub(crate) struct ConcatChildMeasurement {
 }
 
 impl ConcatChildMeasurement {
+    pub(crate) fn scope_key(&self) -> ChildFrameScopeKey {
+        ChildFrameScopeKey::new(
+            Vec::new(),
+            ChildFrameKey::ConcatChild {
+                index: self.child_index,
+                key: self.key.clone(),
+            },
+        )
+    }
+
     pub(crate) fn debug_label(&self) -> String {
         match (&self.key, &self.label) {
             (Some(key), Some(label)) => {
@@ -685,6 +700,17 @@ mod tests {
         assert_eq!(concat.children.len(), 2);
         assert_eq!(concat.children[0].key.as_deref(), Some("left"));
         assert_eq!(concat.children[1].key.as_deref(), Some("right"));
+        let left_scope = concat
+            .child_scope_key(0)
+            .expect("left child should have a scope key");
+        assert!(left_scope.container_path.is_empty());
+        assert_eq!(
+            &left_scope.child_key,
+            &ChildFrameKey::ConcatChild {
+                index: 0,
+                key: Some("left".to_string())
+            }
+        );
 
         let container = measurement
             .child_frame_container_view()?
@@ -696,6 +722,8 @@ mod tests {
         );
         assert!(container.child_measurement(0).is_some());
         assert!(container.child_measurement(1).is_some());
+        assert_eq!(container.child_scope_key(0), Some(&left_scope));
+        assert_eq!(container.child_scope_keys().count(), 2);
         Ok(())
     }
 
