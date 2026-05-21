@@ -235,7 +235,7 @@ pub struct FacetBandCoordMeasurement {
     pub axis: FacetAxis,
     /// Enumerated cell runtime state.
     pub(crate) cells: Vec<FacetCellRuntime>,
-    /// Scope path for ancestor facet values that own this facet band.
+    /// Generic child-frame container path that owns this facet band.
     pub(crate) scope_path_prefix: Vec<ContainerPathSegment>,
     /// ScaleBuilder for plot scales (caches data extents for rebuilding with updated dimensions).
     /// Used with DynamicScaleProvider to correctly compute radius-aware domains.
@@ -1563,11 +1563,12 @@ fn facet_direction_to_axis(direction: FacetDirection) -> FacetAxis {
 }
 
 fn facet_scope_path_prefix(
+    base_path: &[ContainerPathSegment],
     facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
     facet_path: &[ScalarValue],
 ) -> Result<Vec<ContainerPathSegment>, AvengerChartError> {
     if facet_path.is_empty() {
-        return Ok(Vec::new());
+        return Ok(base_path.to_vec());
     }
 
     let resolved = facet_tree.resolve_path_info(facet_path).ok_or_else(|| {
@@ -1584,7 +1585,7 @@ fn facet_scope_path_prefix(
         )));
     }
 
-    Ok(facet_path
+    let facet_path_segments = facet_path
         .iter()
         .enumerate()
         .map(|(level_index, value)| {
@@ -1594,7 +1595,27 @@ fn facet_scope_path_prefix(
                 value.clone(),
             )
         })
-        .collect())
+        .collect::<Vec<_>>();
+
+    // Recursive facet measurement carries ancestor cells in the generic
+    // evaluation context. Direct tests and older measurement entry points may
+    // only provide the value path, so keep both forms equivalent without
+    // encoding the same ancestor twice.
+    if base_path.ends_with(&facet_path_segments) {
+        return Ok(base_path.to_vec());
+    }
+
+    let mut prefix = base_path.to_vec();
+    prefix.extend(facet_path_segments);
+    Ok(prefix)
+}
+
+fn current_facet_path_segment(
+    axis: FacetAxis,
+    facet_depth: u8,
+    value: ScalarValue,
+) -> ContainerPathSegment {
+    ContainerPathSegment::facet_value(axis, facet_depth, value)
 }
 
 fn update_measurement_plot_area_metadata(
@@ -2534,6 +2555,8 @@ async fn build_overflow_probe(
     )
     .await?;
     let overflow_probe_summary = measure_overflow_probe(
+        prepared_inputs.cell_semantics.node_id.axis,
+        prepared_inputs.cell_semantics.facet_depth,
         &mut cells,
         subplot_plot_width,
         subplot_plot_height,
@@ -2711,6 +2734,8 @@ fn annotate_domain_extents(
 }
 
 async fn measure_cells_overflow_probe(
+    axis: FacetAxis,
+    facet_depth: u8,
     cells: &mut [FacetCellDraft],
     subplot_plot_width: f32,
     subplot_plot_height: f32,
@@ -2744,7 +2769,13 @@ async fn measure_cells_overflow_probe(
         } else {
             subplot_eval_ctx.clone()
         };
-        let cell_eval_ctx = cell_eval_ctx.with_facet_coord_node_path_appended(idx);
+        let cell_eval_ctx = cell_eval_ctx
+            .with_facet_coord_node_path_appended(idx)
+            .with_child_frame_container_path_appended(current_facet_path_segment(
+                axis,
+                facet_depth,
+                cell.plan.value.clone(),
+            ));
         let (probe_plot_width, probe_plot_height) = cell_eval_ctx
             .facet_probe_size_override(&cell.plan.full_path)
             .unwrap_or((subplot_plot_width, subplot_plot_height));
@@ -2839,6 +2870,8 @@ async fn measure_cells_overflow_probe(
 }
 
 async fn measure_overflow_probe(
+    axis: FacetAxis,
+    facet_depth: u8,
     cells: &mut [FacetCellDraft],
     subplot_plot_width: f32,
     subplot_plot_height: f32,
@@ -2850,6 +2883,8 @@ async fn measure_overflow_probe(
     perf_counters: &mut FacetPipelinePerfCounters,
 ) -> Result<OverflowProbeSummary, AvengerChartError> {
     let overflow_probe_summary = measure_cells_overflow_probe(
+        axis,
+        facet_depth,
         cells,
         subplot_plot_width,
         subplot_plot_height,
@@ -3346,6 +3381,8 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         let mut final_probe_cells =
             prepared_cells_as_drafts(&overflow_probe.prepared_inputs, &prepared_runtime);
         let final_overflow_summary = measure_overflow_probe(
+            overflow_probe.prepared_inputs.cell_semantics.node_id.axis,
+            overflow_probe.prepared_inputs.cell_semantics.facet_depth,
             &mut final_probe_cells,
             final_subplot_plot_width,
             final_subplot_plot_height,
@@ -4007,8 +4044,11 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         };
         let measured_overflow =
             measured_overflow_from_cells(self.axis_ops.axis, &cell_runtimes, empty_cell_policy);
-        let scope_path_prefix =
-            facet_scope_path_prefix(self.eval_ctx.facet_tree.as_ref(), self.facet_path)?;
+        let scope_path_prefix = facet_scope_path_prefix(
+            self.eval_ctx.child_frame_container_path(),
+            self.eval_ctx.facet_tree.as_ref(),
+            self.facet_path,
+        )?;
         let orthogonal_dimension_canvas_constrained = self
             .eval_ctx
             .facet_runtime_sizing_mode()
@@ -4545,7 +4585,7 @@ mod tests {
     fn facet_scope_path_prefix_preserves_ancestor_axis_and_level() -> Result<(), AvengerChartError>
     {
         let tree = sample_tree_for_cell_plan_tests();
-        let prefix = facet_scope_path_prefix(&tree, &[s("Group")])?;
+        let prefix = facet_scope_path_prefix(&[], &tree, &[s("Group")])?;
 
         assert_eq!(
             prefix,
@@ -5708,6 +5748,8 @@ mod tests {
         let mut perf_counters = FacetPipelinePerfCounters::default();
 
         let overflow_probe = measure_overflow_probe(
+            FacetAxis::Column,
+            facet_depth,
             cells,
             140.0,
             140.0,
@@ -5782,6 +5824,8 @@ mod tests {
         )
         .await?;
         measure_overflow_probe(
+            FacetAxis::Column,
+            facet_depth,
             &mut plan.cells,
             140.0,
             140.0,

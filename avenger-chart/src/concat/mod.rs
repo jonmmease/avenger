@@ -33,8 +33,8 @@ use crate::{
     plot::{
         CompiledPlot,
         compiled::{
-            ChildFrameKey, ChildFrameScopeKey, ComponentsMeasurement, CoordinationKind,
-            CoordinationScopeKey, scale_provider::DynamicScaleProvider,
+            ChildFrameKey, ChildFrameScopeKey, ComponentsMeasurement, ContainerPathSegment,
+            CoordinationKind, CoordinationScopeKey, scale_provider::DynamicScaleProvider,
             scales::build_scale_builder_from_marks,
         },
     },
@@ -327,12 +327,13 @@ pub(crate) struct ConcatChildMeasurement {
     pub(crate) child_index: usize,
     pub(crate) key: Option<String>,
     pub(crate) label: Option<String>,
+    pub(crate) container_path: Vec<ContainerPathSegment>,
     pub(crate) measurement: ComponentsMeasurement,
 }
 
 impl ConcatChildMeasurement {
     pub(crate) fn scope_key(&self) -> ChildFrameScopeKey {
-        concat_child_scope_key(self.child_index, self.key.as_deref())
+        concat_child_scope_key(&self.container_path, self.child_index, self.key.as_deref())
     }
 
     pub(crate) fn debug_label(&self) -> String {
@@ -347,14 +348,22 @@ impl ConcatChildMeasurement {
     }
 }
 
-fn concat_child_scope_key(child_index: usize, key: Option<&str>) -> ChildFrameScopeKey {
+fn concat_child_scope_key(
+    container_path: &[ContainerPathSegment],
+    child_index: usize,
+    key: Option<&str>,
+) -> ChildFrameScopeKey {
     ChildFrameScopeKey::new(
-        Vec::new(),
+        container_path.to_vec(),
         ChildFrameKey::ConcatChild {
             index: child_index,
             key: key.map(ToOwned::to_owned),
         },
     )
+}
+
+fn concat_child_path_segment(child_index: usize, key: Option<&str>) -> ContainerPathSegment {
+    ContainerPathSegment::concat_child(child_index, key)
 }
 
 pub(crate) fn concat_coord_ref(
@@ -483,6 +492,7 @@ struct ConcatChannelDomainExtent {
 
 struct PreparedConcatChild<'a> {
     subplot: &'a CompiledConcatSubplot,
+    container_path: Vec<ContainerPathSegment>,
     child_data_override: Option<DataFrame>,
     scale_builder: ScaleBuilder,
     local_domain_extents: HashMap<String, ConcatChannelDomainExtent>,
@@ -503,7 +513,11 @@ impl PreparedConcatChild<'_> {
     }
 
     fn scope_key(&self) -> ChildFrameScopeKey {
-        concat_child_scope_key(self.child_index(), self.key())
+        concat_child_scope_key(&self.container_path, self.child_index(), self.key())
+    }
+
+    fn path_segment(&self) -> ContainerPathSegment {
+        concat_child_path_segment(self.child_index(), self.key())
     }
 }
 
@@ -637,6 +651,7 @@ async fn prepare_concat_child<'a>(
 
     Ok(PreparedConcatChild {
         subplot,
+        container_path: eval_ctx.child_frame_container_path().to_vec(),
         child_data_override,
         scale_builder,
         local_domain_extents,
@@ -669,9 +684,10 @@ async fn measure_prepared_concat_child(
         builder: scale_builder,
         plot: child_plot,
     };
+    let child_eval_ctx = eval_ctx.with_child_frame_container_path_appended(prepared.path_segment());
     let measurement = child_plot
         .measure_plot_components(
-            eval_ctx,
+            &child_eval_ctx,
             &child_layout_spec,
             &scale_provider,
             prepared.child_data_override.as_ref(),
@@ -683,6 +699,7 @@ async fn measure_prepared_concat_child(
         child_index: prepared.child_index(),
         key: prepared.key().map(ToOwned::to_owned),
         label: prepared.label().map(ToOwned::to_owned),
+        container_path: prepared.container_path.clone(),
         measurement,
     })
 }
@@ -788,8 +805,9 @@ mod tests {
     use crate::{
         cartesian::Cartesian,
         channel::config_traits::ScaleSharing,
+        coords::FacetAxis,
         facet::{
-            coord::{FacetBandCoordMeasurement, FacetColumn},
+            coord::{FacetBandCoordMeasurement, FacetColumn, FacetRow},
             evaluated_facet_tree::EvaluatedFacetTree,
         },
         layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
@@ -797,8 +815,8 @@ mod tests {
         plot::{
             CompiledPlot, Plot,
             compiled::{
-                CoordinationAxis, CoordinationKind, CoordinationScopeKey,
-                scales::build_scale_builder_from_marks,
+                ChildFrameKey, ContainerPathSegment, CoordinationAxis, CoordinationKind,
+                CoordinationScopeKey, scales::build_scale_builder_from_marks,
             },
         },
         render::EvaluationContext,
@@ -812,14 +830,27 @@ mod tests {
         plot_height: f32,
         ctx: &SessionContext,
     ) -> Result<ComponentsMeasurement, AvengerChartError> {
+        measurement_for_plot_with_container_path(compiled, plot_width, plot_height, ctx, &[]).await
+    }
+
+    async fn measurement_for_plot_with_container_path(
+        compiled: &CompiledPlot,
+        plot_width: f32,
+        plot_height: f32,
+        ctx: &SessionContext,
+        container_path: &[ContainerPathSegment],
+    ) -> Result<ComponentsMeasurement, AvengerChartError> {
         let params = compiled.get_default_params().clone();
         let facet_tree = EvaluatedFacetTree::from_compiled_plot(compiled, ctx).await?;
-        let eval_ctx = EvaluationContext::new(
+        let mut eval_ctx = EvaluationContext::new(
             compiled.get_theme(),
             Arc::new(ctx.clone()),
             params.clone(),
             Arc::new(facet_tree),
         );
+        for segment in container_path {
+            eval_ctx = eval_ctx.with_child_frame_container_path_appended(segment.clone());
+        }
         let layout_spec = EvaluatedLayoutSpec {
             canvas: EvaluatedSizeMode::Auto,
             plot_area: EvaluatedSizeMode::Fixed {
@@ -893,6 +924,32 @@ mod tests {
         ctx.read_batch(batch).expect("read grouped xy test batch")
     }
 
+    fn nested_grouped_xy_dataframe(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
+        let batch = ArrowRecordBatch::try_from_iter(vec![
+            (
+                "x",
+                Arc::new(Float64Array::from(vec![1.0, 2.0, 100.0, 101.0])) as Arc<dyn Array>,
+            ),
+            (
+                "y",
+                Arc::new(Float64Array::from(vec![1.0, 2.0, 1.0, 2.0])) as Arc<dyn Array>,
+            ),
+            (
+                "group",
+                Arc::new(StringArray::from(vec!["left", "left", "right", "right"]))
+                    as Arc<dyn Array>,
+            ),
+            (
+                "subgroup",
+                Arc::new(StringArray::from(vec!["top", "bottom", "top", "bottom"]))
+                    as Arc<dyn Array>,
+            ),
+        ])
+        .expect("create nested grouped xy record batch");
+        ctx.read_batch(batch)
+            .expect("read nested grouped xy test batch")
+    }
+
     fn find_symbol_mark(mark: &SceneMark) -> Option<&SceneSymbolMark> {
         match mark {
             SceneMark::Symbol(symbol) => Some(symbol),
@@ -945,6 +1002,16 @@ mod tests {
             .configured()
             .numeric_interval_domain()
             .expect("x scale should have a numeric interval domain")
+    }
+
+    fn zero_plot() -> Plot<ZeroDCoord> {
+        Plot::<ZeroDCoord>::new()
+    }
+
+    fn keyed_hconcat(left_key: &str, right_key: &str) -> Plot<HConcat> {
+        Plot::<HConcat>::new()
+            .mark(Subplot::new(zero_plot()).key(left_key))
+            .mark(Subplot::new(zero_plot()).key(right_key))
     }
 
     #[tokio::test]
@@ -1061,6 +1128,181 @@ mod tests {
             vec![],
         );
         assert_ne!(horizontal_lane, vertical_lane);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn nested_concat_child_scopes_include_outer_concat_child() -> Result<(), AvengerChartError>
+    {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<HConcat>::new()
+            .mark(Subplot::new(keyed_hconcat("inner-left", "inner-right")).key("outer-left"))
+            .mark(Subplot::new(keyed_hconcat("inner-left", "inner-right")).key("outer-right"))
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 320.0, 120.0, &ctx).await?;
+        let outer = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<ConcatCoordMeasurement>()
+            .expect("outer HConcat should measure as ConcatCoordMeasurement");
+        let left_inner = outer.children()[0]
+            .measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<ConcatCoordMeasurement>()
+            .expect("left child should contain an inner concat measurement");
+        let right_inner = outer.children()[1]
+            .measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<ConcatCoordMeasurement>()
+            .expect("right child should contain an inner concat measurement");
+
+        let left_inner_scope = left_inner
+            .child_scope_key(0)
+            .expect("left inner child should have a scope key");
+        let right_inner_scope = right_inner
+            .child_scope_key(0)
+            .expect("right inner child should have a scope key");
+        assert_eq!(
+            left_inner_scope.container_path,
+            vec![ContainerPathSegment::concat_child(0, Some("outer-left"))]
+        );
+        assert_eq!(
+            right_inner_scope.container_path,
+            vec![ContainerPathSegment::concat_child(1, Some("outer-right"))]
+        );
+        assert_ne!(left_inner_scope, right_inner_scope);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn facet_child_scopes_include_existing_concat_container_path()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<FacetColumn>::new()
+            .data(grouped_xy_dataframe(&ctx))
+            .mark(
+                Subplot::new(Plot::<Cartesian>::new().mark(line_mark(false))).column(col("group")),
+            )
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot_with_container_path(
+            &compiled,
+            320.0,
+            120.0,
+            &ctx,
+            &[ContainerPathSegment::concat_child(0, Some("faceted-child"))],
+        )
+        .await?;
+        let facet = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("FacetColumn should measure as FacetBandCoordMeasurement");
+        let first_cell_scope = facet
+            .child_scope_key(0)
+            .expect("facet cell should have a scope key");
+        assert_eq!(
+            first_cell_scope.container_path,
+            vec![ContainerPathSegment::concat_child(0, Some("faceted-child"))]
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn concat_inside_facet_child_scopes_include_outer_facet_cell()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let concat_child = keyed_hconcat("inner-left", "inner-right");
+        let compiled = Plot::<FacetColumn>::new()
+            .data(grouped_xy_dataframe(&ctx))
+            .mark(Subplot::new(concat_child).column(col("group")))
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 320.0, 120.0, &ctx).await?;
+        let facet = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("FacetColumn should measure as FacetBandCoordMeasurement");
+        let first_cell = facet
+            .cells
+            .first()
+            .expect("facet should have at least one cell");
+        let inner_concat = first_cell
+            .measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<ConcatCoordMeasurement>()
+            .expect("facet cell should contain a concat measurement");
+        let inner_scope = inner_concat
+            .child_scope_key(0)
+            .expect("inner concat child should have a scope key");
+        assert_eq!(
+            inner_scope.container_path,
+            vec![ContainerPathSegment::facet_value(
+                FacetAxis::Column,
+                1,
+                first_cell.plan.value.clone(),
+            )]
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn nested_facet_child_scopes_do_not_duplicate_outer_facet_cell()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let inner = Plot::<FacetRow>::new().mark(
+            Subplot::new(Plot::<Cartesian>::new().mark(line_mark(false))).row(col("subgroup")),
+        );
+        let compiled = Plot::<FacetColumn>::new()
+            .data(nested_grouped_xy_dataframe(&ctx))
+            .mark(Subplot::new(inner).column(col("group")))
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 320.0, 160.0, &ctx).await?;
+        let outer_facet = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("outer FacetColumn should measure as FacetBandCoordMeasurement");
+        let outer_cell = outer_facet
+            .cells
+            .first()
+            .expect("outer facet should have at least one cell");
+        let inner_facet = outer_cell
+            .measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("outer facet cell should contain an inner facet measurement");
+        let inner_scope = inner_facet
+            .child_scope_key(0)
+            .expect("inner facet cell should have a scope key");
+
+        assert_eq!(
+            inner_scope.container_path,
+            vec![ContainerPathSegment::facet_value(
+                FacetAxis::Column,
+                1,
+                outer_cell.plan.value.clone(),
+            )]
+        );
+        assert_eq!(
+            &inner_scope.child_key,
+            &ChildFrameKey::FacetValue {
+                axis: FacetAxis::Row,
+                level: 2,
+                value: inner_facet.cells[0].plan.value.clone(),
+            }
+        );
         Ok(())
     }
 

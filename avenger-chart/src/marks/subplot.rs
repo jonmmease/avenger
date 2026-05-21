@@ -18,7 +18,7 @@ use crate::{
         ChannelDescriptor, ChannelValue, CompiledDataContext, CompiledMark, CompiledMarkState,
         DataContext, FacetStrategy, Mark, MarkState, RadiusExpression,
     },
-    plot::{CompiledPlot, Plot},
+    plot::{CompiledPlot, Plot, compiled::ContainerPathSegment},
     render::RenderContext,
     scales::{ResolvedDomain, ScaleRange, ScaleSpec},
     theme::Theme,
@@ -409,7 +409,13 @@ impl CompiledMark for CompiledConcatSubplot {
 
         let mut params = self.compiled_subplot.get_default_params().clone();
         params.extend(context.eval.params.clone());
-        let child_eval_ctx = context.eval.with_params(params);
+        let child_eval_ctx = context
+            .eval
+            .with_params(params)
+            .with_child_frame_container_path_appended(ContainerPathSegment::concat_child(
+                self.child_index(),
+                self.key(),
+            ));
         let data_override = self.inherited_data_override(data, context)?;
         let components = self
             .compiled_subplot

@@ -41,6 +41,8 @@ pub(crate) enum ChildFrameKey {
 /// One ancestor segment in a child-frame container path.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum ContainerPathSegment {
+    /// Explicit child subplot in a concat-like ancestor container.
+    ConcatChild { index: usize, key: Option<String> },
     /// Facet cell value at one row/column facet level.
     FacetValue {
         axis: FacetAxis,
@@ -50,6 +52,13 @@ pub(crate) enum ContainerPathSegment {
 }
 
 impl ContainerPathSegment {
+    pub(crate) fn concat_child(index: usize, key: Option<&str>) -> Self {
+        Self::ConcatChild {
+            index,
+            key: key.map(ToOwned::to_owned),
+        }
+    }
+
     pub(crate) fn facet_value(axis: FacetAxis, level: u8, value: ScalarValue) -> Self {
         Self::FacetValue { axis, level, value }
     }

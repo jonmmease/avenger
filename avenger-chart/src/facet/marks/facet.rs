@@ -182,7 +182,14 @@ async fn render_facet_band_with_placement(
         } else {
             subplot_eval_ctx.clone()
         }
-        .with_facet_coord_node_path_appended(idx);
+        .with_facet_coord_node_path_appended(idx)
+        .with_child_frame_container_path_appended(
+            crate::plot::compiled::ContainerPathSegment::facet_value(
+                facet_measurement.axis,
+                facet_measurement.facet_depth,
+                cell.plan.value.clone(),
+            ),
+        );
 
         let components = compiled_subplot
             .build_plot_components(
