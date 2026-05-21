@@ -12,8 +12,9 @@ use crate::{
     guide::FacetDirection,
     legend::LegendPosition,
     plot::compiled::{
-        CoordinationKind, EdgeOwnershipScope, SharingGroupEdge, SharingLevel, edge_ownership_scope,
-        owner_for_scope, shared_path_key,
+        ContainerEdgeLevelProjection, CoordinationAxis, CoordinationKind, EdgeOwnershipRequest,
+        EdgeOwnershipScope, SharingGroupEdge, SharingLevel, edge_ownership_scope_for_request,
+        owner_for_scope, project_container_edge_levels, shared_path_key,
     },
 };
 
@@ -58,7 +59,7 @@ fn guide_ownership_scope(
     facet_depth: u8,
     sharing_level: SharingLevel,
 ) -> EdgeOwnershipScope {
-    edge_ownership_scope(
+    edge_ownership_scope_for_request(EdgeOwnershipRequest::new(
         CoordinationKind::GuideOwnership,
         format!("{role:?}:{axis_position:?}"),
         edge,
@@ -66,7 +67,21 @@ fn guide_ownership_scope(
         level_counts,
         facet_depth,
         sharing_level,
-    )
+    ))
+}
+
+fn guide_ownership_scope_from_projection(
+    role: GuideOwnershipRole,
+    axis_position: AxisPosition,
+    projection: &ContainerEdgeLevelProjection,
+    sharing_level: SharingLevel,
+) -> EdgeOwnershipScope {
+    edge_ownership_scope_for_request(EdgeOwnershipRequest::from_projection(
+        CoordinationKind::GuideOwnership,
+        format!("{role:?}:{axis_position:?}"),
+        projection,
+        sharing_level,
+    ))
 }
 
 pub(crate) fn axis_label_ownership_scope(
@@ -195,26 +210,22 @@ pub(crate) fn cartesian_axis_ownership_scope_for_sharing(
     axis_position: AxisPosition,
     sharing_level: SharingLevel,
 ) -> Option<EdgeOwnershipScope> {
-    let (projected_indices, projected_counts, relevant_depth, edge) =
-        project_levels_for_cartesian_axis(
-            position_indices,
-            level_counts,
-            level_directions,
-            axis_position,
-        )?;
+    let projection = project_levels_for_cartesian_axis(
+        position_indices,
+        level_counts,
+        level_directions,
+        axis_position,
+    )?;
 
-    if relevant_depth == 0 {
+    if projection.relevant_depth == 0 {
         return None;
     }
 
-    let labels_sharing = sharing_level.clamp_to_depth(relevant_depth as u8);
-    Some(guide_ownership_scope(
+    let labels_sharing = sharing_level.clamp_to_depth(projection.relevant_depth as u8);
+    Some(guide_ownership_scope_from_projection(
         role,
         axis_position,
-        edge,
-        &projected_indices,
-        &projected_counts,
-        projected_indices.len() as u8,
+        &projection,
         labels_sharing,
     ))
 }
@@ -287,51 +298,35 @@ fn cartesian_relevant_direction_for_axis(axis_position: AxisPosition) -> FacetDi
     }
 }
 
+#[inline]
+fn container_axis_for_facet_direction(direction: FacetDirection) -> CoordinationAxis {
+    match direction {
+        FacetDirection::Column => CoordinationAxis::Horizontal,
+        FacetDirection::Row => CoordinationAxis::Vertical,
+    }
+}
+
 fn project_levels_for_cartesian_axis(
     position_indices: &[usize],
     level_counts: &[usize],
     level_directions: &[FacetDirection],
     axis_position: AxisPosition,
-) -> Option<(Vec<usize>, Vec<usize>, usize, SharingGroupEdge)> {
-    if position_indices.len() != level_counts.len()
-        || position_indices.len() != level_directions.len()
-    {
-        return None;
-    }
-
+) -> Option<ContainerEdgeLevelProjection> {
     let edge = cartesian_axis_edge_for_position(axis_position);
-    let relevant_direction = cartesian_relevant_direction_for_axis(axis_position);
-
-    let mut projected_indices = Vec::with_capacity(position_indices.len());
-    let mut projected_counts = Vec::with_capacity(level_counts.len());
-    let mut relevant_depth = 0usize;
-
-    // Keep orthogonal levels first so sharing groups are scoped within strips.
-    for ((&index, &count), &direction) in position_indices
+    let relevant_axis =
+        container_axis_for_facet_direction(cartesian_relevant_direction_for_axis(axis_position));
+    let level_axes = level_directions
         .iter()
-        .zip(level_counts.iter())
-        .zip(level_directions.iter())
-    {
-        if direction != relevant_direction {
-            projected_indices.push(index);
-            projected_counts.push(count);
-        }
-    }
+        .map(|&direction| container_axis_for_facet_direction(direction))
+        .collect::<Vec<_>>();
 
-    // Append relevant levels last so sharing applies only within those levels.
-    for ((&index, &count), &direction) in position_indices
-        .iter()
-        .zip(level_counts.iter())
-        .zip(level_directions.iter())
-    {
-        if direction == relevant_direction {
-            projected_indices.push(index);
-            projected_counts.push(count);
-            relevant_depth += 1;
-        }
-    }
-
-    Some((projected_indices, projected_counts, relevant_depth, edge))
+    project_container_edge_levels(
+        position_indices,
+        level_counts,
+        &level_axes,
+        relevant_axis,
+        edge,
+    )
 }
 
 pub(crate) fn legend_edge_for_position(position: LegendPosition) -> SharingGroupEdge {
@@ -350,7 +345,7 @@ pub(crate) fn legend_ownership_scope(
     sharing_level: SharingLevel,
     legend_position: LegendPosition,
 ) -> LegendOwnershipScope {
-    let ownership = edge_ownership_scope(
+    let ownership = edge_ownership_scope_for_request(EdgeOwnershipRequest::new(
         CoordinationKind::LegendOwnership,
         format!("{legend_channel}:{legend_position:?}"),
         legend_edge_for_position(legend_position),
@@ -358,7 +353,7 @@ pub(crate) fn legend_ownership_scope(
         level_counts,
         facet_depth,
         sharing_level,
-    );
+    ));
     let anchor_path = domain_group_key(facet_path, sharing_level, facet_depth);
 
     LegendOwnershipScope {

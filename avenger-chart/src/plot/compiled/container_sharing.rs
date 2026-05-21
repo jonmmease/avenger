@@ -9,7 +9,7 @@ use datafusion::common::ScalarValue;
 
 use crate::channel::config_traits::ScaleSharing;
 
-use super::{CoordinationKind, CoordinationScopeKey};
+use super::{CoordinationAxis, CoordinationKind, CoordinationScopeKey};
 
 /// Canonical internal representation for child-frame container sharing.
 ///
@@ -231,28 +231,140 @@ pub(crate) fn owner_for_scope(scope: Option<EdgeOwnershipScope>) -> bool {
         .unwrap_or(true)
 }
 
-pub(crate) fn edge_ownership_scope(
-    kind: CoordinationKind,
-    channel: impl Into<String>,
-    edge: SharingGroupEdge,
-    position_indices: &[usize],
-    level_counts: &[usize],
-    path_depth: u8,
-    sharing_level: SharingLevel,
+/// Generic request for a shared-edge ownership scope.
+pub(crate) struct EdgeOwnershipRequest<'a> {
+    pub(crate) kind: CoordinationKind,
+    pub(crate) channel: String,
+    pub(crate) edge: SharingGroupEdge,
+    pub(crate) position_indices: &'a [usize],
+    pub(crate) level_counts: &'a [usize],
+    pub(crate) path_depth: u8,
+    pub(crate) sharing_level: SharingLevel,
+}
+
+impl<'a> EdgeOwnershipRequest<'a> {
+    pub(crate) fn new(
+        kind: CoordinationKind,
+        channel: impl Into<String>,
+        edge: SharingGroupEdge,
+        position_indices: &'a [usize],
+        level_counts: &'a [usize],
+        path_depth: u8,
+        sharing_level: SharingLevel,
+    ) -> Self {
+        Self {
+            kind,
+            channel: channel.into(),
+            edge,
+            position_indices,
+            level_counts,
+            path_depth,
+            sharing_level,
+        }
+    }
+
+    pub(crate) fn from_projection(
+        kind: CoordinationKind,
+        channel: impl Into<String>,
+        projection: &'a ContainerEdgeLevelProjection,
+        sharing_level: SharingLevel,
+    ) -> Self {
+        Self::new(
+            kind,
+            channel,
+            projection.edge,
+            &projection.position_indices,
+            &projection.level_counts,
+            projection.path_depth(),
+            sharing_level,
+        )
+    }
+}
+
+pub(crate) fn edge_ownership_scope_for_request(
+    request: EdgeOwnershipRequest<'_>,
 ) -> EdgeOwnershipScope {
-    let boundary = sharing_group_boundary(path_depth, sharing_level);
-    let group_path = position_indices
-        .get(..boundary.min(position_indices.len()))
-        .unwrap_or(position_indices)
+    let boundary = sharing_group_boundary(request.path_depth, request.sharing_level);
+    let group_path = request
+        .position_indices
+        .get(..boundary.min(request.position_indices.len()))
+        .unwrap_or(request.position_indices)
         .to_vec();
 
     EdgeOwnershipScope {
-        key: CoordinationScopeKey::position_path(kind, group_path).with_channel(channel.into()),
-        edge,
-        position_indices: position_indices.to_vec(),
-        level_counts: level_counts.to_vec(),
+        key: CoordinationScopeKey::position_path(request.kind, group_path)
+            .with_channel(request.channel),
+        edge: request.edge,
+        position_indices: request.position_indices.to_vec(),
+        level_counts: request.level_counts.to_vec(),
         boundary,
     }
+}
+
+/// Projection of nested child-frame levels for one shared edge.
+///
+/// Orthogonal levels are kept as a prefix so sharing stays scoped to each
+/// strip. Levels along the relevant direction are appended as the suffix where
+/// the requested `SharingLevel` applies.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ContainerEdgeLevelProjection {
+    pub(crate) position_indices: Vec<usize>,
+    pub(crate) level_counts: Vec<usize>,
+    pub(crate) relevant_depth: usize,
+    pub(crate) edge: SharingGroupEdge,
+}
+
+impl ContainerEdgeLevelProjection {
+    #[inline]
+    pub(crate) fn path_depth(&self) -> u8 {
+        self.position_indices.len() as u8
+    }
+}
+
+pub(crate) fn project_container_edge_levels(
+    position_indices: &[usize],
+    level_counts: &[usize],
+    level_axes: &[CoordinationAxis],
+    relevant_axis: CoordinationAxis,
+    edge: SharingGroupEdge,
+) -> Option<ContainerEdgeLevelProjection> {
+    if position_indices.len() != level_counts.len() || position_indices.len() != level_axes.len() {
+        return None;
+    }
+
+    let mut projected_indices = Vec::with_capacity(position_indices.len());
+    let mut projected_counts = Vec::with_capacity(level_counts.len());
+    let mut relevant_depth = 0usize;
+
+    for ((&index, &count), &axis) in position_indices
+        .iter()
+        .zip(level_counts.iter())
+        .zip(level_axes.iter())
+    {
+        if axis != relevant_axis {
+            projected_indices.push(index);
+            projected_counts.push(count);
+        }
+    }
+
+    for ((&index, &count), &axis) in position_indices
+        .iter()
+        .zip(level_counts.iter())
+        .zip(level_axes.iter())
+    {
+        if axis == relevant_axis {
+            projected_indices.push(index);
+            projected_counts.push(count);
+            relevant_depth += 1;
+        }
+    }
+
+    Some(ContainerEdgeLevelProjection {
+        position_indices: projected_indices,
+        level_counts: projected_counts,
+        relevant_depth,
+        edge,
+    })
 }
 
 #[cfg(test)]
@@ -400,5 +512,115 @@ mod tests {
             &counts,
             1
         ));
+    }
+
+    #[test]
+    fn edge_ownership_request_groups_by_sharing_prefix_and_role() {
+        let owner = edge_ownership_scope_for_request(EdgeOwnershipRequest::new(
+            CoordinationKind::GuideOwnership,
+            "axis:x",
+            SharingGroupEdge::End,
+            &[1, 0, 1],
+            &[2, 2, 2],
+            3,
+            SharingLevel::from_raw(1),
+        ));
+        let peer = edge_ownership_scope_for_request(EdgeOwnershipRequest::new(
+            CoordinationKind::GuideOwnership,
+            "axis:x",
+            SharingGroupEdge::End,
+            &[1, 0, 0],
+            &[2, 2, 2],
+            3,
+            SharingLevel::from_raw(1),
+        ));
+        let other_role = edge_ownership_scope_for_request(EdgeOwnershipRequest::new(
+            CoordinationKind::GuideOwnership,
+            "axis:y",
+            SharingGroupEdge::End,
+            &[1, 0, 1],
+            &[2, 2, 2],
+            3,
+            SharingLevel::from_raw(1),
+        ));
+
+        assert_eq!(owner.key, peer.key);
+        assert_ne!(owner.key, other_role.key);
+        assert!(owner.current_position_owns());
+        assert!(!peer.current_position_owns());
+    }
+
+    #[test]
+    fn project_container_edge_levels_keeps_orthogonal_levels_as_prefix() {
+        let projection = project_container_edge_levels(
+            &[2, 1],
+            &[3, 2],
+            &[CoordinationAxis::Horizontal, CoordinationAxis::Vertical],
+            CoordinationAxis::Vertical,
+            SharingGroupEdge::End,
+        )
+        .expect("projection should be valid");
+
+        assert_eq!(projection.position_indices, vec![2, 1]);
+        assert_eq!(projection.level_counts, vec![3, 2]);
+        assert_eq!(projection.relevant_depth, 1);
+        assert_eq!(projection.edge, SharingGroupEdge::End);
+    }
+
+    #[test]
+    fn project_container_edge_levels_moves_relevant_levels_to_suffix() {
+        let projection = project_container_edge_levels(
+            &[0, 1, 2],
+            &[2, 3, 4],
+            &[
+                CoordinationAxis::Vertical,
+                CoordinationAxis::Horizontal,
+                CoordinationAxis::Vertical,
+            ],
+            CoordinationAxis::Vertical,
+            SharingGroupEdge::Start,
+        )
+        .expect("projection should be valid");
+
+        assert_eq!(projection.position_indices, vec![1, 0, 2]);
+        assert_eq!(projection.level_counts, vec![3, 2, 4]);
+        assert_eq!(projection.relevant_depth, 2);
+        assert_eq!(projection.path_depth(), 3);
+    }
+
+    #[test]
+    fn projection_can_drive_edge_ownership_scope() {
+        let projection = project_container_edge_levels(
+            &[0, 1],
+            &[3, 2],
+            &[CoordinationAxis::Horizontal, CoordinationAxis::Vertical],
+            CoordinationAxis::Vertical,
+            SharingGroupEdge::End,
+        )
+        .expect("projection should be valid");
+
+        let owner = edge_ownership_scope_for_request(EdgeOwnershipRequest::from_projection(
+            CoordinationKind::GuideOwnership,
+            "x:bottom",
+            &projection,
+            SharingLevel::from_raw(projection.relevant_depth as u8),
+        ));
+
+        assert_eq!(owner.boundary, 1);
+        assert!(owner.current_position_owns());
+    }
+
+    #[test]
+    fn project_container_edge_levels_rejects_mismatched_lengths() {
+        assert!(
+            project_container_edge_levels(
+                &[0, 1],
+                &[2],
+                &[CoordinationAxis::Horizontal, CoordinationAxis::Vertical],
+                CoordinationAxis::Vertical,
+                SharingGroupEdge::End,
+            )
+            .is_none()
+        );
     }
 }

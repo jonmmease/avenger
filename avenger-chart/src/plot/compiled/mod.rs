@@ -59,8 +59,9 @@ pub(crate) use self::container_labels::{
     measure_container_label_slab, render_container_labels,
 };
 pub(crate) use self::container_sharing::{
-    EdgeOwnershipScope, SharingGroupEdge, SharingLevel, edge_ownership_scope,
-    enumeration_ancestor_path, owner_for_scope, shared_path_key,
+    ContainerEdgeLevelProjection, EdgeOwnershipRequest, EdgeOwnershipScope, SharingGroupEdge,
+    SharingLevel, edge_ownership_scope_for_request, enumeration_ancestor_path, owner_for_scope,
+    project_container_edge_levels, shared_path_key,
 };
 pub(crate) use self::coordination_scope::{
     CoordinationAxis, CoordinationKind, CoordinationScopeKey,
