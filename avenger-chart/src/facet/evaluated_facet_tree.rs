@@ -29,15 +29,15 @@ use crate::{
     error::AvengerChartError,
     facet::{
         marks::facet::{FacetSubplotRef, facet_subplot_ref},
-        path_math,
-        sharing_kernel::SharingGroupEdge,
-        sharing_level::SharingLevel,
         sharing_policy,
     },
     guide::FacetDirection,
     marks::CompiledMark,
     partition::{PartitionDimensionSpec, PartitionSlotCache, scalar_values_equivalent},
-    plot::CompiledPlot,
+    plot::{
+        CompiledPlot,
+        compiled::{SharingGroupEdge, SharingLevel, enumeration_ancestor_path},
+    },
     serialization::LogicalPlanNodeExt,
 };
 
@@ -454,8 +454,7 @@ impl EvaluatedFacetTree {
         }
 
         let facet_depth = facet_path.len() as u8 + 1;
-        let enumeration_path =
-            path_math::enumeration_ancestor_path(facet_path, sharing_level, facet_depth);
+        let enumeration_path = enumeration_ancestor_path(facet_path, sharing_level, facet_depth);
 
         let ancestor_node = if enumeration_path.is_empty() {
             self.root.as_ref()

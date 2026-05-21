@@ -13,10 +13,9 @@ use crate::{
         layout_plan::{FacetBandPlan, FacetCellEmptyKind},
         probe_summary::FacetCellProbeSummary,
         scale_precompute::{FacetScaleNodeArtifacts, FacetScaleNodeKey},
-        sharing_level::SharingLevel,
     },
     partition::PartitionCellPlan,
-    plot::compiled::{CompiledPlot, ComponentsMeasurement},
+    plot::compiled::{CompiledPlot, ComponentsMeasurement, SharingLevel},
     render::EvaluationContext,
     scales::domain_extent::DomainExtent,
 };

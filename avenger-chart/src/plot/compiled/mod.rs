@@ -4,6 +4,7 @@ mod child_frame_container;
 mod child_frame_scope;
 mod container_band_guide;
 mod container_labels;
+mod container_sharing;
 mod coordination_scope;
 mod domain_coordination;
 pub(crate) mod expr_eval;
@@ -50,6 +51,10 @@ pub(crate) use self::container_band_guide::{
 pub(crate) use self::container_labels::{
     ContainerLabelPlacement, container_label_items_from_child_frame_container,
     measure_container_label_slab, render_container_labels,
+};
+pub(crate) use self::container_sharing::{
+    EdgeOwnershipScope, SharingGroupEdge, SharingLevel, edge_ownership_scope,
+    enumeration_ancestor_path, owner_for_scope, shared_path_key,
 };
 pub(crate) use self::coordination_scope::{
     CoordinationAxis, CoordinationKind, CoordinationScopeKey,

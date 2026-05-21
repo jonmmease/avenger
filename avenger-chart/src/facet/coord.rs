@@ -60,7 +60,6 @@ use crate::{
             FacetScaleNodeArtifacts, FacetScaleNodeKey, build_node_artifacts, canonicalize_path,
             ensure_subtree_precomputed,
         },
-        sharing_level::SharingLevel,
         subtree_plot_area::{LeafPlotAreaSize, estimate_path_plot_area_from_leaf_size},
     },
     guide::FacetDirection,
@@ -71,7 +70,7 @@ use crate::{
     marks::CompiledMark,
     plot::compiled::{
         ChildFrameKey, ChildFrameScopeKey, CompiledPlot, ComponentsMeasurement,
-        ContainerPathSegment, CoordinationKind, CoordinationScopeKey,
+        ContainerPathSegment, CoordinationKind, CoordinationScopeKey, SharingLevel,
         scale_provider::DynamicScaleProvider, scales::build_scale_builder_from_marks,
     },
     render::{EvaluationContext, FacetSubtreeCheckpoint, FacetSubtreeSelector},

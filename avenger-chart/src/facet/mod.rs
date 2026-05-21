@@ -52,7 +52,5 @@ pub mod path_math;
 pub(crate) mod placement;
 pub(crate) mod probe_summary;
 pub(crate) mod scale_precompute;
-pub mod sharing_kernel;
-pub(crate) mod sharing_level;
 pub mod sharing_policy;
 pub(crate) mod subtree_plot_area;

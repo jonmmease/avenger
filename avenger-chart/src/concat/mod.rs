@@ -19,7 +19,7 @@ use crate::{
         CoordMeasurement, CoordinateSystem, CoordinateSystemTransform, PlotGeometry, PointGeometry,
     },
     error::AvengerChartError,
-    facet::{evaluated_facet_tree::EvaluatedFacetTree, sharing_level::SharingLevel},
+    facet::evaluated_facet_tree::EvaluatedFacetTree,
     guide::{CompiledGuide, CoordinateGuide, GuideUpdate, OverflowSpaceRequirement},
     layout::{
         BandChildFrameInput, BandChildFramePlacement, BandDirection, BandSpacing, BoundaryDemand1D,
@@ -32,7 +32,7 @@ use crate::{
         compiled::{
             ChildFrameDomainRequest, ChildFrameKey, ChildFrameScopeKey, ComponentsMeasurement,
             ContainerLabelPlacement, ContainerPathSegment, CoordinationKind, CoordinationScopeKey,
-            aggregate_domain_requests, child_frame_container_overflow,
+            SharingLevel, aggregate_domain_requests, child_frame_container_overflow,
             child_frame_container_view_from_concat,
             container_label_items_from_child_frame_container, measure_container_label_slab,
             render_container_labels, scale_provider::DynamicScaleProvider,

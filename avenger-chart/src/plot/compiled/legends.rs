@@ -12,9 +12,7 @@ use crate::{
     channel::value::ChannelValue,
     coords::{EmptyCoordMeasurement, extract_channel_title_from_marks},
     error::AvengerChartError,
-    facet::{
-        evaluated_facet_tree::EvaluatedFacetTree, sharing_level::SharingLevel, sharing_policy,
-    },
+    facet::{evaluated_facet_tree::EvaluatedFacetTree, sharing_policy},
     layout::legend::measure_legend_size_with_channels,
     layout::{FrameLayout, Size2D},
     legend::{
@@ -22,6 +20,7 @@ use crate::{
     },
     marks::CompiledMark,
     maybe::Maybe,
+    plot::compiled::SharingLevel,
     render::{
         EvaluationContext, LegendMeasurements, RenderContext, RenderState, types::LegendMeasurement,
     },
@@ -1241,10 +1240,7 @@ mod tests {
     use indexmap::IndexMap;
     use std::collections::HashMap;
 
-    use crate::{
-        facet::{evaluated_facet_tree::PartitionNode, sharing_level::SharingLevel},
-        guide::FacetDirection,
-    };
+    use crate::{facet::evaluated_facet_tree::PartitionNode, guide::FacetDirection};
 
     fn s(value: &str) -> ScalarValue {
         ScalarValue::Utf8(Some(value.to_string()))

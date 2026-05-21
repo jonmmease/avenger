@@ -4,9 +4,10 @@ use datafusion::common::ScalarValue;
 
 use crate::{
     coords::CellDomainInfo,
-    facet::{coord::ChannelDomainExtent, sharing_level::SharingLevel, sharing_policy},
+    facet::{coord::ChannelDomainExtent, sharing_policy},
     plot::compiled::{
-        ChildFrameDomainRequest, CoordinationKind, CoordinationScopeKey, aggregate_domain_requests,
+        ChildFrameDomainRequest, CoordinationKind, CoordinationScopeKey, SharingLevel,
+        aggregate_domain_requests,
     },
     scales::domain_extent::DomainExtent,
 };

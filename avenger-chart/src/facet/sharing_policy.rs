@@ -9,13 +9,12 @@ use datafusion::common::ScalarValue;
 
 use crate::{
     cartesian::axis::AxisPosition,
-    facet::{
-        sharing_kernel::{self, SharingGroupEdge},
-        sharing_level::SharingLevel,
-    },
     guide::FacetDirection,
     legend::LegendPosition,
-    plot::compiled::{CoordinationKind, CoordinationScopeKey},
+    plot::compiled::{
+        CoordinationKind, EdgeOwnershipScope, SharingGroupEdge, SharingLevel, edge_ownership_scope,
+        owner_for_scope, shared_path_key,
+    },
 };
 
 /// Compute the canonical domain-group key for a cell path.
@@ -27,7 +26,7 @@ pub(crate) fn domain_group_key(
     sharing_level: SharingLevel,
     facet_depth: u8,
 ) -> Vec<ScalarValue> {
-    sharing_kernel::domain_group_key(full_cell_path, sharing_level, facet_depth)
+    shared_path_key(full_cell_path, sharing_level, facet_depth)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,27 +35,6 @@ pub(crate) enum GuideOwnershipRole {
     FacetAxisTitle,
     CartesianAxisLabels,
     CartesianAxisTitle,
-}
-
-/// One semantic ownership group plus the edge rule that picks its owner.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct EdgeOwnershipScope {
-    pub(crate) key: CoordinationScopeKey,
-    pub(crate) edge: SharingGroupEdge,
-    pub(crate) position_indices: Vec<usize>,
-    pub(crate) level_counts: Vec<usize>,
-    pub(crate) boundary: usize,
-}
-
-impl EdgeOwnershipScope {
-    pub(crate) fn current_position_owns(&self) -> bool {
-        sharing_kernel::owner_for_edge(
-            self.edge,
-            &self.position_indices,
-            &self.level_counts,
-            self.boundary,
-        )
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -68,37 +46,6 @@ pub(crate) struct LegendOwnershipScope {
 impl LegendOwnershipScope {
     pub(crate) fn current_position_owns(&self) -> bool {
         self.ownership.current_position_owns()
-    }
-}
-
-pub(crate) fn owner_for_scope(scope: Option<EdgeOwnershipScope>) -> bool {
-    scope
-        .as_ref()
-        .map(EdgeOwnershipScope::current_position_owns)
-        .unwrap_or(true)
-}
-
-fn edge_ownership_scope(
-    kind: CoordinationKind,
-    channel: impl Into<String>,
-    edge: SharingGroupEdge,
-    position_indices: &[usize],
-    level_counts: &[usize],
-    facet_depth: u8,
-    sharing_level: SharingLevel,
-) -> EdgeOwnershipScope {
-    let boundary = sharing_kernel::group_boundary(facet_depth, sharing_level);
-    let group_path = position_indices
-        .get(..boundary.min(position_indices.len()))
-        .unwrap_or(position_indices)
-        .to_vec();
-
-    EdgeOwnershipScope {
-        key: CoordinationScopeKey::position_path(kind, group_path).with_channel(channel.into()),
-        edge,
-        position_indices: position_indices.to_vec(),
-        level_counts: level_counts.to_vec(),
-        boundary,
     }
 }
 

@@ -13,10 +13,9 @@ use crate::{
         evaluated_facet_tree::EvaluatedFacetTree,
         marks::facet::{FacetSubplotRef, facet_subplot_ref},
         path_math,
-        sharing_level::SharingLevel,
     },
     marks::CompiledMark,
-    plot::compiled::{CompiledPlot, scales::build_scale_builder_from_marks},
+    plot::compiled::{CompiledPlot, SharingLevel, scales::build_scale_builder_from_marks},
     render::EvaluationContext,
     scales::ScaleBuilder,
 };

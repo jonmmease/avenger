@@ -7,13 +7,13 @@ use crate::error::AvengerChartError;
 use crate::facet::guide::band_guide_engine::{self, FacetGuideState, RowGuideAxisOps};
 use crate::facet::marks::facet::CompiledFacetRowSubplot;
 use crate::facet::overflow_projection::FacetOverflowResolutionPhase;
-use crate::facet::sharing_level::SharingLevel;
 use crate::guide::{
     CompiledGuide, CoordinateGuide, GuideOverflowPhase, MeasurementResult, OverflowSpaceRequirement,
 };
 use crate::layout::LayoutBounds;
 use crate::marks::CompiledMark;
 use crate::plot::compiled::CompiledPlot;
+use crate::plot::compiled::SharingLevel;
 use crate::serialization::SerializableDataFrame;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::group::Clip;

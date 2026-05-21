@@ -31,12 +31,11 @@ use crate::{
         placement::{
             resolve_facet_band_placement, resolve_facet_band_placement_from_configured_scales,
         },
-        sharing_level::SharingLevel,
     },
     layout::{BandPosition, BandPositionIterator, LayoutBounds},
     plot::compiled::{
         CompiledPlot, ComponentsMeasurement, ContainerBandGuideMeasurementConfig,
-        ContainerBandGuideRenderConfig, measure_container_band_guide_slab,
+        ContainerBandGuideRenderConfig, SharingLevel, measure_container_band_guide_slab,
         render_container_band_guide_slab,
     },
     serialization::LogicalPlanNodeExt,
