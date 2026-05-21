@@ -56,7 +56,6 @@ use crate::{
             compute_explicit_facet_band_placement, resolve_scale_backed_facet_band_placement,
         },
         probe_summary::FacetCellProbeSummary,
-        scalar_cmp::scalar_total_cmp,
         scale_precompute::{
             FacetScaleNodeArtifacts, FacetScaleNodeKey, build_node_artifacts, canonicalize_path,
             ensure_subtree_precomputed,
@@ -78,7 +77,7 @@ use crate::{
     render::{EvaluationContext, FacetSubtreeCheckpoint, FacetSubtreeSelector},
     scales::{
         ConfiguredScaleWithSpec, PlotAreaRangeEndpoint, ScaleBuilder, ScaleRangeBinding,
-        domain_extent::{DomainBounds, DomainExtent, RadiusPadding},
+        domain_extent::DomainExtent,
     },
 };
 
@@ -2953,78 +2952,6 @@ fn retarget_cells_to_final_plot_area(
     }
 
     Ok(())
-}
-
-/// Union two domain extents.
-///
-/// Combines the bounds of two extents to form a single extent that covers both.
-/// For radius padding, takes the maximum of each direction.
-pub fn union_domain_extents(a: &DomainExtent, b: &DomainExtent) -> DomainExtent {
-    match (&a.bounds, &b.bounds) {
-        (
-            DomainBounds::Numeric {
-                min: a_min,
-                max: a_max,
-            },
-            DomainBounds::Numeric {
-                min: b_min,
-                max: b_max,
-            },
-        ) => DomainExtent {
-            bounds: DomainBounds::Numeric {
-                min: a_min.min(*b_min),
-                max: a_max.max(*b_max),
-            },
-            radius: union_radius_padding(&a.radius, &b.radius),
-        },
-        (
-            DomainBounds::Temporal {
-                min: a_min,
-                max: a_max,
-            },
-            DomainBounds::Temporal {
-                min: b_min,
-                max: b_max,
-            },
-        ) => DomainExtent {
-            bounds: DomainBounds::Temporal {
-                min: (*a_min).min(*b_min),
-                max: (*a_max).max(*b_max),
-            },
-            radius: union_radius_padding(&a.radius, &b.radius),
-        },
-        (DomainBounds::Discrete(a_vals), DomainBounds::Discrete(b_vals)) => {
-            let mut combined = a_vals.clone();
-            for val in b_vals {
-                if !combined.contains(val) {
-                    combined.push(val.clone());
-                }
-            }
-            combined.sort_by(|a, b| scalar_total_cmp(&a.to_scalar(), &b.to_scalar()));
-            DomainExtent {
-                bounds: DomainBounds::Discrete(combined),
-                radius: None,
-            }
-        }
-        _ => a.clone(), // Type mismatch: keep first
-    }
-}
-
-/// Union two optional radius padding values.
-///
-/// Takes the maximum of each direction (max_lower, max_upper).
-fn union_radius_padding(
-    a: &Option<RadiusPadding>,
-    b: &Option<RadiusPadding>,
-) -> Option<RadiusPadding> {
-    match (a, b) {
-        (Some(a), Some(b)) => Some(RadiusPadding {
-            max_lower: a.max_lower.max(b.max_lower),
-            max_upper: a.max_upper.max(b.max_upper),
-        }),
-        (Some(r), None) | (None, Some(r)) => Some(r.clone()),
-        (None, None) => None,
-    }
 }
 
 /// Column faceting coordinate system

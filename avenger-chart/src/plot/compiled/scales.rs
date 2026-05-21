@@ -26,10 +26,11 @@ use crate::{
     channel::{resolution::resolve_all_channel_refs, value::strip_trailing_numbers},
     coords::{CoordinateSystemTransform, EmptyCoordMeasurement},
     error::AvengerChartError,
-    facet::{evaluated_facet_tree::EvaluatedFacetTree, scalar_cmp::scalar_total_cmp},
+    facet::evaluated_facet_tree::EvaluatedFacetTree,
     marks::{ChannelValue, CompiledMark, RadiusExpression},
     plot::ScaleSpec as PlotScaleSpec,
     render::{EvaluationContext, RenderContext, RenderState},
+    scalar_cmp::scalar_total_cmp,
     scales::{
         ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec, DomainExpr, Scale,
         ScaleDefaultDomain, ScaleDomain, ScaleRange, ScaleSpec,

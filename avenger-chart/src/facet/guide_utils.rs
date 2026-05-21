@@ -26,23 +26,7 @@ use crate::{
 
 /// Format a ScalarValue for display as a facet label.
 pub(crate) fn format_scalar_value(value: &ScalarValue) -> String {
-    match value {
-        ScalarValue::Utf8(Some(s))
-        | ScalarValue::LargeUtf8(Some(s))
-        | ScalarValue::Utf8View(Some(s)) => s.to_string(),
-        ScalarValue::Int8(Some(n)) => n.to_string(),
-        ScalarValue::Int16(Some(n)) => n.to_string(),
-        ScalarValue::Int32(Some(n)) => n.to_string(),
-        ScalarValue::Int64(Some(n)) => n.to_string(),
-        ScalarValue::UInt8(Some(n)) => n.to_string(),
-        ScalarValue::UInt16(Some(n)) => n.to_string(),
-        ScalarValue::UInt32(Some(n)) => n.to_string(),
-        ScalarValue::UInt64(Some(n)) => n.to_string(),
-        ScalarValue::Float32(Some(n)) => format!("{n:.2}"),
-        ScalarValue::Float64(Some(n)) => format!("{n:.2}"),
-        ScalarValue::Boolean(Some(b)) => b.to_string(),
-        _ => format!("{value:?}"),
-    }
+    crate::partition::format_partition_value(value)
 }
 
 /// Determine whether facet guide labels should be visible for a specific facet cell.

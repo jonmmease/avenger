@@ -1,9 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use avenger_scales::scales::ConfiguredScale;
-use datafusion::{
-    common::ScalarValue, dataframe::DataFrame, logical_expr::Expr, logical_expr::lit,
-};
+use datafusion::{common::ScalarValue, dataframe::DataFrame, logical_expr::lit};
 
 use crate::{
     coords::{FacetAxis, OverflowSpaceRequirement},
@@ -17,6 +15,7 @@ use crate::{
         scale_precompute::{FacetScaleNodeArtifacts, FacetScaleNodeKey},
         sharing_level::SharingLevel,
     },
+    partition::PartitionCellPlan,
     plot::compiled::{CompiledPlot, ComponentsMeasurement},
     render::EvaluationContext,
     scales::domain_extent::DomainExtent,
@@ -28,16 +27,7 @@ pub(crate) struct FacetBandNodeKey {
     pub(crate) facet_path: Vec<ScalarValue>,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct FacetBandCellSemantic {
-    pub(crate) value: ScalarValue,
-    pub(crate) full_path: Vec<ScalarValue>,
-    pub(crate) in_domain_slot: bool,
-    pub(crate) has_data_rows: bool,
-    pub(crate) empty_kind: FacetCellEmptyKind,
-    pub(crate) is_empty: bool,
-    pub(crate) filter_predicate: Option<Expr>,
-}
+pub(crate) type FacetBandCellSemantic = PartitionCellPlan;
 
 #[derive(Clone, Debug)]
 pub(crate) struct FacetBandSemantics {

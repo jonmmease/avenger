@@ -248,16 +248,13 @@ pub(crate) fn cartesian_axis_ownership_scope_for_sharing(
     axis_position: AxisPosition,
     sharing_level: SharingLevel,
 ) -> Option<EdgeOwnershipScope> {
-    let Some((projected_indices, projected_counts, relevant_depth, edge)) =
+    let (projected_indices, projected_counts, relevant_depth, edge) =
         project_levels_for_cartesian_axis(
             position_indices,
             level_counts,
             level_directions,
             axis_position,
-        )
-    else {
-        return None;
-    };
+        )?;
 
     if relevant_depth == 0 {
         return None;

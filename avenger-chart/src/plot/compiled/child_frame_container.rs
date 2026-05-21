@@ -10,7 +10,9 @@ use crate::{
     concat::concat_coord_ref,
     error::AvengerChartError,
     facet::{coord::facet_band_ref, placement::resolve_facet_child_frame_placement},
-    layout::{ChildFramePlacementResult, FrameAllocation},
+    guide::OverflowSpaceRequirement,
+    layout::{ChildFramePlacementResult, FrameAllocation, project_child_frame_bounds},
+    partition::format_partition_value,
 };
 
 use super::{ChildFrameScopeKey, ComponentsMeasurement, CoordinationKind, CoordinationScopeKey};
@@ -20,6 +22,7 @@ use super::{ChildFrameScopeKey, ComponentsMeasurement, CoordinationKind, Coordin
 struct ChildFrameChildView<'a> {
     child_index: usize,
     scope_key: ChildFrameScopeKey,
+    label: Option<String>,
     measurement: &'a ComponentsMeasurement,
 }
 
@@ -51,6 +54,11 @@ impl<'a> ChildFrameContainerView<'a> {
 
     pub(crate) fn child_scope_key(&self, child_index: usize) -> Option<&ChildFrameScopeKey> {
         self.child(child_index).map(|child| &child.scope_key)
+    }
+
+    pub(crate) fn child_label(&self, child_index: usize) -> Option<&str> {
+        self.child(child_index)
+            .and_then(|child| child.label.as_deref())
     }
 
     pub(crate) fn child_scope_keys(&self) -> impl Iterator<Item = &ChildFrameScopeKey> {
@@ -95,6 +103,7 @@ impl ComponentsMeasurement {
                     Ok(ChildFrameChildView {
                         child_index: child.child_index,
                         scope_key,
+                        label: child.label.clone(),
                         measurement: &child.measurement,
                     })
                 })
@@ -140,6 +149,7 @@ impl ComponentsMeasurement {
                 Ok(ChildFrameChildView {
                     child_index,
                     scope_key,
+                    label: Some(format_partition_value(&cell.plan.value)),
                     measurement: &cell.measurement,
                 })
             })
@@ -166,18 +176,20 @@ impl ChildFrameContainerView<'_> {
         let mut container_coordination_key: Option<CoordinationScopeKey> = None;
         for child in &self.children {
             let Some(scope_key) = self.child_scope_key(child.child_index) else {
+                let label = self.child_label(child.child_index).unwrap_or("<unlabeled>");
                 return Err(AvengerChartError::InternalError(format!(
-                    "Missing child-frame scope key for child index {}",
-                    child.child_index
+                    "Missing child-frame scope key for child index {} ({label})",
+                    child.child_index,
                 )));
             };
             let current_container_key =
                 CoordinationScopeKey::child_frame_container(CoordinationKind::ChildSize, scope_key);
             if let Some(expected) = &container_coordination_key {
                 if expected != &current_container_key {
+                    let label = self.child_label(child.child_index).unwrap_or("<unlabeled>");
                     return Err(AvengerChartError::InternalError(format!(
-                        "Child-frame scope key for child index {} belongs to a different container: {:?}",
-                        child.child_index, scope_key
+                        "Child-frame scope key for child index {} ({label}) belongs to a different container: {:?}",
+                        child.child_index, scope_key,
                     )));
                 }
             } else {
@@ -187,14 +199,51 @@ impl ChildFrameContainerView<'_> {
             let child_coordination_key =
                 CoordinationScopeKey::child_frame(CoordinationKind::ChildSize, scope_key);
             if !seen.insert(child_coordination_key) {
+                let label = self.child_label(child.child_index).unwrap_or("<unlabeled>");
                 return Err(AvengerChartError::InternalError(format!(
-                    "Duplicate child-frame scope key for child index {}: {:?}",
-                    child.child_index, scope_key
+                    "Duplicate child-frame scope key for child index {} ({label}): {:?}",
+                    child.child_index, scope_key,
                 )));
             }
         }
         Ok(())
     }
+}
+
+/// Compute parent-frame overflow required by already measured child frames.
+pub(crate) fn child_frame_container_overflow_from_placements<'a>(
+    plot_width: f32,
+    plot_height: f32,
+    placement: &ChildFramePlacementResult,
+    mut child_measurement: impl FnMut(usize) -> Result<&'a ComponentsMeasurement, AvengerChartError>,
+) -> Result<OverflowSpaceRequirement, AvengerChartError> {
+    let mut min_x = 0.0f32;
+    let mut min_y = 0.0f32;
+    let mut max_x = placement.content_size.width.max(plot_width);
+    let mut max_y = placement.content_size.height.max(plot_height);
+
+    for render_placement in placement.render_placements() {
+        let child_measurement = child_measurement(render_placement.child_index)?;
+        let child_plot_bounds = *child_measurement.layout.plot_area_bounds();
+        let frame_bounds = project_child_frame_bounds(
+            [0.0, 0.0],
+            render_placement.origin,
+            child_plot_bounds,
+            child_measurement.frame_allocation.rect,
+        );
+
+        min_x = min_x.min(frame_bounds.x);
+        min_y = min_y.min(frame_bounds.y);
+        max_x = max_x.max(frame_bounds.x + frame_bounds.width);
+        max_y = max_y.max(frame_bounds.y + frame_bounds.height);
+    }
+
+    Ok(OverflowSpaceRequirement {
+        top: (-min_y).max(0.0),
+        right: (max_x - plot_width).max(0.0),
+        bottom: (max_y - plot_height).max(0.0),
+        left: (-min_x).max(0.0),
+    })
 }
 
 fn validate_container_placements(

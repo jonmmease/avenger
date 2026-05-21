@@ -16,35 +16,30 @@ use std::{
 use datafusion::{
     common::ScalarValue,
     dataframe::DataFrame,
-    logical_expr::{Expr, LogicalPlan, lit},
+    logical_expr::{Expr, LogicalPlan},
     prelude::SessionContext,
 };
 use indexmap::IndexMap;
 use tracing::debug;
 
+pub use crate::partition::{PartitionContent, PartitionNode};
+
 use crate::{
     cartesian::axis::AxisPosition,
-    channel::config_traits::ScaleSharing,
     error::AvengerChartError,
     facet::{
-        keys::FacetKeyExtractor,
         marks::facet::{FacetSubplotRef, facet_subplot_ref},
         path_math,
-        scalar_cmp::scalar_total_cmp,
         sharing_kernel::SharingGroupEdge,
         sharing_level::SharingLevel,
         sharing_policy,
     },
     guide::FacetDirection,
-    marks::{ChannelValue, CompiledMark},
+    marks::CompiledMark,
+    partition::{PartitionDimensionSpec, PartitionSlotCache, scalar_values_equivalent},
     plot::CompiledPlot,
     serialization::LogicalPlanNodeExt,
 };
-
-/// Cache for shared facet slot values to avoid redundant queries.
-/// Key is the field name; value is the ordered list of distinct values.
-/// Only used for shared facet slots (sharing >= current_depth) where we query unfiltered data.
-type SharedSlotCache = HashMap<String, Vec<ScalarValue>>;
 
 /// Evaluated facet structure - built once from data at evaluate() time, queried throughout.
 ///
@@ -79,41 +74,6 @@ pub struct EvaluatedFacetTree {
     jagged_axis_cache: HashMap<AxisPosition, bool>,
     /// Sharing levels observed in channels/nodes plus canonical levels `{0, 255}`.
     used_sharing_levels: Vec<SharingLevel>,
-}
-
-/// A node in the partition tree.
-///
-/// Each node represents one partition level in the facet hierarchy.
-/// For non-shared facet slots, children vary per parent value.
-#[derive(Debug, Clone)]
-pub struct PartitionNode {
-    /// Direction of this partition (Row or Column)
-    pub direction: FacetDirection,
-    /// Facet slot sharing level for this partition.
-    pub sharing: u8,
-    /// Field name for this partition
-    pub field: String,
-    /// Field expression for filtering (e.g., col("department"))
-    pub field_expr: Option<Expr>,
-    /// Values observed under the concrete parent-path filter for this node.
-    ///
-    /// This differs from `content` values when slot sharing expands facet slot
-    /// enumeration from an ancestor context.
-    pub observed_values: Vec<ScalarValue>,
-    /// Content: either leaf values or branch with children
-    pub content: PartitionContent,
-}
-
-/// Content of a partition node - either leaf values or branch with children.
-#[derive(Debug, Clone)]
-pub enum PartitionContent {
-    /// Leaf node: contains the facet slot values at the innermost level.
-    Leaf { values: Vec<ScalarValue> },
-    /// Branch node: maps each value to a child partition node
-    /// Children are boxed to reduce async future state size and avoid stack overflow.
-    Branch {
-        children: IndexMap<ScalarValue, Box<PartitionNode>>,
-    },
 }
 
 /// Result of axis visibility computation for a facet cell.
@@ -156,28 +116,6 @@ pub struct ResolvedFacetPathInfo {
 struct SlotMembership {
     domain_values: HashSet<ScalarValue>,
     observed_values: HashSet<ScalarValue>,
-}
-
-fn scalar_values_equivalent(a: &ScalarValue, b: &ScalarValue) -> bool {
-    if a == b {
-        return true;
-    }
-
-    match (a, b) {
-        (
-            ScalarValue::Utf8(Some(lhs))
-            | ScalarValue::LargeUtf8(Some(lhs))
-            | ScalarValue::Utf8View(Some(lhs)),
-            ScalarValue::Utf8(Some(rhs))
-            | ScalarValue::LargeUtf8(Some(rhs))
-            | ScalarValue::Utf8View(Some(rhs)),
-        ) => lhs == rhs,
-        (
-            ScalarValue::Utf8(None) | ScalarValue::LargeUtf8(None) | ScalarValue::Utf8View(None),
-            ScalarValue::Utf8(None) | ScalarValue::LargeUtf8(None) | ScalarValue::Utf8View(None),
-        ) => true,
-        _ => false,
-    }
 }
 
 impl AxisVisibility {
@@ -317,7 +255,7 @@ impl EvaluatedFacetTree {
         };
 
         // Cache for shared facet slot values to avoid redundant queries.
-        let mut slot_cache = SharedSlotCache::new();
+        let mut slot_cache = PartitionSlotCache::new();
 
         // Build partition tree by walking marks
         // Start at depth 1 (outermost facet level)
@@ -337,50 +275,15 @@ impl EvaluatedFacetTree {
         let Some(root) = self.root.as_ref() else {
             return paths;
         };
-        let mut prefix = Vec::new();
-        Self::collect_reachable_paths_recursive(root, &mut prefix, &mut paths);
+        paths.extend(root.reachable_paths());
         paths
-    }
-
-    fn collect_reachable_paths_recursive(
-        node: &PartitionNode,
-        prefix: &mut Vec<ScalarValue>,
-        out: &mut Vec<Vec<ScalarValue>>,
-    ) {
-        let values: Vec<ScalarValue> = node.values().cloned().collect();
-        for value in &values {
-            prefix.push(value.clone());
-            out.push(prefix.clone());
-            if let Some(child) = node.child(value) {
-                Self::collect_reachable_paths_recursive(child, prefix, out);
-            }
-            prefix.pop();
-        }
     }
 
     fn collect_node_paths(&self) -> Vec<Vec<ScalarValue>> {
         let Some(root) = self.root.as_ref() else {
             return Vec::new();
         };
-        let mut paths = Vec::new();
-        let mut prefix = Vec::new();
-        Self::collect_node_paths_recursive(root, &mut prefix, &mut paths);
-        paths
-    }
-
-    fn collect_node_paths_recursive(
-        node: &PartitionNode,
-        prefix: &mut Vec<ScalarValue>,
-        out: &mut Vec<Vec<ScalarValue>>,
-    ) {
-        out.push(prefix.clone());
-        if let PartitionContent::Branch { children } = &node.content {
-            for (value, child) in children {
-                prefix.push(value.clone());
-                Self::collect_node_paths_recursive(child, prefix, out);
-                prefix.pop();
-            }
-        }
+        root.node_paths()
     }
 
     fn collect_node_sharing_levels_recursive(
@@ -485,29 +388,7 @@ impl EvaluatedFacetTree {
     }
 
     fn path_predicate_uncached(&self, path: &[ScalarValue]) -> Option<Expr> {
-        if path.is_empty() {
-            return None;
-        }
-
-        let root = self.root.as_ref()?;
-
-        let mut current_node = root;
-        let mut result: Option<Expr> = None;
-
-        for (level_idx, value) in path.iter().enumerate() {
-            let field_expr = current_node.field_expr.clone()?;
-            let eq_expr = field_expr.eq(lit(value.clone()));
-            result = Some(match result {
-                Some(existing) => existing.and(eq_expr),
-                None => eq_expr,
-            });
-
-            if level_idx + 1 < path.len() {
-                current_node = current_node.child(value)?;
-            }
-        }
-
-        result
+        self.root.as_ref()?.path_predicate(path)
     }
 
     fn resolve_path_info_uncached(&self, path: &[ScalarValue]) -> Option<ResolvedFacetPathInfo> {
@@ -584,7 +465,7 @@ impl EvaluatedFacetTree {
 
         if let Some(ancestor) = ancestor_node {
             let levels_to_descend = facet_path.len().saturating_sub(enumeration_path.len());
-            Some(Self::collect_values_at_depth(ancestor, levels_to_descend))
+            Some(ancestor.values_at_depth(levels_to_descend))
         } else {
             Some(current_node.values().cloned().collect())
         }
@@ -678,17 +559,7 @@ impl EvaluatedFacetTree {
     /// # Returns
     /// The partition node at the specified path, or None if the path is invalid.
     pub fn node_at_path(&self, path: &[ScalarValue]) -> Option<&PartitionNode> {
-        let root = self.root.as_ref()?;
-
-        if path.is_empty() {
-            return Some(root);
-        }
-
-        let mut current = root;
-        for value in path {
-            current = current.child(value)?;
-        }
-        Some(current)
+        self.root.as_ref()?.node_at_path(path)
     }
 
     /// Check whether a full cell path exists in the evaluated facet tree.
@@ -707,13 +578,9 @@ impl EvaluatedFacetTree {
             return membership.domain_values.contains(&target_value);
         }
 
-        let parent_path_raw = &path[..path.len() - 1];
-        let target_value_raw = &path[path.len() - 1];
-        self.node_at_path(parent_path_raw).is_some_and(|parent| {
-            parent
-                .values()
-                .any(|v| scalar_values_equivalent(v, target_value_raw))
-        })
+        self.root
+            .as_ref()
+            .is_some_and(|root| root.cell_exists(path))
     }
 
     /// Check whether a full cell path has any observed rows after full facet filtering.
@@ -729,13 +596,9 @@ impl EvaluatedFacetTree {
             return membership.observed_values.contains(&target_value);
         }
 
-        let parent_path_raw = &path[..path.len() - 1];
-        let target_value_raw = &path[path.len() - 1];
-        self.node_at_path(parent_path_raw).is_some_and(|parent| {
-            parent
-                .observed_values()
-                .any(|v| scalar_values_equivalent(v, target_value_raw))
-        })
+        self.root
+            .as_ref()
+            .is_some_and(|root| root.cell_has_data(path))
     }
 
     /// Enumerate facet cell values for a facet at `facet_path` using Level(N) sharing semantics.
@@ -759,23 +622,6 @@ impl EvaluatedFacetTree {
         }
 
         self.enumerate_values_for_facet_uncached(facet_path, sharing_level)
-    }
-
-    fn collect_values_at_depth(node: &PartitionNode, levels_to_descend: usize) -> Vec<ScalarValue> {
-        if levels_to_descend == 0 {
-            node.values().cloned().collect()
-        } else {
-            let mut all_values: Vec<ScalarValue> = Vec::new();
-            for value in node.values() {
-                if let Some(child) = node.child(value) {
-                    let child_values = Self::collect_values_at_depth(child, levels_to_descend - 1);
-                    all_values.extend(child_values);
-                }
-            }
-            all_values.sort_by(scalar_total_cmp);
-            all_values.dedup();
-            all_values
-        }
     }
 
     /// Get the sharing level for a channel.
@@ -1472,122 +1318,6 @@ impl EvaluatedFacetTree {
     }
 }
 
-impl PartitionNode {
-    /// Create a new leaf partition node.
-    pub fn leaf(
-        direction: FacetDirection,
-        sharing: u8,
-        field: String,
-        field_expr: Option<Expr>,
-        values: Vec<ScalarValue>,
-    ) -> Self {
-        Self {
-            direction,
-            sharing,
-            field,
-            field_expr,
-            observed_values: values.clone(),
-            content: PartitionContent::Leaf { values },
-        }
-    }
-
-    /// Create a new leaf partition node with explicit observed values.
-    pub fn leaf_with_observed(
-        direction: FacetDirection,
-        sharing: u8,
-        field: String,
-        field_expr: Option<Expr>,
-        values: Vec<ScalarValue>,
-        observed_values: Vec<ScalarValue>,
-    ) -> Self {
-        Self {
-            direction,
-            sharing,
-            field,
-            field_expr,
-            observed_values,
-            content: PartitionContent::Leaf { values },
-        }
-    }
-
-    /// Create a new branch partition node.
-    pub fn branch(
-        direction: FacetDirection,
-        sharing: u8,
-        field: String,
-        field_expr: Option<Expr>,
-        children: IndexMap<ScalarValue, Box<PartitionNode>>,
-    ) -> Self {
-        Self {
-            direction,
-            sharing,
-            field,
-            field_expr,
-            observed_values: children.keys().cloned().collect(),
-            content: PartitionContent::Branch { children },
-        }
-    }
-
-    /// Create a new branch partition node with explicit observed values.
-    pub fn branch_with_observed(
-        direction: FacetDirection,
-        sharing: u8,
-        field: String,
-        field_expr: Option<Expr>,
-        observed_values: Vec<ScalarValue>,
-        children: IndexMap<ScalarValue, Box<PartitionNode>>,
-    ) -> Self {
-        Self {
-            direction,
-            sharing,
-            field,
-            field_expr,
-            observed_values,
-            content: PartitionContent::Branch { children },
-        }
-    }
-
-    /// Check if this is a leaf node (innermost partition).
-    pub fn is_leaf(&self) -> bool {
-        matches!(self.content, PartitionContent::Leaf { .. })
-    }
-
-    /// Get the facet slot values at this level.
-    pub fn values(&self) -> Box<dyn Iterator<Item = &ScalarValue> + '_> {
-        match &self.content {
-            PartitionContent::Leaf { values } => Box::new(values.iter()),
-            PartitionContent::Branch { children } => Box::new(children.keys()),
-        }
-    }
-
-    pub fn observed_values(&self) -> impl Iterator<Item = &ScalarValue> {
-        self.observed_values.iter()
-    }
-
-    /// Get the number of facet slot values at this level.
-    pub fn domain_count(&self) -> usize {
-        match &self.content {
-            PartitionContent::Leaf { values } => values.len(),
-            PartitionContent::Branch { children } => children.len(),
-        }
-    }
-
-    /// Get child node for a specific value.
-    pub fn child(&self, value: &ScalarValue) -> Option<&PartitionNode> {
-        match &self.content {
-            PartitionContent::Leaf { .. } => None,
-            PartitionContent::Branch { children } => children
-                .get(value)
-                .or_else(|| {
-                    children.iter().find_map(|(child_value, child_node)| {
-                        scalar_values_equivalent(child_value, value).then_some(child_node)
-                    })
-                })
-                .map(|b| b.as_ref()),
-        }
-    }
-}
-
 // ============================================================================
 // Helper functions for building the partition tree
 // ============================================================================
@@ -1645,42 +1375,42 @@ fn is_empty_relation(df: &DataFrame) -> bool {
     matches!(df.logical_plan(), LogicalPlan::EmptyRelation(_))
 }
 
-/// Extract a human-readable field name from an expression.
-fn extract_field_name(expr: &Expr) -> String {
-    match expr {
-        Expr::Column(col) => col.name.clone(),
-        Expr::Alias(alias) => alias.name.clone(),
-        _ => expr.to_string(),
-    }
-}
-
 /// Resolved metadata for building a partition node from a facet subplot mark.
-struct FacetPartitionSpec<'a> {
-    channels: &'a IndexMap<String, ChannelValue>,
-    channel_name: &'static str,
-    direction: FacetDirection,
+struct FacetPartitionMarkSpec<'a> {
+    dimension: PartitionDimensionSpec,
     subplot: &'a Arc<CompiledPlot>,
-    slot_sharing: Option<ScaleSharing>,
 }
 
-impl<'a> FacetPartitionSpec<'a> {
-    fn from_facet_mark(facet_mark: FacetSubplotRef<'a>) -> Self {
-        match facet_mark {
-            FacetSubplotRef::Row(facet_row) => Self {
-                channels: facet_row.compiled_state().data.channels(),
-                channel_name: "row",
-                direction: FacetDirection::Row,
-                subplot: facet_row.compiled_subplot(),
-                slot_sharing: facet_row.facet_slot_sharing(),
-            },
-            FacetSubplotRef::Col(facet_col) => Self {
-                channels: facet_col.compiled_state().data.channels(),
-                channel_name: "column",
-                direction: FacetDirection::Column,
-                subplot: facet_col.compiled_subplot(),
-                slot_sharing: facet_col.facet_slot_sharing(),
-            },
-        }
+impl<'a> FacetPartitionMarkSpec<'a> {
+    fn from_facet_mark(facet_mark: FacetSubplotRef<'a>, ctx: &SessionContext) -> Option<Self> {
+        let (channels, channel_name, direction, subplot, slot_sharing) = match facet_mark {
+            FacetSubplotRef::Row(facet_row) => (
+                facet_row.compiled_state().data.channels(),
+                "row",
+                FacetDirection::Row,
+                facet_row.compiled_subplot(),
+                facet_row.facet_slot_sharing(),
+            ),
+            FacetSubplotRef::Col(facet_col) => (
+                facet_col.compiled_state().data.channels(),
+                "column",
+                FacetDirection::Column,
+                facet_col.compiled_subplot(),
+                facet_col.facet_slot_sharing(),
+            ),
+        };
+
+        let channel_value = channels.get(channel_name)?;
+        let field_expr = channel_value.expr(ctx)?;
+        let sharing = slot_sharing
+            .or_else(|| channel_value.get_share_mode())
+            .map(|s| s.to_level())
+            .unwrap_or(0);
+
+        Some(Self {
+            dimension: PartitionDimensionSpec::new(direction, sharing, field_expr),
+            subplot,
+        })
     }
 }
 
@@ -1699,11 +1429,13 @@ async fn build_partition_tree(
     ctx: &SessionContext,
     parent_filter: Option<Expr>,
     current_depth: u8,
-    slot_cache: &mut SharedSlotCache,
+    slot_cache: &mut PartitionSlotCache,
 ) -> Result<Option<PartitionNode>, AvengerChartError> {
     for mark in marks {
         if let Some(facet_mark) = facet_subplot_ref(mark.as_ref()) {
-            let spec = FacetPartitionSpec::from_facet_mark(facet_mark);
+            let Some(spec) = FacetPartitionMarkSpec::from_facet_mark(facet_mark, ctx) else {
+                return Ok(None);
+            };
             return Box::pin(build_partition_node(
                 &spec,
                 df,
@@ -1722,65 +1454,18 @@ async fn build_partition_tree(
 
 /// Build a partition node for a specific facet.
 async fn build_partition_node(
-    spec: &FacetPartitionSpec<'_>,
+    spec: &FacetPartitionMarkSpec<'_>,
     df: &DataFrame,
     ctx: &SessionContext,
     parent_filter: Option<Expr>,
     current_depth: u8,
-    slot_cache: &mut SharedSlotCache,
+    slot_cache: &mut PartitionSlotCache,
 ) -> Result<Option<PartitionNode>, AvengerChartError> {
-    // Get channel value
-    let channel_value = match spec.channels.get(spec.channel_name) {
-        Some(cv) => cv,
-        None => return Ok(None), // No facet channel
-    };
-
-    // Get field expression
-    let field_expr = match channel_value.expr(ctx) {
-        Some(expr) => expr,
-        None => return Ok(None), // No expression
-    };
-
-    // Get facet slot sharing level
-    let sharing = spec
-        .slot_sharing
-        .or_else(|| channel_value.get_share_mode())
-        .map(|s| s.to_level())
-        .unwrap_or(0);
-
-    // Extract field name
-    let field = extract_field_name(&field_expr);
-
-    // Determine whether to use filtered or unfiltered data for facet slot values.
-    // If sharing level >= current depth, slots are shared (use unfiltered data).
-    // If sharing level < current depth (including Free/0), slots vary per parent (use filtered).
-    let use_shared_slots = sharing >= current_depth;
-
-    let observed_values = if let Some(parent_filter) = parent_filter.clone() {
-        let df_filtered = df.clone().filter(parent_filter)?;
-        FacetKeyExtractor::extract_keys(&df_filtered, &field_expr).await?
-    } else {
-        FacetKeyExtractor::extract_keys(df, &field_expr).await?
-    };
-
-    // Get distinct values, using a cache for shared facet slots.
-    let values = if use_shared_slots {
-        // For shared slots, check cache first (keyed by field name since we use unfiltered data).
-        if let Some(cached) = slot_cache.get(&field) {
-            cached.clone()
-        } else {
-            let vals = FacetKeyExtractor::extract_keys(df, &field_expr).await?;
-            slot_cache.insert(field.clone(), vals.clone());
-            vals
-        }
-    } else if parent_filter.is_some() {
-        // For non-shared slots with a parent filter, query filtered data (no caching).
-        let df_filtered = df.clone().filter(parent_filter.clone().unwrap())?;
-        FacetKeyExtractor::extract_keys(&df_filtered, &field_expr).await?
-    } else {
-        // No parent filter - query unfiltered data
-        FacetKeyExtractor::extract_keys(df, &field_expr).await?
-    };
+    let dimension = &spec.dimension;
+    let observed_values = dimension.observed_values(df, parent_filter.clone()).await?;
+    let values = dimension
+        .domain_values(df, parent_filter.clone(), current_depth, slot_cache)
+        .await?;
 
     if values.is_empty() {
         return Ok(None); // No values
@@ -1803,7 +1488,7 @@ async fn build_partition_node(
 
         for value in &values {
             // Build filter for this value to pass to child
-            let value_filter = field_expr.clone().eq(lit(value.clone()));
+            let value_filter = dimension.value_filter(value);
             let combined_filter = if let Some(pf) = &parent_filter {
                 pf.clone().and(value_filter)
             } else {
@@ -1828,19 +1513,19 @@ async fn build_partition_node(
         if children.is_empty() {
             // No valid children - make leaf
             Ok(Some(PartitionNode::leaf_with_observed(
-                spec.direction,
-                sharing,
-                field,
-                Some(field_expr),
+                dimension.direction,
+                dimension.sharing,
+                dimension.field.clone(),
+                Some(dimension.field_expr.clone()),
                 values,
                 observed_values,
             )))
         } else {
             Ok(Some(PartitionNode::branch_with_observed(
-                spec.direction,
-                sharing,
-                field,
-                Some(field_expr),
+                dimension.direction,
+                dimension.sharing,
+                dimension.field.clone(),
+                Some(dimension.field_expr.clone()),
                 observed_values,
                 children,
             )))
@@ -1848,10 +1533,10 @@ async fn build_partition_node(
     } else {
         // No nested facets - leaf node
         Ok(Some(PartitionNode::leaf_with_observed(
-            spec.direction,
-            sharing,
-            field,
-            Some(field_expr),
+            dimension.direction,
+            dimension.sharing,
+            dimension.field.clone(),
+            Some(dimension.field_expr.clone()),
             values,
             observed_values,
         )))

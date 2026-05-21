@@ -19,23 +19,21 @@ use crate::{
         CoordMeasurement, CoordinateSystem, CoordinateSystemTransform, PlotGeometry, PointGeometry,
     },
     error::AvengerChartError,
-    facet::{
-        domain_coordination::aggregate_domain_extents_by_scope,
-        evaluated_facet_tree::EvaluatedFacetTree, sharing_level::SharingLevel,
-    },
+    facet::{evaluated_facet_tree::EvaluatedFacetTree, sharing_level::SharingLevel},
     guide::{CompiledGuide, CoordinateGuide, GuideUpdate, OverflowSpaceRequirement},
     layout::{
         BandChildFrameInput, BandChildFramePlacement, BandDirection, BandSpacing, BoundaryDemand1D,
         ChildFramePlacementResult, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode,
-        LayoutBounds, Size2D, project_child_frame_bounds,
+        LayoutBounds, Size2D,
     },
     marks::{CompiledConcatSubplot, CompiledMark, subplot::compiled_subplot},
     plot::{
         CompiledPlot,
         compiled::{
-            ChildFrameKey, ChildFrameScopeKey, ComponentsMeasurement, ContainerPathSegment,
-            CoordinationKind, CoordinationScopeKey, scale_provider::DynamicScaleProvider,
-            scales::build_scale_builder_from_marks,
+            ChildFrameDomainRequest, ChildFrameKey, ChildFrameScopeKey, ComponentsMeasurement,
+            ContainerPathSegment, CoordinationKind, CoordinationScopeKey,
+            aggregate_domain_requests, child_frame_container_overflow_from_placements,
+            scale_provider::DynamicScaleProvider, scales::build_scale_builder_from_marks,
         },
     },
     render::EvaluationContext,
@@ -384,38 +382,22 @@ fn concat_child_frame_overflow(
     };
 
     let placement = concat.child_frame_placement();
-    let mut min_x = 0.0f32;
-    let mut min_y = 0.0f32;
-    let mut max_x = placement.content_size.width.max(plot_width);
-    let mut max_y = placement.content_size.height.max(plot_height);
-
-    for render_placement in placement.render_placements() {
-        let child = concat.child(render_placement.child_index).ok_or_else(|| {
-            AvengerChartError::InternalError(format!(
-                "Missing concat child measurement for child index {}",
-                render_placement.child_index
-            ))
-        })?;
-        let child_plot_bounds = *child.measurement.layout.plot_area_bounds();
-        let frame_bounds = project_child_frame_bounds(
-            [0.0, 0.0],
-            render_placement.origin,
-            child_plot_bounds,
-            child.measurement.frame_allocation.rect,
-        );
-
-        min_x = min_x.min(frame_bounds.x);
-        min_y = min_y.min(frame_bounds.y);
-        max_x = max_x.max(frame_bounds.x + frame_bounds.width);
-        max_y = max_y.max(frame_bounds.y + frame_bounds.height);
-    }
-
-    Ok(OverflowSpaceRequirement {
-        top: (-min_y).max(0.0),
-        right: (max_x - plot_width).max(0.0),
-        bottom: (max_y - plot_height).max(0.0),
-        left: (-min_x).max(0.0),
-    })
+    child_frame_container_overflow_from_placements(
+        plot_width,
+        plot_height,
+        &placement,
+        |child_index| {
+            concat
+                .child(child_index)
+                .map(|child| &child.measurement)
+                .ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Missing concat child measurement for child index {}",
+                        child_index
+                    ))
+                })
+        },
+    )
 }
 
 fn fixed_plot_area_layout_spec(width: f32, height: f32) -> EvaluatedLayoutSpec {
@@ -585,19 +567,29 @@ fn concat_domain_scope_key(
         .with_channel(channel)
 }
 
+fn concat_domain_request(
+    child_scope: &ChildFrameScopeKey,
+    channel: &str,
+    annotated: &ConcatChannelDomainExtent,
+) -> Option<ChildFrameDomainRequest> {
+    (!annotated.sharing_level.is_free()).then(|| {
+        ChildFrameDomainRequest::new(
+            concat_domain_scope_key(child_scope, channel, annotated.sharing_level),
+            annotated.extent.clone(),
+        )
+    })
+}
+
 fn coordinated_domain_extents_for_concat_children(
     children: &[PreparedConcatChild<'_>],
 ) -> Vec<HashMap<String, DomainExtent>> {
-    let unified = aggregate_domain_extents_by_scope(children.iter().flat_map(|child| {
+    let unified = aggregate_domain_requests(children.iter().flat_map(|child| {
         let child_scope = child.scope_key();
         child
             .local_domain_extents
             .iter()
             .filter_map(move |(channel, annotated)| {
-                (!annotated.sharing_level.is_free()).then_some((
-                    concat_domain_scope_key(&child_scope, channel, annotated.sharing_level),
-                    &annotated.extent,
-                ))
+                concat_domain_request(&child_scope, channel, annotated)
             })
     }));
 
@@ -1019,8 +1011,16 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<HConcat>::new()
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("left"))
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("right"))
+            .mark(
+                Subplot::new(Plot::<ZeroDCoord>::new())
+                    .key("left")
+                    .label("Left"),
+            )
+            .mark(
+                Subplot::new(Plot::<ZeroDCoord>::new())
+                    .key("right")
+                    .label("Right"),
+            )
             .compile(&ctx)
             .await?;
 
@@ -1060,6 +1060,8 @@ mod tests {
         assert!(container.child_measurement(0).is_some());
         assert!(container.child_measurement(1).is_some());
         assert_eq!(container.child_scope_key(0), Some(&left_scope));
+        assert_eq!(container.child_label(0), Some("Left"));
+        assert_eq!(container.child_label(1), Some("Right"));
         assert_eq!(container.child_scope_keys().count(), 2);
         Ok(())
     }

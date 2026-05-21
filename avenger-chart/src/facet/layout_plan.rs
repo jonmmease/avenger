@@ -5,41 +5,12 @@
 
 use crate::coords::{FacetAxis, OverflowSpaceRequirement};
 use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
-use datafusion::{common::ScalarValue, logical_expr::Expr};
+pub(crate) use crate::partition::{
+    PartitionCellEmptyKind as FacetCellEmptyKind, PartitionCellPlan as FacetCellPlan,
+};
+use datafusion::common::ScalarValue;
 use std::collections::HashMap;
 use tracing::trace;
-
-/// Canonical per-cell plan representation for facet-band measurement.
-#[derive(Clone, Debug)]
-pub(crate) struct FacetCellPlan {
-    pub value: ScalarValue,
-    pub full_path: Vec<ScalarValue>,
-    pub in_domain_slot: bool,
-    pub has_data_rows: bool,
-    pub empty_kind: FacetCellEmptyKind,
-    pub is_empty: bool,
-    pub filter_predicate: Option<Expr>,
-}
-
-impl From<&crate::facet::band_attributes::FacetBandCellSemantic> for FacetCellPlan {
-    fn from(cell: &crate::facet::band_attributes::FacetBandCellSemantic) -> Self {
-        Self {
-            value: cell.value.clone(),
-            full_path: cell.full_path.clone(),
-            in_domain_slot: cell.in_domain_slot,
-            has_data_rows: cell.has_data_rows,
-            empty_kind: cell.empty_kind,
-            is_empty: cell.is_empty,
-            filter_predicate: cell.filter_predicate.clone(),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum FacetCellEmptyKind {
-    DomainPlaceholder,
-    DataEmpty,
-}
 
 /// Resolved band-level facet layout values for a single facet band node.
 #[derive(Clone, Debug, Default)]

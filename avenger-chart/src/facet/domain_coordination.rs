@@ -4,53 +4,29 @@ use datafusion::common::ScalarValue;
 
 use crate::{
     coords::CellDomainInfo,
-    facet::{
-        coord::{ChannelDomainExtent, union_domain_extents},
-        sharing_level::SharingLevel,
-        sharing_policy,
+    facet::{coord::ChannelDomainExtent, sharing_level::SharingLevel, sharing_policy},
+    plot::compiled::{
+        ChildFrameDomainRequest, CoordinationKind, CoordinationScopeKey, aggregate_domain_requests,
     },
-    plot::compiled::{CoordinationKind, CoordinationScopeKey},
     scales::domain_extent::DomainExtent,
 };
 
 pub(crate) fn aggregate_domain_extents(
     infos: &[CellDomainInfo],
 ) -> HashMap<CoordinationScopeKey, DomainExtent> {
-    aggregate_domain_extents_by_scope(infos.iter().map(|info| {
-        (
-            domain_coordination_scope_key(
-                &info.channel,
-                &info.full_cell_path,
-                SharingLevel::from_raw(info.domain_sharing_level),
-                info.facet_depth,
-            ),
-            &info.extent,
-        )
-    }))
+    aggregate_domain_requests(infos.iter().map(domain_request_for_info))
 }
 
-pub(crate) fn aggregate_domain_extents_by_scope<'a>(
-    infos: impl IntoIterator<Item = (CoordinationScopeKey, &'a DomainExtent)>,
-) -> HashMap<CoordinationScopeKey, DomainExtent> {
-    let mut groups: HashMap<CoordinationScopeKey, Vec<&DomainExtent>> = HashMap::new();
-
-    for (key, extent) in infos {
-        groups.entry(key).or_default().push(extent);
-    }
-
-    groups
-        .into_iter()
-        .map(|(key, extents)| {
-            let mut extents = extents.into_iter();
-            let first = extents
-                .next()
-                .expect("Domain coordination invariant violated: non-empty group expected");
-            let unified = extents.fold(first.clone(), |acc, extent| {
-                union_domain_extents(&acc, extent)
-            });
-            (key, unified)
-        })
-        .collect()
+fn domain_request_for_info(info: &CellDomainInfo) -> ChildFrameDomainRequest {
+    ChildFrameDomainRequest::new(
+        domain_coordination_scope_key(
+            &info.channel,
+            &info.full_cell_path,
+            SharingLevel::from_raw(info.domain_sharing_level),
+            info.facet_depth,
+        ),
+        info.extent.clone(),
+    )
 }
 
 pub(crate) fn domain_infos_for_cell(
