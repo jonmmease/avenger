@@ -16,14 +16,12 @@ use crate::{
     coords::{CoordMeasurement, FacetAxis, OverflowSpaceRequirement},
     error::AvengerChartError,
     facet::{
-        band_positions::{BandPosition, BandPositionIterator},
         coord::{
             FacetBandProbeMeasurement, FacetCellRuntime, facet_band_ref as facet_band_from_coord,
         },
         guide_utils::{
-            FacetLabelMeasurementConfig, FacetLabelRenderConfig,
             facet_guide_labels_visible_for_cell, facet_guide_title_visible_for_cell,
-            format_scalar_value, measure_facet_label_slab, render_facet_label_slab,
+            format_scalar_value,
         },
         layout_plan::effective_edge_indices_for_values_at_path,
         overflow_projection::{
@@ -35,8 +33,12 @@ use crate::{
         },
         sharing_level::SharingLevel,
     },
-    layout::LayoutBounds,
-    plot::compiled::{CompiledPlot, ComponentsMeasurement},
+    layout::{BandPosition, BandPositionIterator, LayoutBounds},
+    plot::compiled::{
+        CompiledPlot, ComponentsMeasurement, ContainerBandGuideMeasurementConfig,
+        ContainerBandGuideRenderConfig, measure_container_band_guide_slab,
+        render_container_band_guide_slab,
+    },
     serialization::LogicalPlanNodeExt,
     theme::{Theme, ThemeContext},
 };
@@ -446,8 +448,7 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
     let title_for_cell = title_visible
         .then_some(state.facet_title.as_ref())
         .flatten();
-    let facet_guide_slab_size =
-        measure_facet_guide_slab(&labels, title_for_cell, theme, params, O::is_rotated());
+    let facet_guide_slab_size = measure_facet_guide_slab(&labels, title_for_cell, theme, params);
     let (mut guide_anchor, mut anchor_source) = O::resolve_measure_anchor(
         place_at_end,
         &subplot_overflow,
@@ -545,8 +546,7 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
     let title_for_cell = title_visible
         .then_some(state.facet_title.as_ref())
         .flatten();
-    let facet_guide_slab_size =
-        measure_facet_guide_slab(&labels, title_for_cell, theme, params, O::is_rotated());
+    let facet_guide_slab_size = measure_facet_guide_slab(&labels, title_for_cell, theme, params);
 
     let (mut subplot_overflow_anchor, mut anchor_source) =
         O::resolve_evaluate_anchor(place_at_end, coord_measurement);
@@ -602,12 +602,13 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
         "facet guide evaluate"
     );
 
-    let render_config = FacetLabelRenderConfig {
+    let render_config = ContainerBandGuideRenderConfig {
         labels,
         band_positions,
         plot_bounds: adjusted_plot_bounds,
-        is_rotated: O::is_rotated(),
+        labels_rotated: O::is_rotated(),
         place_at_end,
+        theme_component: "facet".to_string(),
         font_family,
         font_size_px: label_font_size,
         title: if title_visible {
@@ -618,10 +619,14 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
         title_font_family,
         title_font_size_px: title_font_size,
         render_title: title_visible && state.facet_title.is_some(),
-        col_title_x_override: title_override,
+        title_x_override: title_override,
     };
 
-    Ok(render_facet_label_slab(&render_config, theme, params))
+    Ok(render_container_band_guide_slab(
+        &render_config,
+        theme,
+        params,
+    ))
 }
 
 pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
@@ -783,7 +788,6 @@ fn measure_facet_guide_slab(
     facet_title: Option<&String>,
     theme: &Theme,
     params: &IndexMap<String, ScalarValue>,
-    is_rotated: bool,
 ) -> f32 {
     if labels.is_empty() {
         return 0.0;
@@ -791,9 +795,8 @@ fn measure_facet_guide_slab(
 
     let (font_family, label_font_size, title_font_family, title_font_size) =
         label_and_title_fonts(theme, params);
-    let measurement_config = FacetLabelMeasurementConfig {
+    let measurement_config = ContainerBandGuideMeasurementConfig {
         labels: labels.to_vec(),
-        is_rotated,
         font_family,
         font_size_px: label_font_size,
         title: facet_title.cloned(),
@@ -802,7 +805,7 @@ fn measure_facet_guide_slab(
         render_title: facet_title.is_some(),
     };
 
-    measure_facet_label_slab(&measurement_config)
+    measure_container_band_guide_slab(&measurement_config)
 }
 
 fn band_positions_and_labels<O: FacetGuideAxisOps>(

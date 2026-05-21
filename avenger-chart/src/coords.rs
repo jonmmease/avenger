@@ -10,8 +10,8 @@ pub use crate::guide::OverflowSpaceRequirement;
 
 use crate::{
     error::AvengerChartError,
-    facet::band_positions::BandPosition,
     guide::CoordinateGuide,
+    layout::BandPosition,
     marks::CompiledMark,
     plot::compiled::ComponentsMeasurement,
     render::{CoordinationCheckpoint, EvaluationContext},
@@ -538,7 +538,7 @@ pub trait CoordinateSystemTransform: Send + Sync {
 mod tests {
     use super::*;
     use crate::cartesian::Cartesian;
-    use crate::facet::band_positions::BandPosition;
+    use crate::layout::BandPosition;
     use datafusion::common::ScalarValue;
 
     #[test]

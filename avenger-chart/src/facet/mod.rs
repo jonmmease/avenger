@@ -30,7 +30,6 @@
 //!   and rules across compatible lanes.
 
 pub(crate) mod band_attributes;
-pub mod band_positions;
 pub mod coord;
 pub mod coord_row;
 pub mod coordination;

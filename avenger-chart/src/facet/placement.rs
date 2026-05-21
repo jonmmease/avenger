@@ -14,14 +14,13 @@ use crate::{
     coords::{CoordMeasurement, CoordinatedLayout, FacetAxis},
     error::AvengerChartError,
     facet::{
-        band_positions::{BandPosition, BandPositionIterator},
         coord::{FacetBandCoordMeasurement, FacetCellRuntime},
         overflow_projection::{FacetOverflowSlabs, rendered_boundary_demand_for_measurement},
         padding_policy,
     },
     layout::{
-        BandChildFrameInput, BandChildFramePlacement, BandDirection, BandPlacedChild, BandSpacing,
-        BoundaryDemand1D, ChildFramePlacementResult, Size2D,
+        BandChildFrameInput, BandChildFramePlacement, BandDirection, BandPlacedChild, BandPosition,
+        BandPositionIterator, BandSpacing, BoundaryDemand1D, ChildFramePlacementResult, Size2D,
     },
     plot::compiled::ComponentsMeasurement,
     scales::ConfiguredScaleWithSpec,

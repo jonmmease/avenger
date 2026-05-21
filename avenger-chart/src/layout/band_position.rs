@@ -1,10 +1,7 @@
-//! Iterator abstraction for band scale position iteration
+//! Band-scale position iteration shared by child-frame container layouts.
 //!
-//! Provides consistent iteration over band positions. The iterator returns
-//! `BandPosition` structs with `start()`, `center()`, and `end()` methods
-//! for explicitly choosing position within each band.
-//!
-//! Eliminates duplication of band position calculation logic across faceting system.
+//! The iterator returns `BandPosition` structs with `start()`, `center()`, and
+//! `end()` methods for explicitly choosing placement within each band.
 
 use avenger_scales::scales::{ConfiguredScale, band};
 use datafusion::common::ScalarValue;
@@ -17,19 +14,19 @@ use crate::{
     },
 };
 
-/// Position information for a single band in a band scale
+/// Position information for a single band in a band scale.
 #[derive(Debug, Clone)]
 pub struct BandPosition {
-    /// The domain value (e.g., "setosa", "versicolor", "virginica")
+    /// Domain value associated with this band.
     pub value: ScalarValue,
-    /// Numeric position of the band start (private - use start(), center(), or end())
+    /// Numeric position of the band start. Use `start()`, `center()`, or
+    /// `end()` to make intent explicit.
     position: f32,
-    /// Width/height of the band
+    /// Width/height of the band.
     pub bandwidth: f32,
 }
 
 impl BandPosition {
-    /// Create a new BandPosition
     pub fn new(value: ScalarValue, position: f32, bandwidth: f32) -> Self {
         Self {
             value,
@@ -38,37 +35,20 @@ impl BandPosition {
         }
     }
 
-    /// Get the start position of this band
     pub fn start(&self) -> f32 {
         self.position
     }
 
-    /// Get the center position of this band
     pub fn center(&self) -> f32 {
         self.position + self.bandwidth / 2.0
     }
 
-    /// Get the end position of this band
     pub fn end(&self) -> f32 {
         self.position + self.bandwidth
     }
 }
 
-/// Iterator over band positions from a configured band scale
-///
-/// Provides consistent iteration over band-scale domain values with their corresponding
-/// positions and bandwidth for faceted layouts.
-///
-/// # Example
-///
-/// ```ignore
-/// let iter = BandPositionIterator::from_scale(&row_scale)?;
-/// for band_pos in iter {
-///     let subplot_y = band_pos.start();  // or .center() or .end()
-///     let subplot_height = band_pos.bandwidth;
-///     // render subplot at (x, subplot_y) with height subplot_height
-/// }
-/// ```
+/// Iterator over band positions from a configured band scale.
 pub struct BandPositionIterator {
     domain_vals: Vec<ScalarValue>,
     positions: Vec<f32>,
@@ -77,9 +57,7 @@ pub struct BandPositionIterator {
 }
 
 impl BandPositionIterator {
-    /// Create an iterator from a configured band scale
-    ///
-    /// Returns positions at the start of each band (band offset = 0.0)
+    /// Create an iterator from a configured band scale.
     pub fn from_scale(scale: &ConfiguredScaleWithSpec) -> Result<Self, AvengerChartError> {
         let configured = scale.configured();
         let domain_vals = configured.domain_values()?;
@@ -104,25 +82,19 @@ impl BandPositionIterator {
         })
     }
 
-    /// Get the number of bands
     pub fn len(&self) -> usize {
         self.domain_vals.len()
     }
 
-    /// Check if iterator is empty
     pub fn is_empty(&self) -> bool {
         self.domain_vals.is_empty()
     }
 
-    /// Get the bandwidth (same for all bands)
     pub fn bandwidth(&self) -> f32 {
         self.bandwidth
     }
 
-    /// Create an iterator from a ConfiguredScale directly
-    ///
-    /// This is a convenience method for when you already have a ConfiguredScale
-    /// instead of a ConfiguredScaleWithSpec.
+    /// Create an iterator from a configured scale directly.
     pub fn from_configured_scale(scale: &ConfiguredScale) -> Result<Self, AvengerChartError> {
         let domain_vals = scale.domain_values()?;
 
@@ -182,7 +154,7 @@ mod tests {
     use datafusion::common::ScalarValue;
 
     #[test]
-    fn test_band_position_methods() {
+    fn band_position_methods() {
         let bp = BandPosition::new(ScalarValue::Utf8(Some("test".into())), 100.0, 50.0);
 
         assert_eq!(bp.start(), 100.0);
@@ -192,7 +164,7 @@ mod tests {
     }
 
     #[test]
-    fn test_band_position_zero_bandwidth() {
+    fn band_position_zero_bandwidth() {
         let bp = BandPosition::new(ScalarValue::Utf8(Some("zero".into())), 100.0, 0.0);
 
         assert_eq!(bp.start(), 100.0);
@@ -201,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    fn test_band_position_negative_position() {
+    fn band_position_negative_position() {
         let bp = BandPosition::new(ScalarValue::Utf8(Some("negative".into())), -50.0, 20.0);
 
         assert_eq!(bp.start(), -50.0);

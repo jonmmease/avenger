@@ -4482,12 +4482,11 @@ mod tests {
     use crate::{
         coords::{CoordinatedOverflow, FacetAxis},
         facet::{
-            band_positions::BandPositionIterator,
             coord::{FacetBandCoordMeasurement, facet_band_ref as facet_band_ref_from_coord},
             coordination_apply::build_retarget_plan,
             coordination_plans::CoordinationNodeKey,
         },
-        layout::{CanvasConstraint, FrameDimensionSizing, PlotConstraint},
+        layout::{BandPositionIterator, CanvasConstraint, FrameDimensionSizing, PlotConstraint},
         legend::LegendPosition,
         prelude::*,
         render::FacetLayoutRefinement,

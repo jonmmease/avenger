@@ -2,6 +2,7 @@
 
 mod child_frame_container;
 mod child_frame_scope;
+mod container_band_guide;
 mod container_labels;
 mod coordination_scope;
 mod domain_coordination;
@@ -42,6 +43,10 @@ pub(crate) use self::child_frame_container::{
     ChildFrameContainerView, child_frame_container_overflow, child_frame_container_view_from_concat,
 };
 pub(crate) use self::child_frame_scope::{ChildFrameKey, ChildFrameScopeKey, ContainerPathSegment};
+pub(crate) use self::container_band_guide::{
+    ContainerBandGuideMeasurementConfig, ContainerBandGuideRenderConfig,
+    measure_container_band_guide_slab, render_container_band_guide_slab,
+};
 pub(crate) use self::container_labels::{
     ContainerLabelPlacement, container_label_items_from_child_frame_container,
     measure_container_label_slab, render_container_labels,

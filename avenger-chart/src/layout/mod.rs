@@ -1,6 +1,7 @@
 //! Chart frame layout engine.
 
 mod band_child_frame;
+mod band_position;
 mod chart_layout;
 mod child_frame;
 mod content_solver;
@@ -15,6 +16,7 @@ pub(crate) use band_child_frame::{
     BandChildFrameInput, BandChildFramePlacement, BandDirection, BandPlacedChild, BandSpacing,
     BoundaryDemand1D,
 };
+pub use band_position::{BandPosition, BandPositionIterator};
 pub(crate) use child_frame::{
     ChildFramePlacementResult, ChildFrameRenderPlacement, project_child_frame_bounds,
 };
