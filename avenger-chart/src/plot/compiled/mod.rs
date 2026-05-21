@@ -43,8 +43,8 @@ pub(crate) use self::child_frame_container::{
 };
 pub(crate) use self::child_frame_scope::{ChildFrameKey, ChildFrameScopeKey, ContainerPathSegment};
 pub(crate) use self::container_labels::{
-    ContainerLabelItem, ContainerLabelPlacement, measure_container_label_slab,
-    render_container_labels,
+    ContainerLabelChildFrame, ContainerLabelItem, ContainerLabelPlacement,
+    container_label_items_from_placements, measure_container_label_slab, render_container_labels,
 };
 pub(crate) use self::coordination_scope::{
     CoordinationAxis, CoordinationKind, CoordinationScopeKey,

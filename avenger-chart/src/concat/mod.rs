@@ -24,16 +24,17 @@ use crate::{
     layout::{
         BandChildFrameInput, BandChildFramePlacement, BandDirection, BandSpacing, BoundaryDemand1D,
         ChildFramePlacementResult, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode,
-        LayoutBounds, Size2D, project_child_frame_bounds,
+        LayoutBounds, Size2D,
     },
     marks::{CompiledConcatSubplot, CompiledMark, subplot::compiled_subplot},
     plot::{
         CompiledPlot,
         compiled::{
             ChildFrameDomainRequest, ChildFrameKey, ChildFrameScopeKey, ComponentsMeasurement,
-            ContainerLabelItem, ContainerLabelPlacement, ContainerPathSegment, CoordinationKind,
-            CoordinationScopeKey, aggregate_domain_requests,
-            child_frame_container_overflow_from_placements, measure_container_label_slab,
+            ContainerLabelChildFrame, ContainerLabelItem, ContainerLabelPlacement,
+            ContainerPathSegment, CoordinationKind, CoordinationScopeKey,
+            aggregate_domain_requests, child_frame_container_overflow_from_placements,
+            container_label_items_from_placements, measure_container_label_slab,
             render_container_labels, scale_provider::DynamicScaleProvider,
             scales::build_scale_builder_from_marks,
         },
@@ -436,43 +437,30 @@ fn concat_label_items(
     concat: &ConcatCoordMeasurement,
 ) -> Result<Vec<ContainerLabelItem>, AvengerChartError> {
     let placement = concat.child_frame_placement();
-    let mut items = Vec::new();
-
-    for render_placement in placement.render_placements() {
-        let child = concat.child(render_placement.child_index).ok_or_else(|| {
-            AvengerChartError::InternalError(format!(
-                "Missing concat child measurement for child index {}",
-                render_placement.child_index
-            ))
-        })?;
-        let Some(label) = child
-            .label
-            .as_deref()
-            .filter(|label| !label.trim().is_empty())
-        else {
-            continue;
-        };
-
-        let child_plot_bounds = *child.measurement.layout.plot_area_bounds();
-        let frame_bounds = project_child_frame_bounds(
-            [0.0, 0.0],
-            render_placement.origin,
-            child_plot_bounds,
-            child.measurement.frame_allocation.rect,
-        );
-
-        items.push(ContainerLabelItem {
-            text: label.to_string(),
-            plot_origin: render_placement.origin,
-            plot_size: Size2D::new(
-                child.measurement.plot_area_width,
-                child.measurement.plot_area_height,
-            ),
-            frame_bounds,
-        });
-    }
-
-    Ok(items)
+    container_label_items_from_placements(
+        &placement,
+        |child_index| {
+            let child = concat.child(child_index).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Missing concat child measurement for child index {}",
+                    child_index
+                ))
+            })?;
+            Ok(ContainerLabelChildFrame {
+                plot_bounds: *child.measurement.layout.plot_area_bounds(),
+                plot_size: Size2D::new(
+                    child.measurement.plot_area_width,
+                    child.measurement.plot_area_height,
+                ),
+                frame_bounds: child.measurement.frame_allocation.rect,
+            })
+        },
+        |child_index| {
+            concat
+                .child(child_index)
+                .and_then(|child| child.label.as_deref())
+        },
+    )
 }
 
 fn fixed_plot_area_layout_spec(width: f32, height: f32) -> EvaluatedLayoutSpec {

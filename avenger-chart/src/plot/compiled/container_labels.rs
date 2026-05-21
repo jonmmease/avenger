@@ -12,7 +12,8 @@ use datafusion::common::ScalarValue;
 use indexmap::IndexMap;
 
 use crate::{
-    layout::{LayoutBounds, Size2D},
+    error::AvengerChartError,
+    layout::{ChildFramePlacementResult, LayoutBounds, Size2D, project_child_frame_bounds},
     theme::{Theme, ThemeContext},
 };
 
@@ -37,6 +38,15 @@ pub(crate) struct ContainerLabelItem {
     pub(crate) frame_bounds: LayoutBounds,
 }
 
+/// Child-local geometry needed to project container labels into the parent
+/// frame.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ContainerLabelChildFrame {
+    pub(crate) plot_bounds: LayoutBounds,
+    pub(crate) plot_size: Size2D,
+    pub(crate) frame_bounds: LayoutBounds,
+}
+
 #[derive(Debug, Clone)]
 struct ContainerLabelStyle {
     font_family: String,
@@ -49,6 +59,40 @@ struct ContainerLabelStyle {
 struct MeasuredContainerLabel<'a> {
     item: &'a ContainerLabelItem,
     bounds: TextBounds,
+}
+
+/// Derive label anchors from child-frame placement metadata.
+pub(crate) fn container_label_items_from_placements<'a>(
+    placement: &ChildFramePlacementResult,
+    mut child_frame: impl FnMut(usize) -> Result<ContainerLabelChildFrame, AvengerChartError>,
+    mut child_label: impl FnMut(usize) -> Option<&'a str>,
+) -> Result<Vec<ContainerLabelItem>, AvengerChartError> {
+    let mut items = Vec::new();
+
+    for render_placement in placement.render_placements() {
+        let child_frame = child_frame(render_placement.child_index)?;
+        let Some(label) =
+            child_label(render_placement.child_index).filter(|label| !label.trim().is_empty())
+        else {
+            continue;
+        };
+
+        let frame_bounds = project_child_frame_bounds(
+            [0.0, 0.0],
+            render_placement.origin,
+            child_frame.plot_bounds,
+            child_frame.frame_bounds,
+        );
+
+        items.push(ContainerLabelItem {
+            text: label.to_string(),
+            plot_origin: render_placement.origin,
+            plot_size: child_frame.plot_size,
+            frame_bounds,
+        });
+    }
+
+    Ok(items)
 }
 
 /// Measure the extra slab required to draw labels outside the already measured
@@ -211,5 +255,114 @@ fn label_style(theme: &Theme, params: &IndexMap<String, ScalarValue>) -> Contain
         font_size: theme.font_size(&ctx).unwrap_or(DEFAULT_FONT_SIZE),
         font_weight: FontWeight::Number(theme.font_weight(&ctx).unwrap_or(DEFAULT_FONT_WEIGHT)),
         color: theme.text_color(&ctx).unwrap_or(DEFAULT_TEXT_COLOR),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::layout::{ChildFramePlacementResult, ChildFrameRenderPlacement};
+
+    #[test]
+    fn label_items_project_child_frames_and_skip_empty_labels() {
+        let placement = ChildFramePlacementResult::new(
+            Size2D::new(300.0, 200.0),
+            vec![
+                ChildFrameRenderPlacement {
+                    child_index: 10,
+                    origin: [20.0, 30.0],
+                },
+                ChildFrameRenderPlacement {
+                    child_index: 20,
+                    origin: [140.0, 30.0],
+                },
+            ],
+        );
+
+        let items = container_label_items_from_placements(
+            &placement,
+            |child_index| match child_index {
+                10 => Ok(ContainerLabelChildFrame {
+                    plot_bounds: LayoutBounds {
+                        x: 5.0,
+                        y: 8.0,
+                        width: 100.0,
+                        height: 80.0,
+                    },
+                    plot_size: Size2D::new(100.0, 80.0),
+                    frame_bounds: LayoutBounds {
+                        x: 1.0,
+                        y: 2.0,
+                        width: 130.0,
+                        height: 100.0,
+                    },
+                }),
+                20 => Ok(ContainerLabelChildFrame {
+                    plot_bounds: LayoutBounds {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 90.0,
+                        height: 70.0,
+                    },
+                    plot_size: Size2D::new(90.0, 70.0),
+                    frame_bounds: LayoutBounds {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 90.0,
+                        height: 70.0,
+                    },
+                }),
+                _ => unreachable!(),
+            },
+            |child_index| match child_index {
+                10 => Some("First"),
+                20 => Some("   "),
+                _ => unreachable!(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].text, "First");
+        assert_eq!(items[0].plot_origin, [20.0, 30.0]);
+        assert_eq!(items[0].plot_size, Size2D::new(100.0, 80.0));
+        assert_eq!(
+            items[0].frame_bounds,
+            LayoutBounds {
+                x: 16.0,
+                y: 24.0,
+                width: 130.0,
+                height: 100.0,
+            }
+        );
+    }
+
+    #[test]
+    fn label_items_require_matching_child_geometry() {
+        let placement = ChildFramePlacementResult::new(
+            Size2D::new(100.0, 80.0),
+            vec![ChildFrameRenderPlacement {
+                child_index: 2,
+                origin: [0.0, 0.0],
+            }],
+        );
+
+        let err = container_label_items_from_placements(
+            &placement,
+            |child_index| {
+                Err(AvengerChartError::InternalError(format!(
+                    "missing child {child_index}"
+                )))
+            },
+            |_child_index| None,
+        )
+        .unwrap_err();
+
+        match err {
+            AvengerChartError::InternalError(message) => {
+                assert!(message.contains("missing child 2"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 }
