@@ -16,17 +16,20 @@ use serde_with::serde_as;
 
 use crate::{
     cartesian::axis::{AxisPosition, CartesianAxis},
+    channel::value::strip_trailing_numbers,
     coords::{CoordMeasurement, EmptyCoordMeasurement, extract_channel_title_from_marks},
     error::AvengerChartError,
-    facet::evaluated_facet_tree::EvaluatedFacetTree,
     guide::{
-        CompiledGuide, CoordinateGuide, FacetDirection, GuideUpdate, OverflowSpaceRequirement,
-        UnifiableChannelInfo,
+        CompiledGuide, CoordinateGuide, FacetDirection, GuideSharingContext, GuideUpdate,
+        OverflowSpaceRequirement, UnifiableChannelInfo,
     },
     layout::LayoutBounds,
     marks::CompiledMark,
     maybe::{Maybe, MaybeOptionalExpr},
-    plot::{IntoExpr, compiled::expr_eval::evaluate_string_expr},
+    plot::{
+        IntoExpr,
+        compiled::{SharingLevel, expr_eval::evaluate_string_expr},
+    },
     serialization::LogicalExprNodeExt,
     theme::{Theme, ThemeContext},
     utils::parse_color_to_array_strict,
@@ -54,6 +57,9 @@ pub struct CartesianGuide {
     pub options: CartesianOptions,
     /// Channel titles extracted from mark renderers
     pub channel_titles: HashMap<String, String>,
+    /// Child-frame scale sharing levels extracted from mark channels.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub(crate) channel_sharing_levels: HashMap<String, u8>,
 }
 
 impl std::fmt::Debug for CartesianGuide {
@@ -62,6 +68,7 @@ impl std::fmt::Debug for CartesianGuide {
             .field("axes", &self.axes)
             .field("options", &self.options)
             .field("channel_titles", &self.channel_titles)
+            .field("channel_sharing_levels", &self.channel_sharing_levels)
             .finish()
     }
 }
@@ -72,6 +79,7 @@ impl CartesianGuide {
             axes: HashMap::new(),
             options: CartesianOptions::default(),
             channel_titles: HashMap::new(),
+            channel_sharing_levels: HashMap::new(),
         }
     }
 
@@ -182,6 +190,21 @@ impl CoordinateGuide for CartesianGuide {
                 self.channel_titles.insert(channel.to_string(), title);
             }
         }
+
+        self.channel_sharing_levels.clear();
+        for mark in &compiled_marks {
+            for (channel, channel_value) in mark.data_context().channels() {
+                let Some(sharing) = channel_value.get_share_mode() else {
+                    continue;
+                };
+                let channel = strip_trailing_numbers(channel).to_string();
+                let sharing_level = SharingLevel::from(sharing).raw();
+                self.channel_sharing_levels
+                    .entry(channel)
+                    .and_modify(|existing| *existing = (*existing).max(sharing_level))
+                    .or_insert(sharing_level);
+            }
+        }
     }
 
     fn update(&mut self, other: Self) {
@@ -206,8 +229,7 @@ impl CompiledGuide for CartesianGuide {
         params: &indexmap::IndexMap<String, ScalarValue>,
         data_override: Option<&DataFrame>,
         ctx: &SessionContext,
-        facet_tree: &EvaluatedFacetTree,
-        facet_path: &[ScalarValue],
+        sharing_context: GuideSharingContext<'_>,
         coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         // Use provided coord_measurement or default empty one (CartesianGuide doesn't use it)
@@ -236,8 +258,7 @@ impl CompiledGuide for CartesianGuide {
                 params,
                 ctx,
                 data_override,
-                facet_tree,
-                facet_path,
+                sharing_context,
                 coord_measurement,
             )
             .await?;
@@ -309,8 +330,7 @@ impl CompiledGuide for CartesianGuide {
         params: &indexmap::IndexMap<String, ScalarValue>,
         ctx: &SessionContext,
         _data_override: Option<&DataFrame>,
-        facet_tree: &EvaluatedFacetTree,
-        facet_path: &[ScalarValue],
+        sharing_context: GuideSharingContext<'_>,
         _coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
@@ -359,8 +379,6 @@ impl CompiledGuide for CartesianGuide {
                     .visible(true)
                     .grid(grid);
 
-                // Use previously extracted title if available
-                // Note: unified channel checking removed - visibility will be redesigned
                 if let Some(title) = self.channel_titles.get(channel_name) {
                     axis = axis.title(title.clone());
                 }
@@ -372,8 +390,7 @@ impl CompiledGuide for CartesianGuide {
         // Merge with user-configured axes
         let mut all_axes = default_axes;
 
-        // Apply user configurations on top of defaults
-        // Note: unified channel checking removed - visibility will be redesigned
+        // Apply user configurations on top of defaults.
         for (channel, user_axis) in &self.axes {
             let axis_to_apply = user_axis.clone();
 
@@ -387,10 +404,18 @@ impl CompiledGuide for CartesianGuide {
         // Render each axis
         for (channel, axis) in &all_axes {
             if let Some(scale) = scales.get(channel) {
-                // Get sharing level for this channel from the facet tree.
-                // The facet tree stores sharing levels extracted from innermost marks.
-                // Keep this value intact for ownership/title calculations.
-                let sharing_level = facet_tree.channel_domain_sharing_level_typed(channel);
+                // Facets store channel sharing on the facet tree. Concat-like
+                // child-frame containers have no facet tree, so they use the
+                // guide's mark-derived channel sharing map instead.
+                let facet_sharing_level = sharing_context
+                    .facet_tree
+                    .channel_domain_sharing_level_typed(channel);
+                let child_frame_sharing_level = self
+                    .channel_sharing_levels
+                    .get(channel)
+                    .copied()
+                    .map(SharingLevel::from_raw)
+                    .unwrap_or(SharingLevel::FREE);
                 let axis_mark = axis
                     .evaluate(
                         channel,
@@ -401,9 +426,9 @@ impl CompiledGuide for CartesianGuide {
                         theme,
                         params,
                         ctx,
-                        facet_tree,
-                        facet_path,
-                        sharing_level.raw(),
+                        sharing_context,
+                        facet_sharing_level,
+                        child_frame_sharing_level,
                     )
                     .await?;
                 marks.push(axis_mark);

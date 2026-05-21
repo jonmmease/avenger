@@ -32,6 +32,7 @@ use crate::{
             resolve_facet_band_placement, resolve_facet_band_placement_from_configured_scales,
         },
     },
+    guide::GuideSharingContext,
     layout::{BandPosition, BandPositionIterator, LayoutBounds},
     plot::compiled::{
         CompiledPlot, ComponentsMeasurement, ContainerBandGuideMeasurementConfig,
@@ -392,8 +393,7 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
     params: &IndexMap<String, ScalarValue>,
     data_override: Option<&DataFrame>,
     ctx: &SessionContext,
-    facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-    facet_path: &[ScalarValue],
+    sharing_context: GuideSharingContext<'_>,
     coord_measurement: Option<&dyn CoordMeasurement>,
     measurement_phase: FacetOverflowResolutionPhase,
 ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
@@ -415,8 +415,7 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
             params,
             data_override,
             ctx,
-            facet_tree,
-            facet_path,
+            sharing_context,
         )
         .await?
     };
@@ -424,8 +423,8 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
     let place_at_end = O::place_at_end(state.position.as_deref());
     let axis_position = O::axis_position(place_at_end);
     let guide_visible = facet_guide_labels_visible_for_cell(
-        facet_tree,
-        facet_path,
+        sharing_context.facet_tree,
+        sharing_context.facet_path,
         axis_position,
         state.sharing_level.raw(),
     );
@@ -443,7 +442,11 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
         return Ok(subplot_overflow);
     }
 
-    let title_visible = facet_guide_title_visible_for_cell(facet_tree, facet_path, axis_position);
+    let title_visible = facet_guide_title_visible_for_cell(
+        sharing_context.facet_tree,
+        sharing_context.facet_path,
+        axis_position,
+    );
     let title_for_cell = title_visible
         .then_some(state.facet_title.as_ref())
         .flatten();
@@ -464,8 +467,7 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
             params,
             data_override,
             ctx,
-            facet_tree,
-            facet_path,
+            sharing_context,
         )
         .await?;
         let measured_anchor = O::side_overflow_anchor(place_at_end, &measured_subplot_overflow);
@@ -513,15 +515,14 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
     params: &IndexMap<String, ScalarValue>,
     data_override: Option<&DataFrame>,
     ctx: &SessionContext,
-    facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-    facet_path: &[ScalarValue],
+    sharing_context: GuideSharingContext<'_>,
     coord_measurement: &dyn CoordMeasurement,
 ) -> Result<Vec<avenger_scenegraph::marks::mark::SceneMark>, AvengerChartError> {
     let place_at_end = O::place_at_end(state.position.as_deref());
     let axis_position = O::axis_position(place_at_end);
     let guide_visible = facet_guide_labels_visible_for_cell(
-        facet_tree,
-        facet_path,
+        sharing_context.facet_tree,
+        sharing_context.facet_path,
         axis_position,
         state.sharing_level.raw(),
     );
@@ -541,7 +542,11 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
     }
 
     let band_positions = O::align_band_positions_for_render(&band_positions, coord_measurement);
-    let title_visible = facet_guide_title_visible_for_cell(facet_tree, facet_path, axis_position);
+    let title_visible = facet_guide_title_visible_for_cell(
+        sharing_context.facet_tree,
+        sharing_context.facet_path,
+        axis_position,
+    );
     let title_for_cell = title_visible
         .then_some(state.facet_title.as_ref())
         .flatten();
@@ -566,8 +571,7 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
                 params,
                 data_override,
                 ctx,
-                facet_tree,
-                facet_path,
+                sharing_context,
             )
             .await?;
             let measured_anchor = O::side_overflow_anchor(place_at_end, &measured_subplot_overflow);
@@ -637,8 +641,7 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
     params: &IndexMap<String, ScalarValue>,
     data_override: Option<&DataFrame>,
     ctx: &SessionContext,
-    facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-    facet_path: &[ScalarValue],
+    sharing_context: GuideSharingContext<'_>,
 ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
     let Some(subplot) = &state.compiled_subplot else {
         return Ok(OverflowSpaceRequirement::default());
@@ -687,8 +690,7 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
                     params,
                     Some(data),
                     ctx,
-                    facet_tree,
-                    facet_path,
+                    sharing_context,
                     None,
                 )
                 .await;
@@ -698,15 +700,23 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
             .iter()
             .map(|band_position| band_position.value.clone())
             .collect();
-        let (first_idx, last_idx) =
-            effective_edge_indices_for_values_at_path(facet_tree, facet_path, &cell_values)
-                .unwrap_or((0, band_positions.len() - 1));
+        let (first_idx, last_idx) = effective_edge_indices_for_values_at_path(
+            sharing_context.facet_tree,
+            sharing_context.facet_path,
+            &cell_values,
+        )
+        .unwrap_or((0, band_positions.len() - 1));
 
         let first_path = {
-            let mut path = facet_path.to_vec();
+            let mut path = sharing_context.facet_path.to_vec();
             path.push(band_positions[first_idx].value.clone());
             path
         };
+        let first_context = GuideSharingContext::new(
+            sharing_context.facet_tree,
+            &first_path,
+            sharing_context.child_frame_sharing_path,
+        );
         let first_overflow = guide
             .measure_overflow(
                 &configured_scales,
@@ -716,8 +726,7 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
                 params,
                 Some(data),
                 ctx,
-                facet_tree,
-                &first_path,
+                first_context,
                 None,
             )
             .await?;
@@ -726,10 +735,15 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
         }
 
         let last_path = {
-            let mut path = facet_path.to_vec();
+            let mut path = sharing_context.facet_path.to_vec();
             path.push(band_positions[last_idx].value.clone());
             path
         };
+        let last_context = GuideSharingContext::new(
+            sharing_context.facet_tree,
+            &last_path,
+            sharing_context.child_frame_sharing_path,
+        );
         let last_overflow = guide
             .measure_overflow(
                 &configured_scales,
@@ -739,8 +753,7 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
                 params,
                 Some(data),
                 ctx,
-                facet_tree,
-                &last_path,
+                last_context,
                 None,
             )
             .await?;

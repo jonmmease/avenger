@@ -61,7 +61,7 @@ use crate::{
         },
         subtree_plot_area::{LeafPlotAreaSize, estimate_root_plot_area_from_leaf_size},
     },
-    guide::{GuideOverflowPhase, OverflowSpaceRequirement},
+    guide::{GuideOverflowPhase, GuideSharingContext, OverflowSpaceRequirement},
     layout::{
         EdgeSlabs, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, FrameAllocation,
         FrameLayout, FrameLayoutInput, LayoutBounds, LayoutSpec, Margins, ResolvedLayoutDimensions,
@@ -88,9 +88,10 @@ use crate::{
 };
 
 use super::{
-    ChildFrameContainerView, CompiledPlot, ComponentsMeasurement, PlotComponents,
+    ChildFrameContainerView, ChildFrameSharingPath, CompiledPlot, ComponentsMeasurement,
+    PlotComponents,
     expr_eval::evaluate_f32_expr,
-    legends::{HoistedLegendRequest, LegendPlanScope, PreparedLegendPlan},
+    legends::{HoistedLegendAnchor, HoistedLegendRequest, LegendPlanScope, PreparedLegendPlan},
     scale_provider::{DynamicScaleProvider, ScaleProvider},
     scales::build_scale_builder_from_marks,
 };
@@ -1538,6 +1539,7 @@ impl CompiledPlot {
         data_override: Option<&DataFrame>,
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[ScalarValue],
+        child_frame_sharing_path: &ChildFrameSharingPath,
         coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Use the pre-built guide renderer if available
@@ -1564,6 +1566,8 @@ impl CompiledPlot {
                 }
             }
 
+            let sharing_context =
+                GuideSharingContext::new(facet_tree, facet_path, child_frame_sharing_path);
             compiled_guide
                 .evaluate(
                     &configured_scales,
@@ -1575,8 +1579,7 @@ impl CompiledPlot {
                     params,
                     ctx,
                     data_override,
-                    facet_tree,
-                    facet_path,
+                    sharing_context,
                     coord_measurement,
                 )
                 .await
@@ -1599,6 +1602,7 @@ impl CompiledPlot {
         data_override: Option<&DataFrame>,
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[ScalarValue],
+        child_frame_sharing_path: &ChildFrameSharingPath,
     ) -> Result<(LayoutSolution, PreparedLegendPlan), AvengerChartError> {
         // Check for required positional scales before measuring overflow
         self.validate_positional_scales_exist(scales)?;
@@ -1626,6 +1630,8 @@ impl CompiledPlot {
                 .iter()
                 .map(|(k, v)| (k.clone(), v.configured().clone()))
                 .collect();
+            let sharing_context =
+                GuideSharingContext::new(facet_tree, facet_path, child_frame_sharing_path);
             compiled_guide
                 .measure_overflow(
                     &configured_scales,
@@ -1635,8 +1641,7 @@ impl CompiledPlot {
                     params,
                     data_override,
                     ctx,
-                    facet_tree,
-                    facet_path,
+                    sharing_context,
                     None, // No coordinate-system measurement is available during initial guide probing.
                 )
                 .await?
@@ -1648,11 +1653,7 @@ impl CompiledPlot {
             width: estimate_width,
             height: estimate_height,
         };
-        let scope = if facet_path.is_empty() {
-            LegendPlanScope::TopLevel
-        } else {
-            LegendPlanScope::FacetCell
-        };
+        let scope = Self::legend_scope_for_context(facet_path, child_frame_sharing_path);
         self.compute_layout_with_precomputed_overflow(
             &overflow,
             layout_spec,
@@ -1662,6 +1663,7 @@ impl CompiledPlot {
             params,
             facet_tree,
             facet_path,
+            child_frame_sharing_path,
             scope,
         )
         .await
@@ -1677,6 +1679,7 @@ impl CompiledPlot {
         params: &IndexMap<String, ScalarValue>,
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[ScalarValue],
+        child_frame_sharing_path: &ChildFrameSharingPath,
         scope: LegendPlanScope,
     ) -> Result<(LayoutSolution, PreparedLegendPlan), AvengerChartError> {
         self.compute_layout_with_precomputed_overflow_and_coord(
@@ -1688,6 +1691,7 @@ impl CompiledPlot {
             params,
             facet_tree,
             facet_path,
+            child_frame_sharing_path,
             scope,
             None,
         )
@@ -1705,6 +1709,7 @@ impl CompiledPlot {
         params: &IndexMap<String, ScalarValue>,
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[ScalarValue],
+        child_frame_sharing_path: &ChildFrameSharingPath,
         scope: LegendPlanScope,
         coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<(LayoutSolution, PreparedLegendPlan), AvengerChartError> {
@@ -1716,6 +1721,7 @@ impl CompiledPlot {
                 params,
                 facet_tree,
                 facet_path,
+                child_frame_sharing_path,
                 scope,
             )
             .await?;
@@ -1727,6 +1733,7 @@ impl CompiledPlot {
             ctx,
             params,
             facet_path,
+            child_frame_sharing_path,
             coord_measurement,
             legend_plan,
         )
@@ -1742,6 +1749,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
         facet_path: &[ScalarValue],
+        child_frame_sharing_path: &ChildFrameSharingPath,
         coord_measurement: Option<&dyn CoordMeasurement>,
         mut legend_plan: PreparedLegendPlan,
     ) -> Result<(LayoutSolution, PreparedLegendPlan), AvengerChartError> {
@@ -1750,6 +1758,7 @@ impl CompiledPlot {
                 &mut legend_plan,
                 coord_measurement,
                 facet_path,
+                child_frame_sharing_path,
                 available_size,
                 ctx,
                 params,
@@ -1810,6 +1819,22 @@ impl CompiledPlot {
             }
         }
 
+        if let Some(concat) = coord_measurement
+            .as_any()
+            .downcast_ref::<crate::concat::ConcatCoordMeasurement>()
+        {
+            for child in &concat.children {
+                requests.extend(
+                    child
+                        .measurement
+                        .legend_plan
+                        .hoisted_requests
+                        .iter()
+                        .cloned(),
+                );
+            }
+        }
+
         requests
     }
 
@@ -1819,6 +1844,7 @@ impl CompiledPlot {
         legend_plan: &mut PreparedLegendPlan,
         coord_measurement: &dyn CoordMeasurement,
         facet_path: &[ScalarValue],
+        child_frame_sharing_path: &ChildFrameSharingPath,
         available_size: Size2D,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
@@ -1826,8 +1852,12 @@ impl CompiledPlot {
         let mut anchored_here = Vec::new();
         let mut remaining = Vec::new();
 
+        let facet_anchor = HoistedLegendAnchor::FacetPath(facet_path.to_vec());
+        let child_frame_anchor =
+            HoistedLegendAnchor::ChildFrameContainer(child_frame_sharing_path.container_path());
+
         for request in Self::collect_child_hoisted_legend_requests(coord_measurement) {
-            if request.anchor_path == facet_path {
+            if request.anchor == facet_anchor || request.anchor == child_frame_anchor {
                 anchored_here.push(request);
             } else {
                 remaining.push(request);
@@ -1870,15 +1900,26 @@ impl CompiledPlot {
                 &params_with_dims.params,
                 params_with_dims.facet_tree.as_ref(),
                 facet_path,
-                Self::legend_scope_for_facet_path(facet_path),
+                params_with_dims.child_frame_sharing_path(),
+                Self::legend_scope_for_context(
+                    facet_path,
+                    params_with_dims.child_frame_sharing_path(),
+                ),
             )
             .await?;
         Ok(layout.total_overflow)
     }
 
     #[inline]
-    fn legend_scope_for_facet_path(facet_path: &[ScalarValue]) -> LegendPlanScope {
-        if facet_path.is_empty() {
+    fn legend_scope_for_context(
+        facet_path: &[ScalarValue],
+        child_frame_sharing_path: &ChildFrameSharingPath,
+    ) -> LegendPlanScope {
+        if !child_frame_sharing_path.levels().is_empty() {
+            LegendPlanScope::ChildFrame {
+                sharing_path: child_frame_sharing_path.clone(),
+            }
+        } else if facet_path.is_empty() {
             LegendPlanScope::TopLevel
         } else {
             LegendPlanScope::FacetCell
@@ -1895,6 +1936,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[ScalarValue],
+        child_frame_sharing_path: &ChildFrameSharingPath,
         coord_measurement: Option<&dyn CoordMeasurement>,
         phase: GuideOverflowPhase,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
@@ -1907,6 +1949,8 @@ impl CompiledPlot {
             .map(|(k, v)| (k.clone(), v.configured().clone()))
             .collect();
 
+        let sharing_context =
+            GuideSharingContext::new(facet_tree, facet_path, child_frame_sharing_path);
         compiled_guide
             .measure_overflow_for_phase(
                 &configured_scales,
@@ -1916,8 +1960,7 @@ impl CompiledPlot {
                 params,
                 data_override,
                 ctx,
-                facet_tree,
-                facet_path,
+                sharing_context,
                 coord_measurement,
                 phase,
             )
@@ -1935,6 +1978,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[ScalarValue],
+        child_frame_sharing_path: &ChildFrameSharingPath,
         coord_measurement: Option<&dyn CoordMeasurement>,
         phase: GuideOverflowPhase,
     ) -> Result<(OverflowSpaceRequirement, LayoutSolution, PreparedLegendPlan), AvengerChartError>
@@ -1949,6 +1993,7 @@ impl CompiledPlot {
                 ctx,
                 facet_tree,
                 facet_path,
+                child_frame_sharing_path,
                 coord_measurement,
                 phase,
             )
@@ -1967,7 +2012,8 @@ impl CompiledPlot {
                 params,
                 facet_tree,
                 facet_path,
-                Self::legend_scope_for_facet_path(facet_path),
+                child_frame_sharing_path,
+                Self::legend_scope_for_context(facet_path, child_frame_sharing_path),
                 coord_measurement,
             )
             .await?;
@@ -2042,6 +2088,7 @@ impl CompiledPlot {
                 ctx,
                 facet_tree,
                 facet_path,
+                eval_ctx.child_frame_sharing_path(),
                 Some(measurement.coord_measurement.as_ref()),
                 GuideOverflowPhase::Final,
             )
@@ -2575,6 +2622,7 @@ impl CompiledPlot {
                 ctx,
                 facet_tree,
                 facet_path,
+                eval_ctx.child_frame_sharing_path(),
                 Some(measurement.coord_measurement.as_ref()),
                 GuideOverflowPhase::Final,
             )
@@ -2683,6 +2731,7 @@ impl CompiledPlot {
                 ctx,
                 facet_tree,
                 facet_path,
+                eval_ctx.child_frame_sharing_path(),
                 Some(measurement.coord_measurement.as_ref()),
                 GuideOverflowPhase::Final,
             )
@@ -3271,6 +3320,7 @@ impl CompiledPlot {
         data_override: Option<&DataFrame>,
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[ScalarValue],
+        child_frame_sharing_path: &ChildFrameSharingPath,
     ) -> Result<(f32, f32, (f32, f32), LayoutSolution, PreparedLegendPlan), AvengerChartError> {
         if dimensions.dimensions_are_plot_area() {
             // Plot area mode: dimensions specify the plot area size.
@@ -3290,6 +3340,7 @@ impl CompiledPlot {
                     data_override,
                     facet_tree,
                     facet_path,
+                    child_frame_sharing_path,
                 )
                 .await?;
 
@@ -3327,6 +3378,7 @@ impl CompiledPlot {
                     data_override,
                     facet_tree,
                     facet_path,
+                    child_frame_sharing_path,
                 )
                 .await?;
 
@@ -3456,6 +3508,7 @@ impl CompiledPlot {
                 data_override,
                 facet_tree,
                 facet_path,
+                eval_ctx.child_frame_sharing_path(),
             )
             .await?;
 
@@ -3496,6 +3549,7 @@ impl CompiledPlot {
                     ctx,
                     facet_tree,
                     facet_path,
+                    eval_ctx.child_frame_sharing_path(),
                     Some(coord_measurement.as_ref()),
                     GuideOverflowPhase::Measurement,
                 )
@@ -3677,6 +3731,7 @@ impl CompiledPlot {
                         data_override,
                         eval_ctx.facet_tree.as_ref(),
                         facet_path,
+                        eval_ctx.child_frame_sharing_path(),
                         coord_measurement_ref,
                     )
                     .await?;
@@ -3753,6 +3808,7 @@ impl CompiledPlot {
                         data_override,
                         eval_ctx.facet_tree.as_ref(),
                         facet_path,
+                        eval_ctx.child_frame_sharing_path(),
                         coord_measurement_ref,
                     )
                     .await?;
@@ -8118,6 +8174,7 @@ mod tests {
                     &eval_ctx.session_context,
                     eval_ctx.facet_tree.as_ref(),
                     &first_non_empty.plan.full_path,
+                    eval_ctx.child_frame_sharing_path(),
                     Some(child_measurement.coord_measurement.as_ref()),
                     GuideOverflowPhase::Final,
                 )
@@ -8133,6 +8190,7 @@ mod tests {
                     &eval_ctx.session_context,
                     eval_ctx.facet_tree.as_ref(),
                     &first_non_empty.plan.full_path,
+                    eval_ctx.child_frame_sharing_path(),
                     None,
                     GuideOverflowPhase::Measurement,
                 )

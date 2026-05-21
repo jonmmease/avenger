@@ -95,6 +95,68 @@ fn shared_x_child(data: DataFrame, title: &str) -> Plot<Cartesian> {
     )
 }
 
+fn shared_x_child_no_title(data: DataFrame) -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().data(data).mark(
+        Symbol::<Cartesian>::new()
+            .x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                    .with_scale_sharing(ScaleSharing::Shared)
+                    .axis(|a| a.title("Shared x"))
+            })
+            .y_with(col("y"), |c| c.axis(|a| a.title("y")))
+            .fill("#4682b4")
+            .stroke("#ffffff")
+            .stroke_width(1.0)
+            .size(96.0),
+    )
+}
+
+fn shared_y_child(data: DataFrame, title: &str) -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().data(data).title(title).mark(
+        Symbol::<Cartesian>::new()
+            .x_with(col("x"), |c| c.axis(|a| a.title("x")))
+            .y_with(col("y"), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                    .with_scale_sharing(ScaleSharing::Shared)
+                    .axis(|a| a.title("Shared y"))
+            })
+            .fill("#4682b4")
+            .stroke("#ffffff")
+            .stroke_width(1.0)
+            .size(96.0),
+    )
+}
+
+fn shared_color_child(data: DataFrame, title: &str, position: LegendPosition) -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().data(data).title(title).mark(
+        Symbol::<Cartesian>::new()
+            .x(col("x"))
+            .y(col("y"))
+            .fill_with(col("category"), |c| {
+                c.with_scale_sharing(ScaleSharing::Shared)
+                    .legend(|l| l.title("Category").position(position))
+            })
+            .size(96.0)
+            .stroke("#ffffff")
+            .stroke_width(1.0),
+    )
+}
+
+fn level1_shared_x_child(data: DataFrame) -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().data(data).mark(
+        Symbol::<Cartesian>::new()
+            .x_with(col("x"), |c| {
+                c.with_scale_sharing(ScaleSharing::Level(1))
+                    .axis(|a| a.title("Level 1 x"))
+            })
+            .y(col("y"))
+            .fill("#4682b4")
+            .stroke("#ffffff")
+            .stroke_width(1.0)
+            .size(80.0),
+    )
+}
+
 fn numeric_polar_child() -> Plot<Polar> {
     Plot::<Polar>::new().title("Polar").mark(
         Symbol::<Polar>::new()
@@ -137,6 +199,199 @@ async fn hconcat_shared_x_domains() {
         .await
         .expect("compile shared-domain hconcat chart");
     assert_visual_match_default(&compiled, &ctx, None, "concat", "hconcat_shared_x_domains").await;
+}
+
+#[tokio::test]
+async fn hconcat_shared_y_axis() {
+    let ctx = SessionContext::new();
+    let left = ctx
+        .sql(
+            "SELECT column1 AS x, column2 AS y
+             FROM (VALUES (1.0, 1.0), (1.5, 1.8), (2.0, 2.4))",
+        )
+        .await
+        .expect("create left shared-y concat data");
+    let right = ctx
+        .sql(
+            "SELECT column1 AS x, column2 AS y
+             FROM (VALUES (1.0, 100.0), (1.5, 100.5), (2.0, 101.0))",
+        )
+        .await
+        .expect("create right shared-y concat data");
+    let plot = Plot::<HConcat>::new()
+        .canvas_size(780.0, 320.0)
+        .title("Shared concat y axis")
+        .mark(Subplot::new(shared_y_child(left, "Local low y")).key("low"))
+        .mark(Subplot::new(shared_y_child(right, "Local high y")).key("high"));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile shared-y hconcat chart");
+    assert_visual_match_default(&compiled, &ctx, None, "concat", "hconcat_shared_y_axis").await;
+}
+
+#[tokio::test]
+async fn vconcat_shared_x_axis() {
+    let ctx = SessionContext::new();
+    let top = ctx
+        .sql(
+            "SELECT column1 AS x, column2 AS y
+             FROM (VALUES (1.0, 1.0), (1.5, 1.8), (2.0, 2.4))",
+        )
+        .await
+        .expect("create top shared-x concat data");
+    let bottom = ctx
+        .sql(
+            "SELECT column1 AS x, column2 AS y
+             FROM (VALUES (100.0, 1.2), (100.5, 2.1), (101.0, 2.8))",
+        )
+        .await
+        .expect("create bottom shared-x concat data");
+    let plot = Plot::<VConcat>::new()
+        .canvas_size(560.0, 620.0)
+        .title("Shared concat x axis")
+        .mark(Subplot::new(shared_x_child_no_title(top)).key("low"))
+        .mark(Subplot::new(shared_x_child_no_title(bottom)).key("high"));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile shared-x vconcat chart");
+    assert_visual_match_default(&compiled, &ctx, None, "concat", "vconcat_shared_x_axis").await;
+}
+
+#[tokio::test]
+async fn hconcat_shared_color_legend_right() {
+    let ctx = SessionContext::new();
+    let left = ctx
+        .sql(
+            "SELECT column1 AS x, column2 AS y, column3 AS category
+             FROM (VALUES (1.0, 1.0, 'Low'), (1.5, 1.8, 'High'), (2.0, 2.4, 'Low'))",
+        )
+        .await
+        .expect("create left shared legend concat data");
+    let right = ctx
+        .sql(
+            "SELECT column1 AS x, column2 AS y, column3 AS category
+             FROM (VALUES (1.0, 1.2, 'High'), (1.5, 2.1, 'Low'), (2.0, 2.8, 'High'))",
+        )
+        .await
+        .expect("create right shared legend concat data");
+    let plot = Plot::<HConcat>::new()
+        .canvas_size(780.0, 320.0)
+        .title("Shared concat legend")
+        .mark(Subplot::new(shared_color_child(left, "Left", LegendPosition::Right)).key("left"))
+        .mark(Subplot::new(shared_color_child(right, "Right", LegendPosition::Right)).key("right"));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile shared-legend hconcat chart");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "concat",
+        "hconcat_shared_color_legend_right",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn vconcat_shared_color_legend_bottom() {
+    let ctx = SessionContext::new();
+    let top = ctx
+        .sql(
+            "SELECT column1 AS x, column2 AS y, column3 AS category
+             FROM (VALUES (1.0, 1.0, 'Low'), (1.5, 1.8, 'High'), (2.0, 2.4, 'Low'))",
+        )
+        .await
+        .expect("create top shared legend concat data");
+    let bottom = ctx
+        .sql(
+            "SELECT column1 AS x, column2 AS y, column3 AS category
+             FROM (VALUES (1.0, 1.2, 'High'), (1.5, 2.1, 'Low'), (2.0, 2.8, 'High'))",
+        )
+        .await
+        .expect("create bottom shared legend concat data");
+    let plot = Plot::<VConcat>::new()
+        .canvas_size(560.0, 620.0)
+        .title("Shared concat legend")
+        .mark(Subplot::new(shared_color_child(top, "Top", LegendPosition::Bottom)).key("top"))
+        .mark(
+            Subplot::new(shared_color_child(bottom, "Bottom", LegendPosition::Bottom))
+                .key("bottom"),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile shared-legend vconcat chart");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "concat",
+        "vconcat_shared_color_legend_bottom",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn nested_concat_level1_shared_axis() {
+    let ctx = SessionContext::new();
+    let datasets = [
+        ctx.sql(
+            "SELECT column1 AS x, column2 AS y
+             FROM (VALUES (1.0, 1.0), (1.5, 1.8), (2.0, 2.4))",
+        )
+        .await
+        .expect("create nested concat data a"),
+        ctx.sql(
+            "SELECT column1 AS x, column2 AS y
+             FROM (VALUES (10.0, 1.2), (10.5, 2.1), (11.0, 2.8))",
+        )
+        .await
+        .expect("create nested concat data b"),
+        ctx.sql(
+            "SELECT column1 AS x, column2 AS y
+             FROM (VALUES (100.0, 1.5), (100.5, 2.0), (101.0, 2.7))",
+        )
+        .await
+        .expect("create nested concat data c"),
+        ctx.sql(
+            "SELECT column1 AS x, column2 AS y
+             FROM (VALUES (110.0, 1.3), (110.5, 2.2), (111.0, 2.9))",
+        )
+        .await
+        .expect("create nested concat data d"),
+    ];
+
+    let left_column = Plot::<VConcat>::new()
+        .mark(Subplot::new(level1_shared_x_child(datasets[0].clone())).key("lt"))
+        .mark(Subplot::new(level1_shared_x_child(datasets[1].clone())).key("lb"));
+    let right_column = Plot::<VConcat>::new()
+        .mark(Subplot::new(level1_shared_x_child(datasets[2].clone())).key("rt"))
+        .mark(Subplot::new(level1_shared_x_child(datasets[3].clone())).key("rb"));
+    let plot = Plot::<HConcat>::new()
+        .canvas_size(820.0, 560.0)
+        .title("Nested Level(1) concat sharing")
+        .mark(Subplot::new(left_column).key("left").label("Left"))
+        .mark(Subplot::new(right_column).key("right").label("Right"));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile nested level1 concat chart");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "concat",
+        "nested_concat_level1_shared_axis",
+    )
+    .await;
 }
 
 #[tokio::test]

@@ -17,6 +17,7 @@ use crate::{
     guide::{MeasurementResult, OverflowSpaceRequirement},
     layout::LayoutBounds,
     marks::CompiledMark,
+    plot::compiled::ChildFrameSharingPath,
     theme::Theme,
 };
 
@@ -36,6 +37,28 @@ pub struct UnifiableChannelInfo {
     pub channel: String,
     /// The title to use for the unified axis (extracted from marks)
     pub title: Option<String>,
+}
+
+/// Sharing context available while measuring or rendering coordinate guides.
+#[derive(Clone, Copy)]
+pub struct GuideSharingContext<'a> {
+    pub(crate) facet_tree: &'a EvaluatedFacetTree,
+    pub(crate) facet_path: &'a [ScalarValue],
+    pub(crate) child_frame_sharing_path: &'a ChildFrameSharingPath,
+}
+
+impl<'a> GuideSharingContext<'a> {
+    pub(crate) fn new(
+        facet_tree: &'a EvaluatedFacetTree,
+        facet_path: &'a [ScalarValue],
+        child_frame_sharing_path: &'a ChildFrameSharingPath,
+    ) -> Self {
+        Self {
+            facet_tree,
+            facet_path,
+            child_frame_sharing_path,
+        }
+    }
 }
 
 /// Trait for visual guides in coordinate systems
@@ -85,11 +108,9 @@ pub trait CompiledGuide: Send + Sync + 'static {
     /// * `data_override` - Optional DataFrame to use instead of compiled data.
     ///   This enables nested facets to pass filtered data to inner guides at runtime.
     ///   When Some, guides should use this data. When None, use compiled data.
-    /// * `facet_tree` - The evaluated facet tree for visibility decisions.
-    /// * `facet_path` - Path of values identifying the cell in the facet grid (e.g., `["East", "Eng"]`).
-    ///   Empty slice when not in a facet cell.
-    ///   Used for visibility-aware overflow: interior cells may hide axis labels.
-    ///   The tree converts this to indices internally for visibility checks.
+    /// * `sharing_context` - Guide sharing context for visibility decisions.
+    ///   It includes the facet path/tree and any generic child-frame sharing
+    ///   path for concat-like containers.
     /// * `coord_measurement` - Optional coordinate measurement data from `coord_transform.measure()`.
     ///   **This is purely for efficiency** - when provided, implementations may use pre-computed
     ///   data (e.g., subplot measurements for facet guides) to avoid redundant computation.
@@ -103,8 +124,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
         params: &IndexMap<String, ScalarValue>,
         data_override: Option<&DataFrame>,
         ctx: &SessionContext,
-        facet_tree: &EvaluatedFacetTree,
-        facet_path: &[ScalarValue],
+        sharing_context: GuideSharingContext<'_>,
         coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError>;
 
@@ -122,8 +142,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
         params: &IndexMap<String, ScalarValue>,
         data_override: Option<&DataFrame>,
         ctx: &SessionContext,
-        facet_tree: &EvaluatedFacetTree,
-        facet_path: &[ScalarValue],
+        sharing_context: GuideSharingContext<'_>,
         coord_measurement: Option<&dyn CoordMeasurement>,
         _phase: GuideOverflowPhase,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
@@ -135,8 +154,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
             params,
             data_override,
             ctx,
-            facet_tree,
-            facet_path,
+            sharing_context,
             coord_measurement,
         )
         .await
@@ -159,8 +177,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
         params: &IndexMap<String, ScalarValue>,
         data_override: Option<&DataFrame>,
         ctx: &SessionContext,
-        facet_tree: &EvaluatedFacetTree,
-        facet_path: &[ScalarValue],
+        sharing_context: GuideSharingContext<'_>,
         coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         // Default implementation: same as measure_overflow()
@@ -172,8 +189,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
             params,
             data_override,
             ctx,
-            facet_tree,
-            facet_path,
+            sharing_context,
             coord_measurement,
         )
         .await
@@ -199,8 +215,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
         params: &IndexMap<String, ScalarValue>,
         data_override: Option<&DataFrame>,
         ctx: &SessionContext,
-        facet_tree: &EvaluatedFacetTree,
-        facet_path: &[ScalarValue],
+        sharing_context: GuideSharingContext<'_>,
         coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<MeasurementResult, AvengerChartError> {
         // Default: measure once, return with empty spacing_needs
@@ -213,8 +228,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
                 params,
                 data_override,
                 ctx,
-                facet_tree,
-                facet_path,
+                sharing_context,
                 coord_measurement,
             )
             .await?;
@@ -227,9 +241,8 @@ pub trait CompiledGuide: Send + Sync + 'static {
     /// * `data_override` - Optional DataFrame to use instead of compiled data.
     ///   This enables nested facets to pass filtered data to inner guides at runtime.
     ///   When Some, guides should use this data. When None, use compiled data.
-    /// * `facet_tree` - Pre-computed facet structure for visibility decisions.
-    /// * `facet_path` - Path of values identifying the cell in the facet grid (e.g., `["East", "Eng"]`).
-    ///   Empty slice when not in a facet cell.
+    /// * `sharing_context` - Pre-computed sharing state for facet and generic
+    ///   child-frame visibility decisions.
     /// * `coord_measurement` - Coordinate measurement data from `coord_transform.measure()`.
     ///   For facet guides, this provides subplot measurements including overflow data
     ///   needed for proper label positioning. For non-facet guides, this is `EmptyCoordMeasurement`.
@@ -244,8 +257,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
         params: &IndexMap<String, ScalarValue>,
         ctx: &SessionContext,
         data_override: Option<&DataFrame>,
-        facet_tree: &EvaluatedFacetTree,
-        facet_path: &[ScalarValue],
+        sharing_context: GuideSharingContext<'_>,
         coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
 

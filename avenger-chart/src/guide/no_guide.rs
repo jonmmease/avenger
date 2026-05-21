@@ -11,8 +11,9 @@ use serde::{Deserialize, Serialize};
 use crate::{
     coords::CoordMeasurement,
     error::AvengerChartError,
-    facet::evaluated_facet_tree::EvaluatedFacetTree,
-    guide::{CompiledGuide, CoordinateGuide, GuideUpdate, OverflowSpaceRequirement},
+    guide::{
+        CompiledGuide, CoordinateGuide, GuideSharingContext, GuideUpdate, OverflowSpaceRequirement,
+    },
     layout::LayoutBounds,
     marks::CompiledMark,
     theme::Theme,
@@ -65,8 +66,7 @@ impl CompiledGuide for NoGuide {
         _params: &IndexMap<String, ScalarValue>,
         _data_override: Option<&DataFrame>,
         _ctx: &SessionContext,
-        _facet_tree: &EvaluatedFacetTree,
-        _facet_path: &[ScalarValue],
+        _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         Ok(OverflowSpaceRequirement::default())
@@ -83,8 +83,7 @@ impl CompiledGuide for NoGuide {
         _params: &IndexMap<String, ScalarValue>,
         _ctx: &SessionContext,
         _data_override: Option<&DataFrame>,
-        _facet_tree: &EvaluatedFacetTree,
-        _facet_path: &[ScalarValue],
+        _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Ok(Vec::new())

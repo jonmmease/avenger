@@ -18,8 +18,9 @@ use crate::{
         CoordMeasurement, CoordinateSystem, CoordinateSystemTransform, PlotGeometry, PointGeometry,
     },
     error::AvengerChartError,
-    facet::evaluated_facet_tree::EvaluatedFacetTree,
-    guide::{CompiledGuide, CoordinateGuide, GuideUpdate, OverflowSpaceRequirement},
+    guide::{
+        CompiledGuide, CoordinateGuide, GuideSharingContext, GuideUpdate, OverflowSpaceRequirement,
+    },
     layout::{
         BandChildFrameInput, BandChildFramePlacement, BandDirection, BandSpacing, BoundaryDemand1D,
         ChildFramePlacementResult, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode,
@@ -28,9 +29,9 @@ use crate::{
     marks::{CompiledConcatSubplot, CompiledMark, subplot::compiled_subplot},
     plot::compiled::{
         ChildFrameChannelDomainExtent, ChildFrameDomainSharingInput, ChildFrameKey,
-        ChildFrameScopeKey, ComponentsMeasurement, ContainerLabelPlacement, ContainerPathSegment,
-        SharingLevel, child_frame_container_overflow, child_frame_container_view_from_concat,
-        child_frame_domain_sharing_levels_for_plot,
+        ChildFrameScopeKey, ChildFrameSharingLevel, ComponentsMeasurement, ContainerLabelPlacement,
+        ContainerPathSegment, SharingLevel, child_frame_container_overflow,
+        child_frame_container_view_from_concat, child_frame_domain_sharing_levels_for_plot,
         container_label_items_from_child_frame_container, coordinated_child_frame_domain_extents,
         extract_child_frame_shared_domain_extents, measure_container_label_slab,
         render_container_labels, scale_provider::DynamicScaleProvider,
@@ -129,8 +130,7 @@ impl CompiledGuide for ConcatGuide {
         params: &IndexMap<String, ScalarValue>,
         _data_override: Option<&DataFrame>,
         _ctx: &SessionContext,
-        _facet_tree: &EvaluatedFacetTree,
-        _facet_path: &[ScalarValue],
+        _sharing_context: GuideSharingContext<'_>,
         coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         let Some(concat) = coord_measurement.and_then(concat_coord_ref) else {
@@ -164,8 +164,7 @@ impl CompiledGuide for ConcatGuide {
         params: &IndexMap<String, ScalarValue>,
         _ctx: &SessionContext,
         _data_override: Option<&DataFrame>,
-        _facet_tree: &EvaluatedFacetTree,
-        _facet_path: &[ScalarValue],
+        _sharing_context: GuideSharingContext<'_>,
         coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let concat = concat_coord_ref(coord_measurement).ok_or_else(|| {
@@ -388,10 +387,6 @@ fn concat_child_scope_key(
     )
 }
 
-fn concat_child_path_segment(child_index: usize, key: Option<&str>) -> ContainerPathSegment {
-    ContainerPathSegment::concat_child(child_index, key)
-}
-
 pub(crate) fn concat_coord_ref(
     coord_measurement: &dyn CoordMeasurement,
 ) -> Option<&ConcatCoordMeasurement> {
@@ -500,8 +495,19 @@ impl PreparedConcatChild<'_> {
         concat_child_scope_key(&self.container_path, self.child_index(), self.key())
     }
 
-    fn path_segment(&self) -> ContainerPathSegment {
-        concat_child_path_segment(self.child_index(), self.key())
+    fn sharing_level(
+        &self,
+        direction: BandDirection,
+        child_count: usize,
+    ) -> ChildFrameSharingLevel {
+        match direction {
+            BandDirection::Horizontal => {
+                ChildFrameSharingLevel::hconcat_child(self.child_index(), child_count, self.key())
+            }
+            BandDirection::Vertical => {
+                ChildFrameSharingLevel::vconcat_child(self.child_index(), child_count, self.key())
+            }
+        }
     }
 }
 
@@ -567,6 +573,8 @@ async fn prepare_concat_child<'a>(
 
 async fn measure_prepared_concat_child(
     prepared: &PreparedConcatChild<'_>,
+    direction: BandDirection,
+    child_count: usize,
     child_plot_area: Size2D,
     eval_ctx: &EvaluationContext,
     facet_path: &[ScalarValue],
@@ -590,7 +598,8 @@ async fn measure_prepared_concat_child(
         builder: scale_builder,
         plot: child_plot,
     };
-    let child_eval_ctx = eval_ctx.with_child_frame_container_path_appended(prepared.path_segment());
+    let child_eval_ctx = eval_ctx
+        .with_child_frame_sharing_level_appended(prepared.sharing_level(direction, child_count));
     let measurement = child_plot
         .measure_plot_components(
             &child_eval_ctx,
@@ -634,6 +643,7 @@ async fn measure_concat_coord_system(
         coordinated_domain_extents_for_concat_children(&prepared_children);
 
     let mut children = Vec::with_capacity(prepared_children.len());
+    let child_count = prepared_children.len();
     for (prepared, coordinated_extents) in prepared_children
         .iter()
         .zip(coordinated_domain_extents.iter())
@@ -641,6 +651,8 @@ async fn measure_concat_coord_system(
         children.push(
             measure_prepared_concat_child(
                 prepared,
+                direction,
+                child_count,
                 child_plot_area,
                 eval_ctx,
                 facet_path,

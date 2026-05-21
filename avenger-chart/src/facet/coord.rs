@@ -3379,6 +3379,11 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                     .iter()
                     .map(|(name, scale)| (name.clone(), scale.configured().clone()))
                     .collect::<HashMap<_, _>>();
+                let sharing_context = crate::guide::GuideSharingContext::new(
+                    self.eval_ctx.facet_tree.as_ref(),
+                    self.facet_path,
+                    self.eval_ctx.child_frame_sharing_path(),
+                );
                 compiled_guide
                     .measure_overflow(
                         &configured_scales,
@@ -3388,8 +3393,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                         &self.eval_ctx.params,
                         self.data,
                         self.eval_ctx.session_context.as_ref(),
-                        self.eval_ctx.facet_tree.as_ref(),
-                        self.facet_path,
+                        sharing_context,
                         Some(&probe_measurement),
                     )
                     .await?

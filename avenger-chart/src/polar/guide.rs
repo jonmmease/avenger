@@ -17,8 +17,9 @@ use avenger_scenegraph::marks::{arc::SceneArcMark, group::Clip, mark::SceneMark}
 use crate::{
     coords::{CoordMeasurement, EmptyCoordMeasurement, extract_channel_title_from_marks},
     error::AvengerChartError,
-    facet::evaluated_facet_tree::EvaluatedFacetTree,
-    guide::{CompiledGuide, CoordinateGuide, GuideUpdate, OverflowSpaceRequirement},
+    guide::{
+        CompiledGuide, CoordinateGuide, GuideSharingContext, GuideUpdate, OverflowSpaceRequirement,
+    },
     layout::LayoutBounds,
     marks::CompiledMark,
     maybe::{Maybe, MaybeOptionalExpr},
@@ -172,8 +173,7 @@ impl CompiledGuide for PolarGuide {
         params: &IndexMap<String, ScalarValue>,
         data_override: Option<&DataFrame>,
         ctx: &SessionContext,
-        _facet_tree: &EvaluatedFacetTree,
-        facet_path: &[ScalarValue],
+        sharing_context: GuideSharingContext<'_>,
         coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         // Use provided coord_measurement or default empty one (PolarGuide doesn't use it)
@@ -190,8 +190,7 @@ impl CompiledGuide for PolarGuide {
         let guide_overflow = OverflowSpaceRequirement::default();
 
         // Evaluate axes to measure their bounding box with actual params
-        // Use facet_path for visibility-aware overflow measurement
-        let empty_facet_tree = EvaluatedFacetTree::empty();
+        // Use the guide sharing context for visibility-aware overflow measurement.
         let axis_marks = self
             .evaluate(
                 scales,
@@ -203,8 +202,7 @@ impl CompiledGuide for PolarGuide {
                 params,
                 ctx,
                 data_override,
-                &empty_facet_tree,
-                facet_path,
+                sharing_context,
                 coord_measurement,
             )
             .await?;
@@ -260,8 +258,7 @@ impl CompiledGuide for PolarGuide {
         params: &IndexMap<String, ScalarValue>,
         ctx: &SessionContext,
         _data_override: Option<&DataFrame>,
-        _facet_tree: &EvaluatedFacetTree,
-        _facet_path: &[ScalarValue],
+        _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();

@@ -16,9 +16,10 @@ use crate::{
     axis::Axis,
     error::AvengerChartError,
     facet::{
-        evaluated_facet_tree::{AxisOwnershipMode, AxisVisibility, EvaluatedFacetTree},
+        evaluated_facet_tree::{AxisOwnershipMode, AxisVisibility},
         ownership_policy::axis_ownership_mode_from_ignore_empty_cells,
     },
+    guide::GuideSharingContext,
     layout::LayoutBounds,
     maybe::{Maybe, MaybeOptionalExpr},
     plot::{
@@ -26,6 +27,11 @@ use crate::{
         compiled::expr_eval::{
             evaluate_axis_position_expr, evaluate_bool_expr, evaluate_f32_expr,
             evaluate_string_expr,
+        },
+        compiled::{
+            CoordinationAxis, CoordinationKind, EdgeOwnershipRequest, EdgeOwnershipScope,
+            SharingGroupEdge, SharingLevel, edge_ownership_scope_for_request, owner_for_scope,
+            project_container_edge_levels,
         },
     },
     render::context::{
@@ -51,6 +57,95 @@ fn axis_ownership_mode_from_params(
     params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
 ) -> AxisOwnershipMode {
     axis_ownership_mode_from_ignore_empty_cells(axis_owner_ignore_empty_cells_from_params(params))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ChildFrameAxisOwnershipRole {
+    Labels,
+    Title,
+}
+
+#[inline]
+fn child_frame_axis_for_position(axis_position: AxisPosition) -> CoordinationAxis {
+    match axis_position {
+        AxisPosition::Top | AxisPosition::Bottom => CoordinationAxis::Vertical,
+        AxisPosition::Left | AxisPosition::Right => CoordinationAxis::Horizontal,
+    }
+}
+
+#[inline]
+fn child_frame_edge_for_axis_position(axis_position: AxisPosition) -> SharingGroupEdge {
+    match axis_position {
+        AxisPosition::Top | AxisPosition::Left => SharingGroupEdge::Start,
+        AxisPosition::Bottom | AxisPosition::Right => SharingGroupEdge::End,
+    }
+}
+
+fn child_frame_axis_ownership_scope(
+    role: ChildFrameAxisOwnershipRole,
+    channel: &str,
+    sharing_context: GuideSharingContext<'_>,
+    axis_position: AxisPosition,
+    sharing_level: SharingLevel,
+) -> Option<EdgeOwnershipScope> {
+    if sharing_level.is_free() {
+        return None;
+    }
+
+    let position_indices = sharing_context.child_frame_sharing_path.position_indices();
+    let level_counts = sharing_context.child_frame_sharing_path.level_counts();
+    let level_axes = sharing_context.child_frame_sharing_path.level_axes();
+    let projection = project_container_edge_levels(
+        &position_indices,
+        &level_counts,
+        &level_axes,
+        child_frame_axis_for_position(axis_position),
+        child_frame_edge_for_axis_position(axis_position),
+    )?;
+
+    if projection.relevant_depth == 0 {
+        return None;
+    }
+
+    let sharing_level = sharing_level.clamp_to_depth(projection.relevant_depth as u8);
+    Some(edge_ownership_scope_for_request(
+        EdgeOwnershipRequest::from_projection(
+            CoordinationKind::GuideOwnership,
+            format!("ChildFrameAxis{role:?}:{channel}:{axis_position:?}"),
+            &projection,
+            sharing_level,
+        ),
+    ))
+}
+
+fn child_frame_axis_title_scope(
+    channel: &str,
+    sharing_context: GuideSharingContext<'_>,
+    axis_position: AxisPosition,
+    sharing_level: SharingLevel,
+) -> Option<EdgeOwnershipScope> {
+    if sharing_level.is_free() {
+        return None;
+    }
+
+    let relevant_axis = child_frame_axis_for_position(axis_position);
+    let relevant_depth = sharing_context
+        .child_frame_sharing_path
+        .levels()
+        .iter()
+        .filter(|level| level.axis == relevant_axis)
+        .count();
+    if relevant_depth == 0 {
+        return None;
+    }
+
+    child_frame_axis_ownership_scope(
+        ChildFrameAxisOwnershipRole::Title,
+        channel,
+        sharing_context,
+        axis_position,
+        SharingLevel::from_raw(relevant_depth as u8),
+    )
 }
 
 /// Position for Cartesian axes
@@ -208,7 +303,7 @@ impl CartesianAxis {
     }
 
     /// Evaluate this axis to scene marks
-    pub async fn evaluate(
+    pub(crate) async fn evaluate(
         &self,
         channel: &str,
         scale: &avenger_scales::scales::ConfiguredScale,
@@ -218,9 +313,9 @@ impl CartesianAxis {
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
         ctx: &datafusion::prelude::SessionContext,
-        facet_tree: &EvaluatedFacetTree,
-        facet_path: &[datafusion::common::ScalarValue],
-        sharing_level: u8,
+        sharing_context: GuideSharingContext<'_>,
+        facet_sharing_level: SharingLevel,
+        child_frame_sharing_level: SharingLevel,
     ) -> Result<SceneMark, AvengerChartError> {
         // Evaluate visible expression (default to true if not set)
         let visible = if let Some(visible_node) = self.visible.as_option().and_then(|o| o.as_ref())
@@ -335,14 +430,15 @@ impl CartesianAxis {
             })
             .unwrap_or(false);
         let ownership_mode = axis_ownership_mode_from_params(params);
-        let facet_visibility = if facet_path.is_empty() {
+        let facet_visibility = if sharing_context.facet_path.is_empty() {
             AxisVisibility::visible()
         } else {
-            facet_tree
+            sharing_context
+                .facet_tree
                 .channel_axis_visibility_for_path_checked_with_mode(
-                    facet_path,
+                    sharing_context.facet_path,
                     position,
-                    sharing_level,
+                    facet_sharing_level.raw(),
                     ownership_mode,
                 )
                 .unwrap_or_else(|| {
@@ -356,12 +452,30 @@ impl CartesianAxis {
 
         // Jagged grids can leave some interior subplots without edge labels.
         // Keep sharing-based ownership for titles, but force labels visible.
-        let jagged_labels_override =
-            !facet_path.is_empty() && sharing_level > 0 && facet_tree.is_jagged_for_axis(position);
+        let jagged_labels_override = !sharing_context.facet_path.is_empty()
+            && !facet_sharing_level.is_free()
+            && sharing_context.facet_tree.is_jagged_for_axis(position);
+
+        let child_frame_labels_visible = owner_for_scope(child_frame_axis_ownership_scope(
+            ChildFrameAxisOwnershipRole::Labels,
+            channel,
+            sharing_context,
+            position,
+            child_frame_sharing_level,
+        ));
+        let child_frame_title_visible = owner_for_scope(child_frame_axis_title_scope(
+            channel,
+            sharing_context,
+            position,
+            child_frame_sharing_level,
+        ));
 
         // Combine user-specified show_title with facet visibility
-        let show_title = show_title_expr && facet_visibility.show_title;
-        let labels_visible = Some(facet_visibility.show_labels || jagged_labels_override);
+        let show_title =
+            show_title_expr && facet_visibility.show_title && child_frame_title_visible;
+        let labels_visible = Some(
+            (facet_visibility.show_labels || jagged_labels_override) && child_frame_labels_visible,
+        );
 
         // Evaluate tick_count expression if present
         let tick_count = if let Some(tc_node) = self.tick_count.as_option().and_then(|o| o.as_ref())
@@ -470,8 +584,15 @@ impl Axis for CartesianAxis {
 
 #[cfg(test)]
 mod tests {
-    use super::{axis_owner_ignore_empty_cells_from_params, axis_ownership_mode_from_params};
+    use super::{
+        AxisPosition, ChildFrameAxisOwnershipRole, axis_owner_ignore_empty_cells_from_params,
+        axis_ownership_mode_from_params, child_frame_axis_ownership_scope,
+        child_frame_axis_title_scope,
+    };
     use crate::facet::evaluated_facet_tree::AxisOwnershipMode;
+    use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
+    use crate::guide::GuideSharingContext;
+    use crate::plot::compiled::{ChildFrameSharingLevel, ChildFrameSharingPath, SharingLevel};
     use crate::render::context::AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM;
     use datafusion::common::ScalarValue;
     use indexmap::IndexMap;
@@ -494,5 +615,83 @@ mod tests {
             axis_ownership_mode_from_params(&params),
             AxisOwnershipMode::NonEmptySlots
         );
+    }
+
+    #[test]
+    fn hconcat_shared_y_axis_owned_by_left_child() {
+        let facet_tree = EvaluatedFacetTree::empty();
+        let path = ChildFrameSharingPath::root().appended(ChildFrameSharingLevel::hconcat_child(
+            0,
+            2,
+            Some("left"),
+        ));
+        let context = GuideSharingContext::new(&facet_tree, &[], &path);
+        let scope = child_frame_axis_ownership_scope(
+            ChildFrameAxisOwnershipRole::Labels,
+            "y",
+            context,
+            AxisPosition::Left,
+            SharingLevel::GLOBAL,
+        )
+        .expect("hconcat should project y-axis ownership");
+        assert!(scope.current_position_owns());
+
+        let right_path = ChildFrameSharingPath::root()
+            .appended(ChildFrameSharingLevel::hconcat_child(1, 2, Some("right")));
+        let right_context = GuideSharingContext::new(&facet_tree, &[], &right_path);
+        let right_scope = child_frame_axis_ownership_scope(
+            ChildFrameAxisOwnershipRole::Labels,
+            "y",
+            right_context,
+            AxisPosition::Left,
+            SharingLevel::GLOBAL,
+        )
+        .expect("hconcat should project y-axis ownership");
+        assert!(!right_scope.current_position_owns());
+    }
+
+    #[test]
+    fn hconcat_free_y_axis_title_not_owned_by_child_frame() {
+        let facet_tree = EvaluatedFacetTree::empty();
+        let path = ChildFrameSharingPath::root().appended(ChildFrameSharingLevel::hconcat_child(
+            1,
+            2,
+            Some("right"),
+        ));
+        let context = GuideSharingContext::new(&facet_tree, &[], &path);
+        assert!(
+            child_frame_axis_title_scope("y", context, AxisPosition::Left, SharingLevel::FREE)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn vconcat_shared_x_axis_owned_by_bottom_child() {
+        let facet_tree = EvaluatedFacetTree::empty();
+        let top_path = ChildFrameSharingPath::root()
+            .appended(ChildFrameSharingLevel::vconcat_child(0, 2, Some("top")));
+        let top_context = GuideSharingContext::new(&facet_tree, &[], &top_path);
+        let top_scope = child_frame_axis_ownership_scope(
+            ChildFrameAxisOwnershipRole::Labels,
+            "x",
+            top_context,
+            AxisPosition::Bottom,
+            SharingLevel::GLOBAL,
+        )
+        .expect("vconcat should project x-axis ownership");
+        assert!(!top_scope.current_position_owns());
+
+        let bottom_path = ChildFrameSharingPath::root()
+            .appended(ChildFrameSharingLevel::vconcat_child(1, 2, Some("bottom")));
+        let bottom_context = GuideSharingContext::new(&facet_tree, &[], &bottom_path);
+        let bottom_scope = child_frame_axis_ownership_scope(
+            ChildFrameAxisOwnershipRole::Labels,
+            "x",
+            bottom_context,
+            AxisPosition::Bottom,
+            SharingLevel::GLOBAL,
+        )
+        .expect("vconcat should project x-axis ownership");
+        assert!(bottom_scope.current_position_owns());
     }
 }

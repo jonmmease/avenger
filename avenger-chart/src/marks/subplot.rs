@@ -13,12 +13,13 @@ use crate::{
     coords::{CoordinateSystem, CoordinateSystemTransform},
     error::AvengerChartError,
     facet::dimension_config::{ColumnDimensionConfig, FacetDimensionConfig, RowDimensionConfig},
+    layout::BandDirection,
     legend::LegendRenderer,
     marks::{
         ChannelDescriptor, ChannelValue, CompiledDataContext, CompiledMark, CompiledMarkState,
         DataContext, FacetStrategy, Mark, MarkState, RadiusExpression,
     },
-    plot::{CompiledPlot, Plot, compiled::ContainerPathSegment},
+    plot::{CompiledPlot, Plot, compiled::ChildFrameSharingLevel},
     render::RenderContext,
     scales::{ResolvedDomain, ScaleRange, ScaleSpec},
     theme::Theme,
@@ -409,13 +410,19 @@ impl CompiledMark for CompiledConcatSubplot {
 
         let mut params = self.compiled_subplot.get_default_params().clone();
         params.extend(context.eval.params.clone());
+        let child_count = concat_measurement.children().len();
+        let sharing_level = match concat_measurement.child_band_layout.direction {
+            BandDirection::Horizontal => {
+                ChildFrameSharingLevel::hconcat_child(self.child_index(), child_count, self.key())
+            }
+            BandDirection::Vertical => {
+                ChildFrameSharingLevel::vconcat_child(self.child_index(), child_count, self.key())
+            }
+        };
         let child_eval_ctx = context
             .eval
             .with_params(params)
-            .with_child_frame_container_path_appended(ContainerPathSegment::concat_child(
-                self.child_index(),
-                self.key(),
-            ));
+            .with_child_frame_sharing_level_appended(sharing_level);
         let data_override = self.inherited_data_override(data, context)?;
         let components = self
             .compiled_subplot

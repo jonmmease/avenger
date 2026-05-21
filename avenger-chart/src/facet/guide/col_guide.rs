@@ -8,7 +8,8 @@ use crate::facet::guide::band_guide_engine::{self, ColGuideAxisOps, FacetGuideSt
 use crate::facet::marks::facet::CompiledFacetColumnSubplot;
 use crate::facet::overflow_projection::FacetOverflowResolutionPhase;
 use crate::guide::{
-    CompiledGuide, CoordinateGuide, GuideOverflowPhase, MeasurementResult, OverflowSpaceRequirement,
+    CompiledGuide, CoordinateGuide, GuideOverflowPhase, GuideSharingContext, MeasurementResult,
+    OverflowSpaceRequirement,
 };
 use crate::layout::LayoutBounds;
 use crate::marks::CompiledMark;
@@ -153,8 +154,7 @@ impl CompiledGuide for FacetColGuide {
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &SessionContext,
-        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        facet_path: &[datafusion::common::ScalarValue],
+        sharing_context: GuideSharingContext<'_>,
         coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         self.measure_overflow_for_phase(
@@ -165,8 +165,7 @@ impl CompiledGuide for FacetColGuide {
             params,
             data_override,
             ctx,
-            facet_tree,
-            facet_path,
+            sharing_context,
             coord_measurement,
             GuideOverflowPhase::Measurement,
         )
@@ -182,8 +181,7 @@ impl CompiledGuide for FacetColGuide {
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &SessionContext,
-        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        facet_path: &[datafusion::common::ScalarValue],
+        sharing_context: GuideSharingContext<'_>,
         coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
         phase: GuideOverflowPhase,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
@@ -200,8 +198,7 @@ impl CompiledGuide for FacetColGuide {
             params,
             data_override,
             ctx,
-            facet_tree,
-            facet_path,
+            sharing_context,
             coord_measurement,
             phase,
         )
@@ -217,8 +214,7 @@ impl CompiledGuide for FacetColGuide {
         _params: &IndexMap<String, datafusion::common::ScalarValue>,
         _data_override: Option<&datafusion::dataframe::DataFrame>,
         _ctx: &SessionContext,
-        _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        _facet_path: &[datafusion::common::ScalarValue],
+        _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
     ) -> Result<MeasurementResult, AvengerChartError> {
         Ok(MeasurementResult::default())
@@ -235,8 +231,7 @@ impl CompiledGuide for FacetColGuide {
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         ctx: &SessionContext,
         data_override: Option<&datafusion::dataframe::DataFrame>,
-        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        facet_path: &[datafusion::common::ScalarValue],
+        sharing_context: GuideSharingContext<'_>,
         coord_measurement: &dyn crate::coords::CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         band_guide_engine::evaluate_common::<ColGuideAxisOps>(
@@ -250,8 +245,7 @@ impl CompiledGuide for FacetColGuide {
             params,
             data_override,
             ctx,
-            facet_tree,
-            facet_path,
+            sharing_context,
             coord_measurement,
         )
         .await

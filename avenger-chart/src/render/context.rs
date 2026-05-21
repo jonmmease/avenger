@@ -21,7 +21,7 @@ use crate::{
         layout_plan::{FacetBandPaddingFeedback, FacetBandPaddingFeedbackMap},
         scale_precompute::FacetScalePrecomputeStore,
     },
-    plot::compiled::ContainerPathSegment,
+    plot::compiled::{ChildFrameSharingLevel, ChildFrameSharingPath, ContainerPathSegment},
     render::types::{
         EvaluatedPlot, EvaluationMetrics, FacetLayoutRefinement, FacetSubtreeSnapshot,
         LayoutDebugOverlayMode,
@@ -215,6 +215,12 @@ pub struct EvaluationContext {
     /// semantically equivalent nested containers that live under different
     /// parent children.
     pub(crate) child_frame_container_path: Vec<ContainerPathSegment>,
+    /// Generic nested child-frame sharing path for the currently evaluated child plot.
+    ///
+    /// This records child index/count metadata for container levels such as
+    /// concat, allowing guides and legends to apply sharing ownership without
+    /// depending on a facet path.
+    pub(crate) child_frame_sharing_path: ChildFrameSharingPath,
     /// Optional shared collector for focused evaluation diagnostics.
     pub(crate) evaluation_metrics: Option<Arc<Mutex<EvaluationMetrics>>>,
     /// Optional one-shot facet-subtree snapshot capture for non-renderable intermediate states.
@@ -242,6 +248,7 @@ impl EvaluationContext {
             facet_padding_feedback: None,
             facet_coord_node_path: Vec::new(),
             child_frame_container_path: Vec::new(),
+            child_frame_sharing_path: ChildFrameSharingPath::root(),
             evaluation_metrics: None,
             facet_subtree_snapshot_capture: None,
         }
@@ -263,6 +270,7 @@ impl EvaluationContext {
             facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             child_frame_container_path: self.child_frame_container_path.clone(),
+            child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
@@ -287,6 +295,7 @@ impl EvaluationContext {
             facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             child_frame_container_path: self.child_frame_container_path.clone(),
+            child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
@@ -313,6 +322,7 @@ impl EvaluationContext {
             facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             child_frame_container_path: self.child_frame_container_path.clone(),
+            child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
@@ -339,6 +349,7 @@ impl EvaluationContext {
             facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             child_frame_container_path: self.child_frame_container_path.clone(),
+            child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
@@ -359,6 +370,7 @@ impl EvaluationContext {
             facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             child_frame_container_path: self.child_frame_container_path.clone(),
+            child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
@@ -383,6 +395,7 @@ impl EvaluationContext {
             facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             child_frame_container_path: self.child_frame_container_path.clone(),
+            child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
@@ -403,6 +416,7 @@ impl EvaluationContext {
             facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             child_frame_container_path: self.child_frame_container_path.clone(),
+            child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
@@ -430,6 +444,7 @@ impl EvaluationContext {
             facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             child_frame_container_path: self.child_frame_container_path.clone(),
+            child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
@@ -462,6 +477,7 @@ impl EvaluationContext {
             facet_padding_feedback: Some(feedback),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             child_frame_container_path: self.child_frame_container_path.clone(),
+            child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
@@ -499,6 +515,7 @@ impl EvaluationContext {
             facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             child_frame_container_path: self.child_frame_container_path.clone(),
+            child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: Some(metrics),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
@@ -522,6 +539,7 @@ impl EvaluationContext {
             facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             child_frame_container_path: self.child_frame_container_path.clone(),
+            child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: Some(capture),
         }
@@ -544,6 +562,7 @@ impl EvaluationContext {
             facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path,
             child_frame_container_path: self.child_frame_container_path.clone(),
+            child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
@@ -555,6 +574,10 @@ impl EvaluationContext {
 
     pub(crate) fn child_frame_container_path(&self) -> &[ContainerPathSegment] {
         &self.child_frame_container_path
+    }
+
+    pub(crate) fn child_frame_sharing_path(&self) -> &ChildFrameSharingPath {
+        &self.child_frame_sharing_path
     }
 
     pub(crate) fn with_child_frame_container_path_appended(
@@ -577,6 +600,33 @@ impl EvaluationContext {
             facet_padding_feedback: self.facet_padding_feedback.clone(),
             facet_coord_node_path: self.facet_coord_node_path.clone(),
             child_frame_container_path,
+            child_frame_sharing_path: self.child_frame_sharing_path.clone(),
+            evaluation_metrics: self.evaluation_metrics.clone(),
+            facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+        }
+    }
+
+    pub(crate) fn with_child_frame_sharing_level_appended(
+        &self,
+        level: ChildFrameSharingLevel,
+    ) -> Self {
+        let mut child_frame_container_path = self.child_frame_container_path.clone();
+        child_frame_container_path.push(level.segment.clone());
+        Self {
+            theme: self.theme.clone(),
+            session_context: self.session_context.clone(),
+            params: self.params.clone(),
+            facet_tree: self.facet_tree.clone(),
+            hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
+            facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
+            debug_layout_overlay: self.debug_layout_overlay,
+            facet_layout_refinement: self.facet_layout_refinement,
+            facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_padding_feedback: self.facet_padding_feedback.clone(),
+            facet_coord_node_path: self.facet_coord_node_path.clone(),
+            child_frame_container_path,
+            child_frame_sharing_path: self.child_frame_sharing_path.appended(level),
             evaluation_metrics: self.evaluation_metrics.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }

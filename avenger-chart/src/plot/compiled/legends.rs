@@ -20,7 +20,10 @@ use crate::{
     },
     marks::CompiledMark,
     maybe::Maybe,
-    plot::compiled::SharingLevel,
+    plot::compiled::{
+        ChildFrameSharingPath, ContainerPathSegment, CoordinationKind, EdgeOwnershipRequest,
+        SharingLevel, edge_ownership_scope_for_request,
+    },
     render::{
         EvaluationContext, LegendMeasurements, RenderContext, RenderState, types::LegendMeasurement,
     },
@@ -44,10 +47,17 @@ fn color_array_to_hex(color: [f32; 4]) -> String {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LegendPlanScope {
     TopLevel,
     FacetCell,
+    ChildFrame { sharing_path: ChildFrameSharingPath },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum HoistedLegendAnchor {
+    FacetPath(Vec<ScalarValue>),
+    ChildFrameContainer(Vec<ContainerPathSegment>),
 }
 
 #[derive(Clone)]
@@ -61,8 +71,8 @@ pub(crate) struct PreparedLegendGroup {
 
 #[derive(Clone)]
 pub(crate) struct HoistedLegendRequest {
-    pub anchor_path: Vec<ScalarValue>,
-    pub owner_path: Vec<ScalarValue>,
+    pub anchor: HoistedLegendAnchor,
+    pub owner: HoistedLegendAnchor,
     pub position: LegendPosition,
     pub sharing_level: SharingLevel,
     pub group: PreparedLegendGroup,
@@ -117,7 +127,10 @@ fn retarget_legend_group_scales(
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum LegendDisposition {
     RenderHere,
-    HoistToFacetGroup { anchor_path: Vec<ScalarValue> },
+    Hoist {
+        anchor: HoistedLegendAnchor,
+        sharing_level: SharingLevel,
+    },
     Suppress,
 }
 
@@ -125,17 +138,24 @@ impl CompiledPlot {
     fn effective_group_sharing_level(
         facet_tree: &EvaluatedFacetTree,
         channels: &[LegendChannel],
+        default_sharing_level: SharingLevel,
     ) -> SharingLevel {
         channels
             .iter()
             .map(|channel| {
                 channel.sharing_level.map_or_else(
-                    || facet_tree.channel_domain_sharing_level_typed(channel.name.as_str()),
+                    || {
+                        if default_sharing_level.is_free() {
+                            SharingLevel::FREE
+                        } else {
+                            facet_tree.channel_domain_sharing_level_typed(channel.name.as_str())
+                        }
+                    },
                     SharingLevel::from_raw,
                 )
             })
             .min()
-            .unwrap_or(SharingLevel::GLOBAL)
+            .unwrap_or(default_sharing_level)
     }
 
     #[cfg(test)]
@@ -211,7 +231,57 @@ impl CompiledPlot {
         if anchor_path == facet_path {
             LegendDisposition::RenderHere
         } else {
-            LegendDisposition::HoistToFacetGroup { anchor_path }
+            LegendDisposition::Hoist {
+                anchor: HoistedLegendAnchor::FacetPath(anchor_path),
+                sharing_level,
+            }
+        }
+    }
+
+    fn child_frame_anchor_for_sharing(
+        sharing_path: &ChildFrameSharingPath,
+        sharing_level: SharingLevel,
+    ) -> Vec<ContainerPathSegment> {
+        let full_path = sharing_path.container_path();
+        let keep_count = sharing_level.ancestor_keep_count(full_path.len(), full_path.len() as u8);
+        full_path.into_iter().take(keep_count).collect()
+    }
+
+    fn legend_disposition_for_child_frame_path(
+        sharing_path: &ChildFrameSharingPath,
+        sharing_level: SharingLevel,
+        legend_position: LegendPosition,
+        primary_channel: &str,
+    ) -> LegendDisposition {
+        if sharing_level.is_free() || sharing_path.levels().is_empty() {
+            return LegendDisposition::RenderHere;
+        }
+
+        let position_indices = sharing_path.position_indices();
+        let level_counts = sharing_path.level_counts();
+        let ownership = edge_ownership_scope_for_request(EdgeOwnershipRequest::new(
+            CoordinationKind::LegendOwnership,
+            format!("{primary_channel}:{legend_position:?}"),
+            sharing_policy::legend_edge_for_position(legend_position),
+            &position_indices,
+            &level_counts,
+            position_indices.len() as u8,
+            sharing_level,
+        ));
+
+        if !ownership.current_position_owns() {
+            return LegendDisposition::Suppress;
+        }
+
+        let full_path = sharing_path.container_path();
+        let anchor_path = Self::child_frame_anchor_for_sharing(sharing_path, sharing_level);
+        if anchor_path == full_path {
+            LegendDisposition::RenderHere
+        } else {
+            LegendDisposition::Hoist {
+                anchor: HoistedLegendAnchor::ChildFrameContainer(anchor_path),
+                sharing_level,
+            }
         }
     }
 
@@ -219,8 +289,8 @@ impl CompiledPlot {
         primary_channel.to_string()
     }
 
-    fn hoisted_legend_layout_key(primary_channel: &str, anchor_path: &[ScalarValue]) -> String {
-        format!("{primary_channel}@facet:{anchor_path:?}")
+    fn hoisted_legend_layout_key(primary_channel: &str, anchor: &HoistedLegendAnchor) -> String {
+        format!("{primary_channel}@{anchor:?}")
     }
 
     /// Apply a theme value to a legend field if the field is Unset
@@ -749,13 +819,13 @@ impl CompiledPlot {
     }
 
     fn legend_disposition(
-        &self,
         channel: &str,
-        scope: LegendPlanScope,
+        scope: &LegendPlanScope,
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[ScalarValue],
         resolved_position: LegendPosition,
-        effective_sharing_level: SharingLevel,
+        child_frame_sharing_level: SharingLevel,
+        facet_sharing_level: SharingLevel,
         _configured_scales: &HashMap<String, ConfiguredScaleWithSpec>,
         _params: &IndexMap<String, ScalarValue>,
     ) -> LegendDisposition {
@@ -764,10 +834,32 @@ impl CompiledPlot {
             LegendPlanScope::FacetCell => Self::legend_disposition_for_facet_path(
                 facet_tree,
                 facet_path,
-                effective_sharing_level,
+                facet_sharing_level,
                 resolved_position,
                 channel,
             ),
+            LegendPlanScope::ChildFrame { sharing_path } => {
+                let child_frame_disposition = Self::legend_disposition_for_child_frame_path(
+                    sharing_path,
+                    child_frame_sharing_level,
+                    resolved_position,
+                    channel,
+                );
+                if child_frame_disposition != LegendDisposition::RenderHere
+                    || facet_path.is_empty()
+                    || child_frame_sharing_level.is_free()
+                {
+                    child_frame_disposition
+                } else {
+                    Self::legend_disposition_for_facet_path(
+                        facet_tree,
+                        facet_path,
+                        facet_sharing_level,
+                        resolved_position,
+                        channel,
+                    )
+                }
+            }
         }
     }
 
@@ -968,6 +1060,7 @@ impl CompiledPlot {
         params: &IndexMap<String, ScalarValue>,
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[ScalarValue],
+        _child_frame_sharing_path: &ChildFrameSharingPath,
         scope: LegendPlanScope,
     ) -> Result<PreparedLegendPlan, AvengerChartError> {
         let mut legend_measurements = LegendMeasurements::new();
@@ -999,16 +1092,25 @@ impl CompiledPlot {
                 .resolve_legend_position(legend, primary_channel, scales, ctx, params)
                 .await?;
 
-            let effective_sharing_level =
-                Self::effective_group_sharing_level(facet_tree, channels.as_slice());
+            let child_frame_sharing_level = Self::effective_group_sharing_level(
+                facet_tree,
+                channels.as_slice(),
+                SharingLevel::FREE,
+            );
+            let facet_sharing_level = Self::effective_group_sharing_level(
+                facet_tree,
+                channels.as_slice(),
+                SharingLevel::GLOBAL,
+            );
 
-            let disposition = self.legend_disposition(
+            let disposition = Self::legend_disposition(
                 &primary_channel.name,
-                scope,
+                &scope,
                 facet_tree,
                 facet_path,
                 resolved_position,
-                effective_sharing_level,
+                child_frame_sharing_level,
+                facet_sharing_level,
                 scales,
                 params,
             );
@@ -1045,8 +1147,8 @@ impl CompiledPlot {
 
             if let Some(renderer) = renderer {
                 let layout_key = match &disposition {
-                    LegendDisposition::HoistToFacetGroup { anchor_path } => {
-                        Self::hoisted_legend_layout_key(&primary_channel.name, anchor_path)
+                    LegendDisposition::Hoist { anchor, .. } => {
+                        Self::hoisted_legend_layout_key(&primary_channel.name, anchor)
                     }
                     LegendDisposition::RenderHere | LegendDisposition::Suppress => {
                         Self::legend_layout_key(&primary_channel.name)
@@ -1060,12 +1162,25 @@ impl CompiledPlot {
                     renderer,
                 };
 
-                if let LegendDisposition::HoistToFacetGroup { anchor_path } = disposition {
+                if let LegendDisposition::Hoist {
+                    anchor,
+                    sharing_level,
+                } = disposition
+                {
                     hoisted_requests.push(HoistedLegendRequest {
-                        anchor_path,
-                        owner_path: facet_path.to_vec(),
+                        anchor,
+                        owner: match &scope {
+                            LegendPlanScope::ChildFrame { sharing_path } => {
+                                HoistedLegendAnchor::ChildFrameContainer(
+                                    sharing_path.container_path(),
+                                )
+                            }
+                            LegendPlanScope::TopLevel | LegendPlanScope::FacetCell => {
+                                HoistedLegendAnchor::FacetPath(facet_path.to_vec())
+                            }
+                        },
                         position: resolved_position,
-                        sharing_level: effective_sharing_level,
+                        sharing_level,
                         group,
                     });
                     continue;
@@ -1090,7 +1205,8 @@ impl CompiledPlot {
                     height = size.height,
                     flexible,
                     position = ?resolved_position,
-                    sharing = effective_sharing_level.raw(),
+                    child_frame_sharing = child_frame_sharing_level.raw(),
+                    facet_sharing = facet_sharing_level.raw(),
                     "Legend measure"
                 );
                 legend_measurements.insert(
@@ -1178,8 +1294,8 @@ impl CompiledPlot {
             debug!(
                 channel = request.group.primary_channel.as_str(),
                 layout_key = layout_key.as_str(),
-                owner_path = ?request.owner_path,
-                anchor_path = ?request.anchor_path,
+                owner = ?request.owner,
+                anchor = ?request.anchor,
                 width = size.width,
                 height = size.height,
                 flexible,
@@ -1240,7 +1356,11 @@ mod tests {
     use indexmap::IndexMap;
     use std::collections::HashMap;
 
-    use crate::{facet::evaluated_facet_tree::PartitionNode, guide::FacetDirection};
+    use crate::{
+        facet::evaluated_facet_tree::PartitionNode,
+        guide::FacetDirection,
+        plot::compiled::{ChildFrameSharingLevel, ChildFrameSharingPath, ContainerPathSegment},
+    };
 
     fn s(value: &str) -> ScalarValue {
         ScalarValue::Utf8(Some(value.to_string()))
@@ -1467,7 +1587,7 @@ mod tests {
         let tree = make_two_level_column_tree_with_sharing(levels);
         let channels = vec![make_legend_channel("fill"), make_legend_channel("stroke")];
         assert_eq!(
-            CompiledPlot::effective_group_sharing_level(&tree, &channels),
+            CompiledPlot::effective_group_sharing_level(&tree, &channels, SharingLevel::GLOBAL),
             SharingLevel::from_raw(1)
         );
     }
@@ -1513,8 +1633,9 @@ mod tests {
                 LegendPosition::Right,
                 "fill",
             ),
-            LegendDisposition::HoistToFacetGroup {
-                anchor_path: vec![s("DivA")]
+            LegendDisposition::Hoist {
+                anchor: HoistedLegendAnchor::FacetPath(vec![s("DivA")]),
+                sharing_level: SharingLevel::from_raw(2),
             }
         );
     }
@@ -1530,9 +1651,89 @@ mod tests {
                 LegendPosition::Right,
                 "fill",
             ),
-            LegendDisposition::HoistToFacetGroup {
-                anchor_path: vec![]
+            LegendDisposition::Hoist {
+                anchor: HoistedLegendAnchor::FacetPath(vec![]),
+                sharing_level: SharingLevel::GLOBAL,
             }
+        );
+    }
+
+    #[test]
+    fn legend_disposition_child_frame_non_owner_suppresses() {
+        let sharing_path = ChildFrameSharingPath::root()
+            .appended(ChildFrameSharingLevel::hconcat_child(0, 2, Some("left")));
+
+        assert_eq!(
+            CompiledPlot::legend_disposition_for_child_frame_path(
+                &sharing_path,
+                SharingLevel::GLOBAL,
+                LegendPosition::Right,
+                "fill",
+            ),
+            LegendDisposition::Suppress
+        );
+    }
+
+    #[test]
+    fn legend_disposition_child_frame_owner_hoists_to_container() {
+        let sharing_path = ChildFrameSharingPath::root()
+            .appended(ChildFrameSharingLevel::hconcat_child(1, 2, Some("right")));
+
+        assert_eq!(
+            CompiledPlot::legend_disposition_for_child_frame_path(
+                &sharing_path,
+                SharingLevel::GLOBAL,
+                LegendPosition::Right,
+                "fill",
+            ),
+            LegendDisposition::Hoist {
+                anchor: HoistedLegendAnchor::ChildFrameContainer(vec![]),
+                sharing_level: SharingLevel::GLOBAL,
+            }
+        );
+    }
+
+    #[test]
+    fn legend_disposition_child_frame_level1_hoists_to_immediate_parent() {
+        let sharing_path = ChildFrameSharingPath::root()
+            .appended(ChildFrameSharingLevel::hconcat_child(0, 2, Some("outer")))
+            .appended(ChildFrameSharingLevel::vconcat_child(1, 2, Some("inner")));
+
+        assert_eq!(
+            CompiledPlot::legend_disposition_for_child_frame_path(
+                &sharing_path,
+                SharingLevel::from_raw(1),
+                LegendPosition::Bottom,
+                "fill",
+            ),
+            LegendDisposition::Hoist {
+                anchor: HoistedLegendAnchor::ChildFrameContainer(vec![
+                    ContainerPathSegment::concat_child(0, Some("outer"))
+                ]),
+                sharing_level: SharingLevel::from_raw(1),
+            }
+        );
+    }
+
+    #[test]
+    fn free_child_frame_legend_inside_facet_does_not_borrow_facet_ownership() {
+        let tree = make_two_level_column_tree_with_sharing(HashMap::new());
+        let sharing_path = ChildFrameSharingPath::root()
+            .appended(ChildFrameSharingLevel::hconcat_child(1, 2, Some("petal")));
+
+        assert_eq!(
+            CompiledPlot::legend_disposition(
+                "fill",
+                &LegendPlanScope::ChildFrame { sharing_path },
+                &tree,
+                &[s("DivA"), s("Dept1")],
+                LegendPosition::Right,
+                SharingLevel::FREE,
+                SharingLevel::GLOBAL,
+                &HashMap::new(),
+                &IndexMap::new(),
+            ),
+            LegendDisposition::RenderHere
         );
     }
 }

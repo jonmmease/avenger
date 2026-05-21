@@ -44,7 +44,10 @@ use crate::{
 pub(crate) use self::child_frame_container::{
     ChildFrameContainerView, child_frame_container_overflow, child_frame_container_view_from_concat,
 };
-pub(crate) use self::child_frame_scope::{ChildFrameKey, ChildFrameScopeKey, ContainerPathSegment};
+pub(crate) use self::child_frame_scope::{
+    ChildFrameKey, ChildFrameScopeKey, ChildFrameSharingLevel, ChildFrameSharingPath,
+    ContainerPathSegment,
+};
 pub(crate) use self::container_band_guide::{
     ContainerBandGuideMeasurementConfig, ContainerBandGuideRenderConfig,
     measure_container_band_guide_slab, render_container_band_guide_slab,
