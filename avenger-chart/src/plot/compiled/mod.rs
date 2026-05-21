@@ -39,12 +39,12 @@ use crate::{
 };
 
 pub(crate) use self::child_frame_container::{
-    ChildFrameContainerView, child_frame_container_overflow_from_placements,
+    ChildFrameContainerView, child_frame_container_overflow, child_frame_container_view_from_concat,
 };
 pub(crate) use self::child_frame_scope::{ChildFrameKey, ChildFrameScopeKey, ContainerPathSegment};
 pub(crate) use self::container_labels::{
-    ContainerLabelChildFrame, ContainerLabelItem, ContainerLabelPlacement,
-    container_label_items_from_placements, measure_container_label_slab, render_container_labels,
+    ContainerLabelPlacement, container_label_items_from_child_frame_container,
+    measure_container_label_slab, render_container_labels,
 };
 pub(crate) use self::coordination_scope::{
     CoordinationAxis, CoordinationKind, CoordinationScopeKey,

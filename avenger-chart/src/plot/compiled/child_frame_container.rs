@@ -7,7 +7,7 @@
 use std::collections::HashSet;
 
 use crate::{
-    concat::concat_coord_ref,
+    concat::{ConcatCoordMeasurement, concat_coord_ref},
     error::AvengerChartError,
     facet::{coord::facet_band_ref, placement::resolve_facet_child_frame_placement},
     guide::OverflowSpaceRequirement,
@@ -84,34 +84,7 @@ impl ComponentsMeasurement {
         &self,
     ) -> Result<Option<ChildFrameContainerView<'_>>, AvengerChartError> {
         if let Some(concat) = concat_coord_ref(self.coord_measurement.as_ref()) {
-            let placement = concat.child_frame_placement();
-            let child_debug_labels = concat
-                .children()
-                .iter()
-                .map(|child| child.debug_label())
-                .collect::<Vec<_>>();
-            let children = concat
-                .children()
-                .iter()
-                .map(|child| {
-                    let scope_key = concat.child_scope_key(child.child_index).ok_or_else(|| {
-                        AvengerChartError::InternalError(format!(
-                            "Missing concat scope key for child index {}",
-                            child.child_index
-                        ))
-                    })?;
-                    Ok(ChildFrameChildView {
-                        child_index: child.child_index,
-                        scope_key,
-                        label: child.label.clone(),
-                        measurement: &child.measurement,
-                    })
-                })
-                .collect::<Result<Vec<_>, AvengerChartError>>()?;
-            validate_container_placements(&placement, &children, Some(&child_debug_labels))?;
-            let view = ChildFrameContainerView::new(children, placement);
-            view.validate_scope_keys()?;
-            return Ok(Some(view));
+            return Ok(Some(child_frame_container_view_from_concat(concat)?));
         }
 
         let Some(facet_band) = facet_band_ref(self.coord_measurement.as_ref()) else {
@@ -162,6 +135,39 @@ impl ComponentsMeasurement {
     }
 }
 
+pub(crate) fn child_frame_container_view_from_concat(
+    concat: &ConcatCoordMeasurement,
+) -> Result<ChildFrameContainerView<'_>, AvengerChartError> {
+    let placement = concat.child_frame_placement();
+    let child_debug_labels = concat
+        .children()
+        .iter()
+        .map(|child| child.debug_label())
+        .collect::<Vec<_>>();
+    let children = concat
+        .children()
+        .iter()
+        .map(|child| {
+            let scope_key = concat.child_scope_key(child.child_index).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Missing concat scope key for child index {}",
+                    child.child_index
+                ))
+            })?;
+            Ok(ChildFrameChildView {
+                child_index: child.child_index,
+                scope_key,
+                label: child.label.clone(),
+                measurement: &child.measurement,
+            })
+        })
+        .collect::<Result<Vec<_>, AvengerChartError>>()?;
+    validate_container_placements(&placement, &children, Some(&child_debug_labels))?;
+    let view = ChildFrameContainerView::new(children, placement);
+    view.validate_scope_keys()?;
+    Ok(view)
+}
+
 impl ChildFrameContainerView<'_> {
     fn validate_scope_keys(&self) -> Result<(), AvengerChartError> {
         let scope_count = self.child_scope_keys().count();
@@ -208,6 +214,28 @@ impl ChildFrameContainerView<'_> {
         }
         Ok(())
     }
+}
+
+/// Compute parent-frame overflow required by already measured child frames in a
+/// generic container view.
+pub(crate) fn child_frame_container_overflow(
+    plot_width: f32,
+    plot_height: f32,
+    container: &ChildFrameContainerView<'_>,
+) -> Result<OverflowSpaceRequirement, AvengerChartError> {
+    child_frame_container_overflow_from_placements(
+        plot_width,
+        plot_height,
+        container.placement(),
+        |child_index| {
+            container.child_measurement(child_index).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Missing child-frame measurement for child index {}",
+                    child_index
+                ))
+            })
+        },
+    )
 }
 
 /// Compute parent-frame overflow required by already measured child frames.

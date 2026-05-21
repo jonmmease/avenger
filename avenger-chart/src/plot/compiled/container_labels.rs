@@ -17,6 +17,8 @@ use crate::{
     theme::{Theme, ThemeContext},
 };
 
+use super::ChildFrameContainerView;
+
 const LABEL_GAP: f32 = 4.0;
 const DEFAULT_FONT_SIZE: f32 = 10.0;
 const DEFAULT_FONT_WEIGHT: f32 = 300.0;
@@ -93,6 +95,29 @@ pub(crate) fn container_label_items_from_placements<'a>(
     }
 
     Ok(items)
+}
+
+/// Derive label anchors from a measured child-frame container view.
+pub(crate) fn container_label_items_from_child_frame_container(
+    container: &ChildFrameContainerView<'_>,
+) -> Result<Vec<ContainerLabelItem>, AvengerChartError> {
+    container_label_items_from_placements(
+        container.placement(),
+        |child_index| {
+            let child = container.child_measurement(child_index).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Missing child-frame measurement for child index {}",
+                    child_index
+                ))
+            })?;
+            Ok(ContainerLabelChildFrame {
+                plot_bounds: *child.layout.plot_area_bounds(),
+                plot_size: Size2D::new(child.plot_area_width, child.plot_area_height),
+                frame_bounds: child.frame_allocation.rect,
+            })
+        },
+        |child_index| container.child_label(child_index),
+    )
 }
 
 /// Measure the extra slab required to draw labels outside the already measured

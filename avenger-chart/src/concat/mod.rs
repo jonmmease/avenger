@@ -31,10 +31,10 @@ use crate::{
         CompiledPlot,
         compiled::{
             ChildFrameDomainRequest, ChildFrameKey, ChildFrameScopeKey, ComponentsMeasurement,
-            ContainerLabelChildFrame, ContainerLabelItem, ContainerLabelPlacement,
-            ContainerPathSegment, CoordinationKind, CoordinationScopeKey,
-            aggregate_domain_requests, child_frame_container_overflow_from_placements,
-            container_label_items_from_placements, measure_container_label_slab,
+            ContainerLabelPlacement, ContainerPathSegment, CoordinationKind, CoordinationScopeKey,
+            aggregate_domain_requests, child_frame_container_overflow,
+            child_frame_container_view_from_concat,
+            container_label_items_from_child_frame_container, measure_container_label_slab,
             render_container_labels, scale_provider::DynamicScaleProvider,
             scales::build_scale_builder_from_marks,
         },
@@ -136,18 +136,22 @@ impl CompiledGuide for ConcatGuide {
         _facet_path: &[ScalarValue],
         coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
-        let mut overflow = concat_child_frame_overflow(plot_width, plot_height, coord_measurement)?;
-        if let Some(concat) = coord_measurement.and_then(concat_coord_ref) {
-            let label_slab = measure_container_label_slab(
-                concat_label_placement(concat),
-                &concat_label_items(concat)?,
-                theme,
-                params,
-            );
-            match concat_label_placement(concat) {
-                ContainerLabelPlacement::Top => overflow.top += label_slab,
-                ContainerLabelPlacement::Left => overflow.left += label_slab,
-            }
+        let Some(concat) = coord_measurement.and_then(concat_coord_ref) else {
+            return Ok(OverflowSpaceRequirement::default());
+        };
+
+        let container = child_frame_container_view_from_concat(concat)?;
+        let mut overflow = child_frame_container_overflow(plot_width, plot_height, &container)?;
+        let label_placement = concat_label_placement(concat);
+        let label_slab = measure_container_label_slab(
+            label_placement,
+            &container_label_items_from_child_frame_container(&container)?,
+            theme,
+            params,
+        );
+        match label_placement {
+            ContainerLabelPlacement::Top => overflow.top += label_slab,
+            ContainerLabelPlacement::Left => overflow.left += label_slab,
         }
         Ok(overflow)
     }
@@ -172,9 +176,10 @@ impl CompiledGuide for ConcatGuide {
                 "ConcatGuide received non-concat coordinate measurement".to_string(),
             )
         })?;
+        let container = child_frame_container_view_from_concat(concat)?;
         Ok(render_container_labels(
             concat_label_placement(concat),
-            &concat_label_items(concat)?,
+            &container_label_items_from_child_frame_container(&container)?,
             plot_bounds,
             theme,
             params,
@@ -398,69 +403,11 @@ pub(crate) fn concat_coord_ref(
         .downcast_ref::<ConcatCoordMeasurement>()
 }
 
-fn concat_child_frame_overflow(
-    plot_width: f32,
-    plot_height: f32,
-    coord_measurement: Option<&dyn CoordMeasurement>,
-) -> Result<OverflowSpaceRequirement, AvengerChartError> {
-    let Some(concat) = coord_measurement.and_then(concat_coord_ref) else {
-        return Ok(OverflowSpaceRequirement::default());
-    };
-
-    let placement = concat.child_frame_placement();
-    child_frame_container_overflow_from_placements(
-        plot_width,
-        plot_height,
-        &placement,
-        |child_index| {
-            concat
-                .child(child_index)
-                .map(|child| &child.measurement)
-                .ok_or_else(|| {
-                    AvengerChartError::InternalError(format!(
-                        "Missing concat child measurement for child index {}",
-                        child_index
-                    ))
-                })
-        },
-    )
-}
-
 fn concat_label_placement(concat: &ConcatCoordMeasurement) -> ContainerLabelPlacement {
     match concat.child_band_layout.direction {
         BandDirection::Horizontal => ContainerLabelPlacement::Top,
         BandDirection::Vertical => ContainerLabelPlacement::Left,
     }
-}
-
-fn concat_label_items(
-    concat: &ConcatCoordMeasurement,
-) -> Result<Vec<ContainerLabelItem>, AvengerChartError> {
-    let placement = concat.child_frame_placement();
-    container_label_items_from_placements(
-        &placement,
-        |child_index| {
-            let child = concat.child(child_index).ok_or_else(|| {
-                AvengerChartError::InternalError(format!(
-                    "Missing concat child measurement for child index {}",
-                    child_index
-                ))
-            })?;
-            Ok(ContainerLabelChildFrame {
-                plot_bounds: *child.measurement.layout.plot_area_bounds(),
-                plot_size: Size2D::new(
-                    child.measurement.plot_area_width,
-                    child.measurement.plot_area_height,
-                ),
-                frame_bounds: child.measurement.frame_allocation.rect,
-            })
-        },
-        |child_index| {
-            concat
-                .child(child_index)
-                .and_then(|child| child.label.as_deref())
-        },
-    )
 }
 
 fn fixed_plot_area_layout_spec(width: f32, height: f32) -> EvaluatedLayoutSpec {
@@ -871,7 +818,9 @@ mod tests {
             CompiledPlot, Plot,
             compiled::{
                 ChildFrameKey, ContainerPathSegment, CoordinationAxis, CoordinationKind,
-                CoordinationScopeKey, scales::build_scale_builder_from_marks,
+                CoordinationScopeKey, child_frame_container_view_from_concat,
+                container_label_items_from_child_frame_container,
+                scales::build_scale_builder_from_marks,
             },
         },
         render::EvaluationContext,
@@ -1126,6 +1075,13 @@ mod tests {
         assert_eq!(container.child_label(0), Some("Left"));
         assert_eq!(container.child_label(1), Some("Right"));
         assert_eq!(container.child_scope_keys().count(), 2);
+
+        let direct_container = child_frame_container_view_from_concat(concat)?;
+        assert_eq!(direct_container.placement(), container.placement());
+        let label_items = container_label_items_from_child_frame_container(&direct_container)?;
+        assert_eq!(label_items.len(), 2);
+        assert_eq!(label_items[0].text, "Left");
+        assert_eq!(label_items[1].text, "Right");
         Ok(())
     }
 
