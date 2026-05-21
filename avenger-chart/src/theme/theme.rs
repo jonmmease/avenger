@@ -184,6 +184,13 @@ impl Theme {
                 font-size: 0.833rem; /* 10px @ 12px base */
             }
 
+            /* Concat labels should match axis/facet label typography */
+            concat label {
+                color: var(--text-tertiary);
+                font-weight: 300;
+                font-size: 0.833rem; /* 10px @ 12px base */
+            }
+
             axis grid {
                 stroke: var(--grid-color);
                 opacity: 0.5;

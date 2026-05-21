@@ -2,6 +2,7 @@
 
 mod child_frame_container;
 mod child_frame_scope;
+mod container_labels;
 mod coordination_scope;
 mod domain_coordination;
 pub(crate) mod expr_eval;
@@ -41,6 +42,10 @@ pub(crate) use self::child_frame_container::{
     ChildFrameContainerView, child_frame_container_overflow_from_placements,
 };
 pub(crate) use self::child_frame_scope::{ChildFrameKey, ChildFrameScopeKey, ContainerPathSegment};
+pub(crate) use self::container_labels::{
+    ContainerLabelItem, ContainerLabelPlacement, measure_container_label_slab,
+    render_container_labels,
+};
 pub(crate) use self::coordination_scope::{
     CoordinationAxis, CoordinationKind, CoordinationScopeKey,
 };

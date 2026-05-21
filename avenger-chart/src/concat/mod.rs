@@ -24,16 +24,18 @@ use crate::{
     layout::{
         BandChildFrameInput, BandChildFramePlacement, BandDirection, BandSpacing, BoundaryDemand1D,
         ChildFramePlacementResult, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode,
-        LayoutBounds, Size2D,
+        LayoutBounds, Size2D, project_child_frame_bounds,
     },
     marks::{CompiledConcatSubplot, CompiledMark, subplot::compiled_subplot},
     plot::{
         CompiledPlot,
         compiled::{
             ChildFrameDomainRequest, ChildFrameKey, ChildFrameScopeKey, ComponentsMeasurement,
-            ContainerPathSegment, CoordinationKind, CoordinationScopeKey,
-            aggregate_domain_requests, child_frame_container_overflow_from_placements,
-            scale_provider::DynamicScaleProvider, scales::build_scale_builder_from_marks,
+            ContainerLabelItem, ContainerLabelPlacement, ContainerPathSegment, CoordinationKind,
+            CoordinationScopeKey, aggregate_domain_requests,
+            child_frame_container_overflow_from_placements, measure_container_label_slab,
+            render_container_labels, scale_provider::DynamicScaleProvider,
+            scales::build_scale_builder_from_marks,
         },
     },
     render::EvaluationContext,
@@ -87,9 +89,8 @@ impl CoordinateSystem for VConcat {
 
 /// Guide for concat containers.
 ///
-/// Concat does not draw container chrome yet, but the guide participates in
-/// frame measurement so child subplot axes and legends are reserved by the
-/// parent chart frame.
+/// The guide reserves parent-frame space for measured child frames and renders
+/// optional child labels supplied by `Subplot::label`.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ConcatGuide;
 
@@ -126,15 +127,28 @@ impl CompiledGuide for ConcatGuide {
         _scales: &HashMap<String, ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
-        _theme: &Theme,
-        _params: &IndexMap<String, ScalarValue>,
+        theme: &Theme,
+        params: &IndexMap<String, ScalarValue>,
         _data_override: Option<&DataFrame>,
         _ctx: &SessionContext,
         _facet_tree: &EvaluatedFacetTree,
         _facet_path: &[ScalarValue],
         coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
-        concat_child_frame_overflow(plot_width, plot_height, coord_measurement)
+        let mut overflow = concat_child_frame_overflow(plot_width, plot_height, coord_measurement)?;
+        if let Some(concat) = coord_measurement.and_then(concat_coord_ref) {
+            let label_slab = measure_container_label_slab(
+                concat_label_placement(concat),
+                &concat_label_items(concat)?,
+                theme,
+                params,
+            );
+            match concat_label_placement(concat) {
+                ContainerLabelPlacement::Top => overflow.top += label_slab,
+                ContainerLabelPlacement::Left => overflow.left += label_slab,
+            }
+        }
+        Ok(overflow)
     }
 
     async fn evaluate(
@@ -142,17 +156,28 @@ impl CompiledGuide for ConcatGuide {
         _scales: &HashMap<String, ConfiguredScale>,
         _plot_width: f32,
         _plot_height: f32,
-        _plot_bounds: &LayoutBounds,
+        plot_bounds: &LayoutBounds,
         _guide_overflow: &OverflowSpaceRequirement,
-        _theme: &Theme,
-        _params: &IndexMap<String, ScalarValue>,
+        theme: &Theme,
+        params: &IndexMap<String, ScalarValue>,
         _ctx: &SessionContext,
         _data_override: Option<&DataFrame>,
         _facet_tree: &EvaluatedFacetTree,
         _facet_path: &[ScalarValue],
-        _coord_measurement: &dyn CoordMeasurement,
+        coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        Ok(Vec::new())
+        let concat = concat_coord_ref(coord_measurement).ok_or_else(|| {
+            AvengerChartError::InternalError(
+                "ConcatGuide received non-concat coordinate measurement".to_string(),
+            )
+        })?;
+        Ok(render_container_labels(
+            concat_label_placement(concat),
+            &concat_label_items(concat)?,
+            plot_bounds,
+            theme,
+            params,
+        ))
     }
 
     fn get_clip(
@@ -398,6 +423,56 @@ fn concat_child_frame_overflow(
                 })
         },
     )
+}
+
+fn concat_label_placement(concat: &ConcatCoordMeasurement) -> ContainerLabelPlacement {
+    match concat.child_band_layout.direction {
+        BandDirection::Horizontal => ContainerLabelPlacement::Top,
+        BandDirection::Vertical => ContainerLabelPlacement::Left,
+    }
+}
+
+fn concat_label_items(
+    concat: &ConcatCoordMeasurement,
+) -> Result<Vec<ContainerLabelItem>, AvengerChartError> {
+    let placement = concat.child_frame_placement();
+    let mut items = Vec::new();
+
+    for render_placement in placement.render_placements() {
+        let child = concat.child(render_placement.child_index).ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "Missing concat child measurement for child index {}",
+                render_placement.child_index
+            ))
+        })?;
+        let Some(label) = child
+            .label
+            .as_deref()
+            .filter(|label| !label.trim().is_empty())
+        else {
+            continue;
+        };
+
+        let child_plot_bounds = *child.measurement.layout.plot_area_bounds();
+        let frame_bounds = project_child_frame_bounds(
+            [0.0, 0.0],
+            render_placement.origin,
+            child_plot_bounds,
+            child.measurement.frame_allocation.rect,
+        );
+
+        items.push(ContainerLabelItem {
+            text: label.to_string(),
+            plot_origin: render_placement.origin,
+            plot_size: Size2D::new(
+                child.measurement.plot_area_width,
+                child.measurement.plot_area_height,
+            ),
+            frame_bounds,
+        });
+    }
+
+    Ok(items)
 }
 
 fn fixed_plot_area_layout_spec(width: f32, height: f32) -> EvaluatedLayoutSpec {

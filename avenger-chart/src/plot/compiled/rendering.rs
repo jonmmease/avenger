@@ -209,6 +209,22 @@ fn translated_frame_layout(layout: &FrameLayout, origin: [f32; 2]) -> FrameLayou
     layout
 }
 
+fn translate_scene_mark(mark: SceneMark, dx: f32, dy: f32) -> SceneMark {
+    match mark {
+        SceneMark::Group(mut group) => {
+            group.origin = [group.origin[0] + dx, group.origin[1] + dy];
+            SceneMark::Group(group)
+        }
+        SceneMark::Text(text_mark) => {
+            let mut text_mark = (*text_mark).clone();
+            text_mark.x = text_mark.x.map(|x| x + dx);
+            text_mark.y = text_mark.y.map(|y| y + dy);
+            SceneMark::Text(Arc::new(text_mark))
+        }
+        other => other,
+    }
+}
+
 fn set_debug_side_overflow(layout: &mut FrameLayout, side: AxisPosition, total: f32) {
     if total <= 0.01 {
         layout.guide_overflows.remove(&side);
@@ -3753,28 +3769,35 @@ impl CompiledPlot {
                     )
                     .await?;
 
-                // Translate legend marks to be relative to (0, 0) instead of plot area offset
+                // Translate frame chrome to be relative to the child plot-area origin.
                 let legend_marks: Vec<_> = legend_marks_raw
                     .into_iter()
-                    .map(|mark| {
-                        match mark {
-                            SceneMark::Group(mut group) => {
-                                // Adjust group origin by subtracting plot area offset
-                                group.origin = [
-                                    group.origin[0] - plot_bounds.x,
-                                    group.origin[1] - plot_bounds.y,
-                                ];
-                                SceneMark::Group(group)
-                            }
-                            _ => mark, // Other mark types shouldn't be at this level
-                        }
-                    })
+                    .map(|mark| translate_scene_mark(mark, -plot_bounds.x, -plot_bounds.y))
                     .collect();
 
-                // Create title/subtitle marks if they exist in layout
-                let title_marks = vec![];
-                let subtitle_marks = vec![];
-                // (Subplots typically don't have titles, but the layout might include them)
+                let title_marks_raw = if let Some(title_bounds) = &layout_initial.frame_layout.title
+                {
+                    self.create_title(Some(*title_bounds), ctx, &merged_params)
+                        .await?
+                } else {
+                    Vec::new()
+                };
+                let title_marks = title_marks_raw
+                    .into_iter()
+                    .map(|mark| translate_scene_mark(mark, -plot_bounds.x, -plot_bounds.y))
+                    .collect();
+
+                let subtitle_marks_raw =
+                    if let Some(subtitle_bounds) = &layout_initial.frame_layout.subtitle {
+                        self.create_subtitle(Some(*subtitle_bounds), ctx, &merged_params)
+                            .await?
+                    } else {
+                        Vec::new()
+                    };
+                let subtitle_marks = subtitle_marks_raw
+                    .into_iter()
+                    .map(|mark| translate_scene_mark(mark, -plot_bounds.x, -plot_bounds.y))
+                    .collect();
 
                 let mut debug_marks = vec![];
                 let debug_overlay = eval_ctx.debug_layout_overlay();
