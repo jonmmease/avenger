@@ -3,6 +3,7 @@
 mod child_frame_container;
 mod child_frame_scope;
 mod container_band_guide;
+mod container_domain_sharing;
 mod container_labels;
 mod container_sharing;
 mod coordination_scope;
@@ -47,6 +48,11 @@ pub(crate) use self::child_frame_scope::{ChildFrameKey, ChildFrameScopeKey, Cont
 pub(crate) use self::container_band_guide::{
     ContainerBandGuideMeasurementConfig, ContainerBandGuideRenderConfig,
     measure_container_band_guide_slab, render_container_band_guide_slab,
+};
+pub(crate) use self::container_domain_sharing::{
+    ChildFrameChannelDomainExtent, ChildFrameDomainSharingInput,
+    child_frame_domain_sharing_levels_for_plot, coordinated_child_frame_domain_extents,
+    extract_child_frame_shared_domain_extents,
 };
 pub(crate) use self::container_labels::{
     ContainerLabelPlacement, container_label_items_from_child_frame_container,

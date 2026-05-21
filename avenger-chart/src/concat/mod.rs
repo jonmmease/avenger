@@ -14,7 +14,6 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    channel::value::strip_trailing_numbers,
     coords::{
         CoordMeasurement, CoordinateSystem, CoordinateSystemTransform, PlotGeometry, PointGeometry,
     },
@@ -27,17 +26,15 @@ use crate::{
         LayoutBounds, Size2D,
     },
     marks::{CompiledConcatSubplot, CompiledMark, subplot::compiled_subplot},
-    plot::{
-        CompiledPlot,
-        compiled::{
-            ChildFrameDomainRequest, ChildFrameKey, ChildFrameScopeKey, ComponentsMeasurement,
-            ContainerLabelPlacement, ContainerPathSegment, CoordinationKind, CoordinationScopeKey,
-            SharingLevel, aggregate_domain_requests, child_frame_container_overflow,
-            child_frame_container_view_from_concat,
-            container_label_items_from_child_frame_container, measure_container_label_slab,
-            render_container_labels, scale_provider::DynamicScaleProvider,
-            scales::build_scale_builder_from_marks,
-        },
+    plot::compiled::{
+        ChildFrameChannelDomainExtent, ChildFrameDomainSharingInput, ChildFrameKey,
+        ChildFrameScopeKey, ComponentsMeasurement, ContainerLabelPlacement, ContainerPathSegment,
+        SharingLevel, child_frame_container_overflow, child_frame_container_view_from_concat,
+        child_frame_domain_sharing_levels_for_plot,
+        container_label_items_from_child_frame_container, coordinated_child_frame_domain_extents,
+        extract_child_frame_shared_domain_extents, measure_container_label_slab,
+        render_container_labels, scale_provider::DynamicScaleProvider,
+        scales::build_scale_builder_from_marks,
     },
     render::EvaluationContext,
     scales::{ConfiguredScaleWithSpec, DomainExtent, ScaleBuilder, ScaleRangeBinding},
@@ -477,17 +474,12 @@ fn band_input_for_child(
     }
 }
 
-struct ConcatChannelDomainExtent {
-    extent: DomainExtent,
-    sharing_level: SharingLevel,
-}
-
 struct PreparedConcatChild<'a> {
     subplot: &'a CompiledConcatSubplot,
     container_path: Vec<ContainerPathSegment>,
     child_data_override: Option<DataFrame>,
     scale_builder: ScaleBuilder,
-    local_domain_extents: HashMap<String, ConcatChannelDomainExtent>,
+    local_domain_extents: HashMap<String, ChildFrameChannelDomainExtent>,
     channel_domain_sharing_levels: HashMap<String, SharingLevel>,
 }
 
@@ -513,114 +505,26 @@ impl PreparedConcatChild<'_> {
     }
 }
 
-fn channel_domain_sharing_levels_for_plot(plot: &CompiledPlot) -> HashMap<String, SharingLevel> {
-    let mut sharing_levels = HashMap::new();
-    for mark in &plot.marks {
-        for (channel, channel_value) in mark.data_context().channels() {
-            let Some(sharing) = channel_value.get_share_mode() else {
-                continue;
-            };
-            let channel = strip_trailing_numbers(channel).to_string();
-            let sharing_level = SharingLevel::from(sharing);
-            sharing_levels
-                .entry(channel)
-                .and_modify(|existing: &mut SharingLevel| {
-                    *existing = (*existing).max(sharing_level);
-                })
-                .or_insert(sharing_level);
-        }
-    }
-    sharing_levels
-}
-
-fn extract_concat_domain_extents(
-    scale_builder: &ScaleBuilder,
-    sharing_levels: &HashMap<String, SharingLevel>,
-) -> HashMap<String, ConcatChannelDomainExtent> {
-    let shared_channels = sharing_levels
-        .iter()
-        .filter_map(|(channel, sharing_level)| {
-            (!sharing_level.is_free()).then_some(channel.as_str())
-        })
-        .collect::<Vec<_>>();
-    if shared_channels.is_empty() {
-        return HashMap::new();
-    }
-
-    scale_builder
-        .extract_domain_extents(&shared_channels)
-        .into_iter()
-        .filter_map(|(channel, extent)| {
-            sharing_levels.get(&channel).map(|sharing_level| {
-                (
-                    channel,
-                    ConcatChannelDomainExtent {
-                        extent,
-                        sharing_level: *sharing_level,
-                    },
-                )
-            })
-        })
-        .collect()
-}
-
-fn concat_domain_scope_key(
-    child_scope: &ChildFrameScopeKey,
-    channel: &str,
-    sharing_level: SharingLevel,
-) -> CoordinationScopeKey {
-    debug_assert!(
-        !sharing_level.is_free(),
-        "Free concat scale domains should not need a coordination scope"
-    );
-    CoordinationScopeKey::child_frame_container(CoordinationKind::ScaleDomain, child_scope)
-        .with_channel(channel)
-}
-
-fn concat_domain_request(
-    child_scope: &ChildFrameScopeKey,
-    channel: &str,
-    annotated: &ConcatChannelDomainExtent,
-) -> Option<ChildFrameDomainRequest> {
-    (!annotated.sharing_level.is_free()).then(|| {
-        ChildFrameDomainRequest::new(
-            concat_domain_scope_key(child_scope, channel, annotated.sharing_level),
-            annotated.extent.clone(),
-        )
-    })
-}
-
 fn coordinated_domain_extents_for_concat_children(
     children: &[PreparedConcatChild<'_>],
 ) -> Vec<HashMap<String, DomainExtent>> {
-    let unified = aggregate_domain_requests(children.iter().flat_map(|child| {
-        let child_scope = child.scope_key();
-        child
-            .local_domain_extents
-            .iter()
-            .filter_map(move |(channel, annotated)| {
-                concat_domain_request(&child_scope, channel, annotated)
-            })
-    }));
-
-    children
+    let scope_keys = children
         .iter()
-        .map(|child| {
-            let child_scope = child.scope_key();
-            let mut coordinated = HashMap::new();
-            for (channel, sharing_level) in &child.channel_domain_sharing_levels {
-                if sharing_level.is_free() {
-                    continue;
-                }
-
-                let key = concat_domain_scope_key(&child_scope, channel, *sharing_level);
-                if let Some(unified_extent) = unified.get(&key) {
-                    coordinated.insert(channel.clone(), unified_extent.clone());
-                }
-            }
-            coordinated
+        .map(PreparedConcatChild::scope_key)
+        .collect::<Vec<_>>();
+    let inputs = children
+        .iter()
+        .zip(scope_keys.iter())
+        .map(|(child, scope_key)| {
+            ChildFrameDomainSharingInput::new(
+                scope_key,
+                &child.local_domain_extents,
+                &child.channel_domain_sharing_levels,
+            )
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    coordinated_child_frame_domain_extents(&inputs)
 }
 
 async fn prepare_concat_child<'a>(
@@ -647,9 +551,9 @@ async fn prepare_concat_child<'a>(
     )
     .await?;
 
-    let channel_domain_sharing_levels = channel_domain_sharing_levels_for_plot(child_plot);
+    let channel_domain_sharing_levels = child_frame_domain_sharing_levels_for_plot(child_plot);
     let local_domain_extents =
-        extract_concat_domain_extents(&scale_builder, &channel_domain_sharing_levels);
+        extract_child_frame_shared_domain_extents(&scale_builder, &channel_domain_sharing_levels);
 
     Ok(PreparedConcatChild {
         subplot,
