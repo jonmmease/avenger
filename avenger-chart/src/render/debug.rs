@@ -629,8 +629,12 @@ pub fn create_debug_layout_rects(
         debug_marks.push(SceneMark::Rect(legend_rect));
 
         // Add label for legend channel
+        let label_text = channel
+            .split_once('@')
+            .map(|(primary, _)| primary)
+            .unwrap_or(channel);
         let label = SceneTextMark {
-            text: channel.clone().into(),
+            text: label_text.to_string().into(),
             x: (bounds.x + 2.0).into(),
             y: (bounds.y + 10.0).into(),
             font_size: 8.0.into(),

@@ -52,6 +52,14 @@ impl CoordinationScopeKey {
         Self::new(kind, Vec::new(), CoordinationGroup::PartitionPath(path))
     }
 
+    pub(crate) fn partition_path_in_container(
+        kind: CoordinationKind,
+        container_path: Vec<ContainerPathSegment>,
+        path: Vec<ScalarValue>,
+    ) -> CoordinationScopeKey {
+        Self::new(kind, container_path, CoordinationGroup::PartitionPath(path))
+    }
+
     pub(crate) fn child_frame_container(
         kind: CoordinationKind,
         child_scope: &ChildFrameScopeKey,
@@ -316,6 +324,24 @@ mod tests {
                 .with_channel("fill");
 
         assert_ne!(east_scope, west_scope);
+    }
+
+    #[test]
+    fn partition_path_in_container_separates_child_frame_identity() {
+        let sepal = CoordinationScopeKey::partition_path_in_container(
+            CoordinationKind::ScaleDomain,
+            vec![ContainerPathSegment::concat_child(0, Some("sepal"))],
+            vec![],
+        )
+        .with_channel("fill");
+        let petal = CoordinationScopeKey::partition_path_in_container(
+            CoordinationKind::ScaleDomain,
+            vec![ContainerPathSegment::concat_child(1, Some("petal"))],
+            vec![],
+        )
+        .with_channel("fill");
+
+        assert_ne!(sepal, petal);
     }
 
     #[test]

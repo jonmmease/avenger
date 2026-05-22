@@ -46,7 +46,7 @@ pub(crate) use self::child_frame_container::{
 };
 pub(crate) use self::child_frame_scope::{
     ChildFrameKey, ChildFrameScopeKey, ChildFrameSharingLevel, ChildFrameSharingPath,
-    ContainerPathSegment,
+    ContainerPathSegment, container_path_without_facet_segments,
 };
 pub(crate) use self::container_band_guide::{
     ContainerBandGuideMeasurementConfig, ContainerBandGuideRenderConfig,

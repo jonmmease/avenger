@@ -32,10 +32,10 @@ use crate::{
         ChildFrameScopeKey, ChildFrameSharingLevel, ComponentsMeasurement, ContainerLabelPlacement,
         ContainerPathSegment, SharingLevel, child_frame_container_overflow,
         child_frame_container_view_from_concat, child_frame_domain_sharing_levels_for_plot,
-        container_label_items_from_child_frame_container, coordinated_child_frame_domain_extents,
-        extract_child_frame_shared_domain_extents, measure_container_label_slab,
-        render_container_labels, scale_provider::DynamicScaleProvider,
-        scales::build_scale_builder_from_marks,
+        container_label_items_from_child_frame_container, container_path_without_facet_segments,
+        coordinated_child_frame_domain_extents, extract_child_frame_shared_domain_extents,
+        measure_container_label_slab, render_container_labels,
+        scale_provider::DynamicScaleProvider, scales::build_scale_builder_from_marks,
     },
     render::EvaluationContext,
     scales::{ConfiguredScaleWithSpec, DomainExtent, ScaleBuilder, ScaleRangeBinding},
@@ -472,6 +472,7 @@ fn band_input_for_child(
 struct PreparedConcatChild<'a> {
     subplot: &'a CompiledConcatSubplot,
     container_path: Vec<ContainerPathSegment>,
+    relative_facet_child_frame_path: Vec<ContainerPathSegment>,
     child_data_override: Option<DataFrame>,
     scale_builder: ScaleBuilder,
     local_domain_extents: HashMap<String, ChildFrameChannelDomainExtent>,
@@ -560,10 +561,17 @@ async fn prepare_concat_child<'a>(
     let channel_domain_sharing_levels = child_frame_domain_sharing_levels_for_plot(child_plot);
     let local_domain_extents =
         extract_child_frame_shared_domain_extents(&scale_builder, &channel_domain_sharing_levels);
+    let mut relative_facet_child_frame_path =
+        container_path_without_facet_segments(eval_ctx.child_frame_container_path());
+    relative_facet_child_frame_path.push(ContainerPathSegment::concat_child(
+        subplot.child_index(),
+        subplot.key(),
+    ));
 
     Ok(PreparedConcatChild {
         subplot,
         container_path: eval_ctx.child_frame_container_path().to_vec(),
+        relative_facet_child_frame_path,
         child_data_override,
         scale_builder,
         local_domain_extents,
@@ -579,21 +587,28 @@ async fn measure_prepared_concat_child(
     eval_ctx: &EvaluationContext,
     facet_path: &[ScalarValue],
     coordinated_domain_extents: &HashMap<String, DomainExtent>,
+    facet_scoped_domain_extents: &HashMap<String, DomainExtent>,
 ) -> Result<ConcatChildMeasurement, AvengerChartError> {
     let child_plot = prepared.subplot.compiled_subplot();
     let child_layout_spec =
         fixed_plot_area_layout_spec(child_plot_area.width, child_plot_area.height);
     let extended_builder;
-    let scale_builder = if coordinated_domain_extents.is_empty() {
-        &prepared.scale_builder
-    } else {
-        extended_builder = {
-            let mut builder = prepared.scale_builder.clone();
-            builder.extend_with_domain_extents(coordinated_domain_extents);
-            builder
+    let scale_builder =
+        if coordinated_domain_extents.is_empty() && facet_scoped_domain_extents.is_empty() {
+            &prepared.scale_builder
+        } else {
+            extended_builder = {
+                let mut builder = prepared.scale_builder.clone();
+                if !coordinated_domain_extents.is_empty() {
+                    builder.extend_with_domain_extents(coordinated_domain_extents);
+                }
+                if !facet_scoped_domain_extents.is_empty() {
+                    builder.extend_with_domain_extents(facet_scoped_domain_extents);
+                }
+                builder
+            };
+            &extended_builder
         };
-        &extended_builder
-    };
     let scale_provider = DynamicScaleProvider {
         builder: scale_builder,
         plot: child_plot,
@@ -648,6 +663,12 @@ async fn measure_concat_coord_system(
         .iter()
         .zip(coordinated_domain_extents.iter())
     {
+        let facet_scoped_extents = eval_ctx
+            .facet_scale_precompute_store()
+            .coordinated_child_frame_domain_extents(
+                &prepared.relative_facet_child_frame_path,
+                facet_path,
+            );
         children.push(
             measure_prepared_concat_child(
                 prepared,
@@ -657,6 +678,7 @@ async fn measure_concat_coord_system(
                 eval_ctx,
                 facet_path,
                 coordinated_extents,
+                &facet_scoped_extents,
             )
             .await?,
         );

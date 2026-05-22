@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use datafusion::logical_expr::LogicalPlan;
 use datafusion::{common::ScalarValue, dataframe::DataFrame};
 use tracing::{debug, trace};
 
@@ -12,12 +13,18 @@ use crate::{
     facet::{
         evaluated_facet_tree::EvaluatedFacetTree,
         marks::facet::{FacetSubplotRef, facet_subplot_ref},
-        path_math,
+        path_math, sharing_policy,
     },
-    marks::CompiledMark,
-    plot::compiled::{CompiledPlot, SharingLevel, scales::build_scale_builder_from_marks},
+    marks::{CompiledMark, subplot::compiled_subplot},
+    plot::compiled::{
+        ChildFrameDomainRequest, CompiledPlot, ContainerPathSegment, CoordinationKind,
+        CoordinationScopeKey, SharingLevel, aggregate_domain_requests,
+        child_frame_domain_sharing_levels_for_plot, container_path_without_facet_segments,
+        scales::build_scale_builder_from_marks,
+    },
     render::EvaluationContext,
-    scales::ScaleBuilder,
+    scales::{DomainExtent, ScaleBuilder},
+    serialization::LogicalPlanNodeExt,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -70,11 +77,30 @@ struct FacetDomainInfoKey {
     facet_depth: u8,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct FacetChildFrameDomainInfoKey {
+    relative_child_frame_path: Vec<ContainerPathSegment>,
+    canonical_full_cell_path: Vec<ScalarValue>,
+    channel: String,
+    facet_depth: u8,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct FacetChildFrameDomainInfo {
+    pub(crate) relative_child_frame_path: Vec<ContainerPathSegment>,
+    pub(crate) full_cell_path: Vec<ScalarValue>,
+    pub(crate) channel: String,
+    pub(crate) domain_sharing_level: SharingLevel,
+    pub(crate) facet_depth: u8,
+    pub(crate) extent: DomainExtent,
+}
+
 #[derive(Default)]
 struct FacetScalePrecomputeState {
     precomputed_subtrees: HashSet<FacetScaleSubtreeKey>,
     node_artifacts: HashMap<FacetScaleNodeKey, Arc<FacetScaleNodeArtifacts>>,
     domain_infos: HashMap<FacetDomainInfoKey, CellDomainInfo>,
+    child_frame_domain_infos: HashMap<FacetChildFrameDomainInfoKey, FacetChildFrameDomainInfo>,
 }
 
 #[derive(Default)]
@@ -153,6 +179,76 @@ impl FacetScalePrecomputeStore {
             .cloned()
             .collect()
     }
+
+    pub(crate) fn insert_child_frame_domain_infos(&self, infos: Vec<FacetChildFrameDomainInfo>) {
+        let mut state = self
+            .state
+            .lock()
+            .expect("FacetScalePrecomputeStore lock poisoned");
+        for info in infos {
+            let key = FacetChildFrameDomainInfoKey {
+                relative_child_frame_path: info.relative_child_frame_path.clone(),
+                canonical_full_cell_path: canonicalize_path(&info.full_cell_path),
+                channel: info.channel.clone(),
+                facet_depth: info.facet_depth,
+            };
+            state.child_frame_domain_infos.insert(key, info);
+        }
+    }
+
+    pub(crate) fn child_frame_domain_infos(&self) -> Vec<FacetChildFrameDomainInfo> {
+        self.state
+            .lock()
+            .expect("FacetScalePrecomputeStore lock poisoned")
+            .child_frame_domain_infos
+            .values()
+            .cloned()
+            .collect()
+    }
+
+    pub(crate) fn coordinated_child_frame_domain_extents(
+        &self,
+        relative_child_frame_path: &[ContainerPathSegment],
+        full_cell_path: &[ScalarValue],
+    ) -> HashMap<String, DomainExtent> {
+        let infos = self.child_frame_domain_infos();
+        if infos.is_empty() {
+            return HashMap::new();
+        }
+
+        let unified =
+            aggregate_domain_requests(infos.iter().filter_map(child_frame_domain_request_for_info));
+        let mut sharing_levels = HashMap::new();
+        for info in infos
+            .iter()
+            .filter(|info| info.relative_child_frame_path == relative_child_frame_path)
+        {
+            if info.domain_sharing_level.is_free() {
+                continue;
+            }
+            sharing_levels
+                .entry(info.channel.clone())
+                .and_modify(|existing: &mut SharingLevel| {
+                    *existing = (*existing).max(info.domain_sharing_level)
+                })
+                .or_insert(info.domain_sharing_level);
+        }
+
+        let facet_depth = full_cell_path.len() as u8;
+        sharing_levels
+            .into_iter()
+            .filter_map(|(channel, sharing_level)| {
+                let key = child_frame_domain_coordination_scope_key(
+                    relative_child_frame_path,
+                    &channel,
+                    full_cell_path,
+                    sharing_level,
+                    facet_depth,
+                );
+                unified.get(&key).cloned().map(|extent| (channel, extent))
+            })
+            .collect()
+    }
 }
 
 pub(crate) fn canonicalize_scalar(value: &ScalarValue) -> ScalarValue {
@@ -169,6 +265,39 @@ pub(crate) fn canonicalize_scalar(value: &ScalarValue) -> ScalarValue {
 
 pub(crate) fn canonicalize_path(path: &[ScalarValue]) -> Vec<ScalarValue> {
     path.iter().map(canonicalize_scalar).collect()
+}
+
+pub(crate) fn child_frame_domain_coordination_scope_key(
+    relative_child_frame_path: &[ContainerPathSegment],
+    channel: &str,
+    full_cell_path: &[ScalarValue],
+    sharing_level: SharingLevel,
+    facet_depth: u8,
+) -> CoordinationScopeKey {
+    let ancestor_key = sharing_policy::domain_group_key(full_cell_path, sharing_level, facet_depth);
+    CoordinationScopeKey::partition_path_in_container(
+        CoordinationKind::ScaleDomain,
+        relative_child_frame_path.to_vec(),
+        ancestor_key,
+    )
+    .with_channel(channel)
+}
+
+fn child_frame_domain_request_for_info(
+    info: &FacetChildFrameDomainInfo,
+) -> Option<ChildFrameDomainRequest> {
+    (!info.domain_sharing_level.is_free()).then(|| {
+        ChildFrameDomainRequest::new(
+            child_frame_domain_coordination_scope_key(
+                &info.relative_child_frame_path,
+                &info.channel,
+                &info.full_cell_path,
+                info.domain_sharing_level,
+                info.facet_depth,
+            ),
+            info.extent.clone(),
+        )
+    })
 }
 
 fn resolve_current_facet_node(
@@ -471,6 +600,124 @@ async fn collect_node_domain_infos(
     Ok(infos)
 }
 
+fn explicit_dataframe_for_plot(
+    plot: &CompiledPlot,
+    eval_ctx: &EvaluationContext,
+) -> Option<DataFrame> {
+    for mark in &plot.marks {
+        if let Some(df) = mark
+            .data_context()
+            .dataframe_with_context(eval_ctx.session_context.as_ref())
+            && !matches!(df.logical_plan(), LogicalPlan::EmptyRelation(_))
+        {
+            return Some(df);
+        }
+    }
+
+    plot.data.as_ref().and_then(|data_node| {
+        data_node
+            .to_logical_plan(eval_ctx.session_context.as_ref())
+            .ok()
+            .map(|logical_plan| {
+                DataFrame::new(eval_ctx.session_context.state().clone(), logical_plan)
+            })
+    })
+}
+
+async fn collect_child_frame_domain_infos_for_marks(
+    compiled_marks: &[Arc<dyn CompiledMark>],
+    relative_child_frame_path: &[ContainerPathSegment],
+    full_cell_path: &[ScalarValue],
+    inherited_data_df: Option<&DataFrame>,
+    facet_tree: &EvaluatedFacetTree,
+    eval_ctx: &EvaluationContext,
+) -> Result<Vec<FacetChildFrameDomainInfo>, AvengerChartError> {
+    let mut infos = Vec::new();
+
+    for mark in compiled_marks {
+        if mark.mark_type() != "subplot" {
+            continue;
+        }
+        let Some(subplot) = compiled_subplot(mark.as_ref()) else {
+            continue;
+        };
+
+        let child_plot = subplot.compiled_subplot();
+        let child_data_override = if subplot.inherits_parent_data() {
+            inherited_data_df.cloned()
+        } else {
+            None
+        };
+        let scale_builder = build_scale_builder_from_marks(
+            &child_plot.marks,
+            &child_plot.scale_specs,
+            &child_plot.coord_transform,
+            &child_plot.data,
+            child_data_override.clone(),
+            eval_ctx.session_context.as_ref(),
+            &eval_ctx.params,
+            child_plot.get_theme().as_ref(),
+        )
+        .await?;
+
+        let mut child_relative_path = relative_child_frame_path.to_vec();
+        child_relative_path.push(ContainerPathSegment::concat_child(
+            subplot.child_index(),
+            subplot.key(),
+        ));
+
+        let channels = scale_builder
+            .channel_builders()
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        let explicit_sharing = child_frame_domain_sharing_levels_for_plot(child_plot);
+        let facet_depth = full_cell_path.len() as u8;
+        for (channel, extent) in scale_builder.extract_domain_extents(&channels) {
+            let domain_sharing_level = explicit_sharing
+                .get(&channel)
+                .copied()
+                .unwrap_or_else(|| facet_tree.channel_domain_sharing_level_typed(&channel));
+            if domain_sharing_level.is_free() {
+                continue;
+            }
+
+            infos.push(FacetChildFrameDomainInfo {
+                relative_child_frame_path: child_relative_path.clone(),
+                full_cell_path: full_cell_path.to_vec(),
+                channel,
+                domain_sharing_level,
+                facet_depth,
+                extent,
+            });
+        }
+
+        let nested_explicit_data = if subplot.inherits_parent_data() {
+            None
+        } else {
+            explicit_dataframe_for_plot(child_plot, eval_ctx)
+        };
+        let nested_inherited_data = if subplot.inherits_parent_data() {
+            child_data_override.as_ref().or(inherited_data_df)
+        } else {
+            nested_explicit_data.as_ref()
+        };
+        infos.extend(
+            Box::pin(collect_child_frame_domain_infos_for_marks(
+                &child_plot.marks,
+                &child_relative_path,
+                full_cell_path,
+                nested_inherited_data,
+                facet_tree,
+                eval_ctx,
+            ))
+            .await?,
+        );
+    }
+
+    Ok(infos)
+}
+
 async fn ensure_subtree_precomputed_internal(
     compiled_marks: &[Arc<dyn CompiledMark>],
     facet_path: &[ScalarValue],
@@ -537,6 +784,19 @@ async fn ensure_subtree_precomputed_internal(
             inherited_data_df.clone()
         };
 
+        let relative_child_frame_path =
+            container_path_without_facet_segments(eval_ctx.child_frame_container_path());
+        let child_frame_domain_infos = collect_child_frame_domain_infos_for_marks(
+            &compiled_subplot.marks,
+            &relative_child_frame_path,
+            &full_path,
+            Some(&child_data_df),
+            facet_tree,
+            eval_ctx,
+        )
+        .await?;
+        store.insert_child_frame_domain_infos(child_frame_domain_infos);
+
         Box::pin(ensure_subtree_precomputed_internal(
             &compiled_subplot.marks,
             &full_path,
@@ -582,6 +842,7 @@ pub(crate) async fn ensure_subtree_precomputed(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scales::domain_extent::{DomainExtent, SerializableDomainValue};
 
     fn s_utf8(value: &str) -> ScalarValue {
         ScalarValue::Utf8(Some(value.to_string()))
@@ -631,5 +892,64 @@ mod tests {
         assert!(!store.is_subtree_precomputed(&key));
         store.mark_subtree_precomputed(key.clone());
         assert!(store.is_subtree_precomputed(&key));
+    }
+
+    #[test]
+    fn child_frame_domain_lookup_coordinates_by_relative_path_and_facet_group() {
+        let store = FacetScalePrecomputeStore::default();
+        let sepal = vec![ContainerPathSegment::concat_child(0, Some("sepal"))];
+        let petal = vec![ContainerPathSegment::concat_child(1, Some("petal"))];
+        store.insert_child_frame_domain_infos(vec![
+            FacetChildFrameDomainInfo {
+                relative_child_frame_path: sepal.clone(),
+                full_cell_path: vec![s_utf8("setosa")],
+                channel: "fill".to_string(),
+                domain_sharing_level: SharingLevel::GLOBAL,
+                facet_depth: 1,
+                extent: DomainExtent::discrete(vec![SerializableDomainValue::String(
+                    "setosa".to_string(),
+                )]),
+            },
+            FacetChildFrameDomainInfo {
+                relative_child_frame_path: sepal.clone(),
+                full_cell_path: vec![s_utf8("virginica")],
+                channel: "fill".to_string(),
+                domain_sharing_level: SharingLevel::GLOBAL,
+                facet_depth: 1,
+                extent: DomainExtent::discrete(vec![SerializableDomainValue::String(
+                    "virginica".to_string(),
+                )]),
+            },
+            FacetChildFrameDomainInfo {
+                relative_child_frame_path: petal.clone(),
+                full_cell_path: vec![s_utf8("setosa")],
+                channel: "fill".to_string(),
+                domain_sharing_level: SharingLevel::GLOBAL,
+                facet_depth: 1,
+                extent: DomainExtent::discrete(vec![SerializableDomainValue::String(
+                    "narrow".to_string(),
+                )]),
+            },
+        ]);
+
+        let sepal_extents =
+            store.coordinated_child_frame_domain_extents(&sepal, &[s_utf8("setosa")]);
+        let petal_extents =
+            store.coordinated_child_frame_domain_extents(&petal, &[s_utf8("setosa")]);
+
+        assert_eq!(
+            sepal_extents
+                .get("fill")
+                .and_then(DomainExtent::discrete_values)
+                .map(|values| values.len()),
+            Some(2)
+        );
+        assert_eq!(
+            petal_extents
+                .get("fill")
+                .and_then(DomainExtent::discrete_values)
+                .map(|values| values.len()),
+            Some(1)
+        );
     }
 }

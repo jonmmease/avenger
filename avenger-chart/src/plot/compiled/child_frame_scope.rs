@@ -66,6 +66,15 @@ impl ContainerPathSegment {
     }
 }
 
+pub(crate) fn container_path_without_facet_segments(
+    path: &[ContainerPathSegment],
+) -> Vec<ContainerPathSegment> {
+    path.iter()
+        .filter(|segment| !matches!(segment, ContainerPathSegment::FacetValue { .. }))
+        .cloned()
+        .collect()
+}
+
 /// One child-frame level in a nested sharing path.
 ///
 /// This is the container-neutral equivalent of a facet position index. Concat
@@ -196,6 +205,27 @@ mod tests {
             vec![
                 ContainerPathSegment::concat_child(0, Some("left")),
                 ContainerPathSegment::concat_child(1, Some("bottom")),
+            ]
+        );
+    }
+
+    #[test]
+    fn container_path_without_facet_segments_keeps_concat_identity() {
+        let path = vec![
+            ContainerPathSegment::concat_child(0, Some("outer")),
+            ContainerPathSegment::facet_value(
+                crate::coords::FacetAxis::Row,
+                0,
+                ScalarValue::Utf8(Some("A".to_string())),
+            ),
+            ContainerPathSegment::concat_child(1, Some("inner")),
+        ];
+
+        assert_eq!(
+            container_path_without_facet_segments(&path),
+            vec![
+                ContainerPathSegment::concat_child(0, Some("outer")),
+                ContainerPathSegment::concat_child(1, Some("inner")),
             ]
         );
     }
