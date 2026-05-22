@@ -12,6 +12,7 @@ mod coordination_scope;
 mod domain_coordination;
 pub(crate) mod expr_eval;
 mod legends;
+mod mark_data_runtime;
 pub(crate) mod rendering;
 pub mod scale_provider;
 pub(crate) mod scales; // Made public so plot.rs can call build_scale_builder_from_marks
@@ -80,6 +81,9 @@ pub(crate) use self::coordination_scope::{
 };
 pub(crate) use self::domain_coordination::{ChildFrameDomainRequest, aggregate_domain_requests};
 use self::legends::PreparedLegendPlan;
+pub(crate) use self::mark_data_runtime::{
+    MarkDataRequest, PreparedMarkData, prepare_mark_data as prepare_mark_data_runtime,
+};
 
 use super::{
     specs::{AxisSpec, ScaleSpec},

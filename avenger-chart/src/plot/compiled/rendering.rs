@@ -19,16 +19,7 @@ use avenger_scenegraph::{
     scene_graph::SceneGraph,
 };
 use datafusion::{
-    arrow::{
-        array::Int32Array,
-        compute::concat_batches,
-        datatypes::{DataType, Field, Schema},
-        record_batch::RecordBatch,
-    },
-    common::ScalarValue,
-    dataframe::DataFrame,
-    logical_expr::{Expr, lit, when},
-    prelude::SessionContext,
+    common::ScalarValue, dataframe::DataFrame, logical_expr::lit, prelude::SessionContext,
 };
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
@@ -36,10 +27,6 @@ use tracing::{Level, debug, trace};
 
 use crate::{
     cartesian::axis::AxisPosition,
-    channel::{
-        resolution::resolve_all_channel_refs,
-        value::{ChannelValue, ConditionalValue, strip_trailing_numbers},
-    },
     coords::{
         CoordMeasurement, FacetAxis, coordinate_overflow_for_guides,
         coordinate_overflow_for_guides_until,
@@ -78,33 +65,23 @@ use crate::{
         CoordinationCheckpoint, EvaluatedPlot, EvaluationContext, EvaluationMetrics,
         EvaluationOptions, FacetSubtreeCheckpoint, FacetSubtreeSelector, FacetSubtreeSnapshot,
         LayoutDebugOverlayMode, LayoutSnapshot, LayoutSolution, RefinementCheckpoint,
-        RenderContext, RenderState, WholeChartSnapshot,
+        RenderContext, WholeChartSnapshot,
         debug::{FrameDebugOverlay, create_debug_layout_rects, create_debug_overlay_rects},
     },
-    scales::{ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec},
+    scales::ConfiguredScaleWithSpec,
     serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
     theme::{Theme, ThemeContext},
-    utils::{params_to_datafusion, parse_color_string},
 };
 
 use super::{
     ChildFrameContainerView, ChildFrameSharingPath, CompiledPlot, ComponentsMeasurement,
-    PlotComponents,
+    MarkDataRequest, PlotComponents, PreparedMarkData,
     expr_eval::evaluate_f32_expr,
     legends::{HoistedLegendAnchor, HoistedLegendRequest, LegendPlanScope, PreparedLegendPlan},
+    prepare_mark_data_runtime,
     scale_provider::{DynamicScaleProvider, ScaleProvider},
     scales::build_scale_builder_from_marks,
 };
-
-/// Prepared data for mark evaluation (measure or render pass)
-struct PreparedMarkData {
-    /// Array data batch (multiple rows), or None if all channels are scalar
-    data_batch: Option<RecordBatch>,
-    /// Scalar data batch (single row) for channels that don't vary per mark
-    scalar_batch: RecordBatch,
-    /// Render state with plot dimensions and scales
-    render_state: RenderState,
-}
 
 #[derive(Clone, Debug)]
 struct RecursiveOverflowSnapshot {
@@ -1144,136 +1121,6 @@ async fn evaluate_layout_spec(
 }
 
 impl CompiledPlot {
-    /// Apply scaling transformation to a channel expression
-    fn apply_channel_scale(
-        &self,
-        channel_name: &str,
-        channel_value: &ChannelValue,
-        scales: &HashMap<String, ConfiguredScaleWithSpec>,
-        ctx: &SessionContext,
-    ) -> Result<Expr, AvengerChartError> {
-        match channel_value {
-            ChannelValue::Value { expr } => {
-                // No scaling requested, return expression as-is - convert to Expr
-                expr.to_expr(ctx)
-            }
-            ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                ..
-            } => {
-                // Build a CASE WHEN expression from the conditions
-
-                // Helper to convert color string literals to the proper ScalarValue format
-                let convert_color_literal = |expr: &Expr| -> Expr {
-                    // Check if this is a string literal that might be a color
-                    if let Expr::Literal(scalar_value, _) = expr
-                        && let ScalarValue::Utf8(Some(s)) = scalar_value
-                    {
-                        // Use our existing color parsing utility
-                        if let Some(color_or_gradient) = parse_color_string(s)
-                            && let ColorOrGradient::Color(rgba) = color_or_gradient
-                        {
-                            // Convert to List ScalarValue with Float32 values
-                            let values: Vec<ScalarValue> = rgba
-                                .into_iter()
-                                .map(|v| ScalarValue::Float32(Some(v)))
-                                .collect();
-
-                            // Create the list array and wrap in ScalarValue
-                            let list_array =
-                                ScalarValue::new_list_nullable(&values, &DataType::Float32);
-                            let scalar_list = ScalarValue::List(list_array);
-                            return lit(scalar_list);
-                        }
-                    }
-                    // Not a color literal or failed to parse, return as-is
-                    expr.clone()
-                };
-
-                // For conditional values, the scale name is derived from the channel name
-                let scale_key = strip_trailing_numbers(channel_name).to_string();
-
-                // Check if we need color conversion (for color channels)
-                let needs_color_conversion = matches!(channel_name, "fill" | "stroke" | "color");
-
-                // Helper to apply scale to a conditional value
-                let apply_to_conditional =
-                    |cond_val: &ConditionalValue| -> Result<Expr, AvengerChartError> {
-                        match cond_val {
-                            ConditionalValue::Scaled { expr } => {
-                                // Apply scale transformation
-                                if let Some(scale) = scales.get(&scale_key) {
-                                    // Convert SerializableExpr to Expr first
-                                    expr.to_expr(ctx).and_then(|e| scale.to_expr(e))
-                                } else {
-                                    // No scale found, return expression as-is - convert to Expr
-                                    expr.to_expr(ctx)
-                                }
-                            }
-                            ConditionalValue::Value { expr } => {
-                                // Pass through literal values unchanged - convert to Expr
-                                let expr_df = expr.to_expr(ctx)?;
-                                if needs_color_conversion {
-                                    Ok(convert_color_literal(&expr_df))
-                                } else {
-                                    Ok(expr_df)
-                                }
-                            }
-                        }
-                    };
-
-                // Start with the first condition
-                let first_cond = &conditions[0];
-                let first_value = apply_to_conditional(&first_cond.1)?;
-                // Convert SerializableExpr to Expr
-                let first_cond_expr = first_cond.0.to_expr(ctx)?;
-                let mut case_expr = when(first_cond_expr, first_value);
-
-                // Add remaining conditions
-                for (condition, value) in &conditions[1..] {
-                    let scaled_value = apply_to_conditional(value)?;
-                    // Convert SerializableExpr to Expr
-                    let condition_expr = condition.to_expr(ctx)?;
-                    case_expr = case_expr.when(condition_expr, scaled_value);
-                }
-
-                // Add the otherwise clause
-                let otherwise_value = apply_to_conditional(otherwise)?;
-
-                Ok(case_expr.otherwise(otherwise_value)?)
-            }
-            ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                ..
-            } => {
-                // Determine the scale to use
-                let default_scale_name = strip_trailing_numbers(channel_name).to_string();
-                let scale_key = scale_name.as_ref().unwrap_or(&default_scale_name);
-
-                // Look up the configured scale
-                let scale = scales.get(scale_key).ok_or_else(|| {
-                    AvengerChartError::InternalError(format!(
-                        "Scale '{}' not found for channel '{}'",
-                        scale_key, channel_name
-                    ))
-                })?;
-
-                // Optional debugging for size scale behavior
-                // Apply the scale transformation
-                // Convert SerializableExpr to Expr first
-                let expr_df = expr.to_expr(ctx)?;
-                if let Some(band) = band {
-                    scale.to_expr_with_band(expr_df.clone(), *band)
-                } else {
-                    scale.to_expr(expr_df)
-                }
-            }
-        }
-    }
-
     /// Evaluate a single mark with an optional provided plot-level DataFrame fallback.
     /// If `provided_plot_df` is Some, it is used when the mark has no explicit data and
     /// the channels reference columns. Otherwise, falls back to this CompiledPlot's plot-level data.
@@ -1288,199 +1135,20 @@ impl CompiledPlot {
         plot_height: f32,
         provided_plot_df: Option<&DataFrame>,
     ) -> Result<Option<PreparedMarkData>, AvengerChartError> {
-        let ctx = &*eval_ctx.session_context;
-        let params = &eval_ctx.params;
-
-        // Get channel mappings from DataContext
-        let channels = mark.data_context().channels();
-
-        // Resolve channel references
-        let channels = resolve_all_channel_refs(channels, ctx)?;
-
-        // Check if any channel expressions reference columns
-        let references_columns = channels.values().any(|channel_value| match channel_value {
-            ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => expr
-                .to_expr(ctx)
-                .map(|e| !e.column_refs().is_empty())
-                .unwrap_or(false),
-            ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                ..
-            } => {
-                conditions.iter().any(|(condition, value)| {
-                    let cond_has_refs = condition
-                        .to_expr(ctx)
-                        .map(|e| !e.column_refs().is_empty())
-                        .unwrap_or(false);
-                    let value_has_refs = value
-                        .expr(ctx)
-                        .map(|e| !e.column_refs().is_empty())
-                        .unwrap_or(false);
-                    cond_has_refs || value_has_refs
-                }) || otherwise
-                    .expr(ctx)
-                    .map(|e| !e.column_refs().is_empty())
-                    .unwrap_or(false)
-            }
-        });
-
-        // Determine data source
-        // Priority 1: Mark's own data (e.g., reference lines) - should be used in full for all facets
-        // Priority 2: Parent facet's filtered data - for nested marks without their own data
-        // Priority 3: Plot-level data - fallback for top-level marks
-        let df_ref = if let Some(mark_df) = mark.data_context().dataframe_with_context(ctx) {
-            Some(mark_df)
-        } else if let Some(df_override) = provided_plot_df.cloned() {
-            Some(df_override)
-        } else if !references_columns {
-            None
-        } else if let Some(df) = self.data.as_ref().and_then(|node| {
-            node.to_logical_plan(ctx)
-                .ok()
-                .map(|plan| DataFrame::new(ctx.state().clone(), plan))
-        }) {
-            Some(df)
-        } else {
-            return Err(AvengerChartError::InternalError(
-                "Mark expressions reference columns but no data is available".to_string(),
-            ));
-        };
-
-        // Sorting
-        let df = if let Some(df_ref) = df_ref {
-            if let Some(sort_channel_name) = mark.sorting_channel() {
-                if let Some(sort_channel) = channels.get(sort_channel_name) {
-                    let sort_expr =
-                        self.apply_channel_scale(sort_channel_name, sort_channel, scales, ctx)?;
-                    let sorted_df = df_ref.sort(vec![sort_expr.sort(true, false)])?;
-                    Arc::new(sorted_df)
-                } else {
-                    Arc::new(df_ref)
-                }
-            } else {
-                Arc::new(df_ref)
-            }
-        } else {
-            let empty_df = ctx
-                .sql("SELECT 1 as _dummy")
-                .await
-                .map_err(AvengerChartError::DataFusionError)?;
-            Arc::new(empty_df)
-        };
-
-        // Channels split
-        let supported_channels = mark.supported_channels();
-        let mut array_channels = Vec::new();
-        let mut scalar_channels = Vec::new();
-        let mut has_array_data = false;
-        for channel_desc in &supported_channels {
-            if let Some(channel_value) = channels.get(channel_desc.name) {
-                let scaled_expr =
-                    self.apply_channel_scale(channel_desc.name, channel_value, scales, ctx)?;
-                if channel_desc.allow_column_ref && scaled_expr.any_column_refs() {
-                    array_channels.push((channel_desc.name, scaled_expr));
-                    has_array_data = true;
-                } else {
-                    scalar_channels.push((channel_desc.name, scaled_expr));
-                }
-            }
+        let prepared = prepare_mark_data_runtime(MarkDataRequest {
+            mark,
+            plot_data: self.data.as_ref(),
+            provided_plot_df,
+            eval_ctx,
+            scales,
+            plot_width,
+            plot_height,
+        })
+        .await?;
+        if let Some(prepared) = &prepared {
+            self.validate_positional_channel_types(&prepared.data_batch, &prepared.scalar_batch)?;
         }
-
-        // Build array data batch
-        let data_batch = if mark.wants_full_data_batch() {
-            // For container marks (facets): preserve ALL columns for nested marks
-            // This works whether data comes from provided_plot_df (nested) or self.data (top-level)
-            let datafusion_params = params_to_datafusion(params);
-            let batch = if let Some(param_values) = datafusion_params {
-                (*df)
-                    .clone()
-                    .with_param_values(param_values)?
-                    .collect()
-                    .await?
-            } else {
-                (*df).clone().collect().await?
-            };
-
-            if batch.is_empty() {
-                // Return empty batch WITH SCHEMA for facets (enables key extraction)
-                let arrow_schema = std::sync::Arc::new(df.schema().as_arrow().clone());
-                Some(RecordBatch::new_empty(arrow_schema))
-            } else {
-                let schema = batch[0].schema();
-                Some(concat_batches(&schema, &batch)?)
-            }
-        } else if has_array_data && !mark.wants_full_data_batch() {
-            // Normal path (non-facet marks): select only needed channels
-            let mut select_exprs = vec![];
-            for (name, expr) in &array_channels {
-                select_exprs.push(expr.clone().alias(*name));
-            }
-            let datafusion_params = params_to_datafusion(params);
-            let batch = if let Some(param_values) = datafusion_params {
-                (*df)
-                    .clone()
-                    .select(select_exprs)?
-                    .with_param_values(param_values)?
-                    .collect()
-                    .await?
-            } else {
-                (*df).clone().select(select_exprs)?.collect().await?
-            };
-            if batch.is_empty() {
-                None
-            } else {
-                let schema = batch[0].schema();
-                let combined = concat_batches(&schema, &batch)?;
-                Some(combined)
-            }
-        } else {
-            None
-        };
-
-        // Scalar data batch
-        let mut scalar_select_exprs = vec![];
-        for (name, expr) in &scalar_channels {
-            scalar_select_exprs.push(expr.clone().alias(*name));
-        }
-        let scalar_batch = if !scalar_select_exprs.is_empty() {
-            let datafusion_params = params_to_datafusion(params);
-            let batch = if let Some(param_values) = datafusion_params {
-                (*df)
-                    .clone()
-                    .select(scalar_select_exprs)?
-                    .with_param_values(param_values)?
-                    .collect()
-                    .await?
-            } else {
-                (*df).clone().select(scalar_select_exprs)?.collect().await?
-            };
-            if batch.is_empty() {
-                return Ok(None);
-            } else {
-                let schema = batch[0].schema();
-                concat_batches(&schema, &batch)?
-            }
-        } else {
-            RecordBatch::try_new(
-                Arc::new(Schema::new(vec![Field::new(
-                    "_dummy",
-                    DataType::Int32,
-                    false,
-                )])),
-                vec![Arc::new(Int32Array::from(vec![0]))],
-            )?
-        };
-
-        self.validate_positional_channel_types(&data_batch, &scalar_batch)?;
-
-        let render_state = RenderState::new(plot_width, plot_height, scales.clone());
-
-        Ok(Some(PreparedMarkData {
-            data_batch,
-            scalar_batch,
-            render_state,
-        }))
+        Ok(prepared)
     }
 
     /// Render a single mark to scene marks.
