@@ -37,6 +37,88 @@ pub enum SubplotDataSource {
     InheritParent,
 }
 
+/// Shared compiled state for a child plot owned by a container subplot mark.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CompiledSubplotPayload {
+    state: CompiledMarkState,
+    compiled_subplot: Arc<CompiledPlot>,
+    label: Option<String>,
+    key: Option<String>,
+    data_source: SubplotDataSource,
+}
+
+impl CompiledSubplotPayload {
+    pub fn new(
+        state: CompiledMarkState,
+        compiled_subplot: Arc<CompiledPlot>,
+        label: Option<String>,
+        key: Option<String>,
+        data_source: SubplotDataSource,
+    ) -> Self {
+        Self {
+            state,
+            compiled_subplot,
+            label,
+            key,
+            data_source,
+        }
+    }
+
+    pub fn compiled_subplot(&self) -> &Arc<CompiledPlot> {
+        &self.compiled_subplot
+    }
+
+    pub fn compiled_state(&self) -> &CompiledMarkState {
+        &self.state
+    }
+
+    pub fn compiled_state_mut(&mut self) -> &mut CompiledMarkState {
+        &mut self.state
+    }
+
+    pub fn label(&self) -> Option<&str> {
+        self.label.as_deref()
+    }
+
+    pub fn key(&self) -> Option<&str> {
+        self.key.as_deref()
+    }
+
+    pub fn mark_index(&self) -> usize {
+        self.state.mark_index()
+    }
+
+    pub fn data_source(&self) -> SubplotDataSource {
+        self.data_source
+    }
+
+    pub fn inherits_parent_data(&self) -> bool {
+        self.data_source == SubplotDataSource::InheritParent
+    }
+
+    pub fn has_explicit_child_data(&self) -> bool {
+        self.data_source == SubplotDataSource::ExplicitChild
+    }
+
+    pub(crate) fn inherited_data_override(
+        &self,
+        data: Option<&RecordBatch>,
+        context: &RenderContext<'_>,
+    ) -> Result<Option<DataFrame>, AvengerChartError> {
+        if !self.inherits_parent_data() {
+            return Ok(None);
+        }
+
+        data.map(|batch| {
+            context
+                .session_context()
+                .read_batch(batch.clone())
+                .map_err(AvengerChartError::DataFusionError)
+        })
+        .transpose()
+    }
+}
+
 #[async_trait::async_trait]
 pub(crate) trait SubplotPlotSpec: Send + Sync {
     fn clone_box(&self) -> Box<dyn SubplotPlotSpec>;
@@ -51,6 +133,27 @@ impl Clone for Box<dyn SubplotPlotSpec> {
     fn clone(&self) -> Self {
         self.clone_box()
     }
+}
+
+pub async fn compile_subplot_payload<OuterC: CoordinateSystem>(
+    subplot: &Subplot<OuterC>,
+    compiled_state: CompiledMarkState,
+    session_context: &SessionContext,
+) -> Result<CompiledSubplotPayload, AvengerChartError> {
+    let data_source = if subplot.has_plot_level_data() {
+        SubplotDataSource::ExplicitChild
+    } else {
+        SubplotDataSource::InheritParent
+    };
+    let compiled_subplot = subplot.compile_child_plot(session_context).await?;
+
+    Ok(CompiledSubplotPayload::new(
+        compiled_state,
+        compiled_subplot,
+        subplot.config.label.clone(),
+        subplot.config.key.clone(),
+        data_source,
+    ))
 }
 
 #[async_trait::async_trait]
@@ -147,14 +250,6 @@ impl<OuterC: CoordinateSystem> Subplot<OuterC> {
         self
     }
 
-    pub(crate) fn state_ref(&self) -> &MarkState {
-        &self.state
-    }
-
-    pub(crate) fn state_mut_ref(&mut self) -> &mut MarkState {
-        &mut self.state
-    }
-
     pub(crate) fn data_context_ref(&self) -> &DataContext {
         &self.state.data
     }
@@ -167,11 +262,11 @@ impl<OuterC: CoordinateSystem> Subplot<OuterC> {
         &mut self.config
     }
 
-    pub(crate) fn has_plot_level_data(&self) -> bool {
+    pub fn has_plot_level_data(&self) -> bool {
         self.subplot.has_plot_level_data()
     }
 
-    pub(crate) async fn compile_child_plot(
+    pub async fn compile_child_plot(
         &self,
         session_context: &SessionContext,
     ) -> Result<Arc<CompiledPlot>, AvengerChartError> {
@@ -204,7 +299,25 @@ impl<OuterC: CoordinateSystem> Subplot<OuterC> {
 }
 
 #[async_trait::async_trait]
-impl Mark<HConcat> for Subplot<HConcat> {
+pub trait SubplotContainerCoordinateSystem: CoordinateSystem + Sized {
+    /// Compile a `Subplot<Self>` mark for this container coordinate system.
+    ///
+    /// Outer-coordinate-specific builder methods still live on `Subplot<Self>`
+    /// extension impls. This hook only owns the final conversion from a generic
+    /// subplot mark plus compiled mark state into the coordinate-system-specific
+    /// compiled mark used during measurement and rendering.
+    async fn compile_subplot_mark(
+        subplot: &Subplot<Self>,
+        compiled_state: CompiledMarkState,
+        session_context: &SessionContext,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError>;
+}
+
+#[async_trait::async_trait]
+impl<C> Mark<C> for Subplot<C>
+where
+    C: SubplotContainerCoordinateSystem,
+{
     fn state(&self) -> &MarkState {
         &self.state
     }
@@ -222,57 +335,36 @@ impl Mark<HConcat> for Subplot<HConcat> {
         compiled_state: CompiledMarkState,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        self.validate_no_facet_channels("HConcat")?;
-        let data_source = if self.has_plot_level_data() {
-            SubplotDataSource::ExplicitChild
-        } else {
-            SubplotDataSource::InheritParent
-        };
-        let compiled_subplot = self.compile_child_plot(session_context).await?;
+        C::compile_subplot_mark(self, compiled_state, session_context).await
+    }
+}
+
+#[async_trait::async_trait]
+impl SubplotContainerCoordinateSystem for HConcat {
+    async fn compile_subplot_mark(
+        subplot: &Subplot<Self>,
+        compiled_state: CompiledMarkState,
+        session_context: &SessionContext,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        subplot.validate_no_facet_channels("HConcat")?;
 
         Ok(Arc::new(CompiledConcatSubplot {
-            state: compiled_state,
-            compiled_subplot,
-            label: self.config.label.clone(),
-            key: self.config.key.clone(),
-            data_source,
+            payload: compile_subplot_payload(subplot, compiled_state, session_context).await?,
         }))
     }
 }
 
 #[async_trait::async_trait]
-impl Mark<VConcat> for Subplot<VConcat> {
-    fn state(&self) -> &MarkState {
-        &self.state
-    }
-
-    fn state_mut(&mut self) -> &mut MarkState {
-        &mut self.state
-    }
-
-    fn data_context(&self) -> &DataContext {
-        &self.state.data
-    }
-
-    async fn compile(
-        &self,
+impl SubplotContainerCoordinateSystem for VConcat {
+    async fn compile_subplot_mark(
+        subplot: &Subplot<Self>,
         compiled_state: CompiledMarkState,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        self.validate_no_facet_channels("VConcat")?;
-        let data_source = if self.has_plot_level_data() {
-            SubplotDataSource::ExplicitChild
-        } else {
-            SubplotDataSource::InheritParent
-        };
-        let compiled_subplot = self.compile_child_plot(session_context).await?;
+        subplot.validate_no_facet_channels("VConcat")?;
 
         Ok(Arc::new(CompiledConcatSubplot {
-            state: compiled_state,
-            compiled_subplot,
-            label: self.config.label.clone(),
-            key: self.config.key.clone(),
-            data_source,
+            payload: compile_subplot_payload(subplot, compiled_state, session_context).await?,
         }))
     }
 }
@@ -344,40 +436,18 @@ impl Subplot<Cartesian> {
 }
 
 #[async_trait::async_trait]
-impl Mark<Cartesian> for Subplot<Cartesian> {
-    fn state(&self) -> &MarkState {
-        &self.state
-    }
-
-    fn state_mut(&mut self) -> &mut MarkState {
-        &mut self.state
-    }
-
-    fn data_context(&self) -> &DataContext {
-        &self.state.data
-    }
-
-    async fn compile(
-        &self,
+impl SubplotContainerCoordinateSystem for Cartesian {
+    async fn compile_subplot_mark(
+        subplot: &Subplot<Self>,
         compiled_state: CompiledMarkState,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        self.validate_no_facet_channels("Cartesian")?;
-        let data_source = if self.has_plot_level_data() {
-            SubplotDataSource::ExplicitChild
-        } else {
-            SubplotDataSource::InheritParent
-        };
-        let compiled_subplot = self.compile_child_plot(session_context).await?;
+        subplot.validate_no_facet_channels("Cartesian")?;
 
         Ok(Arc::new(CompiledCartesianSubplot {
-            state: compiled_state,
-            compiled_subplot,
-            label: self.config.label.clone(),
-            key: self.config.key.clone(),
-            data_source,
-            plot_width: self.config.plot_width.unwrap_or(80.0).max(1.0),
-            plot_height: self.config.plot_height.unwrap_or(80.0).max(1.0),
+            payload: compile_subplot_payload(subplot, compiled_state, session_context).await?,
+            plot_width: subplot.config.plot_width.unwrap_or(80.0).max(1.0),
+            plot_height: subplot.config.plot_height.unwrap_or(80.0).max(1.0),
         }))
     }
 }
@@ -385,44 +455,41 @@ impl Mark<Cartesian> for Subplot<Cartesian> {
 /// Compiled child-plot mark for container coordinate systems.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledConcatSubplot {
-    state: CompiledMarkState,
-    compiled_subplot: Arc<CompiledPlot>,
-    label: Option<String>,
-    key: Option<String>,
-    data_source: SubplotDataSource,
+    #[serde(flatten)]
+    payload: CompiledSubplotPayload,
 }
 
 impl CompiledConcatSubplot {
     pub fn compiled_subplot(&self) -> &Arc<CompiledPlot> {
-        &self.compiled_subplot
+        self.payload.compiled_subplot()
     }
 
     pub fn compiled_state(&self) -> &CompiledMarkState {
-        &self.state
+        self.payload.compiled_state()
     }
 
     pub fn label(&self) -> Option<&str> {
-        self.label.as_deref()
+        self.payload.label()
     }
 
     pub fn key(&self) -> Option<&str> {
-        self.key.as_deref()
+        self.payload.key()
     }
 
     pub fn data_source(&self) -> SubplotDataSource {
-        self.data_source
+        self.payload.data_source()
     }
 
     pub fn child_index(&self) -> usize {
-        self.state.mark_index()
+        self.payload.mark_index()
     }
 
     pub fn inherits_parent_data(&self) -> bool {
-        self.data_source == SubplotDataSource::InheritParent
+        self.payload.inherits_parent_data()
     }
 
     pub fn has_explicit_child_data(&self) -> bool {
-        self.data_source == SubplotDataSource::ExplicitChild
+        self.payload.has_explicit_child_data()
     }
 
     fn group_name(&self) -> String {
@@ -437,17 +504,7 @@ impl CompiledConcatSubplot {
         data: Option<&RecordBatch>,
         context: &RenderContext<'_>,
     ) -> Result<Option<DataFrame>, AvengerChartError> {
-        if !self.inherits_parent_data() {
-            return Ok(None);
-        }
-
-        data.map(|batch| {
-            context
-                .session_context()
-                .read_batch(batch.clone())
-                .map_err(AvengerChartError::DataFusionError)
-        })
-        .transpose()
+        self.payload.inherited_data_override(data, context)
     }
 }
 
@@ -461,30 +518,27 @@ pub fn compiled_subplot(mark: &dyn CompiledMark) -> Option<&CompiledConcatSubplo
 /// Compiled child-plot mark positioned by Cartesian x/y channels.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledCartesianSubplot {
-    state: CompiledMarkState,
-    compiled_subplot: Arc<CompiledPlot>,
-    label: Option<String>,
-    key: Option<String>,
-    data_source: SubplotDataSource,
+    #[serde(flatten)]
+    payload: CompiledSubplotPayload,
     plot_width: f32,
     plot_height: f32,
 }
 
 impl CompiledCartesianSubplot {
     pub fn compiled_subplot(&self) -> &Arc<CompiledPlot> {
-        &self.compiled_subplot
+        self.payload.compiled_subplot()
     }
 
     pub fn label(&self) -> Option<&str> {
-        self.label.as_deref()
+        self.payload.label()
     }
 
     pub fn key(&self) -> Option<&str> {
-        self.key.as_deref()
+        self.payload.key()
     }
 
     pub fn mark_index(&self) -> usize {
-        self.state.mark_index()
+        self.payload.mark_index()
     }
 
     pub fn plot_width(&self) -> f32 {
@@ -496,7 +550,7 @@ impl CompiledCartesianSubplot {
     }
 
     pub fn inherits_parent_data(&self) -> bool {
-        self.data_source == SubplotDataSource::InheritParent
+        self.payload.inherits_parent_data()
     }
 
     fn group_name(&self, child_index: usize) -> String {
@@ -523,15 +577,15 @@ pub fn compiled_cartesian_subplot(mark: &dyn CompiledMark) -> Option<&CompiledCa
 #[async_trait::async_trait]
 impl CompiledMark for CompiledConcatSubplot {
     fn state(&self) -> &CompiledMarkState {
-        &self.state
+        self.payload.compiled_state()
     }
 
     fn state_mut(&mut self) -> &mut CompiledMarkState {
-        &mut self.state
+        self.payload.compiled_state_mut()
     }
 
     fn data_context(&self) -> &CompiledDataContext {
-        &self.state.data
+        &self.payload.compiled_state().data
     }
 
     fn mark_type(&self) -> &str {
@@ -582,7 +636,7 @@ impl CompiledMark for CompiledConcatSubplot {
                     ))
                 })?;
 
-        let mut params = self.compiled_subplot.get_default_params().clone();
+        let mut params = self.compiled_subplot().get_default_params().clone();
         params.extend(context.eval.params.clone());
         let child_count = concat_measurement.children().len();
         let sharing_level = match concat_measurement.child_band_layout.direction {
@@ -599,7 +653,7 @@ impl CompiledMark for CompiledConcatSubplot {
             .with_child_frame_sharing_level_appended(sharing_level);
         let data_override = self.inherited_data_override(data, context)?;
         let components = self
-            .compiled_subplot
+            .compiled_subplot()
             .build_plot_components(
                 &child_eval_ctx,
                 &child.measurement,
@@ -687,15 +741,15 @@ impl CompiledMark for CompiledConcatSubplot {
 #[async_trait::async_trait]
 impl CompiledMark for CompiledCartesianSubplot {
     fn state(&self) -> &CompiledMarkState {
-        &self.state
+        self.payload.compiled_state()
     }
 
     fn state_mut(&mut self) -> &mut CompiledMarkState {
-        &mut self.state
+        self.payload.compiled_state_mut()
     }
 
     fn data_context(&self) -> &CompiledDataContext {
-        &self.state.data
+        &self.payload.compiled_state().data
     }
 
     fn mark_type(&self) -> &str {
@@ -752,7 +806,7 @@ impl CompiledMark for CompiledCartesianSubplot {
                         ))
                     })?;
 
-            let mut params = self.compiled_subplot.get_default_params().clone();
+            let mut params = self.compiled_subplot().get_default_params().clone();
             params.extend(context.eval.params.clone());
             let sharing_level = ChildFrameSharingLevel::positioned_subplot(
                 child.child_index,
@@ -766,7 +820,7 @@ impl CompiledMark for CompiledCartesianSubplot {
                 .with_params(params)
                 .with_child_frame_sharing_level_appended(sharing_level);
             let components = self
-                .compiled_subplot
+                .compiled_subplot()
                 .build_plot_components(
                     &child_eval_ctx,
                     &child.measurement,

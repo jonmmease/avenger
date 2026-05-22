@@ -31,6 +31,126 @@ pub(crate) enum ChildFrameDataSelection {
     InheritParent,
 }
 
+/// Service for measuring child plots as chart frames inside container
+/// coordinate systems.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct ChildFrameRuntime;
+
+impl ChildFrameRuntime {
+    pub(crate) fn new() -> Self {
+        Self
+    }
+
+    /// Fixed plot-area layout for a child plot measured inside a container.
+    pub(crate) fn fixed_plot_area_layout_spec(
+        &self,
+        width: f32,
+        height: f32,
+    ) -> EvaluatedLayoutSpec {
+        EvaluatedLayoutSpec {
+            canvas: EvaluatedSizeMode::Auto,
+            plot_area: EvaluatedSizeMode::Fixed {
+                width: width.max(1.0),
+                height: height.max(1.0),
+            },
+            margins: EvaluatedMargins {
+                top: 0.0,
+                right: 0.0,
+                bottom: 0.0,
+                left: 0.0,
+            },
+        }
+    }
+
+    /// Build the child evaluation context for a container child frame.
+    pub(crate) fn eval_context(
+        &self,
+        eval_ctx: &EvaluationContext,
+        sharing_level: ChildFrameSharingLevel,
+    ) -> EvaluationContext {
+        eval_ctx.with_child_frame_sharing_level_appended(sharing_level)
+    }
+
+    /// Build the scale and domain-sharing state needed to measure a child plot.
+    pub(crate) async fn prepare_plot<'a>(
+        &self,
+        plot: &'a CompiledPlot,
+        data_selection: ChildFrameDataSelection,
+        inherited_data: Option<&DataFrame>,
+        eval_ctx: &EvaluationContext,
+    ) -> Result<PreparedChildFramePlot<'a>, AvengerChartError> {
+        let data_override = match data_selection {
+            ChildFrameDataSelection::ExplicitChild => None,
+            ChildFrameDataSelection::InheritParent => inherited_data.cloned(),
+        };
+        let scale_builder = build_scale_builder_from_marks(
+            &plot.marks,
+            &plot.scale_specs,
+            &plot.coord_transform,
+            &plot.data,
+            data_override.clone(),
+            eval_ctx.session_context.as_ref(),
+            &eval_ctx.params,
+            plot.get_theme().as_ref(),
+        )
+        .await?;
+
+        let channel_domain_sharing_levels = child_frame_domain_sharing_levels_for_plot(plot);
+        let local_domain_extents = extract_child_frame_shared_domain_extents(
+            &scale_builder,
+            &channel_domain_sharing_levels,
+        );
+
+        Ok(PreparedChildFramePlot {
+            plot,
+            data_override,
+            scale_builder,
+            local_domain_extents,
+            channel_domain_sharing_levels,
+        })
+    }
+
+    /// Measure a child plot with a caller-provided scale builder.
+    pub(crate) async fn measure_with_builder(
+        &self,
+        plot: &CompiledPlot,
+        eval_ctx: &EvaluationContext,
+        layout_spec: &EvaluatedLayoutSpec,
+        scale_builder: &ScaleBuilder,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+        domain_extents: &[&HashMap<String, DomainExtent>],
+    ) -> Result<ComponentsMeasurement, AvengerChartError> {
+        let extended_builder;
+        let scale_builder = if domain_extents.iter().all(|extents| extents.is_empty()) {
+            scale_builder
+        } else {
+            extended_builder = {
+                let mut builder = scale_builder.clone();
+                for extents in domain_extents {
+                    if !extents.is_empty() {
+                        builder.extend_with_domain_extents(extents);
+                    }
+                }
+                builder
+            };
+            &extended_builder
+        };
+        let scale_provider = DynamicScaleProvider {
+            builder: scale_builder,
+            plot,
+        };
+        plot.measure_plot_components(
+            eval_ctx,
+            layout_spec,
+            &scale_provider,
+            data_override,
+            facet_path,
+        )
+        .await
+    }
+}
+
 /// Prepared measurement state for one child plot.
 pub(crate) struct PreparedChildFramePlot<'a> {
     plot: &'a CompiledPlot,
@@ -60,78 +180,23 @@ impl<'a> PreparedChildFramePlot<'a> {
         facet_path: &[ScalarValue],
         domain_extents: &[&HashMap<String, DomainExtent>],
     ) -> Result<ComponentsMeasurement, AvengerChartError> {
-        measure_child_frame_plot_with_builder(
-            self.plot,
-            eval_ctx,
-            layout_spec,
-            &self.scale_builder,
-            self.data_override.as_ref(),
-            facet_path,
-            domain_extents,
-        )
-        .await
+        ChildFrameRuntime::new()
+            .measure_with_builder(
+                self.plot,
+                eval_ctx,
+                layout_spec,
+                &self.scale_builder,
+                self.data_override.as_ref(),
+                facet_path,
+                domain_extents,
+            )
+            .await
     }
 }
 
 /// Fixed plot-area layout for a child plot measured inside a container.
 pub(crate) fn fixed_child_plot_area_layout_spec(width: f32, height: f32) -> EvaluatedLayoutSpec {
-    EvaluatedLayoutSpec {
-        canvas: EvaluatedSizeMode::Auto,
-        plot_area: EvaluatedSizeMode::Fixed {
-            width: width.max(1.0),
-            height: height.max(1.0),
-        },
-        margins: EvaluatedMargins {
-            top: 0.0,
-            right: 0.0,
-            bottom: 0.0,
-            left: 0.0,
-        },
-    }
-}
-
-/// Build the scale and domain-sharing state needed to measure a child plot.
-pub(crate) async fn prepare_child_frame_plot<'a>(
-    plot: &'a CompiledPlot,
-    data_selection: ChildFrameDataSelection,
-    inherited_data: Option<&DataFrame>,
-    eval_ctx: &EvaluationContext,
-) -> Result<PreparedChildFramePlot<'a>, AvengerChartError> {
-    let data_override = match data_selection {
-        ChildFrameDataSelection::ExplicitChild => None,
-        ChildFrameDataSelection::InheritParent => inherited_data.cloned(),
-    };
-    let scale_builder = build_scale_builder_from_marks(
-        &plot.marks,
-        &plot.scale_specs,
-        &plot.coord_transform,
-        &plot.data,
-        data_override.clone(),
-        eval_ctx.session_context.as_ref(),
-        &eval_ctx.params,
-        plot.get_theme().as_ref(),
-    )
-    .await?;
-
-    let channel_domain_sharing_levels = child_frame_domain_sharing_levels_for_plot(plot);
-    let local_domain_extents =
-        extract_child_frame_shared_domain_extents(&scale_builder, &channel_domain_sharing_levels);
-
-    Ok(PreparedChildFramePlot {
-        plot,
-        data_override,
-        scale_builder,
-        local_domain_extents,
-        channel_domain_sharing_levels,
-    })
-}
-
-/// Build the child evaluation context for a container child frame.
-pub(crate) fn child_frame_eval_context(
-    eval_ctx: &EvaluationContext,
-    sharing_level: ChildFrameSharingLevel,
-) -> EvaluationContext {
-    eval_ctx.with_child_frame_sharing_level_appended(sharing_level)
+    ChildFrameRuntime::new().fixed_plot_area_layout_spec(width, height)
 }
 
 /// Measure a child plot with a caller-provided scale builder.
@@ -144,33 +209,17 @@ pub(crate) async fn measure_child_frame_plot_with_builder(
     facet_path: &[ScalarValue],
     domain_extents: &[&HashMap<String, DomainExtent>],
 ) -> Result<ComponentsMeasurement, AvengerChartError> {
-    let extended_builder;
-    let scale_builder = if domain_extents.iter().all(|extents| extents.is_empty()) {
-        scale_builder
-    } else {
-        extended_builder = {
-            let mut builder = scale_builder.clone();
-            for extents in domain_extents {
-                if !extents.is_empty() {
-                    builder.extend_with_domain_extents(extents);
-                }
-            }
-            builder
-        };
-        &extended_builder
-    };
-    let scale_provider = DynamicScaleProvider {
-        builder: scale_builder,
-        plot,
-    };
-    plot.measure_plot_components(
-        eval_ctx,
-        layout_spec,
-        &scale_provider,
-        data_override,
-        facet_path,
-    )
-    .await
+    ChildFrameRuntime::new()
+        .measure_with_builder(
+            plot,
+            eval_ctx,
+            layout_spec,
+            scale_builder,
+            data_override,
+            facet_path,
+            domain_extents,
+        )
+        .await
 }
 
 #[cfg(test)]

@@ -14,7 +14,8 @@ use crate::facet::ownership_policy::{
 use crate::facet::placement::{FacetBandPlacement, facet_child_frame_placement_from_band};
 use crate::layout::Size2D;
 use crate::marks::{
-    ChannelDescriptor, ChannelValue, CompiledMark, CompiledMarkState, Mark, MarkState, Subplot,
+    ChannelDescriptor, ChannelValue, CompiledMark, CompiledMarkState, CompiledSubplotPayload,
+    Subplot, SubplotContainerCoordinateSystem, SubplotDataSource,
 };
 use crate::plot::CompiledPlot;
 use crate::render::{EvaluationContext, RenderContext};
@@ -376,8 +377,8 @@ fn validate_no_channel(
 #[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledFacetRowSubplot {
-    pub(crate) state: CompiledMarkState,
-    pub(crate) compiled_subplot: Arc<CompiledPlot>,
+    #[serde(flatten)]
+    pub(crate) payload: CompiledSubplotPayload,
     pub(crate) facet_title: Option<String>,
     pub(crate) facet_slot_sharing: Option<ScaleSharing>,
     pub(crate) facet_position: Option<String>,
@@ -387,10 +388,10 @@ pub struct CompiledFacetRowSubplot {
 
 impl CompiledFacetRowSubplot {
     pub fn compiled_subplot(&self) -> &Arc<CompiledPlot> {
-        &self.compiled_subplot
+        self.payload.compiled_subplot()
     }
     pub fn compiled_state(&self) -> &CompiledMarkState {
-        &self.state
+        self.payload.compiled_state()
     }
     pub fn facet_title(&self) -> Option<&str> {
         self.facet_title.as_deref()
@@ -407,41 +408,34 @@ impl CompiledFacetRowSubplot {
 }
 
 #[async_trait::async_trait]
-impl Mark<FacetRow> for Subplot<FacetRow> {
-    fn state(&self) -> &MarkState {
-        self.state_ref()
-    }
-
-    fn state_mut(&mut self) -> &mut MarkState {
-        self.state_mut_ref()
-    }
-
-    fn data_context(&self) -> &crate::marks::DataContext {
-        self.data_context_ref()
-    }
-
-    async fn compile(
-        &self,
+impl SubplotContainerCoordinateSystem for FacetRow {
+    async fn compile_subplot_mark(
+        subplot: &Subplot<Self>,
         compiled_state: CompiledMarkState,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        validate_no_channel(self, ColumnDimensionConfig::channel_name(), "FacetRow")?;
-        let compiled_subplot = compile_facet_subplot_child(self, session_context).await?;
+        validate_no_channel(subplot, ColumnDimensionConfig::channel_name(), "FacetRow")?;
+        let compiled_subplot = compile_facet_subplot_child(subplot, session_context).await?;
         let channel_name = RowDimensionConfig::channel_name();
         let facet_title = facet_title_for_channel(
-            &self.config().facet_row_title,
+            &subplot.config().facet_row_title,
             channel_name,
             &compiled_state,
             session_context,
         );
 
         Ok(Arc::new(CompiledFacetRowSubplot {
-            state: compiled_state,
-            compiled_subplot,
+            payload: CompiledSubplotPayload::new(
+                compiled_state,
+                compiled_subplot,
+                subplot.config().label.clone(),
+                subplot.config().key.clone(),
+                SubplotDataSource::InheritParent,
+            ),
             facet_title,
-            facet_slot_sharing: self.config().facet_row_slot_sharing,
-            facet_position: self.config().facet_row_position.clone(),
-            facet_empty_cell_policy: self
+            facet_slot_sharing: subplot.config().facet_row_slot_sharing,
+            facet_position: subplot.config().facet_row_position.clone(),
+            facet_empty_cell_policy: subplot
                 .config()
                 .facet_row_empty_cell_policy
                 .unwrap_or_default(),
@@ -453,15 +447,15 @@ impl Mark<FacetRow> for Subplot<FacetRow> {
 #[async_trait::async_trait]
 impl CompiledMark for CompiledFacetRowSubplot {
     fn state(&self) -> &CompiledMarkState {
-        &self.state
+        self.payload.compiled_state()
     }
 
     fn state_mut(&mut self) -> &mut CompiledMarkState {
-        &mut self.state
+        self.payload.compiled_state_mut()
     }
 
     fn data_context(&self) -> &crate::marks::CompiledDataContext {
-        &self.state.data
+        &self.payload.compiled_state().data
     }
 
     fn mark_type(&self) -> &str {
@@ -498,7 +492,7 @@ impl CompiledMark for CompiledFacetRowSubplot {
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         render_facet_band_common(
             FacetBandRenderOps::row(),
-            &self.compiled_subplot,
+            self.compiled_subplot(),
             self.facet_empty_cell_policy,
             context,
         )
@@ -553,8 +547,8 @@ impl CompiledMark for CompiledFacetRowSubplot {
 #[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledFacetColumnSubplot {
-    pub(crate) state: CompiledMarkState,
-    pub(crate) compiled_subplot: Arc<CompiledPlot>,
+    #[serde(flatten)]
+    pub(crate) payload: CompiledSubplotPayload,
     pub(crate) facet_title: Option<String>,
     pub(crate) facet_slot_sharing: Option<ScaleSharing>,
     pub(crate) facet_position: Option<String>,
@@ -564,10 +558,10 @@ pub struct CompiledFacetColumnSubplot {
 
 impl CompiledFacetColumnSubplot {
     pub fn compiled_subplot(&self) -> &Arc<CompiledPlot> {
-        &self.compiled_subplot
+        self.payload.compiled_subplot()
     }
     pub fn compiled_state(&self) -> &CompiledMarkState {
-        &self.state
+        self.payload.compiled_state()
     }
     pub fn facet_title(&self) -> Option<&str> {
         self.facet_title.as_deref()
@@ -584,41 +578,34 @@ impl CompiledFacetColumnSubplot {
 }
 
 #[async_trait::async_trait]
-impl Mark<FacetColumn> for Subplot<FacetColumn> {
-    fn state(&self) -> &MarkState {
-        self.state_ref()
-    }
-
-    fn state_mut(&mut self) -> &mut MarkState {
-        self.state_mut_ref()
-    }
-
-    fn data_context(&self) -> &crate::marks::DataContext {
-        self.data_context_ref()
-    }
-
-    async fn compile(
-        &self,
+impl SubplotContainerCoordinateSystem for FacetColumn {
+    async fn compile_subplot_mark(
+        subplot: &Subplot<Self>,
         compiled_state: CompiledMarkState,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        validate_no_channel(self, RowDimensionConfig::channel_name(), "FacetColumn")?;
-        let compiled_subplot = compile_facet_subplot_child(self, session_context).await?;
+        validate_no_channel(subplot, RowDimensionConfig::channel_name(), "FacetColumn")?;
+        let compiled_subplot = compile_facet_subplot_child(subplot, session_context).await?;
         let channel_name = ColumnDimensionConfig::channel_name();
         let facet_title = facet_title_for_channel(
-            &self.config().facet_col_title,
+            &subplot.config().facet_col_title,
             channel_name,
             &compiled_state,
             session_context,
         );
 
         Ok(Arc::new(CompiledFacetColumnSubplot {
-            state: compiled_state,
-            compiled_subplot,
+            payload: CompiledSubplotPayload::new(
+                compiled_state,
+                compiled_subplot,
+                subplot.config().label.clone(),
+                subplot.config().key.clone(),
+                SubplotDataSource::InheritParent,
+            ),
             facet_title,
-            facet_slot_sharing: self.config().facet_col_slot_sharing,
-            facet_position: self.config().facet_col_position.clone(),
-            facet_empty_cell_policy: self
+            facet_slot_sharing: subplot.config().facet_col_slot_sharing,
+            facet_position: subplot.config().facet_col_position.clone(),
+            facet_empty_cell_policy: subplot
                 .config()
                 .facet_col_empty_cell_policy
                 .unwrap_or_default(),
@@ -674,15 +661,15 @@ pub fn facet_subplot_ref(mark: &dyn CompiledMark) -> Option<FacetSubplotRef<'_>>
 #[async_trait::async_trait]
 impl CompiledMark for CompiledFacetColumnSubplot {
     fn state(&self) -> &CompiledMarkState {
-        &self.state
+        self.payload.compiled_state()
     }
 
     fn state_mut(&mut self) -> &mut CompiledMarkState {
-        &mut self.state
+        self.payload.compiled_state_mut()
     }
 
     fn data_context(&self) -> &crate::marks::CompiledDataContext {
-        &self.state.data
+        &self.payload.compiled_state().data
     }
 
     fn mark_type(&self) -> &str {
@@ -720,7 +707,7 @@ impl CompiledMark for CompiledFacetColumnSubplot {
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         render_facet_band_common(
             FacetBandRenderOps::col(),
-            &self.compiled_subplot,
+            self.compiled_subplot(),
             self.facet_empty_cell_policy,
             context,
         )
@@ -770,7 +757,7 @@ impl CompiledMark for CompiledFacetColumnSubplot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::zerod::ZeroDCoord;
+    use crate::{marks::Mark, zerod::ZeroDCoord};
     use datafusion::prelude::{SessionContext, col};
 
     #[test]

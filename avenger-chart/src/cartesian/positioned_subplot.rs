@@ -23,10 +23,10 @@ use crate::{
         util::coerce_numeric_channel_with_renderer,
     },
     plot::compiled::{
-        ChildFrameDataSelection, ChildFrameDomainSharingInput, ComponentsMeasurement,
-        MarkDataRequest, child_frame_container_view_from_cartesian_positioned,
-        child_frame_eval_context, coordinated_child_frame_domain_extents,
-        fixed_child_plot_area_layout_spec, prepare_child_frame_plot, prepare_mark_data_runtime,
+        ChildFrameDataSelection, ChildFrameDomainSharingInput, ChildFrameRuntime,
+        ComponentsMeasurement, MarkDataRequest,
+        child_frame_container_view_from_cartesian_positioned,
+        coordinated_child_frame_domain_extents, prepare_mark_data_runtime,
     },
     render::{EvaluationContext, RenderContext},
     scales::ConfiguredScaleWithSpec,
@@ -251,13 +251,15 @@ async fn prepare_positioned_subplot<'a>(
     } else {
         ChildFrameDataSelection::ExplicitChild
     };
-    let child_plot = prepare_child_frame_plot(
-        subplot.compiled_subplot(),
-        data_selection,
-        inherited_data.as_ref(),
-        eval_ctx,
-    )
-    .await?;
+    let runtime = ChildFrameRuntime::new();
+    let child_plot = runtime
+        .prepare_plot(
+            subplot.compiled_subplot(),
+            data_selection,
+            inherited_data.as_ref(),
+            eval_ctx,
+        )
+        .await?;
 
     Ok(Some(PreparedPositionedSubplot {
         subplot,
@@ -285,7 +287,8 @@ async fn measure_positioned_child(
     facet_path: &[ScalarValue],
     domain_extents: &HashMap<String, crate::scales::DomainExtent>,
 ) -> Result<CartesianPositionedChildMeasurement, AvengerChartError> {
-    let child_layout_spec = fixed_child_plot_area_layout_spec(
+    let runtime = ChildFrameRuntime::new();
+    let child_layout_spec = runtime.fixed_plot_area_layout_spec(
         prepared.subplot.plot_width(),
         prepared.subplot.plot_height(),
     );
@@ -296,7 +299,7 @@ async fn measure_positioned_child(
         spec.row_index,
         spec.key.as_deref(),
     );
-    let child_eval_ctx = child_frame_eval_context(eval_ctx, sharing_level);
+    let child_eval_ctx = runtime.eval_context(eval_ctx, sharing_level);
     let measurement = prepared
         .child_plot
         .measure(

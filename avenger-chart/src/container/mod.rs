@@ -22,6 +22,10 @@
 //!   child-local frame is translated into the parent frame.
 
 #[doc(hidden)]
+pub use crate::marks::{
+    CompiledSubplotPayload, SubplotContainerCoordinateSystem, compile_subplot_payload,
+};
+#[doc(hidden)]
 pub use crate::plot::compiled::ChildFrameContainerView;
 
 pub(crate) use crate::{

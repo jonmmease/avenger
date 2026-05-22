@@ -42,7 +42,10 @@ pub use compiled_data_context::CompiledDataContext;
 pub use data_context::DataContext;
 pub use facet_strategy::FacetStrategy;
 pub use state::{CompiledMarkState, MarkState};
-pub use subplot::{CompiledCartesianSubplot, CompiledConcatSubplot, Subplot, SubplotDataSource};
+pub use subplot::{
+    CompiledCartesianSubplot, CompiledConcatSubplot, CompiledSubplotPayload, Subplot,
+    SubplotContainerCoordinateSystem, SubplotDataSource, compile_subplot_payload,
+};
 pub use util::default_scale_for_data_type;
 
 /// Expression for computing radius/padding requirements for marks

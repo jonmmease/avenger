@@ -29,11 +29,10 @@ use crate::{
     layout::{BandDirection, LayoutBounds, Size2D},
     marks::{CompiledConcatSubplot, CompiledMark, subplot::compiled_subplot},
     plot::compiled::{
-        ChildFrameDataSelection, ChildFrameDomainSharingInput, ComponentsMeasurement,
-        ContainerLabelPlacement, PreparedChildFramePlot, child_frame_container_view_from_concat,
-        child_frame_eval_context, container_path_without_facet_segments,
-        coordinated_child_frame_domain_extents, fixed_child_plot_area_layout_spec,
-        measure_child_frame_container_guide_overflow, prepare_child_frame_plot,
+        ChildFrameDataSelection, ChildFrameDomainSharingInput, ChildFrameRuntime,
+        ComponentsMeasurement, ContainerLabelPlacement, PreparedChildFramePlot,
+        child_frame_container_view_from_concat, container_path_without_facet_segments,
+        coordinated_child_frame_domain_extents, measure_child_frame_container_guide_overflow,
         render_child_frame_container_guide_labels,
     },
     render::EvaluationContext,
@@ -527,8 +526,10 @@ async fn prepare_concat_child<'a>(
     } else {
         ChildFrameDataSelection::ExplicitChild
     };
-    let child_plot =
-        prepare_child_frame_plot(child_plot, data_selection, inherited_data, eval_ctx).await?;
+    let runtime = ChildFrameRuntime::new();
+    let child_plot = runtime
+        .prepare_plot(child_plot, data_selection, inherited_data, eval_ctx)
+        .await?;
     let mut relative_facet_child_frame_path =
         container_path_without_facet_segments(eval_ctx.child_frame_container_path());
     relative_facet_child_frame_path.push(ContainerPathSegment::concat_child(
@@ -554,10 +555,11 @@ async fn measure_prepared_concat_child(
     coordinated_domain_extents: &HashMap<String, DomainExtent>,
     facet_scoped_domain_extents: &HashMap<String, DomainExtent>,
 ) -> Result<ConcatChildMeasurement, AvengerChartError> {
+    let runtime = ChildFrameRuntime::new();
     let child_layout_spec =
-        fixed_child_plot_area_layout_spec(child_plot_area.width, child_plot_area.height);
+        runtime.fixed_plot_area_layout_spec(child_plot_area.width, child_plot_area.height);
     let child_eval_ctx =
-        child_frame_eval_context(eval_ctx, prepared.sharing_level(direction, child_count));
+        runtime.eval_context(eval_ctx, prepared.sharing_level(direction, child_count));
     let measurement = prepared
         .child_plot
         .measure(

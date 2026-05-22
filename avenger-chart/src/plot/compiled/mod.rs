@@ -50,9 +50,8 @@ pub(crate) use self::child_frame_container::{
     child_frame_container_view_from_concat, child_frame_container_view_from_facet,
 };
 pub(crate) use self::child_frame_runtime::{
-    ChildFrameDataSelection, PreparedChildFramePlot, child_frame_eval_context,
+    ChildFrameDataSelection, ChildFrameRuntime, PreparedChildFramePlot,
     fixed_child_plot_area_layout_spec, measure_child_frame_plot_with_builder,
-    prepare_child_frame_plot,
 };
 pub(crate) use self::child_frame_scope::{
     ChildFrameKey, ChildFrameScopeKey, ChildFrameSharingLevel, ChildFrameSharingPath,
