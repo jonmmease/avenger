@@ -32,6 +32,12 @@ impl ChildFrameScopeKey {
 pub(crate) enum ChildFrameKey {
     /// Explicit child subplot in a concat-like container.
     ConcatChild { index: usize, key: Option<String> },
+    /// Child subplot positioned by a parent coordinate system.
+    PositionedSubplot {
+        mark_index: usize,
+        row_index: usize,
+        key: Option<String>,
+    },
     /// Facet cell value at one row/column facet level.
     FacetValue {
         axis: FacetAxis,
@@ -45,6 +51,12 @@ pub(crate) enum ChildFrameKey {
 pub(crate) enum ContainerPathSegment {
     /// Explicit child subplot in a concat-like ancestor container.
     ConcatChild { index: usize, key: Option<String> },
+    /// Child subplot positioned by a coordinate-system ancestor.
+    PositionedSubplot {
+        mark_index: usize,
+        row_index: usize,
+        key: Option<String>,
+    },
     /// Facet cell value at one row/column facet level.
     FacetValue {
         axis: FacetAxis,
@@ -57,6 +69,18 @@ impl ContainerPathSegment {
     pub(crate) fn concat_child(index: usize, key: Option<&str>) -> Self {
         Self::ConcatChild {
             index,
+            key: key.map(ToOwned::to_owned),
+        }
+    }
+
+    pub(crate) fn positioned_subplot(
+        mark_index: usize,
+        row_index: usize,
+        key: Option<&str>,
+    ) -> Self {
+        Self::PositionedSubplot {
+            mark_index,
+            row_index,
             key: key.map(ToOwned::to_owned),
         }
     }
@@ -105,6 +129,21 @@ impl ChildFrameSharingLevel {
             index,
             count,
             segment: ContainerPathSegment::concat_child(index, key),
+        }
+    }
+
+    pub(crate) fn positioned_subplot(
+        index: usize,
+        count: usize,
+        mark_index: usize,
+        row_index: usize,
+        key: Option<&str>,
+    ) -> Self {
+        Self {
+            axis: CoordinationAxis::Positioned,
+            index,
+            count,
+            segment: ContainerPathSegment::positioned_subplot(mark_index, row_index, key),
         }
     }
 }

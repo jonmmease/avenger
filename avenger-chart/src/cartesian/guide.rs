@@ -15,7 +15,10 @@ use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
 use crate::{
-    cartesian::axis::{AxisPosition, CartesianAxis},
+    cartesian::{
+        axis::{AxisPosition, CartesianAxis},
+        positioned_subplot::cartesian_positioned_coord_ref,
+    },
     channel::value::strip_trailing_numbers,
     coords::{CoordMeasurement, EmptyCoordMeasurement, extract_channel_title_from_marks},
     error::AvengerChartError,
@@ -28,7 +31,10 @@ use crate::{
     maybe::{Maybe, MaybeOptionalExpr},
     plot::{
         IntoExpr,
-        compiled::{SharingLevel, expr_eval::evaluate_string_expr},
+        compiled::{
+            SharingLevel, child_frame_container_overflow,
+            child_frame_container_view_from_cartesian_positioned, expr_eval::evaluate_string_expr,
+        },
     },
     serialization::LogicalExprNodeExt,
     theme::{Theme, ThemeContext},
@@ -311,12 +317,24 @@ impl CompiledGuide for CartesianGuide {
         let top = if top < THRESHOLD { 0.0 } else { top };
         let bottom = if bottom < THRESHOLD { 0.0 } else { bottom };
 
-        Ok(OverflowSpaceRequirement {
+        let mut overflow = OverflowSpaceRequirement {
             top,
             bottom,
             left,
             right,
-        })
+        };
+
+        if let Some(cartesian) = cartesian_positioned_coord_ref(coord_measurement) {
+            let container = child_frame_container_view_from_cartesian_positioned(cartesian)?;
+            let child_frame_overflow =
+                child_frame_container_overflow(plot_width, plot_height, &container)?;
+            overflow.top = overflow.top.max(child_frame_overflow.top);
+            overflow.right = overflow.right.max(child_frame_overflow.right);
+            overflow.bottom = overflow.bottom.max(child_frame_overflow.bottom);
+            overflow.left = overflow.left.max(child_frame_overflow.left);
+        }
+
+        Ok(overflow)
     }
 
     async fn evaluate(

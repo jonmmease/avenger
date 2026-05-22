@@ -8,6 +8,7 @@ pub mod test_axis_expression_title;
 pub mod test_bar;
 pub mod test_bar_defaults;
 pub mod test_bar_scale_color;
+pub mod test_cartesian_subplot;
 pub mod test_case_expression_title_simple;
 pub mod test_categorical_scale_sharing;
 pub mod test_color_mix;

@@ -7,6 +7,9 @@
 use std::collections::HashSet;
 
 use crate::{
+    cartesian::positioned_subplot::{
+        CartesianPositionedCoordMeasurement, cartesian_positioned_coord_ref,
+    },
     concat::{ConcatCoordMeasurement, concat_coord_ref},
     error::AvengerChartError,
     facet::{coord::facet_band_ref, placement::resolve_facet_child_frame_placement},
@@ -87,6 +90,12 @@ impl ComponentsMeasurement {
             return Ok(Some(child_frame_container_view_from_concat(concat)?));
         }
 
+        if let Some(cartesian) = cartesian_positioned_coord_ref(self.coord_measurement.as_ref()) {
+            return Ok(Some(child_frame_container_view_from_cartesian_positioned(
+                cartesian,
+            )?));
+        }
+
         let Some(facet_band) = facet_band_ref(self.coord_measurement.as_ref()) else {
             return Ok(None);
         };
@@ -163,6 +172,36 @@ pub(crate) fn child_frame_container_view_from_concat(
         })
         .collect::<Result<Vec<_>, AvengerChartError>>()?;
     validate_container_placements(&placement, &children, Some(&child_debug_labels))?;
+    let view = ChildFrameContainerView::new(children, placement);
+    view.validate_scope_keys()?;
+    Ok(view)
+}
+
+pub(crate) fn child_frame_container_view_from_cartesian_positioned(
+    cartesian: &CartesianPositionedCoordMeasurement,
+) -> Result<ChildFrameContainerView<'_>, AvengerChartError> {
+    let placement = cartesian.child_frame_placement();
+    let children = cartesian
+        .children()
+        .iter()
+        .map(|child| {
+            let scope_key = cartesian
+                .child_scope_key(child.child_index)
+                .ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Missing Cartesian positioned scope key for child index {}",
+                        child.child_index
+                    ))
+                })?;
+            Ok(ChildFrameChildView {
+                child_index: child.child_index,
+                scope_key,
+                label: child.label.clone(),
+                measurement: &child.measurement,
+            })
+        })
+        .collect::<Result<Vec<_>, AvengerChartError>>()?;
+    validate_container_placements(&placement, &children, None)?;
     let view = ChildFrameContainerView::new(children, placement);
     view.validate_scope_keys()?;
     Ok(view)

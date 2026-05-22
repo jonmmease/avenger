@@ -45,7 +45,8 @@ use crate::{
 };
 
 pub(crate) use self::child_frame_container::{
-    ChildFrameContainerView, child_frame_container_view_from_concat,
+    ChildFrameContainerView, child_frame_container_overflow,
+    child_frame_container_view_from_cartesian_positioned, child_frame_container_view_from_concat,
 };
 pub(crate) use self::child_frame_runtime::{
     ChildFrameDataSelection, PreparedChildFramePlot, child_frame_eval_context,

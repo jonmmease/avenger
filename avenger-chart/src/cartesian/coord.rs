@@ -1,14 +1,18 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
-use datafusion::scalar::ScalarValue;
+use datafusion::{common::ScalarValue as DFScalarValue, dataframe::DataFrame, scalar::ScalarValue};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     cartesian::CartesianGuide,
-    coords::{CoordinateSystem, CoordinateSystemTransform, PlotGeometry, PointGeometry},
+    coords::{
+        CoordMeasurement, CoordinateSystem, CoordinateSystemTransform, PlotGeometry, PointGeometry,
+    },
     error::AvengerChartError,
+    marks::CompiledMark,
+    render::EvaluationContext,
     scales::{PlotAreaRangeEndpoint, ScaleRangeBinding},
 };
 
@@ -37,6 +41,28 @@ impl CoordinateSystemTransform for Cartesian {
 
     fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
         Box::new(self.clone())
+    }
+
+    async fn measure(
+        &self,
+        scales: &HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
+        plot_width: f32,
+        plot_height: f32,
+        eval_ctx: &EvaluationContext,
+        data: Option<&DataFrame>,
+        compiled_marks: &[Arc<dyn CompiledMark>],
+        facet_path: &[DFScalarValue],
+    ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
+        crate::cartesian::positioned_subplot::measure_cartesian_positioned_subplots(
+            scales,
+            plot_width,
+            plot_height,
+            eval_ctx,
+            data,
+            compiled_marks,
+            facet_path,
+        )
+        .await
     }
 
     fn transform(

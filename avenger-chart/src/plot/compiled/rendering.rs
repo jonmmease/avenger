@@ -1503,6 +1503,21 @@ impl CompiledPlot {
             }
         }
 
+        if let Some(cartesian) = coord_measurement.as_any().downcast_ref::<
+            crate::cartesian::positioned_subplot::CartesianPositionedCoordMeasurement,
+        >() {
+            for child in &cartesian.children {
+                requests.extend(
+                    child
+                        .measurement
+                        .legend_plan
+                        .hoisted_requests
+                        .iter()
+                        .cloned(),
+                );
+            }
+        }
+
         requests
     }
 

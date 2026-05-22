@@ -185,6 +185,9 @@ impl From<&str> for CoordinationChannel {
 pub(crate) enum CoordinationAxis {
     Horizontal,
     Vertical,
+    /// Children are positioned by a two-dimensional coordinate system rather
+    /// than by a horizontal or vertical band lane.
+    Positioned,
 }
 
 #[cfg(test)]

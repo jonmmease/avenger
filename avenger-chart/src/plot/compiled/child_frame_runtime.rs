@@ -49,6 +49,10 @@ impl<'a> PreparedChildFramePlot<'a> {
         &self.channel_domain_sharing_levels
     }
 
+    pub(crate) fn data_override(&self) -> Option<&DataFrame> {
+        self.data_override.as_ref()
+    }
+
     pub(crate) async fn measure(
         &self,
         eval_ctx: &EvaluationContext,
