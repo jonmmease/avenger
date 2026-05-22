@@ -1370,9 +1370,9 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::{
+        container::{ChildFrameSharingLevel, ChildFrameSharingPath, ContainerPathSegment},
         facet::evaluated_facet_tree::PartitionNode,
         guide::FacetDirection,
-        plot::compiled::{ChildFrameSharingLevel, ChildFrameSharingPath, ContainerPathSegment},
     };
 
     fn s(value: &str) -> ScalarValue {

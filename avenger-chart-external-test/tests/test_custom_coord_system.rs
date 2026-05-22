@@ -41,7 +41,7 @@ fn test_external_coord_system_transform() {
     position_channels.insert("iso_z", ScalarOrArray::new_scalar(5.0));
 
     // Transform should succeed
-    let result = transform.transform(&position_channels, 100.0, 100.0);
+    let result = transform.transform(&position_channels, None, 100.0, 100.0);
     assert!(result.is_ok());
 
     // Verify we got transformed coordinates (as a trait object)

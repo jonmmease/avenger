@@ -1,19 +1,19 @@
 //! Integration test to verify external coordinate systems can be defined and used
 
-use std::{collections::HashMap, marker::PhantomData, sync::Arc};
+use std::{any::Any, collections::HashMap, marker::PhantomData, sync::Arc};
 
 use async_trait::async_trait;
 use avenger_chart::{
     channel::ChannelDescriptor,
     coords::{
-        CoordinateSystem, CoordinateSystemTransform, OverflowSpaceRequirement, PlotGeometry,
-        PointGeometry,
+        CoordMeasurement, CoordinateSystem, CoordinateSystemTransform, OverflowSpaceRequirement,
+        PlotGeometry, PointGeometry,
     },
     define_common_mark_channels, define_position_channels,
     error::AvengerChartError,
-    guide::CoordinateGuide,
+    guide::{CoordinateGuide, GuideSharingContext},
     impl_mark_base, impl_mark_trait_common,
-    marks::{ChannelValue, CompiledMark, DataContext, Mark, MarkState},
+    marks::{ChannelValue, CompiledDataContext, CompiledMark, CompiledMarkState, Mark, MarkState},
     render::RenderContext,
     scales::{Auto, Scale},
 };
@@ -212,14 +212,14 @@ impl avenger_chart::guide::CompiledGuide for CompiledIsometricGuide {
     async fn measure_overflow(
         &self,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _row_overflow: Option<&Vec<OverflowSpaceRequirement>>,
-        _col_overflow: Option<&Vec<OverflowSpaceRequirement>>,
         _plot_width: f32,
         _plot_height: f32,
         _theme: &avenger_chart::theme::Theme,
         _params: &IndexMap<String, ScalarValue>,
         _data_override: Option<&datafusion::dataframe::DataFrame>,
         _ctx: &datafusion::prelude::SessionContext,
+        _sharing_context: GuideSharingContext<'_>,
+        _coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         Ok(OverflowSpaceRequirement {
             top: 0.0,
@@ -229,14 +229,19 @@ impl avenger_chart::guide::CompiledGuide for CompiledIsometricGuide {
         })
     }
 
-    async fn render(
+    async fn evaluate(
         &self,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _plot_width: f32,
         _plot_height: f32,
         _plot_bounds: &avenger_chart::layout::LayoutBounds,
+        _guide_overflow: &OverflowSpaceRequirement,
         _theme: &avenger_chart::theme::Theme,
         _params: &IndexMap<String, ScalarValue>,
+        _ctx: &datafusion::prelude::SessionContext,
+        _data_override: Option<&datafusion::dataframe::DataFrame>,
+        _sharing_context: GuideSharingContext<'_>,
+        _coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Ok(vec![])
     }
@@ -253,6 +258,10 @@ impl avenger_chart::guide::CompiledGuide for CompiledIsometricGuide {
             width: plot_width,
             height: plot_height,
         }
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -337,6 +346,7 @@ impl CoordinateSystemTransform for IsometricTransform {
     fn transform(
         &self,
         position_channels: &HashMap<&str, ScalarOrArray<f32>>,
+        _position_values: Option<&HashMap<&str, Vec<ScalarValue>>>,
         _plot_width: f32,
         _plot_height: f32,
     ) -> Result<Box<dyn PlotGeometry>, AvengerChartError> {
@@ -445,27 +455,39 @@ define_position_channels! {
 }
 
 // Implement the Mark trait for Isometric
+#[async_trait]
 impl Mark<Isometric> for Cube<Isometric> {
-    impl_mark_trait_common!(Cube, CompiledIsometricCube);
+    impl_mark_trait_common!(Cube);
+
+    async fn compile(
+        &self,
+        compiled_state: CompiledMarkState,
+        _session_context: &datafusion::prelude::SessionContext,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        Ok(Arc::new(CompiledIsometricCube {
+            state: compiled_state,
+        }))
+    }
 }
 
 /// Compiled version of Cube mark for rendering
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledIsometricCube {
-    pub(crate) state: MarkState,
+    pub(crate) state: CompiledMarkState,
 }
 
 #[typetag::serde]
+#[async_trait]
 impl CompiledMark for CompiledIsometricCube {
-    fn state(&self) -> &MarkState {
+    fn state(&self) -> &CompiledMarkState {
         &self.state
     }
 
-    fn state_mut(&mut self) -> &mut MarkState {
+    fn state_mut(&mut self) -> &mut CompiledMarkState {
         &mut self.state
     }
 
-    fn data_context(&self) -> &DataContext {
+    fn data_context(&self) -> &CompiledDataContext {
         &self.state.data
     }
 
@@ -520,7 +542,7 @@ impl CompiledMark for CompiledIsometricCube {
         ]
     }
 
-    fn render_from_data(
+    async fn render_from_data(
         &self,
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
@@ -532,11 +554,7 @@ impl CompiledMark for CompiledIsometricCube {
         Ok(vec![])
     }
 
-    fn default_channel_value(
-        &self,
-        channel: &str,
-        _context: &RenderContext,
-    ) -> Option<ScalarValue> {
+    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         match channel {
             "size" => Some(ScalarValue::Float32(Some(10.0))),
             "fill" => Some(ScalarValue::Utf8(Some("#3498db".to_string()))),

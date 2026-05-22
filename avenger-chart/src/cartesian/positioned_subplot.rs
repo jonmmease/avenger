@@ -11,16 +11,20 @@ use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
 
 use crate::{
+    container::{
+        ChildFrameKey, ChildFramePlacementResult, ChildFrameRenderPlacement, ChildFrameScopeKey,
+        ChildFrameSharingLevel, ContainerPathSegment,
+    },
     coords::{CoordMeasurement, EmptyCoordMeasurement},
     error::AvengerChartError,
-    layout::{ChildFramePlacementResult, ChildFrameRenderPlacement, Size2D},
+    layout::Size2D,
     marks::{
         CompiledCartesianSubplot, CompiledMark, subplot::compiled_cartesian_subplot,
         util::coerce_numeric_channel_with_renderer,
     },
     plot::compiled::{
-        ChildFrameDataSelection, ChildFrameDomainSharingInput, ChildFrameKey, ChildFrameScopeKey,
-        ChildFrameSharingLevel, ComponentsMeasurement, ContainerPathSegment, MarkDataRequest,
+        ChildFrameDataSelection, ChildFrameDomainSharingInput, ComponentsMeasurement,
+        MarkDataRequest, child_frame_container_view_from_cartesian_positioned,
         child_frame_eval_context, coordinated_child_frame_domain_extents,
         fixed_child_plot_area_layout_spec, prepare_child_frame_plot, prepare_mark_data_runtime,
     },
@@ -71,6 +75,15 @@ impl CoordMeasurement for CartesianPositionedCoordMeasurement {
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+
+    fn child_frame_container_view<'a>(
+        &'a self,
+        _measurement: &'a ComponentsMeasurement,
+    ) -> Result<Option<crate::container::ChildFrameContainerView<'a>>, AvengerChartError> {
+        Ok(Some(child_frame_container_view_from_cartesian_positioned(
+            self,
+        )?))
     }
 }
 

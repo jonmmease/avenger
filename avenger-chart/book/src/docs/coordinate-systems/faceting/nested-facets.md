@@ -42,25 +42,23 @@ let plot = Plot::<FacetColumn>::new()
     .data(df)
     .canvas_size(800, 600)
     .mark(
-        Facet::new()
-            .col_with(col("species"), |c| c.facet(|f| f.title("Species")))
-            .subplot(
-                Plot::<FacetRow>::new().mark(
-                    Facet::new()
-                        .row_with(col("petal_width_bin"), |c| {
-                            c.facet(|f| f.title("Petal Width"))
-                        })
-                        .subplot(
-                            Plot::<Cartesian>::new().mark(
-                                Symbol::new()
-                                    .x(col("sepal_length"))
-                                    .y(col("sepal_width"))
-                                    .size(25.0)
-                                    .fill("#4682b4"),
-                            ),
-                        ),
-                ),
+        Subplot::new(
+            Plot::<FacetRow>::new().mark(
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(
+                        Symbol::new()
+                            .x(col("sepal_length"))
+                            .y(col("sepal_width"))
+                            .size(25.0)
+                            .fill("#4682b4"),
+                    ),
+                )
+                .row_with(col("petal_width_bin"), |c| {
+                    c.facet(|f| f.title("Petal Width"))
+                }),
             ),
+        )
+        .col_with(col("species"), |c| c.facet(|f| f.title("Species")))
     );
 
 let compiled = plot.compile(&ctx).await?;
@@ -103,21 +101,23 @@ Outer FacetColumn filters by species
 Plot::<FacetColumn>::new()
     .data(df)  // Only the outer facet has data
     .mark(
-        Facet::new().column(col("species")).subplot(
+        Subplot::new(
             Plot::<FacetRow>::new()  // No .data() here!
                 .mark(...)
         )
+        .column(col("species"))
     )
 
 // INCORRECT: Will cause an error
 Plot::<FacetColumn>::new()
     .data(df)
     .mark(
-        Facet::new().column(col("species")).subplot(
+        Subplot::new(
             Plot::<FacetRow>::new()
                 .data(df)  // ERROR: nested facets cannot have their own data
                 .mark(...)
         )
+        .column(col("species"))
     )
 ```
 
@@ -152,27 +152,25 @@ let plot = Plot::<FacetColumn>::new()
     .data(df)
     .canvas_size(800, 600)
     .mark(
-        Facet::new()
-            .col_with(col("petal_width_bin"), |c| c.facet(|f| f.title("Petal Width")))
-            .subplot(
-                Plot::<FacetRow>::new().mark(
-                    Facet::new()
-                        .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
-                        .subplot(
-                            Plot::<Cartesian>::new().mark(
-                                Symbol::new()
-                                    .x_with(col("sepal_length"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Shared)
-                                    })
-                                    .y_with(col("sepal_width"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Shared)
-                                    })
-                                    .size(25.0)
-                                    .fill("#4682b4"),
-                            ),
-                        ),
-                ),
+        Subplot::new(
+            Plot::<FacetRow>::new().mark(
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(
+                        Symbol::new()
+                            .x_with(col("sepal_length"), |c| {
+                                c.with_scale_sharing(ScaleSharing::Shared)
+                            })
+                            .y_with(col("sepal_width"), |c| {
+                                c.with_scale_sharing(ScaleSharing::Shared)
+                            })
+                            .size(25.0)
+                            .fill("#4682b4"),
+                    ),
+                )
+                .row_with(col("species"), |c| c.facet(|f| f.title("Species"))),
             ),
+        )
+        .col_with(col("petal_width_bin"), |c| c.facet(|f| f.title("Petal Width")))
     );
 
 let compiled = plot.compile(&ctx).await?;
@@ -209,27 +207,25 @@ let plot = Plot::<FacetColumn>::new()
     .data(df)
     .canvas_size(800, 600)
     .mark(
-        Facet::new()
-            .col_with(col("petal_width_bin"), |c| c.facet(|f| f.title("Petal Width")))
-            .subplot(
-                Plot::<FacetRow>::new().mark(
-                    Facet::new()
-                        .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
-                        .subplot(
-                            Plot::<Cartesian>::new().mark(
-                                Symbol::new()
-                                    .x_with(col("sepal_length"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Free)
-                                    })
-                                    .y_with(col("sepal_width"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Free)
-                                    })
-                                    .size(25.0)
-                                    .fill("#4682b4"),
-                            ),
-                        ),
-                ),
+        Subplot::new(
+            Plot::<FacetRow>::new().mark(
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(
+                        Symbol::new()
+                            .x_with(col("sepal_length"), |c| {
+                                c.with_scale_sharing(ScaleSharing::Free)
+                            })
+                            .y_with(col("sepal_width"), |c| {
+                                c.with_scale_sharing(ScaleSharing::Free)
+                            })
+                            .size(25.0)
+                            .fill("#4682b4"),
+                    ),
+                )
+                .row_with(col("species"), |c| c.facet(|f| f.title("Species"))),
             ),
+        )
+        .col_with(col("petal_width_bin"), |c| c.facet(|f| f.title("Petal Width")))
     );
 
 let compiled = plot.compile(&ctx).await?;
@@ -270,27 +266,25 @@ let plot = Plot::<FacetColumn>::new()
     .data(df)
     .canvas_size(800, 600)
     .mark(
-        Facet::new()
-            .col_with(col("petal_width_bin"), |c| c.facet(|f| f.title("Petal Width")))
-            .subplot(
-                Plot::<FacetRow>::new().mark(
-                    Facet::new()
-                        .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
-                        .subplot(
-                            Plot::<Cartesian>::new().mark(
-                                Symbol::new()
-                                    .x_with(col("sepal_length"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Level(1))
-                                    })
-                                    .y_with(col("sepal_width"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Level(1))
-                                    })
-                                    .size(25.0)
-                                    .fill("#4682b4"),
-                            ),
-                        ),
-                ),
+        Subplot::new(
+            Plot::<FacetRow>::new().mark(
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(
+                        Symbol::new()
+                            .x_with(col("sepal_length"), |c| {
+                                c.with_scale_sharing(ScaleSharing::Level(1))
+                            })
+                            .y_with(col("sepal_width"), |c| {
+                                c.with_scale_sharing(ScaleSharing::Level(1))
+                            })
+                            .size(25.0)
+                            .fill("#4682b4"),
+                    ),
+                )
+                .row_with(col("species"), |c| c.facet(|f| f.title("Species"))),
             ),
+        )
+        .col_with(col("petal_width_bin"), |c| c.facet(|f| f.title("Petal Width")))
     );
 
 let compiled = plot.compile(&ctx).await?;
@@ -333,29 +327,27 @@ let plot = Plot::<FacetRow>::new()
     .data(df)
     .canvas_size(800, 600)
     .mark(
-        Facet::new()
-            .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
-            .subplot(
-                Plot::<FacetColumn>::new().mark(
-                    Facet::new()
-                        .col_with(col("petal_width_bin"), |c| {
-                            c.facet(|f| f.title("Petal Width"))
-                        })
-                        .subplot(
-                            Plot::<Cartesian>::new().mark(
-                                Symbol::new()
-                                    .x_with(col("sepal_length"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Level(1))
-                                    })
-                                    .y_with(col("sepal_width"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Level(1))
-                                    })
-                                    .size(25.0)
-                                    .fill("#4682b4"),
-                            ),
-                        ),
-                ),
+        Subplot::new(
+            Plot::<FacetColumn>::new().mark(
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(
+                        Symbol::new()
+                            .x_with(col("sepal_length"), |c| {
+                                c.with_scale_sharing(ScaleSharing::Level(1))
+                            })
+                            .y_with(col("sepal_width"), |c| {
+                                c.with_scale_sharing(ScaleSharing::Level(1))
+                            })
+                            .size(25.0)
+                            .fill("#4682b4"),
+                    ),
+                )
+                .col_with(col("petal_width_bin"), |c| {
+                    c.facet(|f| f.title("Petal Width"))
+                }),
             ),
+        )
+        .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
     );
 
 let compiled = plot.compile(&ctx).await?;
@@ -390,13 +382,15 @@ std::thread::Builder::new()
             let plot = Plot::<FacetColumn>::new()
                 .data(df)
                 .mark(
-                    Facet::new().column(col("outer")).subplot(
+                    Subplot::new(
                         Plot::<FacetRow>::new().mark(
-                            Facet::new().row(col("inner")).subplot(
+                            Subplot::new(
                                 Plot::<Cartesian>::new().mark(...)
                             )
+                            .row(col("inner"))
                         )
                     )
+                    .column(col("outer"))
                 );
 
             let compiled = plot.compile(&ctx).await?;

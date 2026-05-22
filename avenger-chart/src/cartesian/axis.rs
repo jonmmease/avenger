@@ -589,10 +589,11 @@ mod tests {
         axis_ownership_mode_from_params, child_frame_axis_ownership_scope,
         child_frame_axis_title_scope,
     };
+    use crate::container::{ChildFrameSharingLevel, ChildFrameSharingPath};
     use crate::facet::evaluated_facet_tree::AxisOwnershipMode;
     use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
     use crate::guide::GuideSharingContext;
-    use crate::plot::compiled::{ChildFrameSharingLevel, ChildFrameSharingPath, SharingLevel};
+    use crate::plot::compiled::SharingLevel;
     use crate::render::context::AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM;
     use datafusion::common::ScalarValue;
     use indexmap::IndexMap;

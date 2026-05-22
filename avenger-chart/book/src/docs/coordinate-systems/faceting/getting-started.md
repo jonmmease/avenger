@@ -56,17 +56,16 @@ let df = ctx
 let plot = Plot::<FacetRow>::new()
     .data(df)
     .mark(
-        Facet::new()
-            .row(col("species"))
-            .subplot(
-                Plot::<Cartesian>::new().mark(
-                    Symbol::new()
-                        .x(col("sepal_length"))
-                        .y(col("sepal_width"))
-                        .size(36.0)
-                        .fill("#4682b4")
-                )
+        Subplot::new(
+            Plot::<Cartesian>::new().mark(
+                Symbol::new()
+                    .x(col("sepal_length"))
+                    .y(col("sepal_width"))
+                    .size(36.0)
+                    .fill("#4682b4")
             )
+        )
+        .row(col("species"))
     );
 
 let compiled = plot.compile(&ctx).await?;
@@ -96,17 +95,16 @@ let df = ctx
 let plot = Plot::<FacetColumn>::new()
     .data(df)
     .mark(
-        Facet::new()
-            .column(col("species"))
-            .subplot(
-                Plot::<Cartesian>::new().mark(
-                    Symbol::new()
-                        .x(col("sepal_length"))
-                        .y(col("sepal_width"))
-                        .size(36.0)
-                        .fill("#4682b4")
-                )
+        Subplot::new(
+            Plot::<Cartesian>::new().mark(
+                Symbol::new()
+                    .x(col("sepal_length"))
+                    .y(col("sepal_width"))
+                    .size(36.0)
+                    .fill("#4682b4")
             )
+        )
+        .column(col("species"))
     );
 
 let compiled = plot.compile(&ctx).await?;
@@ -130,7 +128,7 @@ A faceted chart consists of several components:
 The key components in the code are:
 
 1. **Plot Coordinate System**: Use `Plot::<FacetRow>` or `Plot::<FacetColumn>` instead of `Plot::<Cartesian>`
-2. **Facet Mark**: The `Facet::new()` mark that wraps your inner plot
+2. **Subplot Mark**: The `Subplot::new(...)` mark that wraps your inner plot
 3. **Faceting Column**: Specified with `.row(col("species"))` or `.column(col("species"))`
 4. **Subplot**: The inner `Plot::<Cartesian>` containing your actual visualization marks
 
@@ -156,19 +154,18 @@ let df = ctx
 let plot = Plot::<FacetColumn>::new()
     .data(df)
     .mark(
-        Facet::new()
-            .col_with(col("species"), |c| {
-                c.facet(|f| f.title("Iris Species"))
-            })
-            .subplot(
-                Plot::<Cartesian>::new().mark(
-                    Symbol::new()
-                        .x(col("sepal_length"))
-                        .y(col("sepal_width"))
-                        .size(36.0)
-                        .fill("#4682b4")
-                )
+        Subplot::new(
+            Plot::<Cartesian>::new().mark(
+                Symbol::new()
+                    .x(col("sepal_length"))
+                    .y(col("sepal_width"))
+                    .size(36.0)
+                    .fill("#4682b4")
             )
+        )
+        .col_with(col("species"), |c| {
+            c.facet(|f| f.title("Iris Species"))
+        })
     );
 
 let compiled = plot.compile(&ctx).await?;
@@ -199,19 +196,18 @@ let df = ctx
 let plot = Plot::<FacetColumn>::new()
     .data(df)
     .mark(
-        Facet::new()
-            .col_with(col("species"), |c| {
-                c.facet(|f| f.title("Iris Species"))
-            })
-            .subplot(
-                Plot::<Cartesian>::new().mark(
-                    Symbol::new()
-                        .x(col("sepal_length"))
-                        .y(col("sepal_width"))
-                        .size(36.0)
-                        .fill("#4682b4")
-                )
+        Subplot::new(
+            Plot::<Cartesian>::new().mark(
+                Symbol::new()
+                    .x(col("sepal_length"))
+                    .y(col("sepal_width"))
+                    .size(36.0)
+                    .fill("#4682b4")
             )
+        )
+        .col_with(col("species"), |c| {
+            c.facet(|f| f.title("Iris Species"))
+        })
     );
 
 let compiled = plot.compile(&ctx).await?;

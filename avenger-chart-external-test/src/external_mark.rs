@@ -1,6 +1,6 @@
 //! Integration test to verify external marks can be defined and used
 
-use std::marker::PhantomData;
+use std::{marker::PhantomData, sync::Arc};
 
 use avenger_chart::{
     cartesian::Cartesian,
@@ -9,7 +9,7 @@ use avenger_chart::{
     define_common_mark_channels, define_position_channels,
     error::AvengerChartError,
     impl_mark_base, impl_mark_trait_common,
-    marks::{CompiledMark, DataContext, Mark, MarkState},
+    marks::{CompiledDataContext, CompiledMark, CompiledMarkState, Mark, MarkState},
     render::RenderContext,
 };
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -50,27 +50,39 @@ define_position_channels! {
 }
 
 // Implement the Mark trait for Cartesian
+#[async_trait::async_trait]
 impl Mark<Cartesian> for HexBin<Cartesian> {
-    impl_mark_trait_common!(HexBin, CompiledCartesianHexBin);
+    impl_mark_trait_common!(HexBin);
+
+    async fn compile(
+        &self,
+        compiled_state: CompiledMarkState,
+        _session_context: &datafusion::prelude::SessionContext,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        Ok(Arc::new(CompiledCartesianHexBin {
+            state: compiled_state,
+        }))
+    }
 }
 
 /// Compiled version of HexBin mark for rendering
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledCartesianHexBin {
-    pub(crate) state: MarkState,
+    pub(crate) state: CompiledMarkState,
 }
 
 #[typetag::serde]
+#[async_trait::async_trait]
 impl CompiledMark for CompiledCartesianHexBin {
-    fn state(&self) -> &MarkState {
+    fn state(&self) -> &CompiledMarkState {
         &self.state
     }
 
-    fn state_mut(&mut self) -> &mut MarkState {
+    fn state_mut(&mut self) -> &mut CompiledMarkState {
         &mut self.state
     }
 
-    fn data_context(&self) -> &DataContext {
+    fn data_context(&self) -> &CompiledDataContext {
         &self.state.data
     }
 
@@ -119,7 +131,7 @@ impl CompiledMark for CompiledCartesianHexBin {
         ]
     }
 
-    fn render_from_data(
+    async fn render_from_data(
         &self,
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
@@ -131,11 +143,7 @@ impl CompiledMark for CompiledCartesianHexBin {
         Ok(vec![])
     }
 
-    fn default_channel_value(
-        &self,
-        channel: &str,
-        _context: &RenderContext,
-    ) -> Option<ScalarValue> {
+    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         match channel {
             "size" => Some(ScalarValue::Float32(Some(20.0))),
             "fill" => Some(ScalarValue::Utf8(Some("#4682b4".to_string()))),

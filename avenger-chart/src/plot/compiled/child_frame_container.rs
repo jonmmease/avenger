@@ -7,14 +7,13 @@
 use std::collections::HashSet;
 
 use crate::{
-    cartesian::positioned_subplot::{
-        CartesianPositionedCoordMeasurement, cartesian_positioned_coord_ref,
-    },
-    concat::{ConcatCoordMeasurement, concat_coord_ref},
+    cartesian::positioned_subplot::CartesianPositionedCoordMeasurement,
+    concat::ConcatCoordMeasurement,
+    container::{ChildFramePlacementResult, project_child_frame_bounds},
     error::AvengerChartError,
-    facet::{coord::facet_band_ref, placement::resolve_facet_child_frame_placement},
+    facet::{coord::FacetBandCoordMeasurement, placement::resolve_facet_child_frame_placement},
     guide::OverflowSpaceRequirement,
-    layout::{ChildFramePlacementResult, FrameAllocation, project_child_frame_bounds},
+    layout::FrameAllocation,
     partition::format_partition_value,
 };
 
@@ -30,8 +29,12 @@ struct ChildFrameChildView<'a> {
 }
 
 /// Read-only child-frame container projection for generic layout consumers.
+///
+/// A view is valid only when child indices and render placements form a
+/// one-to-one mapping. Render origins are frame origins in the parent content
+/// coordinate space; they are not child plot-area origins.
 #[derive(Debug)]
-pub(crate) struct ChildFrameContainerView<'a> {
+pub struct ChildFrameContainerView<'a> {
     children: Vec<ChildFrameChildView<'a>>,
     placement: ChildFramePlacementResult,
 }
@@ -86,61 +89,7 @@ impl ComponentsMeasurement {
     pub(crate) fn child_frame_container_view(
         &self,
     ) -> Result<Option<ChildFrameContainerView<'_>>, AvengerChartError> {
-        if let Some(concat) = concat_coord_ref(self.coord_measurement.as_ref()) {
-            return Ok(Some(child_frame_container_view_from_concat(concat)?));
-        }
-
-        if let Some(cartesian) = cartesian_positioned_coord_ref(self.coord_measurement.as_ref()) {
-            return Ok(Some(child_frame_container_view_from_cartesian_positioned(
-                cartesian,
-            )?));
-        }
-
-        let Some(facet_band) = facet_band_ref(self.coord_measurement.as_ref()) else {
-            return Ok(None);
-        };
-        let placement = resolve_facet_child_frame_placement(self, facet_band)?;
-        if placement.render_placements().len() != facet_band.cells.len() {
-            return Err(AvengerChartError::InternalError(format!(
-                "Child-frame container placement count mismatch: placements={}, children={}",
-                placement.render_placements().len(),
-                facet_band.cells.len()
-            )));
-        }
-
-        for render_placement in placement.render_placements() {
-            if render_placement.child_index >= facet_band.cells.len() {
-                return Err(AvengerChartError::InternalError(format!(
-                    "Child-frame container placement index {} exceeded child count {}",
-                    render_placement.child_index,
-                    facet_band.cells.len()
-                )));
-            }
-        }
-
-        let children = facet_band
-            .cells
-            .iter()
-            .enumerate()
-            .map(|(child_index, cell)| {
-                let scope_key = facet_band.child_scope_key(child_index).ok_or_else(|| {
-                    AvengerChartError::InternalError(format!(
-                        "Missing facet scope key for child index {child_index}"
-                    ))
-                })?;
-                Ok(ChildFrameChildView {
-                    child_index,
-                    scope_key,
-                    label: Some(format_partition_value(&cell.plan.value)),
-                    measurement: &cell.measurement,
-                })
-            })
-            .collect::<Result<Vec<_>, AvengerChartError>>()?;
-
-        validate_container_placements(&placement, &children, None)?;
-        let view = ChildFrameContainerView::new(children, placement);
-        view.validate_scope_keys()?;
-        Ok(Some(view))
+        self.coord_measurement.child_frame_container_view(self)
     }
 }
 
@@ -201,6 +150,36 @@ pub(crate) fn child_frame_container_view_from_cartesian_positioned(
             })
         })
         .collect::<Result<Vec<_>, AvengerChartError>>()?;
+    validate_container_placements(&placement, &children, None)?;
+    let view = ChildFrameContainerView::new(children, placement);
+    view.validate_scope_keys()?;
+    Ok(view)
+}
+
+pub(crate) fn child_frame_container_view_from_facet<'a>(
+    measurement: &'a ComponentsMeasurement,
+    facet_band: &'a FacetBandCoordMeasurement,
+) -> Result<ChildFrameContainerView<'a>, AvengerChartError> {
+    let placement = resolve_facet_child_frame_placement(measurement, facet_band)?;
+    let children = facet_band
+        .cells
+        .iter()
+        .enumerate()
+        .map(|(child_index, cell)| {
+            let scope_key = facet_band.child_scope_key(child_index).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Missing facet scope key for child index {child_index}"
+                ))
+            })?;
+            Ok(ChildFrameChildView {
+                child_index,
+                scope_key,
+                label: Some(format_partition_value(&cell.plan.value)),
+                measurement: &cell.measurement,
+            })
+        })
+        .collect::<Result<Vec<_>, AvengerChartError>>()?;
+
     validate_container_placements(&placement, &children, None)?;
     let view = ChildFrameContainerView::new(children, placement);
     view.validate_scope_keys()?;
@@ -318,7 +297,23 @@ fn validate_container_placements(
     children: &[ChildFrameChildView<'_>],
     child_debug_labels: Option<&[String]>,
 ) -> Result<(), AvengerChartError> {
+    if placement.render_placements().len() != children.len() {
+        return Err(AvengerChartError::InternalError(format!(
+            "Child-frame container placement count mismatch: placements={}, children={}",
+            placement.render_placements().len(),
+            children.len()
+        )));
+    }
+
+    let mut seen_placements = HashSet::with_capacity(placement.render_placements().len());
     for render_placement in placement.render_placements() {
+        if !seen_placements.insert(render_placement.child_index) {
+            return Err(AvengerChartError::InternalError(format!(
+                "Duplicate child-frame container placement for child index {}",
+                render_placement.child_index
+            )));
+        }
+
         if !children
             .iter()
             .any(|child| child.child_index == render_placement.child_index)
@@ -338,5 +333,16 @@ fn validate_container_placements(
             )));
         }
     }
+
+    for child in children {
+        if placement.child(child.child_index).is_none() {
+            let label = child.label.as_deref().unwrap_or("<unlabeled>");
+            return Err(AvengerChartError::InternalError(format!(
+                "Missing child-frame placement for child index {} ({label})",
+                child.child_index
+            )));
+        }
+    }
+
     Ok(())
 }

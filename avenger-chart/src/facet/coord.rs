@@ -16,6 +16,7 @@ use tracing::{debug, trace};
 
 use crate::{
     cartesian::axis::AxisPosition,
+    container::{ChildFrameKey, ChildFrameScopeKey, ContainerPathSegment},
     coords::{
         CellDomainInfo, CoordMeasurement, CoordinateSystem, CoordinateSystemTransform,
         CoordinatedLayout, CoordinatedOverflow, FacetAxis, PaddingSpec, PlotGeometry,
@@ -69,10 +70,9 @@ use crate::{
     },
     marks::CompiledMark,
     plot::compiled::{
-        ChildFrameKey, ChildFrameScopeKey, CompiledPlot, ComponentsMeasurement,
-        ContainerPathSegment, CoordinationKind, CoordinationScopeKey, SharingLevel,
-        fixed_child_plot_area_layout_spec, measure_child_frame_plot_with_builder,
-        scales::build_scale_builder_from_marks,
+        CompiledPlot, ComponentsMeasurement, CoordinationKind, CoordinationScopeKey, SharingLevel,
+        child_frame_container_view_from_facet, fixed_child_plot_area_layout_spec,
+        measure_child_frame_plot_with_builder, scales::build_scale_builder_from_marks,
     },
     render::{EvaluationContext, FacetSubtreeCheckpoint, FacetSubtreeSelector},
     scales::{
@@ -937,6 +937,16 @@ impl CoordMeasurement for FacetBandCoordMeasurement {
             has_hole_cells,
             has_adjacent_non_empty,
         );
+    }
+
+    fn child_frame_container_view<'a>(
+        &'a self,
+        measurement: &'a ComponentsMeasurement,
+    ) -> Result<Option<crate::container::ChildFrameContainerView<'a>>, AvengerChartError> {
+        Ok(Some(child_frame_container_view_from_facet(
+            measurement,
+            self,
+        )?))
     }
 }
 

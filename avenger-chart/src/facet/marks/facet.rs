@@ -184,7 +184,7 @@ async fn render_facet_band_with_placement(
         }
         .with_facet_coord_node_path_appended(idx)
         .with_child_frame_container_path_appended(
-            crate::plot::compiled::ContainerPathSegment::facet_value(
+            crate::container::ContainerPathSegment::facet_value(
                 facet_measurement.axis,
                 facet_measurement.facet_depth,
                 cell.plan.value.clone(),

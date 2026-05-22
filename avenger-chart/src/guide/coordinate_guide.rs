@@ -11,13 +11,13 @@ use serde::{Deserialize, Serialize};
 use crate::{
     axis::Axis,
     cartesian::axis::AxisPosition,
+    container::ChildFrameSharingPath,
     coords::CoordMeasurement,
     error::AvengerChartError,
     facet::evaluated_facet_tree::EvaluatedFacetTree,
     guide::{MeasurementResult, OverflowSpaceRequirement},
     layout::LayoutBounds,
     marks::CompiledMark,
-    plot::compiled::ChildFrameSharingPath,
     theme::Theme,
 };
 

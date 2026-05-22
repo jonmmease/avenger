@@ -103,6 +103,22 @@ pub trait CoordMeasurement: Send + Sync + 'static {
     fn apply_scale_adjustments(&self, _scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
         // Default: no-op
     }
+
+    /// Return a read-only child-frame container projection when this coordinate
+    /// measurement owns measured child plots.
+    ///
+    /// Most coordinate systems are ordinary data coordinate systems and return
+    /// `None`. Container coordinate systems such as facets, concat, and
+    /// coordinate-positioned subplots override this hook so generic layout and
+    /// debug code can inspect child frames without downcasting to built-in
+    /// concrete measurement types.
+    #[doc(hidden)]
+    fn child_frame_container_view<'a>(
+        &'a self,
+        _measurement: &'a ComponentsMeasurement,
+    ) -> Result<Option<crate::container::ChildFrameContainerView<'a>>, AvengerChartError> {
+        Ok(None)
+    }
 }
 
 /// Layout parameters coordinated across all facet-band nodes at the same depth.

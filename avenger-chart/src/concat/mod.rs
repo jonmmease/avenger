@@ -14,6 +14,11 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    container::{
+        BandChildFrameInput, BandChildFramePlacement, BandSpacing, BoundaryDemand1D, ChildFrameKey,
+        ChildFramePlacementResult, ChildFrameScopeKey, ChildFrameSharingLevel,
+        ContainerPathSegment,
+    },
     coords::{
         CoordMeasurement, CoordinateSystem, CoordinateSystemTransform, PlotGeometry, PointGeometry,
     },
@@ -21,15 +26,11 @@ use crate::{
     guide::{
         CompiledGuide, CoordinateGuide, GuideSharingContext, GuideUpdate, OverflowSpaceRequirement,
     },
-    layout::{
-        BandChildFrameInput, BandChildFramePlacement, BandDirection, BandSpacing, BoundaryDemand1D,
-        ChildFramePlacementResult, LayoutBounds, Size2D,
-    },
+    layout::{BandDirection, LayoutBounds, Size2D},
     marks::{CompiledConcatSubplot, CompiledMark, subplot::compiled_subplot},
     plot::compiled::{
-        ChildFrameDataSelection, ChildFrameDomainSharingInput, ChildFrameKey, ChildFrameScopeKey,
-        ChildFrameSharingLevel, ComponentsMeasurement, ContainerLabelPlacement,
-        ContainerPathSegment, PreparedChildFramePlot, child_frame_container_view_from_concat,
+        ChildFrameDataSelection, ChildFrameDomainSharingInput, ComponentsMeasurement,
+        ContainerLabelPlacement, PreparedChildFramePlot, child_frame_container_view_from_concat,
         child_frame_eval_context, container_path_without_facet_segments,
         coordinated_child_frame_domain_extents, fixed_child_plot_area_layout_spec,
         measure_child_frame_container_guide_overflow, prepare_child_frame_plot,
@@ -337,6 +338,13 @@ impl CoordMeasurement for ConcatCoordMeasurement {
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+
+    fn child_frame_container_view<'a>(
+        &'a self,
+        _measurement: &'a ComponentsMeasurement,
+    ) -> Result<Option<crate::container::ChildFrameContainerView<'a>>, AvengerChartError> {
+        Ok(Some(child_frame_container_view_from_concat(self)?))
     }
 }
 
@@ -690,8 +698,8 @@ mod tests {
         plot::{
             CompiledPlot, Plot,
             compiled::{
-                ChildFrameKey, ContainerPathSegment, CoordinationAxis, CoordinationKind,
-                CoordinationScopeKey, child_frame_container_view_from_concat,
+                CoordinationAxis, CoordinationKind, CoordinationScopeKey,
+                child_frame_container_view_from_concat,
                 container_label_items_from_child_frame_container,
                 scale_provider::DynamicScaleProvider, scales::build_scale_builder_from_marks,
             },

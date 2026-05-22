@@ -14,6 +14,7 @@ use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 
 use crate::{
+    container::{ChildFrameSharingLevel, ChildFrameSharingPath, ContainerPathSegment},
     coords::CoordMeasurement,
     coords::FacetAxis,
     facet::{
@@ -21,7 +22,6 @@ use crate::{
         layout_plan::{FacetBandPaddingFeedback, FacetBandPaddingFeedbackMap},
         scale_precompute::FacetScalePrecomputeStore,
     },
-    plot::compiled::{ChildFrameSharingLevel, ChildFrameSharingPath, ContainerPathSegment},
     render::types::{
         EvaluatedPlot, EvaluationMetrics, FacetLayoutRefinement, FacetSubtreeSnapshot,
         LayoutDebugOverlayMode,

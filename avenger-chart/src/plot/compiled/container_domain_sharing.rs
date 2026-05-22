@@ -164,7 +164,7 @@ pub(crate) fn coordinated_child_frame_domain_extents(
 #[cfg(test)]
 mod tests {
     use crate::{
-        plot::compiled::{ChildFrameKey, ContainerPathSegment},
+        container::{ChildFrameKey, ContainerPathSegment},
         scales::domain_extent::DomainExtent,
     };
 

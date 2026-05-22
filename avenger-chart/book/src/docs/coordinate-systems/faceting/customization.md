@@ -41,17 +41,16 @@ let df = ctx.read_batch(batch)?;
 let plot = Plot::<FacetColumn>::new()
     .data(df)
     .mark(
-        Facet::new()
-            .col_with(col("species"), |c| c.facet(|f| f.title("Iris Species")))
-            .subplot(
-                Plot::<Cartesian>::new().mark(
-                    Symbol::new()
-                        .x(col("sepal_length"))
-                        .y(col("sepal_width"))
-                        .size(120.0)
-                        .fill("#4682b4")
-                )
+        Subplot::new(
+            Plot::<Cartesian>::new().mark(
+                Symbol::new()
+                    .x(col("sepal_length"))
+                    .y(col("sepal_width"))
+                    .size(120.0)
+                    .fill("#4682b4")
             )
+        )
+        .col_with(col("species"), |c| c.facet(|f| f.title("Iris Species")))
     )
     .canvas_size(800.0, 300.0);
 
@@ -103,17 +102,16 @@ let df = ctx.read_batch(batch)?;
 let plot = Plot::<FacetColumn>::new()
     .data(df)
     .mark(
-        Facet::new()
-            .col_with(col("species"), |c| c.facet(|f| f.title("Iris Species")))
-            .subplot(
-                Plot::<Cartesian>::new().mark(
-                    Symbol::new()
-                        .x(col("sepal_length"))
-                        .y(col("sepal_width"))
-                        .size(120.0)
-                        .fill("#4682b4")
-                )
+        Subplot::new(
+            Plot::<Cartesian>::new().mark(
+                Symbol::new()
+                    .x(col("sepal_length"))
+                    .y(col("sepal_width"))
+                    .size(120.0)
+                    .fill("#4682b4")
             )
+        )
+        .col_with(col("species"), |c| c.facet(|f| f.title("Iris Species")))
     )
     .canvas_size(800.0, 300.0);
 
@@ -168,23 +166,22 @@ let df = ctx.read_batch(batch)?;
 let plot = Plot::<FacetRow>::new()
     .data(df)
     .mark(
-        Facet::<Cartesian>::new()
-            .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
-            .subplot(
-                Plot::<Cartesian>::new().mark(
-                    Symbol::new()
-                        .x_with(col("sepal_length"), |c| {
-                            c.scale_with::<Linear>(|s| s)
-                                .axis(|a| a.title("Sepal Length").position("top"))
-                        })
-                        .y_with(col("sepal_width"), |c| {
-                            c.scale_with::<Linear>(|s| s)
-                                .axis(|a| a.title("Sepal Width"))
-                        })
-                        .size(90.0)
-                        .fill("#1f78b4")
-                )
+        Subplot::new(
+            Plot::<Cartesian>::new().mark(
+                Symbol::new()
+                    .x_with(col("sepal_length"), |c| {
+                        c.scale_with::<Linear>(|s| s)
+                            .axis(|a| a.title("Sepal Length").position("top"))
+                    })
+                    .y_with(col("sepal_width"), |c| {
+                        c.scale_with::<Linear>(|s| s)
+                            .axis(|a| a.title("Sepal Width"))
+                    })
+                    .size(90.0)
+                    .fill("#1f78b4")
             )
+        )
+        .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
     )
     .canvas_size(600.0, 500.0);
 
@@ -234,23 +231,22 @@ let df = ctx.read_batch(batch)?;
 let plot = Plot::<FacetRow>::new()
     .data(df)
     .mark(
-        Facet::<Cartesian>::new()
-            .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
-            .subplot(
-                Plot::<Cartesian>::new().mark(
-                    Symbol::new()
-                        .x_with(col("sepal_length"), |c| {
-                            c.scale_with::<Linear>(|s| s)
-                                .axis(|a| a.title("Sepal Length"))
-                        })
-                        .y_with(col("sepal_width"), |c| {
-                            c.scale_with::<Linear>(|s| s)
-                                .axis(|a| a.title("Sepal Width").position("right"))
-                        })
-                        .size(90.0)
-                        .fill("#2e8b57")
-                )
+        Subplot::new(
+            Plot::<Cartesian>::new().mark(
+                Symbol::new()
+                    .x_with(col("sepal_length"), |c| {
+                        c.scale_with::<Linear>(|s| s)
+                            .axis(|a| a.title("Sepal Length"))
+                    })
+                    .y_with(col("sepal_width"), |c| {
+                        c.scale_with::<Linear>(|s| s)
+                            .axis(|a| a.title("Sepal Width").position("right"))
+                    })
+                    .size(90.0)
+                    .fill("#2e8b57")
             )
+        )
+        .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
     )
     .canvas_size(600.0, 500.0);
 
@@ -270,12 +266,12 @@ The `row_with()` and `col_with()` methods provide a builder pattern for configur
 
 ```rust
 // Configure row faceting
-Facet::new().row_with(col("species"), |c| {
+Subplot::new(child_plot).row_with(col("species"), |c| {
     c.facet(|f| f.title("Species"))
 })
 
 // Configure column faceting
-Facet::new().col_with(col("region"), |c| {
+Subplot::new(child_plot).col_with(col("region"), |c| {
     c.facet(|f| f.title("Region"))
 })
 ```
@@ -348,24 +344,22 @@ let plot = Plot::<FacetColumn>::new()
     .data(df)
     .canvas_size(700, 450)
     .mark(
-        Facet::new()
-            .col_with(col("petal_width_bin"), |c| c.facet(|f| f.title("Petal Width")))
-            .subplot(
-                Plot::<FacetRow>::new().mark(
-                    Facet::new()
-                        // No share_slots() - uses FREE (default)
-                        .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
-                        .subplot(
-                            Plot::<Cartesian>::new().mark(
-                                Symbol::new()
-                                    .x(col("sepal_length"))
-                                    .y(col("sepal_width"))
-                                    .size(25.0)
-                                    .fill("#4682b4")
-                            )
-                        )
+        Subplot::new(
+            Plot::<FacetRow>::new().mark(
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(
+                        Symbol::new()
+                            .x(col("sepal_length"))
+                            .y(col("sepal_width"))
+                            .size(25.0)
+                            .fill("#4682b4")
+                    )
                 )
+                // No share_slots() - uses FREE (default)
+                .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
             )
+        )
+        .col_with(col("petal_width_bin"), |c| c.facet(|f| f.title("Petal Width")))
     );
 
 let compiled = plot.compile(&ctx).await?;
@@ -409,24 +403,22 @@ let plot = Plot::<FacetColumn>::new()
     .data(df)
     .canvas_size(700, 450)
     .mark(
-        Facet::new()
-            .col_with(col("petal_width_bin"), |c| c.facet(|f| f.title("Petal Width")))
-            .subplot(
-                Plot::<FacetRow>::new().mark(
-                    Facet::new()
-                        // KEY: share_slots() creates grid-like structure
-                        .row_with(col("species"), |c| c.facet(|f| f.title("Species").share_slots()))
-                        .subplot(
-                            Plot::<Cartesian>::new().mark(
-                                Symbol::new()
-                                    .x(col("sepal_length"))
-                                    .y(col("sepal_width"))
-                                    .size(25.0)
-                                    .fill("#4682b4")
-                            )
-                        )
+        Subplot::new(
+            Plot::<FacetRow>::new().mark(
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(
+                        Symbol::new()
+                            .x(col("sepal_length"))
+                            .y(col("sepal_width"))
+                            .size(25.0)
+                            .fill("#4682b4")
+                    )
                 )
+                // KEY: share_slots() creates grid-like structure
+                .row_with(col("species"), |c| c.facet(|f| f.title("Species").share_slots()))
             )
+        )
+        .col_with(col("petal_width_bin"), |c| c.facet(|f| f.title("Petal Width")))
     );
 
 let compiled = plot.compile(&ctx).await?;
@@ -497,28 +489,27 @@ let df = ctx.read_batch(batch)?;
 let plot = Plot::<FacetColumn>::new()
     .data(df)
     .mark(
-        Facet::new()
-            .col_with(col("species"), |c| {
-                c.facet(|f| {
-                    f.title("Iris Species")
-                })
-            })
-            .subplot(
-                Plot::<Cartesian>::new().mark(
-                    Symbol::new()
-                        .x_with(col("sepal_length"), |c| {
-                            c.scale_with::<Linear>(|s| s)
-                                .axis(|a| a.title("Sepal Length (cm)").position("top"))
-                        })
-                        .y_with(col("sepal_width"), |c| {
-                            c.scale_with::<Linear>(|s| s)
-                                .axis(|a| a.title("Sepal Width (cm)"))
-                                .with_scale_sharing(ScaleSharing::Shared)
-                        })
-                        .size(120.0)
-                        .fill("#9b59b6")
-                )
+        Subplot::new(
+            Plot::<Cartesian>::new().mark(
+                Symbol::new()
+                    .x_with(col("sepal_length"), |c| {
+                        c.scale_with::<Linear>(|s| s)
+                            .axis(|a| a.title("Sepal Length (cm)").position("top"))
+                    })
+                    .y_with(col("sepal_width"), |c| {
+                        c.scale_with::<Linear>(|s| s)
+                            .axis(|a| a.title("Sepal Width (cm)"))
+                            .with_scale_sharing(ScaleSharing::Shared)
+                    })
+                    .size(120.0)
+                    .fill("#9b59b6")
             )
+        )
+        .col_with(col("species"), |c| {
+            c.facet(|f| {
+                f.title("Iris Species")
+            })
+        })
     )
     .canvas_size(900.0, 350.0);
 

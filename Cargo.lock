@@ -558,6 +558,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-chart-external-test"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "avenger-chart",
+ "avenger-common",
+ "avenger-guides",
+ "avenger-scales",
+ "avenger-scenegraph",
+ "datafusion",
+ "indexmap 2.9.0",
+ "paste",
+ "serde",
+ "tokio",
+ "typetag",
+]
+
+[[package]]
 name = "avenger-chart-mdbook"
 version = "0.0.0"
 dependencies = [

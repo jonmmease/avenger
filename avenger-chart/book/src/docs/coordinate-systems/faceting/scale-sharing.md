@@ -38,7 +38,7 @@ let df = ctx
 let plot = Plot::<FacetRow>::new()
     .data(df)
     .mark(
-        Facet::new().row(col("species")).subplot(
+        Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
                     .x(col("sepal_length"))
@@ -50,7 +50,8 @@ let plot = Plot::<FacetRow>::new()
                     .size(28.0)
                     .fill("#4682b4"),
             ),
-        ),
+        )
+        .row(col("species")),
     )
     .canvas_size(600.0, 500.0);
 
@@ -78,7 +79,7 @@ let df = ctx
 let plot = Plot::<FacetRow>::new()
     .data(df)
     .mark(
-        Facet::new().row(col("species")).subplot(
+        Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
                     .x(col("sepal_length"))
@@ -90,7 +91,8 @@ let plot = Plot::<FacetRow>::new()
                     .size(28.0)
                     .fill("#8a2be2"),
             ),
-        ),
+        )
+        .row(col("species")),
     )
     .canvas_size(600.0, 500.0);
 
@@ -122,7 +124,7 @@ let df = ctx
 let plot = Plot::<FacetRow>::new()
     .data(df)
     .mark(
-        Facet::new().row(col("species")).subplot(
+        Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
                     .x_with(col("sepal_length"), |c| {
@@ -138,7 +140,8 @@ let plot = Plot::<FacetRow>::new()
                     .size(28.0)
                     .fill("#2e8b57"),
             ),
-        ),
+        )
+        .row(col("species")),
     )
     .canvas_size(600.0, 500.0);
 
@@ -168,7 +171,7 @@ let df = ctx
 let plot = Plot::<FacetColumn>::new()
     .data(df)
     .mark(
-        Facet::new().column(col("species")).subplot(
+        Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
                     .x_with(col("sepal_length"), |c| {
@@ -184,7 +187,8 @@ let plot = Plot::<FacetColumn>::new()
                     .size(28.0)
                     .fill("#d2691e"),
             ),
-        ),
+        )
+        .column(col("species")),
     )
     .canvas_size(600.0, 500.0);
 
@@ -231,9 +235,9 @@ let data = iris
 let plot = Plot::<FacetRow>::new()
     .data(data)
     .mark(
-        Facet::new().row(col("species")).subplot(
+        Subplot::new(
             Plot::<FacetColumn>::new().mark(
-                Facet::new().column(col("size_group")).subplot(
+                Subplot::new(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x(col("sepal_length"))
@@ -245,9 +249,11 @@ let plot = Plot::<FacetRow>::new()
                             .size(24.0)
                             .fill("#cd5c5c"),
                     ),
-                ),
+                )
+                .column(col("size_group")),
             ),
-        ),
+        )
+        .row(col("species")),
     )
     .canvas_size(600.0, 600.0);
 

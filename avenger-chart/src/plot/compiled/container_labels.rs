@@ -12,8 +12,9 @@ use datafusion::common::ScalarValue;
 use indexmap::IndexMap;
 
 use crate::{
+    container::{ChildFramePlacementResult, project_child_frame_bounds},
     error::AvengerChartError,
-    layout::{ChildFramePlacementResult, LayoutBounds, Size2D, project_child_frame_bounds},
+    layout::{LayoutBounds, Size2D},
     theme::{Theme, ThemeContext},
 };
 
@@ -286,7 +287,7 @@ fn label_style(theme: &Theme, params: &IndexMap<String, ScalarValue>) -> Contain
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layout::{ChildFramePlacementResult, ChildFrameRenderPlacement};
+    use crate::container::{ChildFramePlacementResult, ChildFrameRenderPlacement};
 
     #[test]
     fn label_items_project_child_frames_and_skip_empty_labels() {

@@ -23,17 +23,16 @@ let df = ctx
 let plot = Plot::<FacetRow>::new()
     .data(df)
     .mark(
-        Facet::new()
-            .row(col("species"))
-            .subplot(
-                Plot::<Cartesian>::new().mark(
-                    Symbol::new()
-                        .x(col("sepal_length"))
-                        .y(col("sepal_width"))
-                        .size(36.0)
-                        .fill("#4682b4")
-                )
+        Subplot::new(
+            Plot::<Cartesian>::new().mark(
+                Symbol::new()
+                    .x(col("sepal_length"))
+                    .y(col("sepal_width"))
+                    .size(36.0)
+                    .fill("#4682b4")
             )
+        )
+        .row(col("species"))
     );
 
 let compiled = plot.compile(&ctx).await?;
@@ -58,17 +57,16 @@ let df = ctx
 let plot = Plot::<FacetColumn>::new()
     .data(df)
     .mark(
-        Facet::new()
-            .column(col("species"))
-            .subplot(
-                Plot::<Cartesian>::new().mark(
-                    Symbol::new()
-                        .x(col("sepal_length"))
-                        .y(col("sepal_width"))
-                        .size(36.0)
-                        .fill("#4682b4")
-                )
+        Subplot::new(
+            Plot::<Cartesian>::new().mark(
+                Symbol::new()
+                    .x(col("sepal_length"))
+                    .y(col("sepal_width"))
+                    .size(36.0)
+                    .fill("#4682b4")
             )
+        )
+        .column(col("species"))
     );
 
 let compiled = plot.compile(&ctx).await?;
@@ -105,23 +103,21 @@ let plot = Plot::<FacetColumn>::new()
     .data(df)
     .canvas_size(800, 600)
     .mark(
-        Facet::new()
-            .column(col("species"))
-            .subplot(
-                Plot::<FacetRow>::new().mark(
-                    Facet::new()
-                        .row(col("petal_width_bin"))
-                        .subplot(
-                            Plot::<Cartesian>::new().mark(
-                                Symbol::new()
-                                    .x(col("sepal_length"))
-                                    .y(col("sepal_width"))
-                                    .size(25.0)
-                                    .fill("#4682b4")
-                            )
-                        )
+        Subplot::new(
+            Plot::<FacetRow>::new().mark(
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(
+                        Symbol::new()
+                            .x(col("sepal_length"))
+                            .y(col("sepal_width"))
+                            .size(25.0)
+                            .fill("#4682b4")
+                    )
                 )
+                .row(col("petal_width_bin"))
             )
+        )
+        .column(col("species"))
     );
 
 let compiled = plot.compile(&ctx).await?;
@@ -142,7 +138,7 @@ Both types can be nested to create multi-dimensional grids.
 
 | Concept | Type | Purpose |
 |---------|------|---------|
-| **Facet Mark** | `Facet<InnerC>` | Creates the faceted layout by splitting data and creating subplot instances |
+| **Subplot Mark** | `Subplot<FacetRow>` / `Subplot<FacetColumn>` | Creates the faceted layout by splitting data and creating subplot instances |
 | **Scale Sharing** | `ScaleSharing` enum | Controls whether scales are unified across facets or independent per panel |
 | **Subplot** | `Plot<InnerC>` | The inner chart specification rendered once per facet cell |
 | **Coordinate System** | `FacetRow`, `FacetColumn` | Defines the layout direction and coordinate space for facets |
@@ -151,8 +147,8 @@ Both types can be nested to create multi-dimensional grids.
 
 | Question | Solution |
 |----------|----------|
-| How do I create a row facet? | `Plot::<FacetRow>::new().mark(Facet::new().row(col("category")).subplot(...))` |
-| How do I create a column facet? | `Plot::<FacetColumn>::new().mark(Facet::new().column(col("category")).subplot(...))` |
+| How do I create a row facet? | `Plot::<FacetRow>::new().mark(Subplot::new(...).row(col("category")))` |
+| How do I create a column facet? | `Plot::<FacetColumn>::new().mark(Subplot::new(...).column(col("category")))` |
 | How do I share scales across facets? | Use `.with_scale_sharing(ScaleSharing::Shared)` on inner mark channels |
 | How do I make scales independent? | Use `.with_scale_sharing(ScaleSharing::Free)` on inner mark channels (default) |
 | How do I add a facet title? | Use `.row_with(col("cat"), \|c\| c.facet(\|f\| f.title("Category")))` |
