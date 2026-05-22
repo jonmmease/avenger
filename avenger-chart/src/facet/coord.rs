@@ -64,14 +64,15 @@ use crate::{
     },
     guide::FacetDirection,
     layout::{
-        EdgeSlabs, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, OwnedEdgeSlabs,
-        apply_frame_side_slab, overflow_side_value, retarget_frame_layout_for_plot_area,
+        EdgeSlabs, EvaluatedLayoutSpec, OwnedEdgeSlabs, apply_frame_side_slab, overflow_side_value,
+        retarget_frame_layout_for_plot_area,
     },
     marks::CompiledMark,
     plot::compiled::{
         ChildFrameKey, ChildFrameScopeKey, CompiledPlot, ComponentsMeasurement,
         ContainerPathSegment, CoordinationKind, CoordinationScopeKey, SharingLevel,
-        scale_provider::DynamicScaleProvider, scales::build_scale_builder_from_marks,
+        fixed_child_plot_area_layout_spec, measure_child_frame_plot_with_builder,
+        scales::build_scale_builder_from_marks,
     },
     render::{EvaluationContext, FacetSubtreeCheckpoint, FacetSubtreeSelector},
     scales::{
@@ -2029,20 +2030,6 @@ fn build_facet_cell_plans(
         .collect::<Result<_, _>>()
 }
 
-/// Build a fixed-plot-area layout spec for subplot measurement.
-fn fixed_plot_area_layout_spec(width: f32, height: f32) -> EvaluatedLayoutSpec {
-    EvaluatedLayoutSpec {
-        canvas: EvaluatedSizeMode::Auto,
-        plot_area: EvaluatedSizeMode::Fixed { width, height },
-        margins: EvaluatedMargins {
-            top: 0.0,
-            right: 0.0,
-            bottom: 0.0,
-            left: 0.0,
-        },
-    }
-}
-
 fn resolve_nested_scale_plan<'a>(
     cell: &FacetCellPlan,
     child_facet_slot_sharing: Option<SharingLevel>,
@@ -2121,63 +2108,31 @@ async fn execute_measurement_from_plan(
     eval_ctx: &EvaluationContext,
     coordinated_domain_extents: &HashMap<String, DomainExtent>,
 ) -> Result<MeasuredFacetCell, AvengerChartError> {
-    async fn measure_with_builder(
-        compiled_subplot: &Arc<CompiledPlot>,
-        subplot_eval_ctx: &EvaluationContext,
-        subplot_layout_spec: &EvaluatedLayoutSpec,
-        builder: &ScaleBuilder,
-        data_override: Option<&DataFrame>,
-        full_path: &[ScalarValue],
-        coordinated_domain_extents: &HashMap<String, DomainExtent>,
-    ) -> Result<ComponentsMeasurement, AvengerChartError> {
-        let extended_builder;
-        let builder = if coordinated_domain_extents.is_empty() {
-            builder
-        } else {
-            extended_builder = {
-                let mut builder = builder.clone();
-                builder.extend_with_domain_extents(coordinated_domain_extents);
-                builder
-            };
-            &extended_builder
-        };
-        let scale_provider = DynamicScaleProvider {
-            builder,
-            plot: compiled_subplot,
-        };
-        Box::pin(compiled_subplot.measure_plot_components(
-            subplot_eval_ctx,
-            subplot_layout_spec,
-            &scale_provider,
-            data_override,
-            full_path,
-        ))
-        .await
-    }
-
     match plan {
-        NestedScalePlan::EmptySharedNoData => measure_with_builder(
+        NestedScalePlan::EmptySharedNoData => measure_child_frame_plot_with_builder(
             compiled_subplot,
             subplot_eval_ctx,
             subplot_layout_spec,
             shared_scale_builder,
             None,
             &cell.full_path,
-            coordinated_domain_extents,
+            &[coordinated_domain_extents],
         )
         .await
         .map(|measurement| MeasuredFacetCell { measurement }),
-        NestedScalePlan::PerCellCachedBuilder { cached_builder } => measure_with_builder(
-            compiled_subplot,
-            subplot_eval_ctx,
-            subplot_layout_spec,
-            cached_builder,
-            Some(data_override),
-            &cell.full_path,
-            coordinated_domain_extents,
-        )
-        .await
-        .map(|measurement| MeasuredFacetCell { measurement }),
+        NestedScalePlan::PerCellCachedBuilder { cached_builder } => {
+            measure_child_frame_plot_with_builder(
+                compiled_subplot,
+                subplot_eval_ctx,
+                subplot_layout_spec,
+                cached_builder,
+                Some(data_override),
+                &cell.full_path,
+                &[coordinated_domain_extents],
+            )
+            .await
+            .map(|measurement| MeasuredFacetCell { measurement })
+        }
         NestedScalePlan::PerCellBuilderFallback => {
             let cell_scale_builder = build_scale_builder_from_marks(
                 &compiled_subplot.marks,
@@ -2190,14 +2145,14 @@ async fn execute_measurement_from_plan(
                 compiled_subplot.get_theme().as_ref(),
             )
             .await?;
-            let measurement = measure_with_builder(
+            let measurement = measure_child_frame_plot_with_builder(
                 compiled_subplot,
                 subplot_eval_ctx,
                 subplot_layout_spec,
                 &cell_scale_builder,
                 Some(data_override),
                 &cell.full_path,
-                coordinated_domain_extents,
+                &[coordinated_domain_extents],
             )
             .await?;
 
@@ -2206,25 +2161,25 @@ async fn execute_measurement_from_plan(
         NestedScalePlan::AncestorCachedBuilder {
             cached_builder,
             ancestor_filtered_df,
-        } => measure_with_builder(
+        } => measure_child_frame_plot_with_builder(
             compiled_subplot,
             subplot_eval_ctx,
             subplot_layout_spec,
             cached_builder,
             Some(&ancestor_filtered_df),
             &cell.full_path,
-            coordinated_domain_extents,
+            &[coordinated_domain_extents],
         )
         .await
         .map(|measurement| MeasuredFacetCell { measurement }),
-        NestedScalePlan::Shared => measure_with_builder(
+        NestedScalePlan::Shared => measure_child_frame_plot_with_builder(
             compiled_subplot,
             subplot_eval_ctx,
             subplot_layout_spec,
             shared_scale_builder,
             Some(data_override),
             &cell.full_path,
-            coordinated_domain_extents,
+            &[coordinated_domain_extents],
         )
         .await
         .map(|measurement| MeasuredFacetCell { measurement }),
@@ -2290,7 +2245,8 @@ async fn measure_nested_cell(
     nested_ctx: &FacetBandNestedMeasureContext,
     coordinated_domain_extents: &HashMap<String, DomainExtent>,
 ) -> Result<MeasuredFacetCell, AvengerChartError> {
-    let subplot_layout_spec = fixed_plot_area_layout_spec(subplot_plot_width, subplot_plot_height);
+    let subplot_layout_spec =
+        fixed_child_plot_area_layout_spec(subplot_plot_width, subplot_plot_height);
     let mode = FacetCellMeasurementMode::ChildFacetSlots {
         child_facet_slot_sharing: nested_ctx.scale_artifacts.child_facet_slot_sharing,
         child_facet_depth: nested_ctx.scale_artifacts.child_facet_depth,
@@ -3404,7 +3360,10 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             .compiled_subplot
             .total_overflow_from_precomputed_guide_overflow(
                 self.eval_ctx,
-                &fixed_plot_area_layout_spec(final_subplot_plot_width, final_subplot_plot_height),
+                &fixed_child_plot_area_layout_spec(
+                    final_subplot_plot_width,
+                    final_subplot_plot_height,
+                ),
                 &adjusted_scales,
                 final_subplot_plot_width,
                 final_subplot_plot_height,

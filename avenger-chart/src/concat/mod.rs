@@ -23,22 +23,20 @@ use crate::{
     },
     layout::{
         BandChildFrameInput, BandChildFramePlacement, BandDirection, BandSpacing, BoundaryDemand1D,
-        ChildFramePlacementResult, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode,
-        LayoutBounds, Size2D,
+        ChildFramePlacementResult, LayoutBounds, Size2D,
     },
     marks::{CompiledConcatSubplot, CompiledMark, subplot::compiled_subplot},
     plot::compiled::{
-        ChildFrameChannelDomainExtent, ChildFrameDomainSharingInput, ChildFrameKey,
-        ChildFrameScopeKey, ChildFrameSharingLevel, ComponentsMeasurement, ContainerLabelPlacement,
-        ContainerPathSegment, SharingLevel, child_frame_container_overflow,
-        child_frame_container_view_from_concat, child_frame_domain_sharing_levels_for_plot,
-        container_label_items_from_child_frame_container, container_path_without_facet_segments,
-        coordinated_child_frame_domain_extents, extract_child_frame_shared_domain_extents,
-        measure_container_label_slab, render_container_labels,
-        scale_provider::DynamicScaleProvider, scales::build_scale_builder_from_marks,
+        ChildFrameDataSelection, ChildFrameDomainSharingInput, ChildFrameKey, ChildFrameScopeKey,
+        ChildFrameSharingLevel, ComponentsMeasurement, ContainerLabelPlacement,
+        ContainerPathSegment, PreparedChildFramePlot, child_frame_container_view_from_concat,
+        child_frame_eval_context, container_path_without_facet_segments,
+        coordinated_child_frame_domain_extents, fixed_child_plot_area_layout_spec,
+        measure_child_frame_container_guide_overflow, prepare_child_frame_plot,
+        render_child_frame_container_guide_labels,
     },
     render::EvaluationContext,
-    scales::{ConfiguredScaleWithSpec, DomainExtent, ScaleBuilder, ScaleRangeBinding},
+    scales::{ConfiguredScaleWithSpec, DomainExtent, ScaleRangeBinding},
     theme::Theme,
 };
 
@@ -138,19 +136,14 @@ impl CompiledGuide for ConcatGuide {
         };
 
         let container = child_frame_container_view_from_concat(concat)?;
-        let mut overflow = child_frame_container_overflow(plot_width, plot_height, &container)?;
-        let label_placement = concat_label_placement(concat);
-        let label_slab = measure_container_label_slab(
-            label_placement,
-            &container_label_items_from_child_frame_container(&container)?,
+        measure_child_frame_container_guide_overflow(
+            plot_width,
+            plot_height,
+            &container,
+            Some(concat_label_placement(concat)),
             theme,
             params,
-        );
-        match label_placement {
-            ContainerLabelPlacement::Top => overflow.top += label_slab,
-            ContainerLabelPlacement::Left => overflow.left += label_slab,
-        }
-        Ok(overflow)
+        )
     }
 
     async fn evaluate(
@@ -173,13 +166,13 @@ impl CompiledGuide for ConcatGuide {
             )
         })?;
         let container = child_frame_container_view_from_concat(concat)?;
-        Ok(render_container_labels(
-            concat_label_placement(concat),
-            &container_label_items_from_child_frame_container(&container)?,
+        render_child_frame_container_guide_labels(
+            &container,
+            Some(concat_label_placement(concat)),
             plot_bounds,
             theme,
             params,
-        ))
+        )
     }
 
     fn get_clip(
@@ -402,22 +395,6 @@ fn concat_label_placement(concat: &ConcatCoordMeasurement) -> ContainerLabelPlac
     }
 }
 
-fn fixed_plot_area_layout_spec(width: f32, height: f32) -> EvaluatedLayoutSpec {
-    EvaluatedLayoutSpec {
-        canvas: EvaluatedSizeMode::Auto,
-        plot_area: EvaluatedSizeMode::Fixed {
-            width: width.max(1.0),
-            height: height.max(1.0),
-        },
-        margins: EvaluatedMargins {
-            top: 0.0,
-            right: 0.0,
-            bottom: 0.0,
-            left: 0.0,
-        },
-    }
-}
-
 fn child_plot_area_size(
     direction: BandDirection,
     plot_width: f32,
@@ -471,12 +448,9 @@ fn band_input_for_child(
 
 struct PreparedConcatChild<'a> {
     subplot: &'a CompiledConcatSubplot,
+    child_plot: PreparedChildFramePlot<'a>,
     container_path: Vec<ContainerPathSegment>,
     relative_facet_child_frame_path: Vec<ContainerPathSegment>,
-    child_data_override: Option<DataFrame>,
-    scale_builder: ScaleBuilder,
-    local_domain_extents: HashMap<String, ChildFrameChannelDomainExtent>,
-    channel_domain_sharing_levels: HashMap<String, SharingLevel>,
 }
 
 impl PreparedConcatChild<'_> {
@@ -525,8 +499,8 @@ fn coordinated_domain_extents_for_concat_children(
         .map(|(child, scope_key)| {
             ChildFrameDomainSharingInput::new(
                 scope_key,
-                &child.local_domain_extents,
-                &child.channel_domain_sharing_levels,
+                child.child_plot.local_domain_extents(),
+                child.child_plot.channel_domain_sharing_levels(),
             )
         })
         .collect::<Vec<_>>();
@@ -540,27 +514,13 @@ async fn prepare_concat_child<'a>(
     inherited_data: Option<&DataFrame>,
 ) -> Result<PreparedConcatChild<'a>, AvengerChartError> {
     let child_plot = subplot.compiled_subplot();
-    let child_data_override = if subplot.inherits_parent_data() {
-        inherited_data.cloned()
+    let data_selection = if subplot.inherits_parent_data() {
+        ChildFrameDataSelection::InheritParent
     } else {
-        None
+        ChildFrameDataSelection::ExplicitChild
     };
-    let child_params: IndexMap<String, ScalarValue> = eval_ctx.params.clone();
-    let scale_builder = build_scale_builder_from_marks(
-        &child_plot.marks,
-        &child_plot.scale_specs,
-        &child_plot.coord_transform,
-        &child_plot.data,
-        child_data_override.clone(),
-        eval_ctx.session_context.as_ref(),
-        &child_params,
-        child_plot.get_theme().as_ref(),
-    )
-    .await?;
-
-    let channel_domain_sharing_levels = child_frame_domain_sharing_levels_for_plot(child_plot);
-    let local_domain_extents =
-        extract_child_frame_shared_domain_extents(&scale_builder, &channel_domain_sharing_levels);
+    let child_plot =
+        prepare_child_frame_plot(child_plot, data_selection, inherited_data, eval_ctx).await?;
     let mut relative_facet_child_frame_path =
         container_path_without_facet_segments(eval_ctx.child_frame_container_path());
     relative_facet_child_frame_path.push(ContainerPathSegment::concat_child(
@@ -570,12 +530,9 @@ async fn prepare_concat_child<'a>(
 
     Ok(PreparedConcatChild {
         subplot,
+        child_plot,
         container_path: eval_ctx.child_frame_container_path().to_vec(),
         relative_facet_child_frame_path,
-        child_data_override,
-        scale_builder,
-        local_domain_extents,
-        channel_domain_sharing_levels,
     })
 }
 
@@ -589,39 +546,17 @@ async fn measure_prepared_concat_child(
     coordinated_domain_extents: &HashMap<String, DomainExtent>,
     facet_scoped_domain_extents: &HashMap<String, DomainExtent>,
 ) -> Result<ConcatChildMeasurement, AvengerChartError> {
-    let child_plot = prepared.subplot.compiled_subplot();
     let child_layout_spec =
-        fixed_plot_area_layout_spec(child_plot_area.width, child_plot_area.height);
-    let extended_builder;
-    let scale_builder =
-        if coordinated_domain_extents.is_empty() && facet_scoped_domain_extents.is_empty() {
-            &prepared.scale_builder
-        } else {
-            extended_builder = {
-                let mut builder = prepared.scale_builder.clone();
-                if !coordinated_domain_extents.is_empty() {
-                    builder.extend_with_domain_extents(coordinated_domain_extents);
-                }
-                if !facet_scoped_domain_extents.is_empty() {
-                    builder.extend_with_domain_extents(facet_scoped_domain_extents);
-                }
-                builder
-            };
-            &extended_builder
-        };
-    let scale_provider = DynamicScaleProvider {
-        builder: scale_builder,
-        plot: child_plot,
-    };
-    let child_eval_ctx = eval_ctx
-        .with_child_frame_sharing_level_appended(prepared.sharing_level(direction, child_count));
-    let measurement = child_plot
-        .measure_plot_components(
+        fixed_child_plot_area_layout_spec(child_plot_area.width, child_plot_area.height);
+    let child_eval_ctx =
+        child_frame_eval_context(eval_ctx, prepared.sharing_level(direction, child_count));
+    let measurement = prepared
+        .child_plot
+        .measure(
             &child_eval_ctx,
             &child_layout_spec,
-            &scale_provider,
-            prepared.child_data_override.as_ref(),
             facet_path,
+            &[coordinated_domain_extents, facet_scoped_domain_extents],
         )
         .await?;
 
@@ -758,7 +693,7 @@ mod tests {
                 ChildFrameKey, ContainerPathSegment, CoordinationAxis, CoordinationKind,
                 CoordinationScopeKey, child_frame_container_view_from_concat,
                 container_label_items_from_child_frame_container,
-                scales::build_scale_builder_from_marks,
+                scale_provider::DynamicScaleProvider, scales::build_scale_builder_from_marks,
             },
         },
         render::EvaluationContext,

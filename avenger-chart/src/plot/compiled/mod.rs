@@ -1,9 +1,11 @@
 //! CompiledPlot - Immutable, serializable plot ready for rendering
 
 mod child_frame_container;
+mod child_frame_runtime;
 mod child_frame_scope;
 mod container_band_guide;
 mod container_domain_sharing;
+mod container_guide;
 mod container_labels;
 mod container_sharing;
 mod coordination_scope;
@@ -42,7 +44,12 @@ use crate::{
 };
 
 pub(crate) use self::child_frame_container::{
-    ChildFrameContainerView, child_frame_container_overflow, child_frame_container_view_from_concat,
+    ChildFrameContainerView, child_frame_container_view_from_concat,
+};
+pub(crate) use self::child_frame_runtime::{
+    ChildFrameDataSelection, PreparedChildFramePlot, child_frame_eval_context,
+    fixed_child_plot_area_layout_spec, measure_child_frame_plot_with_builder,
+    prepare_child_frame_plot,
 };
 pub(crate) use self::child_frame_scope::{
     ChildFrameKey, ChildFrameScopeKey, ChildFrameSharingLevel, ChildFrameSharingPath,
@@ -57,10 +64,12 @@ pub(crate) use self::container_domain_sharing::{
     child_frame_domain_sharing_levels_for_plot, coordinated_child_frame_domain_extents,
     extract_child_frame_shared_domain_extents,
 };
-pub(crate) use self::container_labels::{
-    ContainerLabelPlacement, container_label_items_from_child_frame_container,
-    measure_container_label_slab, render_container_labels,
+pub(crate) use self::container_guide::{
+    measure_child_frame_container_guide_overflow, render_child_frame_container_guide_labels,
 };
+pub(crate) use self::container_labels::ContainerLabelPlacement;
+#[cfg(test)]
+pub(crate) use self::container_labels::container_label_items_from_child_frame_container;
 pub(crate) use self::container_sharing::{
     ContainerEdgeLevelProjection, EdgeOwnershipRequest, EdgeOwnershipScope, SharingGroupEdge,
     SharingLevel, edge_ownership_scope_for_request, enumeration_ancestor_path, owner_for_scope,
