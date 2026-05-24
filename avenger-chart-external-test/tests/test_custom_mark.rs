@@ -1,5 +1,14 @@
-use avenger_chart::{cartesian::Cartesian, plot::Plot};
+use avenger_chart::{cartesian::Cartesian, marks::Mark, plot::Plot};
+use avenger_chart_core::CoordinateSystemCore;
 use avenger_chart_external_test::external_mark::HexBin;
+
+struct CoreOnlyCoord;
+
+impl CoordinateSystemCore for CoreOnlyCoord {
+    fn required_channels(&self) -> &'static [&'static str] {
+        &[]
+    }
+}
 
 #[test]
 fn test_external_mark_can_be_created() {
@@ -47,4 +56,11 @@ fn test_external_mark_state_mutation() {
     // Verify builder methods work
     let hexbin2 = HexBin::<Cartesian>::new().zindex(5);
     assert_eq!(hexbin2.state().zindex, Some(5));
+}
+
+#[test]
+fn test_external_mark_impl_only_needs_core_coordinate_trait() {
+    fn assert_mark_impl<M: Mark<CoreOnlyCoord>>() {}
+
+    assert_mark_impl::<HexBin<CoreOnlyCoord>>();
 }

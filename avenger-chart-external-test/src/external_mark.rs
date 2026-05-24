@@ -12,7 +12,7 @@ use avenger_chart::{
 };
 use avenger_chart_core::{
     define_common_mark_channels, impl_mark_base, ChannelDescriptor, CompiledDataContext,
-    CompiledMarkState, CoordinateSystemTransformCore, MarkState,
+    CompiledMarkState, CoordinateSystemCore, CoordinateSystemTransformCore, MarkState,
 };
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::{arrow::record_batch::RecordBatch, scalar::ScalarValue};
@@ -51,9 +51,11 @@ define_position_channels! {
     }
 }
 
-// Implement the Mark trait for Cartesian
 #[async_trait::async_trait]
-impl Mark<Cartesian> for HexBin<Cartesian> {
+impl<C> Mark<C> for HexBin<C>
+where
+    C: CoordinateSystemCore,
+{
     impl_mark_trait_common!(HexBin);
 
     async fn compile(
@@ -61,7 +63,7 @@ impl Mark<Cartesian> for HexBin<Cartesian> {
         compiled_state: CompiledMarkState,
         _session_context: &datafusion::prelude::SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        Ok(Arc::new(CompiledCartesianHexBin {
+        Ok(Arc::new(CompiledHexBin {
             state: compiled_state,
         }))
     }
@@ -69,13 +71,13 @@ impl Mark<Cartesian> for HexBin<Cartesian> {
 
 /// Compiled version of HexBin mark for rendering
 #[derive(Clone, Serialize, Deserialize)]
-pub struct CompiledCartesianHexBin {
+pub struct CompiledHexBin {
     pub(crate) state: CompiledMarkState,
 }
 
 #[typetag::serde]
 #[async_trait::async_trait]
-impl CompiledMark for CompiledCartesianHexBin {
+impl CompiledMark for CompiledHexBin {
     fn state(&self) -> &CompiledMarkState {
         &self.state
     }

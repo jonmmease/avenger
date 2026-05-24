@@ -758,9 +758,11 @@ boundaries boring.
      codec remains in `avenger-chart`.
    - The external custom-mark dogfood now imports the already-moved custom mark
      state/data/channel contracts and base/common-channel macros directly from
-     `avenger-chart-core`. It still imports the object-safe `Mark` /
-     `CompiledMark` traits and full render boundary from the top-level facade,
-     which keeps the remaining split gap explicit.
+     `avenger-chart-core`. Its `HexBin<C>` mark implementation is generic over
+     `CoordinateSystemCore`, proving mark authoring no longer requires the full
+     top-level coordinate/layout trait. It still imports the object-safe
+     `Mark` / `CompiledMark` traits and full render boundary from the top-level
+     facade, which keeps the remaining split gap explicit.
 
 3. Extract `avenger-chart-scales`.
    Move the remaining chart-layer scale user configuration, builders,
