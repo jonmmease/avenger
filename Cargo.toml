@@ -17,6 +17,7 @@ members = [
     "avenger-chart-legend",
     "avenger-chart-scales",
     "avenger-chart-cartesian",
+    "avenger-chart-polar",
     "avenger-chart",
     "avenger-chart/avenger-chart-mdbook",
     "examples/wgpu-scales",

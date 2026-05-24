@@ -196,8 +196,8 @@ pub trait CoordinateSystemTransform: CoordinateSystemTransformCore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cartesian::Cartesian;
     use crate::layout::BandPosition;
+    use crate::{cartesian::Cartesian, polar::Polar};
     use datafusion::common::ScalarValue;
 
     #[test]
@@ -215,6 +215,15 @@ mod tests {
 
         // Check that required channels match
         assert_eq!(deserialized.required_channels(), &["x", "y"]);
+
+        let polar = Polar::new();
+        let transform: Box<dyn CoordinateSystemTransform> = Box::new(polar);
+
+        let json = serde_json::to_string(&transform).unwrap();
+        assert!(json.contains("\"type\":\"Polar\""));
+
+        let deserialized: Box<dyn CoordinateSystemTransform> = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.required_channels(), &["r", "theta"]);
     }
 
     #[test]

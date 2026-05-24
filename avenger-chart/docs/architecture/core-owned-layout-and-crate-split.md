@@ -914,6 +914,16 @@ boundaries boring.
 6. Extract `avenger-chart-polar`.
    Move Polar coordinate, axes, guides, channels, and Polar mark impls.
 
+   Progress:
+
+   - Created the real `avenger-chart-polar` workspace crate.
+   - Moved the real `Polar` coordinate type plus its core-safe
+     `CoordinateSystemCore` and `CoordinateSystemTransformCore` implementation
+     into `avenger-chart-polar`. The top-level `avenger_chart::polar::coord`
+     module is now a compatibility/adapter module that re-exports the moved
+     type and implements the still-facade-owned `CoordinateSystem` and
+     `CoordinateSystemTransform` runtime traits.
+
 7. Shrink the top-level `avenger-chart` crate.
    Leave `Plot`, `CompiledPlot`, facet, concat, partition, layout solvers,
    runtime evaluation, WGPU/app/canvas integration, and facade re-exports.

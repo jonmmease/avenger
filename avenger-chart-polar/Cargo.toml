@@ -1,0 +1,11 @@
+[package]
+name = "avenger-chart-polar"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+avenger-chart-core = { path = "../avenger-chart-core" }
+avenger-common = { path = "../avenger-common" }
+avenger-scales = { path = "../avenger-scales" }
+datafusion = { workspace = true }
+serde = { workspace = true }
