@@ -1,5 +1,5 @@
 use crate::chart_core::{ScaleSharing, ScaleTypePreference};
-use crate::coords::{CoordinateSystem, CoordinateSystemTransformCore, FacetAxis};
+use crate::coords::{CoordinateSystemCore, CoordinateSystemTransformCore, FacetAxis};
 use crate::error::AvengerChartError;
 use crate::facet::coord::{FacetBandCoordMeasurement, FacetColumn, FacetRow};
 use crate::facet::dimension_config::{
@@ -340,7 +340,7 @@ fn facet_title_for_channel(
     }
 }
 
-async fn compile_facet_subplot_child<OuterC: CoordinateSystem>(
+async fn compile_facet_subplot_child<OuterC: CoordinateSystemCore>(
     subplot: &Subplot<OuterC>,
     session_context: &SessionContext,
 ) -> Result<Arc<CompiledPlot>, AvengerChartError> {
@@ -357,7 +357,7 @@ async fn compile_facet_subplot_child<OuterC: CoordinateSystem>(
 }
 
 fn validate_no_channel(
-    subplot: &Subplot<impl CoordinateSystem>,
+    subplot: &Subplot<impl CoordinateSystemCore>,
     channel_name: &'static str,
     outer_label: &str,
 ) -> Result<(), AvengerChartError> {

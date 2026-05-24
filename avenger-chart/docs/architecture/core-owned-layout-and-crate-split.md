@@ -471,6 +471,11 @@ Migration discipline:
    - `Subplot` now stores a `SubplotChildPlotSpec` trait object instead of a
      concrete `Plot<C>`. The `Plot<C>` implementation lives with `plot`, so the
      neutral subplot mark no longer imports the concrete plot builder type.
+   - The neutral `Subplot<OuterC>` type and shared `compile_subplot_payload`
+     helper are now bounded only by `CoordinateSystemCore`. The
+     `SubplotContainerCoordinateSystem` compile hook still requires the full
+     top-level coordinate trait because it remains the layout/runtime extension
+     boundary for positioned child plots.
    - `CompiledSubplotPayload` still stores `Arc<CompiledPlot>`. Moving this to a
      compiled-child trait should wait until the render/measurement context
      signatures are reduced; otherwise the trait would merely expose the current

@@ -4,7 +4,7 @@ use datafusion::{arrow::record_batch::RecordBatch, dataframe::DataFrame, prelude
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    coords::CoordinateSystem,
+    coords::{CoordinateSystem, CoordinateSystemCore},
     error::AvengerChartError,
     facet::dimension_config::{ColumnDimensionConfig, FacetDimensionConfig, RowDimensionConfig},
     marks::{
@@ -122,7 +122,7 @@ impl Clone for Box<dyn SubplotChildPlotSpec> {
     }
 }
 
-pub async fn compile_subplot_payload<OuterC: CoordinateSystem>(
+pub async fn compile_subplot_payload<OuterC: CoordinateSystemCore>(
     subplot: &Subplot<OuterC>,
     compiled_state: CompiledMarkState,
     session_context: &SessionContext,
@@ -168,14 +168,14 @@ pub(crate) struct SubplotConfig {
 /// concat, facet, and coordinate-positioned subplots under one public mark
 /// concept while still allowing mixed child coordinate systems.
 #[derive(Clone)]
-pub struct Subplot<OuterC: CoordinateSystem> {
+pub struct Subplot<OuterC: CoordinateSystemCore> {
     state: MarkState,
     subplot: Box<dyn SubplotChildPlotSpec>,
     config: SubplotConfig,
     _outer: PhantomData<fn() -> OuterC>,
 }
 
-impl<OuterC: CoordinateSystem> Subplot<OuterC> {
+impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     pub fn new<P>(subplot: P) -> Self
     where
         P: SubplotChildPlotSpec + 'static,
