@@ -26,10 +26,10 @@ use datafusion_common::ScalarValue as DatafusionScalarValue;
 
 use crate::{
     chart_core::{
-        EvaluationContext as CoreEvaluationContext, LegendRendererKind, MarkRenderContext,
-        ScaleRange, ScaleTypePreference, is_continuous_scale,
+        CoordinateSystemCore, EvaluationContext as CoreEvaluationContext, LegendRendererKind,
+        MarkRenderContext, ScaleRange, ScaleTypePreference, is_continuous_scale,
     },
-    coords::{CoordinateSystem, CoordinateSystemTransformCore},
+    coords::CoordinateSystemTransformCore,
     error::AvengerChartError,
     render::RenderContext,
     theme::Theme,
@@ -66,7 +66,7 @@ pub(crate) fn default_channel_value_for_eval<M: CompiledMark + ?Sized>(
 
 /// Core trait for all mark types (uncompiled)
 #[async_trait::async_trait]
-pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
+pub trait Mark<C: CoordinateSystemCore>: Send + Sync + 'static {
     /// Get the mark's state (uncompiled version with DataContext)
     fn state(&self) -> &MarkState;
 

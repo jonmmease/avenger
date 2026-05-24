@@ -3,9 +3,9 @@ use std::{collections::HashMap, sync::Arc};
 use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
 
 pub use crate::chart_core::{
-    CoordMeasurement, CoordinateSystemTransformCore, CoordinatedLayout, CoordinatedOverflow,
-    EmptyCoordMeasurement, FacetAxis, OverflowSpaceRequirement, PaddingSpec, PlotGeometry,
-    PointGeometry, SubplotGeometry, SubplotRect,
+    CoordMeasurement, CoordinateSystemCore, CoordinateSystemTransformCore, CoordinatedLayout,
+    CoordinatedOverflow, EmptyCoordMeasurement, FacetAxis, OverflowSpaceRequirement, PaddingSpec,
+    PlotGeometry, PointGeometry, SubplotGeometry, SubplotRect,
 };
 
 use crate::facet::coord::{FacetBandCoordMeasurement, FacetBandProbeMeasurement};
@@ -83,7 +83,7 @@ pub(crate) fn apply_coord_measurement_scale_adjustments(
     }
 }
 
-pub trait CoordinateSystem: Sized + Send + Sync + 'static {
+pub trait CoordinateSystem: CoordinateSystemCore {
     /// The guide type for this coordinate system
     ///
     /// This could be axes (Cartesian), geographic features (Geo),
@@ -92,9 +92,6 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
 
     // /// The plot geometry type produced by this coordinate system's transform
     // type PlotGeometry: PlotGeometry;
-
-    /// Get the names of position channels required by this coordinate system
-    fn required_channels(&self) -> &'static [&'static str];
 
     /// Create a boxed coordinate system transform for use with CompiledMark
     ///

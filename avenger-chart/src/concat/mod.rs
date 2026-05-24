@@ -22,8 +22,8 @@ use crate::{
         ContainerPathSegment,
     },
     coords::{
-        CoordMeasureRequest, CoordMeasurement, CoordinateSystem, CoordinateSystemTransform,
-        CoordinateSystemTransformCore, PlotGeometry, PointGeometry,
+        CoordMeasureRequest, CoordMeasurement, CoordinateSystem, CoordinateSystemCore,
+        CoordinateSystemTransform, CoordinateSystemTransformCore, PlotGeometry, PointGeometry,
     },
     error::AvengerChartError,
     guide::{
@@ -65,24 +65,28 @@ impl VConcat {
     }
 }
 
-impl CoordinateSystem for HConcat {
-    type Guide = ConcatGuide;
-
+impl CoordinateSystemCore for HConcat {
     fn required_channels(&self) -> &'static [&'static str] {
         &[]
     }
+}
+
+impl CoordinateSystem for HConcat {
+    type Guide = ConcatGuide;
 
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
         Box::new(self.clone())
     }
 }
 
-impl CoordinateSystem for VConcat {
-    type Guide = ConcatGuide;
-
+impl CoordinateSystemCore for VConcat {
     fn required_channels(&self) -> &'static [&'static str] {
         &[]
     }
+}
+
+impl CoordinateSystem for VConcat {
+    type Guide = ConcatGuide;
 
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
         Box::new(self.clone())

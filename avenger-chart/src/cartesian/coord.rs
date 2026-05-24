@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     cartesian::CartesianGuide,
     coords::{
-        CoordMeasureRequest, CoordMeasurement, CoordinateSystem, CoordinateSystemTransform,
-        CoordinateSystemTransformCore, PlotGeometry, PointGeometry,
+        CoordMeasureRequest, CoordMeasurement, CoordinateSystem, CoordinateSystemCore,
+        CoordinateSystemTransform, CoordinateSystemTransformCore, PlotGeometry, PointGeometry,
     },
     error::AvengerChartError,
     scales::{PlotAreaRangeEndpoint, ScaleRangeBinding},
@@ -19,12 +19,14 @@ use crate::{
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Cartesian;
 
-impl CoordinateSystem for Cartesian {
-    type Guide = CartesianGuide;
-
+impl CoordinateSystemCore for Cartesian {
     fn required_channels(&self) -> &'static [&'static str] {
         &["x", "y"]
     }
+}
+
+impl CoordinateSystem for Cartesian {
+    type Guide = CartesianGuide;
 
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
         Box::new(self.clone())

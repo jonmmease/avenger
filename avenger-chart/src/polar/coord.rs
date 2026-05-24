@@ -8,7 +8,8 @@ use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
 
 use crate::{
     coords::{
-        CoordinateSystem, CoordinateSystemTransform, CoordinateSystemTransformCore, PointGeometry,
+        CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
+        CoordinateSystemTransformCore, PointGeometry,
     },
     error::AvengerChartError,
     scales::{PlotAreaRangeEndpoint, ScaleRangeBinding},
@@ -26,12 +27,14 @@ impl Polar {
     }
 }
 
-impl CoordinateSystem for Polar {
-    type Guide = PolarGuide;
-
+impl CoordinateSystemCore for Polar {
     fn required_channels(&self) -> &'static [&'static str] {
         &["r", "theta"]
     }
+}
+
+impl CoordinateSystem for Polar {
+    type Guide = PolarGuide;
 
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
         Box::new(self.clone())

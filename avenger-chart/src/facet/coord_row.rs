@@ -8,8 +8,9 @@ use tracing::trace;
 
 use crate::{
     coords::{
-        CoordMeasureRequest, CoordMeasurement, CoordinateSystem, CoordinateSystemTransform,
-        CoordinateSystemTransformCore, PaddingSpec, PlotGeometry, SubplotGeometry, SubplotRect,
+        CoordMeasureRequest, CoordMeasurement, CoordinateSystem, CoordinateSystemCore,
+        CoordinateSystemTransform, CoordinateSystemTransformCore, PaddingSpec, PlotGeometry,
+        SubplotGeometry, SubplotRect,
     },
     error::AvengerChartError,
     facet::{coord::measure_facet_row, guide::FacetRowGuideConfig},
@@ -35,12 +36,14 @@ use crate::{
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct FacetRow;
 
-impl CoordinateSystem for FacetRow {
-    type Guide = FacetRowGuideConfig;
-
+impl CoordinateSystemCore for FacetRow {
     fn required_channels(&self) -> &'static [&'static str] {
         &["row"]
     }
+}
+
+impl CoordinateSystem for FacetRow {
+    type Guide = FacetRowGuideConfig;
 
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
         Box::new(self.clone())

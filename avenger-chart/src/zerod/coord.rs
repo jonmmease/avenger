@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     coords::{
-        CoordinateSystem, CoordinateSystemTransform, CoordinateSystemTransformCore, PointGeometry,
+        CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
+        CoordinateSystemTransformCore, PointGeometry,
     },
     error::AvengerChartError,
     guide::NoGuide,
@@ -32,13 +33,15 @@ impl ZeroDCoord {
     }
 }
 
-impl CoordinateSystem for ZeroDCoord {
-    type Guide = NoGuide;
-
+impl CoordinateSystemCore for ZeroDCoord {
     fn required_channels(&self) -> &'static [&'static str] {
         // ZeroDCoord has no position channels (0D space)
         &[]
     }
+}
+
+impl CoordinateSystem for ZeroDCoord {
+    type Guide = NoGuide;
 
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
         Box::new(self.clone())

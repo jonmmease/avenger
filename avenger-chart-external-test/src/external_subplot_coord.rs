@@ -19,7 +19,7 @@ use avenger_chart::{
 };
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMarkState, CoordMeasurement,
-    CoordinateSystemTransformCore, GuideUpdate, PlotGeometry, PointGeometry,
+    CoordinateSystemCore, CoordinateSystemTransformCore, GuideUpdate, PlotGeometry, PointGeometry,
 };
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::{group::Clip, mark::SceneMark};
@@ -31,12 +31,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ExternalSubplotCoord;
 
-impl CoordinateSystem for ExternalSubplotCoord {
-    type Guide = ExternalSubplotCoordGuide;
-
+impl CoordinateSystemCore for ExternalSubplotCoord {
     fn required_channels(&self) -> &'static [&'static str] {
         &[]
     }
+}
+
+impl CoordinateSystem for ExternalSubplotCoord {
+    type Guide = ExternalSubplotCoordGuide;
 
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
         Box::new(ExternalSubplotCoordTransform)

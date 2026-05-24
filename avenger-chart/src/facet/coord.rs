@@ -19,8 +19,9 @@ use crate::{
     container::{ChildFrameKey, ChildFrameScopeKey, ContainerPathSegment},
     coords::{
         CellDomainInfo, CoordMeasureRequest, CoordMeasurement, CoordinateSystem,
-        CoordinateSystemTransform, CoordinateSystemTransformCore, CoordinatedLayout,
-        CoordinatedOverflow, FacetAxis, PaddingSpec, PlotGeometry, SubplotGeometry, SubplotRect,
+        CoordinateSystemCore, CoordinateSystemTransform, CoordinateSystemTransformCore,
+        CoordinatedLayout, CoordinatedOverflow, FacetAxis, PaddingSpec, PlotGeometry,
+        SubplotGeometry, SubplotRect,
     },
     error::AvengerChartError,
     facet::FacetDirection,
@@ -4018,12 +4019,14 @@ pub(crate) async fn measure_facet_row(
     .await
 }
 
-impl CoordinateSystem for FacetColumn {
-    type Guide = FacetColGuideConfig;
-
+impl CoordinateSystemCore for FacetColumn {
     fn required_channels(&self) -> &'static [&'static str] {
         &["column"]
     }
+}
+
+impl CoordinateSystem for FacetColumn {
+    type Guide = FacetColGuideConfig;
 
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
         Box::new(self.clone())

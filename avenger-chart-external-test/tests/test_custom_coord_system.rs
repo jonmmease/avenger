@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use avenger_chart::{coords::CoordinateSystem, plot::Plot};
+use avenger_chart_core::CoordinateSystemCore;
 use avenger_chart_external_test::external_coord_system::{Cube, Isometric};
 use avenger_common::value::ScalarOrArray;
 

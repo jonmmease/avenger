@@ -556,6 +556,12 @@ Migration discipline:
      chart-runtime measurement, chart-object cloning, and measured-padding
      hooks. This makes the future coordinate-crate transform surface real
      without moving facet/concat measurement runtime into core.
+   - Core-safe coordinate metadata now lives in the real `avenger-chart-core`
+     crate as `CoordinateSystemCore`. The top-level `CoordinateSystem` trait
+     extends it and keeps only guide association plus serializable transform
+     creation. The object-safe `Mark<C>` trait now depends on
+     `CoordinateSystemCore`, so mark authoring no longer needs the full
+     top-level coordinate/layout contract.
 
 10. Split public/base evaluation context from internal layout state.
     The core `EvaluationContext` should contain theme, session context,
@@ -692,6 +698,10 @@ boundaries boring.
      and `partition_expressions`. The old `avenger_chart::utils::*` helper
      paths are compatibility re-exports only; source imports have moved to the
      core boundary where doing so was mechanical.
+   - Moved the first coordinate authoring trait into core:
+     `CoordinateSystemCore` owns required position-channel metadata. The
+     top-level `CoordinateSystem` trait remains the layout/runtime extension
+     wrapper for guide association and transform creation.
    - Moved the first coordinate-extension value contracts into core:
      `PlotGeometry`, `PointGeometry`, `SubplotRect`, `SubplotGeometry`,
      `PaddingSpec`, and the pure `BandPosition` value. The band-scale iterator
@@ -830,16 +840,18 @@ boundaries boring.
    - The external custom-coordinate dogfood now imports already-moved core and
      scale authoring contracts directly from `avenger-chart-core` and
      `avenger-chart-scales`: axis/channel/config/state/data/geometry types,
-     `CoordMeasurement`, `CoordinateSystemTransformCore`, mark-constructor
-     macros, and scale builders. It still imports coordinate system traits,
-     guide traits, `CompiledMark`, `Mark`, `RenderContext`, and the `Subplot`
-     compile hook from the top-level facade, making the remaining
-     coordinate-crate extraction boundary explicit.
+     `CoordMeasurement`, `CoordinateSystemCore`,
+     `CoordinateSystemTransformCore`, mark-constructor macros, and scale
+     builders. It still imports the top-level coordinate runtime trait, guide
+     traits, `CompiledMark`, `Mark`, `RenderContext`, and the `Subplot` compile
+     hook from the top-level facade, making the remaining coordinate-crate
+     extraction boundary explicit.
    - The external subplot-coordinate dogfood now imports
      `CompiledDataContext`, `CompiledMarkState`, channel descriptors, geometry,
-     error types, `CoordMeasurement`, `CoordinateSystemTransformCore`, and
-     `GuideUpdate` directly from `avenger-chart-core` while still using the
-     top-level facade for `Subplot`, `CompiledSubplotPayload`,
+     error types, `CoordMeasurement`, `CoordinateSystemCore`,
+     `CoordinateSystemTransformCore`, and `GuideUpdate` directly from
+     `avenger-chart-core` while still using the top-level facade for `Subplot`,
+     `CompiledSubplotPayload`,
      `SubplotContainerCoordinateSystem`, compiled guide traits, coordinate
      traits, and render context. This confirms the narrow extension goal is
      still alive while the runtime trait boundary remains to be moved.

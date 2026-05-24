@@ -13,7 +13,7 @@ use avenger_chart::{
 };
 use avenger_chart_core::{
     define_common_mark_channels, impl_mark_base, AvengerChartError, Axis, ChannelDescriptor,
-    ChannelValue, CompiledDataContext, CompiledMarkState, CoordMeasurement,
+    ChannelValue, CompiledDataContext, CompiledMarkState, CoordMeasurement, CoordinateSystemCore,
     CoordinateSystemTransformCore, MarkState, OverflowSpaceRequirement, PlotGeometry,
     PointGeometry, PositionConfig,
 };
@@ -292,12 +292,14 @@ impl CoordinateGuide for IsometricGuide {
     }
 }
 
-impl CoordinateSystem for Isometric {
-    type Guide = IsometricGuide;
-
+impl CoordinateSystemCore for Isometric {
     fn required_channels(&self) -> &'static [&'static str] {
         &["iso_x", "iso_y", "iso_z"]
     }
+}
+
+impl CoordinateSystem for Isometric {
+    type Guide = IsometricGuide;
 
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
         Box::new(IsometricTransform { angle: self.angle })
