@@ -550,7 +550,7 @@ impl CompiledMark for CompiledIsometricCube {
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
         _context: &RenderContext,
-        _coord: Box<dyn CoordinateSystemTransform>,
+        _coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Custom cube rendering logic would go here
         // For this test, we just return an empty vector

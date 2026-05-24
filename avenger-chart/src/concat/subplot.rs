@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     chart_core::{RadiusExpression, ResolvedDomain, ScaleRange, ScaleTypePreference},
     concat::{HConcat, VConcat, concat_coord_ref},
-    coords::CoordinateSystemTransform,
+    coords::CoordinateSystemTransformCore,
     error::AvengerChartError,
     layout::BandDirection,
     marks::{
@@ -156,7 +156,7 @@ impl CompiledMark for CompiledConcatSubplot {
         data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
         context: &RenderContext,
-        _coord: Box<dyn CoordinateSystemTransform>,
+        _coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let concat_measurement =
             concat_coord_ref(context.coord_measurement()).ok_or_else(|| {

@@ -601,6 +601,12 @@ Migration discipline:
      Moving the object-safe `CompiledMark` contract itself should wait until
      coordinate transform measurement and render-time coordinate views have the
      same core-owned shape.
+   - Mark rendering now receives a borrowed `CoordinateSystemTransformCore`
+     rather than an owned top-level `CoordinateSystemTransform` trait object.
+     Ordinary built-in marks and external custom-mark dogfood no longer need
+     the chart-runtime transform trait for render-time position projection.
+     The top-level transform trait remains the serializable/measurement layer
+     used by plot compilation and layout-owned coordinates.
    - Shared expression-evaluation helpers now live in the real
      `avenger-chart-core` crate. Guide, title, layout, legend, and render
      call sites import `evaluate_*_expr` helpers through the core boundary,

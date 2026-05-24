@@ -1186,12 +1186,11 @@ impl CompiledPlot {
             facet_path,
             coord_measurement,
         );
-        let coord_transform = self.coord_transform.clone_box();
         mark.render_from_data(
             prepared.data_batch.as_ref(),
             &prepared.scalar_batch,
             &render_ctx,
-            coord_transform,
+            self.coord_transform.as_ref(),
         )
         .await
     }

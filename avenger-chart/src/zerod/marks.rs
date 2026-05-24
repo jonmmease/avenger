@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     channel::ChannelDescriptor,
     chart_core::{LegendRendererKind, ScalarValueHelpers},
-    coords::{CoordinateSystemTransform, PointGeometry},
+    coords::{CoordinateSystemTransformCore, PointGeometry},
     error::AvengerChartError,
     impl_mark_trait_common,
     marks::{
@@ -122,7 +122,7 @@ impl CompiledMark for CompiledZeroDSymbol {
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         context: &RenderContext,
-        coord: Box<dyn CoordinateSystemTransform>,
+        coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mark_context = context.core_view();
 

@@ -29,7 +29,7 @@ use crate::{
         EvaluationContext as CoreEvaluationContext, LegendRendererKind, MarkRenderContext,
         ScaleRange, ScaleTypePreference, is_continuous_scale,
     },
-    coords::{CoordinateSystem, CoordinateSystemTransform},
+    coords::{CoordinateSystem, CoordinateSystemTransformCore},
     error::AvengerChartError,
     render::RenderContext,
     theme::Theme,
@@ -144,7 +144,7 @@ pub trait CompiledMark: Any + Send + Sync {
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         context: &RenderContext,
-        coord: Box<dyn CoordinateSystemTransform>,
+        coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
 
     /// Whether this mark type supports the order encoding channel

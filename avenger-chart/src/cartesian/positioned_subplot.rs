@@ -23,7 +23,7 @@ use crate::{
         ChildFrameKey, ChildFramePlacementResult, ChildFrameRenderPlacement, ChildFrameScopeKey,
         ChildFrameSharingLevel, ContainerPathSegment,
     },
-    coords::{CoordMeasurement, CoordinateSystemTransform, EmptyCoordMeasurement},
+    coords::{CoordMeasurement, CoordinateSystemTransformCore, EmptyCoordMeasurement},
     error::AvengerChartError,
     layout::Size2D,
     marks::{
@@ -225,7 +225,7 @@ impl CompiledMark for CompiledCartesianSubplot {
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
         context: &RenderContext,
-        _coord: Box<dyn CoordinateSystemTransform>,
+        _coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let cartesian_measurement = cartesian_positioned_coord_ref(context.coord_measurement())
             .ok_or_else(|| {

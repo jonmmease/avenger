@@ -1,5 +1,5 @@
 use crate::chart_core::{ScaleSharing, ScaleTypePreference};
-use crate::coords::{CoordinateSystem, FacetAxis};
+use crate::coords::{CoordinateSystem, CoordinateSystemTransformCore, FacetAxis};
 use crate::error::AvengerChartError;
 use crate::facet::coord::{FacetBandCoordMeasurement, FacetColumn, FacetRow};
 use crate::facet::dimension_config::{
@@ -487,7 +487,7 @@ impl CompiledMark for CompiledFacetRowSubplot {
         _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
         _scalars: &datafusion::arrow::record_batch::RecordBatch,
         context: &RenderContext,
-        _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
+        _coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         render_facet_band_common(
             FacetBandRenderOps::row(),
@@ -701,7 +701,7 @@ impl CompiledMark for CompiledFacetColumnSubplot {
         _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
         _scalars: &datafusion::arrow::record_batch::RecordBatch,
         context: &RenderContext,
-        _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
+        _coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         render_facet_band_common(
             FacetBandRenderOps::col(),

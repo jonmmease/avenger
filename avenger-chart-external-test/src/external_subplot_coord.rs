@@ -225,7 +225,7 @@ impl CompiledMark for CompiledExternalCoordSubplot {
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
         _context: &RenderContext,
-        _coord: Box<dyn CoordinateSystemTransform>,
+        _coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Ok(Vec::new())
     }

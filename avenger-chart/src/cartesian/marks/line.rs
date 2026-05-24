@@ -14,7 +14,7 @@ use crate::{
     cartesian::{Cartesian, channels::CartesianPositionConfig},
     channel::{ChannelDescriptor, ChannelValue, PositionConfig},
     chart_core::{LegendRendererKind, RadiusExpression, is_continuous_scale},
-    coords::{CoordinateSystemTransform, PointGeometry},
+    coords::{CoordinateSystemTransformCore, PointGeometry},
     error::AvengerChartError,
     impl_mark_trait_common,
     marks::{
@@ -206,7 +206,7 @@ impl CompiledMark for CompiledCartesianLine {
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         context: &RenderContext,
-        coord: Box<dyn CoordinateSystemTransform>,
+        coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // For lines, we need array data for positions
         let data = data.ok_or_else(|| {

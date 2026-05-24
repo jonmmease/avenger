@@ -20,7 +20,7 @@ use crate::{
         LegendRendererKind, RadiusExpression, ResolvedDomain, ScalarValueHelpers, ScaleRange,
         ScaleTypePreference, default_scale_type_for_data_type, is_continuous_scale,
     },
-    coords::{CoordinateSystemTransform, PointGeometry},
+    coords::{CoordinateSystemTransformCore, PointGeometry},
     error::AvengerChartError,
     impl_mark_trait_common,
     marks::{
@@ -191,7 +191,7 @@ impl CompiledMark for CompiledCartesianSymbol {
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         context: &RenderContext,
-        coord: Box<dyn CoordinateSystemTransform>,
+        coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mark_context = context.core_view();
 

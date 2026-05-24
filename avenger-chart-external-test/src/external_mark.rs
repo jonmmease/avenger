@@ -4,7 +4,6 @@ use std::{marker::PhantomData, sync::Arc};
 
 use avenger_chart::{
     cartesian::Cartesian,
-    coords::CoordinateSystemTransform,
     define_position_channels,
     error::AvengerChartError,
     impl_mark_trait_common,
@@ -13,7 +12,7 @@ use avenger_chart::{
 };
 use avenger_chart_core::{
     define_common_mark_channels, impl_mark_base, ChannelDescriptor, CompiledDataContext,
-    CompiledMarkState, MarkState,
+    CompiledMarkState, CoordinateSystemTransformCore, MarkState,
 };
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::{arrow::record_batch::RecordBatch, scalar::ScalarValue};
@@ -139,7 +138,7 @@ impl CompiledMark for CompiledCartesianHexBin {
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
         _context: &RenderContext,
-        _coord: Box<dyn CoordinateSystemTransform>,
+        _coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Custom hexbin rendering logic would go here
         // For this test, we just return an empty vector
