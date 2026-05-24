@@ -19,7 +19,7 @@ use avenger_chart::{
 };
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMarkState, CoordMeasurement,
-    GuideUpdate, PlotGeometry, PointGeometry,
+    CoordinateSystemTransformCore, GuideUpdate, PlotGeometry, PointGeometry,
 };
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::{group::Clip, mark::SceneMark};
@@ -59,15 +59,9 @@ impl SubplotContainerCoordinateSystem for ExternalSubplotCoord {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ExternalSubplotCoordTransform;
 
-#[async_trait]
-#[typetag::serde]
-impl CoordinateSystemTransform for ExternalSubplotCoordTransform {
+impl CoordinateSystemTransformCore for ExternalSubplotCoordTransform {
     fn required_channels(&self) -> &'static [&'static str] {
         &[]
-    }
-
-    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
-        Box::new(self.clone())
     }
 
     fn default_scale_options(
@@ -89,6 +83,14 @@ impl CoordinateSystemTransform for ExternalSubplotCoordTransform {
             x: ScalarOrArray::new_scalar(0.0),
             y: ScalarOrArray::new_scalar(0.0),
         }))
+    }
+}
+
+#[async_trait]
+#[typetag::serde]
+impl CoordinateSystemTransform for ExternalSubplotCoordTransform {
+    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
     }
 }
 

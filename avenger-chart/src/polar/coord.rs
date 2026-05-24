@@ -7,7 +7,9 @@ use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
 
 use crate::{
-    coords::{CoordinateSystem, CoordinateSystemTransform, PointGeometry},
+    coords::{
+        CoordinateSystem, CoordinateSystemTransform, CoordinateSystemTransformCore, PointGeometry,
+    },
     error::AvengerChartError,
     scales::{PlotAreaRangeEndpoint, ScaleRangeBinding},
 };
@@ -36,15 +38,9 @@ impl CoordinateSystem for Polar {
     }
 }
 
-#[async_trait::async_trait]
-#[typetag::serde]
-impl CoordinateSystemTransform for Polar {
+impl CoordinateSystemTransformCore for Polar {
     fn required_channels(&self) -> &'static [&'static str] {
         &["r", "theta"]
-    }
-
-    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
-        Box::new(self.clone())
     }
 
     fn transform(
@@ -154,5 +150,13 @@ impl CoordinateSystemTransform for Polar {
         }
 
         options
+    }
+}
+
+#[async_trait::async_trait]
+#[typetag::serde]
+impl CoordinateSystemTransform for Polar {
+    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
     }
 }

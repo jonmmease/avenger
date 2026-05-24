@@ -23,7 +23,7 @@ use crate::{
     },
     coords::{
         CoordMeasureRequest, CoordMeasurement, CoordinateSystem, CoordinateSystemTransform,
-        PlotGeometry, PointGeometry,
+        CoordinateSystemTransformCore, PlotGeometry, PointGeometry,
     },
     error::AvengerChartError,
     guide::{
@@ -194,13 +194,37 @@ impl CompiledGuide for ConcatGuide {
     }
 }
 
-#[async_trait::async_trait]
-#[typetag::serde]
-impl CoordinateSystemTransform for HConcat {
+impl CoordinateSystemTransformCore for HConcat {
     fn required_channels(&self) -> &'static [&'static str] {
         &[]
     }
 
+    fn transform(
+        &self,
+        position_channels: &HashMap<&str, ScalarOrArray<f32>>,
+        position_values: Option<&HashMap<&str, Vec<ScalarValue>>>,
+        plot_width: f32,
+        plot_height: f32,
+    ) -> Result<Box<dyn PlotGeometry>, AvengerChartError> {
+        container_point_geometry(position_channels, position_values, plot_width, plot_height)
+    }
+
+    fn default_range_binding(&self, _channel: &str) -> Option<ScaleRangeBinding> {
+        None
+    }
+
+    fn default_scale_options(
+        &self,
+        _channel: &str,
+        _scale_impl: &dyn ScaleImpl,
+    ) -> HashMap<String, ScalarValue> {
+        HashMap::new()
+    }
+}
+
+#[async_trait::async_trait]
+#[typetag::serde]
+impl CoordinateSystemTransform for HConcat {
     fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
         Box::new(self.clone())
     }
@@ -219,6 +243,12 @@ impl CoordinateSystemTransform for HConcat {
             request.facet_path(),
         )
         .await
+    }
+}
+
+impl CoordinateSystemTransformCore for VConcat {
+    fn required_channels(&self) -> &'static [&'static str] {
+        &[]
     }
 
     fn transform(
@@ -247,10 +277,6 @@ impl CoordinateSystemTransform for HConcat {
 #[async_trait::async_trait]
 #[typetag::serde]
 impl CoordinateSystemTransform for VConcat {
-    fn required_channels(&self) -> &'static [&'static str] {
-        &[]
-    }
-
     fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
         Box::new(self.clone())
     }
@@ -269,28 +295,6 @@ impl CoordinateSystemTransform for VConcat {
             request.facet_path(),
         )
         .await
-    }
-
-    fn transform(
-        &self,
-        position_channels: &HashMap<&str, ScalarOrArray<f32>>,
-        position_values: Option<&HashMap<&str, Vec<ScalarValue>>>,
-        plot_width: f32,
-        plot_height: f32,
-    ) -> Result<Box<dyn PlotGeometry>, AvengerChartError> {
-        container_point_geometry(position_channels, position_values, plot_width, plot_height)
-    }
-
-    fn default_range_binding(&self, _channel: &str) -> Option<ScaleRangeBinding> {
-        None
-    }
-
-    fn default_scale_options(
-        &self,
-        _channel: &str,
-        _scale_impl: &dyn ScaleImpl,
-    ) -> HashMap<String, ScalarValue> {
-        HashMap::new()
     }
 }
 

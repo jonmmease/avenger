@@ -11,7 +11,9 @@ use datafusion::common::ScalarValue;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    coords::{CoordinateSystem, CoordinateSystemTransform, PointGeometry},
+    coords::{
+        CoordinateSystem, CoordinateSystemTransform, CoordinateSystemTransformCore, PointGeometry,
+    },
     error::AvengerChartError,
     guide::NoGuide,
 };
@@ -43,15 +45,9 @@ impl CoordinateSystem for ZeroDCoord {
     }
 }
 
-#[async_trait::async_trait]
-#[typetag::serde]
-impl CoordinateSystemTransform for ZeroDCoord {
+impl CoordinateSystemTransformCore for ZeroDCoord {
     fn required_channels(&self) -> &'static [&'static str] {
         &[]
-    }
-
-    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
-        Box::new(self.clone())
     }
 
     fn transform(
@@ -110,6 +106,14 @@ impl CoordinateSystemTransform for ZeroDCoord {
     ) -> HashMap<String, ScalarValue> {
         // Zero-dimensional coordinate system has no positional channels
         HashMap::new()
+    }
+}
+
+#[async_trait::async_trait]
+#[typetag::serde]
+impl CoordinateSystemTransform for ZeroDCoord {
+    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
     }
 }
 

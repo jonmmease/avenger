@@ -13,8 +13,9 @@ use avenger_chart::{
 };
 use avenger_chart_core::{
     define_common_mark_channels, impl_mark_base, AvengerChartError, Axis, ChannelDescriptor,
-    ChannelValue, CompiledDataContext, CompiledMarkState, CoordMeasurement, MarkState,
-    OverflowSpaceRequirement, PlotGeometry, PointGeometry, PositionConfig,
+    ChannelValue, CompiledDataContext, CompiledMarkState, CoordMeasurement,
+    CoordinateSystemTransformCore, MarkState, OverflowSpaceRequirement, PlotGeometry,
+    PointGeometry, PositionConfig,
 };
 use avenger_chart_scales::{Auto, Scale, ScaleChannelValue};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
@@ -309,15 +310,9 @@ struct IsometricTransform {
     angle: f64,
 }
 
-#[async_trait::async_trait]
-#[typetag::serde]
-impl CoordinateSystemTransform for IsometricTransform {
+impl CoordinateSystemTransformCore for IsometricTransform {
     fn required_channels(&self) -> &'static [&'static str] {
         &["iso_x", "iso_y", "iso_z"]
-    }
-
-    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
-        Box::new(self.clone())
     }
 
     fn default_range(
@@ -414,6 +409,14 @@ impl CoordinateSystemTransform for IsometricTransform {
             x: screen_x,
             y: screen_y,
         }))
+    }
+}
+
+#[async_trait::async_trait]
+#[typetag::serde]
+impl CoordinateSystemTransform for IsometricTransform {
+    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
     }
 }
 

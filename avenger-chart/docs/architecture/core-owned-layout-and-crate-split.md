@@ -548,6 +548,14 @@ Migration discipline:
      keeps layout-only measurement behavior, such as facet band scale
      adjustment and child-frame container projection, as explicit dispatch over
      built-in measurement types instead of methods on the core trait.
+   - Core-safe transform behavior now lives in the real
+     `avenger-chart-core` crate as `CoordinateSystemTransformCore`: required
+     channels, position transformation, default range bindings/ranges, and
+     coordinate-specific scale options. The top-level
+     `CoordinateSystemTransform` trait extends this core trait and keeps only
+     chart-runtime measurement, chart-object cloning, and measured-padding
+     hooks. This makes the future coordinate-crate transform surface real
+     without moving facet/concat measurement runtime into core.
 
 10. Split public/base evaluation context from internal layout state.
     The core `EvaluationContext` should contain theme, session context,
@@ -816,18 +824,19 @@ boundaries boring.
    - The external custom-coordinate dogfood now imports already-moved core and
      scale authoring contracts directly from `avenger-chart-core` and
      `avenger-chart-scales`: axis/channel/config/state/data/geometry types,
-     `CoordMeasurement`, mark-constructor macros, and scale builders. It still
-     imports coordinate system traits, guide traits, `CompiledMark`, `Mark`,
-     `RenderContext`, and the `Subplot` compile hook from the top-level facade,
-     making the remaining coordinate-crate extraction boundary explicit.
+     `CoordMeasurement`, `CoordinateSystemTransformCore`, mark-constructor
+     macros, and scale builders. It still imports coordinate system traits,
+     guide traits, `CompiledMark`, `Mark`, `RenderContext`, and the `Subplot`
+     compile hook from the top-level facade, making the remaining
+     coordinate-crate extraction boundary explicit.
    - The external subplot-coordinate dogfood now imports
      `CompiledDataContext`, `CompiledMarkState`, channel descriptors, geometry,
-     error types, `CoordMeasurement`, and `GuideUpdate` directly from
-     `avenger-chart-core` while still using the top-level facade for `Subplot`,
-     `CompiledSubplotPayload`, `SubplotContainerCoordinateSystem`, compiled
-     guide traits, coordinate traits, and render context. This confirms the
-     narrow extension goal is still alive while the runtime trait boundary
-     remains to be moved.
+     error types, `CoordMeasurement`, `CoordinateSystemTransformCore`, and
+     `GuideUpdate` directly from `avenger-chart-core` while still using the
+     top-level facade for `Subplot`, `CompiledSubplotPayload`,
+     `SubplotContainerCoordinateSystem`, compiled guide traits, coordinate
+     traits, and render context. This confirms the narrow extension goal is
+     still alive while the runtime trait boundary remains to be moved.
 
 6. Extract `avenger-chart-polar`.
    Move Polar coordinate, axes, guides, channels, and Polar mark impls.

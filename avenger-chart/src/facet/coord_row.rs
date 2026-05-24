@@ -9,7 +9,7 @@ use tracing::trace;
 use crate::{
     coords::{
         CoordMeasureRequest, CoordMeasurement, CoordinateSystem, CoordinateSystemTransform,
-        PaddingSpec, PlotGeometry, SubplotGeometry, SubplotRect,
+        CoordinateSystemTransformCore, PaddingSpec, PlotGeometry, SubplotGeometry, SubplotRect,
     },
     error::AvengerChartError,
     facet::{coord::measure_facet_row, guide::FacetRowGuideConfig},
@@ -100,35 +100,9 @@ pub(crate) fn compute_band_layout(positions: &[f32], extent: f32) -> (Vec<f32>, 
     (starts, bandwidth)
 }
 
-#[async_trait::async_trait]
-#[typetag::serde]
-impl CoordinateSystemTransform for FacetRow {
+impl CoordinateSystemTransformCore for FacetRow {
     fn required_channels(&self) -> &'static [&'static str] {
         &["row"]
-    }
-
-    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
-        Box::new(self.clone())
-    }
-
-    async fn measure(
-        &self,
-        request: CoordMeasureRequest<'_>,
-    ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
-        measure_facet_row(
-            request.scales(),
-            request.plot_width(),
-            request.eval_ctx(),
-            request.data(),
-            request.compiled_marks(),
-            request.facet_path(),
-        )
-        .await
-    }
-
-    fn with_measured_padding(&self, _spec: &PaddingSpec) -> Box<dyn CoordinateSystemTransform> {
-        // Facet spacing is encoded in the column/row band scale options.
-        Box::new(self.clone())
     }
 
     fn transform(
@@ -203,6 +177,34 @@ impl CoordinateSystemTransform for FacetRow {
             options.insert("round".to_string(), DfScalarValue::Boolean(Some(true)));
         }
         options
+    }
+}
+
+#[async_trait::async_trait]
+#[typetag::serde]
+impl CoordinateSystemTransform for FacetRow {
+    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
+    }
+
+    async fn measure(
+        &self,
+        request: CoordMeasureRequest<'_>,
+    ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
+        measure_facet_row(
+            request.scales(),
+            request.plot_width(),
+            request.eval_ctx(),
+            request.data(),
+            request.compiled_marks(),
+            request.facet_path(),
+        )
+        .await
+    }
+
+    fn with_measured_padding(&self, _spec: &PaddingSpec) -> Box<dyn CoordinateSystemTransform> {
+        // Facet spacing is encoded in the column/row band scale options.
+        Box::new(self.clone())
     }
 }
 

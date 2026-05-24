@@ -8,6 +8,7 @@ pub mod channel_value;
 pub mod color;
 pub mod compiled_data_context;
 pub mod coord_measurement;
+pub mod coordinate_transform;
 pub mod coordination_values;
 pub mod data_context;
 pub mod datafusion_utils;
@@ -62,6 +63,7 @@ pub use channel_resolution_error::{ChannelResolutionError, suggest_similar_chann
 pub use channel_value::{ChannelValue, ConditionalValue};
 pub use compiled_data_context::CompiledDataContext;
 pub use coord_measurement::{CoordMeasurement, EmptyCoordMeasurement};
+pub use coordinate_transform::CoordinateSystemTransformCore;
 pub use coordination_values::{CoordinatedLayout, CoordinatedOverflow};
 pub use data_context::DataContext;
 pub use datafusion_utils::{

@@ -1,16 +1,13 @@
 use std::{collections::HashMap, sync::Arc};
 
-use avenger_common::value::ScalarOrArray;
-use avenger_scales::scales::ScaleImpl;
 use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
 
 pub use crate::chart_core::{
-    CoordMeasurement, CoordinatedLayout, CoordinatedOverflow, EmptyCoordMeasurement, FacetAxis,
-    OverflowSpaceRequirement, PaddingSpec, PlotGeometry, PointGeometry, SubplotGeometry,
-    SubplotRect,
+    CoordMeasurement, CoordinateSystemTransformCore, CoordinatedLayout, CoordinatedOverflow,
+    EmptyCoordMeasurement, FacetAxis, OverflowSpaceRequirement, PaddingSpec, PlotGeometry,
+    PointGeometry, SubplotGeometry, SubplotRect,
 };
 
-use crate::chart_core::ScaleRangeBinding;
 use crate::facet::coord::{FacetBandCoordMeasurement, FacetBandProbeMeasurement};
 use crate::{
     error::AvengerChartError,
@@ -230,11 +227,9 @@ pub fn extract_channel_title_from_marks(
     None
 }
 
-#[async_trait::async_trait]
 #[typetag::serde(tag = "type")]
-pub trait CoordinateSystemTransform: Send + Sync {
-    fn required_channels(&self) -> &'static [&'static str];
-
+#[async_trait::async_trait]
+pub trait CoordinateSystemTransform: CoordinateSystemTransformCore {
     /// Clone this transform into a new boxed instance
     fn clone_box(&self) -> Box<dyn CoordinateSystemTransform>;
 
@@ -256,80 +251,6 @@ pub trait CoordinateSystemTransform: Send + Sync {
         let _ = spec;
         self.clone_box()
     }
-
-    /// Transform position channels to coordinate system geometry
-    ///
-    /// Takes position data in the coordinate system's native space (after scaling)
-    /// and transforms it to the coordinate system's geometry type.
-    ///
-    /// # Arguments
-    /// * `position_channels` - Map of position channel names to their scaled data
-    /// * `position_values` - Optional source ScalarValue for each position (faceting only)
-    /// * `plot_width` - Width of the plot area
-    /// * `plot_height` - Height of the plot area
-    ///
-    /// For facet coordinates (FacetRow, FacetColumn), `position_values` provides
-    /// the original domain values that were scaled to produce `position_channels`. This enables
-    /// SubplotRect.value to store the actual facet key (e.g., "setosa", "versicolor").
-    ///
-    /// For point-based coordinates (Cartesian, Polar, ZeroD), this parameter is unused.
-    ///
-    /// # Returns
-    /// The coordinate system's plot geometry type containing transformed positions
-    fn transform(
-        &self,
-        position_channels: &HashMap<&str, ScalarOrArray<f32>>,
-        position_values: Option<&HashMap<&str, Vec<datafusion::common::ScalarValue>>>,
-        plot_width: f32,
-        plot_height: f32,
-    ) -> Result<Box<dyn PlotGeometry>, AvengerChartError>;
-
-    /// Get the default range binding for a coordinate channel.
-    ///
-    /// The binding records whether the range is dimension-dependent. It is used
-    /// both for initial scale construction and for plot-area retargeting.
-    fn default_range_binding(&self, _channel: &str) -> Option<ScaleRangeBinding> {
-        None
-    }
-
-    /// Get the default range for a coordinate channel
-    ///
-    /// Returns the default range for a given channel based on plot dimensions.
-    /// This is used for positional scales like x, y, r, theta.
-    ///
-    /// # Arguments
-    /// * `channel` - The channel name (e.g., "x", "y", "r", "theta")
-    /// * `plot_area_width` - Width of the plot area
-    /// * `plot_area_height` - Height of the plot area
-    ///
-    /// # Returns
-    /// The default range as (min, max) or None if not a coordinate channel
-    fn default_range(
-        &self,
-        channel: &str,
-        plot_area_width: f64,
-        plot_area_height: f64,
-    ) -> Option<(f64, f64)> {
-        self.default_range_binding(channel)
-            .and_then(|binding| binding.resolve(plot_area_width, plot_area_height))
-    }
-
-    /// Get default scale options for a coordinate channel
-    ///
-    /// Returns coordinate-specific scale options that should be applied
-    /// to scales for this channel.
-    ///
-    /// # Arguments
-    /// * `channel` - The channel name
-    /// * `scale_impl` - The scale implementation being configured
-    ///
-    /// # Returns
-    /// Map of option names to their values
-    fn default_scale_options(
-        &self,
-        channel: &str,
-        scale_impl: &dyn ScaleImpl,
-    ) -> HashMap<String, ScalarValue>;
 }
 
 #[cfg(test)]

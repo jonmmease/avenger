@@ -42,6 +42,10 @@ pub mod coord_measurement {
     pub use avenger_chart_core::coord_measurement::*;
 }
 
+pub mod coordinate_transform {
+    pub use avenger_chart_core::coordinate_transform::*;
+}
+
 pub mod coordination_values {
     pub use avenger_chart_core::coordination_values::*;
 }
@@ -137,12 +141,13 @@ pub mod scale_type {
 pub use avenger_chart_core::{
     AngleChannelConfig, ArrayRefHelpers, Axis, AxisPosition, BandPosition, BaseChannelName,
     ChannelConfig, ChannelDefault, ChannelDescriptor, ChannelValue, ColorChannelConfig,
-    CompiledDataContext, CompiledMarkState, ConditionalValue, CoordMeasurement, CoordinatedLayout,
-    CoordinatedOverflow, DataContext, DataFrameChartHelpers, EdgeSlabs, EmptyCoordMeasurement,
-    ExprHelpers, FacetAxis, FacetStrategy, FrameAllocation, FrameDemand, FrameDimensionSizing,
-    FrameLayout, FrameSizingPolicy, GuideContext, GuideOverflowPhase, GuideUpdate, IntoExpr,
-    LayoutBounds, Legend, LegendOrientation, LegendPosition, LegendRendererKind, MarkRenderContext,
-    MarkState, Maybe, MaybeOptionalExpr, MeasurementResult, OpacityChannelConfig, OverflowSide,
+    CompiledDataContext, CompiledMarkState, ConditionalValue, CoordMeasurement,
+    CoordinateSystemTransformCore, CoordinatedLayout, CoordinatedOverflow, DataContext,
+    DataFrameChartHelpers, EdgeSlabs, EmptyCoordMeasurement, ExprHelpers, FacetAxis, FacetStrategy,
+    FrameAllocation, FrameDemand, FrameDimensionSizing, FrameLayout, FrameSizingPolicy,
+    GuideContext, GuideOverflowPhase, GuideUpdate, IntoExpr, LayoutBounds, Legend,
+    LegendOrientation, LegendPosition, LegendRendererKind, MarkRenderContext, MarkState, Maybe,
+    MaybeOptionalExpr, MeasurementResult, OpacityChannelConfig, OverflowSide,
     OverflowSpaceRequirement, OwnedEdgeSlabs, PaddingSpec, Param, PlotAreaDimension,
     PlotAreaRangeEndpoint, PlotAreaRangeExpr, PlotGeometry, PointGeometry, PositionConfig,
     RadiusExpression, ScalarValueHelpers, ScaleConfigSpec, ScaleRange, ScaleRangeBinding,
