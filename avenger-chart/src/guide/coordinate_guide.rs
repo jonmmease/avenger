@@ -8,7 +8,7 @@ use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionCont
 use indexmap::IndexMap;
 
 use crate::{
-    chart_core::{Axis, AxisPosition},
+    chart_core::{Axis, AxisPosition, GuideOverflowPhase},
     container::ChildFrameSharingPath,
     coords::CoordMeasurement,
     error::AvengerChartError,
@@ -128,15 +128,6 @@ pub trait CoordinateGuide: Clone + Default + Send + Sync {
     fn update(&mut self, other: Self);
 
     fn build(self) -> Box<dyn CompiledGuide>;
-}
-
-/// Which overflow contract a guide should use while measuring frame demand.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum GuideOverflowPhase {
-    /// Initial/local measurement before facet coordination has produced a contract.
-    Measurement,
-    /// Final realization after facet coordination has produced a contract.
-    Final,
 }
 
 #[async_trait::async_trait]

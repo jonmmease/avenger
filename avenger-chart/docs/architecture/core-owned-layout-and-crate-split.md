@@ -517,6 +517,10 @@ Migration discipline:
      `guide::GuideUpdate` preserved as a compatibility re-export. This keeps a
      small guide-authoring contract available to external coordinate dogfood
      without depending on the top-level guide module.
+   - `GuideContext` and `GuideOverflowPhase` now live in the real
+     `avenger-chart-core` crate, with `guide::*` compatibility re-exports.
+     The remaining guide split work is therefore focused on `CompiledGuide`,
+     `CoordinateGuide`, and the facet-backed `GuideSharingContext`.
    - The context still lives in `guide` and is still backed by
      `EvaluatedFacetTree` plus `ChildFrameSharingPath`. The next guide-boundary
      slice should continue replacing facet-specific backing types with stable

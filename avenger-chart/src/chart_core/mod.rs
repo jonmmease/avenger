@@ -66,6 +66,14 @@ pub mod geometry {
     pub use avenger_chart_core::geometry::*;
 }
 
+pub mod guide_context {
+    pub use avenger_chart_core::guide_context::*;
+}
+
+pub mod guide_overflow_phase {
+    pub use avenger_chart_core::guide_overflow_phase::*;
+}
+
 pub mod into_expr {
     pub use avenger_chart_core::into_expr::*;
 }
@@ -132,19 +140,19 @@ pub use avenger_chart_core::{
     CompiledDataContext, CompiledMarkState, ConditionalValue, CoordMeasurement, CoordinatedLayout,
     CoordinatedOverflow, DataContext, DataFrameChartHelpers, EdgeSlabs, EmptyCoordMeasurement,
     ExprHelpers, FacetAxis, FacetStrategy, FrameAllocation, FrameDemand, FrameDimensionSizing,
-    FrameLayout, FrameSizingPolicy, GuideUpdate, IntoExpr, LayoutBounds, Legend, LegendOrientation,
-    LegendPosition, LegendRendererKind, MarkRenderContext, MarkState, Maybe, MaybeOptionalExpr,
-    MeasurementResult, OpacityChannelConfig, OverflowSide, OverflowSpaceRequirement,
-    OwnedEdgeSlabs, PaddingSpec, Param, PlotAreaDimension, PlotAreaRangeEndpoint,
-    PlotAreaRangeExpr, PlotGeometry, PointGeometry, PositionConfig, RadiusExpression,
-    ScalarValueHelpers, ScaleConfigSpec, ScaleRange, ScaleRangeBinding, ScaleSharing, ScaleSpec,
-    ScaleTypePreference, ShapeChannelConfig, Size2D, SizeChannelConfig, StrokeDashChannelConfig,
-    StrokeWidthChannelConfig, SubplotGeometry, SubplotRect, contains_aggregate,
-    default_scale_type_for_data_type, eval_to_scalars, evaluate_axis_position_expr,
-    evaluate_bool_expr, evaluate_f32_expr, evaluate_f64_expr, evaluate_i32_expr,
-    evaluate_legend_orientation_expr, evaluate_legend_position_expr, evaluate_string_expr,
-    evaluate_usize_expr, is_continuous_scale, params_to_datafusion, partition_expressions,
-    scalar_to_scalar_value, simplify_to_scalar_sync, strip_trailing_numbers,
+    FrameLayout, FrameSizingPolicy, GuideContext, GuideOverflowPhase, GuideUpdate, IntoExpr,
+    LayoutBounds, Legend, LegendOrientation, LegendPosition, LegendRendererKind, MarkRenderContext,
+    MarkState, Maybe, MaybeOptionalExpr, MeasurementResult, OpacityChannelConfig, OverflowSide,
+    OverflowSpaceRequirement, OwnedEdgeSlabs, PaddingSpec, Param, PlotAreaDimension,
+    PlotAreaRangeEndpoint, PlotAreaRangeExpr, PlotGeometry, PointGeometry, PositionConfig,
+    RadiusExpression, ScalarValueHelpers, ScaleConfigSpec, ScaleRange, ScaleRangeBinding,
+    ScaleSharing, ScaleSpec, ScaleTypePreference, ShapeChannelConfig, Size2D, SizeChannelConfig,
+    StrokeDashChannelConfig, StrokeWidthChannelConfig, SubplotGeometry, SubplotRect,
+    contains_aggregate, default_scale_type_for_data_type, eval_to_scalars,
+    evaluate_axis_position_expr, evaluate_bool_expr, evaluate_f32_expr, evaluate_f64_expr,
+    evaluate_i32_expr, evaluate_legend_orientation_expr, evaluate_legend_position_expr,
+    evaluate_string_expr, evaluate_usize_expr, is_continuous_scale, params_to_datafusion,
+    partition_expressions, scalar_to_scalar_value, simplify_to_scalar_sync, strip_trailing_numbers,
 };
 pub use error::AvengerChartError;
 pub use evaluation_context::EvaluationContext;

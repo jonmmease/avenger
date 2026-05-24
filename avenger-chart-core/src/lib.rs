@@ -17,6 +17,8 @@ pub mod expr_eval;
 pub mod facet_axis;
 pub mod facet_strategy;
 pub mod geometry;
+pub mod guide_context;
+pub mod guide_overflow_phase;
 pub mod guide_update;
 pub mod into_expr;
 pub mod layout_types;
@@ -79,6 +81,8 @@ pub use facet_strategy::FacetStrategy;
 pub use geometry::{
     BandPosition, PaddingSpec, PlotGeometry, PointGeometry, SubplotGeometry, SubplotRect,
 };
+pub use guide_context::GuideContext;
+pub use guide_overflow_phase::GuideOverflowPhase;
 pub use guide_update::GuideUpdate;
 pub use into_expr::IntoExpr;
 pub use layout_types::{
