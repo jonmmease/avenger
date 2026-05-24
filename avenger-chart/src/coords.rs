@@ -1,15 +1,17 @@
-use std::{any::Any, collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::ScaleImpl;
 use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
 
 pub use crate::chart_core::{
-    CoordinatedLayout, CoordinatedOverflow, FacetAxis, OverflowSpaceRequirement, PaddingSpec,
-    PlotGeometry, PointGeometry, SubplotGeometry, SubplotRect,
+    CoordMeasurement, CoordinatedLayout, CoordinatedOverflow, EmptyCoordMeasurement, FacetAxis,
+    OverflowSpaceRequirement, PaddingSpec, PlotGeometry, PointGeometry, SubplotGeometry,
+    SubplotRect,
 };
 
 use crate::chart_core::ScaleRangeBinding;
+use crate::facet::coord::{FacetBandCoordMeasurement, FacetBandProbeMeasurement};
 use crate::{
     error::AvengerChartError,
     guide::CoordinateGuide,
@@ -18,80 +20,6 @@ use crate::{
     render::{CoordinationCheckpoint, EvaluationContext},
     scales::{ConfiguredScaleWithSpec, domain_extent::DomainExtent},
 };
-
-/// Coordinate-system-specific measurement data computed during the measure phase.
-///
-/// This trait allows coordinate systems (especially facets) to compute layout data
-/// once during measurement and make it available to both guides and marks during rendering.
-///
-/// # Design
-///
-/// The `as_any()` method enables downcasting from `dyn CoordMeasurement` to the
-/// concrete type. This pattern (same as `PlotGeometry`) preserves object safety
-/// while allowing coordinate systems to use their specific measurement types.
-///
-/// Coordinate measurement interface shared by all coordinate systems.
-pub trait CoordMeasurement: Send + Sync + 'static {
-    /// Downcast support for accessing concrete measurement types
-    fn as_any(&self) -> &dyn Any;
-
-    /// Mutable downcast support for coordination phase
-    fn as_any_mut(&mut self) -> &mut dyn Any;
-
-    /// Get coordinated overflow after coordination phase.
-    /// Returns None for non-coordinatable measurements.
-    fn coordinated_overflow(&self) -> Option<&CoordinatedOverflow> {
-        None
-    }
-
-    /// Apply scale adjustments derived from coordinate measurement.
-    ///
-    /// This allows coordinate systems to adjust scale configurations based on
-    /// measurement results. For example, FacetColumn updates the column scale
-    /// with physical `padding_inner_px` computed from cell overflow measurements.
-    ///
-    /// # Arguments
-    /// * `scales` - Mutable map of scales to update
-    ///
-    /// Default implementation: no-op (for coordinate systems that don't need scale updates)
-    fn apply_scale_adjustments(&self, _scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
-        // Default: no-op
-    }
-
-    /// Return a read-only child-frame container projection when this coordinate
-    /// measurement owns measured child plots.
-    ///
-    /// Most coordinate systems are ordinary data coordinate systems and return
-    /// `None`. Container coordinate systems such as facets, concat, and
-    /// coordinate-positioned subplots override this hook so generic layout and
-    /// debug code can inspect child frames without downcasting to built-in
-    /// concrete measurement types.
-    #[doc(hidden)]
-    fn child_frame_container_view<'a>(
-        &'a self,
-        _measurement: &'a ComponentsMeasurement,
-    ) -> Result<Option<crate::container::ChildFrameContainerView<'a>>, AvengerChartError> {
-        Ok(None)
-    }
-}
-
-/// Empty measurement for coordinate systems that don't need measurement data.
-///
-/// Used by Cartesian, Polar, and other non-facet coordinate systems.
-#[derive(Debug, Clone, Default)]
-pub struct EmptyCoordMeasurement;
-
-impl CoordMeasurement for EmptyCoordMeasurement {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
-    // Use default implementations for coordination methods (return None/empty)
-}
 
 /// Cell domain extent info collected before facet overflow measurement.
 ///
@@ -139,6 +67,23 @@ pub async fn coordinate_overflow_for_guides_until(
         checkpoint,
     )
     .await
+}
+
+pub(crate) fn apply_coord_measurement_scale_adjustments(
+    measurement: &dyn CoordMeasurement,
+    scales: &mut HashMap<String, ConfiguredScaleWithSpec>,
+) {
+    if let Some(facet_band) = measurement
+        .as_any()
+        .downcast_ref::<FacetBandCoordMeasurement>()
+    {
+        facet_band.apply_scale_adjustments(scales);
+    } else if let Some(facet_probe) = measurement
+        .as_any()
+        .downcast_ref::<FacetBandProbeMeasurement>()
+    {
+        facet_probe.apply_scale_adjustments(scales);
+    }
 }
 
 pub trait CoordinateSystem: Sized + Send + Sync + 'static {

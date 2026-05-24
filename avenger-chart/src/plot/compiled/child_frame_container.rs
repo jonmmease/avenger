@@ -89,8 +89,41 @@ impl ComponentsMeasurement {
     pub(crate) fn child_frame_container_view(
         &self,
     ) -> Result<Option<ChildFrameContainerView<'_>>, AvengerChartError> {
-        self.coord_measurement.child_frame_container_view(self)
+        child_frame_container_view_for_coord_measurement(self.coord_measurement.as_ref(), self)
     }
+}
+
+pub(crate) fn child_frame_container_view_for_coord_measurement<'a>(
+    coord_measurement: &'a dyn crate::coords::CoordMeasurement,
+    measurement: &'a ComponentsMeasurement,
+) -> Result<Option<ChildFrameContainerView<'a>>, AvengerChartError> {
+    if let Some(concat) = coord_measurement
+        .as_any()
+        .downcast_ref::<ConcatCoordMeasurement>()
+    {
+        return Ok(Some(child_frame_container_view_from_concat(concat)?));
+    }
+
+    if let Some(cartesian) = coord_measurement
+        .as_any()
+        .downcast_ref::<CartesianPositionedCoordMeasurement>()
+    {
+        return Ok(Some(child_frame_container_view_from_cartesian_positioned(
+            cartesian,
+        )?));
+    }
+
+    if let Some(facet_band) = coord_measurement
+        .as_any()
+        .downcast_ref::<FacetBandCoordMeasurement>()
+    {
+        return Ok(Some(child_frame_container_view_from_facet(
+            measurement,
+            facet_band,
+        )?));
+    }
+
+    Ok(None)
 }
 
 pub(crate) fn child_frame_container_view_from_concat(

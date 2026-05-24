@@ -468,9 +468,10 @@ fn run_final_propagation_recursive(
     node_path: &mut Vec<usize>,
     node_results: &mut Vec<FinalPropagationNodeTrace>,
 ) -> Result<(), AvengerChartError> {
-    measurement
-        .coord_measurement
-        .apply_scale_adjustments(&mut measurement.scales);
+    crate::coords::apply_coord_measurement_scale_adjustments(
+        measurement.coord_measurement.as_ref(),
+        &mut measurement.scales,
+    );
 
     if let Some(mut facet_band) = FacetCoordinationPolicy::facet_band_mut(measurement) {
         let node_id = CoordinationNodeKey::new(node_path.clone());

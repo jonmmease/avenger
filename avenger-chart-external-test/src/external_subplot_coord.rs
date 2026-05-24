@@ -9,7 +9,7 @@ use std::{any::Any, collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use avenger_chart::{
-    coords::{CoordMeasurement, CoordinateSystem, CoordinateSystemTransform},
+    coords::{CoordinateSystem, CoordinateSystemTransform},
     guide::{CompiledGuide, CoordinateGuide, GuideSharingContext},
     marks::{
         compile_subplot_payload, CompiledMark, CompiledSubplotPayload, Subplot,
@@ -18,8 +18,8 @@ use avenger_chart::{
     render::RenderContext,
 };
 use avenger_chart_core::{
-    AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMarkState, GuideUpdate,
-    PlotGeometry, PointGeometry,
+    AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMarkState, CoordMeasurement,
+    GuideUpdate, PlotGeometry, PointGeometry,
 };
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::{group::Clip, mark::SceneMark};

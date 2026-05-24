@@ -4,7 +4,7 @@ use std::{any::Any, collections::HashMap, marker::PhantomData, sync::Arc};
 
 use async_trait::async_trait;
 use avenger_chart::{
-    coords::{CoordMeasurement, CoordinateSystem, CoordinateSystemTransform},
+    coords::{CoordinateSystem, CoordinateSystemTransform},
     define_position_channels,
     guide::{CoordinateGuide, GuideSharingContext},
     impl_mark_trait_common,
@@ -13,8 +13,8 @@ use avenger_chart::{
 };
 use avenger_chart_core::{
     define_common_mark_channels, impl_mark_base, AvengerChartError, Axis, ChannelDescriptor,
-    ChannelValue, CompiledDataContext, CompiledMarkState, MarkState, OverflowSpaceRequirement,
-    PlotGeometry, PointGeometry, PositionConfig,
+    ChannelValue, CompiledDataContext, CompiledMarkState, CoordMeasurement, MarkState,
+    OverflowSpaceRequirement, PlotGeometry, PointGeometry, PositionConfig,
 };
 use avenger_chart_scales::{Auto, Scale, ScaleChannelValue};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};

@@ -331,13 +331,6 @@ impl CoordMeasurement for ConcatCoordMeasurement {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
-
-    fn child_frame_container_view<'a>(
-        &'a self,
-        _measurement: &'a ComponentsMeasurement,
-    ) -> Result<Option<crate::container::ChildFrameContainerView<'a>>, AvengerChartError> {
-        Ok(Some(child_frame_container_view_from_concat(self)?))
-    }
 }
 
 #[derive(Debug)]

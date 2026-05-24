@@ -38,6 +38,10 @@ pub mod compiled_data_context {
     pub use avenger_chart_core::compiled_data_context::*;
 }
 
+pub mod coord_measurement {
+    pub use avenger_chart_core::coord_measurement::*;
+}
+
 pub mod coordination_values {
     pub use avenger_chart_core::coordination_values::*;
 }
@@ -125,10 +129,10 @@ pub mod scale_type {
 pub use avenger_chart_core::{
     AngleChannelConfig, ArrayRefHelpers, Axis, AxisPosition, BandPosition, BaseChannelName,
     ChannelConfig, ChannelDefault, ChannelDescriptor, ChannelValue, ColorChannelConfig,
-    CompiledDataContext, CompiledMarkState, ConditionalValue, CoordinatedLayout,
-    CoordinatedOverflow, DataContext, DataFrameChartHelpers, EdgeSlabs, ExprHelpers, FacetAxis,
-    FacetStrategy, FrameAllocation, FrameDemand, FrameDimensionSizing, FrameLayout,
-    FrameSizingPolicy, GuideUpdate, IntoExpr, LayoutBounds, Legend, LegendOrientation,
+    CompiledDataContext, CompiledMarkState, ConditionalValue, CoordMeasurement, CoordinatedLayout,
+    CoordinatedOverflow, DataContext, DataFrameChartHelpers, EdgeSlabs, EmptyCoordMeasurement,
+    ExprHelpers, FacetAxis, FacetStrategy, FrameAllocation, FrameDemand, FrameDimensionSizing,
+    FrameLayout, FrameSizingPolicy, GuideUpdate, IntoExpr, LayoutBounds, Legend, LegendOrientation,
     LegendPosition, LegendRendererKind, MarkRenderContext, MarkState, Maybe, MaybeOptionalExpr,
     MeasurementResult, OpacityChannelConfig, OverflowSide, OverflowSpaceRequirement,
     OwnedEdgeSlabs, PaddingSpec, Param, PlotAreaDimension, PlotAreaRangeEndpoint,

@@ -71,8 +71,8 @@ use crate::{
     marks::CompiledMark,
     plot::compiled::{
         CompiledPlot, ComponentsMeasurement, CoordinationKind, CoordinationScopeKey, SharingLevel,
-        child_frame_container_view_from_facet, fixed_child_plot_area_layout_spec,
-        measure_child_frame_plot_with_builder, scales::build_scale_builder_from_marks,
+        fixed_child_plot_area_layout_spec, measure_child_frame_plot_with_builder,
+        scales::build_scale_builder_from_marks,
     },
     render::{EvaluationContext, FacetSubtreeCheckpoint, FacetSubtreeSelector},
     scales::{
@@ -906,8 +906,13 @@ impl CoordMeasurement for FacetBandCoordMeasurement {
     fn coordinated_overflow(&self) -> Option<&CoordinatedOverflow> {
         Some(&self.coordinated_overflow)
     }
+}
 
-    fn apply_scale_adjustments(&self, scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
+impl FacetBandCoordMeasurement {
+    pub(crate) fn apply_scale_adjustments(
+        &self,
+        scales: &mut HashMap<String, ConfiguredScaleWithSpec>,
+    ) {
         if self.uses_explicit_placement() {
             return;
         }
@@ -938,16 +943,6 @@ impl CoordMeasurement for FacetBandCoordMeasurement {
             has_adjacent_non_empty,
         );
     }
-
-    fn child_frame_container_view<'a>(
-        &'a self,
-        measurement: &'a ComponentsMeasurement,
-    ) -> Result<Option<crate::container::ChildFrameContainerView<'a>>, AvengerChartError> {
-        Ok(Some(child_frame_container_view_from_facet(
-            measurement,
-            self,
-        )?))
-    }
 }
 
 impl CoordMeasurement for FacetBandProbeMeasurement {
@@ -958,8 +953,13 @@ impl CoordMeasurement for FacetBandProbeMeasurement {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
+}
 
-    fn apply_scale_adjustments(&self, scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
+impl FacetBandProbeMeasurement {
+    pub(crate) fn apply_scale_adjustments(
+        &self,
+        scales: &mut HashMap<String, ConfiguredScaleWithSpec>,
+    ) {
         if self.fixed_plot_area_lock {
             return;
         }
@@ -1764,9 +1764,10 @@ pub(crate) fn retarget_measurement_plot_area_no_remeasure(
             )?;
         }
     } else {
-        measurement
-            .coord_measurement
-            .apply_scale_adjustments(&mut measurement.scales);
+        crate::coords::apply_coord_measurement_scale_adjustments(
+            measurement.coord_measurement.as_ref(),
+            &mut measurement.scales,
+        );
     }
 
     update_measurement_plot_area_metadata(
@@ -1813,9 +1814,10 @@ pub(crate) fn retarget_measurement_plot_area_policy_no_remeasure(
             new_plot_area_height,
         )?;
     } else {
-        measurement
-            .coord_measurement
-            .apply_scale_adjustments(&mut measurement.scales);
+        crate::coords::apply_coord_measurement_scale_adjustments(
+            measurement.coord_measurement.as_ref(),
+            &mut measurement.scales,
+        );
     }
 
     update_measurement_plot_area_metadata_for_policy(

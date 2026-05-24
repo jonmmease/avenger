@@ -34,9 +34,8 @@ use crate::{
     plot::CompiledPlot,
     plot::compiled::{
         ChildFrameDataSelection, ChildFrameDomainSharingInput, ChildFrameRuntime,
-        ComponentsMeasurement, MarkDataRequest,
-        child_frame_container_view_from_cartesian_positioned,
-        coordinated_child_frame_domain_extents, prepare_mark_data_runtime,
+        ComponentsMeasurement, MarkDataRequest, coordinated_child_frame_domain_extents,
+        prepare_mark_data_runtime,
     },
     render::{EvaluationContext, RenderContext},
     scales::ConfiguredScaleWithSpec,
@@ -357,15 +356,6 @@ impl CoordMeasurement for CartesianPositionedCoordMeasurement {
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
-    }
-
-    fn child_frame_container_view<'a>(
-        &'a self,
-        _measurement: &'a ComponentsMeasurement,
-    ) -> Result<Option<crate::container::ChildFrameContainerView<'a>>, AvengerChartError> {
-        Ok(Some(child_frame_container_view_from_cartesian_positioned(
-            self,
-        )?))
     }
 }
 

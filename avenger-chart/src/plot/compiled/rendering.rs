@@ -1824,9 +1824,10 @@ impl CompiledPlot {
                 plot_area_height,
             )?;
         } else {
-            measurement
-                .coord_measurement
-                .apply_scale_adjustments(&mut measurement.scales);
+            crate::coords::apply_coord_measurement_scale_adjustments(
+                measurement.coord_measurement.as_ref(),
+                &mut measurement.scales,
+            );
         }
 
         measurement.plot_area_width = plot_area_width;
@@ -1919,7 +1920,10 @@ impl CompiledPlot {
                 ctx,
             )
             .await?;
-        coord_measurement.apply_scale_adjustments(&mut final_scales);
+        crate::coords::apply_coord_measurement_scale_adjustments(
+            coord_measurement.as_ref(),
+            &mut final_scales,
+        );
 
         measurement.plot_area_width = next_width;
         measurement.plot_area_height = next_height;
@@ -2290,7 +2294,10 @@ impl CompiledPlot {
                 ctx,
             )
             .await?;
-        coord_measurement.apply_scale_adjustments(&mut final_scales);
+        crate::coords::apply_coord_measurement_scale_adjustments(
+            coord_measurement.as_ref(),
+            &mut final_scales,
+        );
         measurement.scales = final_scales;
         measurement.coord_measurement = coord_measurement;
 
@@ -3216,7 +3223,10 @@ impl CompiledPlot {
 
         // Apply scale adjustments from coordinate-system measurement (stays in main function
         // because it mutates final_scales which is used by later phases)
-        coord_measurement.apply_scale_adjustments(&mut final_scales);
+        crate::coords::apply_coord_measurement_scale_adjustments(
+            coord_measurement.as_ref(),
+            &mut final_scales,
+        );
 
         if dimensions.has_plot_area_dimension() {
             let initial_plot_bounds = *layout.plot_area_bounds();
