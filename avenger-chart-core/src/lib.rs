@@ -109,7 +109,7 @@ pub use mark_state::{CompiledMarkState, MarkState};
 pub use maybe::{Maybe, MaybeOptionalExpr};
 pub use overflow::{MeasurementResult, OverflowSpaceRequirement};
 pub use param::Param;
-pub use position_config::PositionConfig;
+pub use position_config::{GenericPositionConfig, PositionConfig};
 pub use radius_expression::RadiusExpression;
 pub use resolved_domain::ResolvedDomain;
 pub use scale_config_spec::ScaleConfigSpec;

@@ -3,6 +3,7 @@
 use avenger_chart::{cartesian::Cartesian, plot::Plot};
 use avenger_chart_external_test::external_coord_system::{Cube, Isometric, IsometricAxis};
 use avenger_chart_external_test::external_mark::HexBin;
+use avenger_chart_scales::ScaleChannelConfig;
 use datafusion::{logical_expr::col, prelude::*};
 
 #[tokio::main]

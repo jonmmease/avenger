@@ -2,6 +2,7 @@ use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
 use avenger_chart::polar::{Polar, PolarSymbolPositionChannels};
 use avenger_chart::render::CanvasExt;
+use avenger_chart::scales::ScaleChannelConfig;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{CanvasConfig, PngCanvas};
 use datafusion::prelude::*;

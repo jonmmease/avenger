@@ -8,7 +8,7 @@ use avenger_chart::{
 };
 use avenger_chart_cartesian::Cartesian;
 use avenger_chart_external_test::external_scale::{SmoothLog, SmoothLogExt, SmoothLogScale};
-use avenger_chart_scales::{Auto, Scale};
+use avenger_chart_scales::{Auto, Scale, ScaleChannelConfig};
 use avenger_scales::scales::{ScaleConfig, ScaleContext, ScaleImpl};
 use datafusion::{
     arrow::array::{Array, ArrayRef, Float32Array},

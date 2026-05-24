@@ -431,6 +431,11 @@ Migration discipline:
      `avenger-chart-core`. They only depend on core mark state, data context,
      and channel configuration contracts. `avenger-chart` re-exports the macros
      for compatibility.
+   - `GenericPositionConfig<A>` now lives in the real `avenger-chart-core`
+     crate next to the `PositionConfig` trait. The old
+     `avenger_chart::channel::GenericPositionConfig` path is a compatibility
+     re-export. Scale-specific fluent methods remain extension-trait behavior
+     owned by `avenger-chart-scales`.
 
 4. Decouple legend selection from `CompiledMark`.
    Replace direct `LegendRenderer` returns on `CompiledMark` with core legend

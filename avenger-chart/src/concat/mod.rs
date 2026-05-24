@@ -703,7 +703,7 @@ mod tests {
             },
         },
         render::EvaluationContext,
-        scales::Linear,
+        scales::{Linear, ScaleChannelConfig},
         zerod::ZeroDCoord,
     };
 
