@@ -15,7 +15,10 @@ use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
 use crate::{
-    cartesian::{axis::CartesianAxis, positioned_subplot::cartesian_positioned_coord_ref},
+    cartesian::{
+        axis::{CartesianAxis, evaluate_cartesian_axis},
+        positioned_subplot::cartesian_positioned_coord_ref,
+    },
     channel::value::strip_trailing_numbers,
     chart_core::color::parse_color_to_array_strict,
     chart_core::maybe::{Maybe, MaybeOptionalExpr},
@@ -425,21 +428,21 @@ impl CompiledGuide for CartesianGuide {
                     .copied()
                     .map(SharingLevel::from_raw)
                     .unwrap_or(SharingLevel::FREE);
-                let axis_mark = axis
-                    .evaluate(
-                        channel,
-                        scale,
-                        plot_width,
-                        plot_height,
-                        plot_bounds,
-                        theme,
-                        params,
-                        ctx,
-                        sharing_context,
-                        facet_sharing_level,
-                        child_frame_sharing_level,
-                    )
-                    .await?;
+                let axis_mark = evaluate_cartesian_axis(
+                    axis,
+                    channel,
+                    scale,
+                    plot_width,
+                    plot_height,
+                    plot_bounds,
+                    theme,
+                    params,
+                    ctx,
+                    sharing_context,
+                    facet_sharing_level,
+                    child_frame_sharing_level,
+                )
+                .await?;
                 marks.push(axis_mark);
             }
         }

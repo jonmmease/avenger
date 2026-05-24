@@ -9,7 +9,7 @@ use avenger_chart::{
     marks::{CompiledMark, Mark},
     render::RenderContext,
 };
-use avenger_chart_cartesian::Cartesian;
+use avenger_chart_cartesian::{Cartesian, CartesianPositionConfig};
 use avenger_chart_core::{
     define_common_mark_channels, impl_mark_base, ChannelDescriptor, CompiledDataContext,
     CompiledMarkCore, CompiledMarkState, CoordinateSystemCore, CoordinateSystemTransformCore,
@@ -43,11 +43,11 @@ define_position_channels! {
     HexBin<Cartesian> {
         x: {
             required: true,
-            with_config: avenger_chart::cartesian::channels::CartesianPositionConfig,
+            with_config: CartesianPositionConfig,
         },
         y: {
             required: true,
-            with_config: avenger_chart::cartesian::channels::CartesianPositionConfig,
+            with_config: CartesianPositionConfig,
         }
     }
 }

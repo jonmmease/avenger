@@ -915,6 +915,12 @@ boundaries boring.
      `CoordinateGuide::set_compiled_marks<M: CompiledMarkCore>(...)` hook,
      proving guide setup no longer requires the top-level compiled mark render
      trait even though `CoordinateGuide` itself has not moved to core yet.
+   - `CartesianAxis` and `CartesianPositionConfig` now live in the real
+     `avenger-chart-cartesian` crate. The top-level
+     `avenger_chart::cartesian::{axis,channels}` modules are compatibility
+     shims plus the still-facade-owned, layout-aware Cartesian axis evaluation
+     helper. External custom-mark dogfood imports `CartesianPositionConfig`
+     directly from `avenger-chart-cartesian`.
 
 6. Extract `avenger-chart-polar`.
    Move Polar coordinate, axes, guides, channels, and Polar mark impls.
