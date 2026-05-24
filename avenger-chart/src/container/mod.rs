@@ -1,14 +1,14 @@
-//! Child-frame container extension primitives.
+//! Internal child-frame layout primitives.
 //!
-//! Container coordinate systems are coordinate systems whose marks are child
-//! plots. Facets, horizontal/vertical concat, and coordinate-positioned
-//! subplots all measure those child plots as frames, then expose a read-only
-//! child-frame container view for layout, guide sharing, debug overlays, and
-//! rendering.
+//! The layout system is a core Avenger feature. Built-in facet, concat, and
+//! coordinate-positioned subplot paths measure child plots as frames, then
+//! expose a read-only child-frame view for core layout, guide sharing, debug
+//! overlays, and rendering.
 //!
-//! This module is the intended home for that vocabulary. Most items are still
-//! crate-private while the extension boundary settles; external containers
-//! should eventually depend on this module rather than on `plot::compiled`.
+//! This module is hidden from public docs on purpose. It is not a general
+//! external layout-container API; external coordinate-system crates should use
+//! the `marks` module's `SubplotContainerCoordinateSystem` hook when they need
+//! to compile `Subplot` marks.
 //!
 //! Core invariants:
 //!
@@ -21,10 +21,6 @@
 //! - projected child overflow is computed from child frame bounds after each
 //!   child-local frame is translated into the parent frame.
 
-#[doc(hidden)]
-pub use crate::marks::{
-    CompiledSubplotPayload, SubplotContainerCoordinateSystem, compile_subplot_payload,
-};
 #[doc(hidden)]
 pub use crate::plot::compiled::ChildFrameContainerView;
 

@@ -199,8 +199,8 @@ pub(crate) struct SubplotConfig {
 ///
 /// `Subplot<OuterC>` is parameterized by the coordinate system that positions
 /// the child plot, not by the child plot's own coordinate system. This keeps
-/// concat, facet, and future coordinate-positioned subplots under one public
-/// mark concept while still allowing mixed child coordinate systems.
+/// concat, facet, and coordinate-positioned subplots under one public mark
+/// concept while still allowing mixed child coordinate systems.
 #[derive(Clone)]
 pub struct Subplot<OuterC: CoordinateSystem> {
     state: MarkState,
@@ -300,12 +300,14 @@ impl<OuterC: CoordinateSystem> Subplot<OuterC> {
 
 #[async_trait::async_trait]
 pub trait SubplotContainerCoordinateSystem: CoordinateSystem + Sized {
-    /// Compile a `Subplot<Self>` mark for this container coordinate system.
+    /// Compile a `Subplot<Self>` mark for this coordinate system.
     ///
     /// Outer-coordinate-specific builder methods still live on `Subplot<Self>`
     /// extension impls. This hook only owns the final conversion from a generic
     /// subplot mark plus compiled mark state into the coordinate-system-specific
-    /// compiled mark used during measurement and rendering.
+    /// compiled mark. The core layout engine keeps facet and concat behavior
+    /// built in; external coordinate crates can implement this hook when their
+    /// coordinate system supports positioned child plots.
     async fn compile_subplot_mark(
         subplot: &Subplot<Self>,
         compiled_state: CompiledMarkState,
@@ -455,7 +457,6 @@ impl SubplotContainerCoordinateSystem for Cartesian {
 /// Compiled child-plot mark for container coordinate systems.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledConcatSubplot {
-    #[serde(flatten)]
     payload: CompiledSubplotPayload,
 }
 
@@ -518,7 +519,6 @@ pub fn compiled_subplot(mark: &dyn CompiledMark) -> Option<&CompiledConcatSubplo
 /// Compiled child-plot mark positioned by Cartesian x/y channels.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledCartesianSubplot {
-    #[serde(flatten)]
     payload: CompiledSubplotPayload,
     plot_width: f32,
     plot_height: f32,

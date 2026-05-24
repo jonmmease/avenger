@@ -1,24 +1,24 @@
-//! Compile-time dogfood for external subplot container coordinate systems.
+//! Compile-time dogfood for external coordinate systems that support `Subplot`.
 //!
-//! This module intentionally stops at the compile boundary. A full external
-//! child-frame container still needs public child-frame measurement and
-//! placement services before it can render children with the same machinery as
-//! built-in concat/facet.
+//! This module intentionally stops at the compile boundary. Facet and concat
+//! layout remain core Avenger features; the extension point is that a
+//! coordinate-system crate can opt into compiling `Subplot<Coord>` marks when
+//! it owns an appropriate positioned-subplot representation.
 
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use avenger_chart::{
     channel::ChannelDescriptor,
-    container::{
-        compile_subplot_payload, CompiledSubplotPayload, SubplotContainerCoordinateSystem,
-    },
     coords::{
         CoordMeasurement, CoordinateSystem, CoordinateSystemTransform, PlotGeometry, PointGeometry,
     },
     error::AvengerChartError,
     guide::{CompiledGuide, CoordinateGuide, GuideSharingContext, GuideUpdate},
-    marks::{CompiledDataContext, CompiledMark, CompiledMarkState, Subplot},
+    marks::{
+        compile_subplot_payload, CompiledDataContext, CompiledMark, CompiledMarkState,
+        CompiledSubplotPayload, Subplot, SubplotContainerCoordinateSystem,
+    },
     render::RenderContext,
 };
 use avenger_common::value::ScalarOrArray;
@@ -27,41 +27,41 @@ use datafusion::{arrow::record_batch::RecordBatch, common::ScalarValue, datafram
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-/// Minimal external container coordinate system.
+/// Minimal external coordinate system that opts into `Subplot` compilation.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct ExternalStack;
+pub struct ExternalSubplotCoord;
 
-impl CoordinateSystem for ExternalStack {
-    type Guide = ExternalStackGuide;
+impl CoordinateSystem for ExternalSubplotCoord {
+    type Guide = ExternalSubplotCoordGuide;
 
     fn required_channels(&self) -> &'static [&'static str] {
         &[]
     }
 
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
-        Box::new(ExternalStackTransform)
+        Box::new(ExternalSubplotCoordTransform)
     }
 }
 
 #[async_trait]
-impl SubplotContainerCoordinateSystem for ExternalStack {
+impl SubplotContainerCoordinateSystem for ExternalSubplotCoord {
     async fn compile_subplot_mark(
         subplot: &Subplot<Self>,
         compiled_state: CompiledMarkState,
         session_context: &datafusion::prelude::SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        Ok(Arc::new(CompiledExternalStackSubplot {
+        Ok(Arc::new(CompiledExternalCoordSubplot {
             payload: compile_subplot_payload(subplot, compiled_state, session_context).await?,
         }))
     }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct ExternalStackTransform;
+pub struct ExternalSubplotCoordTransform;
 
 #[async_trait]
 #[typetag::serde]
-impl CoordinateSystemTransform for ExternalStackTransform {
+impl CoordinateSystemTransform for ExternalSubplotCoordTransform {
     fn required_channels(&self) -> &'static [&'static str] {
         &[]
     }
@@ -93,15 +93,15 @@ impl CoordinateSystemTransform for ExternalStackTransform {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct ExternalStackGuide;
+pub struct ExternalSubplotCoordGuide;
 
-impl GuideUpdate for ExternalStackGuide {
+impl GuideUpdate for ExternalSubplotCoordGuide {
     fn update(self, _other: Self) -> Self {
         self
     }
 }
 
-impl CoordinateGuide for ExternalStackGuide {
+impl CoordinateGuide for ExternalSubplotCoordGuide {
     type Axis = ();
 
     fn set_axes(&mut self, _axes: HashMap<String, Self::Axis>) {}
@@ -122,7 +122,7 @@ impl CoordinateGuide for ExternalStackGuide {
 
 #[async_trait]
 #[typetag::serde]
-impl CompiledGuide for ExternalStackGuide {
+impl CompiledGuide for ExternalSubplotCoordGuide {
     async fn measure_overflow(
         &self,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
@@ -174,14 +174,14 @@ impl CompiledGuide for ExternalStackGuide {
     }
 }
 
-/// Compiled external subplot mark that proves `Subplot<ExternalStack>` can use
-/// Avenger's blanket subplot-container compile path from another crate.
+/// Compiled external subplot mark that proves `Subplot<ExternalSubplotCoord>`
+/// can use Avenger's blanket subplot compile path from another crate.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct CompiledExternalStackSubplot {
+pub struct CompiledExternalCoordSubplot {
     payload: CompiledSubplotPayload,
 }
 
-impl CompiledExternalStackSubplot {
+impl CompiledExternalCoordSubplot {
     pub fn payload(&self) -> &CompiledSubplotPayload {
         &self.payload
     }
@@ -189,7 +189,7 @@ impl CompiledExternalStackSubplot {
 
 #[typetag::serde]
 #[async_trait]
-impl CompiledMark for CompiledExternalStackSubplot {
+impl CompiledMark for CompiledExternalCoordSubplot {
     fn state(&self) -> &CompiledMarkState {
         self.payload.compiled_state()
     }
@@ -203,7 +203,7 @@ impl CompiledMark for CompiledExternalStackSubplot {
     }
 
     fn mark_type(&self) -> &str {
-        "external_stack_subplot"
+        "external_coord_subplot"
     }
 
     fn as_any(&self) -> &dyn Any {

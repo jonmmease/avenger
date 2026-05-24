@@ -12,6 +12,7 @@ pub mod cartesian;
 pub mod channel;
 pub mod color;
 pub mod concat;
+#[doc(hidden)]
 pub mod container;
 pub mod coords;
 pub mod doc;

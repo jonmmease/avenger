@@ -2,7 +2,7 @@
 name = "avenger-chart-external-test"
 version = "0.1.0"
 edition = "2021"
-description = "Test crate to verify external scale implementations work with avenger-chart"
+description = "Test crate to verify external avenger-chart extension points"
 
 [dependencies]
 avenger-chart = { path = "../avenger-chart" }

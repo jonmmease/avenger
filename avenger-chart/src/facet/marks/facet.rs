@@ -377,7 +377,6 @@ fn validate_no_channel(
 #[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledFacetRowSubplot {
-    #[serde(flatten)]
     pub(crate) payload: CompiledSubplotPayload,
     pub(crate) facet_title: Option<String>,
     pub(crate) facet_slot_sharing: Option<ScaleSharing>,
@@ -547,7 +546,6 @@ impl CompiledMark for CompiledFacetRowSubplot {
 #[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledFacetColumnSubplot {
-    #[serde(flatten)]
     pub(crate) payload: CompiledSubplotPayload,
     pub(crate) facet_title: Option<String>,
     pub(crate) facet_slot_sharing: Option<ScaleSharing>,

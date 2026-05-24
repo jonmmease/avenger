@@ -4,10 +4,11 @@ This crate demonstrates how external crates can extend avenger-chart with custom
 - **Scales**: Custom data transformations and scale types
 - **Marks**: Custom visualization marks
 - **Coordinate Systems**: Custom coordinate projections and transformations
+- **Subplot-capable Coordinate Systems**: Coordinate systems that opt into compiling `Subplot` marks
 
 ## Structure
 
-This test crate is organized into three modules, each demonstrating a different extension point:
+This test crate is organized into four modules, each demonstrating a different extension point:
 
 ### 1. Custom Scales (`src/external_scale.rs`)
 - Implements `SmoothLogScale`: A logarithmic scale with configurable smoothing
@@ -24,6 +25,11 @@ This test crate is organized into three modules, each demonstrating a different 
 - Implements `Isometric`: A 3D isometric projection coordinate system
 - Shows custom axis implementation
 - Demonstrates coordinate transformation and layout
+
+### 4. Subplot-Capable Coordinate Systems (`src/external_subplot_coord.rs`)
+- Implements `ExternalSubplotCoord`: a minimal coordinate system that compiles `Subplot<ExternalSubplotCoord>`
+- Proves the narrow `SubplotContainerCoordinateSystem` hook works from another crate
+- Does not expose facet, concat, or layout-container implementation as an external API
 
 ## Key Discoveries
 
@@ -48,6 +54,7 @@ Each module has corresponding integration tests in the `tests/` directory:
 - `tests/test_custom_scale.rs` - Tests scale implementation and usage
 - `tests/test_custom_mark.rs` - Tests mark implementation  
 - `tests/test_custom_coord_system.rs` - Tests coordinate system implementation
+- `tests/test_external_subplot_coord.rs` - Tests subplot compilation for an external coordinate system
 
 Run all tests with:
 ```bash
@@ -79,6 +86,17 @@ use avenger_chart_external_test::external_coord_system::Isometric;
 
 let plot = Plot::new(Isometric::new())
     .mark(Symbol3D::new().x("x").y("y").z("z"));
+```
+
+### Subplot-Capable Coordinate System
+```rust
+use avenger_chart::marks::Subplot;
+use avenger_chart::plot::Plot;
+use avenger_chart::zerod::ZeroDCoord;
+use avenger_chart_external_test::external_subplot_coord::ExternalSubplotCoord;
+
+let plot = Plot::<ExternalSubplotCoord>::new()
+    .mark(Subplot::new(Plot::<ZeroDCoord>::new()));
 ```
 
 This crate demonstrates that avenger-chart's extension points are fully functional and can be used by external crates to add custom functionality
