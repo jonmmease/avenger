@@ -111,11 +111,13 @@ impl CoordinateGuide for ExternalSubplotCoordGuide {
 
     fn set_axes(&mut self, _axes: HashMap<String, Self::Axis>) {}
 
-    fn set_compiled_marks(
+    fn set_compiled_marks<M>(
         &mut self,
-        _compiled_marks: Vec<Arc<dyn CompiledMark>>,
+        _compiled_marks: &[Arc<M>],
         _session_context: &datafusion::prelude::SessionContext,
-    ) {
+    ) where
+        M: CompiledMarkCore + ?Sized,
+    {
     }
 
     fn update(&mut self, _other: Self) {}

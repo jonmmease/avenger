@@ -273,11 +273,13 @@ impl CoordinateGuide for IsometricGuide {
         self.axes = axes;
     }
 
-    fn set_compiled_marks(
+    fn set_compiled_marks<M>(
         &mut self,
-        _compiled_marks: Vec<std::sync::Arc<dyn CompiledMark>>,
+        _compiled_marks: &[std::sync::Arc<M>],
         _session_context: &datafusion::prelude::SessionContext,
-    ) {
+    ) where
+        M: CompiledMarkCore + ?Sized,
+    {
         // Store mark renderers if needed for axis titles
     }
 

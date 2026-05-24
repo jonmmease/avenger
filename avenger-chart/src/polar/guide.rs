@@ -26,7 +26,7 @@ use crate::{
         CompiledGuide, CoordinateGuide, GuideSharingContext, GuideUpdate, OverflowSpaceRequirement,
     },
     layout::LayoutBounds,
-    marks::CompiledMark,
+    marks::CompiledMarkCore,
     serialization::LogicalExprNodeExt,
     theme::{Theme, ThemeContext},
 };
@@ -139,15 +139,14 @@ impl CoordinateGuide for PolarGuide {
         self.axes = axes;
     }
 
-    fn set_compiled_marks(
-        &mut self,
-        compiled_marks: Vec<Arc<dyn CompiledMark>>,
-        session_context: &SessionContext,
-    ) {
+    fn set_compiled_marks<M>(&mut self, compiled_marks: &[Arc<M>], session_context: &SessionContext)
+    where
+        M: CompiledMarkCore + ?Sized,
+    {
         // Extract titles from mark renderers immediately
         for channel in ["r", "theta"] {
             if let Some(title) =
-                extract_channel_title_from_marks(&compiled_marks, channel, session_context)
+                extract_channel_title_from_marks(compiled_marks, channel, session_context)
             {
                 self.channel_titles.insert(channel.to_string(), title);
             }

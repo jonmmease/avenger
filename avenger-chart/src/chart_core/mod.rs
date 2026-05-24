@@ -164,9 +164,9 @@ pub use avenger_chart_core::{
     contains_aggregate, default_channel_value_for_eval, default_scale_type_for_data_type,
     eval_to_scalars, evaluate_axis_position_expr, evaluate_bool_expr, evaluate_f32_expr,
     evaluate_f64_expr, evaluate_i32_expr, evaluate_legend_orientation_expr,
-    evaluate_legend_position_expr, evaluate_string_expr, evaluate_usize_expr, is_continuous_scale,
-    params_to_datafusion, partition_expressions, scalar_to_scalar_value, simplify_to_scalar_sync,
-    strip_trailing_numbers,
+    evaluate_legend_position_expr, evaluate_string_expr, evaluate_usize_expr,
+    extract_channel_title_from_marks, is_continuous_scale, params_to_datafusion,
+    partition_expressions, scalar_to_scalar_value, simplify_to_scalar_sync, strip_trailing_numbers,
 };
 pub use error::AvengerChartError;
 pub use evaluation_context::EvaluationContext;

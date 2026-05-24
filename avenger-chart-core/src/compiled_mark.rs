@@ -1,9 +1,10 @@
-use std::{any::Any, collections::HashMap};
+use std::{any::Any, collections::HashMap, sync::Arc};
 
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
 use datafusion::{
     arrow::datatypes::DataType,
     logical_expr::{Expr, lit},
+    prelude::SessionContext,
     scalar::ScalarValue,
 };
 use datafusion_common::ScalarValue as DatafusionScalarValue;
@@ -143,4 +144,42 @@ pub fn default_channel_value_for_eval<M: CompiledMarkCore + ?Sized>(
     }
 
     mark.mark_specific_default(channel)
+}
+
+/// Extract a display title for a channel from compiled mark encodings.
+///
+/// Coordinate guides use this to derive default axis titles without depending
+/// on the top-level render-capable compiled mark trait.
+pub fn extract_channel_title_from_marks<M: CompiledMarkCore + ?Sized>(
+    marks: &[Arc<M>],
+    channel: &str,
+    session_context: &SessionContext,
+) -> Option<String> {
+    for mark in marks {
+        if let Some(channel_value) = mark.data_context().channels().get(channel)
+            && let Some(col_name) = channel_value.as_column_name(session_context)
+            && let Some(expr) = channel_value.expr(session_context)
+            && !expr.column_refs().is_empty()
+        {
+            return Some(col_name);
+        }
+    }
+
+    let secondary_channel = match channel {
+        "x" => "x2",
+        "y" => "y2",
+        _ => return None,
+    };
+
+    for mark in marks {
+        if let Some(channel_value) = mark.data_context().channels().get(secondary_channel)
+            && let Some(col_name) = channel_value.as_column_name(session_context)
+            && let Some(expr) = channel_value.expr(session_context)
+            && !expr.column_refs().is_empty()
+        {
+            return Some(col_name);
+        }
+    }
+
+    None
 }

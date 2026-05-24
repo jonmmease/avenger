@@ -15,7 +15,7 @@ use crate::{
         CompiledGuide, CoordinateGuide, GuideSharingContext, GuideUpdate, OverflowSpaceRequirement,
     },
     layout::LayoutBounds,
-    marks::CompiledMark,
+    marks::CompiledMarkCore,
     theme::Theme,
 };
 
@@ -37,11 +37,13 @@ impl CoordinateGuide for NoGuide {
         // No-op for systems without axes
     }
 
-    fn set_compiled_marks(
+    fn set_compiled_marks<M>(
         &mut self,
-        _compiled_marks: Vec<Arc<dyn CompiledMark>>,
+        _compiled_marks: &[Arc<M>],
         _session_context: &SessionContext,
-    ) {
+    ) where
+        M: CompiledMarkCore + ?Sized,
+    {
         // No-op for systems without axes
     }
 

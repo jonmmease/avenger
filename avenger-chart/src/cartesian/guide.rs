@@ -26,7 +26,7 @@ use crate::{
         CompiledGuide, CoordinateGuide, GuideSharingContext, GuideUpdate, OverflowSpaceRequirement,
     },
     layout::LayoutBounds,
-    marks::CompiledMark,
+    marks::CompiledMarkCore,
     plot::compiled::{
         SharingLevel, child_frame_container_overflow,
         child_frame_container_view_from_cartesian_positioned,
@@ -177,22 +177,21 @@ impl CoordinateGuide for CartesianGuide {
         self.axes = axes;
     }
 
-    fn set_compiled_marks(
-        &mut self,
-        compiled_marks: Vec<Arc<dyn CompiledMark>>,
-        session_context: &SessionContext,
-    ) {
+    fn set_compiled_marks<M>(&mut self, compiled_marks: &[Arc<M>], session_context: &SessionContext)
+    where
+        M: CompiledMarkCore + ?Sized,
+    {
         // Extract titles from mark renderers immediately
         for channel in ["x", "y"] {
             if let Some(title) =
-                extract_channel_title_from_marks(&compiled_marks, channel, session_context)
+                extract_channel_title_from_marks(compiled_marks, channel, session_context)
             {
                 self.channel_titles.insert(channel.to_string(), title);
             }
         }
 
         self.channel_sharing_levels.clear();
-        for mark in &compiled_marks {
+        for mark in compiled_marks {
             for (channel, channel_value) in mark.data_context().channels() {
                 let Some(sharing) = channel_value.get_share_mode() else {
                     continue;

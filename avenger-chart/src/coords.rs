@@ -1,11 +1,11 @@
 use std::{collections::HashMap, sync::Arc};
 
-use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
+use datafusion::{common::ScalarValue, dataframe::DataFrame};
 
 pub use crate::chart_core::{
     CoordMeasurement, CoordinateSystemCore, CoordinateSystemTransformCore, CoordinatedLayout,
     CoordinatedOverflow, EmptyCoordMeasurement, FacetAxis, OverflowSpaceRequirement, PaddingSpec,
-    PlotGeometry, PointGeometry, SubplotGeometry, SubplotRect,
+    PlotGeometry, PointGeometry, SubplotGeometry, SubplotRect, extract_channel_title_from_marks,
 };
 
 use crate::facet::coord::{FacetBandCoordMeasurement, FacetBandProbeMeasurement};
@@ -165,63 +165,6 @@ impl<'a> CoordMeasureRequest<'a> {
     pub(crate) fn facet_path(&self) -> &'a [ScalarValue] {
         self.facet_path
     }
-}
-
-/// Helper function to extract channel title from mark encodings
-///
-/// This looks through the marks to find a meaningful column name for the given channel,
-/// which can be used as a default title for axes or legends.
-///
-/// # Arguments
-/// * `marks` - The marks in the plot
-/// * `channel` - The channel name to extract a title for
-/// * `session_context` - The session context for expression evaluation
-///
-/// # Returns
-/// An optional string containing the column name if found
-pub fn extract_channel_title_from_marks(
-    marks: &[Arc<dyn CompiledMark>],
-    channel: &str,
-    session_context: &SessionContext,
-) -> Option<String> {
-    // Look through marks to find a column name for this channel
-    for mark in marks {
-        if let Some(channel_value) = mark.data_context().channels().get(channel) {
-            // Try to get column name if this references actual data
-            if let Some(col_name) = channel_value.as_column_name(session_context) {
-                // Only use if it references actual columns
-                if let Some(expr) = channel_value.expr(session_context)
-                    && !expr.column_refs().is_empty()
-                {
-                    return Some(col_name);
-                }
-            }
-        }
-    }
-
-    // For interval marks, also check the secondary channel (x2, y2)
-    // if the primary channel didn't have a meaningful column
-    let secondary_channel = match channel {
-        "x" => "x2",
-        "y" => "y2",
-        _ => return None,
-    };
-
-    for mark in marks {
-        if let Some(channel_value) = mark.data_context().channels().get(secondary_channel) {
-            // Try to get column name if this references actual data
-            if let Some(col_name) = channel_value.as_column_name(session_context) {
-                // Only use if it references actual columns
-                if let Some(expr) = channel_value.expr(session_context)
-                    && !expr.column_refs().is_empty()
-                {
-                    return Some(col_name);
-                }
-            }
-        }
-    }
-
-    None
 }
 
 #[typetag::serde(tag = "type")]

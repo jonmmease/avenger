@@ -64,7 +64,9 @@ pub use channel_configs::{
 pub use channel_resolution_error::{ChannelResolutionError, suggest_similar_channel_name};
 pub use channel_value::{ChannelValue, ConditionalValue};
 pub use compiled_data_context::CompiledDataContext;
-pub use compiled_mark::{CompiledMarkCore, default_channel_value_for_eval};
+pub use compiled_mark::{
+    CompiledMarkCore, default_channel_value_for_eval, extract_channel_title_from_marks,
+};
 pub use coord_measurement::{CoordMeasurement, EmptyCoordMeasurement};
 pub use coordinate_system::CoordinateSystemCore;
 pub use coordinate_transform::CoordinateSystemTransformCore;

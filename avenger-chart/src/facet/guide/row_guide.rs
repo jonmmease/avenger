@@ -12,7 +12,7 @@ use crate::guide::{
     OverflowSpaceRequirement,
 };
 use crate::layout::LayoutBounds;
-use crate::marks::CompiledMark;
+use crate::marks::CompiledMarkCore;
 use crate::plot::compiled::CompiledPlot;
 use crate::plot::compiled::SharingLevel;
 use crate::serialization::SerializableDataFrame;
@@ -67,12 +67,14 @@ impl CoordinateGuide for FacetRowGuideConfig {
         // Facet guides do not compose cartesian axes directly.
     }
 
-    fn set_compiled_marks(
+    fn set_compiled_marks<M>(
         &mut self,
-        compiled_marks: Vec<Arc<dyn CompiledMark>>,
+        compiled_marks: &[Arc<M>],
         _session_context: &SessionContext,
-    ) {
-        for mark in &compiled_marks {
+    ) where
+        M: CompiledMarkCore + ?Sized,
+    {
+        for mark in compiled_marks {
             if let Some(facet_row) = mark.as_any().downcast_ref::<CompiledFacetRowSubplot>() {
                 self.compiled_subplot = Some(facet_row.compiled_subplot().clone());
                 self.facet_data_plan = mark.data_context().logical_plan_node().cloned();

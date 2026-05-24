@@ -541,6 +541,15 @@ Migration discipline:
      `guide::GuideUpdate` preserved as a compatibility re-export. This keeps a
      small guide-authoring contract available to external coordinate dogfood
      without depending on the top-level guide module.
+   - The default axis/legend title helper
+     `extract_channel_title_from_marks(...)` now lives in the real
+     `avenger-chart-core` crate and works over `CompiledMarkCore`. The top-level
+     `coords::*` path remains a compatibility re-export.
+   - `CoordinateGuide::set_compiled_marks(...)` now accepts any compiled mark
+     collection whose items implement `CompiledMarkCore`, rather than requiring
+     top-level render-capable `CompiledMark` values. Guide setup can derive
+     axis titles, sharing levels, and facet guide metadata from core mark
+     metadata/downcast support while the render hook remains top-level.
    - `GuideContext` and `GuideOverflowPhase` now live in the real
      `avenger-chart-core` crate, with `guide::*` compatibility re-exports.
      The remaining guide split work is therefore focused on `CompiledGuide`,
@@ -715,6 +724,9 @@ boundaries boring.
      `EvaluationContext`, shared expression-evaluation helpers, strict
      color-string parsing helpers, base mark channel coercion helpers, and core-safe
      expression/scalar/datatype/logical-plan serialization wrappers.
+   - Moved the shared channel-title extraction helper into core and made it
+     generic over `CompiledMarkCore`, so guide and legend title inference can
+     use compiled mark metadata without depending on the top-level render trait.
    - Moved shared DataFusion/scalar helper traits and functions into core:
      `DataFrameChartHelpers`, `ExprHelpers`, `ScalarValueHelpers`,
      `ArrayRefHelpers`, `eval_to_scalars`, `simplify_to_scalar_sync`,
@@ -881,6 +893,10 @@ boundaries boring.
      `SubplotContainerCoordinateSystem`, compiled guide traits, coordinate
      traits, and render context. This confirms the narrow extension goal is
      still alive while the runtime trait boundary remains to be moved.
+   - External coordinate dogfood now implements the generic
+     `CoordinateGuide::set_compiled_marks<M: CompiledMarkCore>(...)` hook,
+     proving guide setup no longer requires the top-level compiled mark render
+     trait even though `CoordinateGuide` itself has not moved to core yet.
 
 6. Extract `avenger-chart-polar`.
    Move Polar coordinate, axes, guides, channels, and Polar mark impls.

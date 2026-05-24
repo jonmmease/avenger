@@ -211,8 +211,9 @@ impl<C: CoordinateSystem> Plot<C> {
         // Set the axes on the guide
         guide.set_axes(guide_axes);
 
-        // Pass compiled marks to the guide so it can extract titles at render time
-        guide.set_compiled_marks(compiled_marks.clone(), session_context);
+        // Pass compiled mark metadata to the guide so it can extract titles
+        // without owning the render-capable compiled mark collection.
+        guide.set_compiled_marks(&compiled_marks, session_context);
 
         let compiled_guide = Arc::from(guide.build());
 

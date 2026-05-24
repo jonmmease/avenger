@@ -15,7 +15,7 @@ use crate::{
     facet::evaluated_facet_tree::{AxisOwnershipMode, AxisVisibility, EvaluatedFacetTree},
     guide::{MeasurementResult, OverflowSpaceRequirement},
     layout::LayoutBounds,
-    marks::CompiledMark,
+    marks::CompiledMarkCore,
     plot::compiled::{CoordinationAxis, SharingLevel},
     theme::Theme,
 };
@@ -119,11 +119,12 @@ pub trait CoordinateGuide: Clone + Default + Send + Sync {
     ///
     /// This is called during guide creation to provide access to compiled mark
     /// so that default axis titles can be extracted at render time.
-    fn set_compiled_marks(
+    fn set_compiled_marks<M>(
         &mut self,
-        compiled_marks: Vec<Arc<dyn CompiledMark>>,
+        compiled_marks: &[Arc<M>],
         session_context: &SessionContext,
-    );
+    ) where
+        M: CompiledMarkCore + ?Sized;
 
     fn update(&mut self, other: Self);
 

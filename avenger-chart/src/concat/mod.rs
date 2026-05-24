@@ -30,7 +30,7 @@ use crate::{
         CompiledGuide, CoordinateGuide, GuideSharingContext, GuideUpdate, OverflowSpaceRequirement,
     },
     layout::{BandDirection, LayoutBounds, Size2D},
-    marks::CompiledMark,
+    marks::{CompiledMark, CompiledMarkCore},
     plot::compiled::{
         ChildFrameDataSelection, ChildFrameDomainSharingInput, ChildFrameRuntime,
         ComponentsMeasurement, ContainerLabelPlacement, PreparedChildFramePlot,
@@ -111,11 +111,13 @@ impl CoordinateGuide for ConcatGuide {
 
     fn set_axes(&mut self, _axes: HashMap<String, Self::Axis>) {}
 
-    fn set_compiled_marks(
+    fn set_compiled_marks<M>(
         &mut self,
-        _compiled_marks: Vec<Arc<dyn CompiledMark>>,
+        _compiled_marks: &[Arc<M>],
         _session_context: &SessionContext,
-    ) {
+    ) where
+        M: CompiledMarkCore + ?Sized,
+    {
     }
 
     fn update(&mut self, _other: Self) {}
