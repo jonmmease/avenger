@@ -31,7 +31,7 @@ use crate::{
     theme::{Theme, ThemeContext},
 };
 
-use super::{PolarAxis, PolarAxisType};
+use super::axis::{PolarAxis, PolarAxisEvaluateExt, PolarAxisType};
 
 /// Options for polar coordinate system
 #[serde_as]

@@ -8,4 +8,7 @@ avenger-chart-core = { path = "../avenger-chart-core" }
 avenger-common = { path = "../avenger-common" }
 avenger-scales = { path = "../avenger-scales" }
 datafusion = { workspace = true }
+datafusion-proto = "48.0.1"
 serde = { workspace = true }
+serde_with = "3.0"
+typetag = "0.2"

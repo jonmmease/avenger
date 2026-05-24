@@ -689,7 +689,10 @@ dependencies = [
  "avenger-common",
  "avenger-scales",
  "datafusion",
+ "datafusion-proto",
  "serde",
+ "serde_with",
+ "typetag",
 ]
 
 [[package]]

@@ -934,6 +934,11 @@ boundaries boring.
      module is now a compatibility/adapter module that re-exports the moved
      type and implements the still-facade-owned `CoordinateSystem` and
      `CoordinateSystemTransform` runtime traits.
+   - `PolarAxis`, `PolarAxisType`, `PolarDirection`, and
+     `PolarPositionConfig` now live in the real `avenger-chart-polar` crate.
+     The top-level `avenger_chart::polar::{axis,channels}` modules are
+     compatibility shims plus the still-facade-owned Polar guide/axis
+     evaluation glue.
 
 7. Shrink the top-level `avenger-chart` crate.
    Leave `Plot`, `CompiledPlot`, facet, concat, partition, layout solvers,
