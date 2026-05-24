@@ -356,6 +356,10 @@ Migration discipline:
      types now live under `chart_core`. `layout::*` remains a compatibility
      re-export, while layout-private grid component metadata remains in
      `layout::types`.
+   - `CoordinatedOverflow` and `CoordinatedLayout` now live in the real
+     `avenger-chart-core` crate. `coords::*` remains a compatibility re-export
+     for existing layout and facet code while the coordinate measurement trait
+     boundary is narrowed.
    - `Maybe<T>` and the `MaybeOptionalExpr` serde adapter now live in the real
      `avenger-chart-core` crate.
    - Core-safe serialization wrappers now live in the real
@@ -509,6 +513,10 @@ Migration discipline:
      the split as dead facet-specific guide API.
    - `FacetDirection` now lives under `facet`; the generic `guide` module no
      longer defines or re-exports it.
+   - `GuideUpdate` now lives in the real `avenger-chart-core` crate, with
+     `guide::GuideUpdate` preserved as a compatibility re-export. This keeps a
+     small guide-authoring contract available to external coordinate dogfood
+     without depending on the top-level guide module.
    - The context still lives in `guide` and is still backed by
      `EvaluatedFacetTree` plus `ChildFrameSharingPath`. The next guide-boundary
      slice should continue replacing facet-specific backing types with stable
@@ -805,11 +813,11 @@ boundaries boring.
      coordinate-crate extraction boundary explicit.
    - The external subplot-coordinate dogfood now imports
      `CompiledDataContext`, `CompiledMarkState`, channel descriptors, geometry,
-     and error types directly from `avenger-chart-core` while still using the
-     top-level facade for `Subplot`, `CompiledSubplotPayload`,
-     `SubplotContainerCoordinateSystem`, guide traits, coordinate traits, and
-     render context. This confirms the narrow extension goal is still alive
-     while the runtime trait boundary remains to be moved.
+     error types, and `GuideUpdate` directly from `avenger-chart-core` while
+     still using the top-level facade for `Subplot`, `CompiledSubplotPayload`,
+     `SubplotContainerCoordinateSystem`, compiled guide traits, coordinate
+     traits, and render context. This confirms the narrow extension goal is
+     still alive while the runtime trait boundary remains to be moved.
 
 6. Extract `avenger-chart-polar`.
    Move Polar coordinate, axes, guides, channels, and Polar mark impls.

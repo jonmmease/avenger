@@ -8,6 +8,7 @@ mod coordinate_guide;
 mod no_guide;
 mod overflow;
 
+pub use avenger_chart_core::GuideUpdate;
 pub use coordinate_guide::{
     CompiledGuide, CoordinateGuide, GuideOverflowPhase, GuideSharingContext,
 };
@@ -44,15 +45,4 @@ impl GuideContext {
     pub fn is_axis_suppressed(&self, channel: &str) -> bool {
         self.suppressed_axes.contains(channel)
     }
-}
-
-/// Trait for composable guide updates
-///
-/// This trait allows guides to be composed by updating one with another,
-/// similar to how axes can be composed using the AxisUpdate trait.
-pub trait GuideUpdate: Clone + Default {
-    /// Update this guide with values from another guide
-    ///
-    /// Values from `other` take precedence over values in `self`.
-    fn update(self, other: Self) -> Self;
 }

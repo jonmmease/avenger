@@ -7,6 +7,7 @@ pub mod channel_resolution_error;
 pub mod channel_value;
 pub mod color;
 pub mod compiled_data_context;
+pub mod coordination_values;
 pub mod data_context;
 pub mod datafusion_utils;
 pub mod error;
@@ -15,6 +16,7 @@ pub mod expr_eval;
 pub mod facet_axis;
 pub mod facet_strategy;
 pub mod geometry;
+pub mod guide_update;
 pub mod into_expr;
 pub mod layout_types;
 pub mod legend;
@@ -56,6 +58,7 @@ pub use channel_configs::{
 pub use channel_resolution_error::{ChannelResolutionError, suggest_similar_channel_name};
 pub use channel_value::{ChannelValue, ConditionalValue};
 pub use compiled_data_context::CompiledDataContext;
+pub use coordination_values::{CoordinatedLayout, CoordinatedOverflow};
 pub use data_context::DataContext;
 pub use datafusion_utils::{
     ArrayRefHelpers, DataFrameChartHelpers, ExprHelpers, ScalarValueHelpers, contains_aggregate,
@@ -74,6 +77,7 @@ pub use facet_strategy::FacetStrategy;
 pub use geometry::{
     BandPosition, PaddingSpec, PlotGeometry, PointGeometry, SubplotGeometry, SubplotRect,
 };
+pub use guide_update::GuideUpdate;
 pub use into_expr::IntoExpr;
 pub use layout_types::{
     EdgeSlabs, FrameAllocation, FrameDemand, FrameDimensionSizing, FrameLayout, FrameSizingPolicy,
