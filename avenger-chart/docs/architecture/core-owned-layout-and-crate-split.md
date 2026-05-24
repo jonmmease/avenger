@@ -794,6 +794,23 @@ boundaries boring.
    Move Cartesian coordinate, axes, guides, channels, coordinate-specific mark
    impls, and Cartesian positioned subplot support.
 
+   Progress:
+
+   - The external custom-coordinate dogfood now imports already-moved core and
+     scale authoring contracts directly from `avenger-chart-core` and
+     `avenger-chart-scales`: axis/channel/config/state/data/geometry types,
+     mark-constructor macros, and scale builders. It still imports coordinate
+     system traits, guide traits, `CompiledMark`, `Mark`, `RenderContext`, and
+     the `Subplot` compile hook from the top-level facade, making the remaining
+     coordinate-crate extraction boundary explicit.
+   - The external subplot-coordinate dogfood now imports
+     `CompiledDataContext`, `CompiledMarkState`, channel descriptors, geometry,
+     and error types directly from `avenger-chart-core` while still using the
+     top-level facade for `Subplot`, `CompiledSubplotPayload`,
+     `SubplotContainerCoordinateSystem`, guide traits, coordinate traits, and
+     render context. This confirms the narrow extension goal is still alive
+     while the runtime trait boundary remains to be moved.
+
 6. Extract `avenger-chart-polar`.
    Move Polar coordinate, axes, guides, channels, and Polar mark impls.
 

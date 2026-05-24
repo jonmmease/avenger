@@ -4,19 +4,19 @@ use std::{any::Any, collections::HashMap, marker::PhantomData, sync::Arc};
 
 use async_trait::async_trait;
 use avenger_chart::{
-    channel::ChannelDescriptor,
-    coords::{
-        CoordMeasurement, CoordinateSystem, CoordinateSystemTransform, OverflowSpaceRequirement,
-        PlotGeometry, PointGeometry,
-    },
-    define_common_mark_channels, define_position_channels,
-    error::AvengerChartError,
+    coords::{CoordMeasurement, CoordinateSystem, CoordinateSystemTransform},
+    define_position_channels,
     guide::{CoordinateGuide, GuideSharingContext},
-    impl_mark_base, impl_mark_trait_common,
-    marks::{ChannelValue, CompiledDataContext, CompiledMark, CompiledMarkState, Mark, MarkState},
+    impl_mark_trait_common,
+    marks::{CompiledMark, Mark},
     render::RenderContext,
-    scales::{Auto, Scale, ScaleChannelValue},
 };
+use avenger_chart_core::{
+    define_common_mark_channels, impl_mark_base, AvengerChartError, Axis, ChannelDescriptor,
+    ChannelValue, CompiledDataContext, CompiledMarkState, MarkState, OverflowSpaceRequirement,
+    PlotGeometry, PointGeometry, PositionConfig,
+};
+use avenger_chart_scales::{Auto, Scale, ScaleChannelValue};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::{arrow::record_batch::RecordBatch, scalar::ScalarValue};
@@ -90,7 +90,7 @@ impl IsometricPositionConfig {
 }
 
 // Implement the PositionConfig trait to work with the macro
-impl avenger_chart::channel::PositionConfig for IsometricPositionConfig {
+impl PositionConfig for IsometricPositionConfig {
     type Axis = IsometricAxis;
 
     fn new(value: ChannelValue) -> Self {
@@ -145,8 +145,8 @@ pub struct IsometricAxis {
 }
 
 #[typetag::serde]
-impl avenger_chart::axis::Axis for IsometricAxis {
-    fn update(&mut self, other: &dyn avenger_chart::axis::Axis) {
+impl Axis for IsometricAxis {
+    fn update(&mut self, other: &dyn Axis) {
         if let Some(other_iso) = other.as_any().downcast_ref::<IsometricAxis>() {
             self.visible = other_iso.visible;
         }
@@ -156,7 +156,7 @@ impl avenger_chart::axis::Axis for IsometricAxis {
         self
     }
 
-    fn box_clone(&self) -> Box<dyn avenger_chart::axis::Axis> {
+    fn box_clone(&self) -> Box<dyn Axis> {
         Box::new(self.clone())
     }
 }
