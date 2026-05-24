@@ -15,7 +15,7 @@ use crate::{
     error::AvengerChartError,
     layout::BandDirection,
     marks::{
-        ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkState,
+        ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState,
         CompiledSubplotPayload, Subplot, SubplotContainerCoordinateSystem, SubplotDataSource,
         compile_subplot_payload,
     },
@@ -120,9 +120,7 @@ pub fn compiled_subplot(mark: &dyn CompiledMark) -> Option<&CompiledConcatSubplo
     mark.as_any().downcast_ref::<CompiledConcatSubplot>()
 }
 
-#[typetag::serde]
-#[async_trait::async_trait]
-impl CompiledMark for CompiledConcatSubplot {
+impl CompiledMarkCore for CompiledConcatSubplot {
     fn state(&self) -> &CompiledMarkState {
         self.payload.compiled_state()
     }
@@ -151,6 +149,47 @@ impl CompiledMark for CompiledConcatSubplot {
         true
     }
 
+    fn radius_expression(
+        &self,
+        _dimension: &str,
+        _resolve_channel: &dyn Fn(&str) -> Expr,
+    ) -> Option<RadiusExpression> {
+        None
+    }
+
+    fn preferred_scale_type(
+        &self,
+        _channel: &str,
+        _data_type: &datafusion::arrow::datatypes::DataType,
+    ) -> Option<ScaleTypePreference> {
+        None
+    }
+
+    fn default_scale_options(
+        &self,
+        _channel: &str,
+        _scale_impl: &dyn ScaleImpl,
+        _data_type: &datafusion::arrow::datatypes::DataType,
+    ) -> HashMap<String, Expr> {
+        HashMap::new()
+    }
+
+    fn default_channel_range(
+        &self,
+        _channel: &str,
+        _scale_impl: &dyn ScaleImpl,
+        _domain: &ResolvedDomain,
+        _data_type: &datafusion::arrow::datatypes::DataType,
+        _theme: &Theme,
+        _params: &indexmap::IndexMap<String, datafusion::scalar::ScalarValue>,
+    ) -> Option<ScaleRange> {
+        None
+    }
+}
+
+#[typetag::serde]
+#[async_trait::async_trait]
+impl CompiledMark for CompiledConcatSubplot {
     async fn render_from_data(
         &self,
         data: Option<&RecordBatch>,
@@ -236,42 +275,5 @@ impl CompiledMark for CompiledConcatSubplot {
             stroke_offset: None,
             zindex: None,
         })])
-    }
-
-    fn radius_expression(
-        &self,
-        _dimension: &str,
-        _resolve_channel: &dyn Fn(&str) -> Expr,
-    ) -> Option<RadiusExpression> {
-        None
-    }
-
-    fn preferred_scale_type(
-        &self,
-        _channel: &str,
-        _data_type: &datafusion::arrow::datatypes::DataType,
-    ) -> Option<ScaleTypePreference> {
-        None
-    }
-
-    fn default_scale_options(
-        &self,
-        _channel: &str,
-        _scale_impl: &dyn ScaleImpl,
-        _data_type: &datafusion::arrow::datatypes::DataType,
-    ) -> HashMap<String, Expr> {
-        HashMap::new()
-    }
-
-    fn default_channel_range(
-        &self,
-        _channel: &str,
-        _scale_impl: &dyn ScaleImpl,
-        _domain: &ResolvedDomain,
-        _data_type: &datafusion::arrow::datatypes::DataType,
-        _theme: &Theme,
-        _params: &indexmap::IndexMap<String, datafusion::scalar::ScalarValue>,
-    ) -> Option<ScaleRange> {
-        None
     }
 }

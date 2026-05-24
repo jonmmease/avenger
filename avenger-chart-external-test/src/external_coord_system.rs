@@ -13,9 +13,9 @@ use avenger_chart::{
 };
 use avenger_chart_core::{
     define_common_mark_channels, impl_mark_base, AvengerChartError, Axis, ChannelDescriptor,
-    ChannelValue, CompiledDataContext, CompiledMarkState, CoordMeasurement, CoordinateSystemCore,
-    CoordinateSystemTransformCore, MarkState, OverflowSpaceRequirement, PlotGeometry,
-    PointGeometry, PositionConfig,
+    ChannelValue, CompiledDataContext, CompiledMarkCore, CompiledMarkState, CoordMeasurement,
+    CoordinateSystemCore, CoordinateSystemTransformCore, MarkState, OverflowSpaceRequirement,
+    PlotGeometry, PointGeometry, PositionConfig,
 };
 use avenger_chart_scales::{Auto, Scale, ScaleChannelValue};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
@@ -481,9 +481,7 @@ pub struct CompiledIsometricCube {
     pub(crate) state: CompiledMarkState,
 }
 
-#[typetag::serde]
-#[async_trait]
-impl CompiledMark for CompiledIsometricCube {
+impl CompiledMarkCore for CompiledIsometricCube {
     fn state(&self) -> &CompiledMarkState {
         &self.state
     }
@@ -498,6 +496,10 @@ impl CompiledMark for CompiledIsometricCube {
 
     fn mark_type(&self) -> &str {
         "cube"
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 
     fn supported_channels(&self) -> Vec<ChannelDescriptor> {
@@ -547,6 +549,20 @@ impl CompiledMark for CompiledIsometricCube {
         ]
     }
 
+    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
+        match channel {
+            "size" => Some(ScalarValue::Float32(Some(10.0))),
+            "fill" => Some(ScalarValue::Utf8(Some("#3498db".to_string()))),
+            "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))),
+            "opacity" => Some(ScalarValue::Float32(Some(1.0))),
+            _ => None,
+        }
+    }
+}
+
+#[typetag::serde]
+#[async_trait]
+impl CompiledMark for CompiledIsometricCube {
     async fn render_from_data(
         &self,
         _data: Option<&RecordBatch>,
@@ -557,15 +573,5 @@ impl CompiledMark for CompiledIsometricCube {
         // Custom cube rendering logic would go here
         // For this test, we just return an empty vector
         Ok(vec![])
-    }
-
-    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
-        match channel {
-            "size" => Some(ScalarValue::Float32(Some(10.0))),
-            "fill" => Some(ScalarValue::Utf8(Some("#3498db".to_string()))),
-            "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))),
-            "opacity" => Some(ScalarValue::Float32(Some(1.0))),
-            _ => None,
-        }
     }
 }

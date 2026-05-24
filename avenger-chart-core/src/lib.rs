@@ -7,6 +7,7 @@ pub mod channel_resolution_error;
 pub mod channel_value;
 pub mod color;
 pub mod compiled_data_context;
+pub mod compiled_mark;
 pub mod coord_measurement;
 pub mod coordinate_system;
 pub mod coordinate_transform;
@@ -63,6 +64,7 @@ pub use channel_configs::{
 pub use channel_resolution_error::{ChannelResolutionError, suggest_similar_channel_name};
 pub use channel_value::{ChannelValue, ConditionalValue};
 pub use compiled_data_context::CompiledDataContext;
+pub use compiled_mark::{CompiledMarkCore, default_channel_value_for_eval};
 pub use coord_measurement::{CoordMeasurement, EmptyCoordMeasurement};
 pub use coordinate_system::CoordinateSystemCore;
 pub use coordinate_transform::CoordinateSystemTransformCore;

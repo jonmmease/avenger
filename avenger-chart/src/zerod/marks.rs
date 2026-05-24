@@ -19,7 +19,7 @@ use crate::{
     error::AvengerChartError,
     impl_mark_trait_common,
     marks::{
-        CompiledDataContext, CompiledMark, CompiledMarkState, Mark,
+        CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState, Mark,
         symbol::{Symbol, symbol_channel_defaults, symbol_legend_renderer_kind},
         util::{coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer},
     },
@@ -48,10 +48,7 @@ pub struct CompiledZeroDSymbol {
     pub(crate) state: CompiledMarkState,
 }
 
-// CompiledMark implementation
-#[typetag::serde]
-#[async_trait::async_trait]
-impl CompiledMark for CompiledZeroDSymbol {
+impl CompiledMarkCore for CompiledZeroDSymbol {
     fn state(&self) -> &CompiledMarkState {
         &self.state
     }
@@ -117,6 +114,23 @@ impl CompiledMark for CompiledZeroDSymbol {
         ]
     }
 
+    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
+        symbol_channel_defaults(channel)
+    }
+
+    fn preferred_legend_renderer_kind(
+        &self,
+        channel: &str,
+        scale: &ConfiguredScale,
+    ) -> Option<LegendRendererKind> {
+        // Use the same logic as the Symbol mark, with no position channels
+        symbol_legend_renderer_kind(channel, scale, &[])
+    }
+}
+
+#[typetag::serde]
+#[async_trait::async_trait]
+impl CompiledMark for CompiledZeroDSymbol {
     async fn render_from_data(
         &self,
         data: Option<&RecordBatch>,
@@ -228,18 +242,5 @@ impl CompiledMark for CompiledZeroDSymbol {
         };
 
         Ok(vec![SceneMark::Symbol(symbol_mark)])
-    }
-
-    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
-        symbol_channel_defaults(channel)
-    }
-
-    fn preferred_legend_renderer_kind(
-        &self,
-        channel: &str,
-        scale: &ConfiguredScale,
-    ) -> Option<LegendRendererKind> {
-        // Use the same logic as the Symbol mark, with no position channels
-        symbol_legend_renderer_kind(channel, scale, &[])
     }
 }

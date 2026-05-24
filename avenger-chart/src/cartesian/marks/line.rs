@@ -18,7 +18,7 @@ use crate::{
     error::AvengerChartError,
     impl_mark_trait_common,
     marks::{
-        CompiledDataContext, CompiledMark, CompiledMarkState, Mark,
+        CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState, Mark,
         line::{Line, PartitionKey, ensure_dictionary_array, line_channel_defaults},
         util::{
             coerce_bool_channel_with_renderer, coerce_color_channel_with_renderer,
@@ -110,10 +110,7 @@ pub struct CompiledCartesianLine {
     pub(crate) state: CompiledMarkState,
 }
 
-// CompiledMark implementation
-#[typetag::serde]
-#[async_trait::async_trait]
-impl CompiledMark for CompiledCartesianLine {
+impl CompiledMarkCore for CompiledCartesianLine {
     fn state(&self) -> &CompiledMarkState {
         &self.state
     }
@@ -201,6 +198,54 @@ impl CompiledMark for CompiledCartesianLine {
         true
     }
 
+    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
+        line_channel_defaults(channel)
+    }
+
+    fn radius_expression(
+        &self,
+        dimension: &str,
+        resolve_channel: &dyn Fn(&str) -> Expr,
+    ) -> Option<RadiusExpression> {
+        match dimension {
+            "y" => {
+                let stroke_width_expr = resolve_channel("stroke_width");
+                let radius_expr = stroke_width_expr * lit(2.0);
+                let radius_expr_node =
+                    LogicalExprNode::from_expr(radius_expr).expect("Failed to serialize expr");
+                Some(RadiusExpression::Symmetric(radius_expr_node))
+            }
+            "x" => None,
+            _ => None,
+        }
+    }
+
+    fn preferred_legend_renderer_kind(
+        &self,
+        channel: &str,
+        scale: &avenger_scales::scales::ConfiguredScale,
+    ) -> Option<LegendRendererKind> {
+        // Check if scale is continuous (for colorbar)
+        let is_continuous = is_continuous_scale(scale.scale_impl.as_ref());
+
+        match channel {
+            // Use colorbar for continuous color scales
+            "stroke" if is_continuous => Some(LegendRendererKind::Colorbar),
+            // Line marks use line legend for stroke properties
+            "stroke" | "stroke_width" | "stroke_dash" | "stroke_opacity" => {
+                Some(LegendRendererKind::Line)
+            }
+            // No legend for position channels
+            "x" | "y" | "defined" | "order" | "stroke_cap" | "stroke_join" | "interpolate" => None,
+            // For any other channel, default to line legend rendering.
+            _ => Some(LegendRendererKind::Line),
+        }
+    }
+}
+
+#[typetag::serde]
+#[async_trait::async_trait]
+impl CompiledMark for CompiledCartesianLine {
     async fn render_from_data(
         &self,
         data: Option<&RecordBatch>,
@@ -572,49 +617,5 @@ impl CompiledMark for CompiledCartesianLine {
         }
 
         Ok(scene_marks)
-    }
-
-    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
-        line_channel_defaults(channel)
-    }
-
-    fn radius_expression(
-        &self,
-        dimension: &str,
-        resolve_channel: &dyn Fn(&str) -> Expr,
-    ) -> Option<RadiusExpression> {
-        match dimension {
-            "y" => {
-                let stroke_width_expr = resolve_channel("stroke_width");
-                let radius_expr = stroke_width_expr * lit(2.0);
-                let radius_expr_node =
-                    LogicalExprNode::from_expr(radius_expr).expect("Failed to serialize expr");
-                Some(RadiusExpression::Symmetric(radius_expr_node))
-            }
-            "x" => None,
-            _ => None,
-        }
-    }
-
-    fn preferred_legend_renderer_kind(
-        &self,
-        channel: &str,
-        scale: &avenger_scales::scales::ConfiguredScale,
-    ) -> Option<LegendRendererKind> {
-        // Check if scale is continuous (for colorbar)
-        let is_continuous = is_continuous_scale(scale.scale_impl.as_ref());
-
-        match channel {
-            // Use colorbar for continuous color scales
-            "stroke" if is_continuous => Some(LegendRendererKind::Colorbar),
-            // Line marks use line legend for stroke properties
-            "stroke" | "stroke_width" | "stroke_dash" | "stroke_opacity" => {
-                Some(LegendRendererKind::Line)
-            }
-            // No legend for position channels
-            "x" | "y" | "defined" | "order" | "stroke_cap" | "stroke_join" | "interpolate" => None,
-            // For any other channel, default to line legend rendering.
-            _ => Some(LegendRendererKind::Line),
-        }
     }
 }

@@ -14,8 +14,8 @@ use crate::facet::ownership_policy::{
 use crate::facet::placement::{FacetBandPlacement, facet_child_frame_placement_from_band};
 use crate::layout::Size2D;
 use crate::marks::{
-    ChannelDescriptor, ChannelValue, CompiledMark, CompiledMarkState, CompiledSubplotPayload,
-    Subplot, SubplotContainerCoordinateSystem, SubplotDataSource,
+    ChannelDescriptor, ChannelValue, CompiledMark, CompiledMarkCore, CompiledMarkState,
+    CompiledSubplotPayload, Subplot, SubplotContainerCoordinateSystem, SubplotDataSource,
 };
 use crate::plot::CompiledPlot;
 use crate::render::{EvaluationContext, RenderContext};
@@ -442,9 +442,7 @@ impl SubplotContainerCoordinateSystem for FacetRow {
     }
 }
 
-#[typetag::serde]
-#[async_trait::async_trait]
-impl CompiledMark for CompiledFacetRowSubplot {
+impl CompiledMarkCore for CompiledFacetRowSubplot {
     fn state(&self) -> &CompiledMarkState {
         self.payload.compiled_state()
     }
@@ -476,26 +474,6 @@ impl CompiledMark for CompiledFacetRowSubplot {
 
     fn wants_full_data_batch(&self) -> bool {
         true // Facets need full data for nested filtering
-    }
-
-    /// Render faceted row layout
-    ///
-    /// Uses the coordinate-system measurement from RenderContext (computed by FacetRow)
-    /// and the adjusted row scale to resolve deterministic band positions.
-    async fn render_from_data(
-        &self,
-        _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
-        _scalars: &datafusion::arrow::record_batch::RecordBatch,
-        context: &RenderContext,
-        _coord: &dyn CoordinateSystemTransformCore,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        render_facet_band_common(
-            FacetBandRenderOps::row(),
-            self.compiled_subplot(),
-            self.facet_empty_cell_policy,
-            context,
-        )
-        .await
     }
 
     fn preferred_scale_type(
@@ -535,6 +513,30 @@ impl CompiledMark for CompiledFacetRowSubplot {
         }
 
         options
+    }
+}
+
+#[typetag::serde]
+#[async_trait::async_trait]
+impl CompiledMark for CompiledFacetRowSubplot {
+    /// Render faceted row layout
+    ///
+    /// Uses the coordinate-system measurement from RenderContext (computed by FacetRow)
+    /// and the adjusted row scale to resolve deterministic band positions.
+    async fn render_from_data(
+        &self,
+        _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
+        _scalars: &datafusion::arrow::record_batch::RecordBatch,
+        context: &RenderContext,
+        _coord: &dyn CoordinateSystemTransformCore,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        render_facet_band_common(
+            FacetBandRenderOps::row(),
+            self.compiled_subplot(),
+            self.facet_empty_cell_policy,
+            context,
+        )
+        .await
     }
 }
 
@@ -655,9 +657,7 @@ pub fn facet_subplot_ref(mark: &dyn CompiledMark) -> Option<FacetSubplotRef<'_>>
     }
 }
 
-#[typetag::serde]
-#[async_trait::async_trait]
-impl CompiledMark for CompiledFacetColumnSubplot {
+impl CompiledMarkCore for CompiledFacetColumnSubplot {
     fn state(&self) -> &CompiledMarkState {
         self.payload.compiled_state()
     }
@@ -689,27 +689,6 @@ impl CompiledMark for CompiledFacetColumnSubplot {
 
     fn wants_full_data_batch(&self) -> bool {
         true // Facets need full data for nested filtering
-    }
-
-    /// Render faceted column layout
-    ///
-    /// Uses the coordinate-system measurement from RenderContext (computed by FacetColumn)
-    /// and the already-adjusted column scale to resolve deterministic band positions,
-    /// then renders each subplot using its cached measurement.
-    async fn render_from_data(
-        &self,
-        _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
-        _scalars: &datafusion::arrow::record_batch::RecordBatch,
-        context: &RenderContext,
-        _coord: &dyn CoordinateSystemTransformCore,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        render_facet_band_common(
-            FacetBandRenderOps::col(),
-            self.compiled_subplot(),
-            self.facet_empty_cell_policy,
-            context,
-        )
-        .await
     }
 
     fn preferred_scale_type(
@@ -749,6 +728,31 @@ impl CompiledMark for CompiledFacetColumnSubplot {
         }
 
         options
+    }
+}
+
+#[typetag::serde]
+#[async_trait::async_trait]
+impl CompiledMark for CompiledFacetColumnSubplot {
+    /// Render faceted column layout
+    ///
+    /// Uses the coordinate-system measurement from RenderContext (computed by FacetColumn)
+    /// and the already-adjusted column scale to resolve deterministic band positions,
+    /// then renders each subplot using its cached measurement.
+    async fn render_from_data(
+        &self,
+        _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
+        _scalars: &datafusion::arrow::record_batch::RecordBatch,
+        context: &RenderContext,
+        _coord: &dyn CoordinateSystemTransformCore,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        render_facet_band_common(
+            FacetBandRenderOps::col(),
+            self.compiled_subplot(),
+            self.facet_empty_cell_policy,
+            context,
+        )
+        .await
     }
 }
 

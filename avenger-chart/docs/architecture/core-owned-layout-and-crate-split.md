@@ -101,6 +101,18 @@ Initial candidates:
 Do not move layout solvers, facet/concat runtime state, child-frame placement,
 WGPU rendering, app integration, or visual-test harness code into core.
 
+Current extraction state:
+
+- `CompiledMarkCore` now lives in `avenger-chart-core` and owns the
+  compiled-mark metadata, channel-planning, default-value, scale-preference,
+  legend-capability, and radius-expression hooks that custom marks need without
+  depending on the built-in mark crate.
+- Top-level `avenger-chart::marks::CompiledMark` extends `CompiledMarkCore` and
+  currently contains only the async render hook, because rendering still needs
+  facade-owned runtime context and scene assembly types. Built-in marks,
+  facet/concat subplot marks, Cartesian positioned subplot marks, and external
+  dogfood marks implement the two traits separately.
+
 ### `avenger-chart-marks`
 
 Own built-in generic mark definitions and their authoring ergonomics. The
@@ -238,6 +250,13 @@ Initial candidates:
 - WGPU/app/canvas integration and examples/tests that exercise the full stack.
 
 Facet/concat extraction is explicitly out of scope.
+
+Current extraction state:
+
+- The facade still owns the render-time `CompiledMark` trait and all
+  core-owned layout/container marks. This is intentional for now: the current
+  split has moved mark metadata/planning contracts down to core without trying
+  to externalize layout runtime behavior.
 
 ## Current Dependency Pressure Points
 

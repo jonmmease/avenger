@@ -1,6 +1,6 @@
 //! Integration test to verify external marks can be defined and used
 
-use std::{marker::PhantomData, sync::Arc};
+use std::{any::Any, marker::PhantomData, sync::Arc};
 
 use avenger_chart::{
     cartesian::Cartesian,
@@ -12,7 +12,8 @@ use avenger_chart::{
 };
 use avenger_chart_core::{
     define_common_mark_channels, impl_mark_base, ChannelDescriptor, CompiledDataContext,
-    CompiledMarkState, CoordinateSystemCore, CoordinateSystemTransformCore, MarkState,
+    CompiledMarkCore, CompiledMarkState, CoordinateSystemCore, CoordinateSystemTransformCore,
+    MarkState,
 };
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::{arrow::record_batch::RecordBatch, scalar::ScalarValue};
@@ -75,9 +76,7 @@ pub struct CompiledHexBin {
     pub(crate) state: CompiledMarkState,
 }
 
-#[typetag::serde]
-#[async_trait::async_trait]
-impl CompiledMark for CompiledHexBin {
+impl CompiledMarkCore for CompiledHexBin {
     fn state(&self) -> &CompiledMarkState {
         &self.state
     }
@@ -92,6 +91,10 @@ impl CompiledMark for CompiledHexBin {
 
     fn mark_type(&self) -> &str {
         "hexbin"
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 
     fn supported_channels(&self) -> Vec<ChannelDescriptor> {
@@ -135,6 +138,20 @@ impl CompiledMark for CompiledHexBin {
         ]
     }
 
+    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
+        match channel {
+            "size" => Some(ScalarValue::Float32(Some(20.0))),
+            "fill" => Some(ScalarValue::Utf8(Some("#4682b4".to_string()))),
+            "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))),
+            "opacity" => Some(ScalarValue::Float32(Some(1.0))),
+            _ => None,
+        }
+    }
+}
+
+#[typetag::serde]
+#[async_trait::async_trait]
+impl CompiledMark for CompiledHexBin {
     async fn render_from_data(
         &self,
         _data: Option<&RecordBatch>,
@@ -145,15 +162,5 @@ impl CompiledMark for CompiledHexBin {
         // Custom hexbin rendering logic would go here
         // For this test, we just return an empty vector
         Ok(vec![])
-    }
-
-    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
-        match channel {
-            "size" => Some(ScalarValue::Float32(Some(20.0))),
-            "fill" => Some(ScalarValue::Utf8(Some("#4682b4".to_string()))),
-            "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))),
-            "opacity" => Some(ScalarValue::Float32(Some(1.0))),
-            _ => None,
-        }
     }
 }

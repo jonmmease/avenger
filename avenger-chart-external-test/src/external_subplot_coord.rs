@@ -18,8 +18,9 @@ use avenger_chart::{
     render::RenderContext,
 };
 use avenger_chart_core::{
-    AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMarkState, CoordMeasurement,
-    CoordinateSystemCore, CoordinateSystemTransformCore, GuideUpdate, PlotGeometry, PointGeometry,
+    AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMarkCore, CompiledMarkState,
+    CoordMeasurement, CoordinateSystemCore, CoordinateSystemTransformCore, GuideUpdate,
+    PlotGeometry, PointGeometry,
 };
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::{group::Clip, mark::SceneMark};
@@ -191,9 +192,7 @@ impl CompiledExternalCoordSubplot {
     }
 }
 
-#[typetag::serde]
-#[async_trait]
-impl CompiledMark for CompiledExternalCoordSubplot {
+impl CompiledMarkCore for CompiledExternalCoordSubplot {
     fn state(&self) -> &CompiledMarkState {
         self.payload.compiled_state()
     }
@@ -221,7 +220,11 @@ impl CompiledMark for CompiledExternalCoordSubplot {
     fn wants_full_data_batch(&self) -> bool {
         true
     }
+}
 
+#[typetag::serde]
+#[async_trait]
+impl CompiledMark for CompiledExternalCoordSubplot {
     async fn render_from_data(
         &self,
         _data: Option<&RecordBatch>,

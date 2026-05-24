@@ -18,7 +18,7 @@ use crate::{
     error::AvengerChartError,
     impl_mark_trait_common,
     marks::{
-        CompiledDataContext, CompiledMark, CompiledMarkState, Mark,
+        CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState, Mark,
         rect::{Rect, rect_channel_defaults},
         util::{coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer},
     },
@@ -138,10 +138,7 @@ pub struct CompiledCartesianRect {
     pub(crate) state: CompiledMarkState,
 }
 
-// CompiledMark implementation
-#[typetag::serde]
-#[async_trait::async_trait]
-impl CompiledMark for CompiledCartesianRect {
+impl CompiledMarkCore for CompiledCartesianRect {
     fn state(&self) -> &CompiledMarkState {
         &self.state
     }
@@ -219,6 +216,58 @@ impl CompiledMark for CompiledCartesianRect {
         ]
     }
 
+    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
+        rect_channel_defaults(channel)
+    }
+
+    fn preferred_scale_type(
+        &self,
+        channel: &str,
+        data_type: &DataType,
+    ) -> Option<ScaleTypePreference> {
+        match (channel, data_type) {
+            // Rect marks use band scales for categorical position data
+            (
+                "x" | "x2" | "y" | "y2",
+                DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
+            ) => Some(ScaleTypePreference::Band),
+            // Color channels use ordinal scales for categorical data
+            (
+                "fill" | "stroke" | "color",
+                DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
+            ) => Some(ScaleTypePreference::Ordinal),
+            // Fall back to data type-based inference for other channels
+            _ => default_scale_type_for_data_type(data_type),
+        }
+    }
+
+    fn preferred_legend_renderer_kind(
+        &self,
+        channel: &str,
+        scale: &ConfiguredScale,
+    ) -> Option<LegendRendererKind> {
+        // Check if scale is continuous (for colorbar)
+        let is_continuous = is_continuous_scale(scale.scale_impl.as_ref());
+
+        match channel {
+            // Use colorbar for continuous color scales
+            "fill" | "stroke" | "color" if is_continuous => Some(LegendRendererKind::Colorbar),
+            // Rect marks use rect legend rendering for discrete scales and other visual properties.
+            "fill" | "stroke" | "color" | "opacity" | "stroke_width" => {
+                Some(LegendRendererKind::Rect)
+            }
+            // No legend for position channels and other non-visual channels
+            "x" | "y" | "x2" | "y2" | "width" | "height" | "defined" | "order"
+            | "corner_radius" => None,
+            // For any other channel, default to rect legend rendering.
+            _ => Some(LegendRendererKind::Rect),
+        }
+    }
+}
+
+#[typetag::serde]
+#[async_trait::async_trait]
+impl CompiledMark for CompiledCartesianRect {
     async fn render_from_data(
         &self,
         data: Option<&RecordBatch>,
@@ -347,53 +396,5 @@ impl CompiledMark for CompiledCartesianRect {
         };
 
         Ok(vec![SceneMark::Rect(rect_mark)])
-    }
-
-    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
-        rect_channel_defaults(channel)
-    }
-
-    fn preferred_scale_type(
-        &self,
-        channel: &str,
-        data_type: &DataType,
-    ) -> Option<ScaleTypePreference> {
-        match (channel, data_type) {
-            // Rect marks use band scales for categorical position data
-            (
-                "x" | "x2" | "y" | "y2",
-                DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
-            ) => Some(ScaleTypePreference::Band),
-            // Color channels use ordinal scales for categorical data
-            (
-                "fill" | "stroke" | "color",
-                DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
-            ) => Some(ScaleTypePreference::Ordinal),
-            // Fall back to data type-based inference for other channels
-            _ => default_scale_type_for_data_type(data_type),
-        }
-    }
-
-    fn preferred_legend_renderer_kind(
-        &self,
-        channel: &str,
-        scale: &ConfiguredScale,
-    ) -> Option<LegendRendererKind> {
-        // Check if scale is continuous (for colorbar)
-        let is_continuous = is_continuous_scale(scale.scale_impl.as_ref());
-
-        match channel {
-            // Use colorbar for continuous color scales
-            "fill" | "stroke" | "color" if is_continuous => Some(LegendRendererKind::Colorbar),
-            // Rect marks use rect legend rendering for discrete scales and other visual properties.
-            "fill" | "stroke" | "color" | "opacity" | "stroke_width" => {
-                Some(LegendRendererKind::Rect)
-            }
-            // No legend for position channels and other non-visual channels
-            "x" | "y" | "x2" | "y2" | "width" | "height" | "defined" | "order"
-            | "corner_radius" => None,
-            // For any other channel, default to rect legend rendering.
-            _ => Some(LegendRendererKind::Rect),
-        }
     }
 }

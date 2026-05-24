@@ -321,6 +321,7 @@ mod tests {
 
     use super::*;
     use crate::{
+        chart_core::CompiledMarkCore,
         concat::{HConcat, compiled_subplot},
         facet::dimension_config::{FacetDimensionConfig, RowDimensionConfig},
         plot::Plot,

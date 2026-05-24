@@ -27,7 +27,7 @@ use crate::{
     error::AvengerChartError,
     layout::Size2D,
     marks::{
-        ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkState,
+        ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState,
         CompiledSubplotPayload, Mark, Subplot, SubplotContainerCoordinateSystem,
         compile_subplot_payload, util::coerce_numeric_channel_with_renderer,
     },
@@ -180,9 +180,7 @@ pub fn compiled_cartesian_subplot(mark: &dyn CompiledMark) -> Option<&CompiledCa
     mark.as_any().downcast_ref::<CompiledCartesianSubplot>()
 }
 
-#[typetag::serde]
-#[async_trait::async_trait]
-impl CompiledMark for CompiledCartesianSubplot {
+impl CompiledMarkCore for CompiledCartesianSubplot {
     fn state(&self) -> &CompiledMarkState {
         self.payload.compiled_state()
     }
@@ -220,6 +218,18 @@ impl CompiledMark for CompiledCartesianSubplot {
         ]
     }
 
+    fn radius_expression(
+        &self,
+        _dimension: &str,
+        _resolve_channel: &dyn Fn(&str) -> Expr,
+    ) -> Option<RadiusExpression> {
+        None
+    }
+}
+
+#[typetag::serde]
+#[async_trait::async_trait]
+impl CompiledMark for CompiledCartesianSubplot {
     async fn render_from_data(
         &self,
         _data: Option<&RecordBatch>,
@@ -302,14 +312,6 @@ impl CompiledMark for CompiledCartesianSubplot {
         }
 
         Ok(marks)
-    }
-
-    fn radius_expression(
-        &self,
-        _dimension: &str,
-        _resolve_channel: &dyn Fn(&str) -> Expr,
-    ) -> Option<RadiusExpression> {
-        None
     }
 }
 

@@ -10,34 +10,21 @@ pub mod subplot;
 pub mod symbol;
 pub mod util;
 
-use std::{any::Any, collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
-use indexmap::IndexMap;
-
-use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
 use avenger_scenegraph::marks::mark::SceneMark;
 
-use datafusion::{
-    arrow::{datatypes::DataType, record_batch::RecordBatch},
-    logical_expr::{Expr, lit},
-    scalar::ScalarValue,
-};
-use datafusion_common::ScalarValue as DatafusionScalarValue;
+use datafusion::arrow::record_batch::RecordBatch;
 
 use crate::{
-    chart_core::{
-        CoordinateSystemCore, EvaluationContext as CoreEvaluationContext, LegendRendererKind,
-        MarkRenderContext, ScaleRange, ScaleTypePreference, is_continuous_scale,
-    },
-    coords::CoordinateSystemTransformCore,
-    error::AvengerChartError,
-    render::RenderContext,
-    theme::Theme,
+    chart_core::CoordinateSystemCore, coords::CoordinateSystemTransformCore,
+    error::AvengerChartError, render::RenderContext,
 };
 
 pub use crate::cartesian::positioned_subplot::CompiledCartesianSubplot;
 pub use crate::channel::{ChannelDefault, ChannelDescriptor, ChannelValue, ConditionalValue};
-pub use crate::chart_core::{RadiusExpression, default_scale_type_for_data_type};
+pub(crate) use crate::chart_core::default_channel_value_for_eval;
+pub use crate::chart_core::{CompiledMarkCore, RadiusExpression, default_scale_type_for_data_type};
 pub use crate::concat::CompiledConcatSubplot;
 pub use compiled_data_context::CompiledDataContext;
 pub use data_context::DataContext;
@@ -47,22 +34,6 @@ pub use subplot::{
     CompiledSubplotPayload, Subplot, SubplotChildPlotSpec, SubplotContainerCoordinateSystem,
     SubplotDataSource, compile_subplot_payload,
 };
-
-/// Resolve a compiled mark's default channel value from the base evaluation context.
-///
-/// This keeps default lookup available to scale/domain/legend planning code
-/// without requiring those shared paths to manufacture a full render context.
-pub(crate) fn default_channel_value_for_eval<M: CompiledMark + ?Sized>(
-    mark: &M,
-    channel: &str,
-    eval_ctx: &CoreEvaluationContext,
-) -> Option<ScalarValue> {
-    if let Some(default) = eval_ctx.mark_default(mark.mark_type(), channel) {
-        return Some(default);
-    }
-
-    mark.mark_specific_default(channel)
-}
 
 /// Core trait for all mark types (uncompiled)
 #[async_trait::async_trait]
@@ -100,45 +71,8 @@ pub trait Mark<C: CoordinateSystemCore>: Send + Sync + 'static {
 
 #[typetag::serde(tag = "type")]
 #[async_trait::async_trait]
-pub trait CompiledMark: Any + Send + Sync {
-    /// Get the mark's state (compiled version with CompiledDataContext)
-    fn state(&self) -> &CompiledMarkState;
-
-    /// Get mutable reference to the mark's state
-    fn state_mut(&mut self) -> &mut CompiledMarkState;
-
-    /// Get the data context for this mark (for accessing encodings and serialized data)
-    fn data_context(&self) -> &CompiledDataContext;
-
-    /// Get the mark type name (e.g., "rect", "line", "symbol")
-    fn mark_type(&self) -> &str;
-
-    /// Downcast support (override where needed)
-    fn as_any(&self) -> &dyn Any {
-        panic!("as_any not implemented for this mark type")
-    }
-
-    /// Declare channels this mark supports
-    fn supported_channels(&self) -> Vec<ChannelDescriptor>;
-
-    /// Measure pass: cache intermediate data for the render pass
-    ///
-    /// This method is called during the measurement phase to cache intermediate
-    /// computation results in a MarkMeasurement for the render pass.
-    ///
-    /// The plot area dimensions are provided via `context.plot_width` and `context.plot_height`.
-    ///
-    /// # Arguments
-    /// Render the mark from prepared data batches
-    ///
-    /// # Arguments
-    /// * `data` - RecordBatch with array data (multiple rows), or None if all channels are scalar
-    /// * `scalars` - RecordBatch with scalar data (single row) for channels that don't vary per mark
-    /// * `context` - RenderContext containing theme, dimensions, and other rendering state
-    /// * `coord` - Coordinate system for position transformations
-    ///
-    /// # Returns
-    /// A vector of scene marks ready for rendering
+pub trait CompiledMark: CompiledMarkCore {
+    /// Render the mark from prepared data batches.
     async fn render_from_data(
         &self,
         data: Option<&RecordBatch>,
@@ -146,155 +80,4 @@ pub trait CompiledMark: Any + Send + Sync {
         context: &RenderContext,
         coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
-
-    /// Whether this mark type supports the order encoding channel
-    fn supports_order(&self) -> bool {
-        false
-    }
-
-    /// Whether this mark needs the full DataFrame as RecordBatch
-    ///
-    /// Most marks only need columns for their specific channels (default: false).
-    /// Container marks like facets need all columns to pass to nested marks (return: true).
-    ///
-    /// When true, the rendering system will convert the entire DataFrame to
-    /// RecordBatch instead of selecting only the mark's channel columns.
-    fn wants_full_data_batch(&self) -> bool {
-        false // Default: only select needed channels
-    }
-
-    /// Returns the default value for a channel if not explicitly mapped
-    /// First checks theme defaults, then falls back to mark-specific defaults
-    fn default_channel_value(
-        &self,
-        channel: &str,
-        context: &MarkRenderContext<'_>,
-    ) -> Option<ScalarValue> {
-        default_channel_value_for_eval(self, channel, context.eval())
-    }
-
-    /// Mark-specific default values (to be overridden by marks)
-    fn mark_specific_default(&self, _channel: &str) -> Option<ScalarValue> {
-        None
-    }
-
-    /// Returns expressions for computing the radius/padding needed for this mark
-    /// along the specified dimension.
-    ///
-    /// The `resolve_channel` function returns an expression for any channel,
-    /// including defaults if the channel is not explicitly mapped.
-    ///
-    /// # Example
-    /// For a symbol mark, this might return an expression like:
-    /// `sqrt(size) * 0.5 + stroke_width / 2`
-    fn radius_expression(
-        &self,
-        _dimension: &str,
-        _resolve_channel: &dyn Fn(&str) -> Expr,
-    ) -> Option<RadiusExpression> {
-        None
-    }
-
-    /// Get the name of the channel used for sorting this mark's data
-    ///
-    /// # Returns
-    /// * `Some(channel_name)` - The name of the channel used for sorting
-    /// * `None` - If the mark doesn't support sorting or uses default order
-    ///
-    /// # Default Implementation
-    /// Returns `Some("order")` if `supports_order()` returns true, otherwise `None`
-    fn sorting_channel(&self) -> Option<&str> {
-        // Default: use "order" channel if mark supports ordering
-        if self.supports_order() {
-            Some("order")
-        } else {
-            None
-        }
-    }
-
-    /// Get the preferred legend renderer kind for a channel
-    ///
-    /// # Arguments
-    /// * `channel` - The channel name (e.g., "fill", "size")
-    /// * `scale` - The configured scale for this channel
-    ///
-    /// # Returns
-    /// * `Some(kind)` - The preferred legend renderer kind for this channel
-    /// * `None` - If this mark doesn't want a legend for the channel
-    ///
-    /// # Note
-    /// Returning `None` means the channel does not get a legend. This is called
-    /// for individual channels before considering merged legends.
-    fn preferred_legend_renderer_kind(
-        &self,
-        _channel: &str,
-        _scale: &ConfiguredScale,
-    ) -> Option<LegendRendererKind> {
-        None
-    }
-
-    /// Get the preferred scale type for a channel based on data type
-    /// Returns None to use system defaults
-    fn preferred_scale_type(
-        &self,
-        _channel: &str,
-        data_type: &DataType,
-    ) -> Option<ScaleTypePreference> {
-        default_scale_type_for_data_type(data_type)
-    }
-
-    /// Get default scale options for a channel and scale type
-    ///
-    /// These are mark-specific preferences that override system defaults.
-    ///
-    /// # Arguments
-    /// * `channel` - The channel name
-    /// * `scale_impl` - The scale implementation
-    /// * `_data_type` - The data type of the channel
-    ///
-    /// # Returns
-    /// A map of option names to their values
-    fn default_scale_options(
-        &self,
-        channel: &str,
-        scale_impl: &dyn ScaleImpl,
-        _data_type: &DataType,
-    ) -> HashMap<String, Expr> {
-        let mut options = HashMap::new();
-
-        // Default: Color scales with continuous numeric output should use nice for better legend labels
-        if matches!(channel, "fill" | "stroke" | "color") && is_continuous_scale(scale_impl) {
-            options.insert("nice".to_string(), lit(true));
-        }
-
-        options
-    }
-
-    /// Get default range for a channel after domain has been determined
-    ///
-    /// This method is called after the scale's domain has been inferred and normalized.
-    /// Marks can use this to provide channel-specific default ranges.
-    ///
-    /// # Arguments
-    /// * `channel` - The channel name
-    /// * `scale_impl` - The scale implementation being used
-    /// * `domain` - The resolved domain type (Discrete with count or Interval)
-    /// * `data_type` - The data type of the channel
-    /// * `theme` - The current theme for accessing default values
-    /// * `params` - Runtime parameters for theme resolution
-    ///
-    /// # Returns
-    /// * `Some(range)` - A specific range to use for this channel
-    /// * `None` - Use system defaults
-    fn default_channel_range(
-        &self,
-        _channel: &str,
-        _scale_impl: &dyn ScaleImpl,
-        _domain: &crate::chart_core::ResolvedDomain,
-        _data_type: &DataType,
-        _theme: &Theme,
-        _params: &IndexMap<String, DatafusionScalarValue>,
-    ) -> Option<ScaleRange> {
-        None
-    }
 }

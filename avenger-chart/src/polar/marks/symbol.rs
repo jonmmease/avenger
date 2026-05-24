@@ -22,7 +22,7 @@ use crate::{
     error::AvengerChartError,
     impl_mark_trait_common,
     marks::{
-        CompiledDataContext, CompiledMark, CompiledMarkState, Mark,
+        CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState, Mark,
         symbol::{Symbol, symbol_channel_defaults, symbol_legend_renderer_kind},
         util::{coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer},
     },
@@ -120,10 +120,7 @@ pub struct CompiledPolarSymbol {
     pub(crate) state: CompiledMarkState,
 }
 
-// CompiledMark implementation
-#[typetag::serde]
-#[async_trait::async_trait]
-impl CompiledMark for CompiledPolarSymbol {
+impl CompiledMarkCore for CompiledPolarSymbol {
     fn state(&self) -> &CompiledMarkState {
         &self.state
     }
@@ -195,6 +192,104 @@ impl CompiledMark for CompiledPolarSymbol {
         ]
     }
 
+    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
+        symbol_channel_defaults(channel)
+    }
+
+    fn radius_expression(
+        &self,
+        dimension: &str,
+        _resolve_channel: &dyn Fn(&str) -> Expr,
+    ) -> Option<RadiusExpression> {
+        // For polar coordinates, we don't use radius-aware padding
+        // The r and theta channels already account for the polar nature of the plot
+        match dimension {
+            "r" | "theta" => None,
+            _ => None,
+        }
+    }
+
+    fn preferred_legend_renderer_kind(
+        &self,
+        channel: &str,
+        scale: &ConfiguredScale,
+    ) -> Option<LegendRendererKind> {
+        // Use the same logic as the Symbol mark
+        symbol_legend_renderer_kind(channel, scale, &["r", "theta"])
+    }
+
+    fn preferred_scale_type(
+        &self,
+        channel: &str,
+        data_type: &ArrowDataType,
+    ) -> Option<ScaleTypePreference> {
+        match (channel, data_type) {
+            // Symbol marks use point scales for categorical position data
+            (
+                "r" | "theta",
+                ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 | ArrowDataType::Utf8View,
+            ) => Some(ScaleTypePreference::Point),
+            // Size uses sqrt scale for numeric data (better for area perception)
+            (
+                "size",
+                ArrowDataType::Float32
+                | ArrowDataType::Float64
+                | ArrowDataType::Int8
+                | ArrowDataType::Int16
+                | ArrowDataType::Int32
+                | ArrowDataType::Int64
+                | ArrowDataType::UInt8
+                | ArrowDataType::UInt16
+                | ArrowDataType::UInt32
+                | ArrowDataType::UInt64,
+            ) => {
+                // Use Sqrt scale for better area perception
+                Some(ScaleTypePreference::Sqrt)
+            }
+            // Size uses ordinal for categorical data
+            ("size", ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 | ArrowDataType::Utf8View) => {
+                Some(ScaleTypePreference::Ordinal)
+            }
+            // Color and shape channels use ordinal scales for categorical data
+            (
+                "fill" | "stroke" | "color" | "shape",
+                ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 | ArrowDataType::Utf8View,
+            ) => Some(ScaleTypePreference::Ordinal),
+            // Stroke width uses ordinal scale only for categorical data
+            (
+                "stroke_width",
+                ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 | ArrowDataType::Utf8View,
+            ) => Some(ScaleTypePreference::Ordinal),
+            // Fall back to data type-based inference for other channels
+            _ => default_scale_type_for_data_type(data_type),
+        }
+    }
+
+    fn default_scale_options(
+        &self,
+        channel: &str,
+        scale_impl: &dyn ScaleImpl,
+        _data_type: &ArrowDataType,
+    ) -> HashMap<String, Expr> {
+        let mut options = HashMap::new();
+
+        // Configure PowScale as Sqrt scale for size channel
+        if channel == "size" && scale_impl.scale_type() == "pow" {
+            options.insert("exponent".to_string(), lit(0.5f32));
+        }
+
+        // For color channels, use the parent implementation
+        if matches!(channel, "fill" | "stroke" | "color") && is_continuous_scale(scale_impl) {
+            options.insert("nice".to_string(), lit(true));
+        }
+
+        options
+    }
+}
+
+#[typetag::serde]
+#[async_trait::async_trait]
+impl CompiledMark for CompiledPolarSymbol {
     async fn render_from_data(
         &self,
         data: Option<&RecordBatch>,
@@ -318,99 +413,5 @@ impl CompiledMark for CompiledPolarSymbol {
         };
 
         Ok(vec![SceneMark::Symbol(symbol_mark)])
-    }
-
-    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
-        symbol_channel_defaults(channel)
-    }
-
-    fn radius_expression(
-        &self,
-        dimension: &str,
-        _resolve_channel: &dyn Fn(&str) -> Expr,
-    ) -> Option<RadiusExpression> {
-        // For polar coordinates, we don't use radius-aware padding
-        // The r and theta channels already account for the polar nature of the plot
-        match dimension {
-            "r" | "theta" => None,
-            _ => None,
-        }
-    }
-
-    fn preferred_legend_renderer_kind(
-        &self,
-        channel: &str,
-        scale: &ConfiguredScale,
-    ) -> Option<LegendRendererKind> {
-        // Use the same logic as the Symbol mark
-        symbol_legend_renderer_kind(channel, scale, &["r", "theta"])
-    }
-
-    fn preferred_scale_type(
-        &self,
-        channel: &str,
-        data_type: &ArrowDataType,
-    ) -> Option<ScaleTypePreference> {
-        match (channel, data_type) {
-            // Symbol marks use point scales for categorical position data
-            (
-                "r" | "theta",
-                ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 | ArrowDataType::Utf8View,
-            ) => Some(ScaleTypePreference::Point),
-            // Size uses sqrt scale for numeric data (better for area perception)
-            (
-                "size",
-                ArrowDataType::Float32
-                | ArrowDataType::Float64
-                | ArrowDataType::Int8
-                | ArrowDataType::Int16
-                | ArrowDataType::Int32
-                | ArrowDataType::Int64
-                | ArrowDataType::UInt8
-                | ArrowDataType::UInt16
-                | ArrowDataType::UInt32
-                | ArrowDataType::UInt64,
-            ) => {
-                // Use Sqrt scale for better area perception
-                Some(ScaleTypePreference::Sqrt)
-            }
-            // Size uses ordinal for categorical data
-            ("size", ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 | ArrowDataType::Utf8View) => {
-                Some(ScaleTypePreference::Ordinal)
-            }
-            // Color and shape channels use ordinal scales for categorical data
-            (
-                "fill" | "stroke" | "color" | "shape",
-                ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 | ArrowDataType::Utf8View,
-            ) => Some(ScaleTypePreference::Ordinal),
-            // Stroke width uses ordinal scale only for categorical data
-            (
-                "stroke_width",
-                ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 | ArrowDataType::Utf8View,
-            ) => Some(ScaleTypePreference::Ordinal),
-            // Fall back to data type-based inference for other channels
-            _ => default_scale_type_for_data_type(data_type),
-        }
-    }
-
-    fn default_scale_options(
-        &self,
-        channel: &str,
-        scale_impl: &dyn ScaleImpl,
-        _data_type: &ArrowDataType,
-    ) -> HashMap<String, Expr> {
-        let mut options = HashMap::new();
-
-        // Configure PowScale as Sqrt scale for size channel
-        if channel == "size" && scale_impl.scale_type() == "pow" {
-            options.insert("exponent".to_string(), lit(0.5f32));
-        }
-
-        // For color channels, use the parent implementation
-        if matches!(channel, "fill" | "stroke" | "color") && is_continuous_scale(scale_impl) {
-            options.insert("nice".to_string(), lit(true));
-        }
-
-        options
     }
 }
