@@ -1,17 +1,19 @@
 //! Title and subtitle configuration for plots
 
+use datafusion::prelude::{Expr, lit};
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 use crate::{
+    chart_core::{
+        IntoExpr,
+        maybe::{Maybe, MaybeOptionalExpr},
+    },
     coords::CoordinateSystem,
-    maybe::{Maybe, MaybeOptionalExpr},
     plot::Plot,
     serialization::{LogicalExprNodeExt, SerializableExpr},
 };
-
-use super::plot::IntoExpr;
 
 /// Controls the width that the title/subtitle spans
 #[derive(Clone, Debug, Copy, PartialEq, Default, Serialize, Deserialize)]
@@ -160,6 +162,18 @@ impl TitleAlign {
             TitleAlign::Center => "center",
             TitleAlign::Right => "right",
         }
+    }
+}
+
+impl IntoExpr for TitleSpan {
+    fn into_expr(self) -> Expr {
+        lit(self.to_str())
+    }
+}
+
+impl IntoExpr for TitleAlign {
+    fn into_expr(self) -> Expr {
+        lit(self.to_str())
     }
 }
 

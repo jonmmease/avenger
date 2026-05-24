@@ -1,25 +1,19 @@
-//! Color space support for CSS color functions
-//!
-//! This module provides color space conversions and color mixing functionality
-//! needed for advanced CSS color functions like `color-mix()`, `oklch()`, etc.
-//!
-//! ## Architecture
-//!
-//! - `types.rs`: Core color types (AbsoluteColor, ColorSpace)
-//! - `convert.rs`: Color space conversion functions
-//! - `mix.rs`: Color mixing/interpolation
-//! - `contrast.rs`: WCAG 2.1 contrast ratio calculations
+//! Compatibility re-exports for color utilities.
 
-pub mod contrast;
-pub mod convert;
-pub mod mix;
-pub mod types;
+pub mod contrast {
+    pub use avenger_chart_core::color::contrast::*;
+}
 
-pub use self::{
-    contrast::{
-        choose_best_contrast, choose_contrast_color, contrast_ratio, relative_luminance_srgb,
-    },
-    convert::{normalize_hue, orthogonal_to_polar, polar_to_orthogonal},
-    mix::{HueInterpolationMethod, mix_colors},
-    types::{AbsoluteColor, ColorSpace},
-};
+pub mod convert {
+    pub use avenger_chart_core::color::convert::*;
+}
+
+pub mod mix {
+    pub use avenger_chart_core::color::mix::*;
+}
+
+pub mod types {
+    pub use avenger_chart_core::color::types::*;
+}
+
+pub use avenger_chart_core::color::*;

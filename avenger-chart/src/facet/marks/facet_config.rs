@@ -1,4 +1,4 @@
-use crate::channel::config_traits::ScaleSharing;
+use crate::chart_core::ScaleSharing;
 use crate::facet::empty_cell_policy::FacetEmptyCellPolicy;
 
 #[derive(Clone, Default)]

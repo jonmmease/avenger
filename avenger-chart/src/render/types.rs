@@ -7,9 +7,9 @@ use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::scene_graph::SceneGraph;
 
 use crate::{
+    chart_core::LegendPosition,
     guide::OverflowSpaceRequirement,
     layout::{FrameLayout, LayoutBounds, LegendLayoutInfo, Size2D},
-    legend::LegendPosition,
 };
 
 /// Selects which layout snapshot to render during evaluation.

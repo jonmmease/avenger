@@ -8,9 +8,8 @@
 use datafusion::common::ScalarValue;
 
 use crate::{
-    cartesian::axis::AxisPosition,
-    guide::FacetDirection,
-    legend::LegendPosition,
+    chart_core::{AxisPosition, LegendPosition},
+    facet::FacetDirection,
     plot::compiled::{
         ContainerEdgeLevelProjection, CoordinationAxis, CoordinationKind, EdgeOwnershipRequest,
         EdgeOwnershipScope, SharingGroupEdge, SharingLevel, edge_ownership_scope_for_request,

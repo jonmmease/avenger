@@ -1,50 +1,7 @@
-//! Parameter support for parameterized plots
+//! Compatibility re-export for parameter support.
+//!
+//! The implementation now lives under `chart_core` as part of the crate-split
+//! migration. Keep this module behavior-free so existing public paths continue
+//! to work while internal imports move to the new owner.
 
-use std::fmt::Debug;
-
-use datafusion::{logical_expr::expr::Placeholder, prelude::Expr, scalar::ScalarValue};
-
-/// A parameter that can be used in plot expressions
-#[derive(Debug, Clone)]
-pub struct Param {
-    /// The name of the parameter
-    pub name: String,
-    /// The default value of the parameter
-    pub default: ScalarValue,
-}
-
-impl Param {
-    /// Create a new parameter with a name and default value
-    pub fn new<S: Into<String>, T: Into<ScalarValue>>(name: S, default: T) -> Self {
-        Self {
-            name: name.into(),
-            default: default.into(),
-        }
-    }
-
-    /// Get a DataFusion expression for this parameter as a placeholder
-    pub fn expr(&self) -> Expr {
-        Expr::Placeholder(Placeholder {
-            id: format!("${}", self.name),
-            data_type: Some(self.default.data_type()),
-        })
-    }
-}
-
-impl From<(String, ScalarValue)> for Param {
-    fn from(param: (String, ScalarValue)) -> Self {
-        Param::new(param.0, param.1)
-    }
-}
-
-impl From<Param> for Expr {
-    fn from(param: Param) -> Self {
-        param.expr()
-    }
-}
-
-impl From<&Param> for Expr {
-    fn from(param: &Param) -> Self {
-        param.expr()
-    }
-}
+pub use crate::chart_core::param::*;

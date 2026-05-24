@@ -6,45 +6,26 @@ use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::Clip, mark::SceneMark};
 use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
 use indexmap::IndexMap;
-use serde::{Deserialize, Serialize};
 
 use crate::{
-    axis::Axis,
-    cartesian::axis::AxisPosition,
+    chart_core::{Axis, AxisPosition},
     container::ChildFrameSharingPath,
     coords::CoordMeasurement,
     error::AvengerChartError,
-    facet::evaluated_facet_tree::EvaluatedFacetTree,
+    facet::evaluated_facet_tree::{AxisOwnershipMode, AxisVisibility, EvaluatedFacetTree},
     guide::{MeasurementResult, OverflowSpaceRequirement},
     layout::LayoutBounds,
     marks::CompiledMark,
+    plot::compiled::{CoordinationAxis, SharingLevel},
     theme::Theme,
 };
-
-/// Direction of faceting for determining which channel can be unified
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FacetDirection {
-    /// Vertical stacking (row faceting) - can potentially unify y-axis
-    Row,
-    /// Horizontal arrangement (column faceting) - can potentially unify x-axis
-    Column,
-}
-
-/// Information about which channel can be unified in faceting
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UnifiableChannelInfo {
-    /// The channel name (e.g., "y", "x", "r")
-    pub channel: String,
-    /// The title to use for the unified axis (extracted from marks)
-    pub title: Option<String>,
-}
 
 /// Sharing context available while measuring or rendering coordinate guides.
 #[derive(Clone, Copy)]
 pub struct GuideSharingContext<'a> {
-    pub(crate) facet_tree: &'a EvaluatedFacetTree,
-    pub(crate) facet_path: &'a [ScalarValue],
-    pub(crate) child_frame_sharing_path: &'a ChildFrameSharingPath,
+    facet_tree: &'a EvaluatedFacetTree,
+    facet_path: &'a [ScalarValue],
+    child_frame_sharing_path: &'a ChildFrameSharingPath,
 }
 
 impl<'a> GuideSharingContext<'a> {
@@ -58,6 +39,65 @@ impl<'a> GuideSharingContext<'a> {
             facet_path,
             child_frame_sharing_path,
         }
+    }
+
+    pub fn facet_path(&self) -> &'a [ScalarValue] {
+        self.facet_path
+    }
+
+    pub fn is_root_facet_path(&self) -> bool {
+        self.facet_path.is_empty()
+    }
+
+    pub fn child_frame_position_indices(&self) -> Vec<usize> {
+        self.child_frame_sharing_path.position_indices()
+    }
+
+    pub fn child_frame_level_counts(&self) -> Vec<usize> {
+        self.child_frame_sharing_path.level_counts()
+    }
+
+    pub(crate) fn child_frame_level_axes(&self) -> Vec<CoordinationAxis> {
+        self.child_frame_sharing_path.level_axes()
+    }
+
+    pub(crate) fn child_frame_relevant_depth(&self, axis: CoordinationAxis) -> usize {
+        self.child_frame_sharing_path
+            .levels()
+            .iter()
+            .filter(|level| level.axis == axis)
+            .count()
+    }
+
+    pub(crate) fn child_frame_sharing_path(&self) -> &'a ChildFrameSharingPath {
+        self.child_frame_sharing_path
+    }
+
+    pub(crate) fn facet_tree(&self) -> &'a EvaluatedFacetTree {
+        self.facet_tree
+    }
+
+    pub(crate) fn channel_axis_visibility_for_path_checked_with_mode(
+        &self,
+        axis_position: AxisPosition,
+        sharing_level: u8,
+        ownership_mode: AxisOwnershipMode,
+    ) -> Option<AxisVisibility> {
+        self.facet_tree
+            .channel_axis_visibility_for_path_checked_with_mode(
+                self.facet_path,
+                axis_position,
+                sharing_level,
+                ownership_mode,
+            )
+    }
+
+    pub(crate) fn facet_is_jagged_for_axis(&self, axis_position: AxisPosition) -> bool {
+        self.facet_tree.is_jagged_for_axis(axis_position)
+    }
+
+    pub(crate) fn channel_domain_sharing_level(&self, channel: &str) -> SharingLevel {
+        self.facet_tree.channel_domain_sharing_level_typed(channel)
     }
 }
 
@@ -271,17 +311,6 @@ pub trait CompiledGuide: Send + Sync + 'static {
         plot_height: f32,
         scales: &HashMap<String, ConfiguredScale>,
     ) -> Clip;
-
-    /// Determine which channel axis can be unified when this subplot is used in faceting.
-    fn facet_unifiable_channel(
-        &self,
-        _facet_direction: FacetDirection,
-        _marks: &[Arc<dyn CompiledMark>],
-        _session_context: &SessionContext,
-    ) -> Option<UnifiableChannelInfo> {
-        // Default: no unification
-        None
-    }
 
     /// Query the position of an axis by channel name
     fn axis_position(&self, _channel: &str) -> Option<AxisPosition> {

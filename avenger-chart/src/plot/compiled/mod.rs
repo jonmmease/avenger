@@ -29,6 +29,7 @@ use serde_with::{FromInto, serde_as};
 
 use crate::{
     channel::value::strip_trailing_numbers,
+    chart_core::EvaluationContext as CoreEvaluationContext,
     coords::CoordinateSystemTransform,
     error::AvengerChartError,
     guide::CompiledGuide,
@@ -205,13 +206,14 @@ impl CompiledPlot {
         }
 
         let theme = self.get_theme();
+        let default_range_resolver = crate::scales::default_range_for_compiled_marks(&self.marks);
         let built = builder
             .build_scales(
                 plot_area_width,
                 plot_area_height,
                 &coord_system_range_bindings,
                 &self.scale_specs,
-                &self.marks,
+                &default_range_resolver,
                 theme.as_ref(),
                 ctx,
                 params,
@@ -240,14 +242,15 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
     ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
+        let eval_ctx =
+            CoreEvaluationContext::new(self.get_theme(), Arc::new(ctx.clone()), params.clone());
         let scale_builder = scales::build_scale_builder_from_marks(
             &self.marks,
             &self.scale_specs,
             &self.coord_transform,
             &self.data,
             Some(df.clone()),
-            ctx,
-            params,
+            &eval_ctx,
             self.get_theme().as_ref(),
         )
         .await?;

@@ -12,8 +12,14 @@ use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
+pub use crate::chart_core::AxisPosition;
+
 use crate::{
-    axis::Axis,
+    chart_core::maybe::{Maybe, MaybeOptionalExpr},
+    chart_core::{
+        Axis, IntoExpr, evaluate_axis_position_expr, evaluate_bool_expr, evaluate_f32_expr,
+        evaluate_string_expr,
+    },
     error::AvengerChartError,
     facet::{
         evaluated_facet_tree::{AxisOwnershipMode, AxisVisibility},
@@ -21,18 +27,10 @@ use crate::{
     },
     guide::GuideSharingContext,
     layout::LayoutBounds,
-    maybe::{Maybe, MaybeOptionalExpr},
-    plot::{
-        IntoExpr,
-        compiled::expr_eval::{
-            evaluate_axis_position_expr, evaluate_bool_expr, evaluate_f32_expr,
-            evaluate_string_expr,
-        },
-        compiled::{
-            CoordinationAxis, CoordinationKind, EdgeOwnershipRequest, EdgeOwnershipScope,
-            SharingGroupEdge, SharingLevel, edge_ownership_scope_for_request, owner_for_scope,
-            project_container_edge_levels,
-        },
+    plot::compiled::{
+        CoordinationAxis, CoordinationKind, EdgeOwnershipRequest, EdgeOwnershipScope,
+        SharingGroupEdge, SharingLevel, edge_ownership_scope_for_request, owner_for_scope,
+        project_container_edge_levels,
     },
     render::context::{
         AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM,
@@ -92,9 +90,9 @@ fn child_frame_axis_ownership_scope(
         return None;
     }
 
-    let position_indices = sharing_context.child_frame_sharing_path.position_indices();
-    let level_counts = sharing_context.child_frame_sharing_path.level_counts();
-    let level_axes = sharing_context.child_frame_sharing_path.level_axes();
+    let position_indices = sharing_context.child_frame_position_indices();
+    let level_counts = sharing_context.child_frame_level_counts();
+    let level_axes = sharing_context.child_frame_level_axes();
     let projection = project_container_edge_levels(
         &position_indices,
         &level_counts,
@@ -129,12 +127,7 @@ fn child_frame_axis_title_scope(
     }
 
     let relevant_axis = child_frame_axis_for_position(axis_position);
-    let relevant_depth = sharing_context
-        .child_frame_sharing_path
-        .levels()
-        .iter()
-        .filter(|level| level.axis == relevant_axis)
-        .count();
+    let relevant_depth = sharing_context.child_frame_relevant_depth(relevant_axis);
     if relevant_depth == 0 {
         return None;
     }
@@ -146,15 +139,6 @@ fn child_frame_axis_title_scope(
         axis_position,
         SharingLevel::from_raw(relevant_depth as u8),
     )
-}
-
-/// Position for Cartesian axes
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum AxisPosition {
-    Top,
-    Right,
-    Bottom,
-    Left,
 }
 
 /// Concrete struct for Cartesian axes
@@ -430,13 +414,11 @@ impl CartesianAxis {
             })
             .unwrap_or(false);
         let ownership_mode = axis_ownership_mode_from_params(params);
-        let facet_visibility = if sharing_context.facet_path.is_empty() {
+        let facet_visibility = if sharing_context.is_root_facet_path() {
             AxisVisibility::visible()
         } else {
             sharing_context
-                .facet_tree
                 .channel_axis_visibility_for_path_checked_with_mode(
-                    sharing_context.facet_path,
                     position,
                     facet_sharing_level.raw(),
                     ownership_mode,
@@ -452,9 +434,9 @@ impl CartesianAxis {
 
         // Jagged grids can leave some interior subplots without edge labels.
         // Keep sharing-based ownership for titles, but force labels visible.
-        let jagged_labels_override = !sharing_context.facet_path.is_empty()
+        let jagged_labels_override = !sharing_context.is_root_facet_path()
             && !facet_sharing_level.is_free()
-            && sharing_context.facet_tree.is_jagged_for_axis(position);
+            && sharing_context.facet_is_jagged_for_axis(position);
 
         let child_frame_labels_visible = owner_for_scope(child_frame_axis_ownership_scope(
             ChildFrameAxisOwnershipRole::Labels,

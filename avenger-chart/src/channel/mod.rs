@@ -19,11 +19,12 @@ pub(crate) mod resolution;
 pub mod value;
 
 // Re-export main types
-pub use self::config_traits::{ChannelConfig, LegendableChannel};
 pub use self::configs::{
     AngleChannelConfig, ColorChannelConfig, OpacityChannelConfig, ShapeChannelConfig,
     SizeChannelConfig, StrokeDashChannelConfig, StrokeWidthChannelConfig,
 };
 pub use self::descriptor::{ChannelDefault, ChannelDescriptor};
-pub use self::position::{GenericPositionConfig, PositionConfig};
+pub use self::position::GenericPositionConfig;
 pub use self::value::{BaseChannelName, ChannelValue, ConditionalValue};
+pub use crate::chart_core::{ChannelConfig, PositionConfig};
+pub use crate::legend::LegendableChannel;

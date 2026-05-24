@@ -2,6 +2,7 @@
 
 use crate::visual_tests::datasets::simple_categories;
 use crate::visual_tests::helpers::{VisualTestConfig, compare_images, get_baseline_path};
+use avenger_chart::cartesian::CartesianSymbolPositionChannels;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
 use avenger_common::canvas::CanvasDimensions;

@@ -12,12 +12,11 @@ use taffy::{
 use tracing::debug;
 
 use crate::{
-    cartesian::axis::AxisPosition,
+    chart_core::maybe::Maybe,
+    chart_core::{AxisPosition, LegendPosition, evaluate_string_expr},
     error::AvengerChartError,
     guide::OverflowSpaceRequirement,
-    legend::LegendPosition,
-    maybe::Maybe,
-    plot::{PlotSubtitle, PlotTitle, TitleSpan, compiled::expr_eval::evaluate_string_expr},
+    plot::{PlotSubtitle, PlotTitle, TitleSpan},
     render::{LayoutSolution, LegendMeasurements},
     serialization::LogicalExprNodeExt,
     theme::{Theme, ThemeContext},

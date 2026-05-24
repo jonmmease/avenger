@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use datafusion::{common::ScalarValue, dataframe::DataFrame};
 
 use crate::{
+    chart_core::EvaluationContext as CoreEvaluationContext,
     error::AvengerChartError,
     layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
     render::EvaluationContext,
@@ -77,7 +78,7 @@ impl ChildFrameRuntime {
         plot: &'a CompiledPlot,
         data_selection: ChildFrameDataSelection,
         inherited_data: Option<&DataFrame>,
-        eval_ctx: &EvaluationContext,
+        eval_ctx: &CoreEvaluationContext,
     ) -> Result<PreparedChildFramePlot<'a>, AvengerChartError> {
         let data_override = match data_selection {
             ChildFrameDataSelection::ExplicitChild => None,
@@ -89,8 +90,7 @@ impl ChildFrameRuntime {
             &plot.coord_transform,
             &plot.data,
             data_override.clone(),
-            eval_ctx.session_context.as_ref(),
-            &eval_ctx.params,
+            eval_ctx,
             plot.get_theme().as_ref(),
         )
         .await?;

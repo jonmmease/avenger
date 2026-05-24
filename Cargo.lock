@@ -516,6 +516,10 @@ dependencies = [
  "arrow",
  "async-trait",
  "avenger-app",
+ "avenger-chart-core",
+ "avenger-chart-legend",
+ "avenger-chart-marks",
+ "avenger-chart-scales",
  "avenger-common",
  "avenger-eventstream",
  "avenger-geometry",
@@ -526,7 +530,6 @@ dependencies = [
  "avenger-wgpu",
  "base64",
  "bincode",
- "cssparser",
  "datafusion",
  "datafusion-common",
  "datafusion-proto",
@@ -542,13 +545,10 @@ dependencies = [
  "palette",
  "paste",
  "postcard",
- "precomputed-hash",
  "prost",
- "selectors",
  "serde",
  "serde_json",
  "serde_with",
- "strsim",
  "taffy",
  "thiserror 2.0.12",
  "tokio",
@@ -558,11 +558,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-chart-core"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "avenger-common",
+ "avenger-guides",
+ "avenger-scales",
+ "avenger-scenegraph",
+ "avenger-text",
+ "base64",
+ "bincode",
+ "cssparser",
+ "datafusion",
+ "datafusion-common",
+ "datafusion-proto",
+ "datafusion-proto-common",
+ "indexmap 2.9.0",
+ "palette",
+ "paste",
+ "precomputed-hash",
+ "prost",
+ "selectors",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "strsim",
+ "taffy",
+ "thiserror 2.0.12",
+ "tracing",
+ "typetag",
+]
+
+[[package]]
 name = "avenger-chart-external-test"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "avenger-chart",
+ "avenger-chart-core",
+ "avenger-chart-legend",
+ "avenger-chart-scales",
  "avenger-common",
  "avenger-guides",
  "avenger-scales",
@@ -573,6 +609,41 @@ dependencies = [
  "serde",
  "tokio",
  "typetag",
+]
+
+[[package]]
+name = "avenger-chart-legend"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "avenger-chart-core",
+ "avenger-chart-scales",
+ "avenger-common",
+ "avenger-geometry",
+ "avenger-guides",
+ "avenger-scales",
+ "avenger-scenegraph",
+ "avenger-text",
+ "datafusion",
+ "indexmap 2.9.0",
+ "serde",
+ "serde_with",
+ "tracing",
+ "typetag",
+]
+
+[[package]]
+name = "avenger-chart-marks"
+version = "0.1.0"
+dependencies = [
+ "avenger-chart-core",
+ "avenger-scales",
+ "datafusion",
+ "datafusion-common",
+ "datafusion-proto",
+ "indexmap 2.9.0",
+ "serde",
+ "serde_with",
 ]
 
 [[package]]
@@ -591,6 +662,28 @@ dependencies = [
  "pathdiff",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "avenger-chart-scales"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-chart-core",
+ "avenger-common",
+ "avenger-scales",
+ "datafusion",
+ "datafusion-common",
+ "datafusion-proto",
+ "futures",
+ "indexmap 2.9.0",
+ "palette",
+ "postcard",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

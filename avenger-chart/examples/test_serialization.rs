@@ -1,5 +1,6 @@
 //! Test serialization of CompiledPlot
 
+use avenger_chart::cartesian::CartesianRectPositionChannels;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::{CompiledPlot, Plot};
 use datafusion::prelude::*;

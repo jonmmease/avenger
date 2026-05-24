@@ -4,20 +4,23 @@ use std::{marker::PhantomData, sync::Arc};
 
 use avenger_chart::{
     cartesian::Cartesian,
-    channel::ChannelDescriptor,
-    coords::{CoordinateSystem, CoordinateSystemTransform},
-    define_common_mark_channels, define_position_channels,
+    coords::CoordinateSystemTransform,
+    define_position_channels,
     error::AvengerChartError,
-    impl_mark_base, impl_mark_trait_common,
-    marks::{CompiledDataContext, CompiledMark, CompiledMarkState, Mark, MarkState},
+    impl_mark_trait_common,
+    marks::{CompiledMark, Mark},
     render::RenderContext,
+};
+use avenger_chart_core::{
+    define_common_mark_channels, impl_mark_base, ChannelDescriptor, CompiledDataContext,
+    CompiledMarkState, MarkState,
 };
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::{arrow::record_batch::RecordBatch, scalar::ScalarValue};
 use serde::{Deserialize, Serialize};
 
 /// A custom hexbin mark defined in an external crate
-pub struct HexBin<C: CoordinateSystem> {
+pub struct HexBin<C> {
     pub(crate) state: MarkState,
     pub(crate) _phantom: PhantomData<C>,
 }

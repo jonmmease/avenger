@@ -36,43 +36,56 @@ async fn test_symbol_default_channel_values() {
     let render_state =
         avenger_chart::render::RenderState::new(500.0, 400.0, std::collections::HashMap::new());
     let context = RenderContext::new(&eval_ctx, &render_state, &[], &EmptyCoordMeasurement);
+    let mark_context = context.core_view();
 
     // Build the CompiledMark
     let renderer = symbol.compile_untransformed(&ctx).await.unwrap();
 
     // Test default channel values
     assert_eq!(
-        renderer.default_channel_value("size", &context).unwrap(),
+        renderer
+            .default_channel_value("size", &mark_context)
+            .unwrap(),
         ScalarValue::Float32(Some(72.0))
     );
     assert_eq!(
-        renderer.default_channel_value("shape", &context).unwrap(),
+        renderer
+            .default_channel_value("shape", &mark_context)
+            .unwrap(),
         ScalarValue::Utf8(Some("circle".to_string()))
     );
     assert_eq!(
-        renderer.default_channel_value("angle", &context).unwrap(),
+        renderer
+            .default_channel_value("angle", &mark_context)
+            .unwrap(),
         ScalarValue::Float32(Some(0.0))
     );
     // Fill has a hardcoded default of steelblue (#4682b4)
     assert_eq!(
-        renderer.default_channel_value("fill", &context).unwrap(),
+        renderer
+            .default_channel_value("fill", &mark_context)
+            .unwrap(),
         ScalarValue::Utf8(Some("#4682b4".to_string()))
     );
 
     // Stroke is var(--bg-color) which is white in light mode
     assert_eq!(
-        renderer.default_channel_value("stroke", &context).unwrap(),
+        renderer
+            .default_channel_value("stroke", &mark_context)
+            .unwrap(),
         ScalarValue::Utf8(Some("#ffffff".to_string()))
     );
     assert_eq!(
-        renderer.default_channel_value("opacity", &context).unwrap(),
+        renderer
+            .default_channel_value("opacity", &mark_context)
+            .unwrap(),
         ScalarValue::Float32(Some(1.0))
     );
 
     // Test unknown channel returns None
     assert!(
         renderer
-            .default_channel_value("unknown", &context)
+            .default_channel_value("unknown", &mark_context)
             .is_none()
     );
 }

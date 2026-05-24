@@ -90,8 +90,12 @@ pub(crate) fn extract_channel_configs<C: CoordinateSystem>(
                         ScaleSpec::Local(existing_scale) => {
                             // Compose the two scale configurations using update()
                             // Apply existing config first, then the new config
-                            let updated_scale = existing_scale.update(config);
-                            occupied.insert(ScaleSpec::Local(updated_scale));
+                            let updated_scale =
+                                crate::scales::Scale::<crate::scales::Auto>::from_config(
+                                    existing_scale.clone(),
+                                )
+                                .update(crate::scales::Scale::from_config(config));
+                            occupied.insert(ScaleSpec::Local(updated_scale.into_config()));
                         }
                     }
                 }

@@ -13,8 +13,6 @@ pub mod util;
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 use indexmap::IndexMap;
-use serde::{Deserialize, Serialize};
-use serde_with::{FromInto, serde_as};
 
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -25,47 +23,45 @@ use datafusion::{
     scalar::ScalarValue,
 };
 use datafusion_common::ScalarValue as DatafusionScalarValue;
-use datafusion_proto::protobuf::LogicalExprNode;
 
 use crate::{
+    chart_core::{
+        EvaluationContext as CoreEvaluationContext, LegendRendererKind, MarkRenderContext,
+        ScaleRange, ScaleTypePreference, is_continuous_scale,
+    },
     coords::{CoordinateSystem, CoordinateSystemTransform},
     error::AvengerChartError,
-    legend::LegendRenderer,
     render::RenderContext,
-    scales::{ScaleRange, ScaleSpec},
-    serialization::SerializableExpr,
     theme::Theme,
 };
 
+pub use crate::cartesian::positioned_subplot::CompiledCartesianSubplot;
 pub use crate::channel::{ChannelDefault, ChannelDescriptor, ChannelValue, ConditionalValue};
+pub use crate::chart_core::{RadiusExpression, default_scale_type_for_data_type};
+pub use crate::concat::CompiledConcatSubplot;
 pub use compiled_data_context::CompiledDataContext;
 pub use data_context::DataContext;
 pub use facet_strategy::FacetStrategy;
 pub use state::{CompiledMarkState, MarkState};
 pub use subplot::{
-    CompiledCartesianSubplot, CompiledConcatSubplot, CompiledSubplotPayload, Subplot,
-    SubplotContainerCoordinateSystem, SubplotDataSource, compile_subplot_payload,
+    CompiledSubplotPayload, Subplot, SubplotChildPlotSpec, SubplotContainerCoordinateSystem,
+    SubplotDataSource, compile_subplot_payload,
 };
-pub use util::default_scale_for_data_type;
 
-/// Expression for computing radius/padding requirements for marks
+/// Resolve a compiled mark's default channel value from the base evaluation context.
 ///
-/// Used to determine how much space a mark needs beyond its base position,
-/// accounting for visual properties like size, stroke width, etc.
-#[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum RadiusExpression {
-    /// Same radius in all directions (e.g., circular symbols)
-    Symmetric(#[serde_as(as = "FromInto<SerializableExpr>")] LogicalExprNode),
-    /// Different radius for negative and positive directions (e.g., bars extending from baseline)
-    Asymmetric {
-        /// Radius in the negative direction
-        #[serde_as(as = "FromInto<SerializableExpr>")]
-        lower: LogicalExprNode,
-        /// Radius in the positive direction
-        #[serde_as(as = "FromInto<SerializableExpr>")]
-        upper: LogicalExprNode,
-    },
+/// This keeps default lookup available to scale/domain/legend planning code
+/// without requiring those shared paths to manufacture a full render context.
+pub(crate) fn default_channel_value_for_eval<M: CompiledMark + ?Sized>(
+    mark: &M,
+    channel: &str,
+    eval_ctx: &CoreEvaluationContext,
+) -> Option<ScalarValue> {
+    if let Some(default) = eval_ctx.mark_default(mark.mark_type(), channel) {
+        return Some(default);
+    }
+
+    mark.mark_specific_default(channel)
 }
 
 /// Core trait for all mark types (uncompiled)
@@ -172,19 +168,9 @@ pub trait CompiledMark: Any + Send + Sync {
     fn default_channel_value(
         &self,
         channel: &str,
-        context: &RenderContext<'_>,
+        context: &MarkRenderContext<'_>,
     ) -> Option<ScalarValue> {
-        // Check theme defaults first
-        let mark_type = self.mark_type();
-
-        if let Some(default) = context
-            .theme()
-            .mark_default(mark_type, channel, context.params())
-        {
-            return Some(default);
-        }
-
-        self.mark_specific_default(channel)
+        default_channel_value_for_eval(self, channel, context.eval())
     }
 
     /// Mark-specific default values (to be overridden by marks)
@@ -226,62 +212,25 @@ pub trait CompiledMark: Any + Send + Sync {
         }
     }
 
-    /// Get the preferred legend renderer for a channel
+    /// Get the preferred legend renderer kind for a channel
     ///
     /// # Arguments
     /// * `channel` - The channel name (e.g., "fill", "size")
     /// * `scale` - The configured scale for this channel
     ///
     /// # Returns
-    /// * `Some(renderer)` - The preferred legend renderer for this channel
+    /// * `Some(kind)` - The preferred legend renderer kind for this channel
     /// * `None` - If this mark doesn't want a legend for the channel
     ///
     /// # Note
     /// Returning `None` means the channel does not get a legend. This is called
     /// for individual channels before considering merged legends.
-    fn preferred_legend_renderer(
+    fn preferred_legend_renderer_kind(
         &self,
         _channel: &str,
         _scale: &ConfiguredScale,
-    ) -> Option<Arc<dyn LegendRenderer>> {
+    ) -> Option<LegendRendererKind> {
         None
-    }
-
-    /// Get the preferred legend renderer for merged channels
-    ///
-    /// Called when multiple channels from the same mark have matching MergeKeys,
-    /// allowing them to be combined into a single legend (e.g., size and color
-    /// both mapped to the same data field).
-    ///
-    /// # Arguments
-    /// * `channels` - Array of channels that could be merged
-    /// * `scales` - Map of channel names to their configured scales
-    ///
-    /// # Returns
-    /// * `Some(renderer)` - A renderer capable of handling all the merged channels
-    /// * `None` - If these channels cannot be merged with a single renderer
-    ///
-    /// # Default Implementation
-    /// Uses the renderer from the first channel if it supports merging all channels
-    fn preferred_merged_legend_renderer(
-        &self,
-        channels: &[crate::legend::LegendChannel],
-        scales: &HashMap<String, ConfiguredScale>,
-    ) -> Option<Arc<dyn LegendRenderer>> {
-        // Default implementation: try to find a renderer that supports all channels
-        // Marks can override this for custom behavior
-
-        // Get the renderer from the first channel
-        let first_channel = &channels[0];
-        let scale = scales.get(&first_channel.name)?;
-        let renderer = self.preferred_legend_renderer(&first_channel.channel_type, scale)?;
-
-        // Check if it supports merging all the channels
-        if renderer.supports_merge(channels) {
-            Some(renderer)
-        } else {
-            None // Can't merge these channels
-        }
     }
 
     /// Get the preferred scale type for a channel based on data type
@@ -290,8 +239,8 @@ pub trait CompiledMark: Any + Send + Sync {
         &self,
         _channel: &str,
         data_type: &DataType,
-    ) -> Option<Box<dyn ScaleSpec>> {
-        default_scale_for_data_type(data_type)
+    ) -> Option<ScaleTypePreference> {
+        default_scale_type_for_data_type(data_type)
     }
 
     /// Get default scale options for a channel and scale type
@@ -314,7 +263,7 @@ pub trait CompiledMark: Any + Send + Sync {
         let mut options = HashMap::new();
 
         // Default: Color scales with continuous numeric output should use nice for better legend labels
-        if matches!(channel, "fill" | "stroke" | "color") && util::is_continuous_scale(scale_impl) {
+        if matches!(channel, "fill" | "stroke" | "color") && is_continuous_scale(scale_impl) {
             options.insert("nice".to_string(), lit(true));
         }
 
@@ -341,7 +290,7 @@ pub trait CompiledMark: Any + Send + Sync {
         &self,
         _channel: &str,
         _scale_impl: &dyn ScaleImpl,
-        _domain: &crate::scales::ResolvedDomain,
+        _domain: &crate::chart_core::ResolvedDomain,
         _data_type: &DataType,
         _theme: &Theme,
         _params: &IndexMap<String, DatafusionScalarValue>,

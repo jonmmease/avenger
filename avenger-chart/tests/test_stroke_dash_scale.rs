@@ -1,4 +1,4 @@
-use avenger_chart::cartesian::Cartesian;
+use avenger_chart::cartesian::{Cartesian, CartesianLinePositionChannels};
 use avenger_chart::plot::Plot;
 use avenger_chart::prelude::Line;
 use datafusion::arrow::array::{Float32Array, StringArray};

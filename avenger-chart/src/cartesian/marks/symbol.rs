@@ -15,41 +15,80 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     cartesian::{Cartesian, channels::CartesianPositionConfig},
-    channel::ChannelDescriptor,
+    channel::{ChannelDescriptor, ChannelValue, PositionConfig},
+    chart_core::{
+        LegendRendererKind, RadiusExpression, ResolvedDomain, ScalarValueHelpers, ScaleRange,
+        ScaleTypePreference, default_scale_type_for_data_type, is_continuous_scale,
+    },
     coords::{CoordinateSystemTransform, PointGeometry},
-    define_position_channels,
     error::AvengerChartError,
     impl_mark_trait_common,
-    legend::LegendRenderer,
     marks::{
-        CompiledDataContext, CompiledMark, CompiledMarkState, Mark, RadiusExpression,
-        default_scale_for_data_type,
-        symbol::{Symbol, symbol_channel_defaults, symbol_legend_renderer},
-        util::{
-            coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
-            is_continuous_scale,
-        },
+        CompiledDataContext, CompiledMark, CompiledMarkState, Mark,
+        symbol::{Symbol, symbol_channel_defaults, symbol_legend_renderer_kind},
+        util::{coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer},
     },
     render::RenderContext,
-    scales::{
-        ResolvedDomain, ScaleRange, ScaleSpec,
-        spec::{Ordinal, Point, Sqrt},
-    },
     serialization::LogicalExprNodeExt,
     theme::Theme,
-    utils::ScalarValueHelpers,
 };
 
-// Define position channels for Cartesian Symbol using the macro
-define_position_channels! {
-    Symbol<Cartesian> {
-        x: {
-            with_config: CartesianPositionConfig,
-        },
-        y: {
-            with_config: CartesianPositionConfig,
-        }
+/// Cartesian position-channel builders for the generic `Symbol` mark.
+pub trait CartesianSymbolPositionChannels: Sized {
+    fn x<V: Into<ChannelValue>>(self, value: V) -> Self;
+    fn x_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
+    fn y<V: Into<ChannelValue>>(self, value: V) -> Self;
+    fn y_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
+}
+
+impl CartesianSymbolPositionChannels for Symbol<Cartesian> {
+    fn x<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("x", value.into())
     }
+
+    fn x_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+    {
+        configure_cartesian_position_channel(self, "x", value.into(), f)
+    }
+
+    fn y<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("y", value.into())
+    }
+
+    fn y_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+    {
+        configure_cartesian_position_channel(self, "y", value.into(), f)
+    }
+}
+
+fn configure_cartesian_position_channel(
+    mark: Symbol<Cartesian>,
+    channel_name: &str,
+    channel_value: ChannelValue,
+    f: impl FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+) -> Symbol<Cartesian> {
+    let config = CartesianPositionConfig::new(channel_value);
+    let configured = f(config);
+    let (channel_value, axis_config) = configured.take_axis_config();
+    let mut mark = mark.with_channel_value(channel_name, channel_value);
+    if let Some(axis_config) = axis_config {
+        mark.state_mut()
+            .axis_configs
+            .insert(channel_name.to_string(), Arc::new(axis_config));
+    }
+    mark
 }
 
 // Implement Mark trait for Cartesian Symbol
@@ -154,6 +193,8 @@ impl CompiledMark for CompiledCartesianSymbol {
         context: &RenderContext,
         coord: Box<dyn CoordinateSystemTransform>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        let mark_context = context.core_view();
+
         // Extract position channels based on what the coordinate system requires
         let mut position_channels = std::collections::HashMap::new();
         for channel_name in coord.required_channels() {
@@ -162,7 +203,7 @@ impl CompiledMark for CompiledCartesianSymbol {
                 data,
                 scalars,
                 channel_name,
-                context,
+                &mark_context,
                 0.0,
             )?;
             position_channels.insert(*channel_name, value);
@@ -189,13 +230,13 @@ impl CompiledMark for CompiledCartesianSymbol {
 
         // Extract other channels using mark defaults
         let size =
-            coerce_numeric_channel_with_renderer(self, data, scalars, "size", context, 64.0)?;
+            coerce_numeric_channel_with_renderer(self, data, scalars, "size", &mark_context, 64.0)?;
         let fill = coerce_color_channel_with_renderer(
             self,
             data,
             scalars,
             "fill",
-            context,
+            &mark_context,
             [70.0 / 255.0, 130.0 / 255.0, 180.0 / 255.0, 1.0],
         )?;
         let stroke = coerce_color_channel_with_renderer(
@@ -203,11 +244,11 @@ impl CompiledMark for CompiledCartesianSymbol {
             data,
             scalars,
             "stroke",
-            context,
+            &mark_context,
             [0.0, 0.0, 0.0, 1.0],
         )?;
         let angle =
-            coerce_numeric_channel_with_renderer(self, data, scalars, "angle", context, 0.0)?;
+            coerce_numeric_channel_with_renderer(self, data, scalars, "angle", &mark_context, 0.0)?;
 
         // Determine the number of symbols from any array channel
         let len = data.map_or(1, |data| data.num_rows()) as u32;
@@ -215,7 +256,7 @@ impl CompiledMark for CompiledCartesianSymbol {
         // Handle shape channel efficiently - get default from mark
         let coercer = Coercer::default();
         let shape_default = self
-            .default_channel_value("shape", context)
+            .default_channel_value("shape", &mark_context)
             .and_then(|scalar| {
                 match scalar {
                     ScalarValue::Utf8(Some(s)) => {
@@ -240,7 +281,7 @@ impl CompiledMark for CompiledCartesianSymbol {
             };
 
         // Stroke width is scalar only - get default from mark
-        let stroke_width_scalar = self.default_channel_value("stroke_width", context);
+        let stroke_width_scalar = self.default_channel_value("stroke_width", &mark_context);
 
         let stroke_width_default = stroke_width_scalar
             .and_then(|scalar| ScalarValueHelpers::as_f32(&scalar).ok())
@@ -309,24 +350,24 @@ impl CompiledMark for CompiledCartesianSymbol {
         }
     }
 
-    fn preferred_legend_renderer(
+    fn preferred_legend_renderer_kind(
         &self,
         channel: &str,
         scale: &ConfiguredScale,
-    ) -> Option<Arc<dyn LegendRenderer>> {
+    ) -> Option<LegendRendererKind> {
         // Use the same logic as the Symbol mark
-        symbol_legend_renderer(channel, scale, &["x", "y", "x2", "y2"])
+        symbol_legend_renderer_kind(channel, scale, &["x", "y", "x2", "y2"])
     }
 
     fn preferred_scale_type(
         &self,
         channel: &str,
         data_type: &DataType,
-    ) -> Option<Box<dyn ScaleSpec>> {
+    ) -> Option<ScaleTypePreference> {
         match (channel, data_type) {
             // Symbol marks use point scales for categorical position data
             ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Box::new(Point))
+                Some(ScaleTypePreference::Point)
             }
             // Size uses sqrt scale for numeric data (better for area perception)
             (
@@ -343,23 +384,23 @@ impl CompiledMark for CompiledCartesianSymbol {
                 | DataType::UInt64,
             ) => {
                 // Use Sqrt scale for better area perception
-                Some(Box::new(Sqrt))
+                Some(ScaleTypePreference::Sqrt)
             }
             // Size uses ordinal for categorical data
             ("size", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Box::new(Ordinal))
+                Some(ScaleTypePreference::Ordinal)
             }
             // Color and shape channels use ordinal scales for categorical data
             (
                 "fill" | "stroke" | "color" | "shape",
                 DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
-            ) => Some(Box::new(Ordinal)),
+            ) => Some(ScaleTypePreference::Ordinal),
             // Stroke width uses ordinal scale only for categorical data
             ("stroke_width", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Box::new(Ordinal))
+                Some(ScaleTypePreference::Ordinal)
             }
             // Fall back to data type-based inference for other channels
-            _ => default_scale_for_data_type(data_type),
+            _ => default_scale_type_for_data_type(data_type),
         }
     }
 

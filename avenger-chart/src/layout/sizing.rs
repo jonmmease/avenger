@@ -53,8 +53,8 @@ use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
 use crate::{
-    maybe::{Maybe, MaybeOptionalExpr},
-    serialization::{LogicalExprNodeExt, SerializableExpr},
+    chart_core::maybe::{Maybe, MaybeOptionalExpr},
+    serialization::{LogicalExprNodeExt, SerializableExpr, serializable_expr_from_expr},
 };
 
 use super::types::{FrameDimensionSizing, FrameSizingPolicy};
@@ -301,8 +301,12 @@ impl From<CanvasConstraint> for SizeMode {
     fn from(constraint: CanvasConstraint) -> Self {
         match constraint {
             CanvasConstraint::None => SizeMode::Auto,
-            CanvasConstraint::Width(w) => SizeMode::Width(w.into()),
-            CanvasConstraint::Height(h) => SizeMode::Height(h.into()),
+            CanvasConstraint::Width(w) => {
+                SizeMode::Width(serializable_expr_from_expr(w, "canvas width constraint"))
+            }
+            CanvasConstraint::Height(h) => {
+                SizeMode::Height(serializable_expr_from_expr(h, "canvas height constraint"))
+            }
         }
     }
 }
@@ -311,8 +315,12 @@ impl From<PlotConstraint> for SizeMode {
     fn from(constraint: PlotConstraint) -> Self {
         match constraint {
             PlotConstraint::Auto => SizeMode::Auto,
-            PlotConstraint::Width(w) => SizeMode::Width(w.into()),
-            PlotConstraint::Height(h) => SizeMode::Height(h.into()),
+            PlotConstraint::Width(w) => {
+                SizeMode::Width(serializable_expr_from_expr(w, "plot width constraint"))
+            }
+            PlotConstraint::Height(h) => {
+                SizeMode::Height(serializable_expr_from_expr(h, "plot height constraint"))
+            }
         }
     }
 }
@@ -395,8 +403,8 @@ impl LayoutSpec {
     pub fn fixed_canvas(width: Expr, height: Expr, margins: Margins) -> Self {
         Self {
             canvas: SizeMode::Fixed {
-                width: width.into(),
-                height: height.into(),
+                width: serializable_expr_from_expr(width, "fixed canvas width"),
+                height: serializable_expr_from_expr(height, "fixed canvas height"),
             },
             plot_area: SizeMode::Auto,
             margins,
@@ -408,8 +416,8 @@ impl LayoutSpec {
         Self {
             canvas: SizeMode::Auto,
             plot_area: SizeMode::Fixed {
-                width: width.into(),
-                height: height.into(),
+                width: serializable_expr_from_expr(width, "fixed plot-area width"),
+                height: serializable_expr_from_expr(height, "fixed plot-area height"),
             },
             margins,
         }

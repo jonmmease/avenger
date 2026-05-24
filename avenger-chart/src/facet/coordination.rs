@@ -898,8 +898,7 @@ mod tests {
             &compiled_plot.coord_transform,
             &compiled_plot.data,
             None,
-            &session,
-            &eval_ctx.params,
+            &eval_ctx,
             theme.as_ref(),
         )
         .await?;
@@ -966,8 +965,7 @@ mod tests {
             &compiled_plot.coord_transform,
             &compiled_plot.data,
             None,
-            &session,
-            &eval_ctx.params,
+            &eval_ctx,
             theme.as_ref(),
         )
         .await?;

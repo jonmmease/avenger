@@ -15,30 +15,24 @@ use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
 use crate::{
-    cartesian::{
-        axis::{AxisPosition, CartesianAxis},
-        positioned_subplot::cartesian_positioned_coord_ref,
-    },
+    cartesian::{axis::CartesianAxis, positioned_subplot::cartesian_positioned_coord_ref},
     channel::value::strip_trailing_numbers,
+    chart_core::color::parse_color_to_array_strict,
+    chart_core::maybe::{Maybe, MaybeOptionalExpr},
+    chart_core::{AxisPosition, IntoExpr, evaluate_string_expr},
     coords::{CoordMeasurement, EmptyCoordMeasurement, extract_channel_title_from_marks},
     error::AvengerChartError,
     guide::{
-        CompiledGuide, CoordinateGuide, FacetDirection, GuideSharingContext, GuideUpdate,
-        OverflowSpaceRequirement, UnifiableChannelInfo,
+        CompiledGuide, CoordinateGuide, GuideSharingContext, GuideUpdate, OverflowSpaceRequirement,
     },
     layout::LayoutBounds,
     marks::CompiledMark,
-    maybe::{Maybe, MaybeOptionalExpr},
-    plot::{
-        IntoExpr,
-        compiled::{
-            SharingLevel, child_frame_container_overflow,
-            child_frame_container_view_from_cartesian_positioned, expr_eval::evaluate_string_expr,
-        },
+    plot::compiled::{
+        SharingLevel, child_frame_container_overflow,
+        child_frame_container_view_from_cartesian_positioned,
     },
     serialization::LogicalExprNodeExt,
     theme::{Theme, ThemeContext},
-    utils::parse_color_to_array_strict,
 };
 
 /// Options for Cartesian coordinate system (beyond axes)
@@ -425,9 +419,7 @@ impl CompiledGuide for CartesianGuide {
                 // Facets store channel sharing on the facet tree. Concat-like
                 // child-frame containers have no facet tree, so they use the
                 // guide's mark-derived channel sharing map instead.
-                let facet_sharing_level = sharing_context
-                    .facet_tree
-                    .channel_domain_sharing_level_typed(channel);
+                let facet_sharing_level = sharing_context.channel_domain_sharing_level(channel);
                 let child_frame_sharing_level = self
                     .channel_sharing_levels
                     .get(channel)
@@ -469,27 +461,6 @@ impl CompiledGuide for CartesianGuide {
             width: plot_width,
             height: plot_height,
         }
-    }
-
-    fn facet_unifiable_channel(
-        &self,
-        facet_direction: FacetDirection,
-        marks: &[Arc<dyn CompiledMark>],
-        session_context: &SessionContext,
-    ) -> Option<UnifiableChannelInfo> {
-        // Cartesian can unify y-axis in row faceting, x-axis in column faceting
-        let channel = match facet_direction {
-            FacetDirection::Row => "y",
-            FacetDirection::Column => "x",
-        };
-
-        // Extract the title from the marks
-        let title = extract_channel_title_from_marks(marks, channel, session_context);
-
-        Some(UnifiableChannelInfo {
-            channel: channel.to_string(),
-            title,
-        })
     }
 
     fn axis_position(&self, channel: &str) -> Option<AxisPosition> {

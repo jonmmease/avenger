@@ -10,6 +10,12 @@
 pub mod axis;
 pub mod cartesian;
 pub mod channel;
+pub(crate) mod chart_cartesian;
+pub(crate) mod chart_core;
+pub(crate) mod chart_legend;
+pub(crate) mod chart_marks;
+pub(crate) mod chart_polar;
+pub(crate) mod chart_scales;
 pub mod color;
 pub mod concat;
 #[doc(hidden)]
@@ -36,6 +42,8 @@ pub mod serialization;
 pub mod theme;
 pub mod utils;
 pub mod zerod;
+
+pub use avenger_chart_core::{define_common_mark_channels, impl_mark_base};
 
 #[cfg(test)]
 mod serialization_tests {

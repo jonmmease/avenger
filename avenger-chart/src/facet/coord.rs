@@ -15,14 +15,15 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, trace};
 
 use crate::{
-    cartesian::axis::AxisPosition,
+    chart_core::AxisPosition,
     container::{ChildFrameKey, ChildFrameScopeKey, ContainerPathSegment},
     coords::{
-        CellDomainInfo, CoordMeasurement, CoordinateSystem, CoordinateSystemTransform,
-        CoordinatedLayout, CoordinatedOverflow, FacetAxis, PaddingSpec, PlotGeometry,
-        SubplotGeometry, SubplotRect,
+        CellDomainInfo, CoordMeasureRequest, CoordMeasurement, CoordinateSystem,
+        CoordinateSystemTransform, CoordinatedLayout, CoordinatedOverflow, FacetAxis, PaddingSpec,
+        PlotGeometry, SubplotGeometry, SubplotRect,
     },
     error::AvengerChartError,
+    facet::FacetDirection,
     facet::{
         band_attributes::{
             FacetBandLocalLayout, FacetBandMeasuredRuntime, FacetBandOverflowProbe,
@@ -63,7 +64,6 @@ use crate::{
         },
         subtree_plot_area::{LeafPlotAreaSize, estimate_path_plot_area_from_leaf_size},
     },
-    guide::FacetDirection,
     layout::{
         EdgeSlabs, EvaluatedLayoutSpec, OwnedEdgeSlabs, apply_frame_side_slab, overflow_side_value,
         retarget_frame_layout_for_plot_area,
@@ -2150,8 +2150,7 @@ async fn execute_measurement_from_plan(
                 &compiled_subplot.coord_transform,
                 &compiled_subplot.data,
                 Some(data_override.clone()),
-                &eval_ctx.session_context,
-                &eval_ctx.params,
+                eval_ctx,
                 compiled_subplot.get_theme().as_ref(),
             )
             .await?;
@@ -2569,8 +2568,7 @@ async fn build_extent_builder_for_cell(
         &compiled_subplot.coord_transform,
         &compiled_subplot.data,
         Some(data_override.clone()),
-        &nested_ctx.eval_ctx.session_context,
-        &nested_ctx.eval_ctx.params,
+        &nested_ctx.eval_ctx,
         compiled_subplot.get_theme().as_ref(),
     )
     .await
@@ -3697,8 +3695,8 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 return false;
             };
             let ancestor_axis = match direction {
-                crate::guide::FacetDirection::Column => FacetAxis::Column,
-                crate::guide::FacetDirection::Row => FacetAxis::Row,
+                crate::facet::FacetDirection::Column => FacetAxis::Column,
+                crate::facet::FacetDirection::Row => FacetAxis::Row,
             };
 
             if ancestor_axis == self.axis_ops.axis {
@@ -4048,22 +4046,16 @@ impl CoordinateSystemTransform for FacetColumn {
 
     async fn measure(
         &self,
-        scales: &HashMap<String, ConfiguredScaleWithSpec>,
-        _plot_width: f32,
-        plot_height: f32,
-        eval_ctx: &EvaluationContext,
-        data: Option<&DataFrame>,
-        compiled_marks: &[Arc<dyn CompiledMark>],
-        facet_path: &[ScalarValue],
+        request: CoordMeasureRequest<'_>,
     ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
         FacetBandMeasurePipeline::new(
             FacetAxisOps::for_axis(FacetAxis::Column),
-            scales,
-            plot_height,
-            eval_ctx,
-            data,
-            compiled_marks,
-            facet_path,
+            request.scales(),
+            request.plot_height(),
+            request.eval_ctx(),
+            request.data(),
+            request.compiled_marks(),
+            request.facet_path(),
         )
         .run()
         .await
@@ -4149,10 +4141,10 @@ impl CoordinateSystemTransform for FacetColumn {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chart_core::LegendPosition;
+    use crate::facet::FacetDirection;
     use crate::facet::evaluated_facet_tree::{EvaluatedFacetTree, PartitionNode};
-    use crate::guide::FacetDirection;
     use crate::layout::{LayoutBounds, Size2D};
-    use crate::legend::LegendPosition;
     use crate::prelude::*;
     use crate::render::LegendMeasurements;
     use crate::render::types::LegendMeasurement;
@@ -4560,8 +4552,7 @@ mod tests {
             &compiled_plot.coord_transform,
             &compiled_plot.data,
             None,
-            &session,
-            &eval_ctx.params,
+            &eval_ctx,
             compiled_plot.get_theme().as_ref(),
         )
         .await?;
@@ -4636,8 +4627,7 @@ mod tests {
             &compiled_plot.coord_transform,
             &compiled_plot.data,
             None,
-            &session,
-            &eval_ctx.params,
+            &eval_ctx,
             compiled_plot.get_theme().as_ref(),
         )
         .await?;

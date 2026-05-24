@@ -8,20 +8,30 @@
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
-use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
+use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
+use datafusion::{
+    arrow::record_batch::RecordBatch, common::ScalarValue, dataframe::DataFrame,
+    logical_expr::Expr, prelude::SessionContext,
+};
+use serde::{Deserialize, Serialize};
 
 use crate::{
+    cartesian::{Cartesian, CartesianPositionConfig},
+    channel::{ChannelValue, PositionConfig},
+    chart_core::RadiusExpression,
     container::{
         ChildFrameKey, ChildFramePlacementResult, ChildFrameRenderPlacement, ChildFrameScopeKey,
         ChildFrameSharingLevel, ContainerPathSegment,
     },
-    coords::{CoordMeasurement, EmptyCoordMeasurement},
+    coords::{CoordMeasurement, CoordinateSystemTransform, EmptyCoordMeasurement},
     error::AvengerChartError,
     layout::Size2D,
     marks::{
-        CompiledCartesianSubplot, CompiledMark, subplot::compiled_cartesian_subplot,
-        util::coerce_numeric_channel_with_renderer,
+        ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkState,
+        CompiledSubplotPayload, Mark, Subplot, SubplotContainerCoordinateSystem,
+        compile_subplot_payload, util::coerce_numeric_channel_with_renderer,
     },
+    plot::CompiledPlot,
     plot::compiled::{
         ChildFrameDataSelection, ChildFrameDomainSharingInput, ChildFrameRuntime,
         ComponentsMeasurement, MarkDataRequest,
@@ -31,6 +41,278 @@ use crate::{
     render::{EvaluationContext, RenderContext},
     scales::ConfiguredScaleWithSpec,
 };
+
+impl Subplot<Cartesian> {
+    /// Set the parent x-position for coordinate-positioned child plot frames.
+    pub fn x<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("x", value.into())
+    }
+
+    /// Set the parent y-position for coordinate-positioned child plot frames.
+    pub fn y<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("y", value.into())
+    }
+
+    /// Configure the parent x-position channel for coordinate-positioned child plot frames.
+    pub fn x_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+    {
+        self.with_position_config("x", value.into(), f)
+    }
+
+    /// Configure the parent y-position channel for coordinate-positioned child plot frames.
+    pub fn y_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+    {
+        self.with_position_config("y", value.into(), f)
+    }
+
+    /// Set the child plot-area width used for each positioned child frame.
+    pub fn plot_width(mut self, width: f32) -> Self {
+        self.config_mut().plot_width = Some(width);
+        self
+    }
+
+    /// Set the child plot-area height used for each positioned child frame.
+    pub fn plot_height(mut self, height: f32) -> Self {
+        self.config_mut().plot_height = Some(height);
+        self
+    }
+
+    /// Set both child plot-area dimensions used for each positioned child frame.
+    pub fn plot_size(mut self, width: f32, height: f32) -> Self {
+        let config = self.config_mut();
+        config.plot_width = Some(width);
+        config.plot_height = Some(height);
+        self
+    }
+
+    fn with_position_config<F>(self, channel: &'static str, value: ChannelValue, f: F) -> Self
+    where
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+    {
+        let configured = f(CartesianPositionConfig::new(value));
+        let (channel_value, axis_config) = configured.take_axis_config();
+        let mut mark = self.with_channel_value(channel, channel_value);
+        if let Some(axis_config) = axis_config {
+            mark.state_mut()
+                .axis_configs
+                .insert(channel.to_string(), Arc::new(axis_config));
+        }
+        mark
+    }
+}
+
+#[async_trait::async_trait]
+impl SubplotContainerCoordinateSystem for Cartesian {
+    async fn compile_subplot_mark(
+        subplot: &Subplot<Self>,
+        compiled_state: CompiledMarkState,
+        session_context: &SessionContext,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        subplot.validate_no_facet_channels("Cartesian")?;
+
+        Ok(Arc::new(CompiledCartesianSubplot {
+            payload: compile_subplot_payload(subplot, compiled_state, session_context).await?,
+            plot_width: subplot.config().plot_width.unwrap_or(80.0).max(1.0),
+            plot_height: subplot.config().plot_height.unwrap_or(80.0).max(1.0),
+        }))
+    }
+}
+
+/// Compiled child-plot mark positioned by Cartesian x/y channels.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CompiledCartesianSubplot {
+    payload: CompiledSubplotPayload,
+    plot_width: f32,
+    plot_height: f32,
+}
+
+impl CompiledCartesianSubplot {
+    pub fn compiled_subplot(&self) -> &Arc<CompiledPlot> {
+        self.payload.compiled_subplot()
+    }
+
+    pub fn label(&self) -> Option<&str> {
+        self.payload.label()
+    }
+
+    pub fn key(&self) -> Option<&str> {
+        self.payload.key()
+    }
+
+    pub fn mark_index(&self) -> usize {
+        self.payload.mark_index()
+    }
+
+    pub fn plot_width(&self) -> f32 {
+        self.plot_width
+    }
+
+    pub fn plot_height(&self) -> f32 {
+        self.plot_height
+    }
+
+    pub fn inherits_parent_data(&self) -> bool {
+        self.payload.inherits_parent_data()
+    }
+
+    fn group_name(&self, child_index: usize) -> String {
+        match self.key() {
+            Some(key) => format!(
+                "cartesian_subplot_{}_{}_{}",
+                self.mark_index(),
+                child_index,
+                key
+            ),
+            None => format!("cartesian_subplot_{}_{}", self.mark_index(), child_index),
+        }
+    }
+}
+
+pub fn compiled_cartesian_subplot(mark: &dyn CompiledMark) -> Option<&CompiledCartesianSubplot> {
+    if mark.mark_type() != "subplot" {
+        return None;
+    }
+    mark.as_any().downcast_ref::<CompiledCartesianSubplot>()
+}
+
+#[typetag::serde]
+#[async_trait::async_trait]
+impl CompiledMark for CompiledCartesianSubplot {
+    fn state(&self) -> &CompiledMarkState {
+        self.payload.compiled_state()
+    }
+
+    fn state_mut(&mut self) -> &mut CompiledMarkState {
+        self.payload.compiled_state_mut()
+    }
+
+    fn data_context(&self) -> &CompiledDataContext {
+        &self.payload.compiled_state().data
+    }
+
+    fn mark_type(&self) -> &str {
+        "subplot"
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn supported_channels(&self) -> Vec<ChannelDescriptor> {
+        vec![
+            ChannelDescriptor {
+                name: "x",
+                required: true,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "y",
+                required: true,
+                default_value: None,
+                allow_column_ref: true,
+            },
+        ]
+    }
+
+    async fn render_from_data(
+        &self,
+        _data: Option<&RecordBatch>,
+        _scalars: &RecordBatch,
+        context: &RenderContext,
+        _coord: Box<dyn CoordinateSystemTransform>,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        let cartesian_measurement = cartesian_positioned_coord_ref(context.coord_measurement())
+            .ok_or_else(|| {
+                AvengerChartError::InternalError(
+                    "Cartesian subplot marks require CartesianPositionedCoordMeasurement"
+                        .to_string(),
+                )
+            })?;
+        let child_frame_placement = cartesian_measurement.child_frame_placement();
+        let child_count = cartesian_measurement.children().len();
+        let mut marks = Vec::new();
+
+        for child in cartesian_measurement.children_for_mark(self.mark_index()) {
+            let render_placement =
+                child_frame_placement
+                    .child(child.child_index)
+                    .ok_or_else(|| {
+                        AvengerChartError::InternalError(format!(
+                            "Missing Cartesian child-frame placement for child index {}",
+                            child.child_index
+                        ))
+                    })?;
+
+            let mut params = self.compiled_subplot().get_default_params().clone();
+            params.extend(context.eval.params.clone());
+            let sharing_level = ChildFrameSharingLevel::positioned_subplot(
+                child.child_index,
+                child_count,
+                child.mark_index,
+                child.row_index,
+                child.key.as_deref(),
+            );
+            let child_eval_ctx = context
+                .eval
+                .with_params(params)
+                .with_child_frame_sharing_level_appended(sharing_level);
+            let components = self
+                .compiled_subplot()
+                .build_plot_components(
+                    &child_eval_ctx,
+                    &child.measurement,
+                    child.data_override.as_ref(),
+                    true,
+                    context.facet_path,
+                )
+                .await?;
+
+            let data_marks_group = SceneGroup {
+                origin: [0.0, 0.0],
+                marks: components.data_marks,
+                clip: components.clip,
+                zindex: Some(0),
+                ..Default::default()
+            };
+            let mut all_marks = vec![SceneMark::Group(data_marks_group)];
+            all_marks.extend(components.guide_marks);
+            all_marks.extend(components.legend_marks);
+            all_marks.extend(components.title_marks);
+            all_marks.extend(components.subtitle_marks);
+            all_marks.extend(components.debug_marks);
+
+            marks.push(SceneMark::Group(SceneGroup {
+                name: self.group_name(child.child_index),
+                origin: render_placement.origin,
+                clip: avenger_scenegraph::marks::group::Clip::None,
+                marks: all_marks,
+                gradients: Vec::new(),
+                fill: None,
+                stroke: None,
+                stroke_width: None,
+                stroke_offset: None,
+                zindex: None,
+            }));
+        }
+
+        Ok(marks)
+    }
+
+    fn radius_expression(
+        &self,
+        _dimension: &str,
+        _resolve_channel: &dyn Fn(&str) -> Expr,
+    ) -> Option<RadiusExpression> {
+        None
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct CartesianPositionedCoordMeasurement {
@@ -209,12 +491,13 @@ async fn prepare_positioned_subplot<'a>(
         facet_path,
         &empty_coord,
     );
+    let mark_context = render_ctx.core_view();
     let x = coerce_numeric_channel_with_renderer(
         subplot,
         prepared_mark.data_batch.as_ref(),
         &prepared_mark.scalar_batch,
         "x",
-        &render_ctx,
+        &mark_context,
         0.0,
     )?;
     let y = coerce_numeric_channel_with_renderer(
@@ -222,7 +505,7 @@ async fn prepare_positioned_subplot<'a>(
         prepared_mark.data_batch.as_ref(),
         &prepared_mark.scalar_batch,
         "y",
-        &render_ctx,
+        &mark_context,
         0.0,
     )?;
     let child_count = x.len().max(y.len()).max(1);

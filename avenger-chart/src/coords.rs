@@ -3,20 +3,20 @@ use std::{any::Any, collections::HashMap, sync::Arc};
 use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::ScaleImpl;
 use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
-use serde::{Deserialize, Serialize};
-use serde_with::{FromInto, serde_as};
 
-pub use crate::guide::OverflowSpaceRequirement;
+pub use crate::chart_core::{
+    FacetAxis, OverflowSpaceRequirement, PaddingSpec, PlotGeometry, PointGeometry, SubplotGeometry,
+    SubplotRect,
+};
 
+use crate::chart_core::ScaleRangeBinding;
 use crate::{
     error::AvengerChartError,
     guide::CoordinateGuide,
-    layout::BandPosition,
     marks::CompiledMark,
     plot::compiled::ComponentsMeasurement,
     render::{CoordinationCheckpoint, EvaluationContext},
-    scales::{ConfiguredScaleWithSpec, ScaleRangeBinding, domain_extent::DomainExtent},
-    serialization::SerializableScalar,
+    scales::{ConfiguredScaleWithSpec, domain_extent::DomainExtent},
 };
 
 /// Coordinated overflow values aggregated across ALL facets at the same nesting level.
@@ -218,153 +218,6 @@ pub async fn coordinate_overflow_for_guides_until(
     .await
 }
 
-#[typetag::serde(tag = "type")]
-pub trait PlotGeometry: Send + Sync + 'static {
-    fn as_any(&self) -> &dyn Any;
-}
-
-/// Geometry type for point-based coordinate systems (Cartesian, Polar, ZeroD)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PointGeometry {
-    pub x: ScalarOrArray<f32>,
-    pub y: ScalarOrArray<f32>,
-}
-
-#[typetag::serde]
-impl PlotGeometry for PointGeometry {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-#[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SubplotRect {
-    /// Facet value for this subplot (e.g., "setosa" for species faceting)
-    #[serde_as(as = "FromInto<SerializableScalar>")]
-    pub value: ScalarValue,
-    pub x: f32,
-    pub y: f32,
-    pub width: f32,
-    pub height: f32,
-}
-
-impl SubplotRect {
-    pub fn new(value: ScalarValue, x: f32, y: f32, width: f32, height: f32) -> Self {
-        Self {
-            value,
-            x,
-            y,
-            width,
-            height,
-        }
-    }
-
-    pub fn scalar_value(&self) -> ScalarValue {
-        self.value.clone()
-    }
-}
-
-impl Default for SubplotRect {
-    fn default() -> Self {
-        SubplotRect::new(ScalarValue::Null, 0.0, 0.0, 0.0, 0.0)
-    }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct SubplotGeometry {
-    pub rects: Vec<SubplotRect>,
-}
-
-impl SubplotGeometry {
-    pub fn new(rects: Vec<SubplotRect>) -> Self {
-        Self { rects }
-    }
-
-    pub fn count(&self) -> usize {
-        self.rects.len()
-    }
-
-    pub fn rect_at(&self, index: usize) -> Option<&SubplotRect> {
-        self.rects.get(index)
-    }
-
-    pub fn iter_rects(&self) -> impl Iterator<Item = &SubplotRect> {
-        self.rects.iter()
-    }
-
-    pub fn from_band_positions(
-        iter: impl IntoIterator<Item = BandPosition>,
-        axis: FacetAxis,
-        cross_extent: f32,
-    ) -> Self {
-        let rects = iter
-            .into_iter()
-            .map(|band| {
-                let value = band.value.clone();
-                let start = band.start();
-                let bandwidth = band.bandwidth;
-                match axis {
-                    FacetAxis::Row => {
-                        SubplotRect::new(value.clone(), 0.0, start, cross_extent, bandwidth)
-                    }
-                    FacetAxis::Column => {
-                        SubplotRect::new(value, start, 0.0, bandwidth, cross_extent)
-                    }
-                }
-            })
-            .collect();
-        Self { rects }
-    }
-}
-
-#[typetag::serde]
-impl PlotGeometry for SubplotGeometry {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum FacetAxis {
-    Row,
-    Column,
-}
-
-impl FacetAxis {
-    #[inline]
-    pub fn scale_name(self) -> &'static str {
-        match self {
-            FacetAxis::Row => "row",
-            FacetAxis::Column => "column",
-        }
-    }
-
-    #[inline]
-    pub fn coordination_key_prefix(self) -> &'static str {
-        match self {
-            FacetAxis::Row => "row",
-            FacetAxis::Column => "col",
-        }
-    }
-}
-
-/// Padding specification for coordinate system transforms
-///
-/// Facet coordinate systems need padding between subplots to accommodate overflow
-/// from axes, legends, and other guides. This enum supports single-dimension
-/// padding for FacetRow/FacetCol coordinate systems.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum PaddingSpec {
-    /// Single-dimension padding for row or column facets
-    Single {
-        /// Padding in pixels between subplots
-        padding_px: f32,
-        /// Overflow measurements for each subplot
-        overflow: Vec<OverflowSpaceRequirement>,
-    },
-}
-
 pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     /// The guide type for this coordinate system
     ///
@@ -383,6 +236,73 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     /// This creates a type-erased version of the coordinate system that can be
     /// used by the serializable CompiledMark implementations.
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform>;
+}
+
+/// Inputs for coordinate-system measurement.
+///
+/// This request object is the first boundary around coordinate measurement.
+/// Keeping the inputs in one owned type makes the eventual crate split less
+/// brittle: the request can be narrowed into stable views without changing
+/// every coordinate-system implementation again.
+#[derive(Clone, Copy)]
+pub struct CoordMeasureRequest<'a> {
+    scales: &'a HashMap<String, ConfiguredScaleWithSpec>,
+    plot_width: f32,
+    plot_height: f32,
+    eval_ctx: &'a EvaluationContext,
+    data: Option<&'a DataFrame>,
+    compiled_marks: &'a [Arc<dyn CompiledMark>],
+    facet_path: &'a [ScalarValue],
+}
+
+impl<'a> CoordMeasureRequest<'a> {
+    pub(crate) fn new(
+        scales: &'a HashMap<String, ConfiguredScaleWithSpec>,
+        plot_width: f32,
+        plot_height: f32,
+        eval_ctx: &'a EvaluationContext,
+        data: Option<&'a DataFrame>,
+        compiled_marks: &'a [Arc<dyn CompiledMark>],
+        facet_path: &'a [ScalarValue],
+    ) -> Self {
+        Self {
+            scales,
+            plot_width,
+            plot_height,
+            eval_ctx,
+            data,
+            compiled_marks,
+            facet_path,
+        }
+    }
+
+    pub(crate) fn scales(&self) -> &'a HashMap<String, ConfiguredScaleWithSpec> {
+        self.scales
+    }
+
+    pub fn plot_width(&self) -> f32 {
+        self.plot_width
+    }
+
+    pub fn plot_height(&self) -> f32 {
+        self.plot_height
+    }
+
+    pub(crate) fn eval_ctx(&self) -> &'a EvaluationContext {
+        self.eval_ctx
+    }
+
+    pub(crate) fn data(&self) -> Option<&'a DataFrame> {
+        self.data
+    }
+
+    pub(crate) fn compiled_marks(&self) -> &'a [Arc<dyn CompiledMark>] {
+        self.compiled_marks
+    }
+
+    pub(crate) fn facet_path(&self) -> &'a [ScalarValue] {
+        self.facet_path
+    }
 }
 
 /// Helper function to extract channel title from mark encodings
@@ -452,13 +372,7 @@ pub trait CoordinateSystemTransform: Send + Sync {
 
     async fn measure(
         &self,
-        _scales: &HashMap<String, ConfiguredScaleWithSpec>,
-        _plot_width: f32,
-        _plot_height: f32,
-        _eval_ctx: &EvaluationContext,
-        _data: Option<&DataFrame>,
-        _compiled_marks: &[Arc<dyn CompiledMark>],
-        _facet_path: &[ScalarValue],
+        _request: CoordMeasureRequest<'_>,
     ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
         // Default: return empty measurement for non-facet coordinate systems
         Ok(Box::new(EmptyCoordMeasurement))

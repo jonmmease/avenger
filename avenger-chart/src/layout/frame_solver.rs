@@ -10,10 +10,9 @@ use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 
 use crate::{
-    cartesian::axis::AxisPosition,
+    chart_core::{AxisPosition, LegendPosition},
     error::AvengerChartError,
     guide::OverflowSpaceRequirement,
-    legend::LegendPosition,
     plot::{PlotSubtitle, PlotTitle},
     render::{LayoutSolution, LegendMeasurements},
     theme::Theme,

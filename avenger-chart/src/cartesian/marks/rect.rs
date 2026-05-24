@@ -9,43 +9,112 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     cartesian::{Cartesian, channels::CartesianPositionConfig},
-    channel::ChannelDescriptor,
+    channel::{ChannelDescriptor, ChannelValue, PositionConfig},
+    chart_core::{
+        LegendRendererKind, ScaleTypePreference, default_scale_type_for_data_type,
+        is_continuous_scale,
+    },
     coords::{CoordinateSystemTransform, PointGeometry},
-    define_position_channels,
     error::AvengerChartError,
     impl_mark_trait_common,
-    legend::{CompiledColorbar, LegendRenderer, renderer::rect::CompiledRectLegend},
     marks::{
-        CompiledDataContext, CompiledMark, CompiledMarkState, Mark, default_scale_for_data_type,
+        CompiledDataContext, CompiledMark, CompiledMarkState, Mark,
         rect::{Rect, rect_channel_defaults},
-        util::{
-            coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
-            is_continuous_scale,
-        },
+        util::{coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer},
     },
     render::RenderContext,
-    scales::{
-        ScaleSpec,
-        spec::{Band, Ordinal},
-    },
 };
 
-// Define position channels for Cartesian Rect using the macro
-define_position_channels! {
-    Rect<Cartesian> {
-        x: {
-            with_config: CartesianPositionConfig,
-        },
-        x2: {
-            with_config: CartesianPositionConfig,
-        },
-        y: {
-            with_config: CartesianPositionConfig,
-        },
-        y2: {
-            with_config: CartesianPositionConfig,
-        }
+/// Cartesian position-channel builders for the generic `Rect` mark.
+pub trait CartesianRectPositionChannels: Sized {
+    fn x<V: Into<ChannelValue>>(self, value: V) -> Self;
+    fn x_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
+    fn x2<V: Into<ChannelValue>>(self, value: V) -> Self;
+    fn x2_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
+    fn y<V: Into<ChannelValue>>(self, value: V) -> Self;
+    fn y_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
+    fn y2<V: Into<ChannelValue>>(self, value: V) -> Self;
+    fn y2_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
+}
+
+impl CartesianRectPositionChannels for Rect<Cartesian> {
+    fn x<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("x", value.into())
     }
+
+    fn x_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+    {
+        configure_cartesian_position_channel(self, "x", value.into(), f)
+    }
+
+    fn x2<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("x2", value.into())
+    }
+
+    fn x2_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+    {
+        configure_cartesian_position_channel(self, "x2", value.into(), f)
+    }
+
+    fn y<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("y", value.into())
+    }
+
+    fn y_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+    {
+        configure_cartesian_position_channel(self, "y", value.into(), f)
+    }
+
+    fn y2<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("y2", value.into())
+    }
+
+    fn y2_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+    {
+        configure_cartesian_position_channel(self, "y2", value.into(), f)
+    }
+}
+
+fn configure_cartesian_position_channel(
+    mark: Rect<Cartesian>,
+    channel_name: &str,
+    channel_value: ChannelValue,
+    f: impl FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+) -> Rect<Cartesian> {
+    let config = CartesianPositionConfig::new(channel_value);
+    let configured = f(config);
+    let (channel_value, axis_config) = configured.take_axis_config();
+    let mut mark = mark.with_channel_value(channel_name, channel_value);
+    if let Some(axis_config) = axis_config {
+        mark.state_mut()
+            .axis_configs
+            .insert(channel_name.to_string(), Arc::new(axis_config));
+    }
+    mark
 }
 
 // Implement Mark trait for Cartesian Rect with any axis type
@@ -157,6 +226,8 @@ impl CompiledMark for CompiledCartesianRect {
         context: &RenderContext,
         coord: Box<dyn CoordinateSystemTransform>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        let mark_context = context.core_view();
+
         // Determine number of marks from data batch or default to 1
         let len = data.map_or(1, |data| data.num_rows()) as u32;
 
@@ -166,10 +237,14 @@ impl CompiledMark for CompiledCartesianRect {
         let mut position_channels_corner2 = std::collections::HashMap::new();
 
         // Extract raw position values
-        let x_raw = coerce_numeric_channel_with_renderer(self, data, scalars, "x", context, 0.0)?;
-        let x2_raw = coerce_numeric_channel_with_renderer(self, data, scalars, "x2", context, 0.0)?;
-        let y_raw = coerce_numeric_channel_with_renderer(self, data, scalars, "y", context, 0.0)?;
-        let y2_raw = coerce_numeric_channel_with_renderer(self, data, scalars, "y2", context, 0.0)?;
+        let x_raw =
+            coerce_numeric_channel_with_renderer(self, data, scalars, "x", &mark_context, 0.0)?;
+        let x2_raw =
+            coerce_numeric_channel_with_renderer(self, data, scalars, "x2", &mark_context, 0.0)?;
+        let y_raw =
+            coerce_numeric_channel_with_renderer(self, data, scalars, "y", &mark_context, 0.0)?;
+        let y2_raw =
+            coerce_numeric_channel_with_renderer(self, data, scalars, "y2", &mark_context, 0.0)?;
 
         // Set up position channels for first corner (x, y)
         position_channels_corner1.insert("x", x_raw.clone());
@@ -223,7 +298,7 @@ impl CompiledMark for CompiledCartesianRect {
             data,
             scalars,
             "fill",
-            context,
+            &mark_context,
             [70.0 / 255.0, 130.0 / 255.0, 180.0 / 255.0, 1.0], // Fallback steel blue
         )?;
         let stroke = coerce_color_channel_with_renderer(
@@ -231,7 +306,7 @@ impl CompiledMark for CompiledCartesianRect {
             data,
             scalars,
             "stroke",
-            context,
+            &mark_context,
             [0.0, 0.0, 0.0, 1.0],
         )?;
         let stroke_width = coerce_numeric_channel_with_renderer(
@@ -239,7 +314,7 @@ impl CompiledMark for CompiledCartesianRect {
             data,
             scalars,
             "stroke_width",
-            context,
+            &mark_context,
             1.0,
         )?;
         let corner_radius = coerce_numeric_channel_with_renderer(
@@ -247,7 +322,7 @@ impl CompiledMark for CompiledCartesianRect {
             data,
             scalars,
             "corner_radius",
-            context,
+            &mark_context,
             0.0,
         )?;
 
@@ -282,43 +357,43 @@ impl CompiledMark for CompiledCartesianRect {
         &self,
         channel: &str,
         data_type: &DataType,
-    ) -> Option<Box<dyn ScaleSpec>> {
+    ) -> Option<ScaleTypePreference> {
         match (channel, data_type) {
             // Rect marks use band scales for categorical position data
             (
                 "x" | "x2" | "y" | "y2",
                 DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
-            ) => Some(Box::new(Band)),
+            ) => Some(ScaleTypePreference::Band),
             // Color channels use ordinal scales for categorical data
             (
                 "fill" | "stroke" | "color",
                 DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
-            ) => Some(Box::new(Ordinal)),
+            ) => Some(ScaleTypePreference::Ordinal),
             // Fall back to data type-based inference for other channels
-            _ => default_scale_for_data_type(data_type),
+            _ => default_scale_type_for_data_type(data_type),
         }
     }
 
-    fn preferred_legend_renderer(
+    fn preferred_legend_renderer_kind(
         &self,
         channel: &str,
         scale: &ConfiguredScale,
-    ) -> Option<Arc<dyn LegendRenderer>> {
+    ) -> Option<LegendRendererKind> {
         // Check if scale is continuous (for colorbar)
         let is_continuous = is_continuous_scale(scale.scale_impl.as_ref());
 
         match channel {
             // Use colorbar for continuous color scales
-            "fill" | "stroke" | "color" if is_continuous => Some(Arc::new(CompiledColorbar::new())),
-            // Rect marks use CompiledRectLegend for discrete scales and other visual properties
+            "fill" | "stroke" | "color" if is_continuous => Some(LegendRendererKind::Colorbar),
+            // Rect marks use rect legend rendering for discrete scales and other visual properties.
             "fill" | "stroke" | "color" | "opacity" | "stroke_width" => {
-                Some(Arc::new(CompiledRectLegend::new()))
+                Some(LegendRendererKind::Rect)
             }
             // No legend for position channels and other non-visual channels
             "x" | "y" | "x2" | "y2" | "width" | "height" | "defined" | "order"
             | "corner_radius" => None,
-            // For any other channel, default to CompiledRectLegend
-            _ => Some(Arc::new(CompiledRectLegend::new())),
+            // For any other channel, default to rect legend rendering.
+            _ => Some(LegendRendererKind::Rect),
         }
     }
 }

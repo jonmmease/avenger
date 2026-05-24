@@ -1,3 +1,3 @@
 pub mod symbol;
 
-pub use symbol::CompiledPolarSymbol;
+pub use symbol::{CompiledPolarSymbol, PolarSymbolPositionChannels};

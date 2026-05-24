@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::ScaleImpl;
@@ -8,14 +8,12 @@ use tracing::trace;
 
 use crate::{
     coords::{
-        CoordMeasurement, CoordinateSystem, CoordinateSystemTransform, PaddingSpec, PlotGeometry,
-        SubplotGeometry, SubplotRect,
+        CoordMeasureRequest, CoordMeasurement, CoordinateSystem, CoordinateSystemTransform,
+        PaddingSpec, PlotGeometry, SubplotGeometry, SubplotRect,
     },
     error::AvengerChartError,
     facet::{coord::measure_facet_row, guide::FacetRowGuideConfig},
-    marks::CompiledMark,
-    render::EvaluationContext,
-    scales::{ConfiguredScaleWithSpec, PlotAreaRangeEndpoint, ScaleRangeBinding},
+    scales::{PlotAreaRangeEndpoint, ScaleRangeBinding},
 };
 
 /// Row faceting coordinate system
@@ -115,21 +113,15 @@ impl CoordinateSystemTransform for FacetRow {
 
     async fn measure(
         &self,
-        scales: &HashMap<String, ConfiguredScaleWithSpec>,
-        plot_width: f32,
-        _plot_height: f32,
-        eval_ctx: &EvaluationContext,
-        data: Option<&datafusion::dataframe::DataFrame>,
-        compiled_marks: &[Arc<dyn CompiledMark>],
-        facet_path: &[ScalarValue],
+        request: CoordMeasureRequest<'_>,
     ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
         measure_facet_row(
-            scales,
-            plot_width,
-            eval_ctx,
-            data,
-            compiled_marks,
-            facet_path,
+            request.scales(),
+            request.plot_width(),
+            request.eval_ctx(),
+            request.data(),
+            request.compiled_marks(),
+            request.facet_path(),
         )
         .await
     }

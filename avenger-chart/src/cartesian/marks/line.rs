@@ -12,18 +12,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     cartesian::{Cartesian, channels::CartesianPositionConfig},
-    channel::ChannelDescriptor,
+    channel::{ChannelDescriptor, ChannelValue, PositionConfig},
+    chart_core::{LegendRendererKind, RadiusExpression, is_continuous_scale},
     coords::{CoordinateSystemTransform, PointGeometry},
-    define_position_channels,
     error::AvengerChartError,
     impl_mark_trait_common,
-    legend::{CompiledColorbar, CompiledLineLegend, LegendRenderer},
     marks::{
-        CompiledDataContext, CompiledMark, CompiledMarkState, Mark, RadiusExpression,
+        CompiledDataContext, CompiledMark, CompiledMarkState, Mark,
         line::{Line, PartitionKey, ensure_dictionary_array, line_channel_defaults},
         util::{
             coerce_bool_channel_with_renderer, coerce_color_channel_with_renderer,
-            coerce_numeric_channel_with_renderer, is_continuous_scale,
+            coerce_numeric_channel_with_renderer,
         },
     },
     render::RenderContext,
@@ -32,16 +31,62 @@ use crate::{
 
 pub use crate::marks::line::ensure_dictionary_array as ensure_dictionary_array_fn;
 
-// Define position channels for Cartesian Line using the macro
-define_position_channels! {
-    Line<Cartesian> {
-        x: {
-            with_config: CartesianPositionConfig,
-        },
-        y: {
-            with_config: CartesianPositionConfig,
-        }
+/// Cartesian position-channel builders for the generic `Line` mark.
+pub trait CartesianLinePositionChannels: Sized {
+    fn x<V: Into<ChannelValue>>(self, value: V) -> Self;
+    fn x_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
+    fn y<V: Into<ChannelValue>>(self, value: V) -> Self;
+    fn y_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
+}
+
+impl CartesianLinePositionChannels for Line<Cartesian> {
+    fn x<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("x", value.into())
     }
+
+    fn x_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+    {
+        configure_cartesian_position_channel(self, "x", value.into(), f)
+    }
+
+    fn y<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("y", value.into())
+    }
+
+    fn y_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+    {
+        configure_cartesian_position_channel(self, "y", value.into(), f)
+    }
+}
+
+fn configure_cartesian_position_channel(
+    mark: Line<Cartesian>,
+    channel_name: &str,
+    channel_value: ChannelValue,
+    f: impl FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+) -> Line<Cartesian> {
+    let config = CartesianPositionConfig::new(channel_value);
+    let configured = f(config);
+    let (channel_value, axis_config) = configured.take_axis_config();
+    let mut mark = mark.with_channel_value(channel_name, channel_value);
+    if let Some(axis_config) = axis_config {
+        mark.state_mut()
+            .axis_configs
+            .insert(channel_name.to_string(), Arc::new(axis_config));
+    }
+    mark
 }
 
 // Implement Mark trait for Cartesian Line with any axis type
@@ -170,6 +215,7 @@ impl CompiledMark for CompiledCartesianLine {
             )
         })?;
 
+        let mark_context = context.core_view();
         let len = data.num_rows();
         let coercer = Coercer::default();
 
@@ -181,7 +227,7 @@ impl CompiledMark for CompiledCartesianLine {
                 Some(data),
                 scalars,
                 channel_name,
-                context,
+                &mark_context,
                 0.0,
             )?;
             position_channels.insert(*channel_name, value);
@@ -207,8 +253,14 @@ impl CompiledMark for CompiledCartesianLine {
         let y = geometry.y.clone();
 
         // Extract defined array (for gaps in the line)
-        let defined =
-            coerce_bool_channel_with_renderer(self, Some(data), scalars, "defined", context, true)?;
+        let defined = coerce_bool_channel_with_renderer(
+            self,
+            Some(data),
+            scalars,
+            "defined",
+            &mark_context,
+            true,
+        )?;
 
         // Extract style channels - check if they vary or are scalar
         let stroke_array = data.column_by_name("stroke");
@@ -222,7 +274,7 @@ impl CompiledMark for CompiledCartesianLine {
         // Extract scalar style properties
         // TODO: Implement proper coercion for stroke_cap and stroke_join when available
         let stroke_cap = self
-            .default_channel_value("stroke_cap", context)
+            .default_channel_value("stroke_cap", &mark_context)
             .and_then(|v| match v {
                 ScalarValue::Utf8(Some(s)) => match s.as_str() {
                     "butt" => Some(avenger_common::types::StrokeCap::Butt),
@@ -235,7 +287,7 @@ impl CompiledMark for CompiledCartesianLine {
             .unwrap_or(avenger_common::types::StrokeCap::Round);
 
         let stroke_join = self
-            .default_channel_value("stroke_join", context)
+            .default_channel_value("stroke_join", &mark_context)
             .and_then(|v| match v {
                 ScalarValue::Utf8(Some(s)) => match s.as_str() {
                     "miter" => Some(avenger_common::types::StrokeJoin::Miter),
@@ -254,7 +306,7 @@ impl CompiledMark for CompiledCartesianLine {
                 None,
                 scalars,
                 "stroke",
-                context,
+                &mark_context,
                 [0.0, 0.0, 0.0, 1.0],
             )?;
             let stroke = match stroke_scalar.value() {
@@ -267,7 +319,7 @@ impl CompiledMark for CompiledCartesianLine {
                 None,
                 scalars,
                 "stroke_width",
-                context,
+                &mark_context,
                 2.0,
             )?;
             let stroke_width = match stroke_width_scalar.value() {
@@ -544,25 +596,25 @@ impl CompiledMark for CompiledCartesianLine {
         }
     }
 
-    fn preferred_legend_renderer(
+    fn preferred_legend_renderer_kind(
         &self,
         channel: &str,
         scale: &avenger_scales::scales::ConfiguredScale,
-    ) -> Option<Arc<dyn LegendRenderer>> {
+    ) -> Option<LegendRendererKind> {
         // Check if scale is continuous (for colorbar)
         let is_continuous = is_continuous_scale(scale.scale_impl.as_ref());
 
         match channel {
             // Use colorbar for continuous color scales
-            "stroke" if is_continuous => Some(Arc::new(CompiledColorbar::new())),
+            "stroke" if is_continuous => Some(LegendRendererKind::Colorbar),
             // Line marks use line legend for stroke properties
             "stroke" | "stroke_width" | "stroke_dash" | "stroke_opacity" => {
-                Some(Arc::new(CompiledLineLegend::new()))
+                Some(LegendRendererKind::Line)
             }
             // No legend for position channels
             "x" | "y" | "defined" | "order" | "stroke_cap" | "stroke_join" | "interpolate" => None,
-            // For any other channel, default to CompiledLineLegend
-            _ => Some(Arc::new(CompiledLineLegend::new())),
+            // For any other channel, default to line legend rendering.
+            _ => Some(LegendRendererKind::Line),
         }
     }
 }

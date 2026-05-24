@@ -8,6 +8,7 @@ use datafusion::{common::ScalarValue, dataframe::DataFrame};
 use tracing::{debug, trace};
 
 use crate::{
+    concat::compiled_subplot,
     coords::CellDomainInfo,
     error::AvengerChartError,
     facet::{
@@ -15,7 +16,7 @@ use crate::{
         marks::facet::{FacetSubplotRef, facet_subplot_ref},
         path_math, sharing_policy,
     },
-    marks::{CompiledMark, subplot::compiled_subplot},
+    marks::CompiledMark,
     plot::compiled::{
         ChildFrameDomainRequest, CompiledPlot, ContainerPathSegment, CoordinationKind,
         CoordinationScopeKey, SharingLevel, aggregate_domain_requests,
@@ -408,8 +409,7 @@ async fn build_ancestor_group_scale_builders(
             &compiled_subplot.coord_transform,
             &compiled_subplot.data,
             Some(filtered_df),
-            &eval_ctx.session_context,
-            &eval_ctx.params,
+            eval_ctx,
             compiled_subplot.get_theme().as_ref(),
         )
         .await?;
@@ -454,8 +454,7 @@ async fn build_per_cell_scale_builders(
             &compiled_subplot.coord_transform,
             &compiled_subplot.data,
             Some(data_override),
-            &eval_ctx.session_context,
-            &eval_ctx.params,
+            eval_ctx,
             compiled_subplot.get_theme().as_ref(),
         )
         .await?;
@@ -480,8 +479,7 @@ pub(crate) async fn build_node_artifacts(
         &compiled_subplot.coord_transform,
         &compiled_subplot.data,
         Some(inherited_data_df.clone()),
-        &eval_ctx.session_context,
-        &eval_ctx.params,
+        eval_ctx,
         compiled_subplot.get_theme().as_ref(),
     )
     .await?;
@@ -576,8 +574,7 @@ async fn collect_node_domain_infos(
                 &compiled_subplot.coord_transform,
                 &compiled_subplot.data,
                 Some(data_override),
-                &eval_ctx.session_context,
-                &eval_ctx.params,
+                eval_ctx,
                 compiled_subplot.get_theme().as_ref(),
             )
             .await?;
@@ -654,8 +651,7 @@ async fn collect_child_frame_domain_infos_for_marks(
             &child_plot.coord_transform,
             &child_plot.data,
             child_data_override.clone(),
-            eval_ctx.session_context.as_ref(),
-            &eval_ctx.params,
+            eval_ctx,
             child_plot.get_theme().as_ref(),
         )
         .await?;

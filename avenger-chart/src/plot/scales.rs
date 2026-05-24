@@ -16,7 +16,7 @@ impl<C: CoordinateSystem> Plot<C> {
         F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
     {
         // Create a Scale and apply the configuration
-        let scale_changes = f(Scale::new());
+        let scale_changes = f(Scale::new()).into_config();
         self.scale_specs
             .insert(channel.to_string(), ScaleSpec::Local(scale_changes));
         self
@@ -30,7 +30,7 @@ impl<C: CoordinateSystem> Plot<C> {
     ) -> Self {
         // Create a typed scale and apply the configuration
         let typed_scale = Scale::<S>::new();
-        let scale_changes = f(typed_scale).into_auto();
+        let scale_changes = f(typed_scale).into_auto().into_config();
         self.scale_specs
             .insert(channel.to_string(), ScaleSpec::Local(scale_changes));
         self

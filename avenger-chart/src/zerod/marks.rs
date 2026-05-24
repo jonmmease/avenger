@@ -14,33 +14,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     channel::ChannelDescriptor,
+    chart_core::{LegendRendererKind, ScalarValueHelpers},
     coords::{CoordinateSystemTransform, PointGeometry},
     error::AvengerChartError,
     impl_mark_trait_common,
-    legend::LegendRenderer,
     marks::{
         CompiledDataContext, CompiledMark, CompiledMarkState, Mark,
-        symbol::{Symbol, symbol_channel_defaults, symbol_legend_renderer},
+        symbol::{Symbol, symbol_channel_defaults, symbol_legend_renderer_kind},
         util::{coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer},
     },
     render::RenderContext,
-    utils::ScalarValueHelpers,
     zerod::ZeroDCoord,
 };
-// Implement position channel methods for ZeroDCoord marks
-// Since ZeroDCoord has no position channels (0D space), these implementations are minimal
-
-impl Symbol<ZeroDCoord> {
-    pub fn position_channel_descriptors() -> Vec<ChannelDescriptor> {
-        vec![] // No position channels in 0D space
-    }
-
-    pub fn all_channel_descriptors() -> Vec<ChannelDescriptor> {
-        let mut descriptors = Self::common_channel_descriptors();
-        descriptors.extend(Self::position_channel_descriptors());
-        descriptors
-    }
-}
 
 // Implement Mark trait for ZeroDCoord Symbol
 #[async_trait::async_trait]
@@ -139,6 +124,8 @@ impl CompiledMark for CompiledZeroDSymbol {
         context: &RenderContext,
         coord: Box<dyn CoordinateSystemTransform>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        let mark_context = context.core_view();
+
         // In 0D space, there are no position channels
         // Transform will give us a center point
         let position_channels = HashMap::new();
@@ -162,13 +149,13 @@ impl CompiledMark for CompiledZeroDSymbol {
 
         // Extract other channels using mark defaults
         let size =
-            coerce_numeric_channel_with_renderer(self, data, scalars, "size", context, 64.0)?;
+            coerce_numeric_channel_with_renderer(self, data, scalars, "size", &mark_context, 64.0)?;
         let fill = coerce_color_channel_with_renderer(
             self,
             data,
             scalars,
             "fill",
-            context,
+            &mark_context,
             [70.0 / 255.0, 130.0 / 255.0, 180.0 / 255.0, 1.0],
         )?;
         let stroke = coerce_color_channel_with_renderer(
@@ -176,11 +163,11 @@ impl CompiledMark for CompiledZeroDSymbol {
             data,
             scalars,
             "stroke",
-            context,
+            &mark_context,
             [0.0, 0.0, 0.0, 1.0],
         )?;
         let angle =
-            coerce_numeric_channel_with_renderer(self, data, scalars, "angle", context, 0.0)?;
+            coerce_numeric_channel_with_renderer(self, data, scalars, "angle", &mark_context, 0.0)?;
 
         // Determine the number of symbols
         let len = data.map_or(1, |data| data.num_rows()) as u32;
@@ -188,7 +175,7 @@ impl CompiledMark for CompiledZeroDSymbol {
         // Handle shape channel
         let coercer = Coercer::default();
         let shape_default = self
-            .default_channel_value("shape", context)
+            .default_channel_value("shape", &mark_context)
             .and_then(|scalar| match scalar {
                 ScalarValue::Utf8(Some(s)) => SymbolShape::from_vega_str(&s).ok(),
                 _ => None,
@@ -206,7 +193,7 @@ impl CompiledMark for CompiledZeroDSymbol {
 
         // Stroke width
         let stroke_width_default = self
-            .default_channel_value("stroke_width", context)
+            .default_channel_value("stroke_width", &mark_context)
             .and_then(|scalar| ScalarValueHelpers::as_f32(&scalar).ok())
             .unwrap_or(1.0);
 
@@ -247,12 +234,12 @@ impl CompiledMark for CompiledZeroDSymbol {
         symbol_channel_defaults(channel)
     }
 
-    fn preferred_legend_renderer(
+    fn preferred_legend_renderer_kind(
         &self,
         channel: &str,
         scale: &ConfiguredScale,
-    ) -> Option<Arc<dyn LegendRenderer>> {
+    ) -> Option<LegendRendererKind> {
         // Use the same logic as the Symbol mark, with no position channels
-        symbol_legend_renderer(channel, scale, &[])
+        symbol_legend_renderer_kind(channel, scale, &[])
     }
 }

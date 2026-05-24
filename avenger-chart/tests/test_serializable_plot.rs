@@ -1,5 +1,6 @@
 //! Test for CompiledPlot serialization
 
+use avenger_chart::cartesian::CartesianSymbolPositionChannels;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::{CompiledPlot, Plot};
 use datafusion::prelude::{SessionContext, col};

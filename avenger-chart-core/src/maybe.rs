@@ -1,0 +1,237 @@
+//! Three-state enum for tracking configuration values.
+//!
+//! The `Maybe<T>` enum distinguishes fields that have not been set by the user
+//! from fields that have been explicitly set by the user.
+
+use datafusion_proto::protobuf::LogicalExprNode;
+use serde::{Deserialize, Serialize};
+use serde_with::{DeserializeAs, SerializeAs};
+
+use crate::SerializableExpr;
+
+/// Three-state enum for tracking configuration values.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+pub enum Maybe<T> {
+    /// Field has not been set by user.
+    #[default]
+    Unset,
+    /// Field has been explicitly set.
+    Set(T),
+}
+
+impl<T> Maybe<T> {
+    /// Check if the value has been set.
+    pub fn is_set(&self) -> bool {
+        matches!(self, Maybe::Set(_))
+    }
+
+    /// Check if the value is unset.
+    pub fn is_unset(&self) -> bool {
+        matches!(self, Maybe::Unset)
+    }
+
+    /// Get the value if set, otherwise return the provided default.
+    pub fn unwrap_or(self, default: T) -> T {
+        match self {
+            Maybe::Set(v) => v,
+            Maybe::Unset => default,
+        }
+    }
+
+    /// Get the value if set, otherwise compute it from a closure.
+    pub fn unwrap_or_else<F>(self, f: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        match self {
+            Maybe::Set(v) => v,
+            Maybe::Unset => f(),
+        }
+    }
+
+    /// Convert `&Maybe<T>` to `Maybe<&T>`.
+    pub fn as_ref(&self) -> Maybe<&T> {
+        match self {
+            Maybe::Set(v) => Maybe::Set(v),
+            Maybe::Unset => Maybe::Unset,
+        }
+    }
+
+    /// Convert `&mut Maybe<T>` to `Maybe<&mut T>`.
+    pub fn as_mut(&mut self) -> Maybe<&mut T> {
+        match self {
+            Maybe::Set(v) => Maybe::Set(v),
+            Maybe::Unset => Maybe::Unset,
+        }
+    }
+
+    /// Apply this maybe value to a default, returning the final value.
+    pub fn apply_to(self, default: T) -> T {
+        match self {
+            Maybe::Set(v) => v,
+            Maybe::Unset => default,
+        }
+    }
+
+    /// Map a function over the value if it is set.
+    pub fn map<U, F>(self, f: F) -> Maybe<U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        match self {
+            Maybe::Set(v) => Maybe::Set(f(v)),
+            Maybe::Unset => Maybe::Unset,
+        }
+    }
+
+    /// Get an `Option<T>` from `Maybe<T>`.
+    pub fn into_option(self) -> Option<T> {
+        match self {
+            Maybe::Set(v) => Some(v),
+            Maybe::Unset => None,
+        }
+    }
+
+    /// Get an `Option<&T>` from `&Maybe<T>`.
+    pub fn as_option(&self) -> Option<&T> {
+        match self {
+            Maybe::Set(v) => Some(v),
+            Maybe::Unset => None,
+        }
+    }
+
+    /// Create a `Maybe` from an `Option`.
+    pub fn from_option(opt: Option<T>) -> Self {
+        match opt {
+            Some(v) => Maybe::Set(v),
+            None => Maybe::Unset,
+        }
+    }
+}
+
+impl<T> From<T> for Maybe<T> {
+    fn from(value: T) -> Self {
+        Maybe::Set(value)
+    }
+}
+
+impl<T> From<Option<T>> for Maybe<T> {
+    fn from(opt: Option<T>) -> Self {
+        Maybe::from_option(opt)
+    }
+}
+
+impl<T> Maybe<Option<T>> {
+    /// Set the value to `Some(v)`.
+    pub fn set_some(v: T) -> Self {
+        Maybe::Set(Some(v))
+    }
+
+    /// Set the value to `None`.
+    pub fn set_none() -> Self {
+        Maybe::Set(None)
+    }
+
+    /// Flatten `Maybe<Option<T>>` to `Option<T>`.
+    pub fn flatten(self) -> Option<T> {
+        match self {
+            Maybe::Set(opt) => opt,
+            Maybe::Unset => None,
+        }
+    }
+}
+
+/// Wrapper for `Maybe<Option<LogicalExprNode>>` that serializes via
+/// `SerializableExpr`.
+///
+/// This wrapper enables serde_with's `#[serde_as]` attribute to properly
+/// serialize and deserialize `Maybe<Option<LogicalExprNode>>` by converting
+/// to/from `SerializableExpr`, which handles the protobuf bytes.
+#[derive(Clone, Debug)]
+pub struct MaybeOptionalExpr(pub Maybe<Option<LogicalExprNode>>);
+
+impl From<Maybe<Option<LogicalExprNode>>> for MaybeOptionalExpr {
+    fn from(value: Maybe<Option<LogicalExprNode>>) -> Self {
+        MaybeOptionalExpr(value)
+    }
+}
+
+impl From<MaybeOptionalExpr> for Maybe<Option<LogicalExprNode>> {
+    fn from(wrapper: MaybeOptionalExpr) -> Self {
+        wrapper.0
+    }
+}
+
+impl SerializeAs<Maybe<Option<LogicalExprNode>>> for MaybeOptionalExpr {
+    fn serialize_as<S>(
+        source: &Maybe<Option<LogicalExprNode>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let as_serializable = source.as_ref().map(|opt| {
+            opt.as_ref().map(|node| {
+                let ser: SerializableExpr = node.clone().into();
+                ser
+            })
+        });
+        as_serializable.serialize(serializer)
+    }
+}
+
+impl<'de> DeserializeAs<'de, Maybe<Option<LogicalExprNode>>> for MaybeOptionalExpr {
+    fn deserialize_as<D>(deserializer: D) -> Result<Maybe<Option<LogicalExprNode>>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let as_serializable = Maybe::<Option<SerializableExpr>>::deserialize(deserializer)?;
+
+        Ok(as_serializable.map(|opt| {
+            opt.map(|ser| {
+                let node: LogicalExprNode = ser.into();
+                node
+            })
+        }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_maybe_basic() {
+        let unset: Maybe<i32> = Maybe::Unset;
+        assert!(!unset.is_set());
+        assert!(unset.is_unset());
+
+        let set = Maybe::Set(42);
+        assert!(set.is_set());
+        assert!(!set.is_unset());
+    }
+
+    #[test]
+    fn test_maybe_unwrap() {
+        let unset: Maybe<i32> = Maybe::Unset;
+        assert_eq!(unset.unwrap_or(10), 10);
+
+        let set = Maybe::Set(42);
+        assert_eq!(set.unwrap_or(10), 42);
+    }
+
+    #[test]
+    fn test_maybe_option() {
+        let maybe_none: Maybe<Option<String>> = Maybe::set_none();
+        assert!(maybe_none.is_set());
+        assert_eq!(maybe_none.flatten(), None);
+
+        let maybe_some = Maybe::set_some("hello".to_string());
+        assert!(maybe_some.is_set());
+        assert_eq!(maybe_some.flatten(), Some("hello".to_string()));
+
+        let unset: Maybe<Option<String>> = Maybe::Unset;
+        assert!(unset.is_unset());
+        assert_eq!(unset.flatten(), None);
+    }
+}

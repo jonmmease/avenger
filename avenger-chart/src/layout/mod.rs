@@ -12,11 +12,12 @@ pub(crate) mod legend;
 mod sizing;
 mod types;
 
+pub use crate::chart_core::BandPosition;
 pub(crate) use band_child_frame::{
     BandChildFrameInput, BandChildFramePlacement, BandDirection, BandPlacedChild, BandSpacing,
     BoundaryDemand1D,
 };
-pub use band_position::{BandPosition, BandPositionIterator};
+pub use band_position::BandPositionIterator;
 pub(crate) use child_frame::{
     ChildFramePlacementResult, ChildFrameRenderPlacement, project_child_frame_bounds,
 };

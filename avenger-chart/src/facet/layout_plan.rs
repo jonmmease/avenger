@@ -152,8 +152,8 @@ pub(crate) fn effective_edge_indices_for_values_at_path(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::facet::FacetDirection;
     use crate::facet::evaluated_facet_tree::PartitionNode;
-    use crate::guide::FacetDirection;
 
     #[test]
     fn compute_padding_skips_pairs_with_empty_cells() {

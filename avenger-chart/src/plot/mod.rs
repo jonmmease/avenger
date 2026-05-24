@@ -11,8 +11,9 @@ mod specs;
 mod title;
 
 // Re-export core plot types
+pub use crate::chart_core::IntoExpr;
 pub use compiled::CompiledPlot;
-pub use plot::{IntoExpr, Plot};
+pub use plot::Plot;
 
 // Re-export title types
 pub use title::{PlotSubtitle, PlotTitle, TitleAlign, TitleSpan};

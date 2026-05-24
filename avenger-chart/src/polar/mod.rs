@@ -8,3 +8,4 @@ pub use axis::{PolarAxis, PolarAxisType, PolarDirection};
 pub use channels::PolarPositionConfig;
 pub use coord::Polar;
 pub use guide::{PolarGuide, PolarOptions};
+pub use marks::PolarSymbolPositionChannels;

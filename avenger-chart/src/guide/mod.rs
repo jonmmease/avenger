@@ -9,8 +9,7 @@ mod no_guide;
 mod overflow;
 
 pub use coordinate_guide::{
-    CompiledGuide, CoordinateGuide, FacetDirection, GuideOverflowPhase, GuideSharingContext,
-    UnifiableChannelInfo,
+    CompiledGuide, CoordinateGuide, GuideOverflowPhase, GuideSharingContext,
 };
 pub use no_guide::NoGuide;
 pub use overflow::{MeasurementResult, OverflowSpaceRequirement, spacing_keys};

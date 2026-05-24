@@ -1,4 +1,4 @@
-use avenger_chart::{cartesian::Cartesian, marks::Mark, plot::Plot};
+use avenger_chart::{cartesian::Cartesian, plot::Plot};
 use avenger_chart_external_test::external_mark::HexBin;
 
 #[test]

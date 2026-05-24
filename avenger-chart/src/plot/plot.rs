@@ -6,167 +6,28 @@ use datafusion::{
     common::{DFSchema, ScalarValue},
     dataframe::DataFrame,
     logical_expr::{EmptyRelation, LogicalPlan},
-    prelude::{Expr, lit},
+    prelude::Expr,
 };
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
 use crate::{
-    cartesian::axis::AxisPosition,
+    chart_core::{IntoExpr, Param, contains_aggregate},
     coords::CoordinateSystem,
     error::AvengerChartError,
     guide::CoordinateGuide,
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint, SizeMode},
-    legend::{Legend, LegendOrientation, LegendPosition},
-    marks::{CompiledMark, CompiledMarkState, Mark},
-    param::Param,
-    polar::axis::{PolarAxisType, PolarDirection},
-    serialization::LogicalPlanNodeExt,
+    legend::Legend,
+    marks::{CompiledMark, CompiledMarkState, Mark, SubplotChildPlotSpec},
+    serialization::{LogicalPlanNodeExt, serializable_expr_from_expr},
     theme::Theme,
 };
 
 use super::{
     compiled::CompiledPlot,
     specs::{AxisSpec, ScaleSpec},
-    title::{PlotSubtitle, PlotTitle, TitleAlign, TitleSpan},
+    title::{PlotSubtitle, PlotTitle},
 };
-
-/// Trait for types that can be converted to Expr (for dimensions)
-pub trait IntoExpr {
-    fn into_expr(self) -> Expr;
-}
-
-impl IntoExpr for Expr {
-    fn into_expr(self) -> Expr {
-        self
-    }
-}
-
-impl IntoExpr for f32 {
-    fn into_expr(self) -> Expr {
-        lit(self)
-    }
-}
-
-impl IntoExpr for f64 {
-    fn into_expr(self) -> Expr {
-        lit(self)
-    }
-}
-
-impl IntoExpr for i32 {
-    fn into_expr(self) -> Expr {
-        lit(self)
-    }
-}
-
-impl IntoExpr for i64 {
-    fn into_expr(self) -> Expr {
-        lit(self)
-    }
-}
-
-impl IntoExpr for String {
-    fn into_expr(self) -> Expr {
-        lit(self)
-    }
-}
-
-impl IntoExpr for &str {
-    fn into_expr(self) -> Expr {
-        lit(self)
-    }
-}
-
-impl IntoExpr for bool {
-    fn into_expr(self) -> Expr {
-        lit(self)
-    }
-}
-
-impl IntoExpr for usize {
-    fn into_expr(self) -> Expr {
-        lit(self as i64)
-    }
-}
-
-impl IntoExpr for AxisPosition {
-    fn into_expr(self) -> Expr {
-        let s = match self {
-            AxisPosition::Top => "top",
-            AxisPosition::Bottom => "bottom",
-            AxisPosition::Left => "left",
-            AxisPosition::Right => "right",
-        };
-        lit(s)
-    }
-}
-
-impl IntoExpr for Param {
-    fn into_expr(self) -> Expr {
-        self.expr()
-    }
-}
-
-impl IntoExpr for &Param {
-    fn into_expr(self) -> Expr {
-        self.expr()
-    }
-}
-
-impl IntoExpr for PolarAxisType {
-    fn into_expr(self) -> Expr {
-        let s = match self {
-            PolarAxisType::Radial => "radial",
-            PolarAxisType::Angular => "angular",
-        };
-        lit(s)
-    }
-}
-
-impl IntoExpr for PolarDirection {
-    fn into_expr(self) -> Expr {
-        let s = match self {
-            PolarDirection::Clockwise => "clockwise",
-            PolarDirection::CounterClockwise => "counterclockwise",
-        };
-        lit(s)
-    }
-}
-
-impl IntoExpr for LegendPosition {
-    fn into_expr(self) -> Expr {
-        let s = match self {
-            LegendPosition::Top => "top",
-            LegendPosition::Right => "right",
-            LegendPosition::Bottom => "bottom",
-            LegendPosition::Left => "left",
-        };
-        lit(s)
-    }
-}
-
-impl IntoExpr for LegendOrientation {
-    fn into_expr(self) -> Expr {
-        let s = match self {
-            LegendOrientation::Horizontal => "horizontal",
-            LegendOrientation::Vertical => "vertical",
-        };
-        lit(s)
-    }
-}
-
-impl IntoExpr for TitleSpan {
-    fn into_expr(self) -> Expr {
-        lit(self.to_str())
-    }
-}
-
-impl IntoExpr for TitleAlign {
-    fn into_expr(self) -> Expr {
-        lit(self.to_str())
-    }
-}
 
 #[derive(Clone)]
 pub struct Plot<C: CoordinateSystem> {
@@ -201,6 +62,27 @@ pub struct Plot<C: CoordinateSystem> {
 
     /// Parameters that can be used in expressions
     pub(crate) params: Vec<Param>,
+}
+
+#[async_trait::async_trait]
+impl<C> SubplotChildPlotSpec for Plot<C>
+where
+    C: CoordinateSystem + Clone + 'static,
+{
+    fn clone_box(&self) -> Box<dyn SubplotChildPlotSpec> {
+        Box::new(self.clone())
+    }
+
+    fn has_plot_level_data(&self) -> bool {
+        self.data.is_some()
+    }
+
+    async fn compile_boxed(
+        &self,
+        session_context: &datafusion::prelude::SessionContext,
+    ) -> Result<Arc<CompiledPlot>, AvengerChartError> {
+        Ok(Arc::new(self.clone().compile(session_context).await?))
+    }
 }
 
 impl<C: CoordinateSystem> Plot<C> {
@@ -274,7 +156,7 @@ impl<C: CoordinateSystem> Plot<C> {
                 .channels()
                 .values()
                 .filter_map(|value| value.expr(session_context))
-                .any(|expr| crate::utils::contains_aggregate(&expr));
+                .any(|expr| contains_aggregate(&expr));
 
             let compiled_mark = if needs_aggregation {
                 // Apply aggregation and update channel expressions
@@ -401,7 +283,7 @@ impl<C: CoordinateSystem> Plot<C> {
         for (channel_name, channel_value) in mark_state.data.channels() {
             // Skip channels without expressions (e.g., conditional channels)
             if let Some(expr) = channel_value.expr(session_context) {
-                let is_aggregate = crate::utils::contains_aggregate(&expr);
+                let is_aggregate = contains_aggregate(&expr);
                 let is_literal = matches!(expr, Expr::Literal(_, _));
 
                 if is_aggregate {
@@ -523,8 +405,8 @@ impl<C: CoordinateSystem> Plot<C> {
         let height_expr = height.into_expr();
 
         self.layout_spec.canvas = SizeMode::Fixed {
-            width: width_expr.into(),
-            height: height_expr.into(),
+            width: serializable_expr_from_expr(width_expr, "canvas width"),
+            height: serializable_expr_from_expr(height_expr, "canvas height"),
         };
         self
     }
@@ -552,8 +434,8 @@ impl<C: CoordinateSystem> Plot<C> {
         let height_expr = height.into_expr();
 
         self.layout_spec.plot_area = SizeMode::Fixed {
-            width: width_expr.into(),
-            height: height_expr.into(),
+            width: serializable_expr_from_expr(width_expr, "plot width"),
+            height: serializable_expr_from_expr(height_expr, "plot height"),
         };
         self
     }
@@ -562,8 +444,12 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn plot_constraint(mut self, constraint: PlotConstraint) -> Self {
         self.layout_spec.plot_area = match constraint {
             PlotConstraint::Auto => SizeMode::Auto,
-            PlotConstraint::Width(w) => SizeMode::Width(w.into()),
-            PlotConstraint::Height(h) => SizeMode::Height(h.into()),
+            PlotConstraint::Width(w) => {
+                SizeMode::Width(serializable_expr_from_expr(w, "plot width constraint"))
+            }
+            PlotConstraint::Height(h) => {
+                SizeMode::Height(serializable_expr_from_expr(h, "plot height constraint"))
+            }
         };
         self
     }

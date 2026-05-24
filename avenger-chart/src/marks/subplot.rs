@@ -1,31 +1,17 @@
-use std::{any::Any, collections::HashMap, marker::PhantomData, sync::Arc};
+use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 
-use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
-use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
-use datafusion::{
-    arrow::record_batch::RecordBatch, dataframe::DataFrame, logical_expr::Expr,
-    prelude::SessionContext,
-};
+use datafusion::{arrow::record_batch::RecordBatch, dataframe::DataFrame, prelude::SessionContext};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    cartesian::{
-        Cartesian, CartesianPositionConfig, positioned_subplot::cartesian_positioned_coord_ref,
-    },
-    concat::{HConcat, VConcat, concat_coord_ref},
-    coords::{CoordinateSystem, CoordinateSystemTransform},
+    coords::CoordinateSystem,
     error::AvengerChartError,
     facet::dimension_config::{ColumnDimensionConfig, FacetDimensionConfig, RowDimensionConfig},
-    layout::BandDirection,
-    legend::LegendRenderer,
     marks::{
-        ChannelDescriptor, ChannelValue, CompiledDataContext, CompiledMark, CompiledMarkState,
-        DataContext, FacetStrategy, Mark, MarkState, RadiusExpression,
+        ChannelValue, CompiledMark, CompiledMarkState, DataContext, FacetStrategy, Mark, MarkState,
     },
-    plot::{CompiledPlot, Plot, compiled::ChildFrameSharingLevel},
+    plot::CompiledPlot,
     render::RenderContext,
-    scales::{ResolvedDomain, ScaleRange, ScaleSpec},
-    theme::Theme,
 };
 
 /// Data source selected for a compiled subplot's child plot.
@@ -120,8 +106,9 @@ impl CompiledSubplotPayload {
 }
 
 #[async_trait::async_trait]
-pub(crate) trait SubplotPlotSpec: Send + Sync {
-    fn clone_box(&self) -> Box<dyn SubplotPlotSpec>;
+#[doc(hidden)]
+pub trait SubplotChildPlotSpec: Send + Sync {
+    fn clone_box(&self) -> Box<dyn SubplotChildPlotSpec>;
     fn has_plot_level_data(&self) -> bool;
     async fn compile_boxed(
         &self,
@@ -129,7 +116,7 @@ pub(crate) trait SubplotPlotSpec: Send + Sync {
     ) -> Result<Arc<CompiledPlot>, AvengerChartError>;
 }
 
-impl Clone for Box<dyn SubplotPlotSpec> {
+impl Clone for Box<dyn SubplotChildPlotSpec> {
     fn clone(&self) -> Self {
         self.clone_box()
     }
@@ -156,27 +143,6 @@ pub async fn compile_subplot_payload<OuterC: CoordinateSystem>(
     ))
 }
 
-#[async_trait::async_trait]
-impl<C> SubplotPlotSpec for Plot<C>
-where
-    C: CoordinateSystem + Clone + 'static,
-{
-    fn clone_box(&self) -> Box<dyn SubplotPlotSpec> {
-        Box::new(self.clone())
-    }
-
-    fn has_plot_level_data(&self) -> bool {
-        self.data.is_some()
-    }
-
-    async fn compile_boxed(
-        &self,
-        session_context: &SessionContext,
-    ) -> Result<Arc<CompiledPlot>, AvengerChartError> {
-        Ok(Arc::new(self.clone().compile(session_context).await?))
-    }
-}
-
 #[derive(Clone, Default)]
 pub(crate) struct SubplotConfig {
     pub(crate) label: Option<String>,
@@ -185,8 +151,8 @@ pub(crate) struct SubplotConfig {
     pub(crate) plot_height: Option<f32>,
     pub(crate) facet_row_title: Option<String>,
     pub(crate) facet_col_title: Option<String>,
-    pub(crate) facet_row_slot_sharing: Option<crate::channel::config_traits::ScaleSharing>,
-    pub(crate) facet_col_slot_sharing: Option<crate::channel::config_traits::ScaleSharing>,
+    pub(crate) facet_row_slot_sharing: Option<crate::chart_core::ScaleSharing>,
+    pub(crate) facet_col_slot_sharing: Option<crate::chart_core::ScaleSharing>,
     pub(crate) facet_row_position: Option<String>,
     pub(crate) facet_col_position: Option<String>,
     pub(crate) facet_row_empty_cell_policy:
@@ -204,15 +170,15 @@ pub(crate) struct SubplotConfig {
 #[derive(Clone)]
 pub struct Subplot<OuterC: CoordinateSystem> {
     state: MarkState,
-    subplot: Box<dyn SubplotPlotSpec>,
+    subplot: Box<dyn SubplotChildPlotSpec>,
     config: SubplotConfig,
     _outer: PhantomData<fn() -> OuterC>,
 }
 
 impl<OuterC: CoordinateSystem> Subplot<OuterC> {
-    pub fn new<C>(subplot: Plot<C>) -> Self
+    pub fn new<P>(subplot: P) -> Self
     where
-        C: CoordinateSystem + Clone + 'static,
+        P: SubplotChildPlotSpec + 'static,
     {
         Self {
             state: MarkState {
@@ -282,7 +248,10 @@ impl<OuterC: CoordinateSystem> Subplot<OuterC> {
         self
     }
 
-    fn validate_no_facet_channels(&self, outer_label: &str) -> Result<(), AvengerChartError> {
+    pub(crate) fn validate_no_facet_channels(
+        &self,
+        outer_label: &str,
+    ) -> Result<(), AvengerChartError> {
         let channels = self.state.data.channels();
         for channel_name in [
             RowDimensionConfig::channel_name(),
@@ -341,543 +310,6 @@ where
     }
 }
 
-#[async_trait::async_trait]
-impl SubplotContainerCoordinateSystem for HConcat {
-    async fn compile_subplot_mark(
-        subplot: &Subplot<Self>,
-        compiled_state: CompiledMarkState,
-        session_context: &SessionContext,
-    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        subplot.validate_no_facet_channels("HConcat")?;
-
-        Ok(Arc::new(CompiledConcatSubplot {
-            payload: compile_subplot_payload(subplot, compiled_state, session_context).await?,
-        }))
-    }
-}
-
-#[async_trait::async_trait]
-impl SubplotContainerCoordinateSystem for VConcat {
-    async fn compile_subplot_mark(
-        subplot: &Subplot<Self>,
-        compiled_state: CompiledMarkState,
-        session_context: &SessionContext,
-    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        subplot.validate_no_facet_channels("VConcat")?;
-
-        Ok(Arc::new(CompiledConcatSubplot {
-            payload: compile_subplot_payload(subplot, compiled_state, session_context).await?,
-        }))
-    }
-}
-
-impl Subplot<Cartesian> {
-    /// Set the parent x-position for coordinate-positioned child plot frames.
-    pub fn x<V: Into<ChannelValue>>(self, value: V) -> Self {
-        self.with_channel_value("x", value.into())
-    }
-
-    /// Set the parent y-position for coordinate-positioned child plot frames.
-    pub fn y<V: Into<ChannelValue>>(self, value: V) -> Self {
-        self.with_channel_value("y", value.into())
-    }
-
-    /// Configure the parent x-position channel for coordinate-positioned child plot frames.
-    pub fn x_with<V, F>(self, value: V, f: F) -> Self
-    where
-        V: Into<ChannelValue>,
-        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
-    {
-        self.with_position_config("x", value.into(), f)
-    }
-
-    /// Configure the parent y-position channel for coordinate-positioned child plot frames.
-    pub fn y_with<V, F>(self, value: V, f: F) -> Self
-    where
-        V: Into<ChannelValue>,
-        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
-    {
-        self.with_position_config("y", value.into(), f)
-    }
-
-    /// Set the child plot-area width used for each positioned child frame.
-    pub fn plot_width(mut self, width: f32) -> Self {
-        self.config.plot_width = Some(width);
-        self
-    }
-
-    /// Set the child plot-area height used for each positioned child frame.
-    pub fn plot_height(mut self, height: f32) -> Self {
-        self.config.plot_height = Some(height);
-        self
-    }
-
-    /// Set both child plot-area dimensions used for each positioned child frame.
-    pub fn plot_size(mut self, width: f32, height: f32) -> Self {
-        self.config.plot_width = Some(width);
-        self.config.plot_height = Some(height);
-        self
-    }
-
-    fn with_position_config<F>(self, channel: &'static str, value: ChannelValue, f: F) -> Self
-    where
-        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
-    {
-        use crate::channel::PositionConfig;
-
-        let configured = f(CartesianPositionConfig::new(value));
-        let (channel_value, axis_config) = configured.take_axis_config();
-        let mut mark = self.with_channel_value(channel, channel_value);
-        if let Some(axis_config) = axis_config {
-            mark.state
-                .axis_configs
-                .insert(channel.to_string(), Arc::new(axis_config));
-        }
-        mark
-    }
-}
-
-#[async_trait::async_trait]
-impl SubplotContainerCoordinateSystem for Cartesian {
-    async fn compile_subplot_mark(
-        subplot: &Subplot<Self>,
-        compiled_state: CompiledMarkState,
-        session_context: &SessionContext,
-    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        subplot.validate_no_facet_channels("Cartesian")?;
-
-        Ok(Arc::new(CompiledCartesianSubplot {
-            payload: compile_subplot_payload(subplot, compiled_state, session_context).await?,
-            plot_width: subplot.config.plot_width.unwrap_or(80.0).max(1.0),
-            plot_height: subplot.config.plot_height.unwrap_or(80.0).max(1.0),
-        }))
-    }
-}
-
-/// Compiled child-plot mark for container coordinate systems.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct CompiledConcatSubplot {
-    payload: CompiledSubplotPayload,
-}
-
-impl CompiledConcatSubplot {
-    pub fn compiled_subplot(&self) -> &Arc<CompiledPlot> {
-        self.payload.compiled_subplot()
-    }
-
-    pub fn compiled_state(&self) -> &CompiledMarkState {
-        self.payload.compiled_state()
-    }
-
-    pub fn label(&self) -> Option<&str> {
-        self.payload.label()
-    }
-
-    pub fn key(&self) -> Option<&str> {
-        self.payload.key()
-    }
-
-    pub fn data_source(&self) -> SubplotDataSource {
-        self.payload.data_source()
-    }
-
-    pub fn child_index(&self) -> usize {
-        self.payload.mark_index()
-    }
-
-    pub fn inherits_parent_data(&self) -> bool {
-        self.payload.inherits_parent_data()
-    }
-
-    pub fn has_explicit_child_data(&self) -> bool {
-        self.payload.has_explicit_child_data()
-    }
-
-    fn group_name(&self) -> String {
-        match self.key() {
-            Some(key) => format!("concat_subplot_{}_{}", self.child_index(), key),
-            None => format!("concat_subplot_{}", self.child_index()),
-        }
-    }
-
-    fn inherited_data_override(
-        &self,
-        data: Option<&RecordBatch>,
-        context: &RenderContext<'_>,
-    ) -> Result<Option<DataFrame>, AvengerChartError> {
-        self.payload.inherited_data_override(data, context)
-    }
-}
-
-pub fn compiled_subplot(mark: &dyn CompiledMark) -> Option<&CompiledConcatSubplot> {
-    if mark.mark_type() != "subplot" {
-        return None;
-    }
-    mark.as_any().downcast_ref::<CompiledConcatSubplot>()
-}
-
-/// Compiled child-plot mark positioned by Cartesian x/y channels.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct CompiledCartesianSubplot {
-    payload: CompiledSubplotPayload,
-    plot_width: f32,
-    plot_height: f32,
-}
-
-impl CompiledCartesianSubplot {
-    pub fn compiled_subplot(&self) -> &Arc<CompiledPlot> {
-        self.payload.compiled_subplot()
-    }
-
-    pub fn label(&self) -> Option<&str> {
-        self.payload.label()
-    }
-
-    pub fn key(&self) -> Option<&str> {
-        self.payload.key()
-    }
-
-    pub fn mark_index(&self) -> usize {
-        self.payload.mark_index()
-    }
-
-    pub fn plot_width(&self) -> f32 {
-        self.plot_width
-    }
-
-    pub fn plot_height(&self) -> f32 {
-        self.plot_height
-    }
-
-    pub fn inherits_parent_data(&self) -> bool {
-        self.payload.inherits_parent_data()
-    }
-
-    fn group_name(&self, child_index: usize) -> String {
-        match self.key() {
-            Some(key) => format!(
-                "cartesian_subplot_{}_{}_{}",
-                self.mark_index(),
-                child_index,
-                key
-            ),
-            None => format!("cartesian_subplot_{}_{}", self.mark_index(), child_index),
-        }
-    }
-}
-
-pub fn compiled_cartesian_subplot(mark: &dyn CompiledMark) -> Option<&CompiledCartesianSubplot> {
-    if mark.mark_type() != "subplot" {
-        return None;
-    }
-    mark.as_any().downcast_ref::<CompiledCartesianSubplot>()
-}
-
-#[typetag::serde]
-#[async_trait::async_trait]
-impl CompiledMark for CompiledConcatSubplot {
-    fn state(&self) -> &CompiledMarkState {
-        self.payload.compiled_state()
-    }
-
-    fn state_mut(&mut self) -> &mut CompiledMarkState {
-        self.payload.compiled_state_mut()
-    }
-
-    fn data_context(&self) -> &CompiledDataContext {
-        &self.payload.compiled_state().data
-    }
-
-    fn mark_type(&self) -> &str {
-        "subplot"
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn supported_channels(&self) -> Vec<ChannelDescriptor> {
-        Vec::new()
-    }
-
-    fn wants_full_data_batch(&self) -> bool {
-        true
-    }
-
-    async fn render_from_data(
-        &self,
-        data: Option<&RecordBatch>,
-        _scalars: &RecordBatch,
-        context: &RenderContext,
-        _coord: Box<dyn CoordinateSystemTransform>,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        let concat_measurement =
-            concat_coord_ref(context.coord_measurement()).ok_or_else(|| {
-                AvengerChartError::InternalError(
-                    "Subplot marks require ConcatCoordMeasurement in coord_measurement".to_string(),
-                )
-            })?;
-        let child = concat_measurement
-            .child(self.child_index())
-            .ok_or_else(|| {
-                AvengerChartError::InternalError(format!(
-                    "Missing concat child measurement for subplot child index {}",
-                    self.child_index()
-                ))
-            })?;
-        let child_frame_placement = concat_measurement.child_frame_placement();
-        let render_placement =
-            child_frame_placement
-                .child(self.child_index())
-                .ok_or_else(|| {
-                    AvengerChartError::InternalError(format!(
-                        "Missing concat child-frame placement for subplot child index {}",
-                        self.child_index()
-                    ))
-                })?;
-
-        let mut params = self.compiled_subplot().get_default_params().clone();
-        params.extend(context.eval.params.clone());
-        let child_count = concat_measurement.children().len();
-        let sharing_level = match concat_measurement.child_band_layout.direction {
-            BandDirection::Horizontal => {
-                ChildFrameSharingLevel::hconcat_child(self.child_index(), child_count, self.key())
-            }
-            BandDirection::Vertical => {
-                ChildFrameSharingLevel::vconcat_child(self.child_index(), child_count, self.key())
-            }
-        };
-        let child_eval_ctx = context
-            .eval
-            .with_params(params)
-            .with_child_frame_sharing_level_appended(sharing_level);
-        let data_override = self.inherited_data_override(data, context)?;
-        let components = self
-            .compiled_subplot()
-            .build_plot_components(
-                &child_eval_ctx,
-                &child.measurement,
-                data_override.as_ref(),
-                true,
-                context.facet_path,
-            )
-            .await?;
-
-        let data_marks_group = SceneGroup {
-            origin: [0.0, 0.0],
-            marks: components.data_marks,
-            clip: components.clip,
-            zindex: Some(0),
-            ..Default::default()
-        };
-        let mut all_marks = vec![SceneMark::Group(data_marks_group)];
-        all_marks.extend(components.guide_marks);
-        all_marks.extend(components.legend_marks);
-        all_marks.extend(components.title_marks);
-        all_marks.extend(components.subtitle_marks);
-        all_marks.extend(components.debug_marks);
-
-        Ok(vec![SceneMark::Group(SceneGroup {
-            name: self.group_name(),
-            origin: render_placement.origin,
-            clip: avenger_scenegraph::marks::group::Clip::None,
-            marks: all_marks,
-            gradients: Vec::new(),
-            fill: None,
-            stroke: None,
-            stroke_width: None,
-            stroke_offset: None,
-            zindex: None,
-        })])
-    }
-
-    fn preferred_legend_renderer(
-        &self,
-        _channel: &str,
-        _scale: &ConfiguredScale,
-    ) -> Option<Arc<dyn LegendRenderer>> {
-        None
-    }
-
-    fn radius_expression(
-        &self,
-        _dimension: &str,
-        _resolve_channel: &dyn Fn(&str) -> Expr,
-    ) -> Option<RadiusExpression> {
-        None
-    }
-
-    fn preferred_scale_type(
-        &self,
-        _channel: &str,
-        _data_type: &datafusion::arrow::datatypes::DataType,
-    ) -> Option<Box<dyn ScaleSpec>> {
-        None
-    }
-
-    fn default_scale_options(
-        &self,
-        _channel: &str,
-        _scale_impl: &dyn ScaleImpl,
-        _data_type: &datafusion::arrow::datatypes::DataType,
-    ) -> HashMap<String, Expr> {
-        HashMap::new()
-    }
-
-    fn default_channel_range(
-        &self,
-        _channel: &str,
-        _scale_impl: &dyn ScaleImpl,
-        _domain: &ResolvedDomain,
-        _data_type: &datafusion::arrow::datatypes::DataType,
-        _theme: &Theme,
-        _params: &indexmap::IndexMap<String, datafusion::scalar::ScalarValue>,
-    ) -> Option<ScaleRange> {
-        None
-    }
-}
-
-#[typetag::serde]
-#[async_trait::async_trait]
-impl CompiledMark for CompiledCartesianSubplot {
-    fn state(&self) -> &CompiledMarkState {
-        self.payload.compiled_state()
-    }
-
-    fn state_mut(&mut self) -> &mut CompiledMarkState {
-        self.payload.compiled_state_mut()
-    }
-
-    fn data_context(&self) -> &CompiledDataContext {
-        &self.payload.compiled_state().data
-    }
-
-    fn mark_type(&self) -> &str {
-        "subplot"
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn supported_channels(&self) -> Vec<ChannelDescriptor> {
-        vec![
-            ChannelDescriptor {
-                name: "x",
-                required: true,
-                default_value: None,
-                allow_column_ref: true,
-            },
-            ChannelDescriptor {
-                name: "y",
-                required: true,
-                default_value: None,
-                allow_column_ref: true,
-            },
-        ]
-    }
-
-    async fn render_from_data(
-        &self,
-        _data: Option<&RecordBatch>,
-        _scalars: &RecordBatch,
-        context: &RenderContext,
-        _coord: Box<dyn CoordinateSystemTransform>,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        let cartesian_measurement = cartesian_positioned_coord_ref(context.coord_measurement())
-            .ok_or_else(|| {
-                AvengerChartError::InternalError(
-                    "Cartesian subplot marks require CartesianPositionedCoordMeasurement"
-                        .to_string(),
-                )
-            })?;
-        let child_frame_placement = cartesian_measurement.child_frame_placement();
-        let child_count = cartesian_measurement.children().len();
-        let mut marks = Vec::new();
-
-        for child in cartesian_measurement.children_for_mark(self.mark_index()) {
-            let render_placement =
-                child_frame_placement
-                    .child(child.child_index)
-                    .ok_or_else(|| {
-                        AvengerChartError::InternalError(format!(
-                            "Missing Cartesian child-frame placement for child index {}",
-                            child.child_index
-                        ))
-                    })?;
-
-            let mut params = self.compiled_subplot().get_default_params().clone();
-            params.extend(context.eval.params.clone());
-            let sharing_level = ChildFrameSharingLevel::positioned_subplot(
-                child.child_index,
-                child_count,
-                child.mark_index,
-                child.row_index,
-                child.key.as_deref(),
-            );
-            let child_eval_ctx = context
-                .eval
-                .with_params(params)
-                .with_child_frame_sharing_level_appended(sharing_level);
-            let components = self
-                .compiled_subplot()
-                .build_plot_components(
-                    &child_eval_ctx,
-                    &child.measurement,
-                    child.data_override.as_ref(),
-                    true,
-                    context.facet_path,
-                )
-                .await?;
-
-            let data_marks_group = SceneGroup {
-                origin: [0.0, 0.0],
-                marks: components.data_marks,
-                clip: components.clip,
-                zindex: Some(0),
-                ..Default::default()
-            };
-            let mut all_marks = vec![SceneMark::Group(data_marks_group)];
-            all_marks.extend(components.guide_marks);
-            all_marks.extend(components.legend_marks);
-            all_marks.extend(components.title_marks);
-            all_marks.extend(components.subtitle_marks);
-            all_marks.extend(components.debug_marks);
-
-            marks.push(SceneMark::Group(SceneGroup {
-                name: self.group_name(child.child_index),
-                origin: render_placement.origin,
-                clip: avenger_scenegraph::marks::group::Clip::None,
-                marks: all_marks,
-                gradients: Vec::new(),
-                fill: None,
-                stroke: None,
-                stroke_width: None,
-                stroke_offset: None,
-                zindex: None,
-            }));
-        }
-
-        Ok(marks)
-    }
-
-    fn preferred_legend_renderer(
-        &self,
-        _channel: &str,
-        _scale: &ConfiguredScale,
-    ) -> Option<Arc<dyn LegendRenderer>> {
-        None
-    }
-
-    fn radius_expression(
-        &self,
-        _dimension: &str,
-        _resolve_channel: &dyn Fn(&str) -> Expr,
-    ) -> Option<RadiusExpression> {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -889,8 +321,9 @@ mod tests {
 
     use super::*;
     use crate::{
-        concat::HConcat,
+        concat::{HConcat, compiled_subplot},
         facet::dimension_config::{FacetDimensionConfig, RowDimensionConfig},
+        plot::Plot,
         zerod::ZeroDCoord,
     };
 

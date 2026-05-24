@@ -1,7 +1,8 @@
-use avenger_chart::cartesian::Cartesian;
-use avenger_chart::channel::{ChannelConfig, LegendableChannel};
+use avenger_chart::cartesian::{Cartesian, CartesianLinePositionChannels};
+use avenger_chart::channel::LegendableChannel;
 use avenger_chart::plot::Plot;
 use avenger_chart::prelude::Line;
+use avenger_chart::scales::ScaleChannelConfig;
 use datafusion::arrow::array::{Float32Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;

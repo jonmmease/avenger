@@ -3,24 +3,10 @@
 use datafusion::logical_expr::Expr;
 
 use crate::{
-    channel::{config_traits::ScaleSharing, value::ChannelValue},
-    scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec},
+    channel::value::ChannelValue,
+    chart_core::{PositionConfig, ScaleSharing},
+    scales::{Auto, Scale, ScaleChannelValue, ScaleSpec as ScaleTypeSpec},
 };
-
-/// Trait for all position configuration types
-pub trait PositionConfig: Sized {
-    type Axis: Clone;
-
-    /// Create a new position config from a channel value
-    fn new(value: ChannelValue) -> Self;
-
-    /// Extract the axis configuration, consuming self
-    /// Returns None for coordinate systems that don't support axes
-    fn take_axis_config(self) -> (ChannelValue, Option<Self::Axis>);
-
-    /// Get the inner channel value without axis config
-    fn into_inner(self) -> ChannelValue;
-}
 
 /// Generic configuration for position channels across coordinate systems
 /// This struct provides common functionality for position channels that support

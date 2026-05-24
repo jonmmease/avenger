@@ -75,136 +75,15 @@ use datafusion::{common::tree_node::Transformed, logical_expr::Expr, prelude::Se
 use datafusion_common::tree_node::{TransformedResult, TreeNode};
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
-use strsim::levenshtein;
 
 use crate::serialization::LogicalExprNodeExt;
 
 use super::value::{ChannelValue, ConditionalValue};
 
-/// Error types for channel resolution
-#[derive(Debug, Clone)]
-pub enum ChannelResolutionError {
-    CyclicDependency {
-        cycle: Vec<String>,
-        all_channels: Vec<String>,
-    },
-    SelfReference {
-        channel: String,
-    },
-    UndefinedChannel {
-        channel: String,
-        referenced_by: String,
-        available_channels: Vec<String>,
-    },
-    ConditionalChannelReference {
-        channel: String,
-        referenced_by: String,
-    },
-}
+pub use avenger_chart_core::ChannelResolutionError;
 
-impl std::fmt::Display for ChannelResolutionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ChannelResolutionError::CyclicDependency {
-                cycle,
-                all_channels,
-            } => {
-                write!(
-                    f,
-                    "Cyclic channel dependency detected: {}\n\n\
-                     The following channels form a circular reference chain:\n  {}\n\n\
-                     To fix this, ensure that channel references do not form a loop.\n\
-                     Available channels: {}",
-                    cycle.join(" → "),
-                    cycle.join(" → "),
-                    all_channels.join(", ")
-                )
-            }
-            ChannelResolutionError::SelfReference { channel } => {
-                write!(
-                    f,
-                    "Channel '{}' references itself.\n\n\
-                     A channel cannot reference itself. Use a different channel name \
-                     or reference a different source channel.",
-                    channel
-                )
-            }
-            ChannelResolutionError::UndefinedChannel {
-                channel,
-                referenced_by,
-                available_channels,
-            } => {
-                let mut msg = format!(
-                    "Channel '{}' references undefined channel ':{}'\n\n\
-                     The expression col(\":{}\") uses a channel reference that doesn't exist.",
-                    referenced_by, channel, channel
-                );
-
-                if !available_channels.is_empty() {
-                    msg.push_str("\n\nAvailable channels:\n");
-                    for ch in available_channels {
-                        msg.push_str(&format!("  - {}\n", ch));
-                    }
-
-                    // Suggest similar channel names if any exist
-                    let similar = find_similar_channel(channel, available_channels);
-                    if let Some(suggestion) = similar {
-                        msg.push_str(&format!("\nDid you mean ':{}' instead?", suggestion));
-                    }
-                } else {
-                    msg.push_str("\n\nNo channels are currently defined.");
-                }
-
-                write!(f, "{}", msg)
-            }
-            ChannelResolutionError::ConditionalChannelReference {
-                channel,
-                referenced_by,
-            } => {
-                write!(
-                    f,
-                    "Cannot reference conditional channel '{}' from '{}'\n\n\
-                     Channel '{}' uses conditional encoding (when_value/when_scaled), \
-                     which cannot be referenced by other channels.\n\n\
-                     To fix this:\n\
-                     • Use a direct data expression instead of referencing '{}'\n\
-                     • Extract the common expression to a variable\n\
-                     • Consider using a non-conditional channel for the shared value",
-                    channel, referenced_by, channel, channel
-                )
-            }
-        }
-    }
-}
-
-impl std::error::Error for ChannelResolutionError {}
-
-/// Find the most similar channel name using Levenshtein edit distance
-fn find_similar_channel(target: &str, channels: &[String]) -> Option<String> {
-    // First check for exact case-insensitive match
-    let target_lower = target.to_lowercase();
-    for channel in channels {
-        if channel.to_lowercase() == target_lower {
-            return Some(channel.clone());
-        }
-    }
-
-    // Find the best match using Levenshtein distance
-    channels
-        .iter()
-        .map(|channel| {
-            // Use case-insensitive comparison for better suggestions
-            let distance = levenshtein(&target_lower, &channel.to_lowercase());
-            (channel, distance)
-        })
-        .filter(|(_, dist)| {
-            // Only suggest if edit distance is reasonable (max 3 edits or 40% of target length)
-            let max_distance = std::cmp::max(3, target.len() * 2 / 5);
-            *dist <= max_distance
-        })
-        .min_by_key(|(_, dist)| *dist)
-        .map(|(channel, _)| channel.clone())
-}
+#[cfg(test)]
+use avenger_chart_core::suggest_similar_channel_name;
 
 /// Extract channel references from an expression
 ///
@@ -1040,25 +919,25 @@ mod tests {
 
         // Test exact case-insensitive match
         assert_eq!(
-            find_similar_channel("Fill", &channels),
+            suggest_similar_channel_name("Fill", &channels),
             Some("fill".to_string())
         );
 
         // Test with typo (Levenshtein distance 1)
         assert_eq!(
-            find_similar_channel("fil", &channels),
+            suggest_similar_channel_name("fil", &channels),
             Some("fill".to_string())
         );
 
         // Test with another typo (Levenshtein distance 2)
         assert_eq!(
-            find_similar_channel("strke", &channels),
+            suggest_similar_channel_name("strke", &channels),
             Some("stroke".to_string())
         );
 
         // Test no match for very different string
         assert_eq!(
-            find_similar_channel("completely_different", &channels),
+            suggest_similar_channel_name("completely_different", &channels),
             None
         );
     }

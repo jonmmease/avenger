@@ -3,7 +3,7 @@
 //! This example shows how to create a basic bar chart using the high-level
 //! avenger-chart API and render it to a PNG file using PngCanvas.
 
-use avenger_chart::cartesian::Cartesian;
+use avenger_chart::cartesian::{Cartesian, CartesianRectPositionChannels};
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
 use avenger_chart::render::CanvasExt;

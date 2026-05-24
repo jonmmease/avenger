@@ -20,7 +20,7 @@
 
 // Re-export coordinate systems
 pub use crate::cartesian::Cartesian;
-pub use crate::channel::config_traits::ScaleSharing;
+pub use crate::chart_core::ScaleSharing;
 pub use crate::concat::{ConcatGuide, HConcat, VConcat};
 pub use crate::facet::coord::{FacetColumn, FacetRow};
 pub use crate::facet::empty_cell_policy::FacetEmptyCellPolicy;
@@ -35,18 +35,23 @@ pub use crate::plot::{Plot, PlotSubtitle, PlotTitle, TitleAlign, TitleSpan};
 pub use crate::theme::Theme;
 
 // Re-export marks
+pub use crate::cartesian::{
+    CartesianLinePositionChannels, CartesianRectPositionChannels, CartesianSymbolPositionChannels,
+};
 pub use crate::marks::line::Line;
 pub use crate::marks::rect::Rect;
 pub use crate::marks::subplot::Subplot;
 pub use crate::marks::symbol::Symbol;
+pub use crate::polar::PolarSymbolPositionChannels;
 
 // Re-export mark traits and types
-pub use crate::marks::{
-    ChannelValue, ConditionalValue, FacetStrategy, Mark, MarkState, RadiusExpression,
-};
+pub use crate::chart_core::RadiusExpression;
+pub use crate::marks::{ChannelValue, ConditionalValue, FacetStrategy, Mark, MarkState};
 
 // Re-export channel config traits - ESSENTIAL for using channel methods
 pub use crate::channel::{ChannelConfig, LegendableChannel};
+pub use crate::legend::LegendableChannelValue;
+pub use crate::scales::{ScaleChannelConfig, ScaleChannelValue};
 
 // Re-export channel configs for direct use
 pub use crate::channel::{
@@ -60,19 +65,21 @@ pub use crate::channel::PositionConfig;
 
 // Re-export scale types
 pub use crate::scales::{
-    Auto, Band, Linear, Log, Ordinal, Point, Pow, Quantile, Quantize, Scale, Sqrt, Symlog,
-    Threshold, Time,
+    Auto, Band, Linear, Log, Ordinal, Point, Pow, Quantile, Quantize, Scale, ScaleConfigSpec, Sqrt,
+    Symlog, Threshold, Time,
 };
 
 // Re-export legend types
+pub use crate::chart_core::{LegendOrientation, LegendPosition};
+pub use crate::legend::Legend;
 pub use crate::legend::{
     AngleLegendBuilder, ColorLegendBuilder, LegendBuilder, OpacityLegendBuilder,
     ShapeLegendBuilder, SizeLegendBuilder, StrokeDashLegendBuilder, StrokeWidthLegendBuilder,
 };
-pub use crate::legend::{Legend, LegendOrientation, LegendPosition};
 
 // Re-export axis types
-pub use crate::cartesian::{AxisPosition, CartesianAxis};
+pub use crate::cartesian::CartesianAxis;
+pub use crate::chart_core::AxisPosition;
 pub use crate::polar::PolarAxis;
 
 // Re-export rendering types
@@ -87,7 +94,7 @@ pub use crate::render::{
 pub use crate::error::AvengerChartError;
 
 // Re-export parameter type
-pub use crate::param::Param;
+pub use crate::chart_core::param::Param;
 
 // Re-export DataFusion types for data manipulation
 pub use datafusion::{

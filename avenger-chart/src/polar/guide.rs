@@ -15,6 +15,11 @@ use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{arc::SceneArcMark, group::Clip, mark::SceneMark};
 
 use crate::{
+    chart_core::color::parse_color_to_array_strict,
+    chart_core::{
+        IntoExpr, evaluate_string_expr,
+        maybe::{Maybe, MaybeOptionalExpr},
+    },
     coords::{CoordMeasurement, EmptyCoordMeasurement, extract_channel_title_from_marks},
     error::AvengerChartError,
     guide::{
@@ -22,11 +27,8 @@ use crate::{
     },
     layout::LayoutBounds,
     marks::CompiledMark,
-    maybe::{Maybe, MaybeOptionalExpr},
-    plot::{IntoExpr, compiled::expr_eval::evaluate_string_expr},
     serialization::LogicalExprNodeExt,
     theme::{Theme, ThemeContext},
-    utils::parse_color_to_array_strict,
 };
 
 use super::{PolarAxis, PolarAxisType};

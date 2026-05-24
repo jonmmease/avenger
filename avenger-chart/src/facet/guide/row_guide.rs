@@ -278,10 +278,10 @@ impl FacetRowGuide {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cartesian::axis::AxisPosition;
+    use crate::chart_core::AxisPosition;
+    use crate::facet::FacetDirection;
     use crate::facet::evaluated_facet_tree::{EvaluatedFacetTree, PartitionNode};
     use crate::facet::guide_utils::facet_guide_labels_visible_for_cell;
-    use crate::guide::FacetDirection;
     use indexmap::IndexMap;
 
     fn s(value: &str) -> datafusion::common::ScalarValue {

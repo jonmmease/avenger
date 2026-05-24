@@ -4,7 +4,7 @@ use datafusion::{
     arrow::array::{ArrayRef, Float32Array, Float64Array},
     arrow::datatypes::DataType as ArrowDataType,
     common::ScalarValue,
-    prelude::SessionContext,
+    prelude::{Expr, SessionContext, lit},
 };
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
@@ -22,14 +22,12 @@ use avenger_scenegraph::marks::{
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 
 use crate::{
-    axis::Axis,
+    chart_core::{
+        Axis, IntoExpr, evaluate_bool_expr, evaluate_string_expr,
+        maybe::{Maybe, MaybeOptionalExpr},
+    },
     error::AvengerChartError,
     layout::LayoutBounds,
-    maybe::{Maybe, MaybeOptionalExpr},
-    plot::{
-        IntoExpr,
-        compiled::expr_eval::{evaluate_bool_expr, evaluate_string_expr},
-    },
     serialization::LogicalExprNodeExt,
     theme::{Theme, ThemeContext},
     utils::{ScalarValueHelpers, eval_to_scalars, params_to_datafusion},
@@ -49,6 +47,26 @@ pub enum PolarDirection {
     #[default]
     Clockwise,
     CounterClockwise,
+}
+
+impl IntoExpr for PolarAxisType {
+    fn into_expr(self) -> Expr {
+        let s = match self {
+            PolarAxisType::Radial => "radial",
+            PolarAxisType::Angular => "angular",
+        };
+        lit(s)
+    }
+}
+
+impl IntoExpr for PolarDirection {
+    fn into_expr(self) -> Expr {
+        let s = match self {
+            PolarDirection::Clockwise => "clockwise",
+            PolarDirection::CounterClockwise => "counterclockwise",
+        };
+        lit(s)
+    }
 }
 
 /// Concrete struct for Polar axes

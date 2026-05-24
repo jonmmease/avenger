@@ -13,14 +13,11 @@ use taffy::prelude::*;
 use tracing::debug;
 
 use crate::{
+    chart_core::maybe::Maybe,
+    chart_core::{LegendPosition, evaluate_f32_expr, evaluate_string_expr},
     error::AvengerChartError,
     guide::OverflowSpaceRequirement,
-    legend::LegendPosition,
-    maybe::Maybe,
-    plot::{
-        PlotSubtitle, PlotTitle,
-        compiled::expr_eval::{evaluate_f32_expr, evaluate_string_expr},
-    },
+    plot::{PlotSubtitle, PlotTitle},
     serialization::LogicalExprNodeExt,
     theme::{Theme, ThemeContext},
 };

@@ -84,12 +84,17 @@ impl WgpuRenderer {
             scale: self.scale,
         };
 
-        let mut canvas = PngCanvas::new(dimensions, self.canvas_config.clone()).await?;
+        let mut canvas = PngCanvas::new(dimensions, self.canvas_config.clone())
+            .await
+            .map_err(|err| AvengerChartError::InternalError(err.to_string()))?;
         canvas
             .set_scene(&evaluated_plot.scene_graph)
             .map_err(|err| AvengerChartError::InternalError(err.to_string()))?;
 
-        let image = canvas.render().await?;
+        let image = canvas
+            .render()
+            .await
+            .map_err(|err| AvengerChartError::InternalError(err.to_string()))?;
         Ok(image)
     }
 
@@ -127,6 +132,8 @@ fn save_png<P: AsRef<Path>>(image: RgbaImage, output: P) -> Result<(), AvengerCh
         std::fs::create_dir_all(parent)
             .map_err(|err| AvengerChartError::InternalError(err.to_string()))?;
     }
-    image.save(output)?;
+    image
+        .save(output)
+        .map_err(|err| AvengerChartError::InternalError(err.to_string()))?;
     Ok(())
 }

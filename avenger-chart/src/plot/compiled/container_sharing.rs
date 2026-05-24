@@ -7,7 +7,7 @@
 
 use datafusion::common::ScalarValue;
 
-use crate::channel::config_traits::ScaleSharing;
+use crate::chart_core::ScaleSharing;
 
 use super::{CoordinationAxis, CoordinationKind, CoordinationScopeKey};
 

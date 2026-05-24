@@ -24,18 +24,17 @@ use tracing::trace;
 
 use crate::{
     channel::{resolution::resolve_all_channel_refs, value::strip_trailing_numbers},
-    coords::{CoordinateSystemTransform, EmptyCoordMeasurement},
+    chart_core::{EvaluationContext as CoreEvaluationContext, RadiusExpression, ScaleRange},
+    coords::CoordinateSystemTransform,
     error::AvengerChartError,
-    facet::evaluated_facet_tree::EvaluatedFacetTree,
-    marks::{ChannelValue, CompiledMark, RadiusExpression},
+    marks::{ChannelValue, CompiledMark, default_channel_value_for_eval},
     plot::ScaleSpec as PlotScaleSpec,
-    render::{EvaluationContext, RenderContext, RenderState},
     scalar_cmp::scalar_total_cmp,
     scales::{
         ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec, DomainExpr, Scale,
-        ScaleDefaultDomain, ScaleDomain, ScaleRange, ScaleSpec,
+        ScaleDefaultDomain, ScaleDomain, ScaleSpec,
         builder::{ChannelScaleData, DataExtents, ScaleBuilder},
-        default_range_for_channel,
+        default_range_for_channel, scale_spec_for_preference,
         spec::{Auto, Ordinal},
     },
     serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
@@ -69,10 +68,11 @@ pub(crate) async fn build_scale_builder_from_marks(
     coord_transform: &Box<dyn CoordinateSystemTransform>,
     data: &Option<LogicalPlanNode>,
     df_override: Option<DataFrame>,
-    ctx: &SessionContext,
-    params: &IndexMap<String, ScalarValue>,
+    eval_ctx: &CoreEvaluationContext,
     theme: &Theme,
 ) -> Result<ScaleBuilder, AvengerChartError> {
+    let ctx = eval_ctx.session_context.as_ref();
+    let params = &eval_ctx.params;
     let mut builder = ScaleBuilder::new();
 
     // Get DataFrame if available - mark-level data takes precedence over plot-level data
@@ -185,7 +185,7 @@ pub(crate) async fn build_scale_builder_from_marks(
     let mut phase1_configured: HashMap<String, ConfiguredScaleWithSpec> = HashMap::new();
 
     // Extract non‑positional channel builders from the main builder
-    for (channel_name, channel_builder) in &builder.channel_scale_data {
+    for (channel_name, channel_builder) in builder.channel_builders() {
         if let Some(configured) = build_temp_configured_scale(
             channel_builder,
             channel_name,
@@ -197,7 +197,7 @@ pub(crate) async fn build_scale_builder_from_marks(
         )
         .await?
         {
-            phase1_configured.insert(channel_name.clone(), configured);
+            phase1_configured.insert(channel_name.to_string(), configured);
         }
     }
 
@@ -352,7 +352,9 @@ async fn build_scale_for_channel(
 
             if let Some(dt) = maybe_dt {
                 data_type = Some(dt.clone());
-                chosen_spec = mark.preferred_scale_type(channel_name, &dt);
+                chosen_spec = mark
+                    .preferred_scale_type(channel_name, &dt)
+                    .map(scale_spec_for_preference);
                 break 'outer;
             }
         }
@@ -381,7 +383,7 @@ async fn build_scale_for_channel(
             if let Some(scale_config) = channel_value.get_scale_config() {
                 // Capture any scale config, not just those with explicit domains
                 // This ensures options like nice(false) and zero(false) are preserved
-                chosen_scale_config = Some(scale_config.clone());
+                chosen_scale_config = Some(Scale::from_config(scale_config.clone()));
                 break 'config_outer;
             }
         }
@@ -473,7 +475,7 @@ async fn build_scale_for_channel(
     // Apply plot-level overrides AFTER mark defaults and channel options so they take precedence
     if let Some(plot_spec) = plot_scale_specs.get(channel) {
         let PlotScaleSpec::Local(scale_changes) = plot_spec;
-        scale = scale.update(scale_changes.clone());
+        scale = scale.update(Scale::from_config(scale_changes.clone()));
         // If plot-level override set the domain (including DomainExprs), treat as explicit
         if scale.get_domain().is_some() {
             has_explicit_domain = true;
@@ -561,27 +563,13 @@ fn get_radius_expression(
                             }
                         }
 
-                        // Channel not found in mark - use default value from mark
-                        // Create a minimal RenderContext for querying defaults
-                        let temp_eval_ctx = EvaluationContext::new(
+                        let temp_eval_ctx = CoreEvaluationContext::new(
                             Arc::new(theme.clone()),
                             Arc::new(ctx.clone()),
                             IndexMap::new(),
-                            Arc::new(EvaluatedFacetTree::empty()),
                         );
-                        let temp_state = RenderState::new(
-                            400.0, // dummy width
-                            300.0, // dummy height
-                            HashMap::new(),
-                        );
-                        let temp_ctx = RenderContext::new(
-                            &temp_eval_ctx,
-                            &temp_state,
-                            &[],
-                            &EmptyCoordMeasurement,
-                        );
-
-                        if let Some(default_scalar) = mark.default_channel_value(ch_name, &temp_ctx)
+                        if let Some(default_scalar) =
+                            default_channel_value_for_eval(mark.as_ref(), ch_name, &temp_eval_ctx)
                         {
                             return lit(default_scalar);
                         }
@@ -735,24 +723,16 @@ async fn cache_domain_data(
                                             _ => lit(0.0),
                                         }
                                     } else {
-                                        // Default or zero
-                                        let temp_eval_ctx = EvaluationContext::new(
+                                        let temp_eval_ctx = CoreEvaluationContext::new(
                                             Arc::new(theme.clone()),
                                             Arc::new(ctx.clone()),
                                             IndexMap::new(),
-                                            Arc::new(EvaluatedFacetTree::empty()),
                                         );
-                                        let temp_state =
-                                            RenderState::new(400.0, 300.0, HashMap::new());
-                                        let temp_ctx = RenderContext::new(
+                                        if let Some(default_scalar) = default_channel_value_for_eval(
+                                            mark.as_ref(),
+                                            ch_name,
                                             &temp_eval_ctx,
-                                            &temp_state,
-                                            &[],
-                                            &EmptyCoordMeasurement,
-                                        );
-                                        if let Some(default_scalar) =
-                                            mark.default_channel_value(ch_name, &temp_ctx)
-                                        {
+                                        ) {
                                             lit(default_scalar)
                                         } else {
                                             lit(0.0)
@@ -1308,8 +1288,11 @@ mod tests {
             &compiled.coord_transform,
             &compiled.data,
             None,
-            ctx,
-            params,
+            &crate::chart_core::EvaluationContext::new(
+                compiled.get_theme(),
+                Arc::new(ctx.clone()),
+                params.clone(),
+            ),
             compiled.get_theme().as_ref(),
         )
         .await?;
@@ -1323,13 +1306,15 @@ mod tests {
         }
 
         let theme = compiled.get_theme();
+        let default_range_resolver =
+            crate::scales::default_range_for_compiled_marks(&compiled.marks);
         builder
             .build_scales(
                 width,
                 height,
                 &coord_system_range_bindings,
                 &compiled.scale_specs,
-                &compiled.marks,
+                &default_range_resolver,
                 theme.as_ref(),
                 ctx,
                 params,
@@ -1407,7 +1392,7 @@ mod tests {
 
     #[tokio::test]
     async fn legend_titles_radius_padding_matches_data() {
-        use crate::utils::ScalarValueHelpers;
+        use crate::chart_core::ScalarValueHelpers;
         use datafusion::arrow::array::Float64Array;
         use datafusion::prelude::*;
 
@@ -1522,9 +1507,10 @@ mod tests {
             &[],
             &crate::coords::EmptyCoordMeasurement,
         );
+        let final_mark_context = final_context.core_view();
         let first_mark = compiled.marks().first().expect("compiled mark");
         let stroke_width = first_mark
-            .default_channel_value("stroke_width", &final_context)
+            .default_channel_value("stroke_width", &final_mark_context)
             .and_then(|scalar| scalar.as_f32().ok())
             .unwrap_or(1.0);
         let radius_px = 150.0_f32.sqrt() * 0.5 + stroke_width / 2.0;

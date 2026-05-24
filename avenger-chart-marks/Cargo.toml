@@ -1,0 +1,14 @@
+[package]
+name = "avenger-chart-marks"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+avenger-chart-core = { path = "../avenger-chart-core" }
+avenger-scales = { path = "../avenger-scales" }
+datafusion = { workspace = true }
+datafusion-common = { workspace = true }
+datafusion-proto = "48.0.1"
+indexmap = { workspace = true }
+serde = { workspace = true }
+serde_with = "3.0"

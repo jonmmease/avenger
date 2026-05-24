@@ -6,7 +6,6 @@ use std::{
     sync::Arc,
 };
 
-use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::{common::ScalarValue, logical_expr::lit, prelude::SessionContext};
 use indexmap::IndexMap;
@@ -14,26 +13,24 @@ use tracing::debug;
 
 use crate::{
     channel::value::ChannelValue,
-    coords::{EmptyCoordMeasurement, extract_channel_title_from_marks},
+    chart_core::{LegendPosition, LegendRendererKind, maybe::Maybe},
+    coords::extract_channel_title_from_marks,
     error::AvengerChartError,
     facet::{evaluated_facet_tree::EvaluatedFacetTree, sharing_policy},
-    layout::legend::measure_legend_size_with_channels,
     layout::{FrameLayout, Size2D},
     legend::{
-        ChannelInfo, Legend, LegendChannel, LegendPosition, MergeKey, renderer::LegendRenderer,
+        ChannelInfo, Legend, LegendChannel, MergeKey, renderer::LegendRenderer, renderer_for_kind,
     },
-    marks::CompiledMark,
-    maybe::Maybe,
+    marks::{CompiledMark, default_channel_value_for_eval},
     plot::compiled::{
         ChildFrameSharingPath, ContainerPathSegment, CoordinationKind, EdgeOwnershipRequest,
         SharingLevel, edge_ownership_scope_for_request,
     },
-    render::{
-        EvaluationContext, LegendMeasurements, RenderContext, RenderState, types::LegendMeasurement,
-    },
+    render::{LegendMeasurements, types::LegendMeasurement},
     scales::ConfiguredScaleWithSpec,
     serialization::LogicalExprNodeExt,
 };
+use avenger_chart_legend::measure_legend_size_with_channels;
 
 use super::CompiledPlot;
 
@@ -353,7 +350,7 @@ impl CompiledPlot {
             {
                 // If the mark that has the channel says no legend, skip it
                 if mark
-                    .preferred_legend_renderer(channel, scale.configured())
+                    .preferred_legend_renderer_kind(channel, scale.configured())
                     .is_none()
                 {
                     skip_channels.insert(channel.clone());
@@ -378,31 +375,9 @@ impl CompiledPlot {
 
             // Determine legend renderer type for CSS selector support
             // (e.g., legend[type="symbol"], legend[type="line"], legend[type="colorbar"])
-            let legend_type = if let Some(scale) = scales.get(channel) {
-                if let Some(mark) = self
-                    .marks
-                    .iter()
-                    .find(|m| m.data_context().channels().contains_key(channel))
-                {
-                    if let Some(renderer) =
-                        mark.preferred_legend_renderer(channel, scale.configured())
-                    {
-                        Some(match renderer.name() {
-                            "CompiledSymbolLegend" => "symbol",
-                            "CompiledLineLegend" => "line",
-                            "CompiledColorbar" => "colorbar",
-                            "CompiledRectLegend" => "rect",
-                            _ => "symbol", // default fallback
-                        })
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+            let legend_type = self
+                .legend_renderer_kind_for_channel(channel, scales)
+                .map(LegendRendererKind::theme_selector);
 
             // Create legend with theme defaults
             let theme = self.get_theme();
@@ -495,13 +470,31 @@ impl CompiledPlot {
         channel: &str,
         scale: &ConfiguredScaleWithSpec,
     ) -> Option<Arc<dyn LegendRenderer>> {
+        self.get_legend_renderer_kind(channel, scale)
+            .map(renderer_for_kind)
+    }
+
+    fn get_legend_renderer_kind(
+        &self,
+        channel: &str,
+        scale: &ConfiguredScaleWithSpec,
+    ) -> Option<LegendRendererKind> {
         // Find the first mark that has this channel and get its preference
         for mark in &self.marks {
             if mark.data_context().channels().contains_key(channel) {
-                return mark.preferred_legend_renderer(channel, scale.configured());
+                return mark.preferred_legend_renderer_kind(channel, scale.configured());
             }
         }
         None
+    }
+
+    fn legend_renderer_kind_for_channel(
+        &self,
+        channel: &str,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
+    ) -> Option<LegendRendererKind> {
+        let scale = scales.get(channel)?;
+        self.get_legend_renderer_kind(channel, scale)
     }
 
     /// Get legends with theme applied (matching PlotRenderer behavior)
@@ -541,26 +534,9 @@ impl CompiledPlot {
         let theme = self.get_theme();
         for (channel, legend) in all_legends.iter_mut() {
             // Determine legend type for this channel (for CSS selector support)
-            let legend_type = if let Some(scale) = scales.get(channel) {
-                if let Some(mark) = self
-                    .marks
-                    .iter()
-                    .find(|m| m.data_context().channels().contains_key(channel))
-                {
-                    mark.preferred_legend_renderer(channel, scale.configured())
-                        .map(|renderer| match renderer.name() {
-                            "CompiledSymbolLegend" => "symbol",
-                            "CompiledLineLegend" => "line",
-                            "CompiledColorbar" => "colorbar",
-                            "CompiledRectLegend" => "rect",
-                            _ => "symbol",
-                        })
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+            let legend_type = self
+                .legend_renderer_kind_for_channel(channel, scales)
+                .map(LegendRendererKind::theme_selector);
 
             // Create legend context for querying theme values
             let legend_ctx = theme.legend_context_with_params(legend_type, params.clone());
@@ -789,25 +765,20 @@ impl CompiledPlot {
 
         // For channels not explicitly set, check if they have theme defaults
         // This ensures legend symbols match the chart's actual appearance
-        let eval_ctx = EvaluationContext::new(
+        let eval_ctx = crate::chart_core::EvaluationContext::new(
             self.get_theme(),
             Arc::new(ctx.clone()),
             params.clone(),
-            Arc::new(EvaluatedFacetTree::empty()),
         );
-        let render_state = RenderState::new(
-            100.0, // Dummy values for getting defaults
-            100.0,
-            std::collections::HashMap::new(),
-        );
-        let context = RenderContext::new(&eval_ctx, &render_state, &[], &EmptyCoordMeasurement);
 
         // Iterate through all supported channels of this mark
         for channel_desc in mark.supported_channels() {
             let other_name = channel_desc.name;
             if other_name != channel_name && !related_channels.contains_key(other_name) {
                 // Channel not explicitly set - check for theme default
-                if let Some(default_value) = mark.default_channel_value(other_name, &context) {
+                if let Some(default_value) =
+                    default_channel_value_for_eval(mark, other_name, &eval_ctx)
+                {
                     // Add as a constant channel
                     let expr = lit(default_value);
                     related_channels.insert(other_name.to_string(), ChannelInfo::Constant { expr });
@@ -885,7 +856,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
     ) -> Result<LegendPosition, AvengerChartError> {
-        use super::expr_eval::evaluate_legend_position_expr;
+        use crate::chart_core::evaluate_legend_position_expr;
 
         if let Some(node) = legend.position.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
@@ -895,26 +866,9 @@ impl CompiledPlot {
         // Position not set - check if theme has a position with runtime params.
         if let Some(theme) = &self.theme {
             // Determine legend type for theme context.
-            let legend_type = if let Some(scale) = scales.get(primary_channel.name.as_str()) {
-                if let Some(mark) = self.marks.iter().find(|m| {
-                    m.data_context()
-                        .channels()
-                        .contains_key(primary_channel.name.as_str())
-                }) {
-                    mark.preferred_legend_renderer(&primary_channel.name, scale.configured())
-                        .map(|renderer| match renderer.name() {
-                            "CompiledSymbolLegend" => "symbol",
-                            "CompiledLineLegend" => "line",
-                            "CompiledColorbar" => "colorbar",
-                            "CompiledRectLegend" => "rect",
-                            _ => "symbol",
-                        })
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+            let legend_type = self
+                .legend_renderer_kind_for_channel(primary_channel.name.as_str(), scales)
+                .map(LegendRendererKind::theme_selector);
 
             let legend_ctx = theme.legend_context_with_params(legend_type, params.clone());
             if let Some(theme_value) = theme.query(&legend_ctx, "position")
@@ -941,7 +895,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
     ) -> Result<(Vec<Vec<LegendChannel>>, IndexMap<String, Legend>), AvengerChartError> {
-        use super::expr_eval::{evaluate_bool_expr, evaluate_i32_expr};
+        use crate::chart_core::{evaluate_bool_expr, evaluate_i32_expr};
 
         // Collect all channels that need legends from all marks
         let mut all_channels = Vec::new();
@@ -1142,18 +1096,9 @@ impl CompiledPlot {
 
             // Determine the appropriate renderer for this group of channels
             let renderer = if channels.len() > 1 {
-                // Multiple channels - try to get a merged renderer
-                let mark_opt = self.marks.get(primary_channel.mark_index);
-                // Extract ConfiguredScale from ConfiguredScaleWithSpec for mark's renderer
-                let configured_scales: HashMap<String, ConfiguredScale> = scales
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.configured().clone()))
-                    .collect();
-                mark_opt
-                    .and_then(|mark| {
-                        mark.preferred_merged_legend_renderer(&channels, &configured_scales)
-                    })
-                    .or_else(|| self.get_legend_renderer(&primary_channel.channel_type, scale))
+                // Multiple channels - use the primary renderer when it supports merging them.
+                self.get_legend_renderer(&primary_channel.channel_type, scale)
+                    .filter(|renderer| renderer.supports_merge(&channels))
             } else {
                 // Single channel - use the unified renderer selection
                 self.get_legend_renderer(&primary_channel.channel_type, scale)
@@ -1364,15 +1309,15 @@ impl CompiledPlot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use avenger_scales::scales::band::BandScale;
+    use avenger_scales::scales::{ConfiguredScale, band::BandScale};
     use datafusion::logical_expr::Expr;
     use indexmap::IndexMap;
     use std::collections::HashMap;
 
     use crate::{
         container::{ChildFrameSharingLevel, ChildFrameSharingPath, ContainerPathSegment},
+        facet::FacetDirection,
         facet::evaluated_facet_tree::PartitionNode,
-        guide::FacetDirection,
     };
 
     fn s(value: &str) -> ScalarValue {

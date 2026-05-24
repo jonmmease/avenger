@@ -38,6 +38,7 @@ pub(crate) mod coordination_plans;
 pub(crate) mod coordination_policy;
 pub mod debug;
 pub mod dimension_config;
+pub mod direction;
 pub(crate) mod domain_coordination;
 pub mod empty_cell_policy;
 pub mod evaluated_facet_tree;
@@ -54,3 +55,5 @@ pub(crate) mod probe_summary;
 pub(crate) mod scale_precompute;
 pub mod sharing_policy;
 pub(crate) mod subtree_plot_area;
+
+pub use direction::FacetDirection;

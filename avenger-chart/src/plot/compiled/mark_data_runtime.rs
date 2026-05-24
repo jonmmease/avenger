@@ -26,12 +26,14 @@ use crate::{
         resolution::resolve_all_channel_refs,
         value::{ChannelValue, ConditionalValue, strip_trailing_numbers},
     },
+    chart_core::EvaluationContext,
+    chart_core::color::parse_color_string,
     error::AvengerChartError,
     marks::CompiledMark,
-    render::{EvaluationContext, RenderState},
+    render::RenderState,
     scales::{ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec},
     serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
-    utils::{params_to_datafusion, parse_color_string},
+    utils::params_to_datafusion,
 };
 
 /// Prepared data for mark evaluation.
@@ -348,13 +350,12 @@ mod tests {
 
     use super::*;
     use crate::{
-        cartesian::Cartesian,
+        cartesian::{Cartesian, CartesianSymbolPositionChannels},
+        chart_core::EvaluationContext,
         concat::HConcat,
         error::AvengerChartError,
-        facet::evaluated_facet_tree::EvaluatedFacetTree,
         marks::{ChannelValue, Mark, Subplot, symbol::Symbol},
         plot::Plot,
-        render::EvaluationContext,
         scales::{Linear, Scale, ScaleRangeBinding, ScaleSpec},
         serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
         theme::Theme,
@@ -362,12 +363,7 @@ mod tests {
     };
 
     fn eval_context(session: Arc<SessionContext>) -> EvaluationContext {
-        EvaluationContext::new(
-            Arc::new(Theme::light()),
-            session,
-            IndexMap::new(),
-            Arc::new(EvaluatedFacetTree::empty()),
-        )
+        EvaluationContext::new(Arc::new(Theme::light()), session, IndexMap::new())
     }
 
     fn xy_dataframe(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {

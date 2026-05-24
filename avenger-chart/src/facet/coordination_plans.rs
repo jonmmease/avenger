@@ -12,7 +12,7 @@
 use std::{collections::HashMap, hash::Hash};
 
 use crate::{
-    cartesian::axis::AxisPosition,
+    chart_core::AxisPosition,
     coords::{CoordinatedLayout, CoordinatedOverflow, FacetAxis},
     facet::overflow_projection::{FacetOverflowProjection, project_facet_overflow},
     plot::compiled::{CoordinationAxis, CoordinationKind, CoordinationScopeKey},

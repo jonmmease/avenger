@@ -4,6 +4,8 @@
 //! child `Subplot` marks, and their coordinate measurement produces child-frame
 //! placement metadata for later rendering/debug consumers.
 
+mod subplot;
+
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
@@ -20,14 +22,15 @@ use crate::{
         ContainerPathSegment,
     },
     coords::{
-        CoordMeasurement, CoordinateSystem, CoordinateSystemTransform, PlotGeometry, PointGeometry,
+        CoordMeasureRequest, CoordMeasurement, CoordinateSystem, CoordinateSystemTransform,
+        PlotGeometry, PointGeometry,
     },
     error::AvengerChartError,
     guide::{
         CompiledGuide, CoordinateGuide, GuideSharingContext, GuideUpdate, OverflowSpaceRequirement,
     },
     layout::{BandDirection, LayoutBounds, Size2D},
-    marks::{CompiledConcatSubplot, CompiledMark, subplot::compiled_subplot},
+    marks::CompiledMark,
     plot::compiled::{
         ChildFrameDataSelection, ChildFrameDomainSharingInput, ChildFrameRuntime,
         ComponentsMeasurement, ContainerLabelPlacement, PreparedChildFramePlot,
@@ -36,9 +39,11 @@ use crate::{
         render_child_frame_container_guide_labels,
     },
     render::EvaluationContext,
-    scales::{ConfiguredScaleWithSpec, DomainExtent, ScaleRangeBinding},
+    scales::{DomainExtent, ScaleRangeBinding},
     theme::Theme,
 };
+
+pub use subplot::{CompiledConcatSubplot, compiled_subplot};
 
 /// Horizontal concatenation of `Subplot` marks.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -202,22 +207,16 @@ impl CoordinateSystemTransform for HConcat {
 
     async fn measure(
         &self,
-        _scales: &HashMap<String, ConfiguredScaleWithSpec>,
-        plot_width: f32,
-        plot_height: f32,
-        eval_ctx: &EvaluationContext,
-        data: Option<&DataFrame>,
-        compiled_marks: &[Arc<dyn CompiledMark>],
-        facet_path: &[ScalarValue],
+        request: CoordMeasureRequest<'_>,
     ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
         measure_concat_coord_system(
             BandDirection::Horizontal,
-            plot_width,
-            plot_height,
-            eval_ctx,
-            data,
-            compiled_marks,
-            facet_path,
+            request.plot_width(),
+            request.plot_height(),
+            request.eval_ctx(),
+            request.data(),
+            request.compiled_marks(),
+            request.facet_path(),
         )
         .await
     }
@@ -258,22 +257,16 @@ impl CoordinateSystemTransform for VConcat {
 
     async fn measure(
         &self,
-        _scales: &HashMap<String, ConfiguredScaleWithSpec>,
-        plot_width: f32,
-        plot_height: f32,
-        eval_ctx: &EvaluationContext,
-        data: Option<&DataFrame>,
-        compiled_marks: &[Arc<dyn CompiledMark>],
-        facet_path: &[ScalarValue],
+        request: CoordMeasureRequest<'_>,
     ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
         measure_concat_coord_system(
             BandDirection::Vertical,
-            plot_width,
-            plot_height,
-            eval_ctx,
-            data,
-            compiled_marks,
-            facet_path,
+            request.plot_width(),
+            request.plot_height(),
+            request.eval_ctx(),
+            request.data(),
+            request.compiled_marks(),
+            request.facet_path(),
         )
         .await
     }
@@ -688,8 +681,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        cartesian::Cartesian,
-        channel::config_traits::ScaleSharing,
+        cartesian::{Cartesian, CartesianLinePositionChannels, CartesianSymbolPositionChannels},
+        chart_core::ScaleSharing,
         coords::FacetAxis,
         facet::{
             coord::{FacetBandCoordMeasurement, FacetColumn, FacetRow},
@@ -757,8 +750,7 @@ mod tests {
             &compiled.coord_transform,
             &compiled.data,
             None,
-            ctx,
-            &params,
+            &eval_ctx,
             compiled.get_theme().as_ref(),
         )
         .await?;

@@ -26,9 +26,10 @@ use indexmap::IndexMap;
 use tracing::{Level, debug, trace};
 
 use crate::{
-    cartesian::axis::AxisPosition,
+    chart_core::maybe::Maybe,
+    chart_core::{AxisPosition, LegendPosition, evaluate_f32_expr},
     coords::{
-        CoordMeasurement, FacetAxis, coordinate_overflow_for_guides,
+        CoordMeasureRequest, CoordMeasurement, FacetAxis, coordinate_overflow_for_guides,
         coordinate_overflow_for_guides_until,
     },
     error::AvengerChartError,
@@ -54,9 +55,7 @@ use crate::{
         FrameLayout, FrameLayoutInput, LayoutBounds, LayoutSpec, Margins, ResolvedLayoutDimensions,
         Size2D, SizeMode, TaffyFrameLayoutSolver, project_child_frame_bounds,
     },
-    legend::LegendPosition,
     marks::CompiledMark,
-    maybe::Maybe,
     render::context::{
         FacetDimensionSizing, FacetRuntimeSizingMode, FacetRuntimeSizingPolicy,
         FacetSubtreeSnapshotCapture,
@@ -69,14 +68,13 @@ use crate::{
         debug::{FrameDebugOverlay, create_debug_layout_rects, create_debug_overlay_rects},
     },
     scales::ConfiguredScaleWithSpec,
-    serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
+    serialization::{LogicalExprNodeExt, LogicalPlanNodeExt, serializable_expr_from_expr},
     theme::{Theme, ThemeContext},
 };
 
 use super::{
     ChildFrameContainerView, ChildFrameSharingPath, CompiledPlot, ComponentsMeasurement,
     MarkDataRequest, PlotComponents, PreparedMarkData,
-    expr_eval::evaluate_f32_expr,
     legends::{HoistedLegendAnchor, HoistedLegendRequest, LegendPlanScope, PreparedLegendPlan},
     prepare_mark_data_runtime,
     scale_provider::{DynamicScaleProvider, ScaleProvider},
@@ -885,8 +883,8 @@ impl CompiledPlot {
     ) -> Self {
         self.layout_spec.canvas = SizeMode::Auto;
         self.layout_spec.plot_area = SizeMode::Fixed {
-            width: lit(leaf_plot_width).into(),
-            height: lit(leaf_plot_height).into(),
+            width: serializable_expr_from_expr(lit(leaf_plot_width), "facet leaf plot width"),
+            height: serializable_expr_from_expr(lit(leaf_plot_height), "facet leaf plot height"),
         };
         self
     }
@@ -931,14 +929,18 @@ impl CompiledPlot {
             resolved_chart_sizing,
         );
 
+        let scale_eval_ctx = crate::chart_core::EvaluationContext::new(
+            self.get_theme(),
+            Arc::new(ctx.clone()),
+            merged_params.clone(),
+        );
         let scale_builder = build_scale_builder_from_marks(
             &self.marks,
             &self.scale_specs,
             &self.coord_transform,
             &self.data,
             None,
-            ctx,
-            &merged_params,
+            &scale_eval_ctx,
             self.get_theme().as_ref(),
         )
         .await?;
@@ -2242,8 +2244,7 @@ impl CompiledPlot {
             &self.coord_transform,
             &self.data,
             data_override.cloned(),
-            ctx,
-            &params_with_current_dims.params,
+            &params_with_current_dims,
             eval_ctx.theme.as_ref(),
         )
         .await?;
@@ -3115,7 +3116,7 @@ impl CompiledPlot {
         let coord_data = data_override.or(plot_data.as_ref());
 
         self.coord_transform
-            .measure(
+            .measure(CoordMeasureRequest::new(
                 scales,
                 plot_area_width,
                 plot_area_height,
@@ -3123,7 +3124,7 @@ impl CompiledPlot {
                 coord_data,
                 &self.marks,
                 facet_path,
-            )
+            ))
             .await
     }
 
@@ -4077,6 +4078,11 @@ impl CompiledPlot {
             resolved_chart_sizing,
         );
 
+        let scale_eval_ctx = crate::chart_core::EvaluationContext::new(
+            self.get_theme(),
+            Arc::new(ctx.clone()),
+            merged_params.clone(),
+        );
         // Build scale provider
         let scale_builder = build_scale_builder_from_marks(
             &self.marks,
@@ -4084,8 +4090,7 @@ impl CompiledPlot {
             &self.coord_transform,
             &self.data,
             None,
-            ctx,
-            &merged_params,
+            &scale_eval_ctx,
             self.get_theme().as_ref(),
         )
         .await?;
@@ -4226,7 +4231,6 @@ mod tests {
             coordination_plans::CoordinationNodeKey,
         },
         layout::{BandPositionIterator, CanvasConstraint, FrameDimensionSizing, PlotConstraint},
-        legend::LegendPosition,
         prelude::*,
         render::FacetLayoutRefinement,
     };
@@ -5259,14 +5263,18 @@ mod tests {
             resolved_chart_sizing,
         );
 
+        let scale_eval_ctx = crate::chart_core::EvaluationContext::new(
+            compiled.get_theme(),
+            Arc::new(ctx.clone()),
+            merged_params.clone(),
+        );
         let scale_builder = build_scale_builder_from_marks(
             &compiled.marks,
             &compiled.scale_specs,
             &compiled.coord_transform,
             &compiled.data,
             None,
-            ctx,
-            &merged_params,
+            &scale_eval_ctx,
             compiled.get_theme().as_ref(),
         )
         .await?;

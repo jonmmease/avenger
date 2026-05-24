@@ -15,7 +15,7 @@ use avenger_chart::{
     impl_mark_base, impl_mark_trait_common,
     marks::{ChannelValue, CompiledDataContext, CompiledMark, CompiledMarkState, Mark, MarkState},
     render::RenderContext,
-    scales::{Auto, Scale},
+    scales::{Auto, Scale, ScaleChannelValue},
 };
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -418,7 +418,7 @@ impl CoordinateSystemTransform for IsometricTransform {
 }
 
 /// A custom cube mark for the isometric coordinate system
-pub struct Cube<C: CoordinateSystem> {
+pub struct Cube<C> {
     pub(crate) state: MarkState,
     pub(crate) _phantom: PhantomData<C>,
 }

@@ -4,7 +4,10 @@ use std::sync::Arc;
 
 use avenger_scenegraph::marks::mark::SceneMark;
 
-use crate::error::AvengerChartError;
+use crate::{
+    chart_core::{evaluate_f32_expr, evaluate_string_expr},
+    error::AvengerChartError,
+};
 
 use super::CompiledPlot;
 
@@ -40,13 +43,13 @@ impl CompiledPlot {
         // Evaluate the title text expression
         let text_node: LogicalExprNode = title.text.clone();
         let text_expr = text_node.to_expr(ctx)?;
-        let text_value = super::expr_eval::evaluate_string_expr(&text_expr, ctx, params).await?;
+        let text_value = evaluate_string_expr(&text_expr, ctx, params).await?;
 
         // Evaluate font_size
         let font_size = match title.font_size.as_ref() {
-            crate::maybe::Maybe::Set(Some(node)) => {
+            crate::chart_core::maybe::Maybe::Set(Some(node)) => {
                 let expr = node.to_expr(ctx)?;
-                super::expr_eval::evaluate_f32_expr(&expr, ctx, params).await?
+                evaluate_f32_expr(&expr, ctx, params).await?
             }
             _ => theme
                 .font_size(&title_ctx)
@@ -55,9 +58,9 @@ impl CompiledPlot {
 
         // Evaluate font_family
         let font_family = match title.font_family.as_ref() {
-            crate::maybe::Maybe::Set(Some(node)) => {
+            crate::chart_core::maybe::Maybe::Set(Some(node)) => {
                 let expr = node.to_expr(ctx)?;
-                super::expr_eval::evaluate_string_expr(&expr, ctx, params).await?
+                evaluate_string_expr(&expr, ctx, params).await?
             }
             _ => theme
                 .font_family(&title_ctx)
@@ -66,9 +69,9 @@ impl CompiledPlot {
 
         // Evaluate text alignment (from expression or theme)
         let text_align = match title.align.as_ref() {
-            crate::maybe::Maybe::Set(Some(node)) => {
+            crate::chart_core::maybe::Maybe::Set(Some(node)) => {
                 let expr = node.to_expr(ctx)?;
-                let align_str = super::expr_eval::evaluate_string_expr(&expr, ctx, params).await?;
+                let align_str = evaluate_string_expr(&expr, ctx, params).await?;
                 match align_str.to_lowercase().as_str() {
                     "left" => TextAlign::Left,
                     "center" => TextAlign::Center,
@@ -152,13 +155,13 @@ impl CompiledPlot {
         // Evaluate the subtitle text expression
         let text_node: LogicalExprNode = subtitle.text.clone();
         let text_expr = text_node.to_expr(ctx)?;
-        let text_value = super::expr_eval::evaluate_string_expr(&text_expr, ctx, params).await?;
+        let text_value = evaluate_string_expr(&text_expr, ctx, params).await?;
 
         // Evaluate font_size
         let font_size = match subtitle.font_size.as_ref() {
-            crate::maybe::Maybe::Set(Some(node)) => {
+            crate::chart_core::maybe::Maybe::Set(Some(node)) => {
                 let expr = node.to_expr(ctx)?;
-                super::expr_eval::evaluate_f32_expr(&expr, ctx, params).await?
+                evaluate_f32_expr(&expr, ctx, params).await?
             }
             _ => theme
                 .font_size(&subtitle_ctx)
@@ -167,9 +170,9 @@ impl CompiledPlot {
 
         // Evaluate font_family
         let font_family = match subtitle.font_family.as_ref() {
-            crate::maybe::Maybe::Set(Some(node)) => {
+            crate::chart_core::maybe::Maybe::Set(Some(node)) => {
                 let expr = node.to_expr(ctx)?;
-                super::expr_eval::evaluate_string_expr(&expr, ctx, params).await?
+                evaluate_string_expr(&expr, ctx, params).await?
             }
             _ => theme
                 .font_family(&subtitle_ctx)
@@ -178,9 +181,9 @@ impl CompiledPlot {
 
         // Evaluate text alignment (from expression or theme)
         let text_align = match subtitle.align.as_ref() {
-            crate::maybe::Maybe::Set(Some(node)) => {
+            crate::chart_core::maybe::Maybe::Set(Some(node)) => {
                 let expr = node.to_expr(ctx)?;
-                let align_str = super::expr_eval::evaluate_string_expr(&expr, ctx, params).await?;
+                let align_str = evaluate_string_expr(&expr, ctx, params).await?;
                 match align_str.to_lowercase().as_str() {
                     "left" => TextAlign::Left,
                     "center" => TextAlign::Center,

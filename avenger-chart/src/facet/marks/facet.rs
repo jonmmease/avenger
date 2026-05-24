@@ -1,4 +1,4 @@
-use crate::channel::config_traits::ScaleSharing;
+use crate::chart_core::{ScaleSharing, ScaleTypePreference};
 use crate::coords::{CoordinateSystem, FacetAxis};
 use crate::error::AvengerChartError;
 use crate::facet::coord::{FacetBandCoordMeasurement, FacetColumn, FacetRow};
@@ -502,12 +502,12 @@ impl CompiledMark for CompiledFacetRowSubplot {
         &self,
         channel: &str,
         data_type: &datafusion::arrow::datatypes::DataType,
-    ) -> Option<Box<dyn crate::scales::ScaleSpec>> {
+    ) -> Option<ScaleTypePreference> {
         if channel == RowDimensionConfig::channel_name() {
             // Use band scale for row faceting regardless of domain type (categorical input expected)
-            Some(Box::new(crate::scales::spec::Band))
+            Some(ScaleTypePreference::Band)
         } else {
-            crate::marks::default_scale_for_data_type(data_type)
+            crate::marks::default_scale_type_for_data_type(data_type)
         }
     }
 
@@ -716,12 +716,12 @@ impl CompiledMark for CompiledFacetColumnSubplot {
         &self,
         channel: &str,
         data_type: &datafusion::arrow::datatypes::DataType,
-    ) -> Option<Box<dyn crate::scales::ScaleSpec>> {
+    ) -> Option<ScaleTypePreference> {
         if channel == ColumnDimensionConfig::channel_name() {
             // Use band scale for column faceting regardless of domain type (categorical input expected)
-            Some(Box::new(crate::scales::spec::Band))
+            Some(ScaleTypePreference::Band)
         } else {
-            crate::marks::default_scale_for_data_type(data_type)
+            crate::marks::default_scale_type_for_data_type(data_type)
         }
     }
 

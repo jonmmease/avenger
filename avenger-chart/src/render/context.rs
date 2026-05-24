@@ -7,6 +7,7 @@
 
 use std::{
     collections::HashMap,
+    ops::Deref,
     sync::{Arc, Mutex},
 };
 
@@ -14,6 +15,9 @@ use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 
 use crate::{
+    chart_core::{
+        EvaluationContext as CoreEvaluationContext, MarkRenderContext as CoreMarkRenderContext,
+    },
     container::{ChildFrameSharingLevel, ChildFrameSharingPath, ContainerPathSegment},
     coords::CoordMeasurement,
     coords::FacetAxis,
@@ -181,12 +185,8 @@ pub(crate) struct FacetSubtreeSnapshotCapture {
 /// - Pre-computed facet structure
 #[derive(Clone)]
 pub struct EvaluationContext {
-    /// The theme to use for rendering
-    pub theme: Arc<Theme>,
-    /// The DataFusion session context for DataFrame operations
-    pub session_context: Arc<SessionContext>,
-    /// Parameter values for prepared statements
-    pub params: IndexMap<String, ScalarValue>,
+    /// Stable evaluation inputs that belong at the future core crate boundary.
+    pub(crate) core: CoreEvaluationContext,
     /// Pre-computed facet structure for efficient domain lookups and visibility decisions.
     pub facet_tree: Arc<EvaluatedFacetTree>,
     /// Whether invalid facet paths should hide axis labels/titles instead of showing them.
@@ -235,9 +235,7 @@ impl EvaluationContext {
         facet_tree: Arc<EvaluatedFacetTree>,
     ) -> Self {
         Self {
-            theme,
-            session_context,
-            params,
+            core: CoreEvaluationContext::new(theme, session_context, params),
             facet_tree,
             hide_invalid_facet_path_axes: false,
             facet_scale_precompute_store: Arc::new(FacetScalePrecomputeStore::default()),
@@ -257,9 +255,7 @@ impl EvaluationContext {
     /// Create a new context with different params, reusing other fields (cheap Arc clones)
     pub fn with_params(&self, params: IndexMap<String, ScalarValue>) -> Self {
         Self {
-            theme: self.theme.clone(),
-            session_context: self.session_context.clone(),
-            params,
+            core: self.core.with_params(params),
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
@@ -278,13 +274,8 @@ impl EvaluationContext {
 
     /// Create a new context with canvas dimensions added to params (for media queries)
     pub fn with_dimension_params(&self, width: f32, height: f32) -> Self {
-        let mut params = self.params.clone();
-        params.insert("width".to_string(), ScalarValue::Float32(Some(width)));
-        params.insert("height".to_string(), ScalarValue::Float32(Some(height)));
         Self {
-            theme: self.theme.clone(),
-            session_context: self.session_context.clone(),
-            params,
+            core: self.core.with_dimension_params(width, height),
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
@@ -309,9 +300,7 @@ impl EvaluationContext {
             ScalarValue::Boolean(Some(hidden)),
         );
         Self {
-            theme: self.theme.clone(),
-            session_context: self.session_context.clone(),
-            params,
+            core: self.core.with_params(params),
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: hidden,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
@@ -336,9 +325,7 @@ impl EvaluationContext {
             ScalarValue::Boolean(Some(ignore_empty_cells)),
         );
         Self {
-            theme: self.theme.clone(),
-            session_context: self.session_context.clone(),
-            params,
+            core: self.core.with_params(params),
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
@@ -357,9 +344,7 @@ impl EvaluationContext {
 
     pub(crate) fn with_facet_runtime_sizing_mode(&self, mode: FacetRuntimeSizingMode) -> Self {
         Self {
-            theme: self.theme.clone(),
-            session_context: self.session_context.clone(),
-            params: self.params.clone(),
+            core: self.core.clone(),
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
@@ -382,9 +367,7 @@ impl EvaluationContext {
 
     pub(crate) fn with_debug_layout_overlay(&self, mode: LayoutDebugOverlayMode) -> Self {
         Self {
-            theme: self.theme.clone(),
-            session_context: self.session_context.clone(),
-            params: self.params.clone(),
+            core: self.core.clone(),
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
@@ -403,9 +386,7 @@ impl EvaluationContext {
 
     pub(crate) fn with_facet_layout_refinement(&self, refinement: FacetLayoutRefinement) -> Self {
         Self {
-            theme: self.theme.clone(),
-            session_context: self.session_context.clone(),
-            params: self.params.clone(),
+            core: self.core.clone(),
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
@@ -431,9 +412,7 @@ impl EvaluationContext {
         overrides: Arc<HashMap<Vec<ScalarValue>, (f32, f32)>>,
     ) -> Self {
         Self {
-            theme: self.theme.clone(),
-            session_context: self.session_context.clone(),
-            params: self.params.clone(),
+            core: self.core.clone(),
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
@@ -464,9 +443,7 @@ impl EvaluationContext {
         feedback: Arc<FacetBandPaddingFeedbackMap>,
     ) -> Self {
         Self {
-            theme: self.theme.clone(),
-            session_context: self.session_context.clone(),
-            params: self.params.clone(),
+            core: self.core.clone(),
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
@@ -502,9 +479,7 @@ impl EvaluationContext {
 
     pub(crate) fn with_evaluation_metrics(&self, metrics: Arc<Mutex<EvaluationMetrics>>) -> Self {
         Self {
-            theme: self.theme.clone(),
-            session_context: self.session_context.clone(),
-            params: self.params.clone(),
+            core: self.core.clone(),
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
@@ -526,9 +501,7 @@ impl EvaluationContext {
         capture: Arc<Mutex<FacetSubtreeSnapshotCapture>>,
     ) -> Self {
         Self {
-            theme: self.theme.clone(),
-            session_context: self.session_context.clone(),
-            params: self.params.clone(),
+            core: self.core.clone(),
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
@@ -549,9 +522,7 @@ impl EvaluationContext {
         let mut facet_coord_node_path = self.facet_coord_node_path.clone();
         facet_coord_node_path.push(child_index);
         Self {
-            theme: self.theme.clone(),
-            session_context: self.session_context.clone(),
-            params: self.params.clone(),
+            core: self.core.clone(),
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
@@ -587,9 +558,7 @@ impl EvaluationContext {
         let mut child_frame_container_path = self.child_frame_container_path.clone();
         child_frame_container_path.push(segment);
         Self {
-            theme: self.theme.clone(),
-            session_context: self.session_context.clone(),
-            params: self.params.clone(),
+            core: self.core.clone(),
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
@@ -613,9 +582,7 @@ impl EvaluationContext {
         let mut child_frame_container_path = self.child_frame_container_path.clone();
         child_frame_container_path.push(level.segment.clone());
         Self {
-            theme: self.theme.clone(),
-            session_context: self.session_context.clone(),
-            params: self.params.clone(),
+            core: self.core.clone(),
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
@@ -728,6 +695,14 @@ impl EvaluationContext {
     }
 }
 
+impl Deref for EvaluationContext {
+    type Target = CoreEvaluationContext;
+
+    fn deref(&self) -> &Self::Target {
+        &self.core
+    }
+}
+
 /// State that changes per subplot during rendering traversal.
 ///
 /// Created fresh for each subplot with its computed dimensions and scales.
@@ -794,21 +769,26 @@ impl<'a> RenderContext<'a> {
         self.coord_measurement
     }
 
+    /// Return the stable core render view for mark implementations.
+    pub fn core_view(&self) -> CoreMarkRenderContext<'a> {
+        CoreMarkRenderContext::new(self.eval, self.plot_width(), self.plot_height())
+    }
+
     // Convenience accessors that delegate to inner structs
 
     /// Get the theme
     pub fn theme(&self) -> &Arc<Theme> {
-        &self.eval.theme
+        self.eval.theme()
     }
 
     /// Get the session context
     pub fn session_context(&self) -> &Arc<SessionContext> {
-        &self.eval.session_context
+        self.eval.session_context()
     }
 
     /// Get the params
     pub fn params(&self) -> &IndexMap<String, ScalarValue> {
-        &self.eval.params
+        self.eval.params()
     }
 
     /// Get the facet tree
@@ -838,15 +818,11 @@ impl<'a> RenderContext<'a> {
     /// - CSS variables (var()) using params or theme defaults
     /// - light-dark() functions using the "color-scheme" param
     pub fn query_theme(&self, context: &ThemeContext, property: &str) -> Option<ThemeValue> {
-        let mut context_with_params = context.clone();
-        context_with_params.params.extend(self.eval.params.clone());
-        self.eval.theme.query(&context_with_params, property)
+        self.eval.query_theme(context, property)
     }
 
     /// Get font size with parameter support
     pub fn font_size(&self, context: &ThemeContext) -> Option<f32> {
-        let mut context_with_params = context.clone();
-        context_with_params.params.extend(self.eval.params.clone());
-        self.eval.theme.font_size(&context_with_params)
+        self.eval.font_size(context)
     }
 }

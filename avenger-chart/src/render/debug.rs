@@ -8,7 +8,7 @@ use avenger_scenegraph::marks::{mark::SceneMark, rect::SceneRectMark, text::Scen
 use avenger_text::types::{TextAlign, TextBaseline};
 
 use crate::{
-    cartesian::axis::AxisPosition,
+    chart_core::AxisPosition,
     layout::{ContentLayout, EdgeSlabs, FrameLayout, LayoutBounds, OverflowSide},
 };
 

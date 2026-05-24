@@ -27,7 +27,7 @@ async fn test_param_creation() {
 
 #[tokio::test]
 async fn test_plot_with_params() {
-    use avenger_chart::cartesian::Cartesian;
+    use avenger_chart::cartesian::{Cartesian, CartesianRectPositionChannels};
     use avenger_chart::marks::rect::Rect;
 
     let ctx = SessionContext::new();

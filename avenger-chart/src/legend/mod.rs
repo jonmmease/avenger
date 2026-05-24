@@ -6,20 +6,19 @@
 //! - Legend rendering for different mark types
 //! - Integration with plot rendering
 
-mod builder;
-mod legend_spec;
 pub(crate) mod plot_legends;
 pub mod renderer;
 
 // Re-export main types
-pub use builder::{
-    AngleLegendBuilder, ColorLegendBuilder, LegendBuilder, OpacityLegendBuilder,
+pub use crate::chart_core::LegendRendererKind;
+pub use avenger_chart_legend::{
+    AngleLegendBuilder, ColorLegendBuilder, Legend, LegendBuilder, LegendOrientation,
+    LegendPosition, LegendableChannel, LegendableChannelValue, OpacityLegendBuilder,
     ShapeLegendBuilder, SizeLegendBuilder, StrokeDashLegendBuilder, StrokeWidthLegendBuilder,
 };
-pub use legend_spec::{Legend, LegendOrientation, LegendPosition};
 
 // Re-export renderer types
 pub use renderer::{
     ChannelInfo, ChannelLegendCapability, CompiledColorbar, CompiledLineLegend, CompiledRectLegend,
-    CompiledSymbolLegend, LegendChannel, LegendRenderer, MergeKey,
+    CompiledSymbolLegend, LegendChannel, LegendRenderer, MergeKey, renderer_for_kind,
 };

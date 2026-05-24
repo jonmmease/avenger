@@ -10,8 +10,8 @@ use datafusion::common::ScalarValue;
 
 use crate::{
     coords::FacetAxis,
+    facet::FacetDirection,
     facet::evaluated_facet_tree::{EvaluatedFacetTree, PartitionContent, PartitionNode},
-    guide::FacetDirection,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]

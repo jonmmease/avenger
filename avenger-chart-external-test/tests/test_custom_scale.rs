@@ -4,12 +4,12 @@
 use std::sync::Arc;
 
 use avenger_chart::{
-    cartesian::Cartesian,
+    cartesian::{Cartesian, CartesianSymbolPositionChannels},
     marks::symbol::Symbol,
     plot::Plot,
-    scales::{Auto, Scale},
 };
 use avenger_chart_external_test::external_scale::{SmoothLog, SmoothLogExt, SmoothLogScale};
+use avenger_chart_scales::{Auto, Scale};
 use avenger_scales::scales::{ScaleConfig, ScaleContext, ScaleImpl};
 use datafusion::{
     arrow::array::{Array, ArrayRef, Float32Array},
