@@ -516,6 +516,7 @@ dependencies = [
  "arrow",
  "async-trait",
  "avenger-app",
+ "avenger-chart-cartesian",
  "avenger-chart-core",
  "avenger-chart-legend",
  "avenger-chart-marks",
@@ -558,6 +559,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-chart-cartesian"
+version = "0.1.0"
+dependencies = [
+ "avenger-chart-core",
+ "avenger-common",
+ "avenger-scales",
+ "datafusion",
+ "serde",
+]
+
+[[package]]
 name = "avenger-chart-core"
 version = "0.1.0"
 dependencies = [
@@ -596,6 +608,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "avenger-chart",
+ "avenger-chart-cartesian",
  "avenger-chart-core",
  "avenger-chart-legend",
  "avenger-chart-scales",

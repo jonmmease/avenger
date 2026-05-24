@@ -4,10 +4,9 @@
 use std::sync::Arc;
 
 use avenger_chart::{
-    cartesian::{Cartesian, CartesianSymbolPositionChannels},
-    marks::symbol::Symbol,
-    plot::Plot,
+    cartesian::CartesianSymbolPositionChannels, marks::symbol::Symbol, plot::Plot,
 };
+use avenger_chart_cartesian::Cartesian;
 use avenger_chart_external_test::external_scale::{SmoothLog, SmoothLogExt, SmoothLogScale};
 use avenger_chart_scales::{Auto, Scale};
 use avenger_scales::scales::{ScaleConfig, ScaleContext, ScaleImpl};

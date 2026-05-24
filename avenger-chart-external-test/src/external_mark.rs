@@ -3,13 +3,13 @@
 use std::{any::Any, marker::PhantomData, sync::Arc};
 
 use avenger_chart::{
-    cartesian::Cartesian,
     define_position_channels,
     error::AvengerChartError,
     impl_mark_trait_common,
     marks::{CompiledMark, Mark},
     render::RenderContext,
 };
+use avenger_chart_cartesian::Cartesian;
 use avenger_chart_core::{
     define_common_mark_channels, impl_mark_base, ChannelDescriptor, CompiledDataContext,
     CompiledMarkCore, CompiledMarkState, CoordinateSystemCore, CoordinateSystemTransformCore,

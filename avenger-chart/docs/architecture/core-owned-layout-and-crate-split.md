@@ -875,6 +875,19 @@ boundaries boring.
 
    Progress:
 
+   - Created the real `avenger-chart-cartesian` workspace crate.
+   - Moved the real `Cartesian` coordinate type plus its core-safe
+     `CoordinateSystemCore` and `CoordinateSystemTransformCore` implementation
+     into `avenger-chart-cartesian`. The top-level
+     `avenger_chart::cartesian::coord` module is now a compatibility/adapter
+     module that re-exports the moved type and implements the still-facade-owned
+     `CoordinateSystem` and `CoordinateSystemTransform` runtime traits so
+     Cartesian positioned subplot measurement remains in core-owned layout for
+     now.
+   - External custom mark/scale dogfood imports the `Cartesian` type directly
+     from `avenger-chart-cartesian` while still using the top-level facade for
+     `Plot`, `Mark`, Cartesian position-channel extension traits, and render
+     integration that have not moved yet.
    - The external custom-coordinate dogfood now imports already-moved core and
      scale authoring contracts directly from `avenger-chart-core` and
      `avenger-chart-scales`: axis/channel/config/state/data/geometry types,
