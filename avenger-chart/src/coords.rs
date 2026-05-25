@@ -9,6 +9,7 @@ pub use avenger_chart_core::{
     FacetAxis, OverflowSpaceRequirement, PaddingSpec, PlotGeometry, PointGeometry, SubplotGeometry,
     SubplotRect, extract_channel_title_from_marks,
 };
+use avenger_chart_polar::Polar;
 
 use crate::facet::coord::{FacetBandCoordMeasurement, FacetBandProbeMeasurement};
 use crate::{
@@ -165,6 +166,19 @@ pub(crate) async fn measure_coordinate_system_transform(
 
     if any.is::<Cartesian>() {
         return crate::cartesian::positioned_subplot::measure_cartesian_positioned_subplots(
+            request.scales(),
+            request.plot_width(),
+            request.plot_height(),
+            request.eval_ctx(),
+            request.data(),
+            request.compiled_marks(),
+            request.facet_path(),
+        )
+        .await;
+    }
+
+    if any.is::<Polar>() {
+        return crate::polar::positioned_subplot::measure_polar_positioned_subplots(
             request.scales(),
             request.plot_width(),
             request.plot_height(),

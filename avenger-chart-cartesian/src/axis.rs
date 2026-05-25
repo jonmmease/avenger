@@ -167,6 +167,9 @@ impl CartesianAxis {
         if other.label_font_family.is_set() {
             self.label_font_family = other.label_font_family;
         }
+        if other.show_title.is_set() {
+            self.show_title = other.show_title;
+        }
         self
     }
 }

@@ -16,6 +16,7 @@ use crate::{
     container::{ChildFramePlacementResult, project_child_frame_bounds},
     facet::{coord::FacetBandCoordMeasurement, placement::resolve_facet_child_frame_placement},
     partition::format_partition_value,
+    polar::positioned_subplot::PolarPositionedCoordMeasurement,
 };
 
 use super::{ChildFrameScopeKey, ComponentsMeasurement, CoordinationKind, CoordinationScopeKey};
@@ -114,6 +115,15 @@ pub(crate) fn child_frame_container_view_for_coord_measurement<'a>(
         )?));
     }
 
+    if let Some(polar) = coord_measurement
+        .as_any()
+        .downcast_ref::<PolarPositionedCoordMeasurement>()
+    {
+        return Ok(Some(child_frame_container_view_from_polar_positioned(
+            polar,
+        )?));
+    }
+
     if let Some(facet_band) = coord_measurement
         .as_any()
         .downcast_ref::<FacetBandCoordMeasurement>()
@@ -176,6 +186,34 @@ pub(crate) fn child_frame_container_view_from_cartesian_positioned(
                         child.child_index
                     ))
                 })?;
+            Ok(ChildFrameChildView {
+                child_index: child.child_index,
+                scope_key,
+                label: child.label.clone(),
+                measurement: &child.measurement,
+            })
+        })
+        .collect::<Result<Vec<_>, AvengerChartError>>()?;
+    validate_container_placements(&placement, &children, None)?;
+    let view = ChildFrameContainerView::new(children, placement);
+    view.validate_scope_keys()?;
+    Ok(view)
+}
+
+pub(crate) fn child_frame_container_view_from_polar_positioned(
+    polar: &PolarPositionedCoordMeasurement,
+) -> Result<ChildFrameContainerView<'_>, AvengerChartError> {
+    let placement = polar.child_frame_placement();
+    let children = polar
+        .children()
+        .iter()
+        .map(|child| {
+            let scope_key = polar.child_scope_key(child.child_index).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Missing Polar positioned scope key for child index {}",
+                    child.child_index
+                ))
+            })?;
             Ok(ChildFrameChildView {
                 child_index: child.child_index,
                 scope_key,

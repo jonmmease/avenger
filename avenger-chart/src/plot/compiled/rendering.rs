@@ -61,6 +61,7 @@ use crate::{
         Size2D, SizeMode, TaffyFrameLayoutSolver, project_child_frame_bounds,
     },
     marks::CompiledMark,
+    polar::positioned_subplot::{compiled_polar_subplot, render_polar_subplot_with_context},
     render::context::{
         FacetDimensionSizing, FacetRuntimeSizingMode, FacetRuntimeSizingPolicy,
         FacetSubtreeSnapshotCapture,
@@ -1200,6 +1201,10 @@ impl CompiledPlot {
 
         if let Some(subplot) = compiled_cartesian_subplot(mark) {
             return render_cartesian_subplot_with_context(subplot, &render_ctx).await;
+        }
+
+        if let Some(subplot) = compiled_polar_subplot(mark) {
+            return render_polar_subplot_with_context(subplot, &render_ctx).await;
         }
 
         if let Some(subplot) = facet_subplot_ref(mark) {

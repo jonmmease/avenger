@@ -1,6 +1,33 @@
 use super::helpers::{assert_visual_match_default, assert_visual_match_default_with_options};
+use avenger_chart::cartesian::guide::CartesianGuide;
+use avenger_chart::plot::CompiledPlot;
+use avenger_chart::polar::PolarSubplotPositionChannels;
+use avenger_chart::polar::guide::PolarGuide;
 use avenger_chart::prelude::*;
+use avenger_scenegraph::marks::{mark::SceneMark, symbol::SceneSymbolMark};
+use datafusion::functions_aggregate::average::avg;
 use datafusion::prelude::*;
+use std::future::Future;
+
+fn run_with_large_stack<F, Fut>(f: F)
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + 'static,
+{
+    std::thread::Builder::new()
+        .name("positioned-subplot-visual-large-stack".to_string())
+        .stack_size(16 * 1024 * 1024)
+        .spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("build tokio runtime for positioned subplot visual test");
+            rt.block_on(f());
+        })
+        .expect("spawn large-stack positioned subplot visual test thread")
+        .join()
+        .expect("large-stack positioned subplot visual test panicked");
+}
 
 async fn positioned_data(ctx: &SessionContext) -> DataFrame {
     ctx.sql(
@@ -48,6 +75,114 @@ async fn child_polar_data(ctx: &SessionContext) -> DataFrame {
     .expect("create child polar data")
 }
 
+async fn partitioned_subplot_data(ctx: &SessionContext) -> DataFrame {
+    ctx.sql(
+        "SELECT
+            column1 AS species,
+            column2 AS parent_x,
+            column3 AS parent_y,
+            column4 AS parent_radius,
+            column5 AS parent_angle,
+            column6 AS child_x,
+            column7 AS child_y,
+            column8 AS child_radius,
+            column9 AS child_theta
+         FROM (VALUES
+            ('alpha', 1.0, 1.1, 0.35, 0.35, 0.10, 0.35, 0.30, 0.20),
+            ('alpha', 1.2, 1.3, 0.40, 0.55, 0.35, 0.70, 0.55, 1.30),
+            ('beta',  3.0, 2.6, 0.65, 2.40, 0.20, 0.25, 0.45, 2.40),
+            ('beta',  3.2, 2.9, 0.70, 2.65, 0.50, 0.55, 0.75, 3.20),
+            ('beta',  3.4, 2.7, 0.72, 2.85, 0.80, 0.82, 0.60, 4.10),
+            ('gamma', 5.0, 1.5, 0.95, 4.65, 0.15, 0.82, 0.35, 4.70),
+            ('gamma', 5.3, 1.7, 1.00, 4.90, 0.45, 0.45, 0.58, 5.40),
+            ('gamma', 5.1, 1.9, 0.98, 5.10, 0.72, 0.65, 0.85, 6.00),
+            ('gamma', 5.4, 1.6, 1.02, 5.30, 0.92, 0.25, 0.68, 0.80)
+         )",
+    )
+    .await
+    .expect("create partitioned positioned subplot data")
+}
+
+fn inherited_cartesian_scatter_child() -> Plot<Cartesian> {
+    Plot::<Cartesian>::new()
+        .configure_guide(CartesianGuide::new().plot_background_color("#f8fbff"))
+        .mark(
+            Symbol::<Cartesian>::new()
+                .x_with(col("child_x"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((lit(0.0), lit(1.0))))
+                        .axis(|a| a.tick_count(3).show_title(false))
+                })
+                .y_with(col("child_y"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((lit(0.0), lit(1.0))))
+                        .axis(|a| a.tick_count(3).show_title(false))
+                })
+                .fill_with(col("species"), |c| c.no_legend())
+                .stroke("#ffffff")
+                .stroke_width(1.0)
+                .size(48.0),
+        )
+}
+
+fn inherited_polar_scatter_child() -> Plot<Polar> {
+    Plot::<Polar>::new()
+        .configure_guide(PolarGuide::new().plot_background_color("#fbfaf7"))
+        .mark(
+            Symbol::<Polar>::new()
+                .r_with(col("child_radius"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((lit(0.0), lit(1.0))))
+                        .axis(|a| a.tick_count(3).title(""))
+                })
+                .theta_with(col("child_theta"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((lit(0.0), lit(6.283185307179586))))
+                        .axis(|a| a.tick_count(4).title(""))
+                })
+                .fill_with(col("species"), |c| c.no_legend())
+                .stroke("#ffffff")
+                .stroke_width(1.0)
+                .size(46.0),
+        )
+}
+
+fn find_symbol_mark(mark: &SceneMark) -> Option<&SceneSymbolMark> {
+    match mark {
+        SceneMark::Symbol(symbol) => Some(symbol),
+        SceneMark::Group(group) => group.marks.iter().find_map(find_symbol_mark),
+        _ => None,
+    }
+}
+
+async fn assert_partitioned_child_counts(
+    compiled: &CompiledPlot,
+    ctx: &SessionContext,
+    prefix: &str,
+) {
+    let evaluated = compiled
+        .evaluate(ctx, None)
+        .await
+        .expect("evaluate partitioned positioned subplot");
+    let group_names = evaluated.scene_graph.group_names();
+    for (child_index, partition, expected_len) in [
+        (0usize, "alpha", 2u32),
+        (1usize, "beta", 3u32),
+        (2usize, "gamma", 4u32),
+    ] {
+        let group_name = format!("{prefix}_subplot_0_{child_index}_{partition}");
+        let path = group_names
+            .get(&group_name)
+            .unwrap_or_else(|| panic!("missing child group {group_name}"));
+        let group = evaluated
+            .scene_graph
+            .get_mark(path)
+            .unwrap_or_else(|| panic!("missing mark path for {group_name}"));
+        let symbol = find_symbol_mark(group)
+            .unwrap_or_else(|| panic!("missing symbol mark inside {group_name}"));
+        assert_eq!(
+            symbol.len, expected_len,
+            "partition {partition} should render {expected_len} inherited rows"
+        );
+    }
+}
+
 async fn cartesian_child(ctx: &SessionContext) -> Plot<Cartesian> {
     Plot::<Cartesian>::new()
         .data(child_cartesian_data(ctx).await)
@@ -87,6 +222,170 @@ async fn polar_child(ctx: &SessionContext) -> Plot<Polar> {
             .stroke_width(1.0)
             .size(55.0),
     )
+}
+
+#[test]
+fn cartesian_partitioned_subplot_scatter() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let plot = Plot::<Cartesian>::new()
+            .plot_size(620.0, 400.0)
+            .data(partitioned_subplot_data(&ctx).await)
+            .title("Cartesian partitioned subplots")
+            .mark(
+                Subplot::<Cartesian>::new(inherited_cartesian_scatter_child())
+                    .partition_by(col("species"))
+                    .x_with(avg(col("parent_x")), |c| {
+                        c.scale_with::<Linear>(|s| {
+                            s.domain((lit(0.0), lit(6.2))).nice(false).zero(false)
+                        })
+                    })
+                    .y_with(avg(col("parent_y")), |c| {
+                        c.scale_with::<Linear>(|s| {
+                            s.domain((lit(0.0), lit(3.2))).nice(false).zero(false)
+                        })
+                    })
+                    .plot_size(110.0, 82.0),
+            );
+
+        let compiled = plot
+            .compile(&ctx)
+            .await
+            .expect("compile Cartesian partitioned positioned subplots");
+        assert_partitioned_child_counts(&compiled, &ctx, "cartesian").await;
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "positioned_subplot",
+            "cartesian_partitioned_subplot_scatter",
+        )
+        .await;
+    });
+}
+
+#[test]
+fn cartesian_partitioned_subplot_polar_children() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let plot = Plot::<Cartesian>::new()
+            .plot_size(620.0, 400.0)
+            .data(partitioned_subplot_data(&ctx).await)
+            .title("Cartesian partitioned polar children")
+            .mark(
+                Subplot::<Cartesian>::new(inherited_polar_scatter_child())
+                    .partition_by(col("species"))
+                    .x_with(avg(col("parent_x")), |c| {
+                        c.scale_with::<Linear>(|s| {
+                            s.domain((lit(0.0), lit(6.2))).nice(false).zero(false)
+                        })
+                    })
+                    .y_with(avg(col("parent_y")), |c| {
+                        c.scale_with::<Linear>(|s| {
+                            s.domain((lit(0.0), lit(3.2))).nice(false).zero(false)
+                        })
+                    })
+                    .plot_size(104.0, 104.0),
+            );
+
+        let compiled = plot
+            .compile(&ctx)
+            .await
+            .expect("compile Cartesian partitioned positioned polar children");
+        assert_partitioned_child_counts(&compiled, &ctx, "cartesian").await;
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "positioned_subplot",
+            "cartesian_partitioned_subplot_polar_children",
+        )
+        .await;
+    });
+}
+
+#[test]
+fn polar_partitioned_subplot_cartesian_children() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let plot = Plot::<Polar>::new()
+            .plot_size(520.0, 440.0)
+            .data(partitioned_subplot_data(&ctx).await)
+            .title("Polar partitioned Cartesian children")
+            .mark(
+                Subplot::<Polar>::new(inherited_cartesian_scatter_child())
+                    .partition_by(col("species"))
+                    .r_with(avg(col("parent_radius")), |c| {
+                        c.scale_with::<Linear>(|s| {
+                            s.domain((lit(0.0), lit(1.35))).nice(false).zero(false)
+                        })
+                    })
+                    .theta_with(avg(col("parent_angle")), |c| {
+                        c.scale_with::<Linear>(|s| {
+                            s.domain((lit(0.0), lit(6.283185307179586)))
+                                .nice(false)
+                                .zero(false)
+                        })
+                    })
+                    .plot_size(104.0, 78.0),
+            );
+
+        let compiled = plot
+            .compile(&ctx)
+            .await
+            .expect("compile Polar partitioned positioned Cartesian children");
+        assert_partitioned_child_counts(&compiled, &ctx, "polar").await;
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "positioned_subplot",
+            "polar_partitioned_subplot_cartesian_children",
+        )
+        .await;
+    });
+}
+
+#[test]
+fn polar_partitioned_subplot_polar_children() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let plot = Plot::<Polar>::new()
+            .plot_size(520.0, 440.0)
+            .data(partitioned_subplot_data(&ctx).await)
+            .title("Polar partitioned polar children")
+            .mark(
+                Subplot::<Polar>::new(inherited_polar_scatter_child())
+                    .partition_by(col("species"))
+                    .r_with(avg(col("parent_radius")), |c| {
+                        c.scale_with::<Linear>(|s| {
+                            s.domain((lit(0.0), lit(1.35))).nice(false).zero(false)
+                        })
+                    })
+                    .theta_with(avg(col("parent_angle")), |c| {
+                        c.scale_with::<Linear>(|s| {
+                            s.domain((lit(0.0), lit(6.283185307179586)))
+                                .nice(false)
+                                .zero(false)
+                        })
+                    })
+                    .plot_size(96.0, 96.0),
+            );
+
+        let compiled = plot
+            .compile(&ctx)
+            .await
+            .expect("compile Polar partitioned positioned polar children");
+        assert_partitioned_child_counts(&compiled, &ctx, "polar").await;
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "positioned_subplot",
+            "polar_partitioned_subplot_polar_children",
+        )
+        .await;
+    });
 }
 
 #[tokio::test]

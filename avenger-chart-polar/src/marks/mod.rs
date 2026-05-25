@@ -1,3 +1,4 @@
+pub mod subplot;
 pub mod symbol;
 
 use std::sync::Arc;
@@ -7,6 +8,9 @@ use avenger_chart_marks::Symbol;
 
 use crate::{Polar, PolarPositionConfig};
 
+pub use subplot::{
+    CompiledPolarSubplot, POLAR_SUBPLOT_PARTITION_CHANNEL, PolarSubplotPositionChannels,
+};
 pub use symbol::CompiledPolarSymbol;
 
 /// Polar position-channel builders for the generic `Symbol` mark.
