@@ -716,7 +716,8 @@ Migration discipline:
    - Shared expression-evaluation helpers now live in the real
      `avenger-chart-core` crate. Guide, title, layout, legend, and render
      call sites import `evaluate_*_expr` helpers through the core boundary,
-     leaving `plot::compiled::expr_eval` as a compatibility shim.
+     and the now-unused private `plot::compiled::expr_eval` shim has been
+     removed.
    - Strict color-string parsing and color-to-RGBA helpers now live in the
      real `avenger-chart-core` crate. Guide, legend renderer, and mark-data
      call sites import them through `avenger_chart_core::color`, while

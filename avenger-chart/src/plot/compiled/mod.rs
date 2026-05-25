@@ -10,7 +10,6 @@ mod container_labels;
 mod container_sharing;
 mod coordination_scope;
 mod domain_coordination;
-pub(crate) mod expr_eval;
 mod legends;
 mod mark_data_runtime;
 pub(crate) mod rendering;
