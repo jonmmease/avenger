@@ -4,7 +4,7 @@ pub mod coord;
 pub mod guide;
 pub mod marks;
 
-pub use axis::{AxisPosition, CartesianAxis};
+pub use axis::{AxisPosition, CartesianAxis, evaluate_cartesian_axis};
 pub use channels::CartesianPositionConfig;
 pub use coord::Cartesian;
 pub use guide::CartesianOptions;

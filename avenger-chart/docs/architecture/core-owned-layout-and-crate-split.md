@@ -947,9 +947,10 @@ boundaries boring.
    - `CartesianAxis` and `CartesianPositionConfig` now live in the real
      `avenger-chart-cartesian` crate. The top-level
      `avenger_chart::cartesian::{axis,channels}` modules are compatibility
-     shims plus the still-facade-owned, layout-aware Cartesian axis evaluation
-     helper. External custom-mark dogfood imports `CartesianPositionConfig`
-     directly from `avenger-chart-cartesian`.
+     shims. Cartesian axis evaluation, including child-frame axis ownership
+     checks over core `GuideSharingContext`, now lives in
+     `avenger-chart-cartesian`. External custom-mark dogfood imports
+     `CartesianPositionConfig` directly from `avenger-chart-cartesian`.
    - `CartesianOptions`, the pure coordinate guide/options spec, now lives in
      `avenger-chart-cartesian`. The top-level Cartesian guide module still owns
      guide measurement/rendering because it depends on facet/child-frame

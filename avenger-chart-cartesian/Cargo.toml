@@ -7,9 +7,12 @@ edition = "2024"
 avenger-chart-core = { path = "../avenger-chart-core" }
 avenger-chart-marks = { path = "../avenger-chart-marks" }
 avenger-common = { path = "../avenger-common" }
+avenger-guides = { path = "../avenger-guides" }
 avenger-scales = { path = "../avenger-scales" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
 datafusion = { workspace = true }
 datafusion-proto = "48.0.1"
+indexmap = { workspace = true }
 serde = { workspace = true }
 serde_with = "3.0"
 typetag = "0.2"
