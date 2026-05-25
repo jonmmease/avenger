@@ -311,6 +311,45 @@ fn child_frame_axis_title_scope(
     )
 }
 
+fn facet_axis_ownership_applies(sharing_context: GuideSharingContext<'_>) -> bool {
+    if sharing_context.is_root_facet_path() {
+        return false;
+    }
+
+    // Facet ownership can hide labels only when a peer facet axis is an exact
+    // substitute. Axes inside positioned child frames are data-positioned inside
+    // the facet cell, so the outer facet lane is not aligned with them.
+    !sharing_context
+        .child_frame_level_axes()
+        .contains(&CoordinationAxis::Positioned)
+}
+
+fn facet_axis_visibility_for_cartesian_axis(
+    sharing_context: GuideSharingContext<'_>,
+    position: AxisPosition,
+    facet_sharing_level: SharingLevel,
+    ownership_mode: avenger_chart_core::AxisOwnershipMode,
+    hide_invalid_facet_path_axes: bool,
+) -> AxisVisibility {
+    if !facet_axis_ownership_applies(sharing_context) {
+        return AxisVisibility::visible();
+    }
+
+    sharing_context
+        .channel_axis_visibility_for_path_checked_with_mode(
+            position,
+            facet_sharing_level.raw(),
+            ownership_mode,
+        )
+        .unwrap_or_else(|| {
+            if hide_invalid_facet_path_axes {
+                AxisVisibility::hidden()
+            } else {
+                AxisVisibility::visible()
+            }
+        })
+}
+
 /// Evaluate a Cartesian axis to scene marks.
 #[doc(hidden)]
 #[allow(clippy::too_many_arguments)]
@@ -418,25 +457,15 @@ pub async fn evaluate_cartesian_axis(
         })
         .unwrap_or(false);
     let ownership_mode = axis_ownership_mode_from_params(params);
-    let facet_visibility = if sharing_context.is_root_facet_path() {
-        AxisVisibility::visible()
-    } else {
-        sharing_context
-            .channel_axis_visibility_for_path_checked_with_mode(
-                position,
-                facet_sharing_level.raw(),
-                ownership_mode,
-            )
-            .unwrap_or_else(|| {
-                if hide_invalid_facet_path_axes {
-                    AxisVisibility::hidden()
-                } else {
-                    AxisVisibility::visible()
-                }
-            })
-    };
+    let facet_visibility = facet_axis_visibility_for_cartesian_axis(
+        sharing_context,
+        position,
+        facet_sharing_level,
+        ownership_mode,
+        hide_invalid_facet_path_axes,
+    );
 
-    let jagged_labels_override = !sharing_context.is_root_facet_path()
+    let jagged_labels_override = facet_axis_ownership_applies(sharing_context)
         && !facet_sharing_level.is_free()
         && sharing_context.facet_is_jagged_for_axis(position);
 
@@ -534,6 +563,7 @@ mod tests {
     use super::{
         AxisPosition, ChildFrameAxisOwnershipRole, child_frame_axis_ownership_scope,
         child_frame_axis_title_scope, default_axis_position_for_channel,
+        facet_axis_ownership_applies, facet_axis_visibility_for_cartesian_axis,
     };
     use avenger_chart_core::{
         AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, AxisOwnershipMode, AxisVisibility,
@@ -593,6 +623,14 @@ mod tests {
     }
 
     impl TestChildFrameView {
+        fn root() -> Self {
+            Self {
+                position_indices: vec![],
+                level_counts: vec![],
+                level_axes: vec![],
+            }
+        }
+
         fn new(index: usize, count: usize, axis: CoordinationAxis) -> Self {
             Self {
                 position_indices: vec![index],
@@ -613,6 +651,46 @@ mod tests {
 
         fn level_axes(&self) -> Vec<CoordinationAxis> {
             self.level_axes.clone()
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct HiddenFacetView;
+
+    impl FacetGuideSharingView for HiddenFacetView {
+        fn channel_axis_visibility_for_path_checked(
+            &self,
+            _path: &[ScalarValue],
+            _axis_position: AxisPosition,
+            _sharing_level: u8,
+        ) -> Option<AxisVisibility> {
+            Some(AxisVisibility::hidden())
+        }
+
+        fn channel_axis_visibility_for_path_checked_with_mode(
+            &self,
+            _path: &[ScalarValue],
+            _axis_position: AxisPosition,
+            _sharing_level: u8,
+            _ownership_mode: AxisOwnershipMode,
+        ) -> Option<AxisVisibility> {
+            Some(AxisVisibility::hidden())
+        }
+
+        fn is_jagged_for_axis(&self, _axis_position: AxisPosition) -> bool {
+            false
+        }
+
+        fn channel_domain_sharing_level(&self, _channel: &str) -> SharingLevel {
+            SharingLevel::GLOBAL
+        }
+
+        fn effective_edge_indices_for_values_at_path(
+            &self,
+            _facet_path: &[ScalarValue],
+            _values: &[ScalarValue],
+        ) -> Option<(usize, usize)> {
+            None
         }
     }
 
@@ -655,6 +733,66 @@ mod tests {
         );
         assert_eq!(default_axis_position_for_channel("x"), AxisPosition::Bottom);
         assert_eq!(default_axis_position_for_channel("y"), AxisPosition::Left);
+    }
+
+    #[test]
+    fn positioned_child_axes_ignore_outer_facet_axis_suppression() {
+        let facet_view = HiddenFacetView;
+        let facet_path = vec![ScalarValue::Utf8(Some("North".to_string()))];
+        let child_path = TestChildFrameView::new(0, 2, CoordinationAxis::Positioned);
+        let context = GuideSharingContext::new(&facet_view, &facet_path, &child_path);
+
+        assert!(!facet_axis_ownership_applies(context));
+        assert_eq!(
+            facet_axis_visibility_for_cartesian_axis(
+                context,
+                AxisPosition::Bottom,
+                SharingLevel::GLOBAL,
+                AxisOwnershipMode::DomainSlots,
+                true,
+            ),
+            AxisVisibility::visible()
+        );
+    }
+
+    #[test]
+    fn parent_axes_still_use_outer_facet_axis_suppression() {
+        let facet_view = HiddenFacetView;
+        let facet_path = vec![ScalarValue::Utf8(Some("North".to_string()))];
+        let child_path = TestChildFrameView::root();
+        let context = GuideSharingContext::new(&facet_view, &facet_path, &child_path);
+
+        assert!(facet_axis_ownership_applies(context));
+        assert_eq!(
+            facet_axis_visibility_for_cartesian_axis(
+                context,
+                AxisPosition::Bottom,
+                SharingLevel::GLOBAL,
+                AxisOwnershipMode::DomainSlots,
+                true,
+            ),
+            AxisVisibility::hidden()
+        );
+    }
+
+    #[test]
+    fn concat_child_axes_still_use_outer_facet_axis_suppression() {
+        let facet_view = HiddenFacetView;
+        let facet_path = vec![ScalarValue::Utf8(Some("North".to_string()))];
+        let child_path = TestChildFrameView::new(0, 2, CoordinationAxis::Horizontal);
+        let context = GuideSharingContext::new(&facet_view, &facet_path, &child_path);
+
+        assert!(facet_axis_ownership_applies(context));
+        assert_eq!(
+            facet_axis_visibility_for_cartesian_axis(
+                context,
+                AxisPosition::Left,
+                SharingLevel::GLOBAL,
+                AxisOwnershipMode::DomainSlots,
+                true,
+            ),
+            AxisVisibility::hidden()
+        );
     }
 
     #[test]

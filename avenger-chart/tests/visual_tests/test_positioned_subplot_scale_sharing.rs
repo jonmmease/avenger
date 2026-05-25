@@ -121,13 +121,13 @@ fn positioned_child_plot() -> Plot<Cartesian> {
             Symbol::<Cartesian>::new()
                 .x_with(col("child_x"), |c| {
                     c.scale_with::<Linear>(|s| s.nice(false).zero(false))
-                        .axis(|a| a.tick_count(3).show_title(false))
+                        .axis(|a| a.tick_count(3).title("child_x"))
                 })
                 .y_with(col("child_y"), |c| {
                     c.scale_with::<Linear>(|s| {
                         s.domain((lit(0.0), lit(1.0))).nice(false).zero(false)
                     })
-                    .axis(|a| a.tick_count(3).show_title(false))
+                    .axis(|a| a.tick_count(3).title("child_y"))
                 })
                 .fill("#0072b2")
                 .stroke("#ffffff")
@@ -145,13 +145,13 @@ fn positioned_fill_child_plot(fill_sharing_level: u8) -> Plot<Cartesian> {
                     c.scale_with::<Linear>(|s| {
                         s.domain((lit(0.0), lit(1.0))).nice(false).zero(false)
                     })
-                    .axis(|a| a.tick_count(3).show_title(false))
+                    .axis(|a| a.tick_count(3).title("child_x"))
                 })
                 .y_with(col("child_y"), |c| {
                     c.scale_with::<Linear>(|s| {
                         s.domain((lit(0.0), lit(1.0))).nice(false).zero(false)
                     })
-                    .axis(|a| a.tick_count(3).show_title(false))
+                    .axis(|a| a.tick_count(3).title("child_y"))
                 })
                 .fill_with(col("fill_category"), move |c| {
                     c.with_scale_sharing(ScaleSharing::Level(fill_sharing_level))
