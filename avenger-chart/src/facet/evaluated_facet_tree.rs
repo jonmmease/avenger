@@ -24,8 +24,6 @@ use tracing::debug;
 
 pub use crate::partition::{PartitionContent, PartitionNode};
 
-pub(crate) use crate::guide::AxisOwnershipMode;
-pub use crate::guide::AxisVisibility;
 use crate::{
     error::AvengerChartError,
     facet::FacetDirection,
@@ -33,15 +31,15 @@ use crate::{
         marks::facet::{FacetSubplotRef, facet_subplot_ref},
         sharing_policy,
     },
-    marks::CompiledMark,
     partition::{PartitionDimensionSpec, PartitionSlotCache, scalar_values_equivalent},
     plot::{
         CompiledPlot,
         compiled::{SharingGroupEdge, enumeration_ancestor_path},
     },
-    serialization::LogicalPlanNodeExt,
 };
-use avenger_chart_core::{AxisPosition, SharingLevel};
+pub(crate) use avenger_chart_core::AxisOwnershipMode;
+pub use avenger_chart_core::AxisVisibility;
+use avenger_chart_core::{AxisPosition, CompiledMark, LogicalPlanNodeExt, SharingLevel};
 
 /// Evaluated facet structure - built once from data at evaluate() time, queried throughout.
 ///

@@ -1,6 +1,4 @@
-use avenger_chart_core::FacetEmptyCellPolicy;
-
-use crate::guide::AxisOwnershipMode;
+use avenger_chart_core::{AxisOwnershipMode, FacetEmptyCellPolicy};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct FacetOwnershipPolicy {

@@ -11,10 +11,12 @@ use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 use tracing::{debug, trace};
 
-use avenger_chart_core::{AxisPosition, SharingLevel};
+use avenger_chart_core::{
+    AxisPosition, CoordMeasurement, FacetAxis, GuideSharingContext, LayoutBounds,
+    OverflowSpaceRequirement, SharingLevel,
+};
 
 use crate::{
-    coords::{CoordMeasurement, FacetAxis, OverflowSpaceRequirement},
     error::AvengerChartError,
     facet::{
         coord::{
@@ -29,8 +31,7 @@ use crate::{
             resolve_facet_band_placement, resolve_facet_band_placement_from_configured_scales,
         },
     },
-    guide::GuideSharingContext,
-    layout::{BandPosition, BandPositionIterator, LayoutBounds},
+    layout::{BandPosition, BandPositionIterator},
     plot::compiled::{
         CompiledPlot, ComponentsMeasurement, ContainerBandGuideMeasurementConfig,
         ContainerBandGuideRenderConfig, measure_container_band_guide_slab,
@@ -41,7 +42,7 @@ use crate::{
 };
 
 #[cfg(test)]
-use crate::coords::CoordinatedOverflow;
+use avenger_chart_core::CoordinatedOverflow;
 
 pub(crate) const HIDDEN_TOP_LOCAL_ANCHOR_EPSILON: f32 = 0.5;
 

@@ -1112,6 +1112,10 @@ boundaries boring.
      types, and ZeroD coordinate re-exports. Public façade paths still
      re-export from their real owner crates, while the top-level crate no
      longer carries duplicate private wrapper files for them.
+   - Rewired facet guide/layout source imports to use core and Cartesian owner
+     crates directly for guide sharing traits, overflow/layout types,
+     `CartesianAxis`, and child-frame guide sharing. The façade `guide`,
+     `layout`, and `cartesian` paths remain compatibility exports for users.
    - Removed the final `chart_core` staging namespace after rewiring internal
      imports directly to `avenger-chart-core`. Public compatibility paths such
      as `avenger_chart::maybe`, `param`, `error`, `coords`, `guide`, and

@@ -2,20 +2,17 @@
 //!
 //! This module is a thin wrapper around the shared facet-band guide engine.
 
-use crate::cartesian::axis::CartesianAxis;
 use crate::error::AvengerChartError;
 use crate::facet::guide::band_guide_engine::{self, ColGuideAxisOps, FacetGuideState};
 use crate::facet::marks::facet::CompiledFacetColumnSubplot;
 use crate::facet::overflow_projection::FacetOverflowResolutionPhase;
-use crate::guide::{
-    CompiledGuide, CoordinateGuide, GuideOverflowPhase, GuideSharingContext, MeasurementResult,
-    OverflowSpaceRequirement,
-};
-use crate::layout::LayoutBounds;
-use crate::marks::CompiledMarkCore;
 use crate::plot::compiled::CompiledPlot;
-use crate::serialization::SerializableDataFrame;
-use avenger_chart_core::SharingLevel;
+use avenger_chart_cartesian::CartesianAxis;
+use avenger_chart_core::{
+    CompiledGuide, CompiledMarkCore, CoordMeasurement, CoordinateGuide, GuideOverflowPhase,
+    GuideSharingContext, LayoutBounds, MeasurementResult, OverflowSpaceRequirement,
+    SerializableDataFrame, SharingLevel,
+};
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -28,9 +25,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 #[cfg(test)]
-use crate::coords::CoordinatedOverflow;
-#[cfg(test)]
 use crate::facet::guide::band_guide_engine::GuideAnchorSource;
+#[cfg(test)]
+use avenger_chart_core::CoordinatedOverflow;
 
 /// Guide configuration for FacetCol coordinate system
 #[derive(Clone, Default)]
@@ -157,7 +154,7 @@ impl CompiledGuide for FacetColGuide {
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &SessionContext,
         sharing_context: GuideSharingContext<'_>,
-        coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
+        coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         self.measure_overflow_for_phase(
             scales,
@@ -184,7 +181,7 @@ impl CompiledGuide for FacetColGuide {
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &SessionContext,
         sharing_context: GuideSharingContext<'_>,
-        coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
+        coord_measurement: Option<&dyn CoordMeasurement>,
         phase: GuideOverflowPhase,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         let phase = match phase {
@@ -217,7 +214,7 @@ impl CompiledGuide for FacetColGuide {
         _data_override: Option<&datafusion::dataframe::DataFrame>,
         _ctx: &SessionContext,
         _sharing_context: GuideSharingContext<'_>,
-        _coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
+        _coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<MeasurementResult, AvengerChartError> {
         Ok(MeasurementResult::default())
     }
@@ -228,13 +225,13 @@ impl CompiledGuide for FacetColGuide {
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &LayoutBounds,
-        guide_overflow: &crate::guide::OverflowSpaceRequirement,
+        guide_overflow: &OverflowSpaceRequirement,
         theme: &crate::theme::Theme,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         ctx: &SessionContext,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         sharing_context: GuideSharingContext<'_>,
-        coord_measurement: &dyn crate::coords::CoordMeasurement,
+        coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         band_guide_engine::evaluate_common::<ColGuideAxisOps>(
             &self.as_engine_state(),
