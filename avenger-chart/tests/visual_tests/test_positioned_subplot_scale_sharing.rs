@@ -1,9 +1,8 @@
 use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::guide::CartesianGuide;
+use avenger_chart::legend::LegendPosition;
 use avenger_chart::prelude::*;
-use avenger_chart::scales::ScaleRange;
 use datafusion::prelude::*;
-use palette::rgb::Srgba;
 use std::future::Future;
 
 const BASELINE_CATEGORY: &str = "positioned_subplot_sharing";
@@ -109,17 +108,10 @@ async fn positioned_subplot_fill_sharing_data(ctx: &SessionContext) -> DataFrame
     .expect("create positioned subplot fill sharing data")
 }
 
-fn fill_sharing_palette() -> ScaleRange {
-    ScaleRange::new_color(vec![
-        Srgba::new(0.121, 0.466, 0.705, 1.0),
-        Srgba::new(1.000, 0.498, 0.054, 1.0),
-        Srgba::new(0.172, 0.627, 0.172, 1.0),
-        Srgba::new(0.839, 0.153, 0.157, 1.0),
-        Srgba::new(0.580, 0.404, 0.741, 1.0),
-        Srgba::new(0.549, 0.337, 0.294, 1.0),
-        Srgba::new(0.890, 0.467, 0.761, 1.0),
-        Srgba::new(0.498, 0.498, 0.498, 1.0),
-    ])
+fn fill_sharing_palette() -> Vec<&'static str> {
+    vec![
+        "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f",
+    ]
 }
 
 fn positioned_child_plot() -> Plot<Cartesian> {
@@ -163,8 +155,8 @@ fn positioned_fill_child_plot(fill_sharing_level: u8) -> Plot<Cartesian> {
                 })
                 .fill_with(col("fill_category"), move |c| {
                     c.with_scale_sharing(ScaleSharing::Level(fill_sharing_level))
-                        .scale_with::<Ordinal>(|s| s.range(fill_sharing_palette()))
-                        .no_legend()
+                        .scale_with::<Ordinal>(|s| s.range_discrete(fill_sharing_palette()))
+                        .legend(|l| l.title("Fill group").position(LegendPosition::Right))
                 })
                 .stroke("#ffffff")
                 .stroke_width(1.0)

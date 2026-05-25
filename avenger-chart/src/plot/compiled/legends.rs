@@ -535,15 +535,47 @@ impl CompiledPlot {
                 channel,
             ),
             LegendPlanScope::ChildFrame { sharing_path } => {
-                if !child_frame_sharing_level.is_free() {
+                if !child_frame_sharing_level.is_free() && !sharing_path.levels().is_empty() {
+                    let child_frame_depth = sharing_path.levels().len() as u8;
+                    let crosses_child_frame_boundary = child_frame_sharing_level.is_global()
+                        || child_frame_sharing_level.raw() > child_frame_depth;
+                    let child_frame_scope_level = if crosses_child_frame_boundary {
+                        SharingLevel::from_raw(child_frame_depth)
+                    } else {
+                        child_frame_sharing_level
+                    };
+
                     let child_frame_disposition = Self::legend_disposition_for_child_frame_path(
                         sharing_path,
-                        child_frame_sharing_level,
+                        child_frame_scope_level,
                         resolved_position,
                         channel,
                     );
-                    if child_frame_disposition != LegendDisposition::RenderHere {
-                        return child_frame_disposition;
+
+                    if !crosses_child_frame_boundary || facet_path.is_empty() {
+                        if child_frame_disposition != LegendDisposition::RenderHere {
+                            return child_frame_disposition;
+                        }
+                    } else {
+                        if child_frame_disposition == LegendDisposition::Suppress {
+                            return LegendDisposition::Suppress;
+                        }
+
+                        let remaining_facet_level = if child_frame_sharing_level.is_global() {
+                            SharingLevel::GLOBAL
+                        } else {
+                            SharingLevel::from_raw(
+                                child_frame_sharing_level.raw() - child_frame_depth,
+                            )
+                        };
+
+                        return Self::legend_disposition_for_facet_path(
+                            facet_tree,
+                            facet_path,
+                            remaining_facet_level,
+                            resolved_position,
+                            channel,
+                        );
                     }
                 }
 
@@ -1450,6 +1482,78 @@ mod tests {
                 anchor: HoistedLegendAnchor::FacetPath(vec![]),
                 sharing_level: SharingLevel::GLOBAL,
             }
+        );
+    }
+
+    #[test]
+    fn legend_disposition_child_frame_level_beyond_frame_depth_continues_to_facet_group() {
+        let tree = make_two_level_column_tree_with_sharing(HashMap::new());
+        let sharing_path = ChildFrameSharingPath::root()
+            .appended(ChildFrameSharingLevel::hconcat_child(1, 2, Some("petal")));
+
+        assert_eq!(
+            CompiledPlot::legend_disposition(
+                "fill",
+                &LegendPlanScope::ChildFrame { sharing_path },
+                &tree,
+                &[s("DivA"), s("Dept2")],
+                LegendPosition::Right,
+                SharingLevel::from_raw(2),
+                SharingLevel::from_raw(2),
+                &HashMap::new(),
+                &IndexMap::new(),
+            ),
+            LegendDisposition::Hoist {
+                anchor: HoistedLegendAnchor::FacetPath(vec![s("DivA")]),
+                sharing_level: SharingLevel::from_raw(1),
+            }
+        );
+    }
+
+    #[test]
+    fn legend_disposition_child_frame_global_beyond_frame_depth_continues_to_root_facet_group() {
+        let tree = make_two_level_column_tree_with_sharing(HashMap::new());
+        let sharing_path = ChildFrameSharingPath::root()
+            .appended(ChildFrameSharingLevel::hconcat_child(1, 2, Some("petal")));
+
+        assert_eq!(
+            CompiledPlot::legend_disposition(
+                "fill",
+                &LegendPlanScope::ChildFrame { sharing_path },
+                &tree,
+                &[s("DivB"), s("Dept2")],
+                LegendPosition::Right,
+                SharingLevel::GLOBAL,
+                SharingLevel::GLOBAL,
+                &HashMap::new(),
+                &IndexMap::new(),
+            ),
+            LegendDisposition::Hoist {
+                anchor: HoistedLegendAnchor::FacetPath(vec![]),
+                sharing_level: SharingLevel::GLOBAL,
+            }
+        );
+    }
+
+    #[test]
+    fn legend_disposition_child_frame_level_beyond_frame_depth_still_suppresses_child_non_owner() {
+        let tree = make_two_level_column_tree_with_sharing(HashMap::new());
+        let sharing_path = ChildFrameSharingPath::root()
+            .appended(ChildFrameSharingLevel::hconcat_child(0, 2, Some("sepal")));
+
+        assert_eq!(
+            CompiledPlot::legend_disposition(
+                "fill",
+                &LegendPlanScope::ChildFrame { sharing_path },
+                &tree,
+                &[s("DivB"), s("Dept2")],
+                LegendPosition::Right,
+                SharingLevel::GLOBAL,
+                SharingLevel::GLOBAL,
+                &HashMap::new(),
+                &IndexMap::new(),
+            ),
+            LegendDisposition::Suppress
         );
     }
 
