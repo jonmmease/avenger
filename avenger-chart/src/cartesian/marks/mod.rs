@@ -3,6 +3,7 @@ pub mod rect;
 pub mod symbol;
 
 pub use avenger_chart_cartesian::marks::{
-    CartesianLinePositionChannels, CartesianRectPositionChannels, CartesianSubplotPositionChannels,
+    CARTESIAN_SUBPLOT_X_CHANNEL, CARTESIAN_SUBPLOT_Y_CHANNEL, CartesianLinePositionChannels,
+    CartesianRectPositionChannels, CartesianSubplotPositionChannels,
     CartesianSymbolPositionChannels, CompiledCartesianSubplot,
 };

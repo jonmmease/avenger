@@ -2591,8 +2591,13 @@ async fn coordinate_cell_domains_before_measurement(
                 nested_ctx,
             )
             .await?;
+            let domain_channels = nested_ctx.facet_tree.domain_extent_channels();
+            let domain_channel_refs = domain_channels
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>();
             annotate_domain_extents(
-                extent_builder.extract_domain_extents(&["x", "y", "x2", "y2"]),
+                extent_builder.extract_domain_extents(&domain_channel_refs),
                 nested_ctx,
             )
         } else {

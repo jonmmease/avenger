@@ -18,26 +18,30 @@ use crate::{Cartesian, CartesianPositionConfig};
 
 #[doc(hidden)]
 pub const CARTESIAN_SUBPLOT_PARTITION_CHANNEL: &str = "partition";
+#[doc(hidden)]
+pub const CARTESIAN_SUBPLOT_X_CHANNEL: &str = "subplot_x";
+#[doc(hidden)]
+pub const CARTESIAN_SUBPLOT_Y_CHANNEL: &str = "subplot_y";
 
 /// Position-channel builder methods for `Subplot<Cartesian>`.
 pub trait CartesianSubplotPositionChannels: Sized {
     /// Set the parent x-position for coordinate-positioned child plot frames.
-    fn x<V: Into<ChannelValue>>(self, value: V) -> Self;
+    fn subplot_x<V: Into<ChannelValue>>(self, value: V) -> Self;
 
     /// Set the parent y-position for coordinate-positioned child plot frames.
-    fn y<V: Into<ChannelValue>>(self, value: V) -> Self;
+    fn subplot_y<V: Into<ChannelValue>>(self, value: V) -> Self;
 
     /// Partition parent data into one coordinate-positioned child frame per value.
     fn partition_by<V: Into<ChannelValue>>(self, value: V) -> Self;
 
     /// Configure the parent x-position channel for coordinate-positioned child plot frames.
-    fn x_with<V, F>(self, value: V, f: F) -> Self
+    fn subplot_x_with<V, F>(self, value: V, f: F) -> Self
     where
         V: Into<ChannelValue>,
         F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
 
     /// Configure the parent y-position channel for coordinate-positioned child plot frames.
-    fn y_with<V, F>(self, value: V, f: F) -> Self
+    fn subplot_y_with<V, F>(self, value: V, f: F) -> Self
     where
         V: Into<ChannelValue>,
         F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
@@ -53,32 +57,32 @@ pub trait CartesianSubplotPositionChannels: Sized {
 }
 
 impl CartesianSubplotPositionChannels for Subplot<Cartesian> {
-    fn x<V: Into<ChannelValue>>(self, value: V) -> Self {
-        self.with_channel_value("x", value.into())
+    fn subplot_x<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value(CARTESIAN_SUBPLOT_X_CHANNEL, value.into())
     }
 
-    fn y<V: Into<ChannelValue>>(self, value: V) -> Self {
-        self.with_channel_value("y", value.into())
+    fn subplot_y<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value(CARTESIAN_SUBPLOT_Y_CHANNEL, value.into())
     }
 
     fn partition_by<V: Into<ChannelValue>>(self, value: V) -> Self {
         self.with_channel_value(CARTESIAN_SUBPLOT_PARTITION_CHANNEL, value.into().no_scale())
     }
 
-    fn x_with<V, F>(self, value: V, f: F) -> Self
+    fn subplot_x_with<V, F>(self, value: V, f: F) -> Self
     where
         V: Into<ChannelValue>,
         F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
     {
-        with_position_config(self, "x", value.into(), f)
+        with_position_config(self, CARTESIAN_SUBPLOT_X_CHANNEL, value.into(), f)
     }
 
-    fn y_with<V, F>(self, value: V, f: F) -> Self
+    fn subplot_y_with<V, F>(self, value: V, f: F) -> Self
     where
         V: Into<ChannelValue>,
         F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
     {
-        with_position_config(self, "y", value.into(), f)
+        with_position_config(self, CARTESIAN_SUBPLOT_Y_CHANNEL, value.into(), f)
     }
 
     fn plot_width(mut self, width: f32) -> Self {
@@ -151,7 +155,7 @@ fn validate_partitioned_subplot(
         ));
     }
 
-    for channel_name in ["x", "y"] {
+    for channel_name in [CARTESIAN_SUBPLOT_X_CHANNEL, CARTESIAN_SUBPLOT_Y_CHANNEL] {
         let Some(channel) = subplot.data_context_ref().channels().get(channel_name) else {
             return Err(AvengerChartError::InvalidArgument(format!(
                 "Partitioned Cartesian subplots require channel `{channel_name}`"
@@ -286,13 +290,13 @@ impl CompiledMarkCore for CompiledCartesianSubplot {
     fn supported_channels(&self) -> Vec<ChannelDescriptor> {
         vec![
             ChannelDescriptor {
-                name: "x",
+                name: CARTESIAN_SUBPLOT_X_CHANNEL,
                 required: true,
                 default_value: None,
                 allow_column_ref: true,
             },
             ChannelDescriptor {
-                name: "y",
+                name: CARTESIAN_SUBPLOT_Y_CHANNEL,
                 required: true,
                 default_value: None,
                 allow_column_ref: true,

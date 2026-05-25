@@ -96,19 +96,17 @@ fn positioned_parent_plot(x_sharing_level: u8) -> Plot<Cartesian> {
         .mark(
             Subplot::<Cartesian>::new(positioned_child_plot(x_sharing_level))
                 .partition_by(col("parent_x"))
-                .x_with(col("parent_x"), |c| {
-                    c.with_scale_name("subplot_parent_x")
-                        .scale_with::<Linear>(|s| {
-                            s.domain((lit(0.0), lit(1.0))).nice(false).zero(false)
-                        })
-                        .axis(|a| a.tick_count(3).show_title(false))
+                .subplot_x_with(col("parent_x"), |c| {
+                    c.scale_with::<Linear>(|s| {
+                        s.domain((lit(0.0), lit(1.0))).nice(false).zero(false)
+                    })
+                    .axis(|a| a.tick_count(3).show_title(false))
                 })
-                .y_with(lit(0.5), |c| {
-                    c.with_scale_name("subplot_parent_y")
-                        .scale_with::<Linear>(|s| {
-                            s.domain((lit(0.0), lit(1.0))).nice(false).zero(false)
-                        })
-                        .axis(|a| a.tick_count(3).show_title(false))
+                .subplot_y_with(lit(0.5), |c| {
+                    c.scale_with::<Linear>(|s| {
+                        s.domain((lit(0.0), lit(1.0))).nice(false).zero(false)
+                    })
+                    .axis(|a| a.tick_count(3).show_title(false))
                 })
                 .plot_size(142.0, 104.0),
         )

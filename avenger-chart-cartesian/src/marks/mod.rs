@@ -13,7 +13,8 @@ use crate::{Cartesian, CartesianPositionConfig};
 pub use line::{CompiledCartesianLine, ensure_dictionary_array_fn};
 pub use rect::CompiledCartesianRect;
 pub use subplot::{
-    CARTESIAN_SUBPLOT_PARTITION_CHANNEL, CartesianSubplotPositionChannels, CompiledCartesianSubplot,
+    CARTESIAN_SUBPLOT_PARTITION_CHANNEL, CARTESIAN_SUBPLOT_X_CHANNEL, CARTESIAN_SUBPLOT_Y_CHANNEL,
+    CartesianSubplotPositionChannels, CompiledCartesianSubplot,
 };
 pub use symbol::CompiledCartesianSymbol;
 

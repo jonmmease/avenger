@@ -248,12 +248,12 @@ fn cartesian_partitioned_subplot_scatter() {
                     ScaleSharing::Shared,
                 ))
                 .partition_by(col("species"))
-                .x_with(avg(col("parent_x")), |c| {
+                .subplot_x_with(avg(col("parent_x")), |c| {
                     c.scale_with::<Linear>(|s| {
                         s.domain((lit(0.0), lit(6.2))).nice(false).zero(false)
                     })
                 })
-                .y_with(avg(col("parent_y")), |c| {
+                .subplot_y_with(avg(col("parent_y")), |c| {
                     c.scale_with::<Linear>(|s| {
                         s.domain((lit(0.0), lit(3.2))).nice(false).zero(false)
                     })
@@ -291,12 +291,12 @@ fn cartesian_partitioned_subplot_polar_children() {
                     ScaleSharing::Free,
                 ))
                 .partition_by(col("species"))
-                .x_with(avg(col("parent_x")), |c| {
+                .subplot_x_with(avg(col("parent_x")), |c| {
                     c.scale_with::<Linear>(|s| {
                         s.domain((lit(0.0), lit(6.2))).nice(false).zero(false)
                     })
                 })
-                .y_with(avg(col("parent_y")), |c| {
+                .subplot_y_with(avg(col("parent_y")), |c| {
                     c.scale_with::<Linear>(|s| {
                         s.domain((lit(0.0), lit(3.2))).nice(false).zero(false)
                     })
@@ -419,10 +419,10 @@ async fn cartesian_positioned_cartesian_subplots() {
         .title("Cartesian-positioned subplots")
         .mark(
             Subplot::new(cartesian_child(&ctx).await)
-                .x_with(col("x"), |c| {
+                .subplot_x_with(col("x"), |c| {
                     c.scale_with::<Linear>(|s| s.domain((lit(0.7), lit(4.1))))
                 })
-                .y_with(col("y"), |c| {
+                .subplot_y_with(col("y"), |c| {
                     c.scale_with::<Linear>(|s| s.domain((lit(0.7), lit(2.3))))
                 })
                 .plot_size(86.0, 64.0),
@@ -451,18 +451,18 @@ async fn cartesian_positioned_mixed_subplots() {
         .title("Mixed positioned subplots")
         .mark(
             Subplot::new(cartesian_child(&ctx).await)
-                .x_with(lit(1.2), |c| {
+                .subplot_x_with(lit(1.2), |c| {
                     c.scale_with::<Linear>(|s| s.domain((lit(0.8), lit(3.9))))
                 })
-                .y_with(lit(1.2), |c| {
+                .subplot_y_with(lit(1.2), |c| {
                     c.scale_with::<Linear>(|s| s.domain((lit(0.8), lit(2.1))))
                 })
                 .plot_size(82.0, 62.0),
         )
         .mark(
             Subplot::new(polar_child(&ctx).await)
-                .x(lit(3.5))
-                .y(lit(1.8))
+                .subplot_x(lit(3.5))
+                .subplot_y(lit(1.8))
                 .plot_size(82.0, 82.0),
         );
 
@@ -491,10 +491,10 @@ async fn cartesian_positioned_components_debug() {
             Subplot::new(cartesian_child(&ctx).await)
                 .key("mini")
                 .label("Mini")
-                .x_with(col("x"), |c| {
+                .subplot_x_with(col("x"), |c| {
                     c.scale_with::<Linear>(|s| s.domain((lit(0.7), lit(4.1))))
                 })
-                .y_with(col("y"), |c| {
+                .subplot_y_with(col("y"), |c| {
                     c.scale_with::<Linear>(|s| s.domain((lit(0.7), lit(2.3))))
                 })
                 .plot_size(86.0, 64.0),

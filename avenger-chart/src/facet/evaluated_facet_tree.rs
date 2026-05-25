@@ -601,6 +601,19 @@ impl EvaluatedFacetTree {
             .unwrap_or(SharingLevel::GLOBAL)
     }
 
+    pub(crate) fn domain_extent_channels(&self) -> Vec<String> {
+        let mut channels = ["x", "y", "x2", "y2"]
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        for channel in self.channel_domain_sharing_levels.keys() {
+            if !channels.iter().any(|existing| existing == channel) {
+                channels.push(channel.clone());
+            }
+        }
+        channels
+    }
+
     /// Check if the tree is actually jagged for a given axis position.
     ///
     /// Returns true when sibling branches in the branching direction have

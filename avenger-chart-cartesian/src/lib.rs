@@ -9,7 +9,7 @@ pub use channels::CartesianPositionConfig;
 pub use coord::Cartesian;
 pub use guide::{CartesianGuide, CartesianOptions};
 pub use marks::{
-    CARTESIAN_SUBPLOT_PARTITION_CHANNEL, CartesianLinePositionChannels,
-    CartesianRectPositionChannels, CartesianSubplotPositionChannels,
+    CARTESIAN_SUBPLOT_PARTITION_CHANNEL, CARTESIAN_SUBPLOT_X_CHANNEL, CARTESIAN_SUBPLOT_Y_CHANNEL,
+    CartesianLinePositionChannels, CartesianRectPositionChannels, CartesianSubplotPositionChannels,
     CartesianSymbolPositionChannels, CompiledCartesianSubplot,
 };

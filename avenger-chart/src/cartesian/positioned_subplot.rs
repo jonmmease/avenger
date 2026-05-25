@@ -7,7 +7,9 @@
 
 use std::{any::Any, collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
-use avenger_chart_cartesian::CARTESIAN_SUBPLOT_PARTITION_CHANNEL;
+use avenger_chart_cartesian::{
+    CARTESIAN_SUBPLOT_PARTITION_CHANNEL, CARTESIAN_SUBPLOT_X_CHANNEL, CARTESIAN_SUBPLOT_Y_CHANNEL,
+};
 use avenger_chart_core::{
     DefaultLogicalExprNodeExt, coerce_numeric_channel_with_renderer, scalar_total_cmp,
 };
@@ -533,7 +535,7 @@ async fn prepare_partitioned_positioned_subplot<'a>(
         subplot,
         prepared_mark.data_batch.as_ref(),
         &prepared_mark.scalar_batch,
-        "x",
+        CARTESIAN_SUBPLOT_X_CHANNEL,
         &mark_context,
         0.0,
     )?;
@@ -541,7 +543,7 @@ async fn prepare_partitioned_positioned_subplot<'a>(
         subplot,
         prepared_mark.data_batch.as_ref(),
         &prepared_mark.scalar_batch,
-        "y",
+        CARTESIAN_SUBPLOT_Y_CHANNEL,
         &mark_context,
         0.0,
     )?;
@@ -552,8 +554,8 @@ async fn prepare_partitioned_positioned_subplot<'a>(
     )?;
 
     let child_count = x.len().max(y.len()).max(partition_values.len()).max(1);
-    let xs = expanded_values(&x, child_count, "x")?;
-    let ys = expanded_values(&y, child_count, "y")?;
+    let xs = expanded_values(&x, child_count, CARTESIAN_SUBPLOT_X_CHANNEL)?;
+    let ys = expanded_values(&y, child_count, CARTESIAN_SUBPLOT_Y_CHANNEL)?;
     let partition_values = expanded_scalar_values(
         &partition_values,
         child_count,
@@ -641,7 +643,7 @@ async fn prepare_positioned_subplot<'a>(
         subplot,
         prepared_mark.data_batch.as_ref(),
         &prepared_mark.scalar_batch,
-        "x",
+        CARTESIAN_SUBPLOT_X_CHANNEL,
         &mark_context,
         0.0,
     )?;
@@ -649,13 +651,13 @@ async fn prepare_positioned_subplot<'a>(
         subplot,
         prepared_mark.data_batch.as_ref(),
         &prepared_mark.scalar_batch,
-        "y",
+        CARTESIAN_SUBPLOT_Y_CHANNEL,
         &mark_context,
         0.0,
     )?;
     let child_count = x.len().max(y.len()).max(1);
-    let xs = expanded_values(&x, child_count, "x")?;
-    let ys = expanded_values(&y, child_count, "y")?;
+    let xs = expanded_values(&x, child_count, CARTESIAN_SUBPLOT_X_CHANNEL)?;
+    let ys = expanded_values(&y, child_count, CARTESIAN_SUBPLOT_Y_CHANNEL)?;
 
     let mut child_specs = Vec::with_capacity(child_count);
     for row_index in 0..child_count {
@@ -878,11 +880,13 @@ mod tests {
         cartesian::{Cartesian, CartesianSubplotPositionChannels, CartesianSymbolPositionChannels},
         error::AvengerChartError,
         marks::Subplot,
-        plot::Plot,
+        plot::{Plot, compiled::compiled_subplot_payload_child_plot},
         scales::ScaleChannelConfig,
     };
-    use avenger_chart_core::Linear;
+    use avenger_chart_core::{Linear, ScaleSharing};
     use avenger_chart_marks::Symbol;
+
+    use super::compiled_cartesian_subplot;
 
     fn partitioned_parent_data(ctx: &SessionContext) -> DataFrame {
         let batch = ArrowRecordBatch::try_from_iter(vec![
@@ -940,8 +944,8 @@ mod tests {
             .mark(
                 Subplot::new(inherited_child_plot())
                     .partition_by(col("group"))
-                    .x(avg(col("px")))
-                    .y(avg(col("py")))
+                    .subplot_x(avg(col("px")))
+                    .subplot_y(avg(col("py")))
                     .plot_size(80.0, 64.0),
             );
 
@@ -979,6 +983,95 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cartesian_subplot_placement_scales_use_subplot_channel_names()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let plot = Plot::<Cartesian>::new()
+            .data(partitioned_parent_data(&ctx))
+            .mark(
+                Subplot::new(inherited_child_plot())
+                    .subplot_x_with(col("px"), |c| c.with_scale_sharing(ScaleSharing::Level(2)))
+                    .subplot_y_with(col("py"), |c| c.with_scale_sharing(ScaleSharing::Level(1))),
+            );
+
+        let compiled = plot.compile(&ctx).await?;
+        assert_eq!(
+            compiled
+                .scale_to_coord_channel
+                .get("subplot_x")
+                .map(String::as_str),
+            Some("x")
+        );
+        assert_eq!(
+            compiled
+                .scale_to_coord_channel
+                .get("subplot_y")
+                .map(String::as_str),
+            Some("y")
+        );
+        assert!(
+            !compiled.scale_to_coord_channel.contains_key("x"),
+            "parent placement scales should not reuse the child Cartesian x scale name"
+        );
+        assert!(
+            !compiled.scale_to_coord_channel.contains_key("y"),
+            "parent placement scales should not reuse the child Cartesian y scale name"
+        );
+
+        let parent_channels = compiled.marks[0].data_context().channels();
+        assert!(parent_channels.contains_key("subplot_x"));
+        assert!(parent_channels.contains_key("subplot_y"));
+        assert_eq!(
+            parent_channels["subplot_x"]
+                .get_scale_name("subplot_x")
+                .as_deref(),
+            Some("subplot_x")
+        );
+        assert_eq!(
+            parent_channels["subplot_y"]
+                .get_scale_name("subplot_y")
+                .as_deref(),
+            Some("subplot_y")
+        );
+        assert_eq!(
+            parent_channels["subplot_x"].get_share_mode(),
+            Some(ScaleSharing::Level(2))
+        );
+        assert_eq!(
+            parent_channels["subplot_y"].get_share_mode(),
+            Some(ScaleSharing::Level(1))
+        );
+
+        let subplot = compiled_cartesian_subplot(compiled.marks[0].as_ref())
+            .expect("compiled mark should be a Cartesian subplot");
+        let child_plot = compiled_subplot_payload_child_plot(subplot.payload());
+        assert_eq!(
+            child_plot
+                .scale_to_coord_channel
+                .get("x")
+                .map(String::as_str),
+            Some("x")
+        );
+        assert_eq!(
+            child_plot
+                .scale_to_coord_channel
+                .get("y")
+                .map(String::as_str),
+            Some("y")
+        );
+        assert!(
+            !child_plot.scale_to_coord_channel.contains_key("subplot_x"),
+            "child Cartesian plot should keep its own x scale name"
+        );
+        assert!(
+            !child_plot.scale_to_coord_channel.contains_key("subplot_y"),
+            "child Cartesian plot should keep its own y scale name"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn partitioned_cartesian_subplots_reject_raw_position_channels() {
         let ctx = SessionContext::new();
         let plot = Plot::<Cartesian>::new()
@@ -986,8 +1079,8 @@ mod tests {
             .mark(
                 Subplot::new(inherited_child_plot())
                     .partition_by(col("group"))
-                    .x(col("px"))
-                    .y(1.0),
+                    .subplot_x(col("px"))
+                    .subplot_y(1.0),
             );
 
         let err = match plot.compile(&ctx).await {
@@ -1010,8 +1103,8 @@ mod tests {
             .mark(
                 Subplot::new(child_plot)
                     .partition_by(col("group"))
-                    .x(avg(col("px")))
-                    .y(avg(col("py"))),
+                    .subplot_x(avg(col("px")))
+                    .subplot_y(avg(col("py"))),
             );
 
         let err = match plot.compile(&ctx).await {

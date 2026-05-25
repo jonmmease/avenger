@@ -10,6 +10,16 @@ use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
 use datafusion::common::ScalarValue;
 use serde::{Deserialize, Serialize};
 
+use crate::marks::subplot::{CARTESIAN_SUBPLOT_X_CHANNEL, CARTESIAN_SUBPLOT_Y_CHANNEL};
+
+fn cartesian_range_channel(channel: &str) -> &str {
+    match channel {
+        CARTESIAN_SUBPLOT_X_CHANNEL => "x",
+        CARTESIAN_SUBPLOT_Y_CHANNEL => "y",
+        _ => channel,
+    }
+}
+
 /// Cartesian coordinate system with x and y axes.
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Cartesian;
@@ -59,7 +69,7 @@ impl CoordinateSystemTransformCore for Cartesian {
     }
 
     fn default_range_binding(&self, channel: &str) -> Option<ScaleRangeBinding> {
-        match channel {
+        match cartesian_range_channel(channel) {
             "x" => Some(ScaleRangeBinding::plot_area(
                 PlotAreaRangeEndpoint::ZERO,
                 PlotAreaRangeEndpoint::WIDTH,
@@ -83,6 +93,7 @@ impl CoordinateSystemTransformCore for Cartesian {
 
         let mut options = HashMap::new();
 
+        let channel = cartesian_range_channel(channel);
         if channel == "x" || channel == "y" {
             if domain_kind == DomainKind::Numeric && range_kind == RangeKind::Continuous {
                 if channel == "y" && scale_type == "linear" {

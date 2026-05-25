@@ -602,7 +602,12 @@ async fn collect_node_domain_infos(
         };
 
         let facet_depth = full_path.len() as u8;
-        for (channel, extent) in builder.extract_domain_extents(&["x", "y", "x2", "y2"]) {
+        let domain_channels = facet_tree.domain_extent_channels();
+        let domain_channel_refs = domain_channels
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        for (channel, extent) in builder.extract_domain_extents(&domain_channel_refs) {
             let domain_sharing_level = facet_tree.channel_domain_sharing_level(&channel);
             infos.push(CellDomainInfo {
                 full_cell_path: full_path.clone(),
