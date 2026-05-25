@@ -1,4 +1,4 @@
-//! Empty guide implementation for coordinate systems without visual guides
+//! Empty guide implementation for coordinate systems without visual guides.
 
 use std::{any::Any, collections::HashMap, sync::Arc};
 
@@ -9,23 +9,16 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    coords::CoordMeasurement,
-    error::AvengerChartError,
-    guide::{
-        CompiledGuide, CoordinateGuide, GuideSharingContext, GuideUpdate, OverflowSpaceRequirement,
-    },
-    layout::LayoutBounds,
-    marks::CompiledMarkCore,
-    theme::Theme,
+    AvengerChartError, CompiledGuide, CompiledMarkCore, CoordMeasurement, CoordinateGuide,
+    GuideSharingContext, GuideUpdate, LayoutBounds, OverflowSpaceRequirement, Theme,
 };
 
-/// Empty guide for coordinate systems without visual guides
+/// Empty guide for coordinate systems without visual guides.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct NoGuide;
 
 impl GuideUpdate for NoGuide {
     fn update(self, _other: Self) -> Self {
-        // NoGuide has no state to update
         self
     }
 }
@@ -33,9 +26,7 @@ impl GuideUpdate for NoGuide {
 impl CoordinateGuide for NoGuide {
     type Axis = ();
 
-    fn set_axes(&mut self, _axes: HashMap<String, Self::Axis>) {
-        // No-op for systems without axes
-    }
+    fn set_axes(&mut self, _axes: HashMap<String, Self::Axis>) {}
 
     fn set_compiled_marks<M>(
         &mut self,
@@ -44,12 +35,9 @@ impl CoordinateGuide for NoGuide {
     ) where
         M: CompiledMarkCore + ?Sized,
     {
-        // No-op for systems without axes
     }
 
-    fn update(&mut self, _other: Self) {
-        // No-op for systems without state
-    }
+    fn update(&mut self, _other: Self) {}
 
     fn build(self) -> Box<dyn CompiledGuide> {
         Box::new(self)
@@ -97,7 +85,6 @@ impl CompiledGuide for NoGuide {
         _plot_height: f32,
         _scales: &HashMap<String, ConfiguredScale>,
     ) -> Clip {
-        // No clipping for zero-dimensional coordinate systems
         Clip::None
     }
 

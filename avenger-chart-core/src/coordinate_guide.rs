@@ -1,4 +1,4 @@
-//! Core trait for coordinate system guides
+//! Core trait for coordinate system guides.
 
 use std::{any::Any, collections::HashMap, sync::Arc};
 
@@ -8,16 +8,12 @@ use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionCont
 use indexmap::IndexMap;
 
 use crate::{
-    chart_core::{Axis, AxisPosition, CoordinationAxis, GuideOverflowPhase, SharingLevel},
-    coords::CoordMeasurement,
-    error::AvengerChartError,
-    guide::{
+    AvengerChartError, Axis, AxisPosition, CompiledMarkCore, CoordMeasurement, CoordinationAxis,
+    GuideOverflowPhase, LayoutBounds, MeasurementResult, OverflowSpaceRequirement, SharingLevel,
+    Theme,
+    guide_sharing::{
         AxisOwnershipMode, AxisVisibility, ChildFrameGuideSharingView, FacetGuideSharingView,
-        MeasurementResult, OverflowSpaceRequirement,
     },
-    layout::LayoutBounds,
-    marks::CompiledMarkCore,
-    theme::Theme,
 };
 
 /// Sharing context available while measuring or rendering coordinate guides.
@@ -29,7 +25,8 @@ pub struct GuideSharingContext<'a> {
 }
 
 impl<'a> GuideSharingContext<'a> {
-    pub(crate) fn new(
+    #[doc(hidden)]
+    pub fn new(
         facet_view: &'a dyn FacetGuideSharingView,
         facet_path: &'a [ScalarValue],
         child_frame_view: &'a dyn ChildFrameGuideSharingView,
@@ -57,18 +54,18 @@ impl<'a> GuideSharingContext<'a> {
         self.child_frame_view.level_counts()
     }
 
-    pub(crate) fn child_frame_level_axes(&self) -> Vec<CoordinationAxis> {
+    #[doc(hidden)]
+    pub fn child_frame_level_axes(&self) -> Vec<CoordinationAxis> {
         self.child_frame_view.level_axes()
     }
 
-    pub(crate) fn child_frame_relevant_depth(&self, axis: CoordinationAxis) -> usize {
+    #[doc(hidden)]
+    pub fn child_frame_relevant_depth(&self, axis: CoordinationAxis) -> usize {
         self.child_frame_view.relevant_depth(axis)
     }
 
-    pub(crate) fn with_facet_path<'b>(
-        &self,
-        facet_path: &'b [ScalarValue],
-    ) -> GuideSharingContext<'b>
+    #[doc(hidden)]
+    pub fn with_facet_path<'b>(&self, facet_path: &'b [ScalarValue]) -> GuideSharingContext<'b>
     where
         'a: 'b,
     {
@@ -79,7 +76,8 @@ impl<'a> GuideSharingContext<'a> {
         }
     }
 
-    pub(crate) fn channel_axis_visibility_for_path_checked_with_mode(
+    #[doc(hidden)]
+    pub fn channel_axis_visibility_for_path_checked_with_mode(
         &self,
         axis_position: AxisPosition,
         sharing_level: u8,
@@ -94,15 +92,18 @@ impl<'a> GuideSharingContext<'a> {
             )
     }
 
-    pub(crate) fn facet_is_jagged_for_axis(&self, axis_position: AxisPosition) -> bool {
+    #[doc(hidden)]
+    pub fn facet_is_jagged_for_axis(&self, axis_position: AxisPosition) -> bool {
         self.facet_view.is_jagged_for_axis(axis_position)
     }
 
-    pub(crate) fn channel_domain_sharing_level(&self, channel: &str) -> SharingLevel {
+    #[doc(hidden)]
+    pub fn channel_domain_sharing_level(&self, channel: &str) -> SharingLevel {
         self.facet_view.channel_domain_sharing_level(channel)
     }
 
-    pub(crate) fn facet_guide_labels_visible(
+    #[doc(hidden)]
+    pub fn facet_guide_labels_visible(
         &self,
         axis_position: AxisPosition,
         sharing_level: u8,
@@ -117,7 +118,8 @@ impl<'a> GuideSharingContext<'a> {
             .unwrap_or(true)
     }
 
-    pub(crate) fn facet_guide_title_visible(&self, axis_position: AxisPosition) -> bool {
+    #[doc(hidden)]
+    pub fn facet_guide_title_visible(&self, axis_position: AxisPosition) -> bool {
         if self.facet_path.is_empty() {
             return true;
         }
@@ -132,7 +134,8 @@ impl<'a> GuideSharingContext<'a> {
             .unwrap_or(true)
     }
 
-    pub(crate) fn effective_edge_indices_for_values(
+    #[doc(hidden)]
+    pub fn effective_edge_indices_for_values(
         &self,
         values: &[ScalarValue],
     ) -> Option<(usize, usize)> {
@@ -141,24 +144,18 @@ impl<'a> GuideSharingContext<'a> {
     }
 }
 
-/// Trait for visual guides in coordinate systems
+/// Trait for visual guides in coordinate systems.
 ///
-/// A CoordinateGuide represents the visual reference elements for a coordinate system.
-/// This includes both axes (configured at the channel level) and coordinate-specific
-/// options (configured at the plot level).
+/// A `CoordinateGuide` represents the visual reference elements for a
+/// coordinate system. This includes both axes configured at the channel level
+/// and coordinate-specific options configured at the plot level.
 pub trait CoordinateGuide: Clone + Default + Send + Sync {
     type Axis: Axis + Clone;
 
-    /// Set axes that were configured at the channel level
-    ///
-    /// This is called during guide creation to apply all axis configurations
-    /// from both plot-level and mark-level specifications.
+    /// Set axes that were configured at the channel level.
     fn set_axes(&mut self, axes: HashMap<String, Self::Axis>);
 
-    /// Set compiled marks for extracting default axis titles
-    ///
-    /// This is called during guide creation to provide access to compiled mark
-    /// so that default axis titles can be extracted at render time.
+    /// Provide compiled marks so default axis titles can be extracted.
     fn set_compiled_marks<M>(
         &mut self,
         compiled_marks: &[Arc<M>],
@@ -174,19 +171,6 @@ pub trait CoordinateGuide: Clone + Default + Send + Sync {
 #[async_trait::async_trait]
 #[typetag::serde(tag = "type")]
 pub trait CompiledGuide: Send + Sync + 'static {
-    /// Measure how much space this guide needs outside the plot area
-    ///
-    /// # Arguments
-    /// * `data_override` - Optional DataFrame to use instead of compiled data.
-    ///   This enables nested facets to pass filtered data to inner guides at runtime.
-    ///   When Some, guides should use this data. When None, use compiled data.
-    /// * `sharing_context` - Guide sharing context for visibility decisions.
-    ///   It includes the facet path/tree and any generic child-frame sharing
-    ///   path for concat-like containers.
-    /// * `coord_measurement` - Optional coordinate measurement data from `coord_transform.measure()`.
-    ///   **This is purely for efficiency** - when provided, implementations may use pre-computed
-    ///   data (e.g., subplot measurements for facet guides) to avoid redundant computation.
-    ///   The result must be identical whether or not this is provided.
     async fn measure_overflow(
         &self,
         scales: &HashMap<String, ConfiguredScale>,
@@ -200,11 +184,6 @@ pub trait CompiledGuide: Send + Sync + 'static {
         coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError>;
 
-    /// Measure overflow for a specific layout phase.
-    ///
-    /// Most guides have no coordinated-vs-local distinction and can use the
-    /// default implementation. Facet guides override this so final frame
-    /// solving reserves coordinated guide slots before geometry is solved.
     async fn measure_overflow_for_phase(
         &self,
         scales: &HashMap<String, ConfiguredScale>,
@@ -232,14 +211,6 @@ pub trait CompiledGuide: Send + Sync + 'static {
         .await
     }
 
-    /// Measure only the intrinsic subplot overflow, excluding facet-level decorative content
-    ///
-    /// For facet guides (FacetRow, FacetCol), this returns only the overflow needed by
-    /// the Cartesian subplots (axes, tick labels), WITHOUT adding space for facet labels,
-    /// titles, or unified axis titles. This is used when measuring nested facets to avoid
-    /// double-counting facet-level spacing.
-    ///
-    /// For non-facet guides (Cartesian, Polar), this is equivalent to `measure_overflow()`.
     async fn measure_intrinsic_overflow(
         &self,
         scales: &HashMap<String, ConfiguredScale>,
@@ -252,7 +223,6 @@ pub trait CompiledGuide: Send + Sync + 'static {
         sharing_context: GuideSharingContext<'_>,
         coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
-        // Default implementation: same as measure_overflow()
         self.measure_overflow(
             scales,
             plot_width,
@@ -267,17 +237,6 @@ pub trait CompiledGuide: Send + Sync + 'static {
         .await
     }
 
-    /// Measure overflow with internal self-coordination
-    ///
-    /// This method enables facet guides to perform their own internal two-pass measurement,
-    /// computing both overflow AND spacing needs (e.g., inter-row/col gaps).
-    ///
-    /// # Default Implementation
-    /// Delegates to `measure_overflow()` and wraps the result in a `MeasurementResult`
-    /// with empty `spacing_needs`. Non-facet guides (Cartesian, Polar) use this default.
-    ///
-    /// # Arguments
-    /// * `coord_measurement` - Optional, purely for efficiency (see `measure_overflow` docs).
     async fn measure_with_coordination(
         &self,
         scales: &HashMap<String, ConfiguredScale>,
@@ -290,7 +249,6 @@ pub trait CompiledGuide: Send + Sync + 'static {
         sharing_context: GuideSharingContext<'_>,
         coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<MeasurementResult, AvengerChartError> {
-        // Default: measure once, return with empty spacing_needs
         let overflow = self
             .measure_overflow(
                 scales,
@@ -307,17 +265,6 @@ pub trait CompiledGuide: Send + Sync + 'static {
         Ok(MeasurementResult::new(overflow))
     }
 
-    /// Evaluate this guide to scene marks
-    ///
-    /// # Arguments
-    /// * `data_override` - Optional DataFrame to use instead of compiled data.
-    ///   This enables nested facets to pass filtered data to inner guides at runtime.
-    ///   When Some, guides should use this data. When None, use compiled data.
-    /// * `sharing_context` - Pre-computed sharing state for facet and generic
-    ///   child-frame visibility decisions.
-    /// * `coord_measurement` - Coordinate measurement data from `coord_transform.measure()`.
-    ///   For facet guides, this provides subplot measurements including overflow data
-    ///   needed for proper label positioning. For non-facet guides, this is `EmptyCoordMeasurement`.
     async fn evaluate(
         &self,
         scales: &HashMap<String, ConfiguredScale>,
@@ -333,10 +280,6 @@ pub trait CompiledGuide: Send + Sync + 'static {
         coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
 
-    /// Get the clipping region for the coordinate system
-    ///
-    /// Returns the appropriate clip region for marks in this coordinate system.
-    /// This is used to ensure marks don't overflow the plot area.
     fn get_clip(
         &self,
         plot_width: f32,
@@ -344,18 +287,13 @@ pub trait CompiledGuide: Send + Sync + 'static {
         scales: &HashMap<String, ConfiguredScale>,
     ) -> Clip;
 
-    /// Query the position of an axis by channel name
     fn axis_position(&self, _channel: &str) -> Option<AxisPosition> {
-        // Default: no position info available
         None
     }
 
-    /// Check if this guide suppresses the specified channel's axis title
     fn unifies_channel(&self, _channel: &str) -> bool {
-        // Default: guides render their own axis titles
         false
     }
 
-    /// Get this guide as Any for downcasting to concrete types
     fn as_any(&self) -> &dyn Any;
 }

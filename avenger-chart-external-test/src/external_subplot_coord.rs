@@ -10,7 +10,6 @@ use std::{any::Any, collections::HashMap, sync::Arc};
 use async_trait::async_trait;
 use avenger_chart::{
     coords::{CoordinateSystem, CoordinateSystemTransform},
-    guide::{CompiledGuide, CoordinateGuide, GuideSharingContext},
     marks::{
         compile_subplot_payload, CompiledMark, CompiledSubplotPayload, Subplot,
         SubplotContainerCoordinateSystem,
@@ -18,8 +17,9 @@ use avenger_chart::{
     render::RenderContext,
 };
 use avenger_chart_core::{
-    AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMarkCore, CompiledMarkState,
-    CoordMeasurement, CoordinateSystemCore, CoordinateSystemTransformCore, GuideUpdate,
+    AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledGuide, CompiledMarkCore,
+    CompiledMarkState, CoordMeasurement, CoordinateGuide, CoordinateSystemCore,
+    CoordinateSystemTransformCore, GuideSharingContext, GuideUpdate, OverflowSpaceRequirement,
     PlotGeometry, PointGeometry,
 };
 use avenger_common::value::ScalarOrArray;
@@ -141,7 +141,7 @@ impl CompiledGuide for ExternalSubplotCoordGuide {
         _ctx: &datafusion::prelude::SessionContext,
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: Option<&dyn CoordMeasurement>,
-    ) -> Result<avenger_chart::guide::OverflowSpaceRequirement, AvengerChartError> {
+    ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         Ok(Default::default())
     }
 
@@ -151,7 +151,7 @@ impl CompiledGuide for ExternalSubplotCoordGuide {
         _plot_width: f32,
         _plot_height: f32,
         _plot_bounds: &avenger_chart::layout::LayoutBounds,
-        _guide_overflow: &avenger_chart::guide::OverflowSpaceRequirement,
+        _guide_overflow: &OverflowSpaceRequirement,
         _theme: &avenger_chart::theme::Theme,
         _params: &IndexMap<String, ScalarValue>,
         _ctx: &datafusion::prelude::SessionContext,

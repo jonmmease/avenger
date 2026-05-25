@@ -271,9 +271,8 @@ movement. The key cycles and leaks found in the code are:
   `cartesian`, so `Subplot` is not a neutral mark crate type yet.
 - `channel` value/config code stores scale and legend config directly and its
   fluent traits import both scale builders and legend builders.
-- `GuideSharingContext` no longer imports concrete facet/container runtime
-  types directly, but the guide traits still live in the top-level crate until
-  the remaining guide/runtime signatures move to core.
+- `GuideSharingContext` and the guide traits now live in core. Concrete guide
+  implementations still live with their owning coordinate/container modules.
 - `coords::CoordinateSystemTransform::measure` imports top-level rendering,
   mark, scale, and layout runtime types. That signature needs a core-owned
   request/view type before coordinate crates can stand alone.
@@ -557,8 +556,6 @@ Migration discipline:
      metadata/downcast support while the render hook remains top-level.
    - `GuideContext` and `GuideOverflowPhase` now live in the real
      `avenger-chart-core` crate, with `guide::*` compatibility re-exports.
-     The remaining guide split work is therefore focused on `CompiledGuide`,
-     `CoordinateGuide`, and the facet-backed `GuideSharingContext`.
    - `GuideSharingContext` now stores a narrow `FacetGuideSharingView` trait
      object instead of a concrete `EvaluatedFacetTree`. Facet remains the
      provider of that view, but coordinate guides query guide-level visibility,
@@ -569,9 +566,13 @@ Migration discipline:
      `ChildFrameGuideSharingView` trait object instead of a concrete
      `ChildFrameSharingPath`. Child-frame containers remain owned by the
      top-level layout runtime, but coordinate guide ownership logic now depends
-     on stable child-frame position/count/axis queries. The context still lives
-     in the top-level guide module, so moving `CoordinateGuide` and
-     `CompiledGuide` remains future work.
+     on stable child-frame position/count/axis queries.
+   - `CoordinateGuide`, `CompiledGuide`, `GuideSharingContext`, `NoGuide`,
+     `AxisVisibility`, and the guide-sharing view traits now live in the real
+     `avenger-chart-core` crate. The top-level `guide` module is a
+     compatibility re-export plus the still-facade-owned overflow helper shim.
+     Concrete Cartesian, Polar, facet, and concat guide implementations remain
+     with their owning top-level/coordinate modules for now.
 
 9. Reduce coordinate transform measurement signatures.
    Replace direct references to top-level `EvaluationContext`,
@@ -757,6 +758,10 @@ boundaries boring.
      `CoordinateSystemCore` owns required position-channel metadata. The
      top-level `CoordinateSystem` trait remains the layout/runtime extension
      wrapper for guide association and transform creation.
+   - Moved the coordinate guide authoring/runtime traits into core:
+     `CoordinateGuide`, `CompiledGuide`, `GuideSharingContext`, `NoGuide`,
+     `AxisVisibility`, and the guide-sharing view traits. Concrete guide
+     implementations remain in their owning modules.
    - Moved the first coordinate-extension value contracts into core:
      `PlotGeometry`, `PointGeometry`, `SubplotRect`, `SubplotGeometry`,
      `PaddingSpec`, the pure `BandPosition` value, and `ZeroDCoord`. The
@@ -911,24 +916,25 @@ boundaries boring.
      scale authoring contracts directly from `avenger-chart-core` and
      `avenger-chart-scales`: axis/channel/config/state/data/geometry types,
      `CoordMeasurement`, `CoordinateSystemCore`,
-     `CoordinateSystemTransformCore`, mark-constructor macros, and scale
-     builders. It still imports the top-level coordinate runtime trait, guide
-     traits, `CompiledMark`, `Mark`, `RenderContext`, and the `Subplot` compile
-     hook from the top-level facade, making the remaining coordinate-crate
-     extraction boundary explicit.
+     `CoordinateSystemTransformCore`, `CoordinateGuide`, `CompiledGuide`,
+     `GuideSharingContext`, mark-constructor macros, and scale builders. It
+     still imports the top-level coordinate runtime trait, `CompiledMark`,
+     `Mark`, `RenderContext`, and the `Subplot` compile hook from the top-level
+     facade, making the remaining coordinate-crate extraction boundary explicit.
    - The external subplot-coordinate dogfood now imports
      `CompiledDataContext`, `CompiledMarkState`, channel descriptors, geometry,
      error types, `CoordMeasurement`, `CoordinateSystemCore`,
-     `CoordinateSystemTransformCore`, and `GuideUpdate` directly from
-     `avenger-chart-core` while still using the top-level facade for `Subplot`,
-     `CompiledSubplotPayload`,
-     `SubplotContainerCoordinateSystem`, compiled guide traits, coordinate
-     traits, and render context. This confirms the narrow extension goal is
-     still alive while the runtime trait boundary remains to be moved.
-   - External coordinate dogfood now implements the generic
-     `CoordinateGuide::set_compiled_marks<M: CompiledMarkCore>(...)` hook,
-     proving guide setup no longer requires the top-level compiled mark render
-     trait even though `CoordinateGuide` itself has not moved to core yet.
+     `CoordinateSystemTransformCore`, `GuideUpdate`, `CoordinateGuide`,
+     `CompiledGuide`, `GuideSharingContext`, and `OverflowSpaceRequirement`
+     directly from `avenger-chart-core` while still using the top-level facade
+     for `Subplot`, `CompiledSubplotPayload`,
+     `SubplotContainerCoordinateSystem`, coordinate traits, and render context.
+     This confirms the narrow extension goal is still alive while the remaining
+     coordinate/runtime trait boundary moves.
+   - External coordinate dogfood implements the generic
+     `CoordinateGuide::set_compiled_marks<M: CompiledMarkCore>(...)` hook from
+     `avenger-chart-core`, proving guide setup no longer requires the top-level
+     compiled mark render trait.
    - `CartesianAxis` and `CartesianPositionConfig` now live in the real
      `avenger-chart-cartesian` crate. The top-level
      `avenger_chart::cartesian::{axis,channels}` modules are compatibility
@@ -1037,8 +1043,7 @@ the intended public dependency direction:
   because marks, scales, legends, and guides all need it.
 - Whether `ZeroDCoord` belongs in core or in a tiny coordinate crate. Keeping it
   in core avoids creating an extra crate before the first split.
-- `CompiledMark` and `CompiledGuide` should move to core once their signatures
-  use core render/measurement views. `CompiledMarkState` already lives in core.
-  Moving the object-safe runtime traits is what lets external custom marks and
-  external coordinate systems avoid depending on built-in mark or coordinate
-  crates.
+- `CompiledMark` should move to core once its signature uses core render views.
+  `CompiledMarkState` and `CompiledGuide` already live in core. Moving the
+  remaining object-safe mark runtime trait is what lets external custom marks
+  avoid depending on built-in mark or coordinate crates.

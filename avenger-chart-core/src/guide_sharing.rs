@@ -1,6 +1,6 @@
 use datafusion::common::ScalarValue;
 
-use crate::chart_core::{AxisPosition, CoordinationAxis, SharingLevel};
+use crate::{AxisPosition, CoordinationAxis, SharingLevel};
 
 /// Result of guide axis visibility computation for a container cell.
 ///
@@ -33,15 +33,17 @@ impl AxisVisibility {
     }
 }
 
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AxisOwnershipMode {
+pub enum AxisOwnershipMode {
     /// Compute owners against the full slot geometry.
     DomainSlots,
     /// Compute owners against non-empty cells only (hole-aware behavior).
     NonEmptySlots,
 }
 
-pub(crate) trait FacetGuideSharingView: Send + Sync {
+#[doc(hidden)]
+pub trait FacetGuideSharingView: Send + Sync {
     fn channel_axis_visibility_for_path_checked(
         &self,
         path: &[ScalarValue],
@@ -68,7 +70,8 @@ pub(crate) trait FacetGuideSharingView: Send + Sync {
     ) -> Option<(usize, usize)>;
 }
 
-pub(crate) trait ChildFrameGuideSharingView: Send + Sync {
+#[doc(hidden)]
+pub trait ChildFrameGuideSharingView: Send + Sync {
     fn position_indices(&self) -> Vec<usize>;
 
     fn level_counts(&self) -> Vec<usize>;

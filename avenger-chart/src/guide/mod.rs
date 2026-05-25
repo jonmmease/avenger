@@ -4,14 +4,13 @@
 //! coordinate systems. Guides combine axes (configured at the channel level) with
 //! coordinate-system-specific options (configured at the plot level).
 
-mod coordinate_guide;
-mod no_guide;
 mod overflow;
-mod sharing;
 
-pub use avenger_chart_core::{GuideContext, GuideOverflowPhase, GuideUpdate};
-pub use coordinate_guide::{CompiledGuide, CoordinateGuide, GuideSharingContext};
-pub use no_guide::NoGuide;
+pub(crate) use avenger_chart_core::{
+    AxisOwnershipMode, ChildFrameGuideSharingView, FacetGuideSharingView,
+};
+pub use avenger_chart_core::{
+    AxisVisibility, CompiledGuide, CoordinateGuide, GuideContext, GuideOverflowPhase,
+    GuideSharingContext, GuideUpdate, NoGuide,
+};
 pub use overflow::{MeasurementResult, OverflowSpaceRequirement, spacing_keys};
-pub use sharing::AxisVisibility;
-pub(crate) use sharing::{AxisOwnershipMode, ChildFrameGuideSharingView, FacetGuideSharingView};

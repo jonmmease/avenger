@@ -5,17 +5,16 @@ use std::{any::Any, collections::HashMap, marker::PhantomData, sync::Arc};
 use async_trait::async_trait;
 use avenger_chart::{
     coords::{CoordinateSystem, CoordinateSystemTransform},
-    define_position_channels,
-    guide::{CoordinateGuide, GuideSharingContext},
-    impl_mark_trait_common,
+    define_position_channels, impl_mark_trait_common,
     marks::{CompiledMark, Mark},
     render::RenderContext,
 };
 use avenger_chart_core::{
     define_common_mark_channels, impl_mark_base, AvengerChartError, Axis, ChannelDescriptor,
-    ChannelValue, CompiledDataContext, CompiledMarkCore, CompiledMarkState, CoordMeasurement,
-    CoordinateSystemCore, CoordinateSystemTransformCore, MarkState, OverflowSpaceRequirement,
-    PlotGeometry, PointGeometry, PositionConfig,
+    ChannelValue, CompiledDataContext, CompiledGuide, CompiledMarkCore, CompiledMarkState,
+    CoordMeasurement, CoordinateGuide, CoordinateSystemCore, CoordinateSystemTransformCore,
+    GuideSharingContext, MarkState, OverflowSpaceRequirement, PlotGeometry, PointGeometry,
+    PositionConfig,
 };
 use avenger_chart_scales::{Auto, Scale, ScaleChannelValue};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
@@ -209,7 +208,7 @@ pub struct CompiledIsometricGuide {
 
 #[async_trait::async_trait]
 #[typetag::serde]
-impl avenger_chart::guide::CompiledGuide for CompiledIsometricGuide {
+impl CompiledGuide for CompiledIsometricGuide {
     async fn measure_overflow(
         &self,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
@@ -288,7 +287,7 @@ impl CoordinateGuide for IsometricGuide {
         self.options = other.options;
     }
 
-    fn build(self) -> Box<dyn avenger_chart::guide::CompiledGuide> {
+    fn build(self) -> Box<dyn CompiledGuide> {
         // For this example, we'll just return a dummy compiled guide
         Box::new(CompiledIsometricGuide { axes: self.axes })
     }

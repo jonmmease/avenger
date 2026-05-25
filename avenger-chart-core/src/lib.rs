@@ -9,6 +9,7 @@ pub mod color;
 pub mod compiled_data_context;
 pub mod compiled_mark;
 pub mod coord_measurement;
+pub mod coordinate_guide;
 pub mod coordinate_system;
 pub mod coordinate_transform;
 pub mod coordination_values;
@@ -22,6 +23,7 @@ pub mod facet_strategy;
 pub mod geometry;
 pub mod guide_context;
 pub mod guide_overflow_phase;
+pub mod guide_sharing;
 pub mod guide_update;
 pub mod into_expr;
 pub mod layout_types;
@@ -32,6 +34,7 @@ pub mod mark_macros;
 pub mod mark_render_context;
 pub mod mark_state;
 pub mod maybe;
+pub mod no_guide;
 pub mod overflow;
 pub mod param;
 pub mod position_config;
@@ -70,6 +73,7 @@ pub use compiled_mark::{
     CompiledMarkCore, default_channel_value_for_eval, extract_channel_title_from_marks,
 };
 pub use coord_measurement::{CoordMeasurement, EmptyCoordMeasurement};
+pub use coordinate_guide::{CompiledGuide, CoordinateGuide, GuideSharingContext};
 pub use coordinate_system::CoordinateSystemCore;
 pub use coordinate_transform::CoordinateSystemTransformCore;
 pub use coordination_values::{CoordinatedLayout, CoordinatedOverflow};
@@ -93,6 +97,9 @@ pub use geometry::{
 };
 pub use guide_context::GuideContext;
 pub use guide_overflow_phase::GuideOverflowPhase;
+pub use guide_sharing::{
+    AxisOwnershipMode, AxisVisibility, ChildFrameGuideSharingView, FacetGuideSharingView,
+};
 pub use guide_update::GuideUpdate;
 pub use into_expr::IntoExpr;
 pub use layout_types::{
@@ -109,6 +116,7 @@ pub use mark_channel_coercion::{
 pub use mark_render_context::MarkRenderContext;
 pub use mark_state::{CompiledMarkState, MarkState};
 pub use maybe::{Maybe, MaybeOptionalExpr};
+pub use no_guide::NoGuide;
 pub use overflow::{MeasurementResult, OverflowSpaceRequirement};
 pub use param::Param;
 pub use position_config::{GenericPositionConfig, PositionConfig};
