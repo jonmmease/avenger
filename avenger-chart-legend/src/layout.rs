@@ -2,12 +2,28 @@
 
 use std::sync::Arc;
 
-use avenger_chart_core::{AvengerChartError, Legend, Size2D, Theme, evaluate_bool_expr};
+use avenger_chart_core::{
+    AvengerChartError, Legend, LegendPosition, Size2D, Theme, evaluate_bool_expr,
+};
 use avenger_chart_scales::serialization::LogicalExprNodeExt;
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 
 use crate::{LegendChannel, LegendRenderer};
+
+/// Measurement and layout information for a single legend.
+#[derive(Debug, Clone)]
+pub struct LegendMeasurement {
+    /// Size of the legend (width, height).
+    pub size: Size2D,
+    /// Whether the legend height is flexible (e.g., for colorbars).
+    pub flexible: bool,
+    /// Position of the legend.
+    pub position: LegendPosition,
+}
+
+/// Legend measurements keyed by legend layout id.
+pub type LegendMeasurements = IndexMap<String, LegendMeasurement>;
 
 /// Measure legend size with pre-built legend channels and return flexibility preference
 pub async fn measure_legend_size_with_channels(

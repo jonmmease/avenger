@@ -976,6 +976,10 @@ boundaries boring.
    - Moved legend size measurement into `avenger-chart-legend` as
      `measure_legend_size_with_channels`. The old
      `avenger_chart::layout::legend::*` path is now a compatibility re-export.
+   - Moved reusable legend measurement result types into
+     `avenger-chart-legend`: `LegendMeasurement` and `LegendMeasurements`.
+     The old `avenger_chart::render::*` / `render::types::*` paths remain
+     compatibility re-exports for the top-level layout runtime.
    - Moved legend theme/default application helpers into
      `avenger-chart-legend`: `themed_default_legend`,
      `apply_legend_theme_defaults`, and the private color conversion used by

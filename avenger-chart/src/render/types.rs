@@ -1,15 +1,14 @@
 //! Core types for rendering pipeline
 
 use datafusion::common::ScalarValue;
-use indexmap::IndexMap;
 
-use avenger_chart_core::LegendPosition;
+pub use avenger_chart_legend::{LegendMeasurement, LegendMeasurements};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::scene_graph::SceneGraph;
 
 use crate::{
     guide::OverflowSpaceRequirement,
-    layout::{FrameLayout, LayoutBounds, LegendLayoutInfo, Size2D},
+    layout::{FrameLayout, LayoutBounds, LegendLayoutInfo},
 };
 
 /// Selects which layout snapshot to render during evaluation.
@@ -252,20 +251,6 @@ impl FacetLayoutMetrics {
             estimated_overflow_non_leaf_full_measure_count;
     }
 }
-
-/// Measurement and layout information for a single legend
-#[derive(Debug, Clone)]
-pub struct LegendMeasurement {
-    /// Size of the legend (width, height)
-    pub size: Size2D,
-    /// Whether the legend height is flexible (e.g., for colorbars)
-    pub flexible: bool,
-    /// Position of the legend
-    pub position: LegendPosition,
-}
-
-/// Type for legend measurements used in layout computation
-pub type LegendMeasurements = IndexMap<String, LegendMeasurement>;
 
 /// Result of frame layout computation.
 #[derive(Debug, Clone)]
