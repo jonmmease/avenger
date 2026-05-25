@@ -1116,6 +1116,10 @@ boundaries boring.
      crates directly for guide sharing traits, overflow/layout types,
      `CartesianAxis`, and child-frame guide sharing. The façade `guide`,
      `layout`, and `cartesian` paths remain compatibility exports for users.
+   - Rewired the façade prelude to re-export moved mark, coordinate, scale,
+     legend, theme, channel, axis, and error types directly from their owner
+     crates. Top-level-only plot, facet/concat, layout-constraint, render, and
+     canvas exports continue to come from `avenger-chart`.
    - Removed the final `chart_core` staging namespace after rewiring internal
      imports directly to `avenger-chart-core`. Public compatibility paths such
      as `avenger_chart::maybe`, `param`, `error`, `coords`, `guide`, and

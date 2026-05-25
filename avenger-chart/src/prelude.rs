@@ -19,69 +19,66 @@
 //! ```
 
 // Re-export coordinate systems
-pub use crate::cartesian::Cartesian;
 pub use crate::concat::{ConcatGuide, HConcat, VConcat};
 pub use crate::facet::coord::{FacetColumn, FacetRow};
-pub use crate::polar::Polar;
-pub use crate::zerod::ZeroDCoord;
-pub use avenger_chart_core::{FacetEmptyCellPolicy, ScaleSharing};
+pub use avenger_chart_cartesian::Cartesian;
+pub use avenger_chart_core::{FacetEmptyCellPolicy, ScaleSharing, ZeroDCoord};
+pub use avenger_chart_polar::Polar;
 
 // Re-export the Plot type
 pub use crate::layout::{CanvasConstraint, PlotConstraint};
 pub use crate::plot::{Plot, PlotSubtitle, PlotTitle, TitleAlign, TitleSpan};
 
 // Re-export theme types
-pub use crate::theme::Theme;
+pub use avenger_chart_core::Theme;
 
 // Re-export marks
-pub use crate::cartesian::{
+pub use crate::facet::marks::{FacetColumnSubplotChannels, FacetRowSubplotChannels};
+pub use avenger_chart_cartesian::{
     CartesianLinePositionChannels, CartesianRectPositionChannels, CartesianSubplotPositionChannels,
     CartesianSymbolPositionChannels,
 };
-pub use crate::facet::marks::{FacetColumnSubplotChannels, FacetRowSubplotChannels};
-pub use crate::marks::line::Line;
-pub use crate::marks::rect::Rect;
-pub use crate::marks::subplot::Subplot;
-pub use crate::marks::symbol::Symbol;
-pub use crate::polar::PolarSymbolPositionChannels;
+pub use avenger_chart_marks::{Line, Rect, Subplot, Symbol};
+pub use avenger_chart_polar::PolarSymbolPositionChannels;
 
 // Re-export mark traits and types
-pub use crate::marks::{ChannelValue, ConditionalValue, FacetStrategy, Mark, MarkState};
-pub use avenger_chart_core::RadiusExpression;
+pub use avenger_chart_core::{
+    ChannelValue, ConditionalValue, FacetStrategy, Mark, MarkState, RadiusExpression,
+};
 
 // Re-export channel config traits - ESSENTIAL for using channel methods
-pub use crate::channel::{ChannelConfig, LegendableChannel};
-pub use crate::legend::LegendableChannelValue;
-pub use crate::scales::{ScaleChannelConfig, ScaleChannelValue};
+pub use avenger_chart_core::ChannelConfig;
+pub use avenger_chart_legend::{LegendableChannel, LegendableChannelValue};
+pub use avenger_chart_scales::{ScaleChannelConfig, ScaleChannelValue};
 
 // Re-export channel configs for direct use
-pub use crate::channel::{
-    AngleChannelConfig, ColorChannelConfig, OpacityChannelConfig, ShapeChannelConfig,
-    SizeChannelConfig, StrokeDashChannelConfig, StrokeWidthChannelConfig,
+pub use avenger_chart_core::{
+    AngleChannelConfig, ColorChannelConfig, OpacityChannelConfig, PositionConfig,
+    ShapeChannelConfig, SizeChannelConfig, StrokeDashChannelConfig, StrokeWidthChannelConfig,
 };
 
 // Re-export position channel configs
-pub use crate::cartesian::channels::CartesianPositionConfig;
-pub use crate::channel::PositionConfig;
+pub use avenger_chart_cartesian::CartesianPositionConfig;
 
 // Re-export scale types
-pub use crate::scales::{
-    Auto, Band, Linear, Log, Ordinal, Point, Pow, Quantile, Quantize, Scale, ScaleConfigSpec, Sqrt,
+pub use avenger_chart_core::{
+    Auto, Band, Linear, Log, Ordinal, Point, Pow, Quantile, Quantize, ScaleConfigSpec, Sqrt,
     Symlog, Threshold, Time,
 };
+pub use avenger_chart_scales::Scale;
 
 // Re-export legend types
-pub use crate::legend::Legend;
-pub use crate::legend::{
+pub use avenger_chart_core::Legend;
+pub use avenger_chart_core::{LegendOrientation, LegendPosition};
+pub use avenger_chart_legend::{
     AngleLegendBuilder, ColorLegendBuilder, LegendBuilder, OpacityLegendBuilder,
     ShapeLegendBuilder, SizeLegendBuilder, StrokeDashLegendBuilder, StrokeWidthLegendBuilder,
 };
-pub use avenger_chart_core::{LegendOrientation, LegendPosition};
 
 // Re-export axis types
-pub use crate::cartesian::CartesianAxis;
-pub use crate::polar::PolarAxis;
+pub use avenger_chart_cartesian::CartesianAxis;
 pub use avenger_chart_core::AxisPosition;
+pub use avenger_chart_polar::PolarAxis;
 
 // Re-export rendering types
 pub use crate::render::CanvasExt;
@@ -92,7 +89,7 @@ pub use crate::render::{
 };
 
 // Re-export error type
-pub use crate::error::AvengerChartError;
+pub use avenger_chart_core::AvengerChartError;
 
 // Re-export parameter type
 pub use avenger_chart_core::param::Param;
