@@ -833,6 +833,8 @@ boundaries boring.
      logical expression/plan conversion traits that use
      `AvengerChartExtensionCodec` remain in `avenger-chart` with the scale UDF
      codec.
+   - Moved `SerializableDataFrame` JSON roundtrip coverage from the top-level
+     compatibility module into `avenger-chart-core`.
    - `avenger-chart` now depends on `avenger-chart-core` and re-exports moved
      items through narrow public compatibility modules for old facade paths.
      The temporary `chart_core` staging namespace was removed after direct
@@ -1075,6 +1077,9 @@ boundaries boring.
      its former tests now live with the core helper implementations.
    - Removed duplicate core value-type tests from the top-level `coords`
      compatibility/runtime module.
+   - Reduced `avenger_chart::serialization::dataframe` to a behavior-free
+     compatibility re-export; its former tests now live with the core
+     serialization implementation.
 
 ## Testing And Validation Strategy
 
