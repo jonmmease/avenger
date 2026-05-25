@@ -12,8 +12,7 @@ use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
 
 use crate::{
-    cartesian::{Cartesian, CartesianPositionConfig, CompiledCartesianSubplot},
-    channel::{ChannelValue, PositionConfig},
+    cartesian::CompiledCartesianSubplot,
     chart_core::coerce_numeric_channel_with_renderer,
     container::{
         ChildFrameKey, ChildFramePlacementResult, ChildFrameRenderPlacement, ChildFrameScopeKey,
@@ -22,7 +21,7 @@ use crate::{
     coords::{CoordMeasurement, EmptyCoordMeasurement, OverflowSpaceRequirement},
     error::AvengerChartError,
     layout::Size2D,
-    marks::{CompiledMark, CompiledMarkCore, Mark, Subplot},
+    marks::{CompiledMark, CompiledMarkCore},
     plot::compiled::{
         ChildFrameDataSelection, ChildFrameDomainSharingInput, ChildFrameRuntime, CompiledPlot,
         ComponentsMeasurement, MarkDataRequest, child_frame_container_overflow,
@@ -32,98 +31,6 @@ use crate::{
     render::{EvaluationContext, RenderContext},
     scales::ConfiguredScaleWithSpec,
 };
-
-/// Position-channel builder methods for `Subplot<Cartesian>`.
-pub trait CartesianSubplotPositionChannels: Sized {
-    /// Set the parent x-position for coordinate-positioned child plot frames.
-    fn x<V: Into<ChannelValue>>(self, value: V) -> Self;
-
-    /// Set the parent y-position for coordinate-positioned child plot frames.
-    fn y<V: Into<ChannelValue>>(self, value: V) -> Self;
-
-    /// Configure the parent x-position channel for coordinate-positioned child plot frames.
-    fn x_with<V, F>(self, value: V, f: F) -> Self
-    where
-        V: Into<ChannelValue>,
-        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
-
-    /// Configure the parent y-position channel for coordinate-positioned child plot frames.
-    fn y_with<V, F>(self, value: V, f: F) -> Self
-    where
-        V: Into<ChannelValue>,
-        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
-
-    /// Set the child plot-area width used for each positioned child frame.
-    fn plot_width(self, width: f32) -> Self;
-
-    /// Set the child plot-area height used for each positioned child frame.
-    fn plot_height(self, height: f32) -> Self;
-
-    /// Set both child plot-area dimensions used for each positioned child frame.
-    fn plot_size(self, width: f32, height: f32) -> Self;
-}
-
-impl CartesianSubplotPositionChannels for Subplot<Cartesian> {
-    fn x<V: Into<ChannelValue>>(self, value: V) -> Self {
-        self.with_channel_value("x", value.into())
-    }
-
-    fn y<V: Into<ChannelValue>>(self, value: V) -> Self {
-        self.with_channel_value("y", value.into())
-    }
-
-    fn x_with<V, F>(self, value: V, f: F) -> Self
-    where
-        V: Into<ChannelValue>,
-        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
-    {
-        with_position_config(self, "x", value.into(), f)
-    }
-
-    fn y_with<V, F>(self, value: V, f: F) -> Self
-    where
-        V: Into<ChannelValue>,
-        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
-    {
-        with_position_config(self, "y", value.into(), f)
-    }
-
-    fn plot_width(mut self, width: f32) -> Self {
-        self.set_plot_width_config(Some(width));
-        self
-    }
-
-    fn plot_height(mut self, height: f32) -> Self {
-        self.set_plot_height_config(Some(height));
-        self
-    }
-
-    fn plot_size(mut self, width: f32, height: f32) -> Self {
-        self.set_plot_width_config(Some(width));
-        self.set_plot_height_config(Some(height));
-        self
-    }
-}
-
-fn with_position_config<F>(
-    mark: Subplot<Cartesian>,
-    channel: &'static str,
-    value: ChannelValue,
-    f: F,
-) -> Subplot<Cartesian>
-where
-    F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
-{
-    let configured = f(CartesianPositionConfig::new(value));
-    let (channel_value, axis_config) = configured.take_axis_config();
-    let mut mark = mark.with_channel_value(channel, channel_value);
-    if let Some(axis_config) = axis_config {
-        mark.state_mut()
-            .axis_configs
-            .insert(channel.to_string(), Arc::new(axis_config));
-    }
-    mark
-}
 
 fn cartesian_subplot_child_plot(subplot: &CompiledCartesianSubplot) -> &CompiledPlot {
     compiled_subplot_payload_child_plot(subplot.payload())

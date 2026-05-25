@@ -547,9 +547,9 @@ Migration discipline:
    - Cartesian positioned subplot support is split at the intended ownership
      boundary. `avenger-chart-cartesian` now owns
      `CompiledCartesianSubplot` and the `SubplotContainerCoordinateSystem`
-     impl for `Cartesian`; the top-level facade keeps only the built-in
-     child-frame measurement/render dispatcher and the temporary
-     `Subplot<Cartesian>` builder extension trait.
+     impl for `Cartesian`, plus the `Subplot<Cartesian>` position-channel
+     builder extension trait; the top-level facade keeps only the built-in
+     child-frame measurement/render dispatcher.
    - The real neutral `Subplot` mark and its core `Mark<C>` impl now live in
      `avenger-chart-marks`. The top-level `marks::subplot` module is a
      compatibility re-export shim with facade-level subplot coverage.
@@ -559,10 +559,10 @@ Migration discipline:
      `CartesianSubplotPositionChannels`, `FacetRowSubplotChannels`, and
      `FacetColumnSubplotChannels`, preserving chart-author ergonomics while
      removing one orphan-rule blocker for moving neutral `Subplot` later.
-   - The next boundary is to decide whether the temporary
-     `Subplot<Cartesian>` builder extension trait can move once coordinate
-     authoring ergonomics are fully crate-owned, or whether it remains a
-     facade compatibility trait until the public prelude settles.
+   - Cartesian positioned-subplot authoring ergonomics are now crate-owned.
+     Remaining subplot-related work is mostly compatibility cleanup and
+     deciding whether facet row/column subplot builder traits should remain in
+     the facade with core-owned layout.
 
 8. Replace concrete guide sharing context with an opaque core view.
    `CoordinateGuide` should receive a core-owned `GuideSharingContext` that
@@ -1014,6 +1014,9 @@ boundaries boring.
      facade still owns Cartesian positioned-subplot child-frame
      measurement/rendering because that path uses the core-owned layout
      runtime.
+   - `CartesianSubplotPositionChannels`, the builder extension trait for
+     `Subplot<Cartesian>`, now lives in `avenger-chart-cartesian` and is
+     re-exported by the facade prelude.
 
 6. Extract `avenger-chart-polar`.
    Move Polar coordinate, axes, guides, channels, and Polar mark impls.

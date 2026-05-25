@@ -12,7 +12,7 @@ use crate::{Cartesian, CartesianPositionConfig};
 
 pub use line::{CompiledCartesianLine, ensure_dictionary_array_fn};
 pub use rect::CompiledCartesianRect;
-pub use subplot::CompiledCartesianSubplot;
+pub use subplot::{CartesianSubplotPositionChannels, CompiledCartesianSubplot};
 pub use symbol::CompiledCartesianSymbol;
 
 /// Cartesian position-channel builders for the generic `Line` mark.
