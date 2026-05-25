@@ -11,16 +11,14 @@ use async_trait::async_trait;
 use avenger_chart::{
     coords::{CoordinateSystem, CoordinateSystemTransform},
     marks::{
-        compile_subplot_payload, CompiledMark, CompiledSubplotPayload, Subplot,
-        SubplotContainerCoordinateSystem,
+        compile_subplot_payload, CompiledSubplotPayload, Subplot, SubplotContainerCoordinateSystem,
     },
-    render::RenderContext,
 };
 use avenger_chart_core::{
-    AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledGuide, CompiledMarkCore,
-    CompiledMarkState, CoordMeasurement, CoordinateGuide, CoordinateSystemCore,
-    CoordinateSystemTransformCore, GuideSharingContext, GuideUpdate, OverflowSpaceRequirement,
-    PlotGeometry, PointGeometry,
+    AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledGuide, CompiledMark,
+    CompiledMarkCore, CompiledMarkState, CoordMeasurement, CoordinateGuide, CoordinateSystemCore,
+    CoordinateSystemTransformCore, GuideSharingContext, GuideUpdate, MarkRuntimeContext,
+    OverflowSpaceRequirement, PlotGeometry, PointGeometry,
 };
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::{group::Clip, mark::SceneMark};
@@ -231,7 +229,7 @@ impl CompiledMark for CompiledExternalCoordSubplot {
         &self,
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
-        _context: &RenderContext,
+        _context: &dyn MarkRuntimeContext,
         _coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Ok(Vec::new())

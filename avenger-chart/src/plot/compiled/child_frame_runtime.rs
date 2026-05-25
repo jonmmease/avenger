@@ -139,13 +139,13 @@ impl ChildFrameRuntime {
             builder: scale_builder,
             plot,
         };
-        plot.measure_plot_components(
+        Box::pin(plot.measure_plot_components(
             eval_ctx,
             layout_spec,
             &scale_provider,
             data_override,
             facet_path,
-        )
+        ))
         .await
     }
 }
@@ -179,17 +179,16 @@ impl<'a> PreparedChildFramePlot<'a> {
         facet_path: &[ScalarValue],
         domain_extents: &[&HashMap<String, DomainExtent>],
     ) -> Result<ComponentsMeasurement, AvengerChartError> {
-        ChildFrameRuntime::new()
-            .measure_with_builder(
-                self.plot,
-                eval_ctx,
-                layout_spec,
-                &self.scale_builder,
-                self.data_override.as_ref(),
-                facet_path,
-                domain_extents,
-            )
-            .await
+        Box::pin(ChildFrameRuntime::new().measure_with_builder(
+            self.plot,
+            eval_ctx,
+            layout_spec,
+            &self.scale_builder,
+            self.data_override.as_ref(),
+            facet_path,
+            domain_extents,
+        ))
+        .await
     }
 }
 

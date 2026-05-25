@@ -7,7 +7,7 @@ mod logical_expr;
 mod scalar;
 mod scalar_map;
 
-pub use dataframe::{LogicalPlanNodeExt, SerializableDataFrame};
+pub use dataframe::{AvengerCoreExtensionCodec, LogicalPlanNodeExt, SerializableDataFrame};
 pub use datatype::SerializableDataType;
 pub use expr::SerializableExpr;
 pub use logical_expr::DefaultLogicalExprNodeExt;

@@ -1,9 +1,13 @@
+pub mod symbol;
+
 use std::sync::Arc;
 
 use avenger_chart_core::{ChannelValue, PositionConfig};
 use avenger_chart_marks::Symbol;
 
 use crate::{Polar, PolarPositionConfig};
+
+pub use symbol::CompiledPolarSymbol;
 
 /// Polar position-channel builders for the generic `Symbol` mark.
 pub trait PolarSymbolPositionChannels: Sized {

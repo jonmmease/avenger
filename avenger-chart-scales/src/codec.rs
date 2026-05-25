@@ -4,31 +4,23 @@
 //! scale UDFs, allowing them to work on fresh SessionContexts without
 //! requiring pre-registration.
 
-use std::{io::Cursor, sync::Arc};
+use std::sync::Arc;
 
+use avenger_chart_core::serialization::AvengerCoreExtensionCodec;
 use datafusion::{
-    arrow::{
-        datatypes::SchemaRef,
-        ipc::{reader::StreamReader, writer::StreamWriter},
-        record_batch::RecordBatch,
-    },
-    datasource::{MemTable, TableProvider},
+    arrow::datatypes::SchemaRef,
+    datasource::TableProvider,
     error::{DataFusionError, Result as DataFusionResult},
-    execution::context::TaskContext,
     logical_expr::{Extension, LogicalPlan, ScalarUDF},
     prelude::SessionContext,
 };
 use datafusion_common::TableReference;
-use datafusion_proto::logical_plan::{DefaultLogicalExtensionCodec, LogicalExtensionCodec};
-use futures::TryStreamExt;
+use datafusion_proto::logical_plan::LogicalExtensionCodec;
 
 use crate::udf::ScaleUDF;
 
 /// Magic header for identifying serialized scale UDFs
 const SCALE_UDF_MAGIC: &[u8] = b"SCALE_UDF_V1";
-
-/// Magic header for identifying serialized MemTables
-const MEMTABLE_MAGIC: &[u8] = b"MEMTABLE_V1";
 
 /// Extension codec for avenger-chart that handles scale UDF serialization
 ///
@@ -37,8 +29,7 @@ const MEMTABLE_MAGIC: &[u8] = b"MEMTABLE_V1";
 /// - User UDFs are referenced by name only and must be registered by the user
 #[derive(Debug)]
 pub struct AvengerChartExtensionCodec {
-    /// Default codec for fallback behavior
-    default_codec: DefaultLogicalExtensionCodec,
+    core_codec: AvengerCoreExtensionCodec,
 }
 
 impl Default for AvengerChartExtensionCodec {
@@ -51,7 +42,7 @@ impl AvengerChartExtensionCodec {
     /// Create a new instance of the codec
     pub fn new() -> Self {
         Self {
-            default_codec: DefaultLogicalExtensionCodec {},
+            core_codec: AvengerCoreExtensionCodec::new(),
         }
     }
 }
@@ -63,13 +54,11 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
         inputs: &[LogicalPlan],
         ctx: &SessionContext,
     ) -> DataFusionResult<Extension> {
-        // Delegate to default codec
-        self.default_codec.try_decode(buf, inputs, ctx)
+        self.core_codec.try_decode(buf, inputs, ctx)
     }
 
     fn try_encode(&self, node: &Extension, buf: &mut Vec<u8>) -> DataFusionResult<()> {
-        // Delegate to default codec
-        self.default_codec.try_encode(node, buf)
+        self.core_codec.try_encode(node, buf)
     }
 
     fn try_decode_table_provider(
@@ -79,48 +68,8 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
         schema: SchemaRef,
         ctx: &SessionContext,
     ) -> DataFusionResult<Arc<dyn TableProvider>> {
-        // Check if this is a serialized MemTable
-        if buf.starts_with(MEMTABLE_MAGIC) {
-            // Skip magic header
-            let buf = &buf[MEMTABLE_MAGIC.len()..];
-
-            // Read the length of the serialized batches
-            if buf.len() < 8 {
-                return datafusion_common::plan_err!(
-                    "Invalid MemTable serialization: missing length"
-                );
-            }
-            let batch_len = u64::from_le_bytes(
-                buf[0..8]
-                    .try_into()
-                    .map_err(|_| datafusion_common::plan_datafusion_err!("Invalid length bytes"))?,
-            ) as usize;
-
-            // Read the batch data
-            let batch_data = &buf[8..8 + batch_len];
-
-            // Deserialize the batches using Arrow IPC format
-            let cursor = Cursor::new(batch_data);
-            let reader = StreamReader::try_new(cursor, None)
-                .map_err(|e| DataFusionError::External(Box::new(e)))?;
-
-            // Collect all batches
-            let mut batches = Vec::new();
-            for batch_result in reader {
-                let batch = batch_result.map_err(|e| DataFusionError::External(Box::new(e)))?;
-                batches.push(batch);
-            }
-
-            // Create a new MemTable with the deserialized batches
-            // MemTable expects partitions, so we wrap our batches in a single partition
-            let mem_table = MemTable::try_new(schema, vec![batches])?;
-
-            Ok(Arc::new(mem_table))
-        } else {
-            // Delegate to default codec for other table types
-            self.default_codec
-                .try_decode_table_provider(buf, table_ref, schema, ctx)
-        }
+        self.core_codec
+            .try_decode_table_provider(buf, table_ref, schema, ctx)
     }
 
     fn try_encode_table_provider(
@@ -129,54 +78,8 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
         node: Arc<dyn TableProvider>,
         buf: &mut Vec<u8>,
     ) -> DataFusionResult<()> {
-        // Check if this is a MemTable
-        if let Some(mem_table) = node.as_any().downcast_ref::<MemTable>() {
-            // Write a magic header to identify this as a serialized MemTable
-            buf.extend_from_slice(MEMTABLE_MAGIC);
-
-            // Get the record batches from the MemTable
-            let state = SessionContext::new().state();
-            let batches = futures::executor::block_on(async {
-                mem_table.scan(&state, None, &[], None).await
-            })?;
-
-            let task_ctx = Arc::new(TaskContext::default());
-            let stream = batches.execute(0, task_ctx)?;
-
-            // Collect batches
-            let collected_batches: Vec<RecordBatch> =
-                futures::executor::block_on(async { stream.try_collect::<Vec<_>>().await })
-                    .map_err(|e| DataFusionError::External(Box::new(e)))?;
-
-            // Serialize the batches using Arrow IPC format
-            let mut batch_buffer = Vec::new();
-            if !collected_batches.is_empty() {
-                let schema = collected_batches[0].schema();
-                let mut writer = StreamWriter::try_new(&mut batch_buffer, &schema)
-                    .map_err(|e| DataFusionError::External(Box::new(e)))?;
-
-                for batch in &collected_batches {
-                    writer
-                        .write(batch)
-                        .map_err(|e| DataFusionError::External(Box::new(e)))?;
-                }
-
-                writer
-                    .finish()
-                    .map_err(|e| DataFusionError::External(Box::new(e)))?;
-            }
-
-            // Write the length of the serialized batches
-            buf.extend_from_slice(&(batch_buffer.len() as u64).to_le_bytes());
-            // Write the batches
-            buf.extend_from_slice(&batch_buffer);
-
-            Ok(())
-        } else {
-            // Delegate to default codec for other table types
-            self.default_codec
-                .try_encode_table_provider(table_ref, node, buf)
-        }
+        self.core_codec
+            .try_encode_table_provider(table_ref, node, buf)
     }
 
     fn try_decode_file_format(
@@ -184,8 +87,7 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
         buf: &[u8],
         ctx: &SessionContext,
     ) -> DataFusionResult<Arc<dyn datafusion::datasource::file_format::FileFormatFactory>> {
-        // Delegate to default codec
-        self.default_codec.try_decode_file_format(buf, ctx)
+        self.core_codec.try_decode_file_format(buf, ctx)
     }
 
     fn try_encode_file_format(
@@ -193,8 +95,7 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
         buf: &mut Vec<u8>,
         node: Arc<dyn datafusion::datasource::file_format::FileFormatFactory>,
     ) -> DataFusionResult<()> {
-        // Delegate to default codec
-        self.default_codec.try_encode_file_format(buf, node)
+        self.core_codec.try_encode_file_format(buf, node)
     }
 
     fn try_encode_udf(&self, node: &ScalarUDF, buf: &mut Vec<u8>) -> DataFusionResult<()> {
@@ -272,7 +173,5 @@ mod tests {
     fn test_magic_headers() {
         assert_eq!(SCALE_UDF_MAGIC.len(), 12);
         assert_eq!(SCALE_UDF_MAGIC, b"SCALE_UDF_V1");
-        assert_eq!(MEMTABLE_MAGIC.len(), 11);
-        assert_eq!(MEMTABLE_MAGIC, b"MEMTABLE_V1");
     }
 }

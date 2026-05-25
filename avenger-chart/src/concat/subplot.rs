@@ -1,4 +1,4 @@
-use std::{any::Any, collections::HashMap, sync::Arc};
+use std::{any::Any, collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 use avenger_scales::scales::ScaleImpl;
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
@@ -9,7 +9,9 @@ use datafusion::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    chart_core::{RadiusExpression, ResolvedDomain, ScaleRange, ScaleTypePreference},
+    chart_core::{
+        MarkRuntimeContext, RadiusExpression, ResolvedDomain, ScaleRange, ScaleTypePreference,
+    },
     concat::{HConcat, VConcat, concat_coord_ref},
     coords::CoordinateSystemTransformCore,
     error::AvengerChartError,
@@ -111,6 +113,96 @@ impl CompiledConcatSubplot {
     ) -> Result<Option<DataFrame>, AvengerChartError> {
         self.payload.inherited_data_override(data, context)
     }
+
+    pub(crate) fn render_with_context<'a>(
+        &'a self,
+        data: Option<&'a RecordBatch>,
+        context: &'a RenderContext<'a>,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<SceneMark>, AvengerChartError>> + Send + 'a>> {
+        Box::pin(async move {
+            let concat_measurement =
+                concat_coord_ref(context.coord_measurement()).ok_or_else(|| {
+                    AvengerChartError::InternalError(
+                        "Subplot marks require ConcatCoordMeasurement in coord_measurement"
+                            .to_string(),
+                    )
+                })?;
+            let child = concat_measurement
+                .child(self.child_index())
+                .ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Missing concat child measurement for subplot child index {}",
+                        self.child_index()
+                    ))
+                })?;
+            let child_frame_placement = concat_measurement.child_frame_placement();
+            let render_placement =
+                child_frame_placement
+                    .child(self.child_index())
+                    .ok_or_else(|| {
+                        AvengerChartError::InternalError(format!(
+                            "Missing concat child-frame placement for subplot child index {}",
+                            self.child_index()
+                        ))
+                    })?;
+
+            let mut params = self.compiled_subplot().get_default_params().clone();
+            params.extend(context.eval.params.clone());
+            let child_count = concat_measurement.children().len();
+            let sharing_level = match concat_measurement.child_band_layout.direction {
+                BandDirection::Horizontal => ChildFrameSharingLevel::hconcat_child(
+                    self.child_index(),
+                    child_count,
+                    self.key(),
+                ),
+                BandDirection::Vertical => ChildFrameSharingLevel::vconcat_child(
+                    self.child_index(),
+                    child_count,
+                    self.key(),
+                ),
+            };
+            let child_eval_ctx = context
+                .eval
+                .with_params(params)
+                .with_child_frame_sharing_level_appended(sharing_level);
+            let data_override = self.inherited_data_override(data, context)?;
+            let components = Box::pin(self.compiled_subplot().build_plot_components(
+                &child_eval_ctx,
+                &child.measurement,
+                data_override.as_ref(),
+                true,
+                context.facet_path,
+            ))
+            .await?;
+
+            let data_marks_group = SceneGroup {
+                origin: [0.0, 0.0],
+                marks: components.data_marks,
+                clip: components.clip,
+                zindex: Some(0),
+                ..Default::default()
+            };
+            let mut all_marks = vec![SceneMark::Group(data_marks_group)];
+            all_marks.extend(components.guide_marks);
+            all_marks.extend(components.legend_marks);
+            all_marks.extend(components.title_marks);
+            all_marks.extend(components.subtitle_marks);
+            all_marks.extend(components.debug_marks);
+
+            Ok(vec![SceneMark::Group(SceneGroup {
+                name: self.group_name(),
+                origin: render_placement.origin,
+                clip: avenger_scenegraph::marks::group::Clip::None,
+                marks: all_marks,
+                gradients: Vec::new(),
+                fill: None,
+                stroke: None,
+                stroke_width: None,
+                stroke_offset: None,
+                zindex: None,
+            })])
+        })
+    }
 }
 
 pub fn compiled_subplot(mark: &dyn CompiledMark) -> Option<&CompiledConcatSubplot> {
@@ -192,88 +284,13 @@ impl CompiledMarkCore for CompiledConcatSubplot {
 impl CompiledMark for CompiledConcatSubplot {
     async fn render_from_data(
         &self,
-        data: Option<&RecordBatch>,
+        _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
-        context: &RenderContext,
+        _context: &dyn MarkRuntimeContext,
         _coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        let concat_measurement =
-            concat_coord_ref(context.coord_measurement()).ok_or_else(|| {
-                AvengerChartError::InternalError(
-                    "Subplot marks require ConcatCoordMeasurement in coord_measurement".to_string(),
-                )
-            })?;
-        let child = concat_measurement
-            .child(self.child_index())
-            .ok_or_else(|| {
-                AvengerChartError::InternalError(format!(
-                    "Missing concat child measurement for subplot child index {}",
-                    self.child_index()
-                ))
-            })?;
-        let child_frame_placement = concat_measurement.child_frame_placement();
-        let render_placement =
-            child_frame_placement
-                .child(self.child_index())
-                .ok_or_else(|| {
-                    AvengerChartError::InternalError(format!(
-                        "Missing concat child-frame placement for subplot child index {}",
-                        self.child_index()
-                    ))
-                })?;
-
-        let mut params = self.compiled_subplot().get_default_params().clone();
-        params.extend(context.eval.params.clone());
-        let child_count = concat_measurement.children().len();
-        let sharing_level = match concat_measurement.child_band_layout.direction {
-            BandDirection::Horizontal => {
-                ChildFrameSharingLevel::hconcat_child(self.child_index(), child_count, self.key())
-            }
-            BandDirection::Vertical => {
-                ChildFrameSharingLevel::vconcat_child(self.child_index(), child_count, self.key())
-            }
-        };
-        let child_eval_ctx = context
-            .eval
-            .with_params(params)
-            .with_child_frame_sharing_level_appended(sharing_level);
-        let data_override = self.inherited_data_override(data, context)?;
-        let components = self
-            .compiled_subplot()
-            .build_plot_components(
-                &child_eval_ctx,
-                &child.measurement,
-                data_override.as_ref(),
-                true,
-                context.facet_path,
-            )
-            .await?;
-
-        let data_marks_group = SceneGroup {
-            origin: [0.0, 0.0],
-            marks: components.data_marks,
-            clip: components.clip,
-            zindex: Some(0),
-            ..Default::default()
-        };
-        let mut all_marks = vec![SceneMark::Group(data_marks_group)];
-        all_marks.extend(components.guide_marks);
-        all_marks.extend(components.legend_marks);
-        all_marks.extend(components.title_marks);
-        all_marks.extend(components.subtitle_marks);
-        all_marks.extend(components.debug_marks);
-
-        Ok(vec![SceneMark::Group(SceneGroup {
-            name: self.group_name(),
-            origin: render_placement.origin,
-            clip: avenger_scenegraph::marks::group::Clip::None,
-            marks: all_marks,
-            gradients: Vec::new(),
-            fill: None,
-            stroke: None,
-            stroke_width: None,
-            stroke_offset: None,
-            zindex: None,
-        })])
+        Err(AvengerChartError::InternalError(
+            "Concat subplot marks require the top-level layout render dispatcher".to_string(),
+        ))
     }
 }

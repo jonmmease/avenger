@@ -17,6 +17,7 @@ use indexmap::IndexMap;
 use crate::{
     chart_core::{
         EvaluationContext as CoreEvaluationContext, MarkRenderContext as CoreMarkRenderContext,
+        MarkRuntimeContext,
     },
     container::{ChildFrameSharingLevel, ChildFrameSharingPath, ContainerPathSegment},
     coords::CoordMeasurement,
@@ -824,5 +825,19 @@ impl<'a> RenderContext<'a> {
     /// Get font size with parameter support
     pub fn font_size(&self, context: &ThemeContext) -> Option<f32> {
         self.eval.font_size(context)
+    }
+}
+
+impl MarkRuntimeContext for RenderContext<'_> {
+    fn core_view(&self) -> CoreMarkRenderContext<'_> {
+        CoreMarkRenderContext::new(self.eval, self.state.plot_width, self.state.plot_height)
+    }
+
+    fn coord_measurement(&self) -> &dyn CoordMeasurement {
+        self.coord_measurement
+    }
+
+    fn facet_path(&self) -> &[ScalarValue] {
+        self.facet_path
     }
 }

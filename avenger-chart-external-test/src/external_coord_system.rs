@@ -6,15 +6,13 @@ use async_trait::async_trait;
 use avenger_chart::{
     coords::{CoordinateSystem, CoordinateSystemTransform},
     define_position_channels, impl_mark_trait_common,
-    marks::{CompiledMark, Mark},
-    render::RenderContext,
 };
 use avenger_chart_core::{
     define_common_mark_channels, impl_mark_base, AvengerChartError, Axis, ChannelDescriptor,
-    ChannelValue, CompiledDataContext, CompiledGuide, CompiledMarkCore, CompiledMarkState,
-    CoordMeasurement, CoordinateGuide, CoordinateSystemCore, CoordinateSystemTransformCore,
-    GuideSharingContext, MarkState, OverflowSpaceRequirement, PlotGeometry, PointGeometry,
-    PositionConfig,
+    ChannelValue, CompiledDataContext, CompiledGuide, CompiledMark, CompiledMarkCore,
+    CompiledMarkState, CoordMeasurement, CoordinateGuide, CoordinateSystemCore,
+    CoordinateSystemTransformCore, GuideSharingContext, Mark, MarkRuntimeContext, MarkState,
+    OverflowSpaceRequirement, PlotGeometry, PointGeometry, PositionConfig,
 };
 use avenger_chart_scales::{Auto, Scale, ScaleChannelValue};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
@@ -568,7 +566,7 @@ impl CompiledMark for CompiledIsometricCube {
         &self,
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
-        _context: &RenderContext,
+        _context: &dyn MarkRuntimeContext,
         _coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Custom cube rendering logic would go here

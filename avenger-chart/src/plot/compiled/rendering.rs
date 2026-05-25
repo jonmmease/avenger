@@ -26,8 +26,10 @@ use indexmap::IndexMap;
 use tracing::{Level, debug, trace};
 
 use crate::{
+    cartesian::positioned_subplot::compiled_cartesian_subplot,
     chart_core::maybe::Maybe,
     chart_core::{AxisPosition, LegendPosition, evaluate_f32_expr},
+    concat::compiled_subplot as compiled_concat_subplot,
     coords::{
         CoordMeasureRequest, CoordMeasurement, FacetAxis, coordinate_overflow_for_guides,
         coordinate_overflow_for_guides_until,
@@ -1186,6 +1188,21 @@ impl CompiledPlot {
             facet_path,
             coord_measurement,
         );
+
+        if let Some(subplot) = compiled_concat_subplot(mark) {
+            return subplot
+                .render_with_context(prepared.data_batch.as_ref(), &render_ctx)
+                .await;
+        }
+
+        if let Some(subplot) = compiled_cartesian_subplot(mark) {
+            return subplot.render_with_context(&render_ctx).await;
+        }
+
+        if let Some(subplot) = facet_subplot_ref(mark) {
+            return subplot.render_with_context(&render_ctx).await;
+        }
+
         mark.render_from_data(
             prepared.data_batch.as_ref(),
             &prepared.scalar_batch,
@@ -1756,13 +1773,12 @@ impl CompiledPlot {
         data_override: Option<&DataFrame>,
         facet_path: &[ScalarValue],
     ) -> Result<LayoutBounds, AvengerChartError> {
-        self.refresh_final_child_layouts_bottom_up(measurement, eval_ctx)
-            .await?;
+        Box::pin(self.refresh_final_child_layouts_bottom_up(measurement, eval_ctx)).await?;
 
         let ctx = &*eval_ctx.session_context;
         let facet_tree = eval_ctx.facet_tree.as_ref();
-        let (_, realized_layout, realized_legend_plan) = self
-            .rebuild_layout_with_coord_overflow(
+        let (_, realized_layout, realized_legend_plan) =
+            Box::pin(self.rebuild_layout_with_coord_overflow(
                 layout_spec,
                 &measurement.scales,
                 measurement.plot_area_width,
@@ -1775,7 +1791,7 @@ impl CompiledPlot {
                 eval_ctx.child_frame_sharing_path(),
                 Some(measurement.coord_measurement.as_ref()),
                 GuideOverflowPhase::Final,
-            )
+            ))
             .await?;
 
         let plot_bounds = *realized_layout.plot_area_bounds();
@@ -1857,15 +1873,14 @@ impl CompiledPlot {
         iter: usize,
         trace_label: &'static str,
     ) -> Result<LayoutBounds, AvengerChartError> {
-        let candidate_bounds = self
-            .refresh_final_layout_bottom_up(
-                measurement,
-                eval_ctx,
-                layout_spec,
-                data_override,
-                facet_path,
-            )
-            .await?;
+        let candidate_bounds = Box::pin(self.refresh_final_layout_bottom_up(
+            measurement,
+            eval_ctx,
+            layout_spec,
+            data_override,
+            facet_path,
+        ))
+        .await?;
 
         let delta_w = (candidate_bounds.width - measurement.plot_area_width).abs();
         let delta_h = (candidate_bounds.height - measurement.plot_area_height).abs();
@@ -1908,17 +1923,16 @@ impl CompiledPlot {
                 &params_with_canvas_dims.params,
             )
             .await?;
-        let coord_measurement = self
-            .measure_coord_system(
-                &final_scales,
-                next_width,
-                next_height,
-                &params_with_canvas_dims,
-                data_override,
-                facet_path,
-                ctx,
-            )
-            .await?;
+        let coord_measurement = Box::pin(self.measure_coord_system(
+            &final_scales,
+            next_width,
+            next_height,
+            &params_with_canvas_dims,
+            data_override,
+            facet_path,
+            ctx,
+        ))
+        .await?;
         crate::coords::apply_coord_measurement_scale_adjustments(
             coord_measurement.as_ref(),
             &mut final_scales,
@@ -3189,7 +3203,7 @@ impl CompiledPlot {
 
         // Phase 2: Compute layout and determine plot area dimensions
         let (plot_area_width, plot_area_height, mut canvas_size, mut layout, mut legend_plan) =
-            self.compute_layout_and_dimensions(
+            Box::pin(self.compute_layout_and_dimensions(
                 dimensions,
                 layout_spec,
                 scale_provider,
@@ -3199,7 +3213,7 @@ impl CompiledPlot {
                 facet_tree,
                 facet_path,
                 eval_ctx.child_frame_sharing_path(),
-            )
+            ))
             .await?;
 
         // Phase 3: Build final scales with actual plot area dimensions
@@ -3376,18 +3390,17 @@ impl CompiledPlot {
 
         let mut data_marks = Vec::new();
         for mark in &self.marks {
-            let marks = self
-                .render_mark_with_plot_df(
-                    mark.as_ref(),
-                    &mark_eval_ctx,
-                    &merged_scales,
-                    plot_area_width,
-                    plot_area_height,
-                    data_override,
-                    facet_path,
-                    coord_measurement_ref,
-                )
-                .await?;
+            let marks = Box::pin(self.render_mark_with_plot_df(
+                mark.as_ref(),
+                &mark_eval_ctx,
+                &merged_scales,
+                plot_area_width,
+                plot_area_height,
+                data_override,
+                facet_path,
+                coord_measurement_ref,
+            ))
+            .await?;
             data_marks.extend(marks);
         }
 

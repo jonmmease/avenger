@@ -1,9 +1,17 @@
+pub mod line;
+pub mod rect;
+pub mod symbol;
+
 use std::sync::Arc;
 
 use avenger_chart_core::{ChannelValue, PositionConfig};
 use avenger_chart_marks::{Line, Rect, Symbol};
 
 use crate::{Cartesian, CartesianPositionConfig};
+
+pub use line::{CompiledCartesianLine, ensure_dictionary_array_fn};
+pub use rect::CompiledCartesianRect;
+pub use symbol::CompiledCartesianSymbol;
 
 /// Cartesian position-channel builders for the generic `Line` mark.
 pub trait CartesianLinePositionChannels: Sized {

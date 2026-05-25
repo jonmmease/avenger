@@ -5,16 +5,185 @@
 //! need to serialize logical plans without depending on the top-level chart
 //! facade.
 
+use std::{io::Cursor, sync::Arc};
+
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
-use datafusion::{dataframe::DataFrame, logical_expr::LogicalPlan, prelude::SessionContext};
+use datafusion::{
+    arrow::{
+        datatypes::SchemaRef,
+        ipc::{reader::StreamReader, writer::StreamWriter},
+        record_batch::RecordBatch,
+    },
+    dataframe::DataFrame,
+    datasource::{MemTable, TableProvider},
+    error::{DataFusionError, Result as DataFusionResult},
+    execution::context::TaskContext,
+    logical_expr::{Extension, LogicalPlan, ScalarUDF},
+    prelude::SessionContext,
+};
+use datafusion_common::TableReference;
 use datafusion_proto::{
-    logical_plan::{AsLogicalPlan, DefaultLogicalExtensionCodec},
+    logical_plan::{AsLogicalPlan, DefaultLogicalExtensionCodec, LogicalExtensionCodec},
     protobuf::LogicalPlanNode,
 };
+use futures::TryStreamExt;
 use prost::Message;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::AvengerChartError;
+
+/// Magic header for identifying serialized in-memory tables.
+const MEMTABLE_MAGIC: &[u8] = b"MEMTABLE_V1";
+
+/// Extension codec for core logical-plan serialization.
+///
+/// Core owns the generic ability to serialize in-memory DataFrames because
+/// mark state and plot data both need this without depending on the scales
+/// crate. Higher-level crates can wrap this codec to add their own extension
+/// payloads, such as scale UDFs.
+#[derive(Debug)]
+pub struct AvengerCoreExtensionCodec {
+    default_codec: DefaultLogicalExtensionCodec,
+}
+
+impl Default for AvengerCoreExtensionCodec {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AvengerCoreExtensionCodec {
+    pub fn new() -> Self {
+        Self {
+            default_codec: DefaultLogicalExtensionCodec {},
+        }
+    }
+}
+
+impl LogicalExtensionCodec for AvengerCoreExtensionCodec {
+    fn try_decode(
+        &self,
+        buf: &[u8],
+        inputs: &[LogicalPlan],
+        ctx: &SessionContext,
+    ) -> DataFusionResult<Extension> {
+        self.default_codec.try_decode(buf, inputs, ctx)
+    }
+
+    fn try_encode(&self, node: &Extension, buf: &mut Vec<u8>) -> DataFusionResult<()> {
+        self.default_codec.try_encode(node, buf)
+    }
+
+    fn try_decode_table_provider(
+        &self,
+        buf: &[u8],
+        table_ref: &TableReference,
+        schema: SchemaRef,
+        ctx: &SessionContext,
+    ) -> DataFusionResult<Arc<dyn TableProvider>> {
+        if buf.starts_with(MEMTABLE_MAGIC) {
+            let buf = &buf[MEMTABLE_MAGIC.len()..];
+            if buf.len() < 8 {
+                return datafusion_common::plan_err!(
+                    "Invalid MemTable serialization: missing length"
+                );
+            }
+            let batch_len = u64::from_le_bytes(
+                buf[0..8]
+                    .try_into()
+                    .map_err(|_| datafusion_common::plan_datafusion_err!("Invalid length bytes"))?,
+            ) as usize;
+
+            let batch_data = &buf[8..8 + batch_len];
+            let cursor = Cursor::new(batch_data);
+            let reader = StreamReader::try_new(cursor, None)
+                .map_err(|err| DataFusionError::External(Box::new(err)))?;
+
+            let mut batches = Vec::new();
+            for batch_result in reader {
+                let batch = batch_result.map_err(|err| DataFusionError::External(Box::new(err)))?;
+                batches.push(batch);
+            }
+
+            let mem_table = MemTable::try_new(schema, vec![batches])?;
+            Ok(Arc::new(mem_table))
+        } else {
+            self.default_codec
+                .try_decode_table_provider(buf, table_ref, schema, ctx)
+        }
+    }
+
+    fn try_encode_table_provider(
+        &self,
+        table_ref: &TableReference,
+        node: Arc<dyn TableProvider>,
+        buf: &mut Vec<u8>,
+    ) -> DataFusionResult<()> {
+        if let Some(mem_table) = node.as_any().downcast_ref::<MemTable>() {
+            buf.extend_from_slice(MEMTABLE_MAGIC);
+
+            let state = SessionContext::new().state();
+            let batches = futures::executor::block_on(async {
+                mem_table.scan(&state, None, &[], None).await
+            })?;
+
+            let task_ctx = Arc::new(TaskContext::default());
+            let stream = batches.execute(0, task_ctx)?;
+            let collected_batches: Vec<RecordBatch> =
+                futures::executor::block_on(async { stream.try_collect::<Vec<_>>().await })
+                    .map_err(|err| DataFusionError::External(Box::new(err)))?;
+
+            let mut batch_buffer = Vec::new();
+            if !collected_batches.is_empty() {
+                let schema = collected_batches[0].schema();
+                let mut writer = StreamWriter::try_new(&mut batch_buffer, &schema)
+                    .map_err(|err| DataFusionError::External(Box::new(err)))?;
+
+                for batch in &collected_batches {
+                    writer
+                        .write(batch)
+                        .map_err(|err| DataFusionError::External(Box::new(err)))?;
+                }
+
+                writer
+                    .finish()
+                    .map_err(|err| DataFusionError::External(Box::new(err)))?;
+            }
+
+            buf.extend_from_slice(&(batch_buffer.len() as u64).to_le_bytes());
+            buf.extend_from_slice(&batch_buffer);
+
+            Ok(())
+        } else {
+            self.default_codec
+                .try_encode_table_provider(table_ref, node, buf)
+        }
+    }
+
+    fn try_decode_file_format(
+        &self,
+        buf: &[u8],
+        ctx: &SessionContext,
+    ) -> DataFusionResult<Arc<dyn datafusion::datasource::file_format::FileFormatFactory>> {
+        self.default_codec.try_decode_file_format(buf, ctx)
+    }
+
+    fn try_encode_file_format(
+        &self,
+        buf: &mut Vec<u8>,
+        node: Arc<dyn datafusion::datasource::file_format::FileFormatFactory>,
+    ) -> DataFusionResult<()> {
+        self.default_codec.try_encode_file_format(buf, node)
+    }
+
+    fn try_encode_udf(&self, node: &ScalarUDF, buf: &mut Vec<u8>) -> DataFusionResult<()> {
+        self.default_codec.try_encode_udf(node, buf)
+    }
+
+    fn try_decode_udf(&self, name: &str, buf: &[u8]) -> DataFusionResult<Arc<ScalarUDF>> {
+        self.default_codec.try_decode_udf(name, buf)
+    }
+}
 
 /// Extension trait for converting between logical plans and protobuf nodes.
 pub trait LogicalPlanNodeExt: Sized {
@@ -27,14 +196,14 @@ pub trait LogicalPlanNodeExt: Sized {
 
 impl LogicalPlanNodeExt for LogicalPlanNode {
     fn from_logical_plan(plan: &LogicalPlan) -> Result<Self, AvengerChartError> {
-        let codec = DefaultLogicalExtensionCodec {};
+        let codec = AvengerCoreExtensionCodec::new();
         <Self as AsLogicalPlan>::try_from_logical_plan(plan, &codec).map_err(|err| {
             AvengerChartError::InternalError(format!("Failed to serialize logical plan: {}", err))
         })
     }
 
     fn to_logical_plan(&self, ctx: &SessionContext) -> Result<LogicalPlan, AvengerChartError> {
-        let codec = DefaultLogicalExtensionCodec {};
+        let codec = AvengerCoreExtensionCodec::new();
         <Self as AsLogicalPlan>::try_into_logical_plan(self, ctx, &codec).map_err(|err| {
             AvengerChartError::InternalError(format!("Failed to parse logical plan: {}", err))
         })

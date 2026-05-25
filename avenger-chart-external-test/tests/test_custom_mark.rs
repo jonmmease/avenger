@@ -1,6 +1,6 @@
-use avenger_chart::{marks::Mark, plot::Plot};
+use avenger_chart::plot::Plot;
 use avenger_chart_cartesian::Cartesian;
-use avenger_chart_core::CoordinateSystemCore;
+use avenger_chart_core::{CoordinateSystemCore, Mark};
 use avenger_chart_external_test::external_mark::HexBin;
 
 struct CoreOnlyCoord;

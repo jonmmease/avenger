@@ -2,18 +2,12 @@
 
 use std::{any::Any, marker::PhantomData, sync::Arc};
 
-use avenger_chart::{
-    define_position_channels,
-    error::AvengerChartError,
-    impl_mark_trait_common,
-    marks::{CompiledMark, Mark},
-    render::RenderContext,
-};
+use avenger_chart::{define_position_channels, impl_mark_trait_common};
 use avenger_chart_cartesian::{Cartesian, CartesianPositionConfig};
 use avenger_chart_core::{
-    define_common_mark_channels, impl_mark_base, ChannelDescriptor, CompiledDataContext,
-    CompiledMarkCore, CompiledMarkState, CoordinateSystemCore, CoordinateSystemTransformCore,
-    MarkState,
+    define_common_mark_channels, impl_mark_base, AvengerChartError, ChannelDescriptor,
+    CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState, CoordinateSystemCore,
+    CoordinateSystemTransformCore, Mark, MarkRuntimeContext, MarkState,
 };
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::{arrow::record_batch::RecordBatch, scalar::ScalarValue};
@@ -156,7 +150,7 @@ impl CompiledMark for CompiledHexBin {
         &self,
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
-        _context: &RenderContext,
+        _context: &dyn MarkRuntimeContext,
         _coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Custom hexbin rendering logic would go here

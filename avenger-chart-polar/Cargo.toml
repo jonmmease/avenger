@@ -10,6 +10,7 @@ avenger-common = { path = "../avenger-common" }
 avenger-scales = { path = "../avenger-scales" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-text = { path = "../avenger-text" }
+async-trait = { workspace = true }
 datafusion = { workspace = true }
 datafusion-proto = "48.0.1"
 indexmap = { workspace = true }

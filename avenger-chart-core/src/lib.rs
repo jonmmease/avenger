@@ -30,9 +30,11 @@ pub mod into_expr;
 pub mod layout_types;
 pub mod legend;
 pub mod legend_spec;
+pub mod mark;
 pub mod mark_channel_coercion;
 pub mod mark_macros;
 pub mod mark_render_context;
+pub mod mark_runtime_context;
 pub mod mark_state;
 pub mod maybe;
 pub mod no_guide;
@@ -71,7 +73,8 @@ pub use channel_resolution_error::{ChannelResolutionError, suggest_similar_chann
 pub use channel_value::{ChannelValue, ConditionalValue};
 pub use compiled_data_context::CompiledDataContext;
 pub use compiled_mark::{
-    CompiledMarkCore, default_channel_value_for_eval, extract_channel_title_from_marks,
+    CompiledMark, CompiledMarkCore, default_channel_value_for_eval,
+    extract_channel_title_from_marks,
 };
 pub use container_sharing::{
     ContainerEdgeLevelProjection, SharingGroupEdge, enumeration_ancestor_path, is_group_end,
@@ -117,6 +120,7 @@ pub use layout_types::{
 };
 pub use legend::{LegendOrientation, LegendPosition, LegendRendererKind};
 pub use legend_spec::Legend;
+pub use mark::Mark;
 pub use mark_channel_coercion::{
     coerce_bool_channel, coerce_bool_channel_with_renderer, coerce_channel, coerce_color_channel,
     coerce_color_channel_with_renderer, coerce_numeric_channel,
@@ -125,6 +129,7 @@ pub use mark_channel_coercion::{
     coerce_stroke_join_channel, coerce_stroke_join_channel_with_renderer, coerce_text_channel,
 };
 pub use mark_render_context::MarkRenderContext;
+pub use mark_runtime_context::MarkRuntimeContext;
 pub use mark_state::{CompiledMarkState, MarkState};
 pub use maybe::{Maybe, MaybeOptionalExpr};
 pub use no_guide::NoGuide;

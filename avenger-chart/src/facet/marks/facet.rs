@@ -1,4 +1,4 @@
-use crate::chart_core::{ScaleSharing, ScaleTypePreference};
+use crate::chart_core::{MarkRuntimeContext, ScaleSharing, ScaleTypePreference};
 use crate::coords::{CoordinateSystemCore, CoordinateSystemTransformCore, FacetAxis};
 use crate::error::AvengerChartError;
 use crate::facet::coord::{FacetBandCoordMeasurement, FacetColumn, FacetRow};
@@ -23,7 +23,7 @@ use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 use datafusion::prelude::SessionContext;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
-use std::sync::Arc;
+use std::{future::Future, pin::Pin, sync::Arc};
 use tracing::trace;
 
 #[derive(Clone, Copy, Debug)]
@@ -192,15 +192,14 @@ async fn render_facet_band_with_placement(
             ),
         );
 
-        let components = compiled_subplot
-            .build_plot_components(
-                &cell_eval_ctx,
-                &cell.measurement,
-                Some(&cell.data_override),
-                true,
-                &cell.plan.full_path,
-            )
-            .await?;
+        let components = Box::pin(compiled_subplot.build_plot_components(
+            &cell_eval_ctx,
+            &cell.measurement,
+            Some(&cell.data_override),
+            true,
+            &cell.plan.full_path,
+        ))
+        .await?;
 
         let data_marks_group = SceneGroup {
             origin: [0.0, 0.0],
@@ -404,6 +403,18 @@ impl CompiledFacetRowSubplot {
     pub fn facet_empty_cell_policy(&self) -> FacetEmptyCellPolicy {
         self.facet_empty_cell_policy
     }
+
+    pub(crate) fn render_with_context<'a>(
+        &'a self,
+        context: &'a RenderContext<'a>,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<SceneMark>, AvengerChartError>> + Send + 'a>> {
+        Box::pin(render_facet_band_common(
+            FacetBandRenderOps::row(),
+            self.compiled_subplot(),
+            self.facet_empty_cell_policy,
+            context,
+        ))
+    }
 }
 
 #[async_trait::async_trait]
@@ -527,16 +538,12 @@ impl CompiledMark for CompiledFacetRowSubplot {
         &self,
         _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
         _scalars: &datafusion::arrow::record_batch::RecordBatch,
-        context: &RenderContext,
+        _context: &dyn MarkRuntimeContext,
         _coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        render_facet_band_common(
-            FacetBandRenderOps::row(),
-            self.compiled_subplot(),
-            self.facet_empty_cell_policy,
-            context,
-        )
-        .await
+        Err(AvengerChartError::InternalError(
+            "Facet row subplot marks require the top-level layout render dispatcher".to_string(),
+        ))
     }
 }
 
@@ -574,6 +581,18 @@ impl CompiledFacetColumnSubplot {
     }
     pub fn facet_empty_cell_policy(&self) -> FacetEmptyCellPolicy {
         self.facet_empty_cell_policy
+    }
+
+    pub(crate) fn render_with_context<'a>(
+        &'a self,
+        context: &'a RenderContext<'a>,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<SceneMark>, AvengerChartError>> + Send + 'a>> {
+        Box::pin(render_facet_band_common(
+            FacetBandRenderOps::col(),
+            self.compiled_subplot(),
+            self.facet_empty_cell_policy,
+            context,
+        ))
     }
 }
 
@@ -638,6 +657,19 @@ impl<'a> FacetSubplotRef<'a> {
         match self {
             Self::Row(mark) => mark.facet_empty_cell_policy(),
             Self::Col(mark) => mark.facet_empty_cell_policy(),
+        }
+    }
+
+    pub(crate) fn render_with_context<'b>(
+        self,
+        context: &'b RenderContext<'b>,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<SceneMark>, AvengerChartError>> + Send + 'b>>
+    where
+        'a: 'b,
+    {
+        match self {
+            Self::Row(mark) => mark.render_with_context(context),
+            Self::Col(mark) => mark.render_with_context(context),
         }
     }
 }
@@ -743,16 +775,12 @@ impl CompiledMark for CompiledFacetColumnSubplot {
         &self,
         _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
         _scalars: &datafusion::arrow::record_batch::RecordBatch,
-        context: &RenderContext,
+        _context: &dyn MarkRuntimeContext,
         _coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        render_facet_band_common(
-            FacetBandRenderOps::col(),
-            self.compiled_subplot(),
-            self.facet_empty_cell_policy,
-            context,
-        )
-        .await
+        Err(AvengerChartError::InternalError(
+            "Facet column subplot marks require the top-level layout render dispatcher".to_string(),
+        ))
     }
 }
 

@@ -79,9 +79,8 @@ Initial candidates:
   `ArrayRefHelpers`, `eval_to_scalars`, `params_to_datafusion`,
   `scalar_to_scalar_value`, and aggregate-expression partitioning helpers.
 - Shared mark channel coercion helpers that convert prepared data/scalar
-  record batches into typed `ScalarOrArray` channel values. Top-level
-  `CompiledMark` default-aware wrappers may remain above core until the
-  object-safe mark render contract moves.
+  record batches into typed `ScalarOrArray` channel values, including the
+  compiled-mark default-aware wrappers used by renderers.
 - Shared specs and value types: `ChannelValue`, `ConditionalValue`,
   `ChannelDescriptor`, `ScaleSharing`, scale/axis/legend spec data, `Maybe`,
   `Param`, `RadiusExpression`, and serialization wrappers. The `Legend` spec
@@ -107,11 +106,11 @@ Current extraction state:
   compiled-mark metadata, channel-planning, default-value, scale-preference,
   legend-capability, and radius-expression hooks that custom marks need without
   depending on the built-in mark crate.
-- Top-level `avenger-chart::marks::CompiledMark` extends `CompiledMarkCore` and
-  currently contains only the async render hook, because rendering still needs
-  facade-owned runtime context and scene assembly types. Built-in marks,
-  facet/concat subplot marks, Cartesian positioned subplot marks, and external
-  dogfood marks implement the two traits separately.
+- `Mark`, `CompiledMark`, and `MarkRuntimeContext` now live in
+  `avenger-chart-core`. Ordinary/custom marks render against the core
+  mark-facing runtime view plus `CoordinateSystemTransformCore`; top-level
+  layout-owned marks such as facet, concat, and positioned subplots are still
+  dispatched by the facade before the generic render hook is called.
 
 ### `avenger-chart-marks`
 
@@ -253,10 +252,10 @@ Facet/concat extraction is explicitly out of scope.
 
 Current extraction state:
 
-- The facade still owns the render-time `CompiledMark` trait and all
-  core-owned layout/container marks. This is intentional for now: the current
-  split has moved mark metadata/planning contracts down to core without trying
-  to externalize layout runtime behavior.
+- The facade still owns the layout/container mark implementations and the
+  dispatcher that renders them with the full top-level `RenderContext`.
+  `CompiledMark` itself is core-owned; layout marks implement it with a clear
+  internal-error fallback and are rendered through facade-owned dispatch.
 
 ## Current Dependency Pressure Points
 
@@ -655,11 +654,13 @@ Migration discipline:
    - `MarkRenderContext` now lives in the real `avenger-chart-core` crate as a
      narrow mark-facing render view over the base evaluation context plus plot
      dimensions. Built-in ordinary mark renderers now use this core view for
-     default-channel lookup and channel coercion while retaining the top-level
-     `RenderContext` only for coordinate transforms and layout/runtime views.
-     Moving the object-safe `CompiledMark` contract itself should wait until
-     coordinate transform measurement and render-time coordinate views have the
-     same core-owned shape.
+     default-channel lookup and channel coercion.
+   - `MarkRuntimeContext`, `Mark`, and `CompiledMark` now live in the real
+     `avenger-chart-core` crate. Ordinary mark rendering receives only the core
+     mark view and a borrowed `CoordinateSystemTransformCore`. Facade-owned
+     layout marks keep their full `RenderContext` path through explicit
+     top-level dispatch instead of pushing facet/concat runtime state into
+     core.
    - Mark rendering now receives a borrowed `CoordinateSystemTransformCore`
      rather than an owned top-level `CoordinateSystemTransform` trait object.
      Ordinary built-in marks and external custom-mark dogfood no longer need
@@ -822,16 +823,16 @@ boundaries boring.
      `avenger-chart/src/marks/compiled_data_context.rs`, and
      `avenger-chart/src/marks/facet_strategy.rs`, and
      `avenger-chart/src/marks/state.rs` are compatibility re-export shims.
-   - `CompiledDataContext` uses core `ChannelValue`, `SerializableDataFrame`,
-     and the core default logical-plan codec. The chart-specific scale-UDF
-     codec remains in `avenger-chart`.
-   - The external custom-mark dogfood now imports the already-moved custom mark
-     state/data/channel contracts and base/common-channel macros directly from
-     `avenger-chart-core`. Its `HexBin<C>` mark implementation is generic over
-     `CoordinateSystemCore`, proving mark authoring no longer requires the full
-     top-level coordinate/layout trait. It still imports the object-safe
-     `Mark` / `CompiledMark` traits and full render boundary from the top-level
-     facade, which keeps the remaining split gap explicit.
+  - `CompiledDataContext` uses core `ChannelValue`, `SerializableDataFrame`,
+    and the core logical-plan codec, including reusable MemTable
+    serialization. The scale-UDF layer remains in `avenger-chart-scales` and
+    delegates generic table-provider handling to core.
+   - The external custom-mark dogfood now imports custom mark
+     state/data/channel contracts, base/common-channel macros, `Mark`,
+     `CompiledMark`, `MarkRuntimeContext`, and `AvengerChartError` directly
+     from `avenger-chart-core`. Its `HexBin<C>` mark implementation is generic
+     over `CoordinateSystemCore`, proving mark authoring no longer requires the
+     full top-level coordinate/layout trait or the built-in mark crate.
 
 3. Extract `avenger-chart-scales`.
    Move the remaining chart-layer scale user configuration, builders,
@@ -918,18 +919,18 @@ boundaries boring.
      Cartesian positioned subplot measurement remains in core-owned layout for
      now.
    - External custom mark/scale dogfood imports the `Cartesian` type directly
-     from `avenger-chart-cartesian` while still using the top-level facade for
-     `Plot`, `Mark`, Cartesian position-channel extension traits, and render
-     integration that have not moved yet.
+     from `avenger-chart-cartesian`, uses core `Mark` / `CompiledMark`
+     contracts, and still uses the top-level facade for `Plot`.
    - The external custom-coordinate dogfood now imports already-moved core and
      scale authoring contracts directly from `avenger-chart-core` and
      `avenger-chart-scales`: axis/channel/config/state/data/geometry types,
      `CoordMeasurement`, `CoordinateSystemCore`,
      `CoordinateSystemTransformCore`, `CoordinateGuide`, `CompiledGuide`,
-     `GuideSharingContext`, mark-constructor macros, and scale builders. It
-     still imports the top-level coordinate runtime trait, `CompiledMark`,
-     `Mark`, `RenderContext`, and the `Subplot` compile hook from the top-level
-     facade, making the remaining coordinate-crate extraction boundary explicit.
+     `GuideSharingContext`, `Mark`, `CompiledMark`, `MarkRuntimeContext`,
+     mark-constructor macros, and scale builders. It still imports the
+     top-level coordinate runtime trait and the `Subplot` compile hook from the
+     top-level facade, making the remaining coordinate-crate extraction
+     boundary explicit.
    - The external subplot-coordinate dogfood now imports
      `CompiledDataContext`, `CompiledMarkState`, channel descriptors, geometry,
      error types, `CoordMeasurement`, `CoordinateSystemCore`,
@@ -955,11 +956,10 @@ boundaries boring.
      `avenger-chart-cartesian`. The top-level Cartesian guide module still owns
      guide measurement/rendering because it depends on facet/child-frame
      sharing and layout runtime state.
-   - Cartesian position-channel builder extension traits for the generic
-     `Line`, `Rect`, and `Symbol` marks now live in
-     `avenger-chart-cartesian`. The top-level Cartesian mark modules keep the
-     render/compile implementations for now and re-export the moved traits for
-     compatibility.
+   - Cartesian position-channel builder extension traits and coordinate-owned
+     `Line`, `Rect`, and `Symbol` `Mark<Cartesian>` / `CompiledMark`
+     implementations now live in `avenger-chart-cartesian`. The top-level
+     Cartesian mark modules are compatibility re-export shims.
 
 6. Extract `avenger-chart-polar`.
    Move Polar coordinate, axes, guides, channels, and Polar mark impls.
@@ -982,9 +982,10 @@ boundaries boring.
    - `PolarOptions`, the pure coordinate guide/options spec, now lives in
      `avenger-chart-polar`. The top-level Polar guide module still owns guide
      measurement/rendering until the guide runtime boundary moves.
-   - `PolarSymbolPositionChannels` now lives in `avenger-chart-polar`. The
-     top-level Polar symbol module keeps the render/compile implementation for
-     now and re-exports the moved trait for compatibility.
+   - `PolarSymbolPositionChannels` and the coordinate-owned
+     `Symbol<Polar>` `Mark<Polar>` / `CompiledMark` implementation now live in
+     `avenger-chart-polar`. The top-level Polar symbol module is a
+     compatibility re-export shim.
 
 7. Shrink the top-level `avenger-chart` crate.
    Leave `Plot`, `CompiledPlot`, facet, concat, partition, layout solvers,
@@ -1054,7 +1055,3 @@ the intended public dependency direction:
   because marks, scales, legends, and guides all need it.
 - Whether `ZeroDCoord` belongs in core or in a tiny coordinate crate. Keeping it
   in core avoids creating an extra crate before the first split.
-- `CompiledMark` should move to core once its signature uses core render views.
-  `CompiledMarkState` and `CompiledGuide` already live in core. Moving the
-  remaining object-safe mark runtime trait is what lets external custom marks
-  avoid depending on built-in mark or coordinate crates.

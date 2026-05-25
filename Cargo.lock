@@ -563,6 +563,7 @@ dependencies = [
 name = "avenger-chart-cartesian"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "avenger-chart-core",
  "avenger-chart-marks",
  "avenger-common",
@@ -594,6 +595,7 @@ dependencies = [
  "datafusion-common",
  "datafusion-proto",
  "datafusion-proto-common",
+ "futures",
  "indexmap 2.9.0",
  "palette",
  "paste",
@@ -657,14 +659,18 @@ dependencies = [
 name = "avenger-chart-marks"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "avenger-chart-core",
+ "avenger-common",
  "avenger-scales",
+ "avenger-scenegraph",
  "datafusion",
  "datafusion-common",
  "datafusion-proto",
  "indexmap 2.9.0",
  "serde",
  "serde_with",
+ "typetag",
 ]
 
 [[package]]
@@ -689,6 +695,7 @@ dependencies = [
 name = "avenger-chart-polar"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "avenger-chart-core",
  "avenger-chart-marks",
  "avenger-common",

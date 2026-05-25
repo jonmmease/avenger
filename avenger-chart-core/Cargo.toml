@@ -16,6 +16,7 @@ datafusion = { workspace = true }
 datafusion-common = { workspace = true }
 datafusion-proto = "48.0.1"
 datafusion-proto-common = "48.0.1"
+futures = { workspace = true }
 indexmap = { workspace = true }
 palette = { workspace = true }
 paste = { workspace = true }

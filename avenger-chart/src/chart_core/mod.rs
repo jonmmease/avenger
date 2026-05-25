@@ -113,12 +113,20 @@ pub mod legend {
     pub use avenger_chart_core::legend::*;
 }
 
+pub mod mark {
+    pub use avenger_chart_core::mark::*;
+}
+
 pub mod mark_state {
     pub use avenger_chart_core::mark_state::*;
 }
 
 pub mod mark_render_context {
     pub use avenger_chart_core::mark_render_context::*;
+}
+
+pub mod mark_runtime_context {
+    pub use avenger_chart_core::mark_runtime_context::*;
 }
 
 pub mod overflow {
@@ -168,32 +176,33 @@ pub mod sharing {
 pub use avenger_chart_core::{
     AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, AngleChannelConfig, ArrayRefHelpers, Axis, AxisPosition,
     BandPosition, BaseChannelName, ChannelConfig, ChannelDefault, ChannelDescriptor, ChannelValue,
-    ColorChannelConfig, CompiledDataContext, CompiledGuide, CompiledMarkCore, CompiledMarkState,
-    ConditionalValue, ContainerEdgeLevelProjection, CoordMeasurement, CoordinateGuide,
-    CoordinateSystemCore, CoordinateSystemTransformCore, CoordinatedLayout, CoordinatedOverflow,
-    CoordinationAxis, DataContext, DataFrameChartHelpers, EdgeSlabs, EmptyCoordMeasurement,
-    ExprHelpers, FacetAxis, FacetStrategy, FrameAllocation, FrameDemand, FrameDimensionSizing,
-    FrameLayout, FrameSizingPolicy, GenericPositionConfig, GuideContext, GuideOverflowPhase,
-    GuideSharingContext, GuideUpdate, INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM, IntoExpr,
-    LayoutBounds, Legend, LegendOrientation, LegendPosition, LegendRendererKind, MarkRenderContext,
-    MarkState, Maybe, MaybeOptionalExpr, MeasurementResult, NoGuide, OpacityChannelConfig,
-    OverflowSide, OverflowSpaceRequirement, OwnedEdgeSlabs, PaddingSpec, Param, PlotAreaDimension,
-    PlotAreaRangeEndpoint, PlotAreaRangeExpr, PlotGeometry, PointGeometry, PositionConfig,
-    RadiusExpression, ScalarValueHelpers, ScaleConfigSpec, ScaleRange, ScaleRangeBinding,
-    ScaleSharing, ScaleSpec, ScaleTypePreference, ShapeChannelConfig, SharingGroupEdge,
-    SharingLevel, Size2D, SizeChannelConfig, StrokeDashChannelConfig, StrokeWidthChannelConfig,
-    SubplotGeometry, SubplotRect, axis_owner_ignore_empty_cells_from_params,
-    axis_ownership_mode_from_params, coerce_bool_channel_with_renderer,
-    coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
-    coerce_stroke_cap_channel_with_renderer, coerce_stroke_join_channel_with_renderer,
-    contains_aggregate, default_channel_value_for_eval, default_scale_type_for_data_type,
-    enumeration_ancestor_path, eval_to_scalars, evaluate_axis_position_expr, evaluate_bool_expr,
-    evaluate_f32_expr, evaluate_f64_expr, evaluate_i32_expr, evaluate_legend_orientation_expr,
-    evaluate_legend_position_expr, evaluate_string_expr, evaluate_usize_expr,
-    extract_channel_title_from_marks, is_continuous_scale, is_group_end, is_group_start,
-    owner_for_edge, params_to_datafusion, partition_expressions, project_container_edge_levels,
-    scalar_to_scalar_value, shared_path_key, sharing_group_boundary, simplify_to_scalar_sync,
-    strip_trailing_numbers,
+    ColorChannelConfig, CompiledDataContext, CompiledGuide, CompiledMark, CompiledMarkCore,
+    CompiledMarkState, ConditionalValue, ContainerEdgeLevelProjection, CoordMeasurement,
+    CoordinateGuide, CoordinateSystemCore, CoordinateSystemTransformCore, CoordinatedLayout,
+    CoordinatedOverflow, CoordinationAxis, DataContext, DataFrameChartHelpers, EdgeSlabs,
+    EmptyCoordMeasurement, ExprHelpers, FacetAxis, FacetStrategy, FrameAllocation, FrameDemand,
+    FrameDimensionSizing, FrameLayout, FrameSizingPolicy, GenericPositionConfig, GuideContext,
+    GuideOverflowPhase, GuideSharingContext, GuideUpdate,
+    INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM, IntoExpr, LayoutBounds, Legend,
+    LegendOrientation, LegendPosition, LegendRendererKind, Mark, MarkRenderContext,
+    MarkRuntimeContext, MarkState, Maybe, MaybeOptionalExpr, MeasurementResult, NoGuide,
+    OpacityChannelConfig, OverflowSide, OverflowSpaceRequirement, OwnedEdgeSlabs, PaddingSpec,
+    Param, PlotAreaDimension, PlotAreaRangeEndpoint, PlotAreaRangeExpr, PlotGeometry,
+    PointGeometry, PositionConfig, RadiusExpression, ScalarValueHelpers, ScaleConfigSpec,
+    ScaleRange, ScaleRangeBinding, ScaleSharing, ScaleSpec, ScaleTypePreference,
+    ShapeChannelConfig, SharingGroupEdge, SharingLevel, Size2D, SizeChannelConfig,
+    StrokeDashChannelConfig, StrokeWidthChannelConfig, SubplotGeometry, SubplotRect,
+    axis_owner_ignore_empty_cells_from_params, axis_ownership_mode_from_params,
+    coerce_bool_channel_with_renderer, coerce_color_channel_with_renderer,
+    coerce_numeric_channel_with_renderer, coerce_stroke_cap_channel_with_renderer,
+    coerce_stroke_join_channel_with_renderer, contains_aggregate, default_channel_value_for_eval,
+    default_scale_type_for_data_type, enumeration_ancestor_path, eval_to_scalars,
+    evaluate_axis_position_expr, evaluate_bool_expr, evaluate_f32_expr, evaluate_f64_expr,
+    evaluate_i32_expr, evaluate_legend_orientation_expr, evaluate_legend_position_expr,
+    evaluate_string_expr, evaluate_usize_expr, extract_channel_title_from_marks,
+    is_continuous_scale, is_group_end, is_group_start, owner_for_edge, params_to_datafusion,
+    partition_expressions, project_container_edge_levels, scalar_to_scalar_value, shared_path_key,
+    sharing_group_boundary, simplify_to_scalar_sync, strip_trailing_numbers,
 };
 pub use error::AvengerChartError;
 pub use evaluation_context::EvaluationContext;

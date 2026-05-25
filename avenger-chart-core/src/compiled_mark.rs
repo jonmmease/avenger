@@ -1,8 +1,10 @@
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
+use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::{
     arrow::datatypes::DataType,
+    arrow::record_batch::RecordBatch,
     logical_expr::{Expr, lit},
     prelude::SessionContext,
     scalar::ScalarValue,
@@ -11,9 +13,10 @@ use datafusion_common::ScalarValue as DatafusionScalarValue;
 use indexmap::IndexMap;
 
 use crate::{
-    ChannelDescriptor, CompiledDataContext, CompiledMarkState, EvaluationContext,
-    LegendRendererKind, MarkRenderContext, RadiusExpression, ResolvedDomain, ScaleRange,
-    ScaleTypePreference, Theme, default_scale_type_for_data_type, is_continuous_scale,
+    AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMarkState,
+    CoordinateSystemTransformCore, EvaluationContext, LegendRendererKind, MarkRenderContext,
+    MarkRuntimeContext, RadiusExpression, ResolvedDomain, ScaleRange, ScaleTypePreference, Theme,
+    default_scale_type_for_data_type, is_continuous_scale,
 };
 
 /// Core-safe compiled mark metadata and planning behavior.
@@ -131,6 +134,19 @@ pub trait CompiledMarkCore: Any + Send + Sync {
     ) -> Option<ScaleRange> {
         None
     }
+}
+
+#[typetag::serde(tag = "type")]
+#[async_trait::async_trait]
+pub trait CompiledMark: CompiledMarkCore {
+    /// Render the mark from prepared data batches.
+    async fn render_from_data(
+        &self,
+        data: Option<&RecordBatch>,
+        scalars: &RecordBatch,
+        context: &dyn MarkRuntimeContext,
+        coord: &dyn CoordinateSystemTransformCore,
+    ) -> Result<Vec<SceneMark>, AvengerChartError>;
 }
 
 /// Resolve a compiled mark's default channel value from the base evaluation context.

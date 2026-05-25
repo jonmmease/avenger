@@ -611,7 +611,7 @@ async fn measure_concat_coord_system(
                 facet_path,
             );
         children.push(
-            measure_prepared_concat_child(
+            Box::pin(measure_prepared_concat_child(
                 prepared,
                 direction,
                 child_count,
@@ -620,7 +620,7 @@ async fn measure_concat_coord_system(
                 facet_path,
                 coordinated_extents,
                 &facet_scoped_extents,
-            )
+            ))
             .await?,
         );
     }
@@ -671,7 +671,7 @@ fn container_point_geometry(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{future::Future, sync::Arc};
 
     use avenger_scenegraph::marks::{mark::SceneMark, symbol::SceneSymbolMark};
     use datafusion::{
@@ -705,6 +705,27 @@ mod tests {
         scales::{Linear, ScaleChannelConfig},
         zerod::ZeroDCoord,
     };
+
+    fn run_with_large_stack<F, Fut>(f: F)
+    where
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: Future<Output = Result<(), AvengerChartError>> + Send + 'static,
+    {
+        std::thread::Builder::new()
+            .name("concat-test-large-stack".to_string())
+            .stack_size(32 * 1024 * 1024)
+            .spawn(move || {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("create tokio runtime")
+                    .block_on(f())
+            })
+            .expect("spawn large-stack concat test thread")
+            .join()
+            .expect("large-stack concat test panicked")
+            .expect("large-stack concat test failed");
+    }
 
     async fn measurement_for_plot(
         compiled: &CompiledPlot,
@@ -1251,38 +1272,40 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn hconcat_renders_child_subplot_groups() -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let compiled = Plot::<HConcat>::new()
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("left"))
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("right"))
-            .compile(&ctx)
-            .await?;
+    #[test]
+    fn hconcat_renders_child_subplot_groups() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled = Plot::<HConcat>::new()
+                .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("left"))
+                .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("right"))
+                .compile(&ctx)
+                .await?;
 
-        let evaluated = compiled.evaluate(&ctx, None).await?;
-        let group_names = evaluated.scene_graph.group_names();
-        let left_path = group_names
-            .get("concat_subplot_0_left")
-            .expect("left subplot group should render");
-        let right_path = group_names
-            .get("concat_subplot_1_right")
-            .expect("right subplot group should render");
-        let left_origin = evaluated
-            .scene_graph
-            .get_absolute_origin(left_path)
-            .expect("left subplot should have an absolute origin");
-        let right_origin = evaluated
-            .scene_graph
-            .get_absolute_origin(right_path)
-            .expect("right subplot should have an absolute origin");
+            let evaluated = compiled.evaluate(&ctx, None).await?;
+            let group_names = evaluated.scene_graph.group_names();
+            let left_path = group_names
+                .get("concat_subplot_0_left")
+                .expect("left subplot group should render");
+            let right_path = group_names
+                .get("concat_subplot_1_right")
+                .expect("right subplot group should render");
+            let left_origin = evaluated
+                .scene_graph
+                .get_absolute_origin(left_path)
+                .expect("left subplot should have an absolute origin");
+            let right_origin = evaluated
+                .scene_graph
+                .get_absolute_origin(right_path)
+                .expect("right subplot should have an absolute origin");
 
-        assert_eq!(left_origin[1], right_origin[1]);
-        assert!(
-            right_origin[0] > left_origin[0],
-            "horizontal concat should place the second subplot to the right"
-        );
-        Ok(())
+            assert_eq!(left_origin[1], right_origin[1]);
+            assert!(
+                right_origin[0] > left_origin[0],
+                "horizontal concat should place the second subplot to the right"
+            );
+            Ok(())
+        });
     }
 
     #[tokio::test]
@@ -1446,37 +1469,39 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn vconcat_renders_child_subplot_groups() -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let compiled = Plot::<VConcat>::new()
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("top"))
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("bottom"))
-            .compile(&ctx)
-            .await?;
+    #[test]
+    fn vconcat_renders_child_subplot_groups() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled = Plot::<VConcat>::new()
+                .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("top"))
+                .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("bottom"))
+                .compile(&ctx)
+                .await?;
 
-        let evaluated = compiled.evaluate(&ctx, None).await?;
-        let group_names = evaluated.scene_graph.group_names();
-        let top_path = group_names
-            .get("concat_subplot_0_top")
-            .expect("top subplot group should render");
-        let bottom_path = group_names
-            .get("concat_subplot_1_bottom")
-            .expect("bottom subplot group should render");
-        let top_origin = evaluated
-            .scene_graph
-            .get_absolute_origin(top_path)
-            .expect("top subplot should have an absolute origin");
-        let bottom_origin = evaluated
-            .scene_graph
-            .get_absolute_origin(bottom_path)
-            .expect("bottom subplot should have an absolute origin");
+            let evaluated = compiled.evaluate(&ctx, None).await?;
+            let group_names = evaluated.scene_graph.group_names();
+            let top_path = group_names
+                .get("concat_subplot_0_top")
+                .expect("top subplot group should render");
+            let bottom_path = group_names
+                .get("concat_subplot_1_bottom")
+                .expect("bottom subplot group should render");
+            let top_origin = evaluated
+                .scene_graph
+                .get_absolute_origin(top_path)
+                .expect("top subplot should have an absolute origin");
+            let bottom_origin = evaluated
+                .scene_graph
+                .get_absolute_origin(bottom_path)
+                .expect("bottom subplot should have an absolute origin");
 
-        assert_eq!(top_origin[0], bottom_origin[0]);
-        assert!(
-            bottom_origin[1] > top_origin[1],
-            "vertical concat should place the second subplot below the first"
-        );
-        Ok(())
+            assert_eq!(top_origin[0], bottom_origin[0]);
+            assert!(
+                bottom_origin[1] > top_origin[1],
+                "vertical concat should place the second subplot below the first"
+            );
+            Ok(())
+        });
     }
 }

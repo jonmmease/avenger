@@ -111,6 +111,48 @@ macro_rules! impl_mark_base {
     };
 }
 
+/// Macro to implement common `Mark` trait accessors.
+#[macro_export]
+macro_rules! impl_mark_trait_common {
+    ($mark_type:ident, $renderer_type:ident) => {
+        fn state(&self) -> &$crate::MarkState {
+            self.mark_state()
+        }
+
+        fn state_mut(&mut self) -> &mut $crate::MarkState {
+            self.mark_state_mut()
+        }
+
+        fn data_context(&self) -> &$crate::DataContext {
+            self.get_data_context()
+        }
+
+        async fn compile(
+            &self,
+            compiled_state: $crate::CompiledMarkState,
+            _session_context: &datafusion::prelude::SessionContext,
+        ) -> Result<std::sync::Arc<dyn $crate::CompiledMark>, $crate::AvengerChartError> {
+            Ok(std::sync::Arc::new($renderer_type {
+                state: compiled_state,
+            }))
+        }
+    };
+
+    ($mark_type:ident) => {
+        fn state(&self) -> &$crate::MarkState {
+            self.mark_state()
+        }
+
+        fn state_mut(&mut self) -> &mut $crate::MarkState {
+            self.mark_state_mut()
+        }
+
+        fn data_context(&self) -> &$crate::DataContext {
+            self.get_data_context()
+        }
+    };
+}
+
 /// Macro to define common channels shared across coordinate systems.
 ///
 /// Scale and legend fluent methods are supplied by their owning extension
