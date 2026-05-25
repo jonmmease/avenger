@@ -891,6 +891,10 @@ boundaries boring.
      from `avenger-chart-core`. Its `HexBin<C>` mark implementation is generic
      over `CoordinateSystemCore`, proving mark authoring no longer requires the
      full top-level coordinate/layout trait or the built-in mark crate.
+   - The legacy `impl_supported_channels!` helper macro now lives in
+     `avenger-chart-core` with the rest of the custom-mark authoring macros;
+     the facade root and `avenger_chart::marks::macros` path re-export it for
+     compatibility.
 
 3. Extract `avenger-chart-scales`.
    Move the remaining chart-layer scale user configuration, builders,

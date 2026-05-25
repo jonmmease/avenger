@@ -153,6 +153,40 @@ macro_rules! impl_mark_trait_common {
     };
 }
 
+/// Macro to generate a `supported_channels` method from common and position
+/// channel names.
+///
+/// This macro only depends on core channel descriptors, so external custom mark
+/// crates can use it without depending on the built-in mark crate or facade.
+#[macro_export]
+macro_rules! impl_supported_channels {
+    (
+        common: [$($common:ident),* $(,)?],
+        position: [$($position:ident),* $(,)?]
+    ) => {
+        fn supported_channels(&self) -> Vec<$crate::ChannelDescriptor> {
+            vec![
+                $(
+                    $crate::ChannelDescriptor {
+                        name: stringify!($position),
+                        required: false,
+                        default_value: None,
+                        allow_column_ref: true,
+                    },
+                )*
+                $(
+                    $crate::ChannelDescriptor {
+                        name: stringify!($common),
+                        required: false,
+                        default_value: None,
+                        allow_column_ref: true,
+                    },
+                )*
+            ]
+        }
+    };
+}
+
 /// Macro to define common channels shared across coordinate systems.
 ///
 /// Scale and legend fluent methods are supplied by their owning extension
