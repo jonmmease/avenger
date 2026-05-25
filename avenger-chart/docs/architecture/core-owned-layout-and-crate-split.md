@@ -1124,6 +1124,9 @@ boundaries boring.
      contracts, subplot types, channel helpers, theme, layout value types, and
      errors directly from core/marks/Cartesian owner crates. Facet itself
      remains top-level layout/runtime code.
+   - Rewired scale-planning source imports to use core mark/channel/coordinate
+     contracts and `avenger-chart-scales` scale types directly instead of
+     routing through top-level compatibility modules.
    - Removed the final `chart_core` staging namespace after rewiring internal
      imports directly to `avenger-chart-core`. Public compatibility paths such
      as `avenger_chart::maybe`, `param`, `error`, `coords`, `guide`, and

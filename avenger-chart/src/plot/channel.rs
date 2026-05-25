@@ -5,15 +5,10 @@ use std::collections::{HashMap, hash_map::Entry};
 use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
 
-use avenger_chart_core::AxisSpec;
-use avenger_chart_scales::PlotScaleSpec as ScaleSpec;
-
-use crate::{
-    channel::resolution::resolve_all_channel_refs,
-    coords::CoordinateSystem,
-    legend::Legend,
-    marks::{ChannelValue, Mark},
+use avenger_chart_core::{
+    Auto, AxisSpec, ChannelValue, CoordinateSystem, Legend, Mark, resolve_all_channel_refs,
 };
+use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, Scale};
 
 /// Extract scale, legend, and axis configurations from a mark's channels
 pub(crate) fn extract_channel_configs<C: CoordinateSystem>(
@@ -92,11 +87,8 @@ pub(crate) fn extract_channel_configs<C: CoordinateSystem>(
                         ScaleSpec::Local(existing_scale) => {
                             // Compose the two scale configurations using update()
                             // Apply existing config first, then the new config
-                            let updated_scale =
-                                crate::scales::Scale::<crate::scales::Auto>::from_config(
-                                    existing_scale.clone(),
-                                )
-                                .update(crate::scales::Scale::from_config(config));
+                            let updated_scale = Scale::<Auto>::from_config(existing_scale.clone())
+                                .update(Scale::from_config(config));
                             occupied.insert(ScaleSpec::Local(updated_scale.into_config()));
                         }
                     }

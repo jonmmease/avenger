@@ -5,15 +5,11 @@ use std::{collections::HashMap, sync::Arc};
 use datafusion::{arrow::datatypes::DataType as ArrowDataType, dataframe::DataFrame};
 use datafusion_proto::protobuf::LogicalPlanNode;
 
-use avenger_chart_core::EvaluationContext as CoreEvaluationContext;
-
-use crate::{
-    coords::CoordinateSystemTransform,
-    error::AvengerChartError,
-    marks::CompiledMark,
-    scales::{PlotScaleSpec, ScaleBuilder},
-    theme::Theme,
+use avenger_chart_core::{
+    AvengerChartError, CompiledMark, CoordinateSystemTransform,
+    EvaluationContext as CoreEvaluationContext, Theme,
 };
+use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
 
 pub(crate) async fn build_scale_builder_from_marks(
     compiled_marks: &[Arc<dyn CompiledMark>],
@@ -67,6 +63,8 @@ mod tests {
     use super::build_scale_builder_from_marks;
     use crate::prelude::*;
     use crate::render::RenderContext;
+    use avenger_chart_core::{EmptyCoordMeasurement, channel::strip_trailing_numbers};
+    use avenger_chart_scales::ConfiguredScaleWithSpec;
     use datafusion::arrow::array::Float64Array;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::arrow::record_batch::RecordBatch;
@@ -80,11 +78,8 @@ mod tests {
         height: f32,
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
-    ) -> Result<
-        std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
-        super::AvengerChartError,
-    > {
-        use crate::channel::value::strip_trailing_numbers;
+    ) -> Result<std::collections::HashMap<String, ConfiguredScaleWithSpec>, super::AvengerChartError>
+    {
         use std::collections::HashMap;
 
         let builder = build_scale_builder_from_marks(
@@ -306,12 +301,8 @@ mod tests {
         );
         let render_state =
             crate::render::RenderState::new(220.0, 300.0, std::collections::HashMap::new());
-        let final_context = RenderContext::new(
-            &eval_ctx,
-            &render_state,
-            &[],
-            &crate::coords::EmptyCoordMeasurement,
-        );
+        let final_context =
+            RenderContext::new(&eval_ctx, &render_state, &[], &EmptyCoordMeasurement);
         let final_mark_context = final_context.core_view();
         let first_mark = compiled.marks().first().expect("compiled mark");
         let stroke_width = first_mark

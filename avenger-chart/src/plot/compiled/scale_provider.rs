@@ -4,9 +4,10 @@ use async_trait::async_trait;
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 
-use crate::{
-    error::AvengerChartError, plot::compiled::CompiledPlot, scales::ConfiguredScaleWithSpec,
-};
+use avenger_chart_core::AvengerChartError;
+use avenger_chart_scales::{ConfiguredScaleWithSpec, ScaleBuilder};
+
+use crate::plot::compiled::CompiledPlot;
 
 /// Provides configured scales for a given plot area size.
 ///
@@ -36,7 +37,7 @@ pub trait ScaleProvider: Send + Sync {
 /// Used for top-level plots and any subplot that builds its own scales
 /// independently (e.g., facets with completely free scales).
 pub struct DynamicScaleProvider<'a> {
-    pub builder: &'a crate::scales::ScaleBuilder,
+    pub builder: &'a ScaleBuilder,
     pub plot: &'a CompiledPlot,
 }
 

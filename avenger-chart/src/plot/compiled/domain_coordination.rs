@@ -7,8 +7,7 @@
 use std::collections::HashMap;
 
 use avenger_chart_core::scalar_total_cmp;
-
-use crate::scales::domain_extent::{DomainBounds, DomainExtent, RadiusPadding};
+use avenger_chart_scales::domain_extent::{DomainBounds, DomainExtent, RadiusPadding};
 
 use super::CoordinationScopeKey;
 

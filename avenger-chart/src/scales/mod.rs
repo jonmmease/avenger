@@ -18,13 +18,13 @@ pub use avenger_chart_scales::{
 };
 
 pub(crate) fn default_range_for_compiled_marks<'a>(
-    compiled_marks: &'a [std::sync::Arc<dyn crate::marks::CompiledMark>],
+    compiled_marks: &'a [std::sync::Arc<dyn avenger_chart_core::CompiledMark>],
 ) -> impl Fn(
     &str,
     &dyn avenger_scales::scales::ScaleImpl,
     &avenger_chart_core::ResolvedDomain,
     &datafusion::arrow::datatypes::DataType,
-    &crate::theme::Theme,
+    &avenger_chart_core::Theme,
     &indexmap::IndexMap<String, datafusion_common::ScalarValue>,
 ) -> Option<avenger_chart_core::ScaleRange>
 + 'a {
