@@ -8,7 +8,7 @@ use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionCont
 use indexmap::IndexMap;
 
 use crate::{
-    chart_core::{Axis, AxisPosition, GuideOverflowPhase},
+    chart_core::{Axis, AxisPosition, CoordinationAxis, GuideOverflowPhase, SharingLevel},
     coords::CoordMeasurement,
     error::AvengerChartError,
     guide::{
@@ -17,7 +17,6 @@ use crate::{
     },
     layout::LayoutBounds,
     marks::CompiledMarkCore,
-    plot::compiled::{CoordinationAxis, SharingLevel},
     theme::Theme,
 };
 

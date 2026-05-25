@@ -4,6 +4,7 @@ use avenger_scales::scales::ConfiguredScale;
 use datafusion::{common::ScalarValue, dataframe::DataFrame, logical_expr::lit};
 
 use crate::{
+    chart_core::SharingLevel,
     coords::{FacetAxis, OverflowSpaceRequirement},
     error::AvengerChartError,
     facet::{
@@ -15,7 +16,7 @@ use crate::{
         scale_precompute::{FacetScaleNodeArtifacts, FacetScaleNodeKey},
     },
     partition::PartitionCellPlan,
-    plot::compiled::{CompiledPlot, ComponentsMeasurement, SharingLevel},
+    plot::compiled::{CompiledPlot, ComponentsMeasurement},
     render::EvaluationContext,
     scales::domain_extent::DomainExtent,
 };

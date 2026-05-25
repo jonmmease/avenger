@@ -11,16 +11,16 @@ pub use avenger_chart_cartesian::{AxisPosition, CartesianAxis};
 
 use crate::{
     chart_core::{
-        evaluate_axis_position_expr, evaluate_bool_expr, evaluate_f32_expr, evaluate_string_expr,
+        CoordinationAxis, SharingLevel, evaluate_axis_position_expr, evaluate_bool_expr,
+        evaluate_f32_expr, evaluate_string_expr,
     },
     error::AvengerChartError,
     facet::ownership_policy::axis_ownership_mode_from_ignore_empty_cells,
     guide::{AxisOwnershipMode, AxisVisibility, GuideSharingContext},
     layout::LayoutBounds,
     plot::compiled::{
-        CoordinationAxis, CoordinationKind, EdgeOwnershipRequest, EdgeOwnershipScope,
-        SharingGroupEdge, SharingLevel, edge_ownership_scope_for_request, owner_for_scope,
-        project_container_edge_levels,
+        CoordinationKind, EdgeOwnershipRequest, EdgeOwnershipScope, SharingGroupEdge,
+        edge_ownership_scope_for_request, owner_for_scope, project_container_edge_levels,
     },
     render::context::{
         AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM,
@@ -391,11 +391,11 @@ mod tests {
         axis_ownership_mode_from_params, child_frame_axis_ownership_scope,
         child_frame_axis_title_scope,
     };
+    use crate::chart_core::SharingLevel;
     use crate::container::{ChildFrameSharingLevel, ChildFrameSharingPath};
     use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
     use crate::guide::AxisOwnershipMode;
     use crate::guide::GuideSharingContext;
-    use crate::plot::compiled::SharingLevel;
     use crate::render::context::AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM;
     use datafusion::common::ScalarValue;
     use indexmap::IndexMap;

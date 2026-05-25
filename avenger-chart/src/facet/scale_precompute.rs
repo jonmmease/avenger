@@ -8,6 +8,7 @@ use datafusion::{common::ScalarValue, dataframe::DataFrame};
 use tracing::{debug, trace};
 
 use crate::{
+    chart_core::SharingLevel,
     concat::compiled_subplot,
     coords::CellDomainInfo,
     error::AvengerChartError,
@@ -19,7 +20,7 @@ use crate::{
     marks::CompiledMark,
     plot::compiled::{
         ChildFrameDomainRequest, CompiledPlot, ContainerPathSegment, CoordinationKind,
-        CoordinationScopeKey, SharingLevel, aggregate_domain_requests,
+        CoordinationScopeKey, aggregate_domain_requests,
         child_frame_domain_sharing_levels_for_plot, container_path_without_facet_segments,
         scales::build_scale_builder_from_marks,
     },

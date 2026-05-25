@@ -685,7 +685,7 @@ mod tests {
     use super::*;
     use crate::{
         cartesian::{Cartesian, CartesianLinePositionChannels, CartesianSymbolPositionChannels},
-        chart_core::ScaleSharing,
+        chart_core::{CoordinationAxis, ScaleSharing},
         coords::FacetAxis,
         facet::{
             coord::{FacetBandCoordMeasurement, FacetColumn, FacetRow},
@@ -696,8 +696,7 @@ mod tests {
         plot::{
             CompiledPlot, Plot,
             compiled::{
-                CoordinationAxis, CoordinationKind, CoordinationScopeKey,
-                child_frame_container_view_from_concat,
+                CoordinationKind, CoordinationScopeKey, child_frame_container_view_from_concat,
                 container_label_items_from_child_frame_container,
                 scale_provider::DynamicScaleProvider, scales::build_scale_builder_from_marks,
             },

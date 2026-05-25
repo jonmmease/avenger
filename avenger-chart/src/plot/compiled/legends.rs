@@ -13,7 +13,7 @@ use tracing::debug;
 
 use crate::{
     channel::value::ChannelValue,
-    chart_core::{LegendPosition, LegendRendererKind, maybe::Maybe},
+    chart_core::{LegendPosition, LegendRendererKind, SharingLevel, maybe::Maybe},
     coords::extract_channel_title_from_marks,
     error::AvengerChartError,
     facet::{evaluated_facet_tree::EvaluatedFacetTree, sharing_policy},
@@ -24,7 +24,7 @@ use crate::{
     marks::{CompiledMark, default_channel_value_for_eval},
     plot::compiled::{
         ChildFrameSharingPath, ContainerPathSegment, CoordinationKind, EdgeOwnershipRequest,
-        SharingLevel, edge_ownership_scope_for_request,
+        edge_ownership_scope_for_request,
     },
     render::{LegendMeasurements, types::LegendMeasurement},
     scales::ConfiguredScaleWithSpec,

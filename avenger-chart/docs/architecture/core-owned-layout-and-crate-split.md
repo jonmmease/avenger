@@ -271,9 +271,9 @@ movement. The key cycles and leaks found in the code are:
   `cartesian`, so `Subplot` is not a neutral mark crate type yet.
 - `channel` value/config code stores scale and legend config directly and its
   fluent traits import both scale builders and legend builders.
-- `guide::GuideSharingContext` imports concrete facet and container runtime
-  types (`EvaluatedFacetTree`, `ChildFrameSharingPath`), which blocks moving
-  guide traits to core or coordinate crates.
+- `GuideSharingContext` no longer imports concrete facet/container runtime
+  types directly, but the guide traits still live in the top-level crate until
+  the remaining guide/runtime signatures move to core.
 - `coords::CoordinateSystemTransform::measure` imports top-level rendering,
   mark, scale, and layout runtime types. That signature needs a core-owned
   request/view type before coordinate crates can stand alone.
@@ -731,11 +731,11 @@ boundaries boring.
      `OverflowSpaceRequirement`, `MeasurementResult`, `Maybe`,
      `MaybeOptionalExpr`, `Param`, `RadiusExpression`, `ResolvedDomain`,
      `ScaleRange`, `ScaleDomain`, `ScaleDefaultDomain`, `DomainExpr`,
-     `ScaleSharing`, `PositionConfig`, `ScaleRangeBinding`, plot-area range
-     binding endpoint types, `ScaleSpec`, built-in scale marker types,
-     `ScaleTypePreference`, mark-facing scale helper functions,
-     `ChannelConfig`, common channel config structs, `ChannelDescriptor`,
-     `ChannelDefault`,
+     `ScaleSharing`, `SharingLevel`, `CoordinationAxis`, `PositionConfig`,
+     `ScaleRangeBinding`, plot-area range binding endpoint types, `ScaleSpec`,
+     built-in scale marker types, `ScaleTypePreference`, mark-facing scale
+     helper functions, `ChannelConfig`, common channel config structs,
+     `ChannelDescriptor`, `ChannelDefault`,
      `BaseChannelName`, `ChannelValue`, `ConditionalValue`, `DataContext`,
      `CompiledDataContext`, `MarkState`, `CompiledMarkState`, `FacetStrategy`,
      `AvengerChartError`, `ChannelResolutionError`, `ThemeContext`, `Theme`,

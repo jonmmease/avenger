@@ -6,6 +6,8 @@
 
 use datafusion::common::ScalarValue;
 
+use crate::chart_core::CoordinationAxis;
+
 use super::{ChildFrameKey, ChildFrameScopeKey, ContainerPathSegment};
 
 /// Stable key for one coordination or sharing group.
@@ -178,16 +180,6 @@ impl From<&str> for CoordinationChannel {
     fn from(value: &str) -> Self {
         Self(value.to_string())
     }
-}
-
-/// Physical axis associated with a container coordination key.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum CoordinationAxis {
-    Horizontal,
-    Vertical,
-    /// Children are positioned by a two-dimensional coordinate system rather
-    /// than by a horizontal or vertical band lane.
-    Positioned,
 }
 
 #[cfg(test)]

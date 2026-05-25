@@ -12,7 +12,7 @@ use indexmap::IndexMap;
 use tracing::{debug, trace};
 
 use crate::{
-    chart_core::AxisPosition,
+    chart_core::{AxisPosition, SharingLevel},
     coords::{CoordMeasurement, FacetAxis, OverflowSpaceRequirement},
     error::AvengerChartError,
     facet::{
@@ -32,7 +32,7 @@ use crate::{
     layout::{BandPosition, BandPositionIterator, LayoutBounds},
     plot::compiled::{
         CompiledPlot, ComponentsMeasurement, ContainerBandGuideMeasurementConfig,
-        ContainerBandGuideRenderConfig, SharingLevel, measure_container_band_guide_slab,
+        ContainerBandGuideRenderConfig, measure_container_band_guide_slab,
         render_container_band_guide_slab,
     },
     serialization::LogicalPlanNodeExt,

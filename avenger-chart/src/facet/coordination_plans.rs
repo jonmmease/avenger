@@ -12,10 +12,10 @@
 use std::{collections::HashMap, hash::Hash};
 
 use crate::{
-    chart_core::AxisPosition,
+    chart_core::{AxisPosition, CoordinationAxis},
     coords::{CoordinatedLayout, CoordinatedOverflow, FacetAxis},
     facet::overflow_projection::{FacetOverflowProjection, project_facet_overflow},
-    plot::compiled::{CoordinationAxis, CoordinationKind, CoordinationScopeKey},
+    plot::compiled::{CoordinationKind, CoordinationScopeKey},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

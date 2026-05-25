@@ -9,8 +9,8 @@ use datafusion::common::ScalarValue;
 
 #[cfg(test)]
 use crate::{
-    chart_core::AxisPosition, facet::evaluated_facet_tree::EvaluatedFacetTree,
-    plot::compiled::SharingLevel,
+    chart_core::{AxisPosition, SharingLevel},
+    facet::evaluated_facet_tree::EvaluatedFacetTree,
 };
 
 /// Format a ScalarValue for display as a facet label.

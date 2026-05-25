@@ -1,9 +1,6 @@
 use datafusion::common::ScalarValue;
 
-use crate::{
-    chart_core::AxisPosition,
-    plot::compiled::{CoordinationAxis, SharingLevel},
-};
+use crate::chart_core::{AxisPosition, CoordinationAxis, SharingLevel};
 
 /// Result of guide axis visibility computation for a container cell.
 ///

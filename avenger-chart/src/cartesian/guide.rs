@@ -22,7 +22,7 @@ use crate::{
     },
     channel::value::strip_trailing_numbers,
     chart_core::color::parse_color_to_array_strict,
-    chart_core::{AxisPosition, IntoExpr, Maybe, evaluate_string_expr},
+    chart_core::{AxisPosition, IntoExpr, Maybe, SharingLevel, evaluate_string_expr},
     coords::{CoordMeasurement, EmptyCoordMeasurement, extract_channel_title_from_marks},
     error::AvengerChartError,
     guide::{
@@ -31,8 +31,7 @@ use crate::{
     layout::LayoutBounds,
     marks::CompiledMarkCore,
     plot::compiled::{
-        SharingLevel, child_frame_container_overflow,
-        child_frame_container_view_from_cartesian_positioned,
+        child_frame_container_overflow, child_frame_container_view_from_cartesian_positioned,
     },
     serialization::LogicalExprNodeExt,
     theme::{Theme, ThemeContext},

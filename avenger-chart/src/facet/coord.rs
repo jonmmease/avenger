@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, trace};
 
 use crate::{
-    chart_core::AxisPosition,
+    chart_core::{AxisPosition, SharingLevel},
     container::{ChildFrameKey, ChildFrameScopeKey, ContainerPathSegment},
     coords::{
         CellDomainInfo, CoordMeasureRequest, CoordMeasurement, CoordinateSystem,
@@ -71,7 +71,7 @@ use crate::{
     },
     marks::CompiledMark,
     plot::compiled::{
-        CompiledPlot, ComponentsMeasurement, CoordinationKind, CoordinationScopeKey, SharingLevel,
+        CompiledPlot, ComponentsMeasurement, CoordinationKind, CoordinationScopeKey,
         fixed_child_plot_area_layout_spec, measure_child_frame_plot_with_builder,
         scales::build_scale_builder_from_marks,
     },

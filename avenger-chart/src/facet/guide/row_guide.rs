@@ -3,6 +3,7 @@
 //! This module is a thin wrapper around the shared facet-band guide engine.
 
 use crate::cartesian::axis::CartesianAxis;
+use crate::chart_core::SharingLevel;
 use crate::error::AvengerChartError;
 use crate::facet::guide::band_guide_engine::{self, FacetGuideState, RowGuideAxisOps};
 use crate::facet::marks::facet::CompiledFacetRowSubplot;
@@ -14,7 +15,6 @@ use crate::guide::{
 use crate::layout::LayoutBounds;
 use crate::marks::CompiledMarkCore;
 use crate::plot::compiled::CompiledPlot;
-use crate::plot::compiled::SharingLevel;
 use crate::serialization::SerializableDataFrame;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::group::Clip;

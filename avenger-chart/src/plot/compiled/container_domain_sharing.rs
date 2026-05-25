@@ -8,12 +8,13 @@ use std::collections::HashMap;
 
 use crate::{
     channel::value::strip_trailing_numbers,
+    chart_core::SharingLevel,
     scales::{DomainExtent, ScaleBuilder},
 };
 
 use super::{
     ChildFrameDomainRequest, ChildFrameScopeKey, CompiledPlot, CoordinationKind,
-    CoordinationScopeKey, SharingLevel, aggregate_domain_requests,
+    CoordinationScopeKey, aggregate_domain_requests,
 };
 
 /// One local channel domain plus the child-frame sharing level that applies to it.

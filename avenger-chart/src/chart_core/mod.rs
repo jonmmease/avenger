@@ -146,21 +146,25 @@ pub mod scale_type {
     pub use avenger_chart_core::scale_type::*;
 }
 
+pub mod sharing {
+    pub use avenger_chart_core::sharing::*;
+}
+
 pub use avenger_chart_core::{
     AngleChannelConfig, ArrayRefHelpers, Axis, AxisPosition, BandPosition, BaseChannelName,
     ChannelConfig, ChannelDefault, ChannelDescriptor, ChannelValue, ColorChannelConfig,
     CompiledDataContext, CompiledMarkCore, CompiledMarkState, ConditionalValue, CoordMeasurement,
     CoordinateSystemCore, CoordinateSystemTransformCore, CoordinatedLayout, CoordinatedOverflow,
-    DataContext, DataFrameChartHelpers, EdgeSlabs, EmptyCoordMeasurement, ExprHelpers, FacetAxis,
-    FacetStrategy, FrameAllocation, FrameDemand, FrameDimensionSizing, FrameLayout,
-    FrameSizingPolicy, GenericPositionConfig, GuideContext, GuideOverflowPhase, GuideUpdate,
-    IntoExpr, LayoutBounds, Legend, LegendOrientation, LegendPosition, LegendRendererKind,
-    MarkRenderContext, MarkState, Maybe, MaybeOptionalExpr, MeasurementResult,
+    CoordinationAxis, DataContext, DataFrameChartHelpers, EdgeSlabs, EmptyCoordMeasurement,
+    ExprHelpers, FacetAxis, FacetStrategy, FrameAllocation, FrameDemand, FrameDimensionSizing,
+    FrameLayout, FrameSizingPolicy, GenericPositionConfig, GuideContext, GuideOverflowPhase,
+    GuideUpdate, IntoExpr, LayoutBounds, Legend, LegendOrientation, LegendPosition,
+    LegendRendererKind, MarkRenderContext, MarkState, Maybe, MaybeOptionalExpr, MeasurementResult,
     OpacityChannelConfig, OverflowSide, OverflowSpaceRequirement, OwnedEdgeSlabs, PaddingSpec,
     Param, PlotAreaDimension, PlotAreaRangeEndpoint, PlotAreaRangeExpr, PlotGeometry,
     PointGeometry, PositionConfig, RadiusExpression, ScalarValueHelpers, ScaleConfigSpec,
     ScaleRange, ScaleRangeBinding, ScaleSharing, ScaleSpec, ScaleTypePreference,
-    ShapeChannelConfig, Size2D, SizeChannelConfig, StrokeDashChannelConfig,
+    ShapeChannelConfig, SharingLevel, Size2D, SizeChannelConfig, StrokeDashChannelConfig,
     StrokeWidthChannelConfig, SubplotGeometry, SubplotRect, contains_aggregate,
     default_channel_value_for_eval, default_scale_type_for_data_type, eval_to_scalars,
     evaluate_axis_position_expr, evaluate_bool_expr, evaluate_f32_expr, evaluate_f64_expr,

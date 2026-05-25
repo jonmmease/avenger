@@ -3,11 +3,11 @@ use std::collections::HashMap;
 use datafusion::common::ScalarValue;
 
 use crate::{
+    chart_core::SharingLevel,
     coords::CellDomainInfo,
     facet::{coord::ChannelDomainExtent, sharing_policy},
     plot::compiled::{
-        ChildFrameDomainRequest, CoordinationKind, CoordinationScopeKey, SharingLevel,
-        aggregate_domain_requests,
+        ChildFrameDomainRequest, CoordinationKind, CoordinationScopeKey, aggregate_domain_requests,
     },
     scales::domain_extent::DomainExtent,
 };

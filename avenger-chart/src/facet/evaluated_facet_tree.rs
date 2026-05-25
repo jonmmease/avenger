@@ -27,7 +27,7 @@ pub use crate::partition::{PartitionContent, PartitionNode};
 pub(crate) use crate::guide::AxisOwnershipMode;
 pub use crate::guide::AxisVisibility;
 use crate::{
-    chart_core::AxisPosition,
+    chart_core::{AxisPosition, SharingLevel},
     error::AvengerChartError,
     facet::FacetDirection,
     facet::{
@@ -38,7 +38,7 @@ use crate::{
     partition::{PartitionDimensionSpec, PartitionSlotCache, scalar_values_equivalent},
     plot::{
         CompiledPlot,
-        compiled::{SharingGroupEdge, SharingLevel, enumeration_ancestor_path},
+        compiled::{SharingGroupEdge, enumeration_ancestor_path},
     },
     serialization::LogicalPlanNodeExt,
 };
