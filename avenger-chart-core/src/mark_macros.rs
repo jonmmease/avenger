@@ -227,3 +227,90 @@ macro_rules! define_common_mark_channels {
         }
     };
 }
+
+/// Macro to define position-specific channels for marks in coordinate systems.
+///
+/// This lives in core because it only depends on core mark, channel, guide, and
+/// coordinate contracts. Coordinate crates can use it to add position-channel
+/// builders for their own coordinate systems without depending on the top-level
+/// chart facade.
+#[macro_export]
+macro_rules! define_position_channels {
+    (@generate_with_method $mark:ident, $coord:ty, $name:ident, with_config: $config_type:ty) => {
+        $crate::__private::paste::paste! {
+            pub fn [<$name _with>]<V, F>(self, value: V, f: F) -> Self
+            where
+                V: Into<$crate::ChannelValue>,
+                F: FnOnce($config_type) -> $config_type,
+                $config_type: $crate::PositionConfig<Axis = <<$coord as $crate::CoordinateSystem>::Guide as $crate::CoordinateGuide>::Axis>,
+            {
+                use $crate::PositionConfig;
+
+                let channel_value = value.into();
+                let config = <$config_type>::new(channel_value);
+                let configured = f(config);
+
+                let (channel_value, axis_config) = configured.take_axis_config();
+                let mut mark = self.with_channel_value(stringify!($name), channel_value);
+
+                if let Some(axis_config) = axis_config {
+                    mark.state_mut()
+                        .axis_configs
+                        .insert(stringify!($name).to_string(), std::sync::Arc::new(axis_config));
+                }
+
+                mark
+            }
+        }
+    };
+
+    (@generate_with_method $mark:ident, $coord:ty, $name:ident) => {};
+
+    (
+        $mark:ident<$coord:ty> {
+            $(
+                $name:ident: {
+                    $(default: $default:expr,)?
+                    $(required: $required:expr,)?
+                    $(with_config: $config_type:ty,)?
+                }
+            ),* $(,)?
+        }
+    ) => {
+        impl $mark<$coord> {
+            $(
+                pub fn $name<V: Into<$crate::ChannelValue>>(self, value: V) -> Self {
+                    self.with_channel_value(stringify!($name), value.into())
+                }
+
+                $crate::define_position_channels!(@generate_with_method
+                    $mark,
+                    $coord,
+                    $name
+                    $(, with_config: $config_type)?
+                );
+            )*
+
+            /// Get position channel descriptors for this mark type.
+            pub fn position_channel_descriptors() -> Vec<$crate::ChannelDescriptor> {
+                vec![
+                    $(
+                        $crate::ChannelDescriptor {
+                            name: stringify!($name),
+                            required: false $(|| $required)?,
+                            default_value: None $(.or(Some($default)))?,
+                            allow_column_ref: true,
+                        },
+                    )*
+                ]
+            }
+
+            /// Get all channel descriptors (common + position).
+            pub fn all_channel_descriptors() -> Vec<$crate::ChannelDescriptor> {
+                let mut descriptors = Self::common_channel_descriptors();
+                descriptors.extend(Self::position_channel_descriptors());
+                descriptors
+            }
+        }
+    };
+}

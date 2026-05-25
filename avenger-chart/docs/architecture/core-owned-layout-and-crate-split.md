@@ -428,10 +428,11 @@ Migration discipline:
      logical-expression codec, matching the other moved core spec/value types.
      The chart-specific `AvengerChartExtensionCodec` remains in
      `avenger-chart::serialization` for scale-UDF-bearing expressions.
-   - `impl_mark_base!` and `define_common_mark_channels!` now live in
-     `avenger-chart-core`. They only depend on core mark state, data context,
-     and channel configuration contracts. `avenger-chart` re-exports the macros
-     for compatibility.
+   - `impl_mark_base!`, `impl_mark_trait_common!`,
+     `define_common_mark_channels!`, and `define_position_channels!` now live
+     in `avenger-chart-core`. They only depend on core mark state, data
+     context, channel, guide, and coordinate contracts. `avenger-chart`
+     re-exports the macros for compatibility.
    - `GenericPositionConfig<A>` now lives in the real `avenger-chart-core`
      crate next to the `PositionConfig` trait. The old
      `avenger_chart::channel::GenericPositionConfig` path is a compatibility
@@ -830,7 +831,7 @@ boundaries boring.
     serialization. The scale-UDF layer remains in `avenger-chart-scales` and
     delegates generic table-provider handling to core.
    - The external custom-mark dogfood now imports custom mark
-     state/data/channel contracts, base/common-channel macros, `Mark`,
+     state/data/channel contracts, base/common/position-channel macros, `Mark`,
      `CompiledMark`, `MarkRuntimeContext`, and `AvengerChartError` directly
      from `avenger-chart-core`. Its `HexBin<C>` mark implementation is generic
      over `CoordinateSystemCore`, proving mark authoring no longer requires the
@@ -932,9 +933,9 @@ boundaries boring.
      `CoordMeasurement`, `CoordinateSystem`, `CoordinateSystemCore`,
      `CoordinateSystemTransform`, `CoordinateSystemTransformCore`,
      `CoordinateGuide`, `CompiledGuide`, `GuideSharingContext`, `Mark`,
-     `CompiledMark`, `MarkRuntimeContext`, mark-constructor macros, and scale
-     builders. It still imports the top-level facade for `Plot` and
-     coordinate-channel helper macros.
+     `CompiledMark`, `MarkRuntimeContext`, mark-constructor and
+     position-channel macros, and scale builders. It still imports the
+     top-level facade for `Plot`.
    - The external subplot-coordinate dogfood now imports
      `CompiledDataContext`, `CompiledMarkState`, channel descriptors, geometry,
      error types, `CoordMeasurement`, `CoordinateSystem`,

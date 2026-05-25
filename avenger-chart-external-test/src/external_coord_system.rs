@@ -3,14 +3,13 @@
 use std::{any::Any, collections::HashMap, marker::PhantomData, sync::Arc};
 
 use async_trait::async_trait;
-use avenger_chart::{define_position_channels, impl_mark_trait_common};
 use avenger_chart_core::{
-    define_common_mark_channels, impl_mark_base, AvengerChartError, Axis, ChannelDescriptor,
-    ChannelValue, CompiledDataContext, CompiledGuide, CompiledMark, CompiledMarkCore,
-    CompiledMarkState, CoordMeasurement, CoordinateGuide, CoordinateSystem, CoordinateSystemCore,
-    CoordinateSystemTransform, CoordinateSystemTransformCore, GuideSharingContext, LayoutBounds,
-    Mark, MarkRuntimeContext, MarkState, OverflowSpaceRequirement, PlotGeometry, PointGeometry,
-    PositionConfig, Theme,
+    define_common_mark_channels, define_position_channels, impl_mark_base, impl_mark_trait_common,
+    AvengerChartError, Axis, ChannelDescriptor, ChannelValue, CompiledDataContext, CompiledGuide,
+    CompiledMark, CompiledMarkCore, CompiledMarkState, CoordMeasurement, CoordinateGuide,
+    CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
+    CoordinateSystemTransformCore, GuideSharingContext, LayoutBounds, Mark, MarkRuntimeContext,
+    MarkState, OverflowSpaceRequirement, PlotGeometry, PointGeometry, PositionConfig, Theme,
 };
 use avenger_chart_scales::{Auto, Scale, ScaleChannelValue};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};

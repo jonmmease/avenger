@@ -43,7 +43,9 @@ pub mod theme;
 pub mod utils;
 pub mod zerod;
 
-pub use avenger_chart_core::{define_common_mark_channels, impl_mark_base, impl_mark_trait_common};
+pub use avenger_chart_core::{
+    define_common_mark_channels, define_position_channels, impl_mark_base, impl_mark_trait_common,
+};
 
 #[cfg(test)]
 mod serialization_tests {

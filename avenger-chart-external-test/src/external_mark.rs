@@ -2,12 +2,12 @@
 
 use std::{any::Any, marker::PhantomData, sync::Arc};
 
-use avenger_chart::{define_position_channels, impl_mark_trait_common};
 use avenger_chart_cartesian::{Cartesian, CartesianPositionConfig};
 use avenger_chart_core::{
-    define_common_mark_channels, impl_mark_base, AvengerChartError, ChannelDescriptor,
-    CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState, CoordinateSystemCore,
-    CoordinateSystemTransformCore, Mark, MarkRuntimeContext, MarkState,
+    define_common_mark_channels, define_position_channels, impl_mark_base, impl_mark_trait_common,
+    AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
+    CompiledMarkState, CoordinateSystemCore, CoordinateSystemTransformCore, Mark,
+    MarkRuntimeContext, MarkState,
 };
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::{arrow::record_batch::RecordBatch, scalar::ScalarValue};
