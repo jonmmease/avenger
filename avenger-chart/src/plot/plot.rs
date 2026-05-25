@@ -14,6 +14,7 @@ use indexmap::IndexMap;
 use avenger_chart_core::{
     AxisSpec, CompiledSubplotChildPlot, IntoExpr, Param, SubplotChildPlotSpec, contains_aggregate,
 };
+use avenger_chart_scales::PlotScaleSpec as ScaleSpec;
 
 use crate::{
     coords::CoordinateSystem,
@@ -28,7 +29,6 @@ use crate::{
 
 use super::{
     compiled::CompiledPlot,
-    specs::ScaleSpec,
     title::{PlotSubtitle, PlotTitle},
 };
 

@@ -1087,6 +1087,10 @@ boundaries boring.
    - Reduced `avenger_chart::serialization::dataframe` to a behavior-free
      compatibility re-export; its former tests now live with the core
      serialization implementation.
+   - Removed the private `plot::specs` shim after `AxisSpec` and plot scale
+     override specs had real owners. The public `avenger_chart::plot::*`
+     compatibility exports now point directly at `avenger-chart-core` and
+     `avenger-chart-scales`.
 
 ## Testing And Validation Strategy
 

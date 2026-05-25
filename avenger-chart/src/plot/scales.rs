@@ -3,10 +3,8 @@
 use crate::{
     coords::CoordinateSystem,
     plot::Plot,
-    scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec},
+    scales::{Auto, PlotScaleSpec as ScaleSpec, Scale, ScaleSpec as ScaleTypeSpec},
 };
-
-use super::specs::ScaleSpec;
 
 /// Methods for adding scales to Plot
 impl<C: CoordinateSystem> Plot<C> {

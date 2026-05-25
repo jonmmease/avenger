@@ -7,7 +7,6 @@ mod channel;
 pub(crate) mod compiled;
 mod plot;
 mod scales;
-mod specs;
 mod title;
 
 // Re-export core plot types
@@ -19,4 +18,5 @@ pub use plot::Plot;
 pub use title::{PlotSubtitle, PlotTitle, TitleAlign, TitleSpan};
 
 // Re-export specification types
-pub use specs::{AxisSpec, ScaleSpec};
+pub use avenger_chart_core::AxisSpec;
+pub use avenger_chart_scales::PlotScaleSpec as ScaleSpec;

@@ -30,6 +30,7 @@ use serde_with::{FromInto, serde_as};
 use avenger_chart_core::{
     AxisSpec, CompiledSubplotChildPlot, EvaluationContext as CoreEvaluationContext,
 };
+use avenger_chart_scales::PlotScaleSpec as ScaleSpec;
 
 use crate::{
     channel::value::strip_trailing_numbers,
@@ -88,10 +89,7 @@ pub(crate) use self::mark_data_runtime::{
     MarkDataRequest, PreparedMarkData, prepare_mark_data as prepare_mark_data_runtime,
 };
 
-use super::{
-    specs::ScaleSpec,
-    title::{PlotSubtitle, PlotTitle},
-};
+use super::title::{PlotSubtitle, PlotTitle};
 
 #[serde_as]
 #[derive(Serialize, Deserialize)]
