@@ -34,8 +34,8 @@ use crate::{
         ChildFrameDataSelection, ChildFrameDomainSharingInput, ChildFrameRuntime, CompiledPlot,
         ComponentsMeasurement, MarkDataRequest, PreparedChildFramePlot,
         child_frame_container_overflow, child_frame_container_view_from_cartesian_positioned,
-        compiled_subplot_payload_child_plot, coordinated_child_frame_domain_extents,
-        prepare_mark_data_runtime,
+        compiled_subplot_payload_child_plot, container_path_without_facet_segments,
+        coordinated_child_frame_domain_extents, prepare_mark_data_runtime,
     },
     render::{EvaluationContext, RenderContext},
     scales::ConfiguredScaleWithSpec,
@@ -261,6 +261,21 @@ fn positioned_child_scope_key(
         },
     };
     ChildFrameScopeKey::new(container_path.to_vec(), child_key)
+}
+
+fn positioned_child_container_segment(
+    mark_index: usize,
+    identity: &PositionedChildIdentity,
+    key: Option<&str>,
+) -> ContainerPathSegment {
+    match identity {
+        PositionedChildIdentity::Row { row_index } => {
+            ContainerPathSegment::positioned_subplot(mark_index, *row_index, key)
+        }
+        PositionedChildIdentity::Partition { value } => {
+            ContainerPathSegment::positioned_partition(mark_index, value.clone(), key)
+        }
+    }
 }
 
 fn positioned_child_sharing_level(
@@ -700,6 +715,7 @@ async fn measure_positioned_child(
     eval_ctx: &EvaluationContext,
     facet_path: &[ScalarValue],
     domain_extents: &HashMap<String, DomainExtent>,
+    facet_scoped_domain_extents: &HashMap<String, DomainExtent>,
 ) -> Result<CartesianPositionedChildMeasurement, AvengerChartError> {
     let runtime = ChildFrameRuntime::new();
     let child_layout_spec = runtime.fixed_plot_area_layout_spec(
@@ -720,7 +736,7 @@ async fn measure_positioned_child(
             &child_eval_ctx,
             &child_layout_spec,
             facet_path,
-            &[domain_extents],
+            &[domain_extents, facet_scoped_domain_extents],
         )
         .await?;
 
@@ -804,6 +820,16 @@ pub(crate) async fn measure_cartesian_positioned_subplots(
     let mut domain_index = 0usize;
     for prepared in &prepared_subplots {
         for (spec_index, spec) in prepared.child_specs.iter().enumerate() {
+            let mut relative_child_frame_path =
+                container_path_without_facet_segments(eval_ctx.child_frame_container_path());
+            relative_child_frame_path.push(positioned_child_container_segment(
+                spec.mark_index,
+                &spec.identity,
+                spec.key.as_deref(),
+            ));
+            let facet_scoped_domain_extents = eval_ctx
+                .facet_scale_precompute_store()
+                .coordinated_child_frame_domain_extents(&relative_child_frame_path, facet_path);
             children.push(
                 measure_positioned_child(
                     prepared,
@@ -813,6 +839,7 @@ pub(crate) async fn measure_cartesian_positioned_subplots(
                     eval_ctx,
                     facet_path,
                     &coordinated_domain_extents[domain_index],
+                    &facet_scoped_domain_extents,
                 )
                 .await?,
             );

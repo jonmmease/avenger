@@ -7,6 +7,7 @@ use indexmap::IndexMap;
 
 use avenger_chart_core::{
     Auto, AxisSpec, ChannelValue, CoordinateSystem, Legend, Mark, resolve_all_channel_refs,
+    strip_trailing_numbers,
 };
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, Scale};
 
@@ -17,7 +18,7 @@ pub(crate) fn extract_channel_configs<C: CoordinateSystem>(
     axis_specs: &mut HashMap<String, AxisSpec>,
     legends: &mut IndexMap<String, Legend>,
     scale_specs: &mut HashMap<String, ScaleSpec>,
-    _scale_to_coord_channel: &mut HashMap<String, String>,
+    scale_to_coord_channel: &mut HashMap<String, String>,
 ) {
     // Extract axis configurations from the mark
     for (channel_name, axis_config) in mark.state().axis_configs.iter() {
@@ -77,6 +78,9 @@ pub(crate) fn extract_channel_configs<C: CoordinateSystem>(
             }
             _ => unreachable!(),
         };
+        scale_to_coord_channel
+            .entry(scale_key.clone())
+            .or_insert_with(|| strip_trailing_numbers(&channel_name).to_string());
 
         // Extract scale config if present
         if let Some(config) = scale_config {

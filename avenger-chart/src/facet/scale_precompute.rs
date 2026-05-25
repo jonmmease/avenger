@@ -3,27 +3,29 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use datafusion::logical_expr::LogicalPlan;
+use datafusion::logical_expr::{LogicalPlan, lit};
 use datafusion::{common::ScalarValue, dataframe::DataFrame};
 use tracing::{debug, trace};
 
-use avenger_chart_core::SharingLevel;
+use avenger_chart_core::{DefaultLogicalExprNodeExt, SharingLevel};
 
 use crate::{
+    cartesian::positioned_subplot::compiled_cartesian_subplot,
     concat::compiled_subplot,
     coords::CellDomainInfo,
     error::AvengerChartError,
     facet::{
         evaluated_facet_tree::EvaluatedFacetTree,
         marks::facet::{FacetSubplotRef, facet_subplot_ref},
-        path_math, sharing_policy,
+        path_math,
     },
     marks::CompiledMark,
+    partition::PartitionKeyExtractor,
     plot::compiled::{
         ChildFrameDomainRequest, CompiledPlot, ContainerPathSegment, CoordinationKind,
         CoordinationScopeKey, aggregate_domain_requests,
-        child_frame_domain_sharing_levels_for_plot, container_path_without_facet_segments,
-        scales::build_scale_builder_from_marks,
+        child_frame_domain_sharing_levels_for_plot, compiled_subplot_payload_child_plot,
+        container_path_without_facet_segments, scales::build_scale_builder_from_marks,
     },
     render::EvaluationContext,
     scales::{DomainExtent, ScaleBuilder},
@@ -277,10 +279,26 @@ pub(crate) fn child_frame_domain_coordination_scope_key(
     sharing_level: SharingLevel,
     facet_depth: u8,
 ) -> CoordinationScopeKey {
-    let ancestor_key = sharing_policy::domain_group_key(full_cell_path, sharing_level, facet_depth);
+    let facet_depth = facet_depth as usize;
+    let total_depth = facet_depth.saturating_add(relative_child_frame_path.len());
+    let keep_count = if sharing_level.raw() as usize >= total_depth {
+        0
+    } else {
+        total_depth.saturating_sub(sharing_level.raw() as usize)
+    };
+    let keep_facet_count = keep_count.min(facet_depth);
+    let keep_child_frame_count = keep_count.saturating_sub(facet_depth);
+    let ancestor_key = full_cell_path
+        .get(..keep_facet_count.min(full_cell_path.len()))
+        .unwrap_or(full_cell_path)
+        .to_vec();
+    let container_path = relative_child_frame_path
+        .get(..keep_child_frame_count.min(relative_child_frame_path.len()))
+        .unwrap_or(relative_child_frame_path)
+        .to_vec();
     CoordinationScopeKey::partition_path_in_container(
         CoordinationKind::ScaleDomain,
-        relative_child_frame_path.to_vec(),
+        container_path,
         ancestor_key,
     )
     .with_channel(channel)
@@ -623,6 +641,110 @@ fn explicit_dataframe_for_plot(
     })
 }
 
+async fn collect_cartesian_positioned_child_frame_domain_infos_for_mark(
+    mark: &dyn CompiledMark,
+    relative_child_frame_path: &[ContainerPathSegment],
+    full_cell_path: &[ScalarValue],
+    inherited_data_df: Option<&DataFrame>,
+    facet_tree: &EvaluatedFacetTree,
+    eval_ctx: &EvaluationContext,
+) -> Result<Vec<FacetChildFrameDomainInfo>, AvengerChartError> {
+    let Some(subplot) = compiled_cartesian_subplot(mark) else {
+        return Ok(Vec::new());
+    };
+    if !subplot.is_partitioned() {
+        return Ok(Vec::new());
+    }
+
+    let Some(parent_data) = inherited_data_df else {
+        return Err(AvengerChartError::InvalidArgument(
+            "Partitioned Cartesian subplots require inherited parent data for facet scale precompute"
+                .to_string(),
+        ));
+    };
+
+    let ctx = eval_ctx.session_context.as_ref();
+    let partition_expr = subplot
+        .partition_expr()
+        .ok_or_else(|| {
+            AvengerChartError::InternalError(
+                "Partitioned Cartesian subplot is missing its partition expression".to_string(),
+            )
+        })?
+        .to_expr(ctx)?;
+    let partition_values =
+        PartitionKeyExtractor::extract_keys(parent_data, &partition_expr).await?;
+    let child_plot = compiled_subplot_payload_child_plot(subplot.payload());
+    let explicit_sharing = child_frame_domain_sharing_levels_for_plot(child_plot);
+
+    let mut infos = Vec::new();
+    for value in partition_values {
+        let filtered_data = parent_data
+            .clone()
+            .filter(partition_expr.clone().eq(lit(value.clone())))?;
+        let mut child_relative_path = relative_child_frame_path.to_vec();
+        child_relative_path.push(ContainerPathSegment::positioned_partition(
+            subplot.mark_index(),
+            value,
+            subplot.key(),
+        ));
+
+        if explicit_sharing
+            .values()
+            .any(|sharing_level| !sharing_level.is_free())
+        {
+            let scale_builder = build_scale_builder_from_marks(
+                &child_plot.marks,
+                &child_plot.scale_specs,
+                &child_plot.coord_transform,
+                &child_plot.data,
+                Some(filtered_data.clone()),
+                eval_ctx,
+                child_plot.get_theme().as_ref(),
+            )
+            .await?;
+
+            let channels = scale_builder
+                .channel_builders()
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>();
+            let facet_depth = full_cell_path.len() as u8;
+            for (channel, extent) in scale_builder.extract_domain_extents(&channels) {
+                let Some(domain_sharing_level) = explicit_sharing.get(&channel).copied() else {
+                    continue;
+                };
+                if domain_sharing_level.is_free() {
+                    continue;
+                }
+
+                infos.push(FacetChildFrameDomainInfo {
+                    relative_child_frame_path: child_relative_path.clone(),
+                    full_cell_path: full_cell_path.to_vec(),
+                    channel,
+                    domain_sharing_level,
+                    facet_depth,
+                    extent,
+                });
+            }
+        }
+
+        infos.extend(
+            Box::pin(collect_child_frame_domain_infos_for_marks(
+                &child_plot.marks,
+                &child_relative_path,
+                full_cell_path,
+                Some(&filtered_data),
+                facet_tree,
+                eval_ctx,
+            ))
+            .await?,
+        );
+    }
+
+    Ok(infos)
+}
+
 async fn collect_child_frame_domain_infos_for_marks(
     compiled_marks: &[Arc<dyn CompiledMark>],
     relative_child_frame_path: &[ContainerPathSegment],
@@ -634,6 +756,18 @@ async fn collect_child_frame_domain_infos_for_marks(
     let mut infos = Vec::new();
 
     for mark in compiled_marks {
+        infos.extend(
+            collect_cartesian_positioned_child_frame_domain_infos_for_mark(
+                mark.as_ref(),
+                relative_child_frame_path,
+                full_cell_path,
+                inherited_data_df,
+                facet_tree,
+                eval_ctx,
+            )
+            .await?,
+        );
+
         if mark.mark_type() != "subplot" {
             continue;
         }
@@ -672,10 +806,9 @@ async fn collect_child_frame_domain_infos_for_marks(
         let explicit_sharing = child_frame_domain_sharing_levels_for_plot(child_plot);
         let facet_depth = full_cell_path.len() as u8;
         for (channel, extent) in scale_builder.extract_domain_extents(&channels) {
-            let domain_sharing_level = explicit_sharing
-                .get(&channel)
-                .copied()
-                .unwrap_or_else(|| facet_tree.channel_domain_sharing_level_typed(&channel));
+            let Some(domain_sharing_level) = explicit_sharing.get(&channel).copied() else {
+                continue;
+            };
             if domain_sharing_level.is_free() {
                 continue;
             }
@@ -893,7 +1026,7 @@ mod tests {
     }
 
     #[test]
-    fn child_frame_domain_lookup_coordinates_by_relative_path_and_facet_group() {
+    fn child_frame_domain_lookup_coordinates_by_sharing_path_and_facet_group() {
         let store = FacetScalePrecomputeStore::default();
         let sepal = vec![ContainerPathSegment::concat_child(0, Some("sepal"))];
         let petal = vec![ContainerPathSegment::concat_child(1, Some("petal"))];
@@ -940,14 +1073,14 @@ mod tests {
                 .get("fill")
                 .and_then(DomainExtent::discrete_values)
                 .map(|values| values.len()),
-            Some(2)
+            Some(3)
         );
         assert_eq!(
             petal_extents
                 .get("fill")
                 .and_then(DomainExtent::discrete_values)
                 .map(|values| values.len()),
-            Some(1)
+            Some(3)
         );
     }
 }

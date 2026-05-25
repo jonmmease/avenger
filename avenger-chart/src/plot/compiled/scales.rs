@@ -130,7 +130,11 @@ mod tests {
 
         let mut coord_system_range_bindings = HashMap::new();
         for ch in builder.channel_builders().keys() {
-            let base = strip_trailing_numbers(ch);
+            let base = compiled
+                .scale_to_coord_channel
+                .get(ch)
+                .map(String::as_str)
+                .unwrap_or_else(|| strip_trailing_numbers(ch));
             if let Some(binding) = compiled.coord_transform.default_range_binding(base) {
                 coord_system_range_bindings.insert(ch.clone(), binding);
             }

@@ -189,7 +189,11 @@ impl CompiledPlot {
         // Build coordinate system range bindings map
         let mut coord_system_range_bindings = HashMap::<String, ScaleRangeBinding>::new();
         for channel in builder.channel_builders().keys() {
-            let base = strip_trailing_numbers(channel);
+            let base = self
+                .scale_to_coord_channel
+                .get(channel)
+                .map(String::as_str)
+                .unwrap_or_else(|| strip_trailing_numbers(channel));
             if let Some(binding) = self.coord_transform.default_range_binding(base) {
                 coord_system_range_bindings.insert(channel.clone(), binding);
             }
