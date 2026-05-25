@@ -1,215 +1,108 @@
 # Coordinate-Positioned Subplots
 
 Coordinate-positioned subplots let a coordinate system place child plots inside
-its parent plot area. Coordinate crates own the authoring methods and placement
-channel names, while the top-level `avenger-chart` crate owns child-frame
-measurement, sharing, guide/legend coordination, and rendering.
+its parent plot area. Coordinate crates own authoring methods and placement
+channel names. The top-level `avenger-chart` crate owns child-frame
+measurement, domain sharing, guide/legend coordination, and rendering.
 
-Facet and concat layout remain built-in layout containers. Coordinate-positioned
-subplots are the extension point for coordinate systems that can produce point
-anchors for child plot frames.
+## Compile And Runtime Flow
+
+```mermaid
+sequenceDiagram
+    participant Subplot as Subplot<Coord>
+    participant Coord as Coordinate crate
+    participant Core as avenger-chart-core
+    participant Runtime as avenger-chart positioned runtime
+    participant Transform as Coordinate transform
+
+    Subplot->>Coord: coordinate-specific placement methods
+    Coord->>Core: compile_positioned_subplot_mark(spec)
+    Core-->>Coord: CompiledPositionedSubplot
+    Runtime->>Core: mark.as_positioned_subplot()
+    Runtime->>Runtime: evaluate placement channels
+    Runtime->>Transform: transform mapped channels
+    Transform-->>Runtime: PointGeometry
+    Runtime->>Runtime: measure child frames and render groups
+```
 
 ## Authoring Surface
 
 The neutral `Subplot<C>` mark lives in `avenger-chart-marks`. Coordinate crates
-add coordinate-specific extension traits for placement channels.
+add extension traits for placement channels.
 
-Cartesian subplots use `CartesianSubplotPositionChannels` from
-`avenger-chart-cartesian`:
+Cartesian uses `CartesianSubplotPositionChannels` with `subplot_x`,
+`subplot_y`, and `partition_by`. Cartesian maps `subplot_x` to transform
+channel `x` and `subplot_y` to transform channel `y`.
 
-```rust
-Subplot::<Cartesian>::new(child_plot)
-    .partition_by(col("species"))
-    .subplot_x(avg(col("sepal_length")))
-    .subplot_y(avg(col("petal_length")))
-    .plot_size(90.0, 70.0)
-```
+Polar uses `PolarSubplotPositionChannels` with `r`, `theta`, and
+`partition_by`. Polar maps both placement channels to the same transform
+channel names.
 
-Polar subplots use `PolarSubplotPositionChannels` from `avenger-chart-polar`:
-
-```rust
-Subplot::<Polar>::new(child_plot)
-    .partition_by(col("species"))
-    .theta(avg(col("angle")))
-    .r(avg(col("radius")))
-    .plot_size(90.0, 70.0)
-```
-
-External coordinate crates can define their own placement methods, such as
-`subplot_u` and `subplot_v`, by adding an extension trait for `Subplot<Foo>`.
+External coordinate crates can define their own `Subplot<Foo>` placement
+methods and call the shared compile helper.
 
 ## Compile Contract
 
-Coordinate crates opt into positioned subplots by implementing
-`SubplotContainerCoordinateSystem`.
+Coordinate crates implement `SubplotContainerCoordinateSystem` and call
+`compile_positioned_subplot_mark` with a `PositionedSubplotSpec`.
 
-The implementation calls `compile_positioned_subplot_mark(...)` from
-`avenger-chart-core` with a `PositionedSubplotSpec`. The spec declares:
+`PositionedSubplotSpec` declares:
 
-- `outer_label`: the coordinate label used in author-facing errors,
-- `group_name_prefix`: the scene group prefix used for rendered child frames,
-- `placement_channels`: the source channel names on the `Subplot` mark and the
-  transform-channel names passed to the coordinate transform,
-- `partition_channel`: the optional channel that creates one child frame per
-  partition value,
+- the coordinate label used in errors,
+- the rendered group-name prefix,
+- placement channel mappings through `PositionedSubplotChannel`,
+- an optional partition channel,
 - default child plot-area width and height.
 
-The shared compile helper produces `CompiledPositionedSubplot`, which implements
-`PositionedSubplotMarkCore`. Cartesian and Polar expose
-`CompiledCartesianSubplot` and `CompiledPolarSubplot` as aliases for that
-compiled mark type.
+The helper returns a `CompiledPositionedSubplot`, which implements
+`PositionedSubplotMarkCore`. The top-level runtime discovers positioned
+subplots with `CompiledMarkCore::as_positioned_subplot`.
 
-## Runtime Discovery
+## Placement Channels
 
-`CompiledMarkCore::as_positioned_subplot()` is the runtime discovery hook. The
-top-level coordinate measurement dispatcher asks each compiled mark whether it
-is a positioned subplot. If at least one positioned subplot mark is present, the
-generic runtime in `avenger-chart/src/positioned_subplot.rs` measures those
-child frames as part of coordinate measurement.
+```mermaid
+flowchart LR
+    Parent["Parent coordinate plot"]
+    Placement["Placement channels\nsubplot_x/subplot_y or r/theta"]
+    Transform["CoordinateSystemTransformCore::transform"]
+    Anchors["PointGeometry anchors"]
+    Child["Child plot channels\nx/y/fill/etc."]
 
-The runtime does not know about Cartesian, Polar, or any external coordinate
-type directly. It only reads `PositionedSubplotMarkCore` metadata and calls the
-parent coordinate transform.
-
-## Placement Transform
-
-For each positioned subplot mark, the runtime evaluates the declared placement
-channels from the prepared mark data. It maps each source channel to its
-`transform_channel` from `PositionedSubplotSpec`, then calls the parent
-coordinate transform.
-
-The transform result must downcast to `PointGeometry`. Each point is used as the
-anchor for one child frame. Coordinates that cannot return point anchors do not
-support coordinate-positioned subplots.
-
-Cartesian declares:
-
-```text
-subplot_x -> x
-subplot_y -> y
+    Parent --> Placement
+    Placement --> Transform
+    Transform --> Anchors
+    Anchors --> Child
+    Placement -. independent domains .- Child
 ```
 
-Polar declares:
+Placement channels belong to the parent coordinate system. Child plot channels
+belong to the child plot. Their domains, sharing levels, axes, and legends are
+independent unless the chart author explicitly connects them through shared
+data or shared scale configuration.
 
-```text
-r -> r
-theta -> theta
-```
+The parent coordinate transform must return `PointGeometry` for positioned
+subplots. A non-point transform result is an `InvalidArgument` error.
 
-External coordinates choose their own channel names and transform-channel
-mappings.
-
-## Non-Partitioned Mode
+## Non-Partitioned And Partitioned Modes
 
 Without a partition channel, the runtime creates one child frame per evaluated
-placement row.
+placement row. The child plot uses explicit child data when present; otherwise
+it inherits the current parent data.
 
-Each child frame:
+With a partition channel, the runtime creates one child frame per distinct
+partition value. Partitioned positioned subplots require parent data and no
+plot-level data on the child plot. Placement channels must be aggregates,
+literals/constants, or the partition expression. The runtime filters the parent
+data per partition value and passes that filtered data to the child plot.
 
-- uses a stable `ChildFrameKey::PositionedSubplot`,
-- receives a `ContainerPathSegment::PositionedSubplot` in the child-frame
-  container path,
-- uses `ChildFrameSharingLevel::positioned_subplot(...)` for nested sharing,
-- uses the child plot's explicit data if present,
-- otherwise inherits the current parent data.
+## Child-Frame Integration
 
-## Partitioned Mode
+Positioned subplots use `PositionedCoordMeasurement` and
+`PositionedChildMeasurement`. Child identities are `PositionedSubplot` for
+row-based children and `PositionedPartition` for partitioned children. Both are
+represented in `ChildFrameScopeKey`, `ChildFrameSharingLevel`, and
+`ContainerPathSegment`.
 
-With a partition channel, the runtime creates one child frame per partition
-value.
-
-Partitioned mode requires:
-
-- no plot-level `.data(...)` on the child plot,
-- all required placement channels present,
-- placement expressions that are aggregates, literals/constants, or the
-  partition expression itself,
-- a parent data source to partition.
-
-The runtime keeps two data views:
-
-```text
-parent data
-  |
-  |-- placement summary:
-  |     one row per partition, with evaluated placement channels
-  |
-  |-- child data overrides:
-        one filtered dataframe per partition value
-```
-
-The placement summary provides child anchors and parent placement-scale
-domains. The raw parent data is filtered by partition value and passed to the
-child plot as inherited data.
-
-Each partitioned child frame:
-
-- uses `ChildFrameKey::PositionedPartition`,
-- receives a `ContainerPathSegment::PositionedPartition` in the child-frame
-  container path,
-- uses `ChildFrameSharingLevel::positioned_partition(...)` for nested sharing,
-- includes the partition value in the rendered scene group name when no user
-  key is provided.
-
-## Child-Frame Runtime Integration
-
-Positioned subplots use the same child-frame machinery as concat and facet:
-
-- `ChildFrameRuntime` prepares child plots,
-- `PreparedChildFramePlot` stores child plot preparation results,
-- `ChildFrameDomainSharingInput` feeds nested domain sharing,
-- `ChildFrameScopeKey` provides stable child identity,
-- `ContainerPathSegment` records nested container ownership,
-- `ChildFrameSharingLevel` and `ChildFrameSharingPath` drive guide/axis
-  ownership,
-- `ChildFrameContainerView` exposes measured child frames to guide, legend,
-  debug, and render helpers,
-- `ChildFrameRenderPlacement` stores final child-frame origins and sizes.
-
-Rendering reads the saved `PositionedCoordMeasurement` and
-`PositionedChildMeasurement` values. It does not recompute partitions or child
-plot measurements.
-
-## Scale Domains, Axes, And Legends
-
-Placement channels are ordinary scale channels owned by the parent coordinate
-system. Cartesian placement channels are named `subplot_x` and `subplot_y`, so
-their domains, sharing levels, and axes are independent from the inner child
-plot's `x` and `y` channels.
-
-If an axis is configured on a placement channel, guide sharing treats that
-channel like other positional axes:
-
-- `subplot_x` uses bottom-axis defaults in Cartesian,
-- `subplot_y` uses left-axis defaults in Cartesian,
-- Polar placement axes use Polar guide behavior for `r` and `theta`.
-
-Nested child plot domains and legends follow child-frame sharing levels:
-
-- `ScaleSharing::Free` / `Level(0)` stays local to each child frame,
-- `ScaleSharing::Level(n)` hoists to the ancestor `n` child-frame/facet levels
-  up,
-- `ScaleSharing::Shared` hoists to the root shared ancestor.
-
-Visual legends are owned by the visual channel that creates the legend. Sharing
-`subplot_x` or `subplot_y` does not promote a `fill`, `stroke`, `size`, or
-`shape` legend by itself.
-
-## Visual Coverage
-
-Positioned subplot visual coverage lives in:
-
-- `avenger-chart/tests/visual_tests/test_cartesian_subplot.rs`,
-- `avenger-chart/tests/visual_tests/test_positioned_subplot_scale_sharing.rs`,
-- `avenger-chart/tests/visual_tests/test_positioned_subplot_legend_sharing.rs`.
-
-The baseline set covers:
-
-- Cartesian parent with Cartesian child plots,
-- Cartesian parent with Polar child plots,
-- Polar parent with Cartesian child plots,
-- Polar parent with Polar child plots,
-- partitioned positioned subplot filtering,
-- independent `subplot_x` / `subplot_y` sharing and axis ownership,
-- fill legend hoisting through nested positioned child frames,
-- Cartesian and Polar parent legend hoisting.
+The positioned runtime feeds the same child-frame domain sharing, guide,
+legend, layout, and render placement path used by facet and concat. See
+[layout-and-child-frames.md](layout-and-child-frames.md).
