@@ -10,12 +10,7 @@
 pub mod axis;
 pub mod cartesian;
 pub mod channel;
-pub(crate) mod chart_cartesian;
 pub(crate) mod chart_core;
-pub(crate) mod chart_legend;
-pub(crate) mod chart_marks;
-pub(crate) mod chart_polar;
-pub(crate) mod chart_scales;
 pub mod color;
 pub mod concat;
 #[doc(hidden)]

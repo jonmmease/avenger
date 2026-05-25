@@ -307,16 +307,20 @@ Migration discipline:
   behavior.
 - Update internal imports toward the new owner in the same chunk whenever doing
   so is low-risk and mechanical.
-- Keep the phase 1 staging namespaces as temporary wayfinding only; they should
-  shrink as real modules move under their future owners.
+- Keep staging namespaces temporary. Remove them once their future owner is a
+  real crate and the top-level facade only needs compatibility `pub use`
+  modules.
 
 1. Create internal future-boundary modules. Implemented in phase 1.
    Add internal modules or re-export namespaces that mirror the future crates,
    without changing behavior. This makes later file movement mechanical and
    gives imports a target shape:
    `chart_core`, `chart_marks`, `chart_scales`, `chart_legend`,
-   `chart_cartesian`, and `chart_polar`. These are currently `pub(crate)`
-   staging namespaces in `avenger-chart/src`, not new public API.
+   `chart_cartesian`, and `chart_polar`. These started as `pub(crate)`
+   staging namespaces in `avenger-chart/src`, not new public API. The
+   non-core staging namespaces have since been removed as their real crates
+   took ownership; `chart_core` remains as the temporary bridge for core-owned
+   shared types that have not yet moved fully out of the facade crate.
 
 2. Move shared side/spec/value types to the future core boundary.
    Centralize `AxisPosition`, `LegendPosition`, `LegendOrientation`,
@@ -1045,6 +1049,14 @@ boundaries boring.
 7. Shrink the top-level `avenger-chart` crate.
    Leave `Plot`, `CompiledPlot`, facet, concat, partition, layout solvers,
    runtime evaluation, WGPU/app/canvas integration, and facade re-exports.
+
+   Progress:
+
+   - Removed the stale `chart_marks`, `chart_scales`, `chart_legend`,
+     `chart_cartesian`, and `chart_polar` staging namespaces after the real
+     crates took ownership. Public top-level compatibility paths now live in
+     the existing `marks`, `scales`, `legend`, `cartesian`, and `polar`
+     modules as direct `pub use` shims.
 
 ## Testing And Validation Strategy
 
