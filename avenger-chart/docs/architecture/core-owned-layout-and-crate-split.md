@@ -564,8 +564,13 @@ Migration discipline:
      provider of that view, but coordinate guides query guide-level visibility,
      title ownership, jagged-axis state, domain-sharing level, and effective
      edge indices through the context rather than reaching back into the facet
-     tree. The context still lives in the top-level guide module and still
-     carries `ChildFrameSharingPath` internally, so moving `CoordinateGuide` and
+     tree.
+   - `GuideSharingContext` now also stores a narrow
+     `ChildFrameGuideSharingView` trait object instead of a concrete
+     `ChildFrameSharingPath`. Child-frame containers remain owned by the
+     top-level layout runtime, but coordinate guide ownership logic now depends
+     on stable child-frame position/count/axis queries. The context still lives
+     in the top-level guide module, so moving `CoordinateGuide` and
      `CompiledGuide` remains future work.
 
 9. Reduce coordinate transform measurement signatures.

@@ -7,7 +7,7 @@
 
 use datafusion::common::ScalarValue;
 
-use crate::coords::FacetAxis;
+use crate::{coords::FacetAxis, guide::ChildFrameGuideSharingView};
 
 use super::coordination_scope::CoordinationAxis;
 
@@ -191,6 +191,27 @@ impl ChildFrameSharingPath {
     #[cfg(test)]
     pub(crate) fn has_axis(&self, axis: CoordinationAxis) -> bool {
         self.levels.iter().any(|level| level.axis == axis)
+    }
+}
+
+impl ChildFrameGuideSharingView for ChildFrameSharingPath {
+    fn position_indices(&self) -> Vec<usize> {
+        self.position_indices()
+    }
+
+    fn level_counts(&self) -> Vec<usize> {
+        self.level_counts()
+    }
+
+    fn level_axes(&self) -> Vec<CoordinationAxis> {
+        self.level_axes()
+    }
+
+    fn relevant_depth(&self, axis: CoordinationAxis) -> usize {
+        self.levels
+            .iter()
+            .filter(|level| level.axis == axis)
+            .count()
     }
 }
 

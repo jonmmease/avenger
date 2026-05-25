@@ -9,12 +9,11 @@ use indexmap::IndexMap;
 
 use crate::{
     chart_core::{Axis, AxisPosition, GuideOverflowPhase},
-    container::ChildFrameSharingPath,
     coords::CoordMeasurement,
     error::AvengerChartError,
     guide::{
-        AxisOwnershipMode, AxisVisibility, FacetGuideSharingView, MeasurementResult,
-        OverflowSpaceRequirement,
+        AxisOwnershipMode, AxisVisibility, ChildFrameGuideSharingView, FacetGuideSharingView,
+        MeasurementResult, OverflowSpaceRequirement,
     },
     layout::LayoutBounds,
     marks::CompiledMarkCore,
@@ -27,19 +26,19 @@ use crate::{
 pub struct GuideSharingContext<'a> {
     facet_view: &'a dyn FacetGuideSharingView,
     facet_path: &'a [ScalarValue],
-    child_frame_sharing_path: &'a ChildFrameSharingPath,
+    child_frame_view: &'a dyn ChildFrameGuideSharingView,
 }
 
 impl<'a> GuideSharingContext<'a> {
     pub(crate) fn new(
         facet_view: &'a dyn FacetGuideSharingView,
         facet_path: &'a [ScalarValue],
-        child_frame_sharing_path: &'a ChildFrameSharingPath,
+        child_frame_view: &'a dyn ChildFrameGuideSharingView,
     ) -> Self {
         Self {
             facet_view,
             facet_path,
-            child_frame_sharing_path,
+            child_frame_view,
         }
     }
 
@@ -52,23 +51,19 @@ impl<'a> GuideSharingContext<'a> {
     }
 
     pub fn child_frame_position_indices(&self) -> Vec<usize> {
-        self.child_frame_sharing_path.position_indices()
+        self.child_frame_view.position_indices()
     }
 
     pub fn child_frame_level_counts(&self) -> Vec<usize> {
-        self.child_frame_sharing_path.level_counts()
+        self.child_frame_view.level_counts()
     }
 
     pub(crate) fn child_frame_level_axes(&self) -> Vec<CoordinationAxis> {
-        self.child_frame_sharing_path.level_axes()
+        self.child_frame_view.level_axes()
     }
 
     pub(crate) fn child_frame_relevant_depth(&self, axis: CoordinationAxis) -> usize {
-        self.child_frame_sharing_path
-            .levels()
-            .iter()
-            .filter(|level| level.axis == axis)
-            .count()
+        self.child_frame_view.relevant_depth(axis)
     }
 
     pub(crate) fn with_facet_path<'b>(
@@ -81,7 +76,7 @@ impl<'a> GuideSharingContext<'a> {
         GuideSharingContext {
             facet_view: self.facet_view,
             facet_path,
-            child_frame_sharing_path: self.child_frame_sharing_path,
+            child_frame_view: self.child_frame_view,
         }
     }
 

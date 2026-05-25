@@ -1,6 +1,9 @@
 use datafusion::common::ScalarValue;
 
-use crate::{chart_core::AxisPosition, plot::compiled::SharingLevel};
+use crate::{
+    chart_core::AxisPosition,
+    plot::compiled::{CoordinationAxis, SharingLevel},
+};
 
 /// Result of guide axis visibility computation for a container cell.
 ///
@@ -66,4 +69,19 @@ pub(crate) trait FacetGuideSharingView: Send + Sync {
         facet_path: &[ScalarValue],
         values: &[ScalarValue],
     ) -> Option<(usize, usize)>;
+}
+
+pub(crate) trait ChildFrameGuideSharingView: Send + Sync {
+    fn position_indices(&self) -> Vec<usize>;
+
+    fn level_counts(&self) -> Vec<usize>;
+
+    fn level_axes(&self) -> Vec<CoordinationAxis>;
+
+    fn relevant_depth(&self, axis: CoordinationAxis) -> usize {
+        self.level_axes()
+            .into_iter()
+            .filter(|level_axis| *level_axis == axis)
+            .count()
+    }
 }

@@ -14,4 +14,4 @@ pub use coordinate_guide::{CompiledGuide, CoordinateGuide, GuideSharingContext};
 pub use no_guide::NoGuide;
 pub use overflow::{MeasurementResult, OverflowSpaceRequirement, spacing_keys};
 pub use sharing::AxisVisibility;
-pub(crate) use sharing::{AxisOwnershipMode, FacetGuideSharingView};
+pub(crate) use sharing::{AxisOwnershipMode, ChildFrameGuideSharingView, FacetGuideSharingView};
