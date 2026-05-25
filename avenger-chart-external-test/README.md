@@ -18,7 +18,7 @@ This test crate is organized into four modules, each demonstrating a different e
 
 ### 2. Custom Marks (`src/external_mark.rs`)
 - Implements `HexBin`: A custom hexagonal binning mark
-- Uses avenger-chart's mark macros for boilerplate
+- Uses `avenger-chart-core` mark macros for boilerplate
 - Demonstrates channel definitions and mark rendering
 
 ### 3. Custom Coordinate Systems (`src/external_coord_system.rs`)
@@ -65,6 +65,7 @@ cargo test
 
 ### Custom Scale
 ```rust
+use avenger_chart_scales::Scale;
 use avenger_chart_external_test::external_scale::{SmoothLog, SmoothLogExt};
 
 let scale = Scale::<SmoothLog>::new()
@@ -74,29 +75,34 @@ let scale = Scale::<SmoothLog>::new()
 
 ### Custom Mark
 ```rust
+use avenger_chart::plot::Plot;
+use avenger_chart_cartesian::Cartesian;
 use avenger_chart_external_test::external_mark::HexBin;
 
-let plot = Plot::new(Cartesian)
+let plot = Plot::<Cartesian>::new()
     .mark(HexBin::new().x("value").y("count").fill("category"));
 ```
 
 ### Custom Coordinate System
 ```rust
+use avenger_chart::plot::Plot;
 use avenger_chart_external_test::external_coord_system::Isometric;
 
-let plot = Plot::new(Isometric::new())
+let plot = Plot::with_coord(Isometric::new())
     .mark(Symbol3D::new().x("x").y("y").z("z"));
 ```
 
 ### Subplot-Capable Coordinate System
 ```rust
-use avenger_chart::marks::Subplot;
 use avenger_chart::plot::Plot;
-use avenger_chart::zerod::ZeroDCoord;
+use avenger_chart_core::ZeroDCoord;
 use avenger_chart_external_test::external_subplot_coord::ExternalSubplotCoord;
+use avenger_chart_marks::Subplot;
 
 let plot = Plot::<ExternalSubplotCoord>::new()
     .mark(Subplot::new(Plot::<ZeroDCoord>::new()));
 ```
 
-This crate demonstrates that avenger-chart's extension points are fully functional and can be used by external crates to add custom functionality
+This crate demonstrates that avenger-chart's supported extension points are
+usable from external crates without depending on built-in mark, coordinate, or
+legend implementation crates unless those concrete implementations are needed.
