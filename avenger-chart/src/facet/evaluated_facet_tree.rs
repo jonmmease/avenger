@@ -1341,7 +1341,7 @@ fn is_empty_relation(df: &DataFrame) -> bool {
 /// Resolved metadata for building a partition node from a facet subplot mark.
 struct FacetPartitionMarkSpec<'a> {
     dimension: PartitionDimensionSpec,
-    subplot: &'a Arc<CompiledPlot>,
+    subplot: &'a CompiledPlot,
 }
 
 impl<'a> FacetPartitionMarkSpec<'a> {

@@ -19,7 +19,7 @@ pub(crate) mod scales; // Made public so plot.rs can call build_scale_builder_fr
 mod titles;
 mod validation;
 
-use std::{collections::HashMap, sync::Arc};
+use std::{any::Any, collections::HashMap, sync::Arc};
 
 use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
 use datafusion_proto::protobuf::LogicalPlanNode;
@@ -29,7 +29,7 @@ use serde_with::{FromInto, serde_as};
 
 use crate::{
     channel::value::strip_trailing_numbers,
-    chart_core::EvaluationContext as CoreEvaluationContext,
+    chart_core::{CompiledSubplotChildPlot, EvaluationContext as CoreEvaluationContext},
     coords::CoordinateSystemTransform,
     error::AvengerChartError,
     guide::CompiledGuide,
@@ -261,6 +261,17 @@ impl CompiledPlot {
             params,
         )
         .await
+    }
+}
+
+#[typetag::serde]
+impl CompiledSubplotChildPlot for CompiledPlot {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
+        self
     }
 }
 

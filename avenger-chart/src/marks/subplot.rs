@@ -5,8 +5,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     chart_core::{
-        ColumnDimensionConfig, FacetDimensionConfig, FacetEmptyCellPolicy, RowDimensionConfig,
-        ScaleSharing,
+        ColumnDimensionConfig, CompiledSubplotChildPlot, FacetDimensionConfig,
+        FacetEmptyCellPolicy, RowDimensionConfig, ScaleSharing, SubplotChildPlotSpec,
+        SubplotDataSource,
     },
     coords::{CoordinateSystem, CoordinateSystemCore},
     error::AvengerChartError,
@@ -17,20 +18,11 @@ use crate::{
     render::RenderContext,
 };
 
-/// Data source selected for a compiled subplot's child plot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SubplotDataSource {
-    /// The child plot has explicit plot-level data.
-    ExplicitChild,
-    /// The child plot has no plot-level data and should inherit container data.
-    InheritParent,
-}
-
 /// Shared compiled state for a child plot owned by a container subplot mark.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledSubplotPayload {
     state: CompiledMarkState,
-    compiled_subplot: Arc<CompiledPlot>,
+    compiled_subplot: Arc<dyn CompiledSubplotChildPlot>,
     label: Option<String>,
     key: Option<String>,
     data_source: SubplotDataSource,
@@ -39,7 +31,7 @@ pub struct CompiledSubplotPayload {
 impl CompiledSubplotPayload {
     pub fn new(
         state: CompiledMarkState,
-        compiled_subplot: Arc<CompiledPlot>,
+        compiled_subplot: Arc<dyn CompiledSubplotChildPlot>,
         label: Option<String>,
         key: Option<String>,
         data_source: SubplotDataSource,
@@ -53,8 +45,25 @@ impl CompiledSubplotPayload {
         }
     }
 
-    pub fn compiled_subplot(&self) -> &Arc<CompiledPlot> {
+    pub fn compiled_child_plot(&self) -> &Arc<dyn CompiledSubplotChildPlot> {
         &self.compiled_subplot
+    }
+
+    pub fn compiled_subplot(&self) -> &CompiledPlot {
+        self.compiled_subplot
+            .as_any()
+            .downcast_ref::<CompiledPlot>()
+            .expect("subplot payload child plot is not an avenger-chart CompiledPlot")
+    }
+
+    pub(crate) fn compiled_subplot_arc(&self) -> Arc<CompiledPlot> {
+        match Arc::clone(&self.compiled_subplot)
+            .into_any_arc()
+            .downcast::<CompiledPlot>()
+        {
+            Ok(compiled) => compiled,
+            Err(_) => panic!("subplot payload child plot is not an avenger-chart CompiledPlot"),
+        }
     }
 
     pub fn compiled_state(&self) -> &CompiledMarkState {
@@ -105,23 +114,6 @@ impl CompiledSubplotPayload {
                 .map_err(AvengerChartError::DataFusionError)
         })
         .transpose()
-    }
-}
-
-#[async_trait::async_trait]
-#[doc(hidden)]
-pub trait SubplotChildPlotSpec: Send + Sync {
-    fn clone_box(&self) -> Box<dyn SubplotChildPlotSpec>;
-    fn has_plot_level_data(&self) -> bool;
-    async fn compile_boxed(
-        &self,
-        session_context: &SessionContext,
-    ) -> Result<Arc<CompiledPlot>, AvengerChartError>;
-}
-
-impl Clone for Box<dyn SubplotChildPlotSpec> {
-    fn clone(&self) -> Self {
-        self.clone_box()
     }
 }
 
@@ -236,7 +228,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     pub async fn compile_child_plot(
         &self,
         session_context: &SessionContext,
-    ) -> Result<Arc<CompiledPlot>, AvengerChartError> {
+    ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
         self.subplot.compile_boxed(session_context).await
     }
 

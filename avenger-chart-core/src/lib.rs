@@ -56,6 +56,7 @@ pub mod scale_spec;
 pub mod scale_type;
 pub mod serialization;
 pub mod sharing;
+pub mod subplot_child_plot;
 pub mod theme;
 pub mod theme_context;
 pub mod zero_d;
@@ -163,6 +164,7 @@ pub use serialization::{
     SerializableExpr, SerializableNestedScalarMap, SerializableScalar, SerializableScalarMap,
 };
 pub use sharing::{CoordinationAxis, SharingLevel};
+pub use subplot_child_plot::{CompiledSubplotChildPlot, SubplotChildPlotSpec, SubplotDataSource};
 pub use theme::{AngleUnit, CssRgba, LengthUnit, Theme, ThemeValue};
 pub use theme_context::ThemeContext;
 pub use zero_d::ZeroDCoord;

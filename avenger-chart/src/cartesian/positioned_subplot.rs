@@ -136,7 +136,7 @@ pub struct CompiledCartesianSubplot {
 }
 
 impl CompiledCartesianSubplot {
-    pub fn compiled_subplot(&self) -> &Arc<CompiledPlot> {
+    pub fn compiled_subplot(&self) -> &CompiledPlot {
         self.payload.compiled_subplot()
     }
 

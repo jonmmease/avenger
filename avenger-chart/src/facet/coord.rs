@@ -3033,7 +3033,7 @@ pub(crate) struct FacetBandMeasurePipeline<'a> {
 }
 
 struct FacetBandResolvedNode<'a> {
-    compiled_subplot: &'a Arc<CompiledPlot>,
+    compiled_subplot: Arc<CompiledPlot>,
     band_scale: &'a ConfiguredScaleWithSpec,
     subplot_band_size: f32,
     current_facet_slot_sharing: SharingLevel,
@@ -3086,7 +3086,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             return Ok(empty_facet_band_measurement(
                 self.axis_ops.enumeration_axis(),
                 self.facet_path,
-                resolved.compiled_subplot,
+                &resolved.compiled_subplot,
                 resolved.band_scale,
                 resolved.empty_cell_policy,
                 self.eval_ctx
@@ -3125,7 +3125,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         let (prepared_inputs, prepared_runtime) = prepare_band_inputs_and_runtime(
             cell_semantics.clone(),
             data_df,
-            resolved.compiled_subplot,
+            &resolved.compiled_subplot,
             resolved.band_scale,
             subplot_band_size,
             self.eval_ctx,
@@ -3226,7 +3226,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         let (prepared_inputs, prepared_runtime) = prepare_band_inputs_and_runtime(
             cell_semantics,
             data_df,
-            resolved.compiled_subplot,
+            &resolved.compiled_subplot,
             resolved.band_scale,
             subplot_band_size,
             self.eval_ctx,
@@ -3409,14 +3409,14 @@ impl<'a> FacetBandMeasurePipeline<'a> {
 
         let (compiled_subplot, current_facet_slot_sharing, empty_cell_policy) = match facet_mark {
             FacetSubplotRef::Col(mark) => (
-                mark.compiled_subplot(),
+                mark.compiled_subplot_arc(),
                 mark.facet_slot_sharing()
                     .map(SharingLevel::from)
                     .unwrap_or(SharingLevel::FREE),
                 mark.facet_empty_cell_policy(),
             ),
             FacetSubplotRef::Row(mark) => (
-                mark.compiled_subplot(),
+                mark.compiled_subplot_arc(),
                 mark.facet_slot_sharing()
                     .map(SharingLevel::from)
                     .unwrap_or(SharingLevel::FREE),
@@ -3455,7 +3455,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             return Ok(ResolveBandNodeOutcome::Empty(empty_facet_band_measurement(
                 self.axis_ops.enumeration_axis(),
                 self.facet_path,
-                compiled_subplot,
+                &compiled_subplot,
                 band_scale,
                 empty_cell_policy,
                 self.eval_ctx
@@ -5777,7 +5777,7 @@ mod tests {
         let (prepared_inputs, runtime_state) = prepare_band_inputs_and_runtime(
             cell_semantics.clone(),
             &fixture.data_df,
-            resolved.compiled_subplot,
+            &resolved.compiled_subplot,
             resolved.band_scale,
             resolved.subplot_band_size,
             &fixture.eval_ctx,
@@ -5819,7 +5819,7 @@ mod tests {
         let (prepared_inputs, runtime_state) = prepare_band_inputs_and_runtime(
             cell_semantics,
             &fixture.data_df,
-            resolved.compiled_subplot,
+            &resolved.compiled_subplot,
             resolved.band_scale,
             resolved.subplot_band_size,
             &fixture.eval_ctx,
@@ -5872,7 +5872,7 @@ mod tests {
         let (prepared_inputs, runtime_state) = prepare_band_inputs_and_runtime(
             cell_semantics,
             &fixture.data_df,
-            resolved.compiled_subplot,
+            &resolved.compiled_subplot,
             resolved.band_scale,
             resolved.subplot_band_size,
             &fixture.eval_ctx,
@@ -5933,7 +5933,7 @@ mod tests {
         let (prepared_inputs, runtime_state) = prepare_band_inputs_and_runtime(
             cell_semantics,
             &fixture.data_df,
-            resolved.compiled_subplot,
+            &resolved.compiled_subplot,
             resolved.band_scale,
             resolved.subplot_band_size,
             &fixture.eval_ctx,

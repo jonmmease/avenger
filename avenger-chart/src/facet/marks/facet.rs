@@ -82,7 +82,7 @@ impl FacetBandRenderOps {
 }
 
 fn facet_subplot_eval_ctx(
-    compiled_subplot: &Arc<CompiledPlot>,
+    compiled_subplot: &CompiledPlot,
     context: &RenderContext,
     axis_owner_ignore_empty_cells: bool,
 ) -> EvaluationContext {
@@ -94,7 +94,7 @@ fn facet_subplot_eval_ctx(
 
 async fn render_facet_band_with_placement(
     ops: FacetBandRenderOps,
-    compiled_subplot: &Arc<CompiledPlot>,
+    compiled_subplot: &CompiledPlot,
     facet_empty_cell_policy: FacetEmptyCellPolicy,
     context: &RenderContext<'_>,
     facet_measurement: &FacetBandCoordMeasurement,
@@ -235,7 +235,7 @@ async fn render_facet_band_with_placement(
 
 async fn render_facet_band_common(
     ops: FacetBandRenderOps,
-    compiled_subplot: &Arc<CompiledPlot>,
+    compiled_subplot: &CompiledPlot,
     facet_empty_cell_policy: FacetEmptyCellPolicy,
     context: &RenderContext<'_>,
 ) -> Result<Vec<SceneMark>, AvengerChartError> {
@@ -351,7 +351,17 @@ async fn compile_facet_subplot_child<OuterC: CoordinateSystemCore>(
         ));
     }
 
-    subplot.compile_child_plot(session_context).await
+    subplot
+        .compile_child_plot(session_context)
+        .await?
+        .into_any_arc()
+        .downcast::<CompiledPlot>()
+        .map_err(|_| {
+            AvengerChartError::InternalError(
+                "facet subplot child plot did not compile to avenger-chart CompiledPlot"
+                    .to_string(),
+            )
+        })
 }
 
 fn validate_no_channel(
@@ -384,8 +394,12 @@ pub struct CompiledFacetRowSubplot {
 }
 
 impl CompiledFacetRowSubplot {
-    pub fn compiled_subplot(&self) -> &Arc<CompiledPlot> {
+    pub fn compiled_subplot(&self) -> &CompiledPlot {
         self.payload.compiled_subplot()
+    }
+
+    pub(crate) fn compiled_subplot_arc(&self) -> Arc<CompiledPlot> {
+        self.payload.compiled_subplot_arc()
     }
     pub fn compiled_state(&self) -> &CompiledMarkState {
         self.payload.compiled_state()
@@ -563,8 +577,12 @@ pub struct CompiledFacetColumnSubplot {
 }
 
 impl CompiledFacetColumnSubplot {
-    pub fn compiled_subplot(&self) -> &Arc<CompiledPlot> {
+    pub fn compiled_subplot(&self) -> &CompiledPlot {
         self.payload.compiled_subplot()
+    }
+
+    pub(crate) fn compiled_subplot_arc(&self) -> Arc<CompiledPlot> {
+        self.payload.compiled_subplot_arc()
     }
     pub fn compiled_state(&self) -> &CompiledMarkState {
         self.payload.compiled_state()
@@ -638,7 +656,7 @@ pub enum FacetSubplotRef<'a> {
 }
 
 impl<'a> FacetSubplotRef<'a> {
-    pub fn compiled_subplot(self) -> &'a Arc<CompiledPlot> {
+    pub fn compiled_subplot(self) -> &'a CompiledPlot {
         match self {
             Self::Row(mark) => mark.compiled_subplot(),
             Self::Col(mark) => mark.compiled_subplot(),

@@ -185,13 +185,17 @@ pub mod sharing {
     pub use avenger_chart_core::sharing::*;
 }
 
+pub mod subplot_child_plot {
+    pub use avenger_chart_core::subplot_child_plot::*;
+}
+
 pub use avenger_chart_core::{
     AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, AngleChannelConfig, ArrayRefHelpers, Axis, AxisPosition,
     BandPosition, BaseChannelName, ChannelConfig, ChannelDefault, ChannelDescriptor,
     ChannelResolutionError, ChannelValue, ColorChannelConfig, ColumnDimensionConfig,
     CompiledDataContext, CompiledGuide, CompiledMark, CompiledMarkCore, CompiledMarkState,
-    ConditionalValue, ContainerEdgeLevelProjection, CoordMeasurement, CoordinateGuide,
-    CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
+    CompiledSubplotChildPlot, ConditionalValue, ContainerEdgeLevelProjection, CoordMeasurement,
+    CoordinateGuide, CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
     CoordinateSystemTransformCore, CoordinatedLayout, CoordinatedOverflow, CoordinationAxis,
     DataContext, DataFrameChartHelpers, EdgeSlabs, EmptyCoordMeasurement, ExprHelpers, FacetAxis,
     FacetDimensionConfig, FacetEmptyCellPolicy, FacetStrategy, FrameAllocation, FrameDemand,
@@ -205,19 +209,19 @@ pub use avenger_chart_core::{
     PointGeometry, PositionConfig, RadiusExpression, RowDimensionConfig, ScalarValueHelpers,
     ScaleConfigSpec, ScaleRange, ScaleRangeBinding, ScaleSharing, ScaleSpec, ScaleTypePreference,
     ShapeChannelConfig, SharingGroupEdge, SharingLevel, Size2D, SizeChannelConfig,
-    StrokeDashChannelConfig, StrokeWidthChannelConfig, SubplotGeometry, SubplotRect,
-    axis_owner_ignore_empty_cells_from_params, axis_ownership_mode_from_params,
-    coerce_bool_channel_with_renderer, coerce_color_channel_with_renderer,
-    coerce_numeric_channel_with_renderer, coerce_stroke_cap_channel_with_renderer,
-    coerce_stroke_join_channel_with_renderer, contains_aggregate, default_channel_value_for_eval,
-    default_scale_type_for_data_type, enumeration_ancestor_path, eval_to_scalars,
-    evaluate_axis_position_expr, evaluate_bool_expr, evaluate_f32_expr, evaluate_f64_expr,
-    evaluate_i32_expr, evaluate_legend_orientation_expr, evaluate_legend_position_expr,
-    evaluate_string_expr, evaluate_usize_expr, extract_channel_title_from_marks,
-    is_continuous_scale, is_group_end, is_group_start, owner_for_edge, params_to_datafusion,
-    partition_expressions, project_container_edge_levels, resolve_all_channel_refs,
-    resolve_channel_refs, scalar_to_scalar_value, scalar_total_cmp, shared_path_key,
-    sharing_group_boundary, simplify_to_scalar_sync, strip_trailing_numbers,
+    StrokeDashChannelConfig, StrokeWidthChannelConfig, SubplotChildPlotSpec, SubplotDataSource,
+    SubplotGeometry, SubplotRect, axis_owner_ignore_empty_cells_from_params,
+    axis_ownership_mode_from_params, coerce_bool_channel_with_renderer,
+    coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
+    coerce_stroke_cap_channel_with_renderer, coerce_stroke_join_channel_with_renderer,
+    contains_aggregate, default_channel_value_for_eval, default_scale_type_for_data_type,
+    enumeration_ancestor_path, eval_to_scalars, evaluate_axis_position_expr, evaluate_bool_expr,
+    evaluate_f32_expr, evaluate_f64_expr, evaluate_i32_expr, evaluate_legend_orientation_expr,
+    evaluate_legend_position_expr, evaluate_string_expr, evaluate_usize_expr,
+    extract_channel_title_from_marks, is_continuous_scale, is_group_end, is_group_start,
+    owner_for_edge, params_to_datafusion, partition_expressions, project_container_edge_levels,
+    resolve_all_channel_refs, resolve_channel_refs, scalar_to_scalar_value, scalar_total_cmp,
+    shared_path_key, sharing_group_boundary, simplify_to_scalar_sync, strip_trailing_numbers,
 };
 pub use error::AvengerChartError;
 pub use evaluation_context::EvaluationContext;

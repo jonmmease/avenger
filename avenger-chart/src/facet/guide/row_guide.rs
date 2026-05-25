@@ -76,7 +76,7 @@ impl CoordinateGuide for FacetRowGuideConfig {
     {
         for mark in compiled_marks {
             if let Some(facet_row) = mark.as_any().downcast_ref::<CompiledFacetRowSubplot>() {
-                self.compiled_subplot = Some(facet_row.compiled_subplot().clone());
+                self.compiled_subplot = Some(facet_row.compiled_subplot_arc());
                 self.facet_data_plan = mark.data_context().logical_plan_node().cloned();
                 self.facet_title = facet_row.facet_title().map(|s| s.to_string());
                 self.position = facet_row.facet_position().map(|s| s.to_string());

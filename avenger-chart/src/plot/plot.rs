@@ -12,13 +12,15 @@ use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
 use crate::{
-    chart_core::{IntoExpr, Param, contains_aggregate},
+    chart_core::{
+        CompiledSubplotChildPlot, IntoExpr, Param, SubplotChildPlotSpec, contains_aggregate,
+    },
     coords::CoordinateSystem,
     error::AvengerChartError,
     guide::CoordinateGuide,
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint, SizeMode},
     legend::Legend,
-    marks::{CompiledMark, CompiledMarkState, Mark, SubplotChildPlotSpec},
+    marks::{CompiledMark, CompiledMarkState, Mark},
     serialization::{LogicalPlanNodeExt, serializable_expr_from_expr},
     theme::Theme,
 };
@@ -80,7 +82,7 @@ where
     async fn compile_boxed(
         &self,
         session_context: &datafusion::prelude::SessionContext,
-    ) -> Result<Arc<CompiledPlot>, AvengerChartError> {
+    ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
         Ok(Arc::new(self.clone().compile(session_context).await?))
     }
 }

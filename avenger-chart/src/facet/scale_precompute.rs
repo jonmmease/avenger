@@ -304,13 +304,13 @@ fn child_frame_domain_request_for_info(
 
 fn resolve_current_facet_node(
     compiled_marks: &[Arc<dyn CompiledMark>],
-) -> Option<(&Arc<CompiledPlot>, SharingLevel)> {
+) -> Option<(Arc<CompiledPlot>, SharingLevel)> {
     for mark in compiled_marks {
         if let Some(facet_mark) = facet_subplot_ref(mark.as_ref()) {
             match facet_mark {
                 FacetSubplotRef::Row(facet_row) => {
                     return Some((
-                        facet_row.compiled_subplot(),
+                        facet_row.compiled_subplot_arc(),
                         facet_row
                             .facet_slot_sharing()
                             .map(SharingLevel::from)
@@ -319,7 +319,7 @@ fn resolve_current_facet_node(
                 }
                 FacetSubplotRef::Col(facet_col) => {
                     return Some((
-                        facet_col.compiled_subplot(),
+                        facet_col.compiled_subplot_arc(),
                         facet_col
                             .facet_slot_sharing()
                             .map(SharingLevel::from)
@@ -729,7 +729,7 @@ async fn ensure_subtree_precomputed_internal(
     };
 
     let store = eval_ctx.facet_scale_precompute_store();
-    let node_key = FacetScaleNodeKey::new(compiled_subplot, facet_path);
+    let node_key = FacetScaleNodeKey::new(&compiled_subplot, facet_path);
 
     let cell_values =
         enumerate_cell_values_for_node(facet_tree, facet_path, current_facet_slot_sharing);
@@ -740,7 +740,7 @@ async fn ensure_subtree_precomputed_internal(
             &cell_values,
             facet_path,
             inherited_data_df,
-            compiled_subplot,
+            &compiled_subplot,
             facet_tree,
             eval_ctx,
         )
@@ -755,13 +755,13 @@ async fn ensure_subtree_precomputed_internal(
         &cell_values,
         facet_path,
         inherited_data_df,
-        compiled_subplot,
+        &compiled_subplot,
         facet_tree,
         eval_ctx,
         &artifacts,
     )
     .await?;
-    store.insert_domain_infos(compiled_subplot, domain_infos);
+    store.insert_domain_infos(&compiled_subplot, domain_infos);
 
     for value in &cell_values {
         let mut full_path = facet_path.to_vec();
