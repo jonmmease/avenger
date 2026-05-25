@@ -6,9 +6,7 @@ use avenger_chart_core::{
     AvengerChartError, ChannelValue, Legend, ScalarValueHelpers, ScaleRange, SerializableScalarMap,
     Theme, color::parse_color_string_strict, evaluate_f32_expr, evaluate_string_expr,
 };
-use avenger_chart_scales::{
-    ConfiguredScaleLegendExt, DomainValues, serialization::LogicalExprNodeExt,
-};
+use avenger_chart_core::{ConfiguredScaleLegendExt, DefaultLogicalExprNodeExt, DomainValues};
 use avenger_common::{
     types::{ColorOrGradient, SymbolShape},
     value::{ScalarOrArray, ScalarOrArrayValue},

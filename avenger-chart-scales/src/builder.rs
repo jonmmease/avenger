@@ -39,7 +39,7 @@ use avenger_chart_core::{
 
 use crate::{
     Auto, ConfiguredScaleWithSpec, DomainBounds, DomainExtent, PlotScaleSpec, RadiusPadding, Scale,
-    ScaleSpec,
+    ScaleRuntimeExt, ScaleSpec,
     domain::{ScaleDefaultDomain, ScaleDomain},
     domain_extent::SerializableDomainValue,
     serialization::LogicalExprNodeExt,

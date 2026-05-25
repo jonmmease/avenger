@@ -7,9 +7,11 @@ coordination live in the top-level `avenger-chart` crate.
 The user-extensible boundary is narrower:
 
 - custom marks depend on `avenger-chart-core` for mark contracts,
-- custom scales depend on `avenger-chart-core` and `avenger-chart-scales`,
-- custom coordinate systems depend on `avenger-chart-core` and the chart-layer
-  crates needed for their authoring surface,
+- custom scales depend on `avenger-chart-core` plus lower-level
+  `avenger-scales` when they implement scale math,
+- custom legend renderers depend on `avenger-chart-core`,
+- custom coordinate systems depend on `avenger-chart-core` and any lower-level
+  runtime crates needed for their implementation,
 - coordinate systems that support coordinate-positioned child plots implement
   `SubplotContainerCoordinateSystem`.
 
@@ -23,7 +25,6 @@ Dependency arrows are provider-to-consumer.
 avenger-chart-core
   -> avenger-chart-marks
   -> avenger-chart-scales
-avenger-chart-scales
   -> avenger-chart-legend
 avenger-chart-marks
   -> avenger-chart-cartesian
@@ -56,9 +57,13 @@ Core owns:
   `ChannelDescriptor`, `ChannelDefault`, `BaseChannelName`, `ScaleSharing`,
   `SharingLevel`, `Maybe`, `Param`, `RadiusExpression`, and serializable
   expression/scalar wrappers,
-- scale descriptors and preferences: `ScaleSpec`, built-in scale marker types,
-  `ScaleRange`, `ScaleDomain`, `ScaleDefaultDomain`, `DomainExpr`,
-  `ResolvedDomain`, and `ScaleTypePreference`,
+- scale authoring contracts and preferences: `Scale`, `Auto`,
+  `ScaleChannelConfig`, `ScaleChannelValue`, `ScaleSpec`, `ScaleRange`,
+  `ScaleDomain`, `ScaleDefaultDomain`, `DomainExpr`, `ResolvedDomain`, and
+  `ScaleTypePreference`,
+- legend specs and renderer contracts: `Legend`, `LegendRenderer`,
+  `LegendRendererSelection`, `LegendChannel`, `ChannelInfo`, `MergeKey`,
+  `ConfiguredScaleLegendExt`, and `DomainValues`,
 - guide and coordinate contracts: `Axis`, `CoordinateSystemCore`,
   `CoordinateSystem`, `CoordinateSystemTransformCore`,
   `CoordinateSystemTransform`, `CoordinateGuide`, `CompiledGuide`,
@@ -105,17 +110,19 @@ the coordinate crate that owns the coordinate system.
 
 ## `avenger-chart-scales`
 
-`avenger-chart-scales` owns chart-layer scale construction and scale authoring:
+`avenger-chart-scales` owns built-in chart scale implementations and scale
+runtime construction:
 
-- `Scale<S>`,
-- `ScaleChannelConfig`,
-- `ScaleChannelValue`,
+- built-in scale marker types: `Linear`, `Log`, `Pow`, `Sqrt`, `Symlog`,
+  `Time`, `Band`, `Point`, `Ordinal`, `Threshold`, `Quantile`, and `Quantize`,
+- built-in scale option extension traits such as `LinearScaleExt`,
+  `BandScaleExt`, and `OrdinalScaleExt`,
 - `ScaleBuilder`,
 - `ChannelScaleData`,
 - `DataExtents`,
 - `DomainExtent`,
 - `ConfiguredScaleWithSpec`,
-- configured-scale extension traits,
+- scale runtime extension traits,
 - default range helpers,
 - scale UDF construction,
 - `AvengerChartExtensionCodec`,
@@ -127,14 +134,11 @@ The lower-level `avenger-scales` crate owns runtime scale implementations.
 
 ## `avenger-chart-legend`
 
-`avenger-chart-legend` owns legend authoring and rendering:
+`avenger-chart-legend` owns built-in legend authoring and rendering:
 
 - `LegendBuilder` and typed legend builders,
 - `LegendableChannel`,
 - `LegendableChannelValue`,
-- `LegendRenderer`,
-- `LegendChannel`,
-- `MergeKey`,
 - `renderer_for_kind`,
 - `CompiledSymbolLegend`,
 - `CompiledLineLegend`,
@@ -224,11 +228,12 @@ External custom marks use `avenger-chart-core` mark contracts and can render
 against any coordinate system whose transform implements the core position
 projection contract.
 
-External custom scales use `avenger-chart-core` descriptors together with
-`avenger-chart-scales` authoring, inference, and codec support.
+External custom scales use `avenger-chart-core` authoring contracts. A custom
+scale crate also depends on `avenger-scales` when it implements `ScaleImpl`.
 
-External legend authoring and rendering uses `avenger-chart-core` legend specs
-and `avenger-chart-legend` builder/renderer APIs.
+External custom legend renderers implement `LegendRenderer` from
+`avenger-chart-core`. Built-in legend builders and renderers are provided by
+`avenger-chart-legend`.
 
 External coordinate systems implement the core coordinate and guide traits. To
 support coordinate-positioned `Subplot<Coord>` marks, a coordinate crate also

@@ -10,6 +10,7 @@ pub mod channel_value;
 pub mod color;
 pub mod compiled_data_context;
 pub mod compiled_mark;
+pub mod configured_scale_legend;
 pub mod container_sharing;
 pub mod coord_measurement;
 pub mod coordinate_guide;
@@ -33,6 +34,7 @@ pub mod guide_update;
 pub mod into_expr;
 pub mod layout_types;
 pub mod legend;
+pub mod legend_renderer;
 pub mod legend_spec;
 pub mod mark;
 pub mod mark_channel_coercion;
@@ -48,6 +50,8 @@ pub mod position_config;
 pub mod radius_expression;
 pub mod resolved_domain;
 pub mod scalar_cmp;
+pub mod scale;
+pub mod scale_channel_config;
 pub mod scale_config_spec;
 pub mod scale_domain;
 pub mod scale_range;
@@ -85,6 +89,7 @@ pub use compiled_mark::{
     CompiledMark, CompiledMarkCore, default_channel_value_for_eval,
     extract_channel_title_from_marks,
 };
+pub use configured_scale_legend::{ConfiguredScaleLegendExt, DomainValues};
 pub use container_sharing::{
     ContainerEdgeLevelProjection, SharingGroupEdge, enumeration_ancestor_path, is_group_end,
     is_group_start, owner_for_edge, project_container_edge_levels, shared_path_key,
@@ -130,6 +135,10 @@ pub use layout_types::{
     LayoutBounds, OverflowSide, OwnedEdgeSlabs, Size2D,
 };
 pub use legend::{LegendOrientation, LegendPosition, LegendRendererKind};
+pub use legend_renderer::{
+    ChannelInfo, ChannelLegendCapability, LegendChannel, LegendGroup, LegendRenderer,
+    LegendRendererSelection, MergeKey, compute_range_hash, helpers, normalize_expression,
+};
 pub use legend_spec::Legend;
 pub use mark::Mark;
 pub use mark_channel_coercion::{
@@ -150,6 +159,8 @@ pub use position_config::{GenericPositionConfig, PositionConfig};
 pub use radius_expression::RadiusExpression;
 pub use resolved_domain::ResolvedDomain;
 pub use scalar_cmp::scalar_total_cmp;
+pub use scale::Scale;
+pub use scale_channel_config::{ScaleChannelConfig, ScaleChannelValue};
 pub use scale_config_spec::ScaleConfigSpec;
 pub use scale_domain::{DomainExpr, ScaleDefaultDomain, ScaleDomain};
 pub use scale_range::ScaleRange;
@@ -157,10 +168,7 @@ pub use scale_range_binding::{
     PlotAreaDimension, PlotAreaRangeEndpoint, PlotAreaRangeExpr, ScaleRangeBinding,
 };
 pub use scale_sharing::ScaleSharing;
-pub use scale_spec::{
-    Auto, Band, Linear, Log, Ordinal, Point, Pow, Quantile, Quantize, ScaleSpec, Sqrt, Symlog,
-    Threshold, Time, scale_spec_for_preference,
-};
+pub use scale_spec::{Auto, ScaleSpec};
 pub use scale_type::{ScaleTypePreference, default_scale_type_for_data_type, is_continuous_scale};
 pub use serialization::{
     DefaultLogicalExprNodeExt, LogicalPlanNodeExt, SerializableDataFrame, SerializableDataType,

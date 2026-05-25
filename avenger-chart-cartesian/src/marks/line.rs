@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
-    CompiledMarkState, CoordinateSystemTransformCore, LegendRendererKind, Mark, MarkRuntimeContext,
-    PointGeometry, RadiusExpression, coerce_bool_channel_with_renderer,
+    CompiledMarkState, CoordinateSystemTransformCore, LegendRendererKind, LegendRendererSelection,
+    Mark, MarkRuntimeContext, PointGeometry, RadiusExpression, coerce_bool_channel_with_renderer,
     coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
     impl_mark_trait_common, is_continuous_scale, serialization::DefaultLogicalExprNodeExt,
 };
@@ -155,25 +155,27 @@ impl CompiledMarkCore for CompiledCartesianLine {
         }
     }
 
-    fn preferred_legend_renderer_kind(
+    fn preferred_legend_renderer(
         &self,
         channel: &str,
         scale: &avenger_scales::scales::ConfiguredScale,
-    ) -> Option<LegendRendererKind> {
+    ) -> Option<LegendRendererSelection> {
         // Check if scale is continuous (for colorbar)
         let is_continuous = is_continuous_scale(scale.scale_impl.as_ref());
 
         match channel {
             // Use colorbar for continuous color scales
-            "stroke" if is_continuous => Some(LegendRendererKind::Colorbar),
+            "stroke" if is_continuous => Some(LegendRendererSelection::BuiltIn(
+                LegendRendererKind::Colorbar,
+            )),
             // Line marks use line legend for stroke properties
             "stroke" | "stroke_width" | "stroke_dash" | "stroke_opacity" => {
-                Some(LegendRendererKind::Line)
+                Some(LegendRendererSelection::BuiltIn(LegendRendererKind::Line))
             }
             // No legend for position channels
             "x" | "y" | "defined" | "order" | "stroke_cap" | "stroke_join" | "interpolate" => None,
             // For any other channel, default to line legend rendering.
-            _ => Some(LegendRendererKind::Line),
+            _ => Some(LegendRendererSelection::BuiltIn(LegendRendererKind::Line)),
         }
     }
 }

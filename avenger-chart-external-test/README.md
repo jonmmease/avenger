@@ -68,7 +68,7 @@ cargo test
 
 ### Custom Scale
 ```rust
-use avenger_chart_scales::Scale;
+use avenger_chart_core::Scale;
 use avenger_chart_external_test::external_scale::{SmoothLog, SmoothLogExt};
 
 let scale = Scale::<SmoothLog>::new()

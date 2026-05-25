@@ -585,6 +585,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "avenger-common",
+ "avenger-geometry",
  "avenger-guides",
  "avenger-scales",
  "avenger-scenegraph",
@@ -622,10 +623,8 @@ dependencies = [
  "avenger-chart",
  "avenger-chart-cartesian",
  "avenger-chart-core",
- "avenger-chart-legend",
  "avenger-chart-marks",
  "avenger-chart-polar",
- "avenger-chart-scales",
  "avenger-common",
  "avenger-guides",
  "avenger-scales",
@@ -644,7 +643,6 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "avenger-chart-core",
- "avenger-chart-scales",
  "avenger-common",
  "avenger-geometry",
  "avenger-guides",
@@ -736,6 +734,7 @@ dependencies = [
  "serde_with",
  "tokio",
  "tracing",
+ "typetag",
 ]
 
 [[package]]

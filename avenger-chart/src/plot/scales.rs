@@ -3,8 +3,9 @@
 use crate::{
     coords::CoordinateSystem,
     plot::Plot,
-    scales::{Auto, PlotScaleSpec as ScaleSpec, Scale, ScaleSpec as ScaleTypeSpec},
+    scales::{PlotScaleSpec as ScaleSpec, ScaleSpec as ScaleTypeSpec},
 };
+use avenger_chart_core::{Auto, Scale};
 
 /// Methods for adding scales to Plot
 impl<C: CoordinateSystem> Plot<C> {

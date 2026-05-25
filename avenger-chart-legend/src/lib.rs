@@ -4,7 +4,9 @@ pub mod layout;
 pub mod renderer;
 mod theme;
 
-pub use avenger_chart_core::{Legend, LegendOrientation, LegendPosition, LegendRendererKind};
+pub use avenger_chart_core::{
+    Legend, LegendOrientation, LegendPosition, LegendRendererKind, LegendRendererSelection,
+};
 pub use builder::{
     AngleLegendBuilder, ColorLegendBuilder, LegendBuilder, OpacityLegendBuilder,
     ShapeLegendBuilder, SizeLegendBuilder, StrokeDashLegendBuilder, StrokeWidthLegendBuilder,

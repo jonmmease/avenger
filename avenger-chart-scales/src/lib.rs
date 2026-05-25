@@ -16,8 +16,8 @@ pub mod spec;
 pub mod udf;
 
 pub use avenger_chart_core::{
-    PlotAreaDimension, PlotAreaRangeEndpoint, PlotAreaRangeExpr, ResolvedDomain, ScaleConfigSpec,
-    ScaleRangeBinding,
+    Auto, ConfiguredScaleLegendExt, DomainValues, PlotAreaDimension, PlotAreaRangeEndpoint,
+    PlotAreaRangeExpr, ResolvedDomain, Scale, ScaleConfigSpec, ScaleRangeBinding, ScaleSpec,
 };
 pub use builder::{ChannelScaleData, DataExtents, DefaultScaleRangeResolver, ScaleBuilder};
 pub use channel_config::{ScaleChannelConfig, ScaleChannelValue};
@@ -27,13 +27,16 @@ pub use domain::{DomainExpr, ScaleDefaultDomain, ScaleDomain};
 pub use domain_extent::{
     DomainBounds, DomainExtent, RadiusPadding, SerializableDataExtents, SerializableDomainValue,
 };
-pub use extensions::{ConfiguredScaleDataFusionExt, ConfiguredScaleLegendExt, DomainValues};
+pub use extensions::ConfiguredScaleDataFusionExt;
 pub use mark_scale_builder::build_scale_builder_from_marks;
 pub use range::ScaleRange;
-pub use scale::Scale;
+pub use scale::{
+    BandScaleExt, LinearScaleExt, LogScaleExt, OrdinalScaleExt, PointScaleExt, PowScaleExt,
+    ScaleDomainInferenceExt, ScaleRuntimeExt, SqrtScaleExt, SymlogScaleExt, TimeScaleExt,
+};
 pub use spec::{
-    Auto, Band, Linear, Log, Ordinal, Point, Pow, Quantile, Quantize, ScaleSpec, Sqrt, Symlog,
-    Threshold, Time, scale_spec_for_preference,
+    Band, Linear, Log, Ordinal, Point, Pow, Quantile, Quantize, Sqrt, Symlog, Threshold, Time,
+    scale_spec_for_preference,
 };
 pub use udf::create_scale_udf;
 

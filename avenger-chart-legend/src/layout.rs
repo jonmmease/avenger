@@ -2,10 +2,10 @@
 
 use std::sync::Arc;
 
+use avenger_chart_core::DefaultLogicalExprNodeExt;
 use avenger_chart_core::{
     AvengerChartError, Legend, LegendPosition, Size2D, Theme, evaluate_bool_expr,
 };
-use avenger_chart_scales::serialization::LogicalExprNodeExt;
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 

@@ -676,7 +676,7 @@ mod tests {
             },
         },
         render::EvaluationContext,
-        scales::{Linear, ScaleChannelConfig},
+        scales::{Linear, LinearScaleExt, ScaleChannelConfig},
         zerod::ZeroDCoord,
     };
     use avenger_chart_core::{CoordinationAxis, ScaleSharing};

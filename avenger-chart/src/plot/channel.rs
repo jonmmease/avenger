@@ -6,10 +6,10 @@ use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    Auto, AxisSpec, ChannelValue, CoordinateSystem, Legend, Mark, resolve_all_channel_refs,
+    Auto, AxisSpec, ChannelValue, CoordinateSystem, Legend, Mark, Scale, resolve_all_channel_refs,
     strip_trailing_numbers,
 };
-use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, Scale};
+use avenger_chart_scales::PlotScaleSpec as ScaleSpec;
 
 fn coord_channel_for_scale_channel(channel_name: &str) -> String {
     strip_trailing_numbers(channel_name).to_string()

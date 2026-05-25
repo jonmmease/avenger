@@ -4863,7 +4863,7 @@ mod tests {
                                                 c.with_scale_sharing(ScaleSharing::Shared)
                                             })
                                             .fill_with(col("y_val"), |c| {
-                                                c.scale_with::<avenger_chart_core::Linear>(|s| s)
+                                                c.scale_with::<avenger_chart_scales::Linear>(|s| s)
                                                     .legend(|legend| {
                                                         legend
                                                             .title("Score")

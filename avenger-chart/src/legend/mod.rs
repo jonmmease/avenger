@@ -13,8 +13,9 @@ pub mod renderer;
 pub use avenger_chart_core::LegendRendererKind;
 pub use avenger_chart_legend::{
     AngleLegendBuilder, ColorLegendBuilder, Legend, LegendBuilder, LegendOrientation,
-    LegendPosition, LegendableChannel, LegendableChannelValue, OpacityLegendBuilder,
-    ShapeLegendBuilder, SizeLegendBuilder, StrokeDashLegendBuilder, StrokeWidthLegendBuilder,
+    LegendPosition, LegendRendererSelection, LegendableChannel, LegendableChannelValue,
+    OpacityLegendBuilder, ShapeLegendBuilder, SizeLegendBuilder, StrokeDashLegendBuilder,
+    StrokeWidthLegendBuilder,
 };
 
 // Re-export renderer types

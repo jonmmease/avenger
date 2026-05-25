@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod tests {
-    use avenger_chart::scales::{Linear, Scale};
+    use avenger_chart::scales::{Linear, Scale, ScaleRuntimeExt};
     use avenger_chart::serialization::LogicalExprNodeExt;
     use avenger_chart::serialization::SerializableExpr;
     use datafusion::logical_expr::lit;

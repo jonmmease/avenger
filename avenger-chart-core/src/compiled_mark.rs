@@ -14,7 +14,7 @@ use indexmap::IndexMap;
 
 use crate::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMarkState,
-    CoordinateSystemTransformCore, EvaluationContext, LegendRendererKind, MarkRenderContext,
+    CoordinateSystemTransformCore, EvaluationContext, LegendRendererSelection, MarkRenderContext,
     MarkRuntimeContext, PositionedSubplotMarkCore, RadiusExpression, ResolvedDomain, ScaleRange,
     ScaleTypePreference, Theme, default_scale_type_for_data_type, is_continuous_scale,
 };
@@ -93,12 +93,12 @@ pub trait CompiledMarkCore: Any + Send + Sync {
         }
     }
 
-    /// Get the preferred legend renderer kind for a channel.
-    fn preferred_legend_renderer_kind(
+    /// Get the preferred legend renderer for a channel.
+    fn preferred_legend_renderer(
         &self,
         _channel: &str,
         _scale: &ConfiguredScale,
-    ) -> Option<LegendRendererKind> {
+    ) -> Option<LegendRendererSelection> {
         None
     }
 

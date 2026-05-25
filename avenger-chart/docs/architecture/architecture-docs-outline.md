@@ -60,8 +60,11 @@ Add an extension-contract section organized by user-extensible surface:
   `MarkRuntimeContext`, `CompiledMarkState`, `DataContext`,
   `CompiledDataContext`, channel macros, and scale/legend capability
   descriptors,
-- custom scales: `ScaleSpec`, `Scale`, `ScaleChannelConfig`,
-  `ScaleChannelValue`, UDF/codec ownership, and scale-builder integration,
+- custom scales: `Scale`, `Auto`, `ScaleSpec`, `ScaleChannelConfig`,
+  `ScaleChannelValue`, and the lower-level `ScaleImpl` handoff,
+- custom legend renderers: `LegendRenderer`, `LegendRendererSelection`,
+  `LegendChannel`, `ChannelInfo`, `ConfiguredScaleLegendExt`, and built-in
+  renderer dispatch,
 - custom coordinate systems: `CoordinateSystemCore`, `CoordinateSystem`,
   `CoordinateSystemTransformCore`, `CoordinateSystemTransform`,
   `CoordinateGuide`, `CompiledGuide`, and `GuideSharingContext`,

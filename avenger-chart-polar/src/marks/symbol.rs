@@ -2,8 +2,8 @@ use std::{collections::HashMap, sync::Arc};
 
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
-    CompiledMarkState, CoordinateSystemTransformCore, LegendRendererKind, Mark, MarkRuntimeContext,
-    PointGeometry, RadiusExpression, ScalarValueHelpers, ScaleTypePreference,
+    CompiledMarkState, CoordinateSystemTransformCore, LegendRendererSelection, Mark,
+    MarkRuntimeContext, PointGeometry, RadiusExpression, ScalarValueHelpers, ScaleTypePreference,
     coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
     default_scale_type_for_data_type, impl_mark_trait_common, is_continuous_scale,
 };
@@ -130,13 +130,14 @@ impl CompiledMarkCore for CompiledPolarSymbol {
         }
     }
 
-    fn preferred_legend_renderer_kind(
+    fn preferred_legend_renderer(
         &self,
         channel: &str,
         scale: &ConfiguredScale,
-    ) -> Option<LegendRendererKind> {
+    ) -> Option<LegendRendererSelection> {
         // Use the same logic as the Symbol mark
         symbol_legend_renderer_kind(channel, scale, &["r", "theta"])
+            .map(LegendRendererSelection::BuiltIn)
     }
 
     fn preferred_scale_type(

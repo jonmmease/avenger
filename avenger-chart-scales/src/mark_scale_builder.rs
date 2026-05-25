@@ -33,7 +33,7 @@ use avenger_chart_core::{
 
 use crate::{
     Auto, ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec, DomainExpr, Ordinal,
-    PlotScaleSpec, Scale, ScaleDefaultDomain, ScaleDomain, ScaleSpec,
+    PlotScaleSpec, Scale, ScaleDefaultDomain, ScaleDomain, ScaleRuntimeExt, ScaleSpec,
     builder::{ChannelScaleData, DataExtents, ScaleBuilder},
     default_range_for_channel, scale_spec_for_preference,
     serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},

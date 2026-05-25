@@ -5,7 +5,7 @@
 
 #[cfg(test)]
 mod tests {
-    use avenger_chart::scales::{Linear, Scale};
+    use avenger_chart::scales::{Linear, Scale, ScaleRuntimeExt};
     use avenger_chart::serialization::{LogicalExprNodeExt, SerializableExpr};
     use datafusion::arrow::array::Float64Array;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};

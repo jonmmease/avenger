@@ -7,9 +7,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
-    CompiledMarkState, CoordinateSystemTransformCore, LegendRendererKind, Mark, MarkRuntimeContext,
-    PointGeometry, ScalarValueHelpers, ZeroDCoord, coerce_color_channel_with_renderer,
-    coerce_numeric_channel_with_renderer, impl_mark_trait_common,
+    CompiledMarkState, CoordinateSystemTransformCore, LegendRendererSelection, Mark,
+    MarkRuntimeContext, PointGeometry, ScalarValueHelpers, ZeroDCoord,
+    coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
+    impl_mark_trait_common,
 };
 use avenger_common::{types::SymbolShape, value::ScalarOrArray};
 use avenger_scales::scales::{ConfiguredScale, coerce::Coercer};
@@ -110,13 +111,13 @@ impl CompiledMarkCore for CompiledZeroDSymbol {
         symbol_channel_defaults(channel)
     }
 
-    fn preferred_legend_renderer_kind(
+    fn preferred_legend_renderer(
         &self,
         channel: &str,
         scale: &ConfiguredScale,
-    ) -> Option<LegendRendererKind> {
+    ) -> Option<LegendRendererSelection> {
         // Use the same logic as the Symbol mark, with no position channels
-        symbol_legend_renderer_kind(channel, scale, &[])
+        symbol_legend_renderer_kind(channel, scale, &[]).map(LegendRendererSelection::BuiltIn)
     }
 }
 

@@ -1,16 +1,21 @@
+pub use avenger_chart_core::{
+    Auto, Scale, ScaleChannelConfig, ScaleChannelValue, ScaleConfigSpec, ScaleSpec,
+};
+
 pub mod builder {
     pub use avenger_chart_scales::builder::*;
 }
 
 pub use avenger_chart_scales::{
-    Auto, AvengerChartExtensionCodec, Band, ChannelScaleData, ConfiguredScaleDataFusionExt,
+    AvengerChartExtensionCodec, Band, BandScaleExt, ChannelScaleData, ConfiguredScaleDataFusionExt,
     ConfiguredScaleLegendExt, ConfiguredScaleWithSpec, DataExtents, DefaultScaleRangeResolver,
-    DomainBounds, DomainExpr, DomainExtent, DomainValues, Linear, Log, Ordinal, PlotAreaDimension,
-    PlotAreaRangeEndpoint, PlotAreaRangeExpr, PlotScaleSpec, Point, Pow, Quantile, Quantize,
-    RadiusPadding, ResolvedDomain, Scale, ScaleBuilder, ScaleChannelConfig, ScaleChannelValue,
-    ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, ScaleRange, ScaleRangeBinding, ScaleSpec,
-    SerializableDataExtents, SerializableDomainValue, Sqrt, Symlog, Threshold, Time,
-    create_scale_udf, default_range_for_channel, scale_spec_for_preference,
+    DomainBounds, DomainExpr, DomainExtent, DomainValues, Linear, LinearScaleExt, Log, LogScaleExt,
+    Ordinal, OrdinalScaleExt, PlotAreaDimension, PlotAreaRangeEndpoint, PlotAreaRangeExpr,
+    PlotScaleSpec, Point, PointScaleExt, Pow, PowScaleExt, Quantile, Quantize, RadiusPadding,
+    ResolvedDomain, ScaleBuilder, ScaleDefaultDomain, ScaleDomain, ScaleDomainInferenceExt,
+    ScaleRange, ScaleRangeBinding, ScaleRuntimeExt, SerializableDataExtents,
+    SerializableDomainValue, Sqrt, SqrtScaleExt, Symlog, SymlogScaleExt, Threshold, Time,
+    TimeScaleExt, create_scale_udf, default_range_for_channel, scale_spec_for_preference,
 };
 
 pub use avenger_chart_scales::{

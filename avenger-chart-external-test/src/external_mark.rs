@@ -6,11 +6,12 @@ use avenger_chart_cartesian::{Cartesian, CartesianPositionConfig};
 use avenger_chart_core::{
     define_common_mark_channels, define_position_channels, impl_mark_base, impl_mark_trait_common,
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
-    CompiledMarkState, CoordinateSystemCore, CoordinateSystemTransformCore, Mark,
-    MarkRuntimeContext, MarkState,
+    CompiledMarkState, CoordinateSystemCore, CoordinateSystemTransformCore, Legend, LegendChannel,
+    LegendRenderer, LegendRendererSelection, Mark, MarkRuntimeContext, MarkState, Size2D, Theme,
 };
-use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::{arrow::record_batch::RecordBatch, scalar::ScalarValue};
+use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
+use datafusion::{arrow::record_batch::RecordBatch, prelude::SessionContext, scalar::ScalarValue};
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 /// A custom hexbin mark defined in an external crate
@@ -140,6 +141,66 @@ impl CompiledMarkCore for CompiledHexBin {
             "opacity" => Some(ScalarValue::Float32(Some(1.0))),
             _ => None,
         }
+    }
+
+    fn preferred_legend_renderer(
+        &self,
+        channel: &str,
+        _scale: &avenger_scales::scales::ConfiguredScale,
+    ) -> Option<LegendRendererSelection> {
+        match channel {
+            "fill" | "stroke" => Some(LegendRendererSelection::Custom(Arc::new(
+                HexBinLegendRenderer,
+            ))),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct HexBinLegendRenderer;
+
+#[typetag::serde]
+#[async_trait::async_trait]
+impl LegendRenderer for HexBinLegendRenderer {
+    fn name(&self) -> &'static str {
+        "HexBinLegendRenderer"
+    }
+
+    fn can_evaluate(&self, channels: &[LegendChannel]) -> bool {
+        channels
+            .iter()
+            .any(|channel| matches!(channel.channel_type.as_str(), "fill" | "stroke"))
+    }
+
+    async fn evaluate(
+        &self,
+        _channels: &[LegendChannel],
+        _config: &Legend,
+        _x: f32,
+        _y: f32,
+        _width: f32,
+        _height: f32,
+        _theme: &Theme,
+        _params: &IndexMap<String, ScalarValue>,
+        _ctx: &SessionContext,
+    ) -> Result<Option<SceneGroup>, AvengerChartError> {
+        Ok(None)
+    }
+
+    async fn measure(
+        &self,
+        _channels: &[LegendChannel],
+        _config: &Legend,
+        _available_space: Size2D,
+        _theme: &Theme,
+        _params: &IndexMap<String, ScalarValue>,
+        _ctx: &SessionContext,
+    ) -> Result<Size2D, AvengerChartError> {
+        Ok(Size2D {
+            width: 24.0,
+            height: 18.0,
+        })
     }
 }
 

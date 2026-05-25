@@ -11,7 +11,10 @@ use datafusion::{common::ScalarValue, logical_expr::lit, prelude::SessionContext
 use indexmap::IndexMap;
 use tracing::debug;
 
-use avenger_chart_core::{LegendPosition, LegendRendererKind, SharingLevel};
+use avenger_chart_core::{
+    ChannelInfo, LegendChannel, LegendPosition, LegendRenderer, LegendRendererSelection, MergeKey,
+    SharingLevel,
+};
 
 use crate::{
     channel::value::ChannelValue,
@@ -19,9 +22,7 @@ use crate::{
     error::AvengerChartError,
     facet::{evaluated_facet_tree::EvaluatedFacetTree, sharing_policy},
     layout::{FrameLayout, Size2D},
-    legend::{
-        ChannelInfo, Legend, LegendChannel, MergeKey, renderer::LegendRenderer, renderer_for_kind,
-    },
+    legend::{Legend, renderer_for_kind},
     marks::{CompiledMark, default_channel_value_for_eval},
     plot::compiled::{
         ChildFrameSharingPath, ContainerPathSegment, CoordinationKind, EdgeOwnershipRequest,
@@ -319,7 +320,7 @@ impl CompiledPlot {
             {
                 // If the mark that has the channel says no legend, skip it
                 if mark
-                    .preferred_legend_renderer_kind(channel, scale.configured())
+                    .preferred_legend_renderer(channel, scale.configured())
                     .is_none()
                 {
                     skip_channels.insert(channel.clone());
@@ -344,9 +345,7 @@ impl CompiledPlot {
 
             // Determine legend renderer type for CSS selector support
             // (e.g., legend[type="symbol"], legend[type="line"], legend[type="colorbar"])
-            let legend_type = self
-                .legend_renderer_kind_for_channel(channel, scales)
-                .map(LegendRendererKind::theme_selector);
+            let legend_type = self.legend_renderer_theme_selector_for_channel(channel, scales);
 
             // Create legend with theme defaults
             let theme = self.get_theme();
@@ -367,31 +366,34 @@ impl CompiledPlot {
         channel: &str,
         scale: &ConfiguredScaleWithSpec,
     ) -> Option<Arc<dyn LegendRenderer>> {
-        self.get_legend_renderer_kind(channel, scale)
-            .map(renderer_for_kind)
+        match self.get_legend_renderer_selection(channel, scale)? {
+            LegendRendererSelection::BuiltIn(kind) => Some(renderer_for_kind(kind)),
+            LegendRendererSelection::Custom(renderer) => Some(renderer),
+        }
     }
 
-    fn get_legend_renderer_kind(
+    fn get_legend_renderer_selection(
         &self,
         channel: &str,
         scale: &ConfiguredScaleWithSpec,
-    ) -> Option<LegendRendererKind> {
+    ) -> Option<LegendRendererSelection> {
         // Find the first mark that has this channel and get its preference
         for mark in &self.marks {
             if mark.data_context().channels().contains_key(channel) {
-                return mark.preferred_legend_renderer_kind(channel, scale.configured());
+                return mark.preferred_legend_renderer(channel, scale.configured());
             }
         }
         None
     }
 
-    fn legend_renderer_kind_for_channel(
+    fn legend_renderer_theme_selector_for_channel(
         &self,
         channel: &str,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
-    ) -> Option<LegendRendererKind> {
+    ) -> Option<&'static str> {
         let scale = scales.get(channel)?;
-        self.get_legend_renderer_kind(channel, scale)
+        self.get_legend_renderer_selection(channel, scale)?
+            .theme_selector()
     }
 
     /// Get legends with theme applied (matching PlotRenderer behavior)
@@ -431,9 +433,7 @@ impl CompiledPlot {
         let theme = self.get_theme();
         for (channel, legend) in all_legends.iter_mut() {
             // Determine legend type for this channel (for CSS selector support)
-            let legend_type = self
-                .legend_renderer_kind_for_channel(channel, scales)
-                .map(LegendRendererKind::theme_selector);
+            let legend_type = self.legend_renderer_theme_selector_for_channel(channel, scales);
 
             apply_legend_theme_defaults(legend, legend_type, theme.as_ref(), params);
         }
@@ -613,8 +613,7 @@ impl CompiledPlot {
         if let Some(theme) = &self.theme {
             // Determine legend type for theme context.
             let legend_type = self
-                .legend_renderer_kind_for_channel(primary_channel.name.as_str(), scales)
-                .map(LegendRendererKind::theme_selector);
+                .legend_renderer_theme_selector_for_channel(primary_channel.name.as_str(), scales);
 
             let legend_ctx = theme.legend_context_with_params(legend_type, params.clone());
             if let Some(theme_value) = theme.query(&legend_ctx, "position")

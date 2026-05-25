@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use avenger_chart_scales::{Scale, ScaleSpec};
+use avenger_chart_core::{Scale, ScaleSpec};
 use avenger_scales::{
     error::AvengerScaleError,
     scales::{DomainKind, InferDomainFromDataMethod, RangeKind, ScaleConfig, ScaleImpl},

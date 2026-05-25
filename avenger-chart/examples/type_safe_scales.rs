@@ -1,6 +1,8 @@
 //! Example demonstrating the new type-safe scale API
 
-use avenger_chart::scales::{Band, Linear, Ordinal, Scale};
+use avenger_chart::scales::{
+    Band, BandScaleExt, Linear, LinearScaleExt, Ordinal, OrdinalScaleExt, Scale,
+};
 use datafusion::logical_expr::lit;
 
 fn main() {

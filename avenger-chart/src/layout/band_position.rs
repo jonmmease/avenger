@@ -3,17 +3,11 @@
 //! The iterator returns `BandPosition` structs with `start()`, `center()`, and
 //! `end()` methods for explicitly choosing placement within each band.
 
-use avenger_chart_core::BandPosition;
+use avenger_chart_core::{BandPosition, ConfiguredScaleLegendExt, DomainValues};
 use avenger_scales::scales::{ConfiguredScale, band};
 use datafusion::common::ScalarValue;
 
-use crate::{
-    error::AvengerChartError,
-    scales::{
-        ConfiguredScaleWithSpec,
-        extensions::{ConfiguredScaleLegendExt, DomainValues},
-    },
-};
+use crate::{error::AvengerChartError, scales::ConfiguredScaleWithSpec};
 
 /// Iterator over band positions from a configured band scale.
 pub struct BandPositionIterator {

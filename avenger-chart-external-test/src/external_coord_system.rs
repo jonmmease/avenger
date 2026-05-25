@@ -11,7 +11,7 @@ use avenger_chart_core::{
     CoordinateSystemTransformCore, GuideSharingContext, LayoutBounds, Mark, MarkRuntimeContext,
     MarkState, OverflowSpaceRequirement, PlotGeometry, PointGeometry, PositionConfig, Theme,
 };
-use avenger_chart_scales::{Auto, Scale, ScaleChannelValue};
+use avenger_chart_core::{Auto, Scale, ScaleChannelValue};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::{arrow::record_batch::RecordBatch, scalar::ScalarValue};

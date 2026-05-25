@@ -1,24 +1,22 @@
-//! Integration tests for direct legend authoring imports.
-//!
-//! These tests intentionally depend on `avenger-chart-core` and
-//! `avenger-chart-legend` directly, rather than using the top-level
-//! `avenger-chart` facade for legend builder APIs.
+//! Integration tests for core-only custom legend renderer imports.
 
-use avenger_chart_core::{ChannelConfig, ChannelValue, ColorChannelConfig, Maybe};
-use avenger_chart_legend::{
-    renderer_for_kind, ColorLegendBuilder, CompiledColorbar, LegendBuilder, LegendRenderer,
-    LegendRendererKind, LegendableChannel, LegendableChannelValue,
+use avenger_chart_cartesian::Cartesian;
+use avenger_chart_core::{
+    ChannelInfo, Legend, LegendChannel, LegendRenderer, LegendRendererSelection, Mark, Maybe,
+    Size2D, Theme,
 };
-use datafusion::prelude::col;
+use avenger_chart_external_test::external_mark::{HexBin, HexBinLegendRenderer};
+use avenger_scales::scales::linear::LinearScale;
+use datafusion::prelude::SessionContext;
+use indexmap::IndexMap;
 
 #[test]
-fn direct_legend_builder_configures_core_legend_spec() {
-    let legend = ColorLegendBuilder::new()
+fn core_legend_spec_can_be_authored_without_legend_crate() {
+    let legend = Legend::new()
         .title("Species")
         .position("right")
         .columns(2)
-        .gradient_thickness(12)
-        .build();
+        .gradient_thickness(12);
 
     assert!(matches!(legend.title, Maybe::Set(Some(_))));
     assert!(matches!(legend.position, Maybe::Set(Some(_))));
@@ -26,33 +24,52 @@ fn direct_legend_builder_configures_core_legend_spec() {
     assert!(matches!(legend.gradient_thickness, Maybe::Set(Some(_))));
 }
 
-#[test]
-fn direct_legend_trait_configures_core_channel_config() {
-    let channel = ColorChannelConfig::new(col("species").into())
-        .legend(|legend| legend.title("Species").position("right"))
-        .into_inner();
+#[tokio::test]
+async fn custom_legend_renderer_uses_core_contracts() {
+    let renderer = HexBinLegendRenderer;
+    let channel = LegendChannel {
+        name: "fill".to_string(),
+        expression: None,
+        scale: LinearScale::configured((0.0, 1.0), (0.0, 1.0)),
+        channel_type: "fill".to_string(),
+        sharing_level: None,
+        mark_type: "hexbin".to_string(),
+        mark_index: 0,
+        related_channels: std::collections::HashMap::<String, ChannelInfo>::new(),
+    };
 
-    let legend = channel
-        .get_legend_config()
-        .expect("legend config should be attached to the scaled channel");
+    assert!(renderer.can_evaluate(std::slice::from_ref(&channel)));
 
-    assert!(matches!(legend.title, Maybe::Set(Some(_))));
-    assert!(matches!(legend.position, Maybe::Set(Some(_))));
+    let size = renderer
+        .measure(
+            &[channel],
+            &Legend::new(),
+            Size2D {
+                width: 100.0,
+                height: 100.0,
+            },
+            &Theme::light(),
+            &IndexMap::new(),
+            &SessionContext::new(),
+        )
+        .await
+        .expect("custom renderer measures");
+
+    assert_eq!(size.width, 24.0);
+    assert_eq!(size.height, 18.0);
 }
 
-#[test]
-fn direct_legend_value_extension_configures_core_channel_value() {
-    let legend = ColorLegendBuilder::new().visible(false).build();
-    let channel = ChannelValue::from(col("species")).legend(legend);
+#[tokio::test]
+async fn external_mark_can_return_custom_legend_renderer_selection() {
+    let compiled = HexBin::<Cartesian>::new()
+        .compile_untransformed(&SessionContext::new())
+        .await
+        .expect("compile external mark");
+    let scale = LinearScale::configured((0.0, 1.0), (0.0, 1.0));
 
-    assert!(channel.has_legend_config());
-}
+    let selection = compiled
+        .preferred_legend_renderer("fill", &scale)
+        .expect("hexbin fill legend renderer");
 
-#[test]
-fn direct_legend_renderer_imports_resolve_from_legend_crate() {
-    let renderer = renderer_for_kind(LegendRendererKind::Symbol);
-    assert_eq!(renderer.name(), "CompiledSymbolLegend");
-
-    let colorbar = CompiledColorbar::new();
-    assert!(colorbar.prefers_flexible_layout());
+    assert!(matches!(selection, LegendRendererSelection::Custom(_)));
 }

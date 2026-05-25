@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
-    CompiledMarkState, CoordinateSystemTransformCore, LegendRendererKind, Mark, MarkRuntimeContext,
-    PointGeometry, ScaleTypePreference, coerce_color_channel_with_renderer,
-    coerce_numeric_channel_with_renderer, default_scale_type_for_data_type, impl_mark_trait_common,
-    is_continuous_scale,
+    CompiledMarkState, CoordinateSystemTransformCore, LegendRendererKind, LegendRendererSelection,
+    Mark, MarkRuntimeContext, PointGeometry, ScaleTypePreference,
+    coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
+    default_scale_type_for_data_type, impl_mark_trait_common, is_continuous_scale,
 };
 use avenger_chart_marks::{Rect, rect_channel_defaults};
 use avenger_scales::scales::ConfiguredScale;
@@ -139,26 +139,28 @@ impl CompiledMarkCore for CompiledCartesianRect {
         }
     }
 
-    fn preferred_legend_renderer_kind(
+    fn preferred_legend_renderer(
         &self,
         channel: &str,
         scale: &ConfiguredScale,
-    ) -> Option<LegendRendererKind> {
+    ) -> Option<LegendRendererSelection> {
         // Check if scale is continuous (for colorbar)
         let is_continuous = is_continuous_scale(scale.scale_impl.as_ref());
 
         match channel {
             // Use colorbar for continuous color scales
-            "fill" | "stroke" | "color" if is_continuous => Some(LegendRendererKind::Colorbar),
+            "fill" | "stroke" | "color" if is_continuous => Some(LegendRendererSelection::BuiltIn(
+                LegendRendererKind::Colorbar,
+            )),
             // Rect marks use rect legend rendering for discrete scales and other visual properties.
             "fill" | "stroke" | "color" | "opacity" | "stroke_width" => {
-                Some(LegendRendererKind::Rect)
+                Some(LegendRendererSelection::BuiltIn(LegendRendererKind::Rect))
             }
             // No legend for position channels and other non-visual channels
             "x" | "y" | "x2" | "y2" | "width" | "height" | "defined" | "order"
             | "corner_radius" => None,
             // For any other channel, default to rect legend rendering.
-            _ => Some(LegendRendererKind::Rect),
+            _ => Some(LegendRendererSelection::BuiltIn(LegendRendererKind::Rect)),
         }
     }
 }

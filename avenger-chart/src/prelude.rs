@@ -48,8 +48,8 @@ pub use avenger_chart_core::{
 
 // Re-export channel config traits - ESSENTIAL for using channel methods
 pub use avenger_chart_core::ChannelConfig;
+pub use avenger_chart_core::{Scale, ScaleChannelConfig, ScaleChannelValue};
 pub use avenger_chart_legend::{LegendableChannel, LegendableChannelValue};
-pub use avenger_chart_scales::{ScaleChannelConfig, ScaleChannelValue};
 
 // Re-export channel configs for direct use
 pub use avenger_chart_core::{
@@ -61,11 +61,12 @@ pub use avenger_chart_core::{
 pub use avenger_chart_cartesian::CartesianPositionConfig;
 
 // Re-export scale types
-pub use avenger_chart_core::{
-    Auto, Band, Linear, Log, Ordinal, Point, Pow, Quantile, Quantize, ScaleConfigSpec, Sqrt,
-    Symlog, Threshold, Time,
+pub use avenger_chart_core::{Auto, ScaleConfigSpec};
+pub use avenger_chart_scales::{
+    Band, BandScaleExt, Linear, LinearScaleExt, Log, LogScaleExt, Ordinal, OrdinalScaleExt, Point,
+    PointScaleExt, Pow, PowScaleExt, Quantile, Quantize, ScaleRuntimeExt, Sqrt, SqrtScaleExt,
+    Symlog, SymlogScaleExt, Threshold, Time, TimeScaleExt,
 };
-pub use avenger_chart_scales::Scale;
 
 // Re-export legend types
 pub use avenger_chart_core::Legend;

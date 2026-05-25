@@ -5,9 +5,7 @@ use avenger_chart_core::{
     color::{parse_color_string, parse_color_string_strict},
     evaluate_f32_expr, evaluate_f64_expr, evaluate_legend_position_expr, evaluate_string_expr,
 };
-use avenger_chart_scales::{
-    ConfiguredScaleLegendExt, DomainValues, serialization::LogicalExprNodeExt,
-};
+use avenger_chart_core::{ConfiguredScaleLegendExt, DefaultLogicalExprNodeExt, DomainValues};
 use avenger_common::types::ColorOrGradient;
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_guides::legend::colorbar::{ColorbarConfig, ColorbarOrientation, make_colorbar_marks};
