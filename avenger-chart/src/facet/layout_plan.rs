@@ -3,11 +3,14 @@
 //! This module is shared by facet coordinate measurement and facet guides to
 //! keep cell planning and overflow edge/gap semantics consistent.
 
+use crate::chart_core::AxisPosition;
 use crate::coords::{FacetAxis, OverflowSpaceRequirement};
 use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
+use crate::guide::{AxisOwnershipMode, AxisVisibility, FacetGuideSharingView};
 pub(crate) use crate::partition::{
     PartitionCellEmptyKind as FacetCellEmptyKind, PartitionCellPlan as FacetCellPlan,
 };
+use crate::plot::compiled::SharingLevel;
 use datafusion::common::ScalarValue;
 use std::collections::HashMap;
 use tracing::trace;
@@ -147,6 +150,48 @@ pub(crate) fn effective_edge_indices_for_values_at_path(
 ) -> Option<(usize, usize)> {
     let renderable_cells = renderable_mask_for_values_at_path(facet_tree, facet_path, values);
     effective_edge_indices(&renderable_cells, values.len())
+}
+
+impl FacetGuideSharingView for EvaluatedFacetTree {
+    fn channel_axis_visibility_for_path_checked(
+        &self,
+        path: &[ScalarValue],
+        axis_position: AxisPosition,
+        sharing_level: u8,
+    ) -> Option<AxisVisibility> {
+        self.channel_axis_visibility_for_path_checked(path, axis_position, sharing_level)
+    }
+
+    fn channel_axis_visibility_for_path_checked_with_mode(
+        &self,
+        path: &[ScalarValue],
+        axis_position: AxisPosition,
+        sharing_level: u8,
+        ownership_mode: AxisOwnershipMode,
+    ) -> Option<AxisVisibility> {
+        self.channel_axis_visibility_for_path_checked_with_mode(
+            path,
+            axis_position,
+            sharing_level,
+            ownership_mode,
+        )
+    }
+
+    fn is_jagged_for_axis(&self, axis_position: AxisPosition) -> bool {
+        self.is_jagged_for_axis(axis_position)
+    }
+
+    fn channel_domain_sharing_level(&self, channel: &str) -> SharingLevel {
+        self.channel_domain_sharing_level_typed(channel)
+    }
+
+    fn effective_edge_indices_for_values_at_path(
+        &self,
+        facet_path: &[ScalarValue],
+        values: &[ScalarValue],
+    ) -> Option<(usize, usize)> {
+        effective_edge_indices_for_values_at_path(self, facet_path, values)
+    }
 }
 
 #[cfg(test)]

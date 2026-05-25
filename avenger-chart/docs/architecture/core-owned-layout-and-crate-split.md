@@ -559,10 +559,14 @@ Migration discipline:
      `avenger-chart-core` crate, with `guide::*` compatibility re-exports.
      The remaining guide split work is therefore focused on `CompiledGuide`,
      `CoordinateGuide`, and the facet-backed `GuideSharingContext`.
-   - The context still lives in `guide` and is still backed by
-     `EvaluatedFacetTree` plus `ChildFrameSharingPath`. The next guide-boundary
-     slice should continue replacing facet-specific backing types with stable
-     view/query traits.
+   - `GuideSharingContext` now stores a narrow `FacetGuideSharingView` trait
+     object instead of a concrete `EvaluatedFacetTree`. Facet remains the
+     provider of that view, but coordinate guides query guide-level visibility,
+     title ownership, jagged-axis state, domain-sharing level, and effective
+     edge indices through the context rather than reaching back into the facet
+     tree. The context still lives in the top-level guide module and still
+     carries `ChildFrameSharingPath` internally, so moving `CoordinateGuide` and
+     `CompiledGuide` remains future work.
 
 9. Reduce coordinate transform measurement signatures.
    Replace direct references to top-level `EvaluationContext`,

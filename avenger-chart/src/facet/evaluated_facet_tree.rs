@@ -24,6 +24,8 @@ use tracing::debug;
 
 pub use crate::partition::{PartitionContent, PartitionNode};
 
+pub(crate) use crate::guide::AxisOwnershipMode;
+pub use crate::guide::AxisVisibility;
 use crate::{
     chart_core::AxisPosition,
     error::AvengerChartError,
@@ -76,26 +78,6 @@ pub struct EvaluatedFacetTree {
     used_sharing_levels: Vec<SharingLevel>,
 }
 
-/// Result of axis visibility computation for a facet cell.
-///
-/// Determines whether tick labels and title should be shown for an axis
-/// based on the cell's position in the facet grid.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct AxisVisibility {
-    /// Whether to show tick labels on this axis
-    pub show_labels: bool,
-    /// Whether to show the axis title
-    pub show_title: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AxisOwnershipMode {
-    /// Compute owners against the full slot geometry.
-    DomainSlots,
-    /// Compute owners against non-empty cells only (hole-aware behavior).
-    NonEmptySlots,
-}
-
 /// Resolved geometry metadata for a concrete facet path.
 ///
 /// This captures branch-local counts so ownership rules remain correct for
@@ -116,24 +98,6 @@ pub struct ResolvedFacetPathInfo {
 struct SlotMembership {
     domain_values: HashSet<ScalarValue>,
     observed_values: HashSet<ScalarValue>,
-}
-
-impl AxisVisibility {
-    /// Create visibility with both labels and title shown.
-    pub fn visible() -> Self {
-        Self {
-            show_labels: true,
-            show_title: true,
-        }
-    }
-
-    /// Create visibility with both labels and title hidden.
-    pub fn hidden() -> Self {
-        Self {
-            show_labels: false,
-            show_title: false,
-        }
-    }
 }
 
 impl EvaluatedFacetTree {

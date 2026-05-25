@@ -14,11 +14,8 @@ use crate::{
         evaluate_axis_position_expr, evaluate_bool_expr, evaluate_f32_expr, evaluate_string_expr,
     },
     error::AvengerChartError,
-    facet::{
-        evaluated_facet_tree::{AxisOwnershipMode, AxisVisibility},
-        ownership_policy::axis_ownership_mode_from_ignore_empty_cells,
-    },
-    guide::GuideSharingContext,
+    facet::ownership_policy::axis_ownership_mode_from_ignore_empty_cells,
+    guide::{AxisOwnershipMode, AxisVisibility, GuideSharingContext},
     layout::LayoutBounds,
     plot::compiled::{
         CoordinationAxis, CoordinationKind, EdgeOwnershipRequest, EdgeOwnershipScope,
@@ -395,8 +392,8 @@ mod tests {
         child_frame_axis_title_scope,
     };
     use crate::container::{ChildFrameSharingLevel, ChildFrameSharingPath};
-    use crate::facet::evaluated_facet_tree::AxisOwnershipMode;
     use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
+    use crate::guide::AxisOwnershipMode;
     use crate::guide::GuideSharingContext;
     use crate::plot::compiled::SharingLevel;
     use crate::render::context::AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM;

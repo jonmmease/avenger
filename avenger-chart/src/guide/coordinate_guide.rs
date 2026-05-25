@@ -12,8 +12,10 @@ use crate::{
     container::ChildFrameSharingPath,
     coords::CoordMeasurement,
     error::AvengerChartError,
-    facet::evaluated_facet_tree::{AxisOwnershipMode, AxisVisibility, EvaluatedFacetTree},
-    guide::{MeasurementResult, OverflowSpaceRequirement},
+    guide::{
+        AxisOwnershipMode, AxisVisibility, FacetGuideSharingView, MeasurementResult,
+        OverflowSpaceRequirement,
+    },
     layout::LayoutBounds,
     marks::CompiledMarkCore,
     plot::compiled::{CoordinationAxis, SharingLevel},
@@ -23,19 +25,19 @@ use crate::{
 /// Sharing context available while measuring or rendering coordinate guides.
 #[derive(Clone, Copy)]
 pub struct GuideSharingContext<'a> {
-    facet_tree: &'a EvaluatedFacetTree,
+    facet_view: &'a dyn FacetGuideSharingView,
     facet_path: &'a [ScalarValue],
     child_frame_sharing_path: &'a ChildFrameSharingPath,
 }
 
 impl<'a> GuideSharingContext<'a> {
     pub(crate) fn new(
-        facet_tree: &'a EvaluatedFacetTree,
+        facet_view: &'a dyn FacetGuideSharingView,
         facet_path: &'a [ScalarValue],
         child_frame_sharing_path: &'a ChildFrameSharingPath,
     ) -> Self {
         Self {
-            facet_tree,
+            facet_view,
             facet_path,
             child_frame_sharing_path,
         }
@@ -69,12 +71,18 @@ impl<'a> GuideSharingContext<'a> {
             .count()
     }
 
-    pub(crate) fn child_frame_sharing_path(&self) -> &'a ChildFrameSharingPath {
-        self.child_frame_sharing_path
-    }
-
-    pub(crate) fn facet_tree(&self) -> &'a EvaluatedFacetTree {
-        self.facet_tree
+    pub(crate) fn with_facet_path<'b>(
+        &self,
+        facet_path: &'b [ScalarValue],
+    ) -> GuideSharingContext<'b>
+    where
+        'a: 'b,
+    {
+        GuideSharingContext {
+            facet_view: self.facet_view,
+            facet_path,
+            child_frame_sharing_path: self.child_frame_sharing_path,
+        }
     }
 
     pub(crate) fn channel_axis_visibility_for_path_checked_with_mode(
@@ -83,7 +91,7 @@ impl<'a> GuideSharingContext<'a> {
         sharing_level: u8,
         ownership_mode: AxisOwnershipMode,
     ) -> Option<AxisVisibility> {
-        self.facet_tree
+        self.facet_view
             .channel_axis_visibility_for_path_checked_with_mode(
                 self.facet_path,
                 axis_position,
@@ -93,11 +101,49 @@ impl<'a> GuideSharingContext<'a> {
     }
 
     pub(crate) fn facet_is_jagged_for_axis(&self, axis_position: AxisPosition) -> bool {
-        self.facet_tree.is_jagged_for_axis(axis_position)
+        self.facet_view.is_jagged_for_axis(axis_position)
     }
 
     pub(crate) fn channel_domain_sharing_level(&self, channel: &str) -> SharingLevel {
-        self.facet_tree.channel_domain_sharing_level_typed(channel)
+        self.facet_view.channel_domain_sharing_level(channel)
+    }
+
+    pub(crate) fn facet_guide_labels_visible(
+        &self,
+        axis_position: AxisPosition,
+        sharing_level: u8,
+    ) -> bool {
+        if self.facet_path.is_empty() {
+            return true;
+        }
+
+        self.facet_view
+            .channel_axis_visibility_for_path_checked(self.facet_path, axis_position, sharing_level)
+            .map(|visibility| visibility.show_labels)
+            .unwrap_or(true)
+    }
+
+    pub(crate) fn facet_guide_title_visible(&self, axis_position: AxisPosition) -> bool {
+        if self.facet_path.is_empty() {
+            return true;
+        }
+
+        self.facet_view
+            .channel_axis_visibility_for_path_checked(
+                self.facet_path,
+                axis_position,
+                SharingLevel::GLOBAL.raw(),
+            )
+            .map(|visibility| visibility.show_title)
+            .unwrap_or(true)
+    }
+
+    pub(crate) fn effective_edge_indices_for_values(
+        &self,
+        values: &[ScalarValue],
+    ) -> Option<(usize, usize)> {
+        self.facet_view
+            .effective_edge_indices_for_values_at_path(self.facet_path, values)
     }
 }
 

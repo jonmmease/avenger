@@ -7,6 +7,7 @@
 
 use datafusion::common::ScalarValue;
 
+#[cfg(test)]
 use crate::{
     chart_core::AxisPosition, facet::evaluated_facet_tree::EvaluatedFacetTree,
     plot::compiled::SharingLevel,
@@ -23,6 +24,7 @@ pub(crate) fn format_scalar_value(value: &ScalarValue) -> String {
 /// follows sharing groups consistently with cartesian axis label ownership.
 ///
 /// Invalid paths fall back to visible to preserve prior permissive behavior.
+#[cfg(test)]
 pub(crate) fn facet_guide_labels_visible_for_cell(
     facet_tree: &EvaluatedFacetTree,
     facet_path: &[ScalarValue],
@@ -43,6 +45,7 @@ pub(crate) fn facet_guide_labels_visible_for_cell(
 ///
 /// Facet titles use channel-axis ownership so mixed row/column nesting scopes
 /// titles to the strip controlled by the guide axis.
+#[cfg(test)]
 pub(crate) fn facet_guide_title_visible_for_cell(
     facet_tree: &EvaluatedFacetTree,
     facet_path: &[ScalarValue],

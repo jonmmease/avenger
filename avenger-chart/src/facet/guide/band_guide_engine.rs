@@ -19,11 +19,7 @@ use crate::{
         coord::{
             FacetBandProbeMeasurement, FacetCellRuntime, facet_band_ref as facet_band_from_coord,
         },
-        guide_utils::{
-            facet_guide_labels_visible_for_cell, facet_guide_title_visible_for_cell,
-            format_scalar_value,
-        },
-        layout_plan::effective_edge_indices_for_values_at_path,
+        guide_utils::format_scalar_value,
         overflow_projection::{
             FacetOverflowPurpose, FacetOverflowResolutionPhase, FacetOverflowResolvedSource,
             resolve_facet_overflow,
@@ -422,12 +418,8 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
     let (_band_positions, labels) = band_positions_and_labels::<O>(scales, coord_measurement)?;
     let place_at_end = O::place_at_end(state.position.as_deref());
     let axis_position = O::axis_position(place_at_end);
-    let guide_visible = facet_guide_labels_visible_for_cell(
-        sharing_context.facet_tree(),
-        sharing_context.facet_path(),
-        axis_position,
-        state.sharing_level.raw(),
-    );
+    let guide_visible =
+        sharing_context.facet_guide_labels_visible(axis_position, state.sharing_level.raw());
     if !guide_visible {
         debug!(
             guide = O::log_name(),
@@ -442,11 +434,7 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
         return Ok(subplot_overflow);
     }
 
-    let title_visible = facet_guide_title_visible_for_cell(
-        sharing_context.facet_tree(),
-        sharing_context.facet_path(),
-        axis_position,
-    );
+    let title_visible = sharing_context.facet_guide_title_visible(axis_position);
     let title_for_cell = title_visible
         .then_some(state.facet_title.as_ref())
         .flatten();
@@ -520,12 +508,8 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
 ) -> Result<Vec<avenger_scenegraph::marks::mark::SceneMark>, AvengerChartError> {
     let place_at_end = O::place_at_end(state.position.as_deref());
     let axis_position = O::axis_position(place_at_end);
-    let guide_visible = facet_guide_labels_visible_for_cell(
-        sharing_context.facet_tree(),
-        sharing_context.facet_path(),
-        axis_position,
-        state.sharing_level.raw(),
-    );
+    let guide_visible =
+        sharing_context.facet_guide_labels_visible(axis_position, state.sharing_level.raw());
     if !guide_visible {
         debug!(
             guide = O::log_name(),
@@ -542,11 +526,7 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
     }
 
     let band_positions = O::align_band_positions_for_render(&band_positions, coord_measurement);
-    let title_visible = facet_guide_title_visible_for_cell(
-        sharing_context.facet_tree(),
-        sharing_context.facet_path(),
-        axis_position,
-    );
+    let title_visible = sharing_context.facet_guide_title_visible(axis_position);
     let title_for_cell = title_visible
         .then_some(state.facet_title.as_ref())
         .flatten();
@@ -700,23 +680,16 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
             .iter()
             .map(|band_position| band_position.value.clone())
             .collect();
-        let (first_idx, last_idx) = effective_edge_indices_for_values_at_path(
-            sharing_context.facet_tree(),
-            sharing_context.facet_path(),
-            &cell_values,
-        )
-        .unwrap_or((0, band_positions.len() - 1));
+        let (first_idx, last_idx) = sharing_context
+            .effective_edge_indices_for_values(&cell_values)
+            .unwrap_or((0, band_positions.len() - 1));
 
         let first_path = {
             let mut path = sharing_context.facet_path().to_vec();
             path.push(band_positions[first_idx].value.clone());
             path
         };
-        let first_context = GuideSharingContext::new(
-            sharing_context.facet_tree(),
-            &first_path,
-            sharing_context.child_frame_sharing_path(),
-        );
+        let first_context = sharing_context.with_facet_path(&first_path);
         let first_overflow = guide
             .measure_overflow(
                 &configured_scales,
@@ -739,11 +712,7 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
             path.push(band_positions[last_idx].value.clone());
             path
         };
-        let last_context = GuideSharingContext::new(
-            sharing_context.facet_tree(),
-            &last_path,
-            sharing_context.child_frame_sharing_path(),
-        );
+        let last_context = sharing_context.with_facet_path(&last_path);
         let last_overflow = guide
             .measure_overflow(
                 &configured_scales,

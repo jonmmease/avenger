@@ -7,8 +7,11 @@
 mod coordinate_guide;
 mod no_guide;
 mod overflow;
+mod sharing;
 
 pub use avenger_chart_core::{GuideContext, GuideOverflowPhase, GuideUpdate};
 pub use coordinate_guide::{CompiledGuide, CoordinateGuide, GuideSharingContext};
 pub use no_guide::NoGuide;
 pub use overflow::{MeasurementResult, OverflowSpaceRequirement, spacing_keys};
+pub use sharing::AxisVisibility;
+pub(crate) use sharing::{AxisOwnershipMode, FacetGuideSharingView};

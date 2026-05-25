@@ -1,6 +1,4 @@
-use crate::facet::{
-    empty_cell_policy::FacetEmptyCellPolicy, evaluated_facet_tree::AxisOwnershipMode,
-};
+use crate::{facet::empty_cell_policy::FacetEmptyCellPolicy, guide::AxisOwnershipMode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct FacetOwnershipPolicy {
