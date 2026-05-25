@@ -165,8 +165,8 @@ pub use serialization::{
 };
 pub use sharing::{CoordinationAxis, SharingLevel};
 pub use subplot_child_plot::{
-    CompiledSubplotChildPlot, CompiledSubplotPayload, SubplotChildPlotSpec, SubplotDataSource,
-    SubplotMarkCore, compile_subplot_payload,
+    CompiledSubplotChildPlot, CompiledSubplotPayload, SubplotChildPlotSpec,
+    SubplotContainerCoordinateSystem, SubplotDataSource, SubplotMarkCore, compile_subplot_payload,
 };
 pub use theme::{AngleUnit, CssRgba, LengthUnit, Theme, ThemeValue};
 pub use theme_context::ThemeContext;

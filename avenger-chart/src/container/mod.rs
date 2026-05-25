@@ -7,8 +7,8 @@
 //!
 //! This module is hidden from public docs on purpose. It is not a general
 //! external layout-container API; external coordinate-system crates should use
-//! the `marks` module's `SubplotContainerCoordinateSystem` hook when they need
-//! to compile `Subplot` marks.
+//! the core `SubplotContainerCoordinateSystem` hook when they need to compile
+//! `Subplot` marks.
 //!
 //! Core invariants:
 //!

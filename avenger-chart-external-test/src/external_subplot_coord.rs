@@ -8,14 +8,13 @@
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use avenger_chart::marks::SubplotContainerCoordinateSystem;
 use avenger_chart_core::{
     compile_subplot_payload, AvengerChartError, ChannelDescriptor, CompiledDataContext,
     CompiledGuide, CompiledMark, CompiledMarkCore, CompiledMarkState, CompiledSubplotPayload,
     CoordMeasurement, CoordinateGuide, CoordinateSystem, CoordinateSystemCore,
     CoordinateSystemTransform, CoordinateSystemTransformCore, GuideSharingContext, GuideUpdate,
     LayoutBounds, MarkRuntimeContext, OverflowSpaceRequirement, PlotGeometry, PointGeometry,
-    SubplotMarkCore, Theme,
+    SubplotContainerCoordinateSystem, SubplotMarkCore, Theme,
 };
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::{group::Clip, mark::SceneMark};

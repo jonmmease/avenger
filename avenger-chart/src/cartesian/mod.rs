@@ -12,5 +12,6 @@ pub use coord::Cartesian;
 pub use guide::{CartesianGuide, CartesianOptions};
 pub use marks::{
     CartesianLinePositionChannels, CartesianRectPositionChannels, CartesianSymbolPositionChannels,
+    CompiledCartesianSubplot,
 };
 pub use positioned_subplot::CartesianSubplotPositionChannels;

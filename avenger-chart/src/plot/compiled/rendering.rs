@@ -26,7 +26,9 @@ use indexmap::IndexMap;
 use tracing::{Level, debug, trace};
 
 use crate::{
-    cartesian::positioned_subplot::compiled_cartesian_subplot,
+    cartesian::positioned_subplot::{
+        compiled_cartesian_subplot, render_cartesian_subplot_with_context,
+    },
     chart_core::maybe::Maybe,
     chart_core::{AxisPosition, FacetEmptyCellPolicy, LegendPosition, evaluate_f32_expr},
     concat::compiled_subplot as compiled_concat_subplot,
@@ -1195,7 +1197,7 @@ impl CompiledPlot {
         }
 
         if let Some(subplot) = compiled_cartesian_subplot(mark) {
-            return subplot.render_with_context(&render_ctx).await;
+            return render_cartesian_subplot_with_context(subplot, &render_ctx).await;
         }
 
         if let Some(subplot) = facet_subplot_ref(mark) {

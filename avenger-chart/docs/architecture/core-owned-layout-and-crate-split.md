@@ -522,9 +522,9 @@ Migration discipline:
      `CoordinateSystemCore`, and shared payload compilation is expressed
      through the core `SubplotMarkCore` view. The
      `SubplotContainerCoordinateSystem` compile hook now also takes
-     `&dyn SubplotMarkCore` instead of `&Subplot<Self>`, but it still lives
-     with the top-level mark module until the Cartesian hook implementation can
-     move to the Cartesian crate.
+     `&dyn SubplotMarkCore` instead of `&Subplot<Self>`.
+     `SubplotContainerCoordinateSystem` itself now lives in
+     `avenger-chart-core`.
    - Top-level consumers now use hidden `Subplot` accessor methods for
      child-frame sizing, facet row/column options, channel injection, and
      data-context inspection instead of reaching into crate-private config
@@ -543,26 +543,26 @@ Migration discipline:
    - Concat now owns `CompiledConcatSubplot`, the H/V
      `SubplotContainerCoordinateSystem` impls, and the concat
      `compiled_subplot(...)` downcast helper.
-   - Cartesian positioned subplot support now lives with
-     `cartesian::positioned_subplot`, including the `Subplot<Cartesian>`
-     builder methods, `SubplotContainerCoordinateSystem` impl,
-     `CompiledCartesianSubplot`, and its render implementation.
-   - `marks::subplot` now contains the neutral subplot mark, top-level
-     `SubplotContainerCoordinateSystem` compile hook, and unit coverage only.
-     Temporary compatibility re-exports remain for the old compiled subplot
-     type paths.
+   - Cartesian positioned subplot support is split at the intended ownership
+     boundary. `avenger-chart-cartesian` now owns
+     `CompiledCartesianSubplot` and the `SubplotContainerCoordinateSystem`
+     impl for `Cartesian`; the top-level facade keeps only the built-in
+     child-frame measurement/render dispatcher and the temporary
+     `Subplot<Cartesian>` builder extension trait while `Subplot` remains in
+     the facade.
+   - `marks::subplot` now contains the neutral subplot mark, its core
+     `Mark<C>` impl, and unit coverage only. Temporary compatibility
+     re-exports remain for the old compiled subplot type paths.
    - Cartesian positioned-subplot authoring methods and facet row/column
      subplot channel methods now use extension traits rather than inherent
      `Subplot<...>` impls. The facade prelude re-exports
      `CartesianSubplotPositionChannels`, `FacetRowSubplotChannels`, and
      `FacetColumnSubplotChannels`, preserving chart-author ergonomics while
      removing one orphan-rule blocker for moving neutral `Subplot` later.
-   - Moving `Subplot` itself into `avenger-chart-marks` must follow the same
-     extension-trait pattern used for coordinate-specific position channels.
-     A direct move would violate Rust orphan rules for the facade-owned
-     Cartesian subplot compile-hook impl because `Cartesian` already lives
-     outside the facade crate and the hook trait has not yet moved to the
-     lower boundary where Cartesian can own its implementation.
+   - Moving `Subplot` itself into `avenger-chart-marks` is the next mark
+     boundary. The earlier orphan-rule blocker has been removed by moving the
+     compile hook to core and the Cartesian hook impl to
+     `avenger-chart-cartesian`.
 
 8. Replace concrete guide sharing context with an opaque core view.
    `CoordinateGuide` should receive a core-owned `GuideSharingContext` that
@@ -983,10 +983,10 @@ boundaries boring.
      error types, `CoordMeasurement`, `CoordinateSystem`,
      `CoordinateSystemCore`, `CoordinateSystemTransform`,
      `CoordinateSystemTransformCore`, `GuideUpdate`, `CoordinateGuide`,
-     `CompiledGuide`, `GuideSharingContext`, and `OverflowSpaceRequirement`
-     directly from `avenger-chart-core` while still using the top-level facade
-     for `Subplot`, `CompiledSubplotPayload`, and
-     `SubplotContainerCoordinateSystem`.
+     `CompiledGuide`, `GuideSharingContext`, `OverflowSpaceRequirement`,
+     `CompiledSubplotPayload`, `SubplotMarkCore`, and
+     `SubplotContainerCoordinateSystem` directly from `avenger-chart-core`
+     while still using the top-level facade for the concrete `Subplot` mark.
    - External coordinate dogfood implements the generic
      `CoordinateGuide::set_compiled_marks<M: CompiledMarkCore>(...)` hook from
      `avenger-chart-core`, proving guide setup no longer requires the top-level
@@ -1008,6 +1008,11 @@ boundaries boring.
      `Line`, `Rect`, and `Symbol` `Mark<Cartesian>` / `CompiledMark`
      implementations now live in `avenger-chart-cartesian`. The top-level
      Cartesian mark modules are compatibility re-export shims.
+   - `CompiledCartesianSubplot` and the `SubplotContainerCoordinateSystem`
+     impl for `Cartesian` now live in `avenger-chart-cartesian`. The top-level
+     facade still owns Cartesian positioned-subplot child-frame
+     measurement/rendering because that path uses the core-owned layout
+     runtime.
 
 6. Extract `avenger-chart-polar`.
    Move Polar coordinate, axes, guides, channels, and Polar mark impls.

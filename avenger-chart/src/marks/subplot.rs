@@ -4,9 +4,9 @@ use datafusion::prelude::SessionContext;
 
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, ColumnDimensionConfig, CompiledMark, CompiledMarkState,
-    CompiledSubplotChildPlot, CoordinateSystem, CoordinateSystemCore, DataContext,
-    FacetDimensionConfig, FacetEmptyCellPolicy, FacetStrategy, Mark, MarkState, RowDimensionConfig,
-    ScaleSharing, SubplotChildPlotSpec, SubplotMarkCore,
+    CompiledSubplotChildPlot, CoordinateSystemCore, DataContext, FacetDimensionConfig,
+    FacetEmptyCellPolicy, FacetStrategy, Mark, MarkState, RowDimensionConfig, ScaleSharing,
+    SubplotChildPlotSpec, SubplotContainerCoordinateSystem, SubplotMarkCore,
 };
 
 #[derive(Clone, Default)]
@@ -281,24 +281,6 @@ impl<OuterC: CoordinateSystemCore> SubplotMarkCore for Subplot<OuterC> {
     ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
         self.subplot.compile_boxed(session_context).await
     }
-}
-
-#[async_trait::async_trait]
-pub trait SubplotContainerCoordinateSystem: CoordinateSystem + Sized {
-    /// Compile a subplot mark for this coordinate system.
-    ///
-    /// Outer-coordinate-specific builder methods still live on concrete
-    /// `Subplot<...>` extension traits. This hook only owns the final
-    /// conversion from a generic subplot mark view plus compiled mark state
-    /// into the coordinate-system-specific compiled mark. The core layout
-    /// engine keeps facet and concat behavior built in; external coordinate
-    /// crates can implement this hook when their coordinate system supports
-    /// positioned child plots.
-    async fn compile_subplot_mark(
-        subplot: &dyn SubplotMarkCore,
-        compiled_state: CompiledMarkState,
-        session_context: &SessionContext,
-    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError>;
 }
 
 #[async_trait::async_trait]

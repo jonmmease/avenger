@@ -4,8 +4,8 @@ use datafusion::{arrow::record_batch::RecordBatch, dataframe::DataFrame, prelude
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AvengerChartError, ColumnDimensionConfig, CompiledMarkState, DataContext, FacetDimensionConfig,
-    FacetEmptyCellPolicy, RowDimensionConfig, ScaleSharing,
+    AvengerChartError, ColumnDimensionConfig, CompiledMark, CompiledMarkState, CoordinateSystem,
+    DataContext, FacetDimensionConfig, FacetEmptyCellPolicy, RowDimensionConfig, ScaleSharing,
 };
 
 /// Data source selected for a compiled subplot's child plot.
@@ -135,6 +135,24 @@ pub trait SubplotMarkCore: Send + Sync {
         }
         Ok(())
     }
+}
+
+#[async_trait::async_trait]
+pub trait SubplotContainerCoordinateSystem: CoordinateSystem + Sized {
+    /// Compile a subplot mark for this coordinate system.
+    ///
+    /// Outer-coordinate-specific builder methods live on concrete
+    /// `Subplot<...>` extension traits. This hook only owns the final
+    /// conversion from a generic subplot mark view plus compiled mark state
+    /// into the coordinate-system-specific compiled mark. The top-level layout
+    /// engine keeps facet and concat behavior built in; external coordinate
+    /// crates can implement this hook when their coordinate system supports
+    /// positioned child plots.
+    async fn compile_subplot_mark(
+        subplot: &dyn SubplotMarkCore,
+        compiled_state: CompiledMarkState,
+        session_context: &SessionContext,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError>;
 }
 
 /// Shared compiled state for a child plot owned by a container subplot mark.
