@@ -28,6 +28,98 @@ Still deferred:
 - Explicit ordering, size encodings, overlap handling, and the shorter
   `.partition(...)` alias.
 
+## Visual Baseline Plan
+
+Add a small set of image baselines that exercise partitioned positioned
+subplots as an author-facing feature. These should live with the existing
+positioned-subplot visual tests in
+`avenger-chart/tests/visual_tests/test_cartesian_subplot.rs` until the test
+module is renamed or split.
+
+### Cartesian Outer Baselines
+
+1. `cartesian_partitioned_subplot_scatter`
+
+   Parent coordinate system: `Cartesian`.
+
+   Child coordinate system: `Cartesian`.
+
+   Shape: parent data partitioned by a categorical field such as `species`;
+   parent placement uses `x = avg(col("sepal_length"))` and
+   `y = avg(col("petal_length"))` with no explicit parent domains. Each child
+   subplot renders a mini scatter plot from inherited partition data.
+
+   Purpose: this is the canonical baseline for aggregate parent placement,
+   inferred parent domains, filtered child data, child axes/guides, and stable
+   partition group naming.
+
+2. `cartesian_partitioned_subplot_mixed_child_coords`
+
+   Parent coordinate system: `Cartesian`.
+
+   Child coordinate systems: one partitioned subplot mark with `Cartesian`
+   children and one partitioned subplot mark with `Polar` children, or a single
+   partitioned subplot whose child plot is `Polar`.
+
+   Shape: reuse the same partitioned parent data, but let the child plot render
+   polar symbols using inherited partition rows.
+
+   Purpose: proves the partitioned positioned-subplot data path is independent
+   of the child plot coordinate system. This is not a Polar outer-coordinate
+   test; it is still a Cartesian parent positioning test.
+
+### Polar Outer Baselines
+
+Polar outer baselines require a small implementation prerequisite: `Polar`
+must implement `SubplotContainerCoordinateSystem` for `Subplot<Polar>` and the
+top-level crate must add a Polar positioned-subplot measurement/render path.
+That should reuse the same partition/filter child-data semantics introduced for
+Cartesian positioned subplots, but with parent placement channels `r` and
+`theta` instead of `x` and `y`.
+
+3. `polar_partitioned_subplot_cartesian_children`
+
+   Parent coordinate system: `Polar`.
+
+   Child coordinate system: `Cartesian`.
+
+   Shape: parent data partitioned by category; parent placement uses
+   `theta = avg(col("angle"))` and `r = avg(col("radius"))`; each child subplot
+   renders a compact Cartesian scatter or bar-like view of the inherited
+   partition rows.
+
+   Purpose: first true Polar outer-coordinate baseline. It should visibly place
+   child frames around a polar coordinate system while proving partitioned child
+   filtering still works.
+
+4. `polar_partitioned_subplot_polar_children`
+
+   Parent coordinate system: `Polar`.
+
+   Child coordinate system: `Polar`.
+
+   Shape: same parent partitioning and parent `theta`/`r` aggregate placement,
+   but child subplots render mini polar scatter plots from each filtered
+   partition.
+
+   Purpose: exercises Polar as both parent and child coordinate system. Keep the
+   visual simple so failures clearly indicate whether the parent placement,
+   child filtering, or child polar rendering changed.
+
+### Baseline Acceptance Checks
+
+- No explicit parent domains in the aggregate-placement cases unless the visual
+  design genuinely requires fixed framing.
+- At least one partition has a different row count than another, so child mark
+  counts make filtering visually and programmatically detectable.
+- Use deterministic partition values and aggregate positions to avoid noisy
+  baseline movement.
+- Keep child plot sizes modest, with enough spacing that overlap is not the
+  feature under test.
+- Add focused scene-graph assertions before/alongside image baselines where
+  practical: group count equals partition count, child group names include
+  partition values, and child mark counts match filtered row counts.
+
 ## Goal
 
 Add the first real partitioned mode for `Subplot<Cartesian>`:
