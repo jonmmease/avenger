@@ -231,9 +231,7 @@ pub(crate) async fn measure_coordinate_system_transform(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layout::BandPosition;
     use crate::{cartesian::Cartesian, polar::Polar};
-    use datafusion::common::ScalarValue;
 
     #[test]
     fn test_coordinate_transform_serialization() {
@@ -259,82 +257,5 @@ mod tests {
 
         let deserialized: Box<dyn CoordinateSystemTransform> = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.required_channels(), &["r", "theta"]);
-    }
-
-    #[test]
-    fn test_subplot_geometry_row_helpers() {
-        let band_positions = vec![
-            BandPosition::new(ScalarValue::from("A"), 0.0, 20.0),
-            BandPosition::new(ScalarValue::from("B"), 20.0, 20.0),
-        ];
-
-        let geometry =
-            SubplotGeometry::from_band_positions(band_positions.clone(), FacetAxis::Row, 100.0);
-
-        assert_eq!(geometry.count(), 2);
-        let first = geometry.rect_at(0).unwrap();
-        assert_eq!(first.value, ScalarValue::from("A"));
-        assert_eq!(first.x, 0.0);
-        assert_eq!(first.y, 0.0);
-        assert_eq!(first.width, 100.0);
-        assert_eq!(first.height, 20.0);
-
-        let second = geometry.rect_at(1).unwrap();
-        assert_eq!(second.value, ScalarValue::from("B"));
-        assert_eq!(second.y, 20.0);
-
-        let collected: Vec<_> = geometry.iter_rects().collect();
-        assert_eq!(collected.len(), 2);
-    }
-
-    #[test]
-    fn test_subplot_geometry_column_helpers() {
-        let band_positions = vec![
-            BandPosition::new(ScalarValue::from("L"), 5.0, 15.0),
-            BandPosition::new(ScalarValue::from("R"), 20.0, 15.0),
-        ];
-
-        let geometry =
-            SubplotGeometry::from_band_positions(band_positions.clone(), FacetAxis::Column, 80.0);
-
-        let first = geometry.rect_at(0).unwrap();
-        assert_eq!(first.value, ScalarValue::from("L"));
-        assert_eq!(first.x, 5.0);
-        assert_eq!(first.y, 0.0);
-        assert_eq!(first.width, 15.0);
-        assert_eq!(first.height, 80.0);
-
-        let second = geometry.rect_at(1).unwrap();
-        assert_eq!(second.value, ScalarValue::from("R"));
-        assert_eq!(second.x, 20.0);
-    }
-
-    #[test]
-    fn coordinated_overflow_merge_preserves_guide_and_legend_slabs() {
-        let mut first = CoordinatedOverflow {
-            guide: OverflowSpaceRequirement {
-                right: 4.0,
-                ..Default::default()
-            },
-            total: OverflowSpaceRequirement {
-                right: 64.0,
-                ..Default::default()
-            },
-        };
-        let second = CoordinatedOverflow {
-            guide: OverflowSpaceRequirement {
-                right: 10.0,
-                ..Default::default()
-            },
-            total: OverflowSpaceRequirement {
-                right: 20.0,
-                ..Default::default()
-            },
-        };
-
-        first.merge(&second);
-
-        assert_eq!(first.guide.right, 10.0);
-        assert_eq!(first.total.right, 70.0);
     }
 }

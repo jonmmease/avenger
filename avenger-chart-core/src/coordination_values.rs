@@ -76,3 +76,37 @@ impl CoordinatedLayout {
         self.n = self.n.max(other.n);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn coordinated_overflow_merge_preserves_guide_and_legend_slabs() {
+        let mut first = CoordinatedOverflow {
+            guide: OverflowSpaceRequirement {
+                right: 4.0,
+                ..Default::default()
+            },
+            total: OverflowSpaceRequirement {
+                right: 64.0,
+                ..Default::default()
+            },
+        };
+        let second = CoordinatedOverflow {
+            guide: OverflowSpaceRequirement {
+                right: 10.0,
+                ..Default::default()
+            },
+            total: OverflowSpaceRequirement {
+                right: 20.0,
+                ..Default::default()
+            },
+        };
+
+        first.merge(&second);
+
+        assert_eq!(first.guide.right, 10.0);
+        assert_eq!(first.total.right, 70.0);
+    }
+}

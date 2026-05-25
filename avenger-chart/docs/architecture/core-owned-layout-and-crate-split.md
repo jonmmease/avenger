@@ -825,6 +825,9 @@ boundaries boring.
      `PaddingSpec`, the pure `BandPosition` value, and `ZeroDCoord`. The
      band-scale iterator remains in top-level layout because it depends on
      chart-layer configured scales.
+   - Moved value-type coverage for `SubplotGeometry` and
+     `CoordinatedOverflow` to `avenger-chart-core`; the top-level `coords`
+     tests now cover only facade-owned transform serialization.
    - `SerializableDataFrame` now lives in `avenger-chart-core` and is
      re-exported through `avenger_chart::serialization`. The chart-specific
      logical expression/plan conversion traits that use
@@ -1070,6 +1073,8 @@ boundaries boring.
      `layout` remain as narrow re-export shims where needed.
    - Reduced `avenger_chart::utils` to a behavior-free compatibility re-export;
      its former tests now live with the core helper implementations.
+   - Removed duplicate core value-type tests from the top-level `coords`
+     compatibility/runtime module.
 
 ## Testing And Validation Strategy
 
