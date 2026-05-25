@@ -871,10 +871,10 @@ boundaries boring.
      `avenger-chart/src/marks/compiled_data_context.rs`, and
      `avenger-chart/src/marks/facet_strategy.rs`, and
      `avenger-chart/src/marks/state.rs` are compatibility re-export shims.
-  - `CompiledDataContext` uses core `ChannelValue`, `SerializableDataFrame`,
-    and the core logical-plan codec, including reusable MemTable
-    serialization. The scale-UDF layer remains in `avenger-chart-scales` and
-    delegates generic table-provider handling to core.
+   - `CompiledDataContext` uses core `ChannelValue`, `SerializableDataFrame`,
+     and the core logical-plan codec, including reusable MemTable
+     serialization. The scale-UDF layer remains in `avenger-chart-scales` and
+     delegates generic table-provider handling to core.
    - The external custom-mark dogfood now imports custom mark
      state/data/channel contracts, base/common/position-channel macros, `Mark`,
      `CompiledMark`, `MarkRuntimeContext`, and `AvengerChartError` directly
@@ -918,9 +918,11 @@ boundaries boring.
      channel-reference resolution, deterministic `ScalarValue` ordering, and
      Arrow numeric extraction. The old top-level module paths are compatibility
      re-exports.
-   - The external custom-scale dogfood now imports `Scale` and `ScaleSpec`
-     directly from `avenger-chart-scales`, while the plot-integration test still
-     uses the top-level facade to prove the two paths compose.
+   - The external custom-scale dogfood now imports `Scale`, scale extension
+     traits, and `ScaleSpec` directly from `avenger-chart-scales`; `Symbol`
+     from `avenger-chart-marks`; and Cartesian coordinate/builder traits from
+     `avenger-chart-cartesian`. Its plot-integration tests still use the
+     top-level facade for `Plot` to prove the paths compose.
 
 4. Extract `avenger-chart-legend`.
    Move legend builders, renderer implementations, and legend planning. Ensure
@@ -1002,6 +1004,9 @@ boundaries boring.
      checks over core `GuideSharingContext`, now lives in
      `avenger-chart-cartesian`. External custom-mark dogfood imports
      `CartesianPositionConfig` directly from `avenger-chart-cartesian`.
+     The abandoned external custom-Cartesian-axis dogfood source was removed
+     because `CartesianAxis` is a concrete built-in coordinate feature rather
+     than an external extension trait.
    - `CartesianGuide` and `CartesianOptions` now live in
      `avenger-chart-cartesian`, including guide measurement/rendering and
      background rendering. The top-level `avenger_chart::cartesian::guide`

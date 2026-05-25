@@ -3,11 +3,10 @@
 
 use std::sync::Arc;
 
-use avenger_chart::{
-    cartesian::CartesianSymbolPositionChannels, marks::symbol::Symbol, plot::Plot,
-};
-use avenger_chart_cartesian::Cartesian;
+use avenger_chart::plot::Plot;
+use avenger_chart_cartesian::{Cartesian, CartesianSymbolPositionChannels};
 use avenger_chart_external_test::external_scale::{SmoothLog, SmoothLogExt, SmoothLogScale};
+use avenger_chart_marks::Symbol;
 use avenger_chart_scales::{Auto, Scale, ScaleChannelConfig};
 use avenger_scales::scales::{ScaleConfig, ScaleContext, ScaleImpl};
 use datafusion::{

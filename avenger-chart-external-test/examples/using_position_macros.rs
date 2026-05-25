@@ -1,6 +1,7 @@
 //! Example showing how external crates can use position channel macros with axis configuration
 
-use avenger_chart::{cartesian::Cartesian, plot::Plot};
+use avenger_chart::plot::Plot;
+use avenger_chart_cartesian::Cartesian;
 use avenger_chart_external_test::external_coord_system::{Cube, Isometric, IsometricAxis};
 use avenger_chart_external_test::external_mark::HexBin;
 use avenger_chart_scales::ScaleChannelConfig;
