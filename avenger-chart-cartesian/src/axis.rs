@@ -21,6 +21,8 @@ use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
+use crate::marks::subplot::{CARTESIAN_SUBPLOT_X_CHANNEL, CARTESIAN_SUBPLOT_Y_CHANNEL};
+
 /// Concrete struct for Cartesian axes.
 ///
 /// Using a struct instead of a trait enables type inference in closure
@@ -171,6 +173,14 @@ impl CartesianAxis {
             self.show_title = other.show_title;
         }
         self
+    }
+}
+
+fn default_axis_position_for_channel(channel: &str) -> AxisPosition {
+    match channel {
+        "y" | CARTESIAN_SUBPLOT_Y_CHANNEL => AxisPosition::Left,
+        "x" | CARTESIAN_SUBPLOT_X_CHANNEL => AxisPosition::Bottom,
+        _ => AxisPosition::Bottom,
     }
 }
 
@@ -336,11 +346,7 @@ pub async fn evaluate_cartesian_axis(
         let position_expr = position_node.to_default_expr(ctx)?;
         evaluate_axis_position_expr(&position_expr, ctx, params).await?
     } else {
-        match channel {
-            "x" => AxisPosition::Bottom,
-            "y" => AxisPosition::Left,
-            _ => AxisPosition::Bottom,
-        }
+        default_axis_position_for_channel(channel)
     };
 
     let orientation = match position {
@@ -527,7 +533,7 @@ pub async fn evaluate_cartesian_axis(
 mod tests {
     use super::{
         AxisPosition, ChildFrameAxisOwnershipRole, child_frame_axis_ownership_scope,
-        child_frame_axis_title_scope,
+        child_frame_axis_title_scope, default_axis_position_for_channel,
     };
     use avenger_chart_core::{
         AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, AxisOwnershipMode, AxisVisibility,
@@ -536,6 +542,8 @@ mod tests {
     };
     use datafusion::common::ScalarValue;
     use indexmap::IndexMap;
+
+    use crate::marks::subplot::{CARTESIAN_SUBPLOT_X_CHANNEL, CARTESIAN_SUBPLOT_Y_CHANNEL};
 
     #[derive(Debug, Default)]
     struct EmptyFacetView;
@@ -633,6 +641,20 @@ mod tests {
             axis_ownership_mode_from_params(&params),
             AxisOwnershipMode::NonEmptySlots
         );
+    }
+
+    #[test]
+    fn subplot_position_channels_default_to_cartesian_axis_edges() {
+        assert_eq!(
+            default_axis_position_for_channel(CARTESIAN_SUBPLOT_X_CHANNEL),
+            AxisPosition::Bottom
+        );
+        assert_eq!(
+            default_axis_position_for_channel(CARTESIAN_SUBPLOT_Y_CHANNEL),
+            AxisPosition::Left
+        );
+        assert_eq!(default_axis_position_for_channel("x"), AxisPosition::Bottom);
+        assert_eq!(default_axis_position_for_channel("y"), AxisPosition::Left);
     }
 
     #[test]

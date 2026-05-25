@@ -67,14 +67,13 @@ async fn positioned_subplot_sharing_data(ctx: &SessionContext) -> DataFrame {
     .expect("create positioned subplot sharing data")
 }
 
-fn positioned_child_plot(x_sharing_level: u8) -> Plot<Cartesian> {
+fn positioned_child_plot() -> Plot<Cartesian> {
     Plot::<Cartesian>::new()
         .configure_guide(CartesianGuide::new().plot_background_color("#f8fbff"))
         .mark(
             Symbol::<Cartesian>::new()
-                .x_with(col("child_x"), move |c| {
+                .x_with(col("child_x"), |c| {
                     c.scale_with::<Linear>(|s| s.nice(false).zero(false))
-                        .with_scale_sharing(ScaleSharing::Level(x_sharing_level))
                         .axis(|a| a.tick_count(3).show_title(false))
                 })
                 .y_with(col("child_y"), |c| {
@@ -90,39 +89,51 @@ fn positioned_child_plot(x_sharing_level: u8) -> Plot<Cartesian> {
         )
 }
 
-fn positioned_parent_plot(x_sharing_level: u8) -> Plot<Cartesian> {
+fn positioned_parent_plot(
+    subplot_x_sharing_level: u8,
+    subplot_y_sharing_level: u8,
+) -> Plot<Cartesian> {
     Plot::<Cartesian>::new()
         .configure_guide(CartesianGuide::new().plot_background_color("#fffdf6"))
         .mark(
-            Subplot::<Cartesian>::new(positioned_child_plot(x_sharing_level))
+            Subplot::<Cartesian>::new(positioned_child_plot())
                 .partition_by(col("parent_x"))
-                .subplot_x_with(col("parent_x"), |c| {
+                .subplot_x_with(col("parent_x"), move |c| {
                     c.scale_with::<Linear>(|s| {
                         s.domain((lit(0.0), lit(1.0))).nice(false).zero(false)
                     })
-                    .axis(|a| a.tick_count(3).show_title(false))
+                    .with_scale_sharing(ScaleSharing::Level(subplot_x_sharing_level))
+                    .axis(|a| a.title("subplot_x"))
                 })
-                .subplot_y_with(lit(0.5), |c| {
+                .subplot_y_with(lit(0.5), move |c| {
                     c.scale_with::<Linear>(|s| {
                         s.domain((lit(0.0), lit(1.0))).nice(false).zero(false)
                     })
-                    .axis(|a| a.tick_count(3).show_title(false))
+                    .with_scale_sharing(ScaleSharing::Level(subplot_y_sharing_level))
+                    .axis(|a| a.title("subplot_y"))
                 })
                 .plot_size(142.0, 104.0),
         )
 }
 
-fn row_col_positioned_subplot_plot(df: DataFrame, x_sharing_level: u8) -> Plot<FacetRow> {
+fn row_col_positioned_subplot_plot(
+    df: DataFrame,
+    subplot_x_sharing_level: u8,
+    subplot_y_sharing_level: u8,
+) -> Plot<FacetRow> {
     Plot::<FacetRow>::new()
         .data(df)
         .canvas_size(1600.0, 1050.0)
         .title(format!(
-            "Positioned subplot x sharing level {x_sharing_level}"
+            "Positioned subplot sharing levels x{subplot_x_sharing_level} y{subplot_y_sharing_level}"
         ))
         .mark(
             Subplot::new(
                 Plot::<FacetColumn>::new().mark(
-                    Subplot::new(positioned_parent_plot(x_sharing_level))
+                    Subplot::new(positioned_parent_plot(
+                        subplot_x_sharing_level,
+                        subplot_y_sharing_level,
+                    ))
                         .col_with(col("facet_col"), |c| c.facet(|f| f.title("Column"))),
                 ),
             )
@@ -130,12 +141,17 @@ fn row_col_positioned_subplot_plot(df: DataFrame, x_sharing_level: u8) -> Plot<F
         )
 }
 
-fn assert_x_sharing_baseline(name: &'static str, x_sharing_level: u8) {
+fn assert_xy_sharing_baseline(
+    name: &'static str,
+    subplot_x_sharing_level: u8,
+    subplot_y_sharing_level: u8,
+) {
     run_with_large_stack(move || async move {
         let ctx = SessionContext::new();
         let plot = row_col_positioned_subplot_plot(
             positioned_subplot_sharing_data(&ctx).await,
-            x_sharing_level,
+            subplot_x_sharing_level,
+            subplot_y_sharing_level,
         );
         let compiled = plot
             .compile(&ctx)
@@ -146,21 +162,21 @@ fn assert_x_sharing_baseline(name: &'static str, x_sharing_level: u8) {
 }
 
 #[test]
-fn facet_row_col_cartesian_subplots_x_level_0_free() {
-    assert_x_sharing_baseline("facet_row_col_cartesian_subplots_x_level_0_free", 0);
+fn facet_row_col_cartesian_subplots_xy_levels_x0_y3() {
+    assert_xy_sharing_baseline("facet_row_col_cartesian_subplots_xy_levels_x0_y3", 0, 3);
 }
 
 #[test]
-fn facet_row_col_cartesian_subplots_x_level_1_cartesian() {
-    assert_x_sharing_baseline("facet_row_col_cartesian_subplots_x_level_1_cartesian", 1);
+fn facet_row_col_cartesian_subplots_xy_levels_x1_y2() {
+    assert_xy_sharing_baseline("facet_row_col_cartesian_subplots_xy_levels_x1_y2", 1, 2);
 }
 
 #[test]
-fn facet_row_col_cartesian_subplots_x_level_2_row() {
-    assert_x_sharing_baseline("facet_row_col_cartesian_subplots_x_level_2_row", 2);
+fn facet_row_col_cartesian_subplots_xy_levels_x2_y1() {
+    assert_xy_sharing_baseline("facet_row_col_cartesian_subplots_xy_levels_x2_y1", 2, 1);
 }
 
 #[test]
-fn facet_row_col_cartesian_subplots_x_level_3_global() {
-    assert_x_sharing_baseline("facet_row_col_cartesian_subplots_x_level_3_global", 3);
+fn facet_row_col_cartesian_subplots_xy_levels_x3_y0() {
+    assert_xy_sharing_baseline("facet_row_col_cartesian_subplots_xy_levels_x3_y0", 3, 0);
 }

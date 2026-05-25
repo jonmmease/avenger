@@ -990,8 +990,14 @@ mod tests {
             .data(partitioned_parent_data(&ctx))
             .mark(
                 Subplot::new(inherited_child_plot())
-                    .subplot_x_with(col("px"), |c| c.with_scale_sharing(ScaleSharing::Level(2)))
-                    .subplot_y_with(col("py"), |c| c.with_scale_sharing(ScaleSharing::Level(1))),
+                    .subplot_x_with(col("px"), |c| {
+                        c.with_scale_sharing(ScaleSharing::Level(2))
+                            .axis(|a| a.title("subplot_x"))
+                    })
+                    .subplot_y_with(col("py"), |c| {
+                        c.with_scale_sharing(ScaleSharing::Level(1))
+                            .axis(|a| a.title("subplot_y"))
+                    }),
             );
 
         let compiled = plot.compile(&ctx).await?;
@@ -1016,6 +1022,16 @@ mod tests {
         assert!(
             !compiled.scale_to_coord_channel.contains_key("y"),
             "parent placement scales should not reuse the child Cartesian y scale name"
+        );
+        assert!(compiled.axis_specs.contains_key("subplot_x"));
+        assert!(compiled.axis_specs.contains_key("subplot_y"));
+        assert!(
+            !compiled.axis_specs.contains_key("x"),
+            "parent placement axes should not reuse the child Cartesian x axis name"
+        );
+        assert!(
+            !compiled.axis_specs.contains_key("y"),
+            "parent placement axes should not reuse the child Cartesian y axis name"
         );
 
         let parent_channels = compiled.marks[0].data_context().channels();
