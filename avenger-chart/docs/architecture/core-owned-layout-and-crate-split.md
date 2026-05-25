@@ -17,6 +17,50 @@ lesson from those experiments is retained in the `Subplot<Coord>` compile hook;
 the broader container layout and mutation surface is intentionally not carried
 forward.
 
+## Current Status
+
+Implemented through the first crate-split milestone. The workspace now contains
+real `avenger-chart-core`, `avenger-chart-marks`, `avenger-chart-scales`,
+`avenger-chart-legend`, `avenger-chart-cartesian`, and `avenger-chart-polar`
+crates. The top-level `avenger-chart` crate remains the facade and core-owned
+layout/runtime crate for `Plot`, `CompiledPlot`, facet, concat, partition,
+layout refinement, child-frame placement, rendering, and compatibility
+re-exports.
+
+The current owner-crate dependency graph is:
+
+```text
+avenger-chart-core -> (none)
+avenger-chart-marks -> avenger-chart-core
+avenger-chart-scales -> avenger-chart-core
+avenger-chart-legend -> avenger-chart-core, avenger-chart-scales
+avenger-chart-cartesian -> avenger-chart-core, avenger-chart-marks
+avenger-chart-polar -> avenger-chart-core, avenger-chart-marks
+avenger-chart -> avenger-chart-cartesian, avenger-chart-core,
+                 avenger-chart-legend, avenger-chart-marks,
+                 avenger-chart-polar, avenger-chart-scales
+```
+
+This is intentionally a little sparser than the permissive target graph below:
+Cartesian and Polar do not currently need direct scale or legend crate
+dependencies. External dogfood now covers custom marks through core, custom
+coordinates through core-scale/guide contracts, custom scales through
+`avenger-chart-scales`, external legend authoring/rendering through
+`avenger-chart-legend`, direct Polar imports, and a third-party coordinate
+implementation of `SubplotContainerCoordinateSystem`. External facet/concat or
+layout-container dogfood is intentionally not part of this direction.
+
+Milestone validation passed with:
+
+- `cargo check -p avenger-chart-core -p avenger-chart-marks -p avenger-chart-scales -p avenger-chart-legend -p avenger-chart-cartesian -p avenger-chart-polar -p avenger-chart --all-targets`
+- `cargo check --manifest-path avenger-chart-external-test/Cargo.toml --all-targets`
+- `cargo test -p avenger-chart --release --lib -- --nocapture`
+- `cargo test --release --manifest-path avenger-chart-external-test/Cargo.toml -- --nocapture`
+- `cargo clippy --release -p avenger-chart --all-targets`
+- `cargo clippy --release -p avenger-chart-external-test --all-targets`
+- `cargo fmt --all --check`
+- `git diff --check`
+
 ## Target Crate Graph
 
 Dependency arrows below are provider-to-consumer: the left crate is lower in
@@ -40,9 +84,8 @@ avenger-chart-polar
 ```
 
 The existing `avenger-scales` crate remains the lower-level runtime scale
-library. The planned `avenger-chart-scales` crate is the chart-layer scale
-builder/inference/spec/codec crate that currently lives under
-`avenger-chart/src/scales`.
+library. The `avenger-chart-scales` crate is the chart-layer scale
+builder/inference/spec/codec crate.
 
 ## Crate Ownership
 
