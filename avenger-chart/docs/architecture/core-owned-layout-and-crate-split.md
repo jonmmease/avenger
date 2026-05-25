@@ -1135,6 +1135,9 @@ boundaries boring.
      for core overflow, axis, measurement, layout, and scale-domain value types
      to the core/scale owner crates. Top-level coordinate-measurement
      dispatch helpers remain in `avenger-chart`.
+   - Moved the private default-range resolver helper out of the top-level
+     `scales` compatibility module and into compiled-plot scale building,
+     leaving `avenger_chart::scales` closer to a behavior-free façade export.
    - Removed the final `chart_core` staging namespace after rewiring internal
      imports directly to `avenger-chart-core`. Public compatibility paths such
      as `avenger_chart::maybe`, `param`, `error`, `coords`, `guide`, and

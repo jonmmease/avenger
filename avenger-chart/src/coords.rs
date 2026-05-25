@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{common::ScalarValue, dataframe::DataFrame};
 
+use avenger_chart_cartesian::Cartesian;
 pub use avenger_chart_core::{
     CoordMeasurement, CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
     CoordinateSystemTransformCore, CoordinatedLayout, CoordinatedOverflow, EmptyCoordMeasurement,
@@ -162,7 +163,7 @@ pub(crate) async fn measure_coordinate_system_transform(
 ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
     let any = transform.as_any();
 
-    if any.is::<crate::cartesian::Cartesian>() {
+    if any.is::<Cartesian>() {
         return crate::cartesian::positioned_subplot::measure_cartesian_positioned_subplots(
             request.scales(),
             request.plot_width(),

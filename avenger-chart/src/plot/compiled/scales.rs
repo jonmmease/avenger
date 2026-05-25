@@ -4,12 +4,14 @@ use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{arrow::datatypes::DataType as ArrowDataType, dataframe::DataFrame};
 use datafusion_proto::protobuf::LogicalPlanNode;
+use indexmap::IndexMap;
 
 use avenger_chart_core::{
     AvengerChartError, CompiledMark, CoordinateSystemTransform,
-    EvaluationContext as CoreEvaluationContext, Theme,
+    EvaluationContext as CoreEvaluationContext, ResolvedDomain, ScaleRange, Theme,
 };
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
+use avenger_scales::scales::ScaleImpl;
 
 pub(crate) async fn build_scale_builder_from_marks(
     compiled_marks: &[Arc<dyn CompiledMark>],
@@ -30,6 +32,35 @@ pub(crate) async fn build_scale_builder_from_marks(
         theme,
     )
     .await
+}
+
+pub(super) fn default_range_for_compiled_marks<'a>(
+    compiled_marks: &'a [Arc<dyn CompiledMark>],
+) -> impl Fn(
+    &str,
+    &dyn ScaleImpl,
+    &ResolvedDomain,
+    &ArrowDataType,
+    &Theme,
+    &IndexMap<String, datafusion_common::ScalarValue>,
+) -> Option<ScaleRange>
++ 'a {
+    move |channel_name, scale_impl, resolved_domain, data_type, theme, params| {
+        for mark in compiled_marks {
+            if let Some(mark_range) = mark.default_channel_range(
+                channel_name,
+                scale_impl,
+                resolved_domain,
+                data_type,
+                theme,
+                params,
+            ) {
+                return Some(mark_range);
+            }
+        }
+
+        None
+    }
 }
 
 use super::CompiledPlot;
@@ -106,8 +137,7 @@ mod tests {
         }
 
         let theme = compiled.get_theme();
-        let default_range_resolver =
-            crate::scales::default_range_for_compiled_marks(&compiled.marks);
+        let default_range_resolver = super::default_range_for_compiled_marks(&compiled.marks);
         builder
             .build_scales(
                 width,

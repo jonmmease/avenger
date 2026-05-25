@@ -53,11 +53,12 @@ use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
 use avenger_chart_core::{
-    FrameDimensionSizing, FrameSizingPolicy,
+    FrameDimensionSizing, FrameSizingPolicy, SerializableExpr,
     maybe::{Maybe, MaybeOptionalExpr},
 };
+use avenger_chart_scales::serialization::LogicalExprNodeExt;
 
-use crate::serialization::{LogicalExprNodeExt, SerializableExpr, serializable_expr_from_expr};
+use crate::serialization::serializable_expr_from_expr;
 
 /// Trait for types that can be converted to Expr (for dimensions)
 pub trait IntoExprDimension {

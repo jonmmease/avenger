@@ -16,32 +16,3 @@ pub use avenger_chart_scales::{
 pub use avenger_chart_scales::{
     channel_config, codec, defaults, domain, domain_extent, extensions, range, scale, spec, udf,
 };
-
-pub(crate) fn default_range_for_compiled_marks<'a>(
-    compiled_marks: &'a [std::sync::Arc<dyn avenger_chart_core::CompiledMark>],
-) -> impl Fn(
-    &str,
-    &dyn avenger_scales::scales::ScaleImpl,
-    &avenger_chart_core::ResolvedDomain,
-    &datafusion::arrow::datatypes::DataType,
-    &avenger_chart_core::Theme,
-    &indexmap::IndexMap<String, datafusion_common::ScalarValue>,
-) -> Option<avenger_chart_core::ScaleRange>
-+ 'a {
-    move |channel_name, scale_impl, resolved_domain, data_type, theme, params| {
-        for mark in compiled_marks {
-            if let Some(mark_range) = mark.default_channel_range(
-                channel_name,
-                scale_impl,
-                resolved_domain,
-                data_type,
-                theme,
-                params,
-            ) {
-                return Some(mark_range);
-            }
-        }
-
-        None
-    }
-}

@@ -196,7 +196,7 @@ impl CompiledPlot {
         }
 
         let theme = self.get_theme();
-        let default_range_resolver = crate::scales::default_range_for_compiled_marks(&self.marks);
+        let default_range_resolver = scales::default_range_for_compiled_marks(&self.marks);
         let built = builder
             .build_scales(
                 plot_area_width,
