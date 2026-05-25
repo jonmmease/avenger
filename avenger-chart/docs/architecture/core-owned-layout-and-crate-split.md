@@ -172,12 +172,15 @@ Current extraction state:
 
 ### `avenger-chart-legend`
 
-Own legend planning and rendering.
+Own legend authoring, renderer dispatch, renderer implementations, and reusable
+legend measurement/rendering primitives. Plot-level legend planning remains with
+`avenger-chart` because it walks compiled plot marks, participates in
+facet/child-frame hoisting, and feeds the core-owned layout engine.
 
 Initial candidates:
 
 - `LegendRenderer`, colorbar, line, rect, and symbol legend renderers.
-- Legend builders and legend render plan assembly.
+- Legend builders and renderer-level render plan assembly.
 - Extension traits that add `.legend(...)` methods to channel config types.
 
 To preserve the target graph, `CompiledMark` should not return
@@ -947,9 +950,10 @@ boundaries boring.
      top-level facade for `Plot` to prove the paths compose.
 
 4. Extract `avenger-chart-legend`.
-   Move legend builders, renderer implementations, and legend planning. Ensure
-   legend code consumes mark/scale descriptors rather than reaching into
-   top-level plot internals.
+   Move legend builders, renderer implementations, renderer dispatch, and
+   reusable legend measurement/rendering primitives. Keep plot legend planning
+   in `avenger-chart` while it remains coupled to compiled mark walking,
+   facet/child-frame hoisting, and layout placement.
 
    Progress:
 
@@ -977,8 +981,8 @@ boundaries boring.
      `apply_legend_theme_defaults`, and the private color conversion used by
      them. The top-level planner still owns mark walking and facet/child-frame
      hoisting, but no longer duplicates legend field-default logic.
-   - Plot legend planning remains top-level until its mark-walking and layout
-     placement dependencies are narrowed.
+   - Plot legend planning remains top-level by design for this split because
+     it is part of the core-owned layout/runtime engine.
    - The external legend dogfood now imports `LegendBuilder`,
      `LegendableChannel`, `LegendableChannelValue`, renderer dispatch, and
      concrete renderer types directly from `avenger-chart-legend`, with
@@ -1165,13 +1169,14 @@ the intended public dependency direction:
   `SubplotContainerCoordinateSystem`, without depending on Cartesian or Polar.
 - Top-level `avenger-chart` still supports the old facade imports.
 
-## Open Decisions
+## Settled Choices For This Split
 
-- Whether the object-safe `LegendRenderer` trait moves to core or remains in
-  `avenger-chart-legend` behind descriptor-based dispatch. Descriptor-based
-  dispatch better preserves the requested graph.
-- Whether the current core-owned theme/color engine eventually becomes a
-  dedicated lower crate. Keeping it in core is the lowest-risk first split
-  because marks, scales, legends, and guides all need it.
-- Whether `ZeroDCoord` belongs in core or in a tiny coordinate crate. Keeping it
-  in core avoids creating an extra crate before the first split.
+- `LegendRenderer` remains in `avenger-chart-legend`; core exposes
+  `LegendRendererKind` descriptors instead of owning renderer trait objects.
+- Theme and color evaluation stay in `avenger-chart-core` for this split
+  because marks, scales, legends, and guides all need them.
+- `ZeroDCoord` stays in `avenger-chart-core`, avoiding an extra no-op
+  coordinate crate before the first split is stable.
+- `PlotTitle` and `PlotSubtitle` stay in the top-level facade for now because
+  they store chart-codec serialized expressions. Pure title spec enums
+  (`TitleSpan`, `TitleAlign`) live in core.
