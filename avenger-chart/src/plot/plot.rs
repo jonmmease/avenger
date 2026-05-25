@@ -12,19 +12,15 @@ use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    AxisSpec, CompiledSubplotChildPlot, IntoExpr, Param, SubplotChildPlotSpec, contains_aggregate,
+    AvengerChartError, AxisSpec, ChannelValue, CompiledMark, CompiledMarkState,
+    CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, IntoExpr, Legend, Mark, MarkState,
+    Param, SubplotChildPlotSpec, Theme, contains_aggregate,
 };
-use avenger_chart_scales::PlotScaleSpec as ScaleSpec;
+use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
 
 use crate::{
-    coords::CoordinateSystem,
-    error::AvengerChartError,
-    guide::CoordinateGuide,
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint, SizeMode},
-    legend::Legend,
-    marks::{CompiledMark, CompiledMarkState, Mark},
-    serialization::{LogicalPlanNodeExt, serializable_expr_from_expr},
-    theme::Theme,
+    serialization::serializable_expr_from_expr,
 };
 
 use super::{
@@ -269,11 +265,11 @@ impl<C: CoordinateSystem> Plot<C> {
         &self,
         mark_index: usize,
         mark: &Arc<dyn Mark<C>>,
-        mark_state: &crate::marks::MarkState,
+        mark_state: &MarkState,
         df: DataFrame,
         session_context: &datafusion::prelude::SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        use crate::serialization::LogicalExprNodeExt;
+        use avenger_chart_scales::serialization::LogicalExprNodeExt;
         use datafusion::prelude::col;
         use datafusion_proto::protobuf::LogicalExprNode;
 
@@ -281,8 +277,7 @@ impl<C: CoordinateSystem> Plot<C> {
         // IndexMap preserves insertion order which matches schema field order
         let mut unique_group_exprs = indexmap::IndexMap::new(); // expr -> insertion_index
         let mut unique_agg_exprs = indexmap::IndexMap::new(); // expr -> insertion_index
-        let mut channel_info: Vec<(String, Expr, bool, bool, crate::marks::ChannelValue)> =
-            Vec::new(); // (name, expr, is_aggregate, is_literal, original_channel_value)
+        let mut channel_info: Vec<(String, Expr, bool, bool, ChannelValue)> = Vec::new(); // (name, expr, is_aggregate, is_literal, original_channel_value)
 
         for (channel_name, channel_value) in mark_state.data.channels() {
             // Skip channels without expressions (e.g., conditional channels)

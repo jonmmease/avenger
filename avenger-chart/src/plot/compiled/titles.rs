@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use avenger_scenegraph::marks::mark::SceneMark;
 
-use avenger_chart_core::{evaluate_f32_expr, evaluate_string_expr};
-
-use crate::error::AvengerChartError;
+use avenger_chart_core::{
+    AvengerChartError, LayoutBounds, ThemeContext, evaluate_f32_expr, evaluate_string_expr,
+};
 
 use super::CompiledPlot;
 
@@ -23,7 +23,7 @@ impl CompiledPlot {
     /// Create title mark if configured
     pub(super) async fn create_title(
         &self,
-        layout_bounds: Option<crate::layout::LayoutBounds>,
+        layout_bounds: Option<LayoutBounds>,
         ctx: &datafusion::prelude::SessionContext,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
@@ -32,9 +32,9 @@ impl CompiledPlot {
         };
 
         let theme = self.get_theme();
-        let title_ctx = crate::theme::ThemeContext::new("chart-title", params.clone());
+        let title_ctx = ThemeContext::new("chart-title", params.clone());
 
-        use crate::serialization::LogicalExprNodeExt;
+        use avenger_chart_scales::serialization::LogicalExprNodeExt;
         use avenger_scenegraph::marks::text::SceneTextMark;
         use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
         use datafusion_proto::protobuf::LogicalExprNode;
@@ -135,7 +135,7 @@ impl CompiledPlot {
     /// Create subtitle mark if configured
     pub(super) async fn create_subtitle(
         &self,
-        layout_bounds: Option<crate::layout::LayoutBounds>,
+        layout_bounds: Option<LayoutBounds>,
         ctx: &datafusion::prelude::SessionContext,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
@@ -144,9 +144,9 @@ impl CompiledPlot {
         };
 
         let theme = self.get_theme();
-        let subtitle_ctx = crate::theme::ThemeContext::new("chart-subtitle", params.clone());
+        let subtitle_ctx = ThemeContext::new("chart-subtitle", params.clone());
 
-        use crate::serialization::LogicalExprNodeExt;
+        use avenger_chart_scales::serialization::LogicalExprNodeExt;
         use avenger_scenegraph::marks::text::SceneTextMark;
         use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
         use datafusion_proto::protobuf::LogicalExprNode;

@@ -27,25 +27,17 @@ use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 use avenger_chart_core::{
-    AxisSpec, CompiledSubplotChildPlot, EvaluationContext as CoreEvaluationContext,
+    AvengerChartError, AxisSpec, CompiledGuide, CompiledMark, CompiledSubplotChildPlot,
+    CompiledSubplotPayload, CoordMeasurement, CoordinateSystemTransform,
+    EvaluationContext as CoreEvaluationContext, Legend, ScaleRangeBinding, SerializableDataFrame,
+    SerializableScalarMap, Theme, channel::strip_trailing_numbers,
 };
-use avenger_chart_scales::PlotScaleSpec as ScaleSpec;
+use avenger_chart_scales::{ConfiguredScaleWithSpec, PlotScaleSpec as ScaleSpec, ScaleBuilder};
 
-use crate::{
-    channel::value::strip_trailing_numbers,
-    coords::CoordinateSystemTransform,
-    error::AvengerChartError,
-    guide::CompiledGuide,
-    layout::{
-        ChildFrameContentMeasurement, ChildFrameContentSolver, ContentAllocation, ContentLayout,
-        ContentLayoutSolver, FrameAllocation, FrameDemand, LayoutSpec,
-        SinglePlotContentMeasurement, SinglePlotContentSolver,
-    },
-    legend::Legend,
-    marks::{CompiledMark, CompiledSubplotPayload},
-    scales::{ConfiguredScaleWithSpec, ScaleBuilder, ScaleRangeBinding},
-    serialization::SerializableDataFrame,
-    theme::Theme,
+use crate::layout::{
+    ChildFrameContentMeasurement, ChildFrameContentSolver, ContentAllocation, ContentLayout,
+    ContentLayoutSolver, FrameAllocation, FrameDemand, LayoutSpec, SinglePlotContentMeasurement,
+    SinglePlotContentSolver,
 };
 
 pub use self::child_frame_container::ChildFrameContainerView;
@@ -134,7 +126,7 @@ pub struct CompiledPlot {
     pub(crate) data: Option<LogicalPlanNode>,
 
     /// Default parameter values for prepared statements
-    #[serde_as(as = "FromInto<crate::serialization::SerializableScalarMap>")]
+    #[serde_as(as = "FromInto<SerializableScalarMap>")]
     pub(crate) default_params: IndexMap<String, ScalarValue>,
 }
 
@@ -312,10 +304,10 @@ pub struct ComponentsMeasurement {
     /// rendering. For facet coordinate systems, this includes cell positions,
     /// subplot measurements, and computed padding. For non-layout coordinate
     /// systems, this is an `EmptyCoordMeasurement`.
-    pub coord_measurement: Box<dyn crate::coords::CoordMeasurement>,
+    pub coord_measurement: Box<dyn CoordMeasurement>,
 
     /// Scales for rendering
-    pub scales: std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
+    pub scales: std::collections::HashMap<String, ConfiguredScaleWithSpec>,
 
     /// Plot area dimensions
     pub plot_area_width: f32,

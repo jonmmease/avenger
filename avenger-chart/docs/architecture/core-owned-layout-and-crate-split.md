@@ -1127,6 +1127,10 @@ boundaries boring.
    - Rewired scale-planning source imports to use core mark/channel/coordinate
      contracts and `avenger-chart-scales` scale types directly instead of
      routing through top-level compatibility modules.
+   - Rewired `Plot` / `CompiledPlot` source imports for core mark, guide,
+     coordinate, legend, theme, serialization, and scale contracts to the
+     owner crates while leaving the concrete plot/layout runtime in
+     `avenger-chart`.
    - Removed the final `chart_core` staging namespace after rewiring internal
      imports directly to `avenger-chart-core`. Public compatibility paths such
      as `avenger_chart::maybe`, `param`, `error`, `coords`, `guide`, and
