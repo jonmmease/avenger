@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use avenger_chart_core::SharingLevel;
+use avenger_chart_core::{SharingLevel, sharing_group_boundary};
 
 use crate::{
     channel::value::strip_trailing_numbers,
@@ -15,7 +15,7 @@ use crate::{
 
 use super::{
     ChildFrameDomainRequest, ChildFrameScopeKey, CompiledPlot, CoordinationKind,
-    CoordinationScopeKey, aggregate_domain_requests,
+    CoordinationScopeKey, aggregate_domain_requests, coordination_scope::CoordinationGroup,
 };
 
 /// One local channel domain plus the child-frame sharing level that applies to it.
@@ -110,8 +110,20 @@ pub(crate) fn child_frame_domain_scope_key(
         !sharing_level.is_free(),
         "Free child-frame scale domains should not need a coordination scope"
     );
-    CoordinationScopeKey::child_frame_container(CoordinationKind::ScaleDomain, child_scope)
-        .with_channel(channel)
+    let depth = u8::try_from(child_scope.container_path.len() + 1).unwrap_or(u8::MAX);
+    let boundary = sharing_group_boundary(depth, sharing_level);
+    let container_path = child_scope
+        .container_path
+        .get(..boundary.min(child_scope.container_path.len()))
+        .unwrap_or(&child_scope.container_path)
+        .to_vec();
+
+    CoordinationScopeKey::new(
+        CoordinationKind::ScaleDomain,
+        container_path,
+        CoordinationGroup::Container,
+    )
+    .with_channel(channel)
 }
 
 fn child_frame_domain_request(
@@ -258,9 +270,11 @@ mod tests {
     fn child_frame_domain_sharing_respects_container_path() {
         let left_scope = child_scope(Some("outer-left"), 0, Some("inner"));
         let right_scope = child_scope(Some("outer-right"), 0, Some("inner"));
-        let left_extents = HashMap::from([("x".to_string(), extent(2.0, SharingLevel::GLOBAL))]);
-        let right_extents = HashMap::from([("x".to_string(), extent(101.0, SharingLevel::GLOBAL))]);
-        let sharing_levels = HashMap::from([("x".to_string(), SharingLevel::GLOBAL)]);
+        let left_extents =
+            HashMap::from([("x".to_string(), extent(2.0, SharingLevel::from_raw(1)))]);
+        let right_extents =
+            HashMap::from([("x".to_string(), extent(101.0, SharingLevel::from_raw(1)))]);
+        let sharing_levels = HashMap::from([("x".to_string(), SharingLevel::from_raw(1))]);
         let inputs = [
             ChildFrameDomainSharingInput::new(&left_scope, &left_extents, &sharing_levels),
             ChildFrameDomainSharingInput::new(&right_scope, &right_extents, &sharing_levels),
@@ -276,5 +290,28 @@ mod tests {
             coordinated[1].get("x"),
             Some(&DomainExtent::numeric(0.0, 101.0))
         );
+    }
+
+    #[test]
+    fn child_frame_domain_sharing_level_two_projects_one_ancestor() {
+        let left_scope = child_scope(Some("outer-left"), 0, Some("inner"));
+        let right_scope = child_scope(Some("outer-right"), 0, Some("inner"));
+        let left_extents =
+            HashMap::from([("x".to_string(), extent(2.0, SharingLevel::from_raw(2)))]);
+        let right_extents =
+            HashMap::from([("x".to_string(), extent(101.0, SharingLevel::from_raw(2)))]);
+        let sharing_levels = HashMap::from([("x".to_string(), SharingLevel::from_raw(2))]);
+        let inputs = [
+            ChildFrameDomainSharingInput::new(&left_scope, &left_extents, &sharing_levels),
+            ChildFrameDomainSharingInput::new(&right_scope, &right_extents, &sharing_levels),
+        ];
+
+        let coordinated = coordinated_child_frame_domain_extents(&inputs);
+
+        assert_eq!(
+            coordinated[0].get("x"),
+            Some(&DomainExtent::numeric(0.0, 101.0))
+        );
+        assert_eq!(coordinated[0].get("x"), coordinated[1].get("x"));
     }
 }
