@@ -3,7 +3,6 @@ pub mod channels;
 pub mod coord;
 pub mod guide;
 pub mod marks;
-pub(crate) mod positioned_subplot;
 
 pub use avenger_chart_core::AxisPosition;
 pub use axis::CartesianAxis;

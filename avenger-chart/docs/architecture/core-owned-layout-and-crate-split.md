@@ -262,8 +262,9 @@ Initial candidates:
   `CartesianPositionConfig`, axis rendering/evaluation, and Cartesian channels.
 - Coordinate-specific `Mark<Cartesian>` impls and compiled renderers for
   `Line`, `Rect`, `Symbol`, and any other Cartesian marks.
-- Cartesian positioned subplot compile/measure/render implementation, including
-  `CompiledCartesianSubplot`.
+- Cartesian positioned subplot authoring and compile metadata, including the
+  `CompiledCartesianSubplot` compatibility alias. The child-frame
+  measure/render runtime is now generic and facade-owned.
 - Cartesian-specific legend capability descriptors or adapter impls.
 
 It may depend on core, marks, scales, and legend. It must not depend on the
@@ -584,9 +585,10 @@ Migration discipline:
 7. Move built-in subplot implementations out of `marks::subplot`.
    Keep only the neutral `Subplot`, payload, and compile hook in the mark/core
    boundary. Move `CompiledConcatSubplot` and H/V concat implementations to
-   `concat`. Move `CompiledCartesianSubplot`, Cartesian builder methods, and
-   Cartesian compile implementation to `cartesian::positioned_subplot`. Keep
-   facet row/column implementations in `facet::marks`.
+   `concat`. Move Cartesian builder methods and the Cartesian compile
+   implementation to `avenger-chart-cartesian`, backed by the generic
+   positioned-subplot core. Keep facet row/column implementations in
+   `facet::marks`.
 
    Progress:
 
@@ -595,10 +597,16 @@ Migration discipline:
      `compiled_subplot(...)` downcast helper.
    - Cartesian positioned subplot support is split at the intended ownership
      boundary. `avenger-chart-cartesian` now owns
-     `CompiledCartesianSubplot` and the `SubplotContainerCoordinateSystem`
-     impl for `Cartesian`, plus the `Subplot<Cartesian>` position-channel
-     builder extension trait; the top-level facade keeps only the built-in
-     child-frame measurement/render dispatcher.
+     `CompiledCartesianSubplot` as a compatibility alias and the
+     `SubplotContainerCoordinateSystem` impl for `Cartesian`, plus the
+     `Subplot<Cartesian>` position-channel builder extension trait; the
+     top-level facade keeps the generic child-frame measurement/render
+     dispatcher shared by all coordinate-positioned subplots.
+   - The generic positioned-subplot runtime now lives in the top-level facade.
+     Coordinate crates provide `PositionedSubplotSpec` metadata through
+     `compile_positioned_subplot_mark(...)`; the runtime evaluates placement
+     channels, maps them to transform channels, requires `PointGeometry`, and
+     measures/renders child frames through the shared child-frame machinery.
    - The real neutral `Subplot` mark and its core `Mark<C>` impl now live in
      `avenger-chart-marks`. The top-level `marks::subplot` module is a
      compatibility re-export shim with facade-level subplot coverage.
@@ -1048,8 +1056,8 @@ boundaries boring.
      and `CoordinateSystemTransformCore` implementations into
      `avenger-chart-cartesian`. The top-level
      `avenger_chart::cartesian::coord` module is now a compatibility re-export.
-     Cartesian positioned subplot measurement remains facade-owned through the
-     top-level coordinate measurement dispatcher.
+     Coordinate-positioned subplot measurement remains facade-owned through the
+     generic top-level coordinate measurement dispatcher.
    - External custom mark/scale dogfood imports the `Cartesian` type directly
      from `avenger-chart-cartesian`, uses core `Mark` / `CompiledMark`
      contracts, and still uses the top-level facade for `Plot`.
@@ -1098,9 +1106,10 @@ boundaries boring.
      Cartesian mark modules are compatibility re-export shims.
    - `CompiledCartesianSubplot` and the `SubplotContainerCoordinateSystem`
      impl for `Cartesian` now live in `avenger-chart-cartesian`. The top-level
-     facade still owns Cartesian positioned-subplot child-frame
-     measurement/rendering because that path uses the core-owned layout
-     runtime.
+     facade owns generic positioned-subplot child-frame measurement/rendering
+     because that path uses the core-owned layout runtime. Polar and external
+     coordinate crates use the same runtime by declaring their placement-channel
+     mapping metadata.
    - `CartesianSubplotPositionChannels`, the builder extension trait for
      `Subplot<Cartesian>`, now lives in `avenger-chart-cartesian` and is
      re-exported by the facade prelude.

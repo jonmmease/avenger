@@ -30,9 +30,6 @@ use avenger_chart_core::{
 };
 
 use crate::{
-    cartesian::positioned_subplot::{
-        compiled_cartesian_subplot, render_cartesian_subplot_with_context,
-    },
     concat::compiled_subplot as compiled_concat_subplot,
     coords::{
         CoordMeasureRequest, CoordMeasurement, FacetAxis, coordinate_overflow_for_guides,
@@ -61,7 +58,7 @@ use crate::{
         Size2D, SizeMode, TaffyFrameLayoutSolver, project_child_frame_bounds,
     },
     marks::CompiledMark,
-    polar::positioned_subplot::{compiled_polar_subplot, render_polar_subplot_with_context},
+    positioned_subplot::{PositionedCoordMeasurement, render_positioned_subplot_with_context},
     render::context::{
         FacetDimensionSizing, FacetRuntimeSizingMode, FacetRuntimeSizingPolicy,
         FacetSubtreeSnapshotCapture,
@@ -1199,12 +1196,8 @@ impl CompiledPlot {
                 .await;
         }
 
-        if let Some(subplot) = compiled_cartesian_subplot(mark) {
-            return render_cartesian_subplot_with_context(subplot, &render_ctx).await;
-        }
-
-        if let Some(subplot) = compiled_polar_subplot(mark) {
-            return render_polar_subplot_with_context(subplot, &render_ctx).await;
+        if let Some(subplot) = mark.as_positioned_subplot() {
+            return render_positioned_subplot_with_context(subplot, &render_ctx).await;
         }
 
         if let Some(subplot) = facet_subplot_ref(mark) {
@@ -1518,22 +1511,13 @@ impl CompiledPlot {
             );
         }
 
-        if let Some(cartesian) = coord_measurement.as_any().downcast_ref::<
-            crate::cartesian::positioned_subplot::CartesianPositionedCoordMeasurement,
-        >() {
-            Self::extend_child_hoisted_legend_requests(
-                &mut requests,
-                cartesian.children.iter().map(|child| &child.measurement),
-            );
-        }
-
-        if let Some(polar) = coord_measurement
+        if let Some(positioned) = coord_measurement
             .as_any()
-            .downcast_ref::<crate::polar::positioned_subplot::PolarPositionedCoordMeasurement>(
-        ) {
+            .downcast_ref::<PositionedCoordMeasurement>()
+        {
             Self::extend_child_hoisted_legend_requests(
                 &mut requests,
-                polar.children.iter().map(|child| &child.measurement),
+                positioned.children.iter().map(|child| &child.measurement),
             );
         }
 

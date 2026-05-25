@@ -7,10 +7,9 @@ use datafusion::logical_expr::{LogicalPlan, lit};
 use datafusion::{common::ScalarValue, dataframe::DataFrame};
 use tracing::{debug, trace};
 
-use avenger_chart_core::{DefaultLogicalExprNodeExt, SharingLevel};
+use avenger_chart_core::{DefaultLogicalExprNodeExt, PositionedSubplotMarkCore, SharingLevel};
 
 use crate::{
-    cartesian::positioned_subplot::compiled_cartesian_subplot,
     concat::compiled_subplot,
     coords::CellDomainInfo,
     error::AvengerChartError,
@@ -646,26 +645,23 @@ fn explicit_dataframe_for_plot(
     })
 }
 
-async fn collect_cartesian_positioned_child_frame_domain_infos_for_mark(
-    mark: &dyn CompiledMark,
+async fn collect_positioned_child_frame_domain_infos_for_mark(
+    subplot: &dyn PositionedSubplotMarkCore,
     relative_child_frame_path: &[ContainerPathSegment],
     full_cell_path: &[ScalarValue],
     inherited_data_df: Option<&DataFrame>,
     facet_tree: &EvaluatedFacetTree,
     eval_ctx: &EvaluationContext,
 ) -> Result<Vec<FacetChildFrameDomainInfo>, AvengerChartError> {
-    let Some(subplot) = compiled_cartesian_subplot(mark) else {
-        return Ok(Vec::new());
-    };
     if !subplot.is_partitioned() {
         return Ok(Vec::new());
     }
 
     let Some(parent_data) = inherited_data_df else {
-        return Err(AvengerChartError::InvalidArgument(
-            "Partitioned Cartesian subplots require inherited parent data for facet scale precompute"
-                .to_string(),
-        ));
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Partitioned {} subplots require inherited parent data for facet scale precompute",
+            subplot.spec().outer_label
+        )));
     };
 
     let ctx = eval_ctx.session_context.as_ref();
@@ -673,7 +669,7 @@ async fn collect_cartesian_positioned_child_frame_domain_infos_for_mark(
         .partition_expr()
         .ok_or_else(|| {
             AvengerChartError::InternalError(
-                "Partitioned Cartesian subplot is missing its partition expression".to_string(),
+                "Partitioned positioned subplot is missing its partition expression".to_string(),
             )
         })?
         .to_expr(ctx)?;
@@ -761,17 +757,19 @@ async fn collect_child_frame_domain_infos_for_marks(
     let mut infos = Vec::new();
 
     for mark in compiled_marks {
-        infos.extend(
-            collect_cartesian_positioned_child_frame_domain_infos_for_mark(
-                mark.as_ref(),
-                relative_child_frame_path,
-                full_cell_path,
-                inherited_data_df,
-                facet_tree,
-                eval_ctx,
-            )
-            .await?,
-        );
+        if let Some(subplot) = mark.as_positioned_subplot() {
+            infos.extend(
+                collect_positioned_child_frame_domain_infos_for_mark(
+                    subplot,
+                    relative_child_frame_path,
+                    full_cell_path,
+                    inherited_data_df,
+                    facet_tree,
+                    eval_ctx,
+                )
+                .await?,
+            );
+        }
 
         if mark.mark_type() != "subplot" {
             continue;

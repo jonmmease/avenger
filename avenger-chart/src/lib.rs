@@ -26,6 +26,7 @@ pub mod param;
 pub(crate) mod partition;
 pub mod plot;
 pub mod polar;
+pub(crate) mod positioned_subplot;
 pub mod prelude;
 pub mod render;
 // render_context moved to render/context

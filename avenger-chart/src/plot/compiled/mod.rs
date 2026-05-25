@@ -42,8 +42,8 @@ use crate::layout::{
 
 pub use self::child_frame_container::ChildFrameContainerView;
 pub(crate) use self::child_frame_container::{
-    child_frame_container_overflow, child_frame_container_view_from_cartesian_positioned,
-    child_frame_container_view_from_concat, child_frame_container_view_from_polar_positioned,
+    child_frame_container_overflow, child_frame_container_view_from_concat,
+    child_frame_container_view_from_positioned,
 };
 pub(crate) use self::child_frame_runtime::{
     ChildFrameDataSelection, ChildFrameRuntime, PreparedChildFramePlot,

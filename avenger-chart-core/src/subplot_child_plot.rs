@@ -1,11 +1,24 @@
-use std::{any::Any, sync::Arc};
+use std::{
+    any::Any,
+    collections::HashMap,
+    sync::{Arc, Mutex, OnceLock},
+};
 
-use datafusion::{arrow::record_batch::RecordBatch, dataframe::DataFrame, prelude::SessionContext};
+use avenger_scenegraph::marks::mark::SceneMark;
+use datafusion::{
+    arrow::record_batch::RecordBatch, dataframe::DataFrame, logical_expr::Expr,
+    prelude::SessionContext,
+};
+use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
+use serde_with::{FromInto, serde_as};
 
 use crate::{
-    AvengerChartError, ColumnDimensionConfig, CompiledMark, CompiledMarkState, CoordinateSystem,
-    DataContext, FacetDimensionConfig, FacetEmptyCellPolicy, RowDimensionConfig, ScaleSharing,
+    AvengerChartError, ChannelDescriptor, ColumnDimensionConfig, CompiledDataContext, CompiledMark,
+    CompiledMarkCore, CompiledMarkState, CoordinateSystem, CoordinateSystemTransformCore,
+    DataContext, DefaultLogicalExprNodeExt, FacetDimensionConfig, FacetEmptyCellPolicy,
+    MarkRuntimeContext, RadiusExpression, RowDimensionConfig, ScaleSharing, SerializableExpr,
+    contains_aggregate,
 };
 
 /// Data source selected for a compiled subplot's child plot.
@@ -155,6 +168,265 @@ pub trait SubplotContainerCoordinateSystem: CoordinateSystem + Sized {
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError>;
 }
 
+/// One source channel used to position child plot frames inside a coordinate system.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PositionedSubplotChannel {
+    pub channel: String,
+    pub transform_channel: String,
+}
+
+impl PositionedSubplotChannel {
+    pub fn new(channel: impl Into<String>, transform_channel: impl Into<String>) -> Self {
+        Self {
+            channel: channel.into(),
+            transform_channel: transform_channel.into(),
+        }
+    }
+}
+
+/// Coordinate-specific metadata for the generic positioned-subplot runtime.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PositionedSubplotSpec {
+    pub outer_label: String,
+    pub group_name_prefix: String,
+    pub placement_channels: Vec<PositionedSubplotChannel>,
+    pub partition_channel: Option<String>,
+    pub default_plot_width: f32,
+    pub default_plot_height: f32,
+}
+
+impl PositionedSubplotSpec {
+    pub fn new(
+        outer_label: impl Into<String>,
+        group_name_prefix: impl Into<String>,
+        placement_channels: Vec<PositionedSubplotChannel>,
+    ) -> Self {
+        Self {
+            outer_label: outer_label.into(),
+            group_name_prefix: group_name_prefix.into(),
+            placement_channels,
+            partition_channel: None,
+            default_plot_width: 80.0,
+            default_plot_height: 80.0,
+        }
+    }
+
+    pub fn with_partition_channel(mut self, channel: impl Into<String>) -> Self {
+        self.partition_channel = Some(channel.into());
+        self
+    }
+
+    pub fn without_partition_channel(mut self) -> Self {
+        self.partition_channel = None;
+        self
+    }
+
+    pub fn with_default_plot_size(mut self, width: f32, height: f32) -> Self {
+        self.default_plot_width = width;
+        self.default_plot_height = height;
+        self
+    }
+}
+
+/// Object-safe view over a compiled coordinate-positioned subplot mark.
+pub trait PositionedSubplotMarkCore: CompiledMark {
+    fn as_compiled_mark(&self) -> &dyn CompiledMark;
+    fn payload(&self) -> &CompiledSubplotPayload;
+    fn spec(&self) -> &PositionedSubplotSpec;
+    fn plot_width(&self) -> f32;
+    fn plot_height(&self) -> f32;
+    fn partition_expr(&self) -> Option<&LogicalExprNode>;
+
+    fn label(&self) -> Option<&str> {
+        self.payload().label()
+    }
+
+    fn key(&self) -> Option<&str> {
+        self.payload().key()
+    }
+
+    fn mark_index(&self) -> usize {
+        self.payload().mark_index()
+    }
+
+    fn inherits_parent_data(&self) -> bool {
+        self.payload().inherits_parent_data()
+    }
+
+    fn is_partitioned(&self) -> bool {
+        self.partition_expr().is_some()
+    }
+}
+
+/// Reusable compiled mark for coordinate-positioned `Subplot<C>`.
+#[serde_as]
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CompiledPositionedSubplot {
+    payload: CompiledSubplotPayload,
+    spec: PositionedSubplotSpec,
+    plot_width: f32,
+    plot_height: f32,
+    #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
+    partition_expr: Option<LogicalExprNode>,
+}
+
+impl CompiledPositionedSubplot {
+    pub fn new(
+        payload: CompiledSubplotPayload,
+        spec: PositionedSubplotSpec,
+        plot_width: f32,
+        plot_height: f32,
+        partition_expr: Option<LogicalExprNode>,
+    ) -> Self {
+        Self {
+            payload,
+            spec,
+            plot_width,
+            plot_height,
+            partition_expr,
+        }
+    }
+
+    pub fn payload(&self) -> &CompiledSubplotPayload {
+        &self.payload
+    }
+
+    pub fn spec(&self) -> &PositionedSubplotSpec {
+        &self.spec
+    }
+
+    pub fn plot_width(&self) -> f32 {
+        self.plot_width
+    }
+
+    pub fn plot_height(&self) -> f32 {
+        self.plot_height
+    }
+
+    #[doc(hidden)]
+    pub fn partition_expr(&self) -> Option<&LogicalExprNode> {
+        self.partition_expr.as_ref()
+    }
+}
+
+impl PositionedSubplotMarkCore for CompiledPositionedSubplot {
+    fn as_compiled_mark(&self) -> &dyn CompiledMark {
+        self
+    }
+
+    fn payload(&self) -> &CompiledSubplotPayload {
+        &self.payload
+    }
+
+    fn spec(&self) -> &PositionedSubplotSpec {
+        &self.spec
+    }
+
+    fn plot_width(&self) -> f32 {
+        self.plot_width
+    }
+
+    fn plot_height(&self) -> f32 {
+        self.plot_height
+    }
+
+    fn partition_expr(&self) -> Option<&LogicalExprNode> {
+        self.partition_expr.as_ref()
+    }
+}
+
+impl CompiledMarkCore for CompiledPositionedSubplot {
+    fn state(&self) -> &CompiledMarkState {
+        self.payload.compiled_state()
+    }
+
+    fn state_mut(&mut self) -> &mut CompiledMarkState {
+        self.payload.compiled_state_mut()
+    }
+
+    fn data_context(&self) -> &CompiledDataContext {
+        &self.payload.compiled_state().data
+    }
+
+    fn mark_type(&self) -> &str {
+        "subplot"
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_positioned_subplot(&self) -> Option<&dyn PositionedSubplotMarkCore> {
+        Some(self)
+    }
+
+    fn supported_channels(&self) -> Vec<ChannelDescriptor> {
+        let mut channels = self
+            .spec
+            .placement_channels
+            .iter()
+            .map(|channel| ChannelDescriptor {
+                name: intern_positioned_subplot_channel_name(&channel.channel),
+                required: true,
+                default_value: None,
+                allow_column_ref: true,
+            })
+            .collect::<Vec<_>>();
+
+        if let Some(partition_channel) = &self.spec.partition_channel {
+            channels.push(ChannelDescriptor {
+                name: intern_positioned_subplot_channel_name(partition_channel),
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            });
+        }
+
+        channels
+    }
+
+    fn radius_expression(
+        &self,
+        _dimension: &str,
+        _resolve_channel: &dyn Fn(&str) -> Expr,
+    ) -> Option<RadiusExpression> {
+        None
+    }
+}
+
+fn intern_positioned_subplot_channel_name(channel: &str) -> &'static str {
+    static INTERNED_CHANNEL_NAMES: OnceLock<Mutex<HashMap<String, &'static str>>> = OnceLock::new();
+
+    let interner = INTERNED_CHANNEL_NAMES.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut names = interner
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(name) = names.get(channel) {
+        return name;
+    }
+
+    let owned = channel.to_string();
+    let leaked = Box::leak(owned.clone().into_boxed_str());
+    names.insert(owned, leaked);
+    leaked
+}
+
+#[typetag::serde]
+#[async_trait::async_trait]
+impl CompiledMark for CompiledPositionedSubplot {
+    async fn render_from_data(
+        &self,
+        _data: Option<&RecordBatch>,
+        _scalars: &RecordBatch,
+        _context: &dyn MarkRuntimeContext,
+        _coord: &dyn CoordinateSystemTransformCore,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        Err(AvengerChartError::InternalError(
+            "Positioned subplot marks require the top-level layout render dispatcher".to_string(),
+        ))
+    }
+}
+
 /// Shared compiled state for a child plot owned by a container subplot mark.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledSubplotPayload {
@@ -256,4 +528,99 @@ pub async fn compile_subplot_payload<S: SubplotMarkCore + ?Sized>(
         subplot.key_config().map(ToOwned::to_owned),
         data_source,
     ))
+}
+
+pub async fn compile_positioned_subplot_mark<S: SubplotMarkCore + ?Sized>(
+    subplot: &S,
+    compiled_state: CompiledMarkState,
+    session_context: &SessionContext,
+    spec: PositionedSubplotSpec,
+) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+    subplot.validate_no_facet_channels(&spec.outer_label)?;
+    let partition_expr = partition_expr_node(subplot, session_context, &spec)?;
+    let plot_width = subplot
+        .plot_width_config()
+        .unwrap_or(spec.default_plot_width)
+        .max(1.0);
+    let plot_height = subplot
+        .plot_height_config()
+        .unwrap_or(spec.default_plot_height)
+        .max(1.0);
+    let payload = compile_subplot_payload(subplot, compiled_state, session_context).await?;
+
+    Ok(Arc::new(CompiledPositionedSubplot::new(
+        payload,
+        spec,
+        plot_width,
+        plot_height,
+        partition_expr,
+    )))
+}
+
+fn partition_expr_node<S: SubplotMarkCore + ?Sized>(
+    subplot: &S,
+    session_context: &SessionContext,
+    spec: &PositionedSubplotSpec,
+) -> Result<Option<LogicalExprNode>, AvengerChartError> {
+    let Some(partition_channel) = spec.partition_channel.as_deref() else {
+        return Ok(None);
+    };
+    let Some(channel) = subplot.data_context_ref().channels().get(partition_channel) else {
+        return Ok(None);
+    };
+    let Some(expr) = channel.expr(session_context) else {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "{} subplot partition channel `{partition_channel}` does not support conditional values",
+            spec.outer_label
+        )));
+    };
+
+    validate_partitioned_subplot(subplot, session_context, spec, &expr)?;
+    LogicalExprNode::from_expr(expr).map(Some)
+}
+
+fn validate_partitioned_subplot<S: SubplotMarkCore + ?Sized>(
+    subplot: &S,
+    session_context: &SessionContext,
+    spec: &PositionedSubplotSpec,
+    partition_expr: &Expr,
+) -> Result<(), AvengerChartError> {
+    if subplot.has_plot_level_data() {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Partitioned {} subplots inherit parent data; remove plot-level data from the child plot",
+            spec.outer_label
+        )));
+    }
+
+    for channel_spec in &spec.placement_channels {
+        let channel_name = channel_spec.channel.as_str();
+        let Some(channel) = subplot.data_context_ref().channels().get(channel_name) else {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Partitioned {} subplots require channel `{channel_name}`",
+                spec.outer_label
+            )));
+        };
+        let Some(expr) = channel.expr(session_context) else {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Partitioned {} subplot channel `{channel_name}` does not support conditional values",
+                spec.outer_label
+            )));
+        };
+
+        if !valid_partition_position_expr(&expr, partition_expr) {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Partitioned {} subplot channel `{channel_name}` must be an aggregate, literal/constant, or the partition expression",
+                spec.outer_label
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn valid_partition_position_expr(expr: &Expr, partition_expr: &Expr) -> bool {
+    contains_aggregate(expr)
+        || !expr.any_column_refs()
+        || expr == partition_expr
+        || expr.to_string() == partition_expr.to_string()
 }

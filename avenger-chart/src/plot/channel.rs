@@ -5,7 +5,6 @@ use std::collections::{HashMap, hash_map::Entry};
 use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
 
-use avenger_chart_cartesian::{CARTESIAN_SUBPLOT_X_CHANNEL, CARTESIAN_SUBPLOT_Y_CHANNEL};
 use avenger_chart_core::{
     Auto, AxisSpec, ChannelValue, CoordinateSystem, Legend, Mark, resolve_all_channel_refs,
     strip_trailing_numbers,
@@ -13,11 +12,7 @@ use avenger_chart_core::{
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, Scale};
 
 fn coord_channel_for_scale_channel(channel_name: &str) -> String {
-    match channel_name {
-        CARTESIAN_SUBPLOT_X_CHANNEL => "x".to_string(),
-        CARTESIAN_SUBPLOT_Y_CHANNEL => "y".to_string(),
-        _ => strip_trailing_numbers(channel_name).to_string(),
-    }
+    strip_trailing_numbers(channel_name).to_string()
 }
 
 /// Extract scale, legend, and axis configurations from a mark's channels

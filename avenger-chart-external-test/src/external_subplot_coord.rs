@@ -1,30 +1,58 @@
-//! Compile-time dogfood for external coordinate systems that support `Subplot`.
-//!
-//! This module intentionally stops at the compile boundary. Facet and concat
-//! layout remain core Avenger features; the extension point is that a
-//! coordinate-system crate can opt into compiling `Subplot<Coord>` marks when
-//! it owns an appropriate positioned-subplot representation.
+//! Dogfood for external coordinate systems that support positioned `Subplot`.
 
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use avenger_chart_core::{
-    compile_subplot_payload, AvengerChartError, ChannelDescriptor, CompiledDataContext,
-    CompiledGuide, CompiledMark, CompiledMarkCore, CompiledMarkState, CompiledSubplotPayload,
-    CoordMeasurement, CoordinateGuide, CoordinateSystem, CoordinateSystemCore,
-    CoordinateSystemTransform, CoordinateSystemTransformCore, GuideSharingContext, GuideUpdate,
-    LayoutBounds, MarkRuntimeContext, OverflowSpaceRequirement, PlotGeometry, PointGeometry,
-    SubplotContainerCoordinateSystem, SubplotMarkCore, Theme,
+    compile_positioned_subplot_mark, AvengerChartError, CompiledGuide, CompiledMark,
+    CompiledMarkCore, CompiledMarkState, CoordMeasurement, CoordinateGuide, CoordinateSystem,
+    CoordinateSystemCore, CoordinateSystemTransform, CoordinateSystemTransformCore,
+    GuideSharingContext, GuideUpdate, LayoutBounds, OverflowSpaceRequirement,
+    PlotAreaRangeEndpoint, PlotGeometry, PointGeometry, PositionedSubplotChannel,
+    PositionedSubplotSpec, ScaleRangeBinding, SubplotContainerCoordinateSystem, SubplotMarkCore,
+    Theme,
 };
+use avenger_chart_marks::Subplot;
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::{group::Clip, mark::SceneMark};
-use datafusion::{arrow::record_batch::RecordBatch, common::ScalarValue, dataframe::DataFrame};
+use datafusion::{common::ScalarValue, dataframe::DataFrame};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-/// Minimal external coordinate system that opts into `Subplot` compilation.
+pub const EXTERNAL_SUBPLOT_U_CHANNEL: &str = "subplot_u";
+pub const EXTERNAL_SUBPLOT_V_CHANNEL: &str = "subplot_v";
+pub const EXTERNAL_SUBPLOT_PARTITION_CHANNEL: &str = "partition";
+
+/// Minimal external coordinate system that opts into generic positioned subplot runtime.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ExternalSubplotCoord;
+
+pub trait ExternalSubplotPositionChannels: Sized {
+    fn subplot_u<V: Into<avenger_chart_core::ChannelValue>>(self, value: V) -> Self;
+    fn subplot_v<V: Into<avenger_chart_core::ChannelValue>>(self, value: V) -> Self;
+    fn partition_by<V: Into<avenger_chart_core::ChannelValue>>(self, value: V) -> Self;
+    fn plot_size(self, width: f32, height: f32) -> Self;
+}
+
+impl ExternalSubplotPositionChannels for Subplot<ExternalSubplotCoord> {
+    fn subplot_u<V: Into<avenger_chart_core::ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value(EXTERNAL_SUBPLOT_U_CHANNEL, value.into())
+    }
+
+    fn subplot_v<V: Into<avenger_chart_core::ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value(EXTERNAL_SUBPLOT_V_CHANNEL, value.into())
+    }
+
+    fn partition_by<V: Into<avenger_chart_core::ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value(EXTERNAL_SUBPLOT_PARTITION_CHANNEL, value.into().no_scale())
+    }
+
+    fn plot_size(mut self, width: f32, height: f32) -> Self {
+        self.set_plot_width_config(Some(width));
+        self.set_plot_height_config(Some(height));
+        self
+    }
+}
 
 impl CoordinateSystemCore for ExternalSubplotCoord {
     fn required_channels(&self) -> &'static [&'static str] {
@@ -47,9 +75,27 @@ impl SubplotContainerCoordinateSystem for ExternalSubplotCoord {
         compiled_state: CompiledMarkState,
         session_context: &datafusion::prelude::SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        Ok(Arc::new(CompiledExternalCoordSubplot {
-            payload: compile_subplot_payload(subplot, compiled_state, session_context).await?,
-        }))
+        compile_positioned_subplot_mark(
+            subplot,
+            compiled_state,
+            session_context,
+            PositionedSubplotSpec::new(
+                "ExternalSubplotCoord",
+                "external_subplot",
+                vec![
+                    PositionedSubplotChannel::new(
+                        EXTERNAL_SUBPLOT_U_CHANNEL,
+                        EXTERNAL_SUBPLOT_U_CHANNEL,
+                    ),
+                    PositionedSubplotChannel::new(
+                        EXTERNAL_SUBPLOT_V_CHANNEL,
+                        EXTERNAL_SUBPLOT_V_CHANNEL,
+                    ),
+                ],
+            )
+            .with_partition_channel(EXTERNAL_SUBPLOT_PARTITION_CHANNEL),
+        )
+        .await
     }
 }
 
@@ -61,25 +107,48 @@ impl CoordinateSystemTransformCore for ExternalSubplotCoordTransform {
         &[]
     }
 
+    fn transform(
+        &self,
+        position_channels: &HashMap<&str, ScalarOrArray<f32>>,
+        _position_values: Option<&HashMap<&str, Vec<ScalarValue>>>,
+        _plot_width: f32,
+        _plot_height: f32,
+    ) -> Result<Box<dyn PlotGeometry>, AvengerChartError> {
+        let x = position_channels
+            .get(EXTERNAL_SUBPLOT_U_CHANNEL)
+            .ok_or_else(|| {
+                AvengerChartError::InternalError("Missing subplot_u position channel".to_string())
+            })?
+            .clone();
+        let y = position_channels
+            .get(EXTERNAL_SUBPLOT_V_CHANNEL)
+            .ok_or_else(|| {
+                AvengerChartError::InternalError("Missing subplot_v position channel".to_string())
+            })?
+            .clone();
+        Ok(Box::new(PointGeometry { x, y }))
+    }
+
+    fn default_range_binding(&self, channel: &str) -> Option<ScaleRangeBinding> {
+        match channel {
+            EXTERNAL_SUBPLOT_U_CHANNEL => Some(ScaleRangeBinding::plot_area(
+                PlotAreaRangeEndpoint::ZERO,
+                PlotAreaRangeEndpoint::WIDTH,
+            )),
+            EXTERNAL_SUBPLOT_V_CHANNEL => Some(ScaleRangeBinding::plot_area(
+                PlotAreaRangeEndpoint::HEIGHT,
+                PlotAreaRangeEndpoint::ZERO,
+            )),
+            _ => None,
+        }
+    }
+
     fn default_scale_options(
         &self,
         _channel: &str,
         _scale_impl: &dyn avenger_scales::scales::ScaleImpl,
     ) -> HashMap<String, ScalarValue> {
         HashMap::new()
-    }
-
-    fn transform(
-        &self,
-        _position_channels: &HashMap<&str, ScalarOrArray<f32>>,
-        _position_values: Option<&HashMap<&str, Vec<ScalarValue>>>,
-        _plot_width: f32,
-        _plot_height: f32,
-    ) -> Result<Box<dyn PlotGeometry>, AvengerChartError> {
-        Ok(Box::new(PointGeometry {
-            x: ScalarOrArray::new_scalar(0.0),
-            y: ScalarOrArray::new_scalar(0.0),
-        }))
     }
 }
 
@@ -175,62 +244,5 @@ impl CompiledGuide for ExternalSubplotCoordGuide {
 
     fn as_any(&self) -> &dyn Any {
         self
-    }
-}
-
-/// Compiled external subplot mark that proves `Subplot<ExternalSubplotCoord>`
-/// can use Avenger's blanket subplot compile path from another crate.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct CompiledExternalCoordSubplot {
-    payload: CompiledSubplotPayload,
-}
-
-impl CompiledExternalCoordSubplot {
-    pub fn payload(&self) -> &CompiledSubplotPayload {
-        &self.payload
-    }
-}
-
-impl CompiledMarkCore for CompiledExternalCoordSubplot {
-    fn state(&self) -> &CompiledMarkState {
-        self.payload.compiled_state()
-    }
-
-    fn state_mut(&mut self) -> &mut CompiledMarkState {
-        self.payload.compiled_state_mut()
-    }
-
-    fn data_context(&self) -> &CompiledDataContext {
-        &self.payload.compiled_state().data
-    }
-
-    fn mark_type(&self) -> &str {
-        "external_coord_subplot"
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn supported_channels(&self) -> Vec<ChannelDescriptor> {
-        Vec::new()
-    }
-
-    fn wants_full_data_batch(&self) -> bool {
-        true
-    }
-}
-
-#[typetag::serde]
-#[async_trait]
-impl CompiledMark for CompiledExternalCoordSubplot {
-    async fn render_from_data(
-        &self,
-        _data: Option<&RecordBatch>,
-        _scalars: &RecordBatch,
-        _context: &dyn MarkRuntimeContext,
-        _coord: &dyn CoordinateSystemTransformCore,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        Ok(Vec::new())
     }
 }

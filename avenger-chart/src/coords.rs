@@ -2,15 +2,6 @@ use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{common::ScalarValue, dataframe::DataFrame};
 
-use avenger_chart_cartesian::Cartesian;
-pub use avenger_chart_core::{
-    CoordMeasurement, CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
-    CoordinateSystemTransformCore, CoordinatedLayout, CoordinatedOverflow, EmptyCoordMeasurement,
-    FacetAxis, OverflowSpaceRequirement, PaddingSpec, PlotGeometry, PointGeometry, SubplotGeometry,
-    SubplotRect, extract_channel_title_from_marks,
-};
-use avenger_chart_polar::Polar;
-
 use crate::facet::coord::{FacetBandCoordMeasurement, FacetBandProbeMeasurement};
 use crate::{
     error::AvengerChartError,
@@ -18,6 +9,12 @@ use crate::{
     plot::compiled::ComponentsMeasurement,
     render::{CoordinationCheckpoint, EvaluationContext},
     scales::{ConfiguredScaleWithSpec, domain_extent::DomainExtent},
+};
+pub use avenger_chart_core::{
+    CoordMeasurement, CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
+    CoordinateSystemTransformCore, CoordinatedLayout, CoordinatedOverflow, EmptyCoordMeasurement,
+    FacetAxis, OverflowSpaceRequirement, PaddingSpec, PlotGeometry, PointGeometry, SubplotGeometry,
+    SubplotRect, extract_channel_title_from_marks,
 };
 
 /// Cell domain extent info collected before facet overflow measurement.
@@ -153,42 +150,27 @@ impl<'a> CoordMeasureRequest<'a> {
 }
 
 /// Measure coordinate-system-specific layout state for built-in layout-aware
-/// coordinates.
-///
-/// External coordinate transforms default to no measurement. Facet, concat, and
-/// coordinate-positioned Cartesian subplot measurement stay in the top-level
-/// crate because they depend on full plot/layout runtime state.
+/// coordinates and generic coordinate-positioned subplot marks.
 pub(crate) async fn measure_coordinate_system_transform(
     transform: &dyn CoordinateSystemTransform,
     request: CoordMeasureRequest<'_>,
 ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
+    if let Some(measurement) = crate::positioned_subplot::measure_positioned_subplots(
+        transform,
+        request.scales(),
+        request.plot_width(),
+        request.plot_height(),
+        request.eval_ctx(),
+        request.data(),
+        request.compiled_marks(),
+        request.facet_path(),
+    )
+    .await?
+    {
+        return Ok(measurement);
+    }
+
     let any = transform.as_any();
-
-    if any.is::<Cartesian>() {
-        return crate::cartesian::positioned_subplot::measure_cartesian_positioned_subplots(
-            request.scales(),
-            request.plot_width(),
-            request.plot_height(),
-            request.eval_ctx(),
-            request.data(),
-            request.compiled_marks(),
-            request.facet_path(),
-        )
-        .await;
-    }
-
-    if any.is::<Polar>() {
-        return crate::polar::positioned_subplot::measure_polar_positioned_subplots(
-            request.scales(),
-            request.plot_width(),
-            request.plot_height(),
-            request.eval_ctx(),
-            request.data(),
-            request.compiled_marks(),
-            request.facet_path(),
-        )
-        .await;
-    }
 
     if any.is::<crate::concat::HConcat>() {
         return crate::concat::measure_concat_coord_system(

@@ -410,111 +410,117 @@ fn polar_partitioned_subplot_polar_children() {
     });
 }
 
-#[tokio::test]
-async fn cartesian_positioned_cartesian_subplots() {
-    let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
-        .plot_size(430.0, 300.0)
-        .data(positioned_data(&ctx).await)
-        .title("Cartesian-positioned subplots")
-        .mark(
-            Subplot::new(cartesian_child(&ctx).await)
-                .subplot_x_with(col("x"), |c| {
-                    c.scale_with::<Linear>(|s| s.domain((lit(0.7), lit(4.1))))
-                })
-                .subplot_y_with(col("y"), |c| {
-                    c.scale_with::<Linear>(|s| s.domain((lit(0.7), lit(2.3))))
-                })
-                .plot_size(86.0, 64.0),
-        );
+#[test]
+fn cartesian_positioned_cartesian_subplots() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let plot = Plot::<Cartesian>::new()
+            .plot_size(430.0, 300.0)
+            .data(positioned_data(&ctx).await)
+            .title("Cartesian-positioned subplots")
+            .mark(
+                Subplot::new(cartesian_child(&ctx).await)
+                    .subplot_x_with(col("x"), |c| {
+                        c.scale_with::<Linear>(|s| s.domain((lit(0.7), lit(4.1))))
+                    })
+                    .subplot_y_with(col("y"), |c| {
+                        c.scale_with::<Linear>(|s| s.domain((lit(0.7), lit(2.3))))
+                    })
+                    .plot_size(86.0, 64.0),
+            );
 
-    let compiled = plot
-        .compile(&ctx)
-        .await
-        .expect("compile Cartesian-positioned Cartesian subplots");
-    assert_visual_match_default(
-        &compiled,
-        &ctx,
-        None,
-        "cartesian_subplot",
-        "cartesian_positioned_cartesian_subplots",
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn cartesian_positioned_mixed_subplots() {
-    let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
-        .plot_size(430.0, 300.0)
-        .data(positioned_data(&ctx).await)
-        .title("Mixed positioned subplots")
-        .mark(
-            Subplot::new(cartesian_child(&ctx).await)
-                .subplot_x_with(lit(1.2), |c| {
-                    c.scale_with::<Linear>(|s| s.domain((lit(0.8), lit(3.9))))
-                })
-                .subplot_y_with(lit(1.2), |c| {
-                    c.scale_with::<Linear>(|s| s.domain((lit(0.8), lit(2.1))))
-                })
-                .plot_size(82.0, 62.0),
+        let compiled = plot
+            .compile(&ctx)
+            .await
+            .expect("compile Cartesian-positioned Cartesian subplots");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "cartesian_subplot",
+            "cartesian_positioned_cartesian_subplots",
         )
-        .mark(
-            Subplot::new(polar_child(&ctx).await)
-                .subplot_x(lit(3.5))
-                .subplot_y(lit(1.8))
-                .plot_size(82.0, 82.0),
-        );
-
-    let compiled = plot
-        .compile(&ctx)
-        .await
-        .expect("compile mixed coordinate positioned subplots");
-    assert_visual_match_default(
-        &compiled,
-        &ctx,
-        None,
-        "cartesian_subplot",
-        "cartesian_positioned_mixed_subplots",
-    )
-    .await;
+        .await;
+    });
 }
 
-#[tokio::test]
-async fn cartesian_positioned_components_debug() {
-    let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
-        .plot_size(430.0, 300.0)
-        .data(positioned_data(&ctx).await)
-        .title("Positioned subplot debug")
-        .mark(
-            Subplot::new(cartesian_child(&ctx).await)
-                .key("mini")
-                .label("Mini")
-                .subplot_x_with(col("x"), |c| {
-                    c.scale_with::<Linear>(|s| s.domain((lit(0.7), lit(4.1))))
-                })
-                .subplot_y_with(col("y"), |c| {
-                    c.scale_with::<Linear>(|s| s.domain((lit(0.7), lit(2.3))))
-                })
-                .plot_size(86.0, 64.0),
-        );
+#[test]
+fn cartesian_positioned_mixed_subplots() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let plot = Plot::<Cartesian>::new()
+            .plot_size(430.0, 300.0)
+            .data(positioned_data(&ctx).await)
+            .title("Mixed positioned subplots")
+            .mark(
+                Subplot::new(cartesian_child(&ctx).await)
+                    .subplot_x_with(lit(1.2), |c| {
+                        c.scale_with::<Linear>(|s| s.domain((lit(0.8), lit(3.9))))
+                    })
+                    .subplot_y_with(lit(1.2), |c| {
+                        c.scale_with::<Linear>(|s| s.domain((lit(0.8), lit(2.1))))
+                    })
+                    .plot_size(82.0, 62.0),
+            )
+            .mark(
+                Subplot::new(polar_child(&ctx).await)
+                    .subplot_x(lit(3.5))
+                    .subplot_y(lit(1.8))
+                    .plot_size(82.0, 82.0),
+            );
 
-    let compiled = plot
-        .compile(&ctx)
-        .await
-        .expect("compile positioned subplot debug chart");
-    assert_visual_match_default_with_options(
-        &compiled,
-        &ctx,
-        None,
-        EvaluationOptions {
-            debug_layout_overlay: LayoutDebugOverlayMode::Components,
-            layout_snapshot: LayoutSnapshot::Final,
-            ..EvaluationOptions::default()
-        },
-        "cartesian_subplot",
-        "cartesian_positioned_components_debug",
-    )
-    .await;
+        let compiled = plot
+            .compile(&ctx)
+            .await
+            .expect("compile mixed coordinate positioned subplots");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "cartesian_subplot",
+            "cartesian_positioned_mixed_subplots",
+        )
+        .await;
+    });
+}
+
+#[test]
+fn cartesian_positioned_components_debug() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let plot = Plot::<Cartesian>::new()
+            .plot_size(430.0, 300.0)
+            .data(positioned_data(&ctx).await)
+            .title("Positioned subplot debug")
+            .mark(
+                Subplot::new(cartesian_child(&ctx).await)
+                    .key("mini")
+                    .label("Mini")
+                    .subplot_x_with(col("x"), |c| {
+                        c.scale_with::<Linear>(|s| s.domain((lit(0.7), lit(4.1))))
+                    })
+                    .subplot_y_with(col("y"), |c| {
+                        c.scale_with::<Linear>(|s| s.domain((lit(0.7), lit(2.3))))
+                    })
+                    .plot_size(86.0, 64.0),
+            );
+
+        let compiled = plot
+            .compile(&ctx)
+            .await
+            .expect("compile positioned subplot debug chart");
+        assert_visual_match_default_with_options(
+            &compiled,
+            &ctx,
+            None,
+            EvaluationOptions {
+                debug_layout_overlay: LayoutDebugOverlayMode::Components,
+                layout_snapshot: LayoutSnapshot::Final,
+                ..EvaluationOptions::default()
+            },
+            "cartesian_subplot",
+            "cartesian_positioned_components_debug",
+        )
+        .await;
+    });
 }

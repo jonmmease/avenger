@@ -381,8 +381,9 @@ example in the Goal section works without explicit parent `x`/`y` domains.
 Keep the existing shape: Cartesian positioned child frames are measured during
 coordinate measurement and rendered from saved measurement state.
 
-Update `measure_cartesian_positioned_subplots(...)` so partitioned and
-non-partitioned children both produce:
+Update the positioned-subplot measurement path (now the generic facade-owned
+runtime rather than the old Cartesian-specific measurement function) so
+partitioned and non-partitioned children both produce:
 
 - `CartesianPositionedChildMeasurement`,
 - `ChildFrameDomainSharingInput`,

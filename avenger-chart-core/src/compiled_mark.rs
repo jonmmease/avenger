@@ -15,8 +15,8 @@ use indexmap::IndexMap;
 use crate::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMarkState,
     CoordinateSystemTransformCore, EvaluationContext, LegendRendererKind, MarkRenderContext,
-    MarkRuntimeContext, RadiusExpression, ResolvedDomain, ScaleRange, ScaleTypePreference, Theme,
-    default_scale_type_for_data_type, is_continuous_scale,
+    MarkRuntimeContext, PositionedSubplotMarkCore, RadiusExpression, ResolvedDomain, ScaleRange,
+    ScaleTypePreference, Theme, default_scale_type_for_data_type, is_continuous_scale,
 };
 
 /// Core-safe compiled mark metadata and planning behavior.
@@ -41,6 +41,11 @@ pub trait CompiledMarkCore: Any + Send + Sync {
     /// Downcast support.
     fn as_any(&self) -> &dyn Any {
         panic!("as_any not implemented for this mark type")
+    }
+
+    /// Return a coordinate-positioned subplot view when this mark is one.
+    fn as_positioned_subplot(&self) -> Option<&dyn PositionedSubplotMarkCore> {
+        None
     }
 
     /// Declare channels this mark supports.
