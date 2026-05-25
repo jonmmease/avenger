@@ -12,7 +12,8 @@ use datafusion::{
 use datafusion_common::ScalarValue;
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
+
+pub use avenger_chart_cartesian::CartesianOptions;
 
 use crate::{
     cartesian::{
@@ -21,8 +22,7 @@ use crate::{
     },
     channel::value::strip_trailing_numbers,
     chart_core::color::parse_color_to_array_strict,
-    chart_core::maybe::{Maybe, MaybeOptionalExpr},
-    chart_core::{AxisPosition, IntoExpr, evaluate_string_expr},
+    chart_core::{AxisPosition, IntoExpr, Maybe, evaluate_string_expr},
     coords::{CoordMeasurement, EmptyCoordMeasurement, extract_channel_title_from_marks},
     error::AvengerChartError,
     guide::{
@@ -37,15 +37,6 @@ use crate::{
     serialization::LogicalExprNodeExt,
     theme::{Theme, ThemeContext},
 };
-
-/// Options for Cartesian coordinate system (beyond axes)
-#[serde_as]
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct CartesianOptions {
-    /// Background color for the plot area
-    #[serde_as(as = "MaybeOptionalExpr")]
-    pub plot_background_color: Maybe<Option<LogicalExprNode>>,
-}
 
 /// Guide for Cartesian coordinate system
 ///

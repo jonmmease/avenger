@@ -7,7 +7,8 @@ use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
 use lyon_path::Path;
 use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
+
+pub use avenger_chart_polar::PolarOptions;
 
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use avenger_geometry::marks::MarkGeometryUtils;
@@ -16,10 +17,7 @@ use avenger_scenegraph::marks::{arc::SceneArcMark, group::Clip, mark::SceneMark}
 
 use crate::{
     chart_core::color::parse_color_to_array_strict,
-    chart_core::{
-        IntoExpr, evaluate_string_expr,
-        maybe::{Maybe, MaybeOptionalExpr},
-    },
+    chart_core::{IntoExpr, Maybe, evaluate_string_expr},
     coords::{CoordMeasurement, EmptyCoordMeasurement, extract_channel_title_from_marks},
     error::AvengerChartError,
     guide::{
@@ -32,15 +30,6 @@ use crate::{
 };
 
 use super::axis::{PolarAxis, PolarAxisEvaluateExt, PolarAxisType};
-
-/// Options for polar coordinate system
-#[serde_as]
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct PolarOptions {
-    /// Background color for the plot area
-    #[serde_as(as = "MaybeOptionalExpr")]
-    pub plot_background_color: Maybe<Option<LogicalExprNode>>,
-}
 
 /// Guide for Polar coordinate system
 ///
