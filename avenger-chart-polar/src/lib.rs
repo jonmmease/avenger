@@ -7,5 +7,5 @@ pub mod marks;
 pub use axis::{PolarAxis, PolarAxisEvaluateExt, PolarAxisType, PolarDirection};
 pub use channels::PolarPositionConfig;
 pub use coord::Polar;
-pub use guide::PolarOptions;
+pub use guide::{PolarGuide, PolarOptions};
 pub use marks::PolarSymbolPositionChannels;

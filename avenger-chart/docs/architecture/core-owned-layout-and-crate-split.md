@@ -162,12 +162,13 @@ Current extraction state:
   types and scale-adjacent utilities that no longer need top-level plot/layout
   state: `Scale<S>`, scale channel extension traits, scale UDF and codec,
   configured-scale extension traits, default range helpers, domain extent
-  values, `ScaleBuilder`, and the chart-specific logical expr/plan
-  serialization helpers that need the scale codec.
-- Top-level `avenger-chart` still owns the adapter that constructs a
-  `ScaleBuilder` from `CompiledMark` values and plot compilation state. The
-  builder itself no longer imports `CompiledMark`; it accepts a default-range
-  resolver callback supplied by the facade.
+  values, `ScaleBuilder`, mark-walking scale-builder construction, and the
+  chart-specific logical expr/plan serialization helpers that need the scale
+  codec.
+- Top-level `avenger-chart` retains only a thin compatibility wrapper around
+  `build_scale_builder_from_marks` for its boxed coordinate transform. The real
+  implementation consumes core `CompiledMark` and
+  `CoordinateSystemTransformCore` contracts directly from the scales crate.
 
 ### `avenger-chart-legend`
 
@@ -981,11 +982,10 @@ boundaries boring.
      `PolarPositionConfig` now live in the real `avenger-chart-polar` crate.
      The top-level `avenger_chart::polar::{axis,channels}` modules are
      compatibility shims. Polar axis evaluation now lives in
-     `avenger-chart-polar`, and the top-level Polar guide module calls that
-     coordinate-owned evaluator.
-   - `PolarOptions`, the pure coordinate guide/options spec, now lives in
-     `avenger-chart-polar`. The top-level Polar guide module still owns guide
-     measurement/rendering until the guide runtime boundary moves.
+     `avenger-chart-polar`.
+   - `PolarGuide` and `PolarOptions` now live in `avenger-chart-polar`,
+     including guide measurement/rendering and circular clipping. The top-level
+     `avenger_chart::polar::guide` module is a compatibility re-export.
    - `PolarSymbolPositionChannels` and the coordinate-owned
      `Symbol<Polar>` `Mark<Polar>` / `CompiledMark` implementation now live in
      `avenger-chart-polar`. The top-level Polar symbol module is a
