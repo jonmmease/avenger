@@ -1,117 +1,13 @@
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 
-use datafusion::{arrow::record_batch::RecordBatch, dataframe::DataFrame, prelude::SessionContext};
-use serde::{Deserialize, Serialize};
+use datafusion::prelude::SessionContext;
 
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, ColumnDimensionConfig, CompiledMark, CompiledMarkState,
     CompiledSubplotChildPlot, CoordinateSystem, CoordinateSystemCore, DataContext,
     FacetDimensionConfig, FacetEmptyCellPolicy, FacetStrategy, Mark, MarkState, RowDimensionConfig,
-    ScaleSharing, SubplotChildPlotSpec, SubplotDataSource,
+    ScaleSharing, SubplotChildPlotSpec, SubplotMarkCore,
 };
-
-/// Shared compiled state for a child plot owned by a container subplot mark.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct CompiledSubplotPayload {
-    state: CompiledMarkState,
-    compiled_subplot: Arc<dyn CompiledSubplotChildPlot>,
-    label: Option<String>,
-    key: Option<String>,
-    data_source: SubplotDataSource,
-}
-
-impl CompiledSubplotPayload {
-    pub fn new(
-        state: CompiledMarkState,
-        compiled_subplot: Arc<dyn CompiledSubplotChildPlot>,
-        label: Option<String>,
-        key: Option<String>,
-        data_source: SubplotDataSource,
-    ) -> Self {
-        Self {
-            state,
-            compiled_subplot,
-            label,
-            key,
-            data_source,
-        }
-    }
-
-    pub fn compiled_child_plot(&self) -> &Arc<dyn CompiledSubplotChildPlot> {
-        &self.compiled_subplot
-    }
-
-    pub fn compiled_state(&self) -> &CompiledMarkState {
-        &self.state
-    }
-
-    pub fn compiled_state_mut(&mut self) -> &mut CompiledMarkState {
-        &mut self.state
-    }
-
-    pub fn label(&self) -> Option<&str> {
-        self.label.as_deref()
-    }
-
-    pub fn key(&self) -> Option<&str> {
-        self.key.as_deref()
-    }
-
-    pub fn mark_index(&self) -> usize {
-        self.state.mark_index()
-    }
-
-    pub fn data_source(&self) -> SubplotDataSource {
-        self.data_source
-    }
-
-    pub fn inherits_parent_data(&self) -> bool {
-        self.data_source == SubplotDataSource::InheritParent
-    }
-
-    pub fn has_explicit_child_data(&self) -> bool {
-        self.data_source == SubplotDataSource::ExplicitChild
-    }
-
-    #[doc(hidden)]
-    pub fn inherited_data_override(
-        &self,
-        data: Option<&RecordBatch>,
-        session_context: &SessionContext,
-    ) -> Result<Option<DataFrame>, AvengerChartError> {
-        if !self.inherits_parent_data() {
-            return Ok(None);
-        }
-
-        data.map(|batch| {
-            session_context
-                .read_batch(batch.clone())
-                .map_err(AvengerChartError::DataFusionError)
-        })
-        .transpose()
-    }
-}
-
-pub async fn compile_subplot_payload<OuterC: CoordinateSystemCore>(
-    subplot: &Subplot<OuterC>,
-    compiled_state: CompiledMarkState,
-    session_context: &SessionContext,
-) -> Result<CompiledSubplotPayload, AvengerChartError> {
-    let data_source = if subplot.has_plot_level_data() {
-        SubplotDataSource::ExplicitChild
-    } else {
-        SubplotDataSource::InheritParent
-    };
-    let compiled_subplot = subplot.compile_child_plot(session_context).await?;
-
-    Ok(CompiledSubplotPayload::new(
-        compiled_state,
-        compiled_subplot,
-        subplot.config.label.clone(),
-        subplot.config.key.clone(),
-        data_source,
-    ))
-}
 
 #[derive(Clone, Default)]
 pub(crate) struct SubplotConfig {
@@ -322,6 +218,72 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
 }
 
 #[async_trait::async_trait]
+impl<OuterC: CoordinateSystemCore> SubplotMarkCore for Subplot<OuterC> {
+    fn data_context_ref(&self) -> &DataContext {
+        &self.state.data
+    }
+
+    fn label_config(&self) -> Option<&str> {
+        self.config.label.as_deref()
+    }
+
+    fn key_config(&self) -> Option<&str> {
+        self.config.key.as_deref()
+    }
+
+    fn plot_width_config(&self) -> Option<f32> {
+        self.config.plot_width
+    }
+
+    fn plot_height_config(&self) -> Option<f32> {
+        self.config.plot_height
+    }
+
+    fn facet_row_title_config(&self) -> Option<&str> {
+        self.config.facet_row_title.as_deref()
+    }
+
+    fn facet_row_slot_sharing_config(&self) -> Option<ScaleSharing> {
+        self.config.facet_row_slot_sharing
+    }
+
+    fn facet_row_position_config(&self) -> Option<&str> {
+        self.config.facet_row_position.as_deref()
+    }
+
+    fn facet_row_empty_cell_policy_config(&self) -> Option<FacetEmptyCellPolicy> {
+        self.config.facet_row_empty_cell_policy
+    }
+
+    fn facet_col_title_config(&self) -> Option<&str> {
+        self.config.facet_col_title.as_deref()
+    }
+
+    fn facet_col_slot_sharing_config(&self) -> Option<ScaleSharing> {
+        self.config.facet_col_slot_sharing
+    }
+
+    fn facet_col_position_config(&self) -> Option<&str> {
+        self.config.facet_col_position.as_deref()
+    }
+
+    fn facet_col_empty_cell_policy_config(&self) -> Option<FacetEmptyCellPolicy> {
+        self.config.facet_col_empty_cell_policy
+    }
+
+    fn has_plot_level_data(&self) -> bool {
+        self.subplot.has_plot_level_data()
+    }
+
+    async fn compile_child_plot(
+        &self,
+        session_context: &SessionContext,
+    ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
+        self.subplot.compile_boxed(session_context).await
+    }
+}
+
+#[async_trait::async_trait]
 pub trait SubplotContainerCoordinateSystem: CoordinateSystem + Sized {
     /// Compile a `Subplot<Self>` mark for this coordinate system.
     ///
@@ -376,7 +338,7 @@ mod tests {
     use super::*;
     use crate::{
         chart_core::CompiledMarkCore,
-        chart_core::{FacetDimensionConfig, RowDimensionConfig},
+        chart_core::{FacetDimensionConfig, RowDimensionConfig, SubplotDataSource},
         concat::{HConcat, compiled_subplot},
         plot::Plot,
         zerod::ZeroDCoord,

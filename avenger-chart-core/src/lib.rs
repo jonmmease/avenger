@@ -164,7 +164,10 @@ pub use serialization::{
     SerializableExpr, SerializableNestedScalarMap, SerializableScalar, SerializableScalarMap,
 };
 pub use sharing::{CoordinationAxis, SharingLevel};
-pub use subplot_child_plot::{CompiledSubplotChildPlot, SubplotChildPlotSpec, SubplotDataSource};
+pub use subplot_child_plot::{
+    CompiledSubplotChildPlot, CompiledSubplotPayload, SubplotChildPlotSpec, SubplotDataSource,
+    SubplotMarkCore, compile_subplot_payload,
+};
 pub use theme::{AngleUnit, CssRgba, LengthUnit, Theme, ThemeValue};
 pub use theme_context::ThemeContext;
 pub use zero_d::ZeroDCoord;

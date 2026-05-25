@@ -504,23 +504,26 @@ Migration discipline:
    - `Subplot` now stores a `SubplotChildPlotSpec` trait object instead of a
      concrete `Plot<C>`. The `Plot<C>` implementation lives with `plot`, so the
      neutral subplot mark no longer imports the concrete plot builder type.
-   - `SubplotChildPlotSpec`, `CompiledSubplotChildPlot`, and
-     `SubplotDataSource` now live in the real `avenger-chart-core` crate.
-     `CompiledSubplotPayload` stores an `Arc<dyn CompiledSubplotChildPlot>`;
-     the facade-owned layout runtime downcasts that handle back to
-     `CompiledPlot` through explicit helpers in `plot::compiled`, where facet,
-     concat, and Cartesian positioned-subplot measurement/rendering still need
-     the concrete top-level plot runtime. The neutral payload itself no longer
-     imports `CompiledPlot`.
+   - `SubplotChildPlotSpec`, `CompiledSubplotChildPlot`,
+     `SubplotMarkCore`, `SubplotDataSource`, `CompiledSubplotPayload`, and
+     `compile_subplot_payload` now live in the real `avenger-chart-core`
+     crate. `CompiledSubplotPayload` stores an
+     `Arc<dyn CompiledSubplotChildPlot>`; the facade-owned layout runtime
+     downcasts that handle back to `CompiledPlot` through explicit helpers in
+     `plot::compiled`, where facet, concat, and Cartesian positioned-subplot
+     measurement/rendering still need the concrete top-level plot runtime. The
+     neutral payload itself no longer imports `CompiledPlot`.
    - Inherited parent-data conversion now depends only on `SessionContext`, not
      the full top-level `RenderContext`.
    - The facet empty-cell policy and row/column dimension-channel identifiers
      now live in `avenger-chart-core`, so the neutral subplot configuration no
      longer imports top-level facet modules for those shared spec values.
-   - The neutral `Subplot<OuterC>` type and shared `compile_subplot_payload`
-     helper are now bounded only by `CoordinateSystemCore`. The
+   - The neutral `Subplot<OuterC>` type is now bounded only by
+     `CoordinateSystemCore`, and shared payload compilation is expressed
+     through the core `SubplotMarkCore` view. The
      `SubplotContainerCoordinateSystem` compile hook still lives with the
-     top-level mark module until `Subplot` itself moves to its final crate.
+     top-level mark module until its signature no longer depends on the
+     concrete facade-owned `Subplot` type.
    - Top-level consumers now use hidden `Subplot` accessor methods for
      child-frame sizing, facet row/column options, channel injection, and
      data-context inspection instead of reaching into crate-private config
@@ -543,9 +546,10 @@ Migration discipline:
      `cartesian::positioned_subplot`, including the `Subplot<Cartesian>`
      builder methods, `SubplotContainerCoordinateSystem` impl,
      `CompiledCartesianSubplot`, and its render implementation.
-   - `marks::subplot` now contains the neutral subplot mark, shared compiled
-     payload, shared compile hook, and unit coverage only. Temporary
-     compatibility re-exports remain for the old compiled subplot type paths.
+   - `marks::subplot` now contains the neutral subplot mark, top-level
+     `SubplotContainerCoordinateSystem` compile hook, and unit coverage only.
+     Temporary compatibility re-exports remain for the old compiled subplot
+     type paths.
    - Cartesian positioned-subplot authoring methods and facet row/column
      subplot channel methods now use extension traits rather than inherent
      `Subplot<...>` impls. The facade prelude re-exports
@@ -853,8 +857,9 @@ boundaries boring.
      These are re-exported from the facade prelude so normal chart-author
      ergonomics stay intact while the ownership boundary becomes real.
    - The next real mark move is neutral `Subplot`, but it should wait until the
-     compiled child payload and coordinate subplot hook no longer pull top-level
-     plot/layout runtime types into the mark crate.
+     coordinate subplot hook no longer pulls top-level plot/layout runtime
+     types into the mark crate. The compiled child payload boundary is now
+     core-owned.
    - `avenger-chart` now depends on `avenger-chart-marks`, and
      `avenger-chart/src/marks/data_context.rs`,
      `avenger-chart/src/marks/compiled_data_context.rs`, and
