@@ -4,8 +4,12 @@ use async_trait::async_trait;
 use avenger_scales::scalar::Scalar;
 use datafusion::{
     arrow::{
-        array::{ArrayRef, ListArray},
-        datatypes::DataType,
+        array::{Array, ArrayRef, AsArray, ListArray},
+        compute::cast,
+        datatypes::{
+            DataType, Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type,
+            UInt8Type, UInt16Type, UInt32Type, UInt64Type,
+        },
     },
     common::{
         ParamValues, Spans,
@@ -391,6 +395,55 @@ pub trait ArrayRefHelpers {
     fn list_el_to_scalar_vec(&self) -> Result<Vec<ScalarValue>, DataFusionError>;
     fn list_el_len(&self) -> Result<usize, DataFusionError>;
     fn list_el_dtype(&self) -> Result<DataType, DataFusionError>;
+}
+
+/// Extract a numeric value from an Arrow array at a given index and convert it
+/// to f64.
+///
+/// Supports numeric Arrow types directly and falls back to casting to Float64
+/// for other compatible arrays.
+pub fn array_value_to_f64(
+    array: &dyn Array,
+    index: usize,
+    data_type: &DataType,
+) -> Result<f64, AvengerChartError> {
+    let actual_dt = array.data_type();
+    let dt = match actual_dt {
+        DataType::Float64
+        | DataType::Float32
+        | DataType::Int64
+        | DataType::Int32
+        | DataType::UInt64
+        | DataType::UInt32
+        | DataType::Int16
+        | DataType::UInt16
+        | DataType::Int8
+        | DataType::UInt8 => actual_dt,
+        _ => data_type,
+    };
+
+    let value = match dt {
+        DataType::Float64 => array.as_primitive::<Float64Type>().value(index),
+        DataType::Float32 => array.as_primitive::<Float32Type>().value(index) as f64,
+        DataType::Int64 => array.as_primitive::<Int64Type>().value(index) as f64,
+        DataType::Int32 => array.as_primitive::<Int32Type>().value(index) as f64,
+        DataType::UInt64 => array.as_primitive::<UInt64Type>().value(index) as f64,
+        DataType::UInt32 => array.as_primitive::<UInt32Type>().value(index) as f64,
+        DataType::Int16 => array.as_primitive::<Int16Type>().value(index) as f64,
+        DataType::UInt16 => array.as_primitive::<UInt16Type>().value(index) as f64,
+        DataType::Int8 => array.as_primitive::<Int8Type>().value(index) as f64,
+        DataType::UInt8 => array.as_primitive::<UInt8Type>().value(index) as f64,
+        _ => {
+            let casted = cast(array, &DataType::Float64).map_err(|err| {
+                AvengerChartError::InternalError(format!(
+                    "Failed to cast array to Float64 for numeric conversion: {err}"
+                ))
+            })?;
+            return Ok(casted.as_primitive::<Float64Type>().value(index));
+        }
+    };
+
+    Ok(value)
 }
 
 impl ArrayRefHelpers for ArrayRef {

@@ -8,6 +8,7 @@ pub mod domain;
 pub mod domain_extent;
 mod domain_inference;
 pub mod extensions;
+pub mod mark_scale_builder;
 pub mod range;
 pub mod scale;
 pub mod serialization;
@@ -27,6 +28,7 @@ pub use domain_extent::{
     DomainBounds, DomainExtent, RadiusPadding, SerializableDataExtents, SerializableDomainValue,
 };
 pub use extensions::{ConfiguredScaleDataFusionExt, ConfiguredScaleLegendExt, DomainValues};
+pub use mark_scale_builder::build_scale_builder_from_marks;
 pub use range::ScaleRange;
 pub use scale::Scale;
 pub use spec::{

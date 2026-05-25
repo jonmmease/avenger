@@ -18,6 +18,21 @@ pub trait DefaultLogicalExprNodeExt: Sized {
 
     /// Convert a protobuf expression node to a DataFusion expression.
     fn to_default_expr(&self, ctx: &SessionContext) -> Result<Expr, AvengerChartError>;
+
+    /// Create a protobuf expression node from a DataFusion expression.
+    ///
+    /// This alias keeps core-owned helpers that predate the crate split readable
+    /// while still documenting that they use the default DataFusion codec.
+    fn from_expr(expr: Expr) -> Result<Self, AvengerChartError> {
+        Self::from_default_expr(expr)
+    }
+
+    /// Convert a protobuf expression node to a DataFusion expression.
+    ///
+    /// This alias uses the default DataFusion codec.
+    fn to_expr(&self, ctx: &SessionContext) -> Result<Expr, AvengerChartError> {
+        self.to_default_expr(ctx)
+    }
 }
 
 impl DefaultLogicalExprNodeExt for LogicalExprNode {

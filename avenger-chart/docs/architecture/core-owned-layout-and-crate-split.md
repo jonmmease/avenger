@@ -861,11 +861,15 @@ boundaries boring.
    - Prerequisite utility ownership is in place: scale-domain inference and
      configured-scale creation now use core-owned DataFusion/scalar helpers
      instead of the top-level `utils` module.
-   - The remaining top-level scale orchestration is
-     `build_scale_builder_from_marks`, which still walks compiled marks,
-     resolves channel data, and provides mark-specific default ranges through
-     the callback. This is the next scale-related boundary to revisit after
-     object-safe mark contracts and render/measurement views move toward core.
+   - Moved the mark-walking scale-builder orchestration into
+     `avenger-chart-scales` as `build_scale_builder_from_marks`. It now
+     consumes core `CompiledMark` and `CoordinateSystemTransformCore`
+     contracts, with the top-level crate retaining only a facade compatibility
+     wrapper for its boxed coordinate transform.
+   - Moved the small prerequisites that made this possible into core:
+     channel-reference resolution, deterministic `ScalarValue` ordering, and
+     Arrow numeric extraction. The old top-level module paths are compatibility
+     re-exports.
    - The external custom-scale dogfood now imports `Scale` and `ScaleSpec`
      directly from `avenger-chart-scales`, while the plot-integration test still
      uses the top-level facade to prove the two paths compose.

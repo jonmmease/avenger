@@ -1,75 +1,13 @@
-use arrow::{
-    array::AsArray,
-    compute::cast,
-    datatypes::{
-        DataType, Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, UInt8Type,
-        UInt16Type, UInt32Type, UInt64Type,
-    },
-};
-
-use crate::error::AvengerChartError;
-
 pub use avenger_chart_core::color::{
     parse_color_string, parse_color_string_strict, parse_color_to_array,
     parse_color_to_array_strict,
 };
 
 pub use avenger_chart_core::datafusion_utils::{
-    ArrayRefHelpers, DataFrameChartHelpers, ExprHelpers, ScalarValueHelpers, contains_aggregate,
-    eval_to_scalars, params_to_datafusion, partition_expressions, scalar_to_scalar_value,
-    simplify_to_scalar_sync,
+    ArrayRefHelpers, DataFrameChartHelpers, ExprHelpers, ScalarValueHelpers, array_value_to_f64,
+    contains_aggregate, eval_to_scalars, params_to_datafusion, partition_expressions,
+    scalar_to_scalar_value, simplify_to_scalar_sync,
 };
-
-/// Extract a numeric value from an Arrow array at a given index and convert to f64
-///
-/// Supports all numeric Arrow types (Float64, Float32, Int64, Int32, UInt64, UInt32, Int16, UInt16, Int8, UInt8)
-pub fn array_value_to_f64(
-    array: &dyn arrow::array::Array,
-    index: usize,
-    data_type: &DataType,
-) -> Result<f64, AvengerChartError> {
-    // Prefer the array's actual data type when it is numeric; fall back to provided data_type.
-    let actual_dt = array.data_type();
-    let dt = match actual_dt {
-        // If array is already a numeric primitive, use its type to avoid mismatches
-        DataType::Float64
-        | DataType::Float32
-        | DataType::Int64
-        | DataType::Int32
-        | DataType::UInt64
-        | DataType::UInt32
-        | DataType::Int16
-        | DataType::UInt16
-        | DataType::Int8
-        | DataType::UInt8 => actual_dt,
-        _ => data_type,
-    };
-
-    let value = match dt {
-        DataType::Float64 => array.as_primitive::<Float64Type>().value(index),
-        DataType::Float32 => array.as_primitive::<Float32Type>().value(index) as f64,
-        DataType::Int64 => array.as_primitive::<Int64Type>().value(index) as f64,
-        DataType::Int32 => array.as_primitive::<Int32Type>().value(index) as f64,
-        DataType::UInt64 => array.as_primitive::<UInt64Type>().value(index) as f64,
-        DataType::UInt32 => array.as_primitive::<UInt32Type>().value(index) as f64,
-        DataType::Int16 => array.as_primitive::<Int16Type>().value(index) as f64,
-        DataType::UInt16 => array.as_primitive::<UInt16Type>().value(index) as f64,
-        DataType::Int8 => array.as_primitive::<Int8Type>().value(index) as f64,
-        DataType::UInt8 => array.as_primitive::<UInt8Type>().value(index) as f64,
-        _ => {
-            // As a last resort, try casting to Float64 and extracting
-            let casted = cast(array, &DataType::Float64).map_err(|e| {
-                AvengerChartError::InternalError(format!(
-                    "Failed to cast array to Float64 for numeric conversion: {}",
-                    e
-                ))
-            })?;
-            return Ok(casted.as_primitive::<Float64Type>().value(index));
-        }
-    };
-
-    Ok(value)
-}
 
 #[cfg(test)]
 mod tests {

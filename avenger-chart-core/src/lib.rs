@@ -3,6 +3,7 @@ pub mod axis_position;
 pub mod channel;
 pub mod channel_config;
 pub mod channel_configs;
+pub mod channel_resolution;
 pub mod channel_resolution_error;
 pub mod channel_value;
 pub mod color;
@@ -43,6 +44,7 @@ pub mod param;
 pub mod position_config;
 pub mod radius_expression;
 pub mod resolved_domain;
+pub mod scalar_cmp;
 pub mod scale_config_spec;
 pub mod scale_domain;
 pub mod scale_range;
@@ -69,6 +71,7 @@ pub use channel_configs::{
     AngleChannelConfig, ColorChannelConfig, OpacityChannelConfig, ShapeChannelConfig,
     SizeChannelConfig, StrokeDashChannelConfig, StrokeWidthChannelConfig,
 };
+pub use channel_resolution::{resolve_all_channel_refs, resolve_channel_refs};
 pub use channel_resolution_error::{ChannelResolutionError, suggest_similar_channel_name};
 pub use channel_value::{ChannelValue, ConditionalValue};
 pub use compiled_data_context::CompiledDataContext;
@@ -88,9 +91,9 @@ pub use coordinate_transform::CoordinateSystemTransformCore;
 pub use coordination_values::{CoordinatedLayout, CoordinatedOverflow};
 pub use data_context::DataContext;
 pub use datafusion_utils::{
-    ArrayRefHelpers, DataFrameChartHelpers, ExprHelpers, ScalarValueHelpers, contains_aggregate,
-    eval_to_scalars, params_to_datafusion, partition_expressions, scalar_to_scalar_value,
-    simplify_to_scalar_sync,
+    ArrayRefHelpers, DataFrameChartHelpers, ExprHelpers, ScalarValueHelpers, array_value_to_f64,
+    contains_aggregate, eval_to_scalars, params_to_datafusion, partition_expressions,
+    scalar_to_scalar_value, simplify_to_scalar_sync,
 };
 pub use error::AvengerChartError;
 pub use evaluation_context::EvaluationContext;
@@ -138,6 +141,7 @@ pub use param::Param;
 pub use position_config::{GenericPositionConfig, PositionConfig};
 pub use radius_expression::RadiusExpression;
 pub use resolved_domain::ResolvedDomain;
+pub use scalar_cmp::scalar_total_cmp;
 pub use scale_config_spec::ScaleConfigSpec;
 pub use scale_domain::{DomainExpr, ScaleDefaultDomain, ScaleDomain};
 pub use scale_range::ScaleRange;
@@ -151,8 +155,8 @@ pub use scale_spec::{
 };
 pub use scale_type::{ScaleTypePreference, default_scale_type_for_data_type, is_continuous_scale};
 pub use serialization::{
-    LogicalPlanNodeExt, SerializableDataFrame, SerializableDataType, SerializableExpr,
-    SerializableNestedScalarMap, SerializableScalar, SerializableScalarMap,
+    DefaultLogicalExprNodeExt, LogicalPlanNodeExt, SerializableDataFrame, SerializableDataType,
+    SerializableExpr, SerializableNestedScalarMap, SerializableScalar, SerializableScalarMap,
 };
 pub use sharing::{CoordinationAxis, SharingLevel};
 pub use theme::{AngleUnit, CssRgba, LengthUnit, Theme, ThemeValue};
