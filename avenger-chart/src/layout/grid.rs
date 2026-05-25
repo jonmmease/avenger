@@ -12,7 +12,9 @@ use indexmap::IndexMap;
 use taffy::prelude::*;
 use tracing::debug;
 
-use avenger_chart_core::{LegendPosition, evaluate_f32_expr, evaluate_string_expr, maybe::Maybe};
+use avenger_chart_core::{
+    LegendPosition, OverflowSide, Size2D, evaluate_f32_expr, evaluate_string_expr, maybe::Maybe,
+};
 
 use crate::{
     error::AvengerChartError,
@@ -22,10 +24,21 @@ use crate::{
     theme::{Theme, ThemeContext},
 };
 
-use super::{
-    sizing::EvaluatedLayoutSpec,
-    types::{ComponentType, MIN_GUIDE_OVERFLOW_SIZE, OverflowSide, Size2D},
-};
+use super::sizing::EvaluatedLayoutSpec;
+
+/// Types of components that can be laid out.
+#[derive(Debug, Clone)]
+pub(crate) enum ComponentType {
+    PlotArea,
+    GuideOverflow(OverflowSide),
+    LegendContainer(LegendPosition),
+    Title,
+    Subtitle,
+}
+
+/// Minimum size in pixels for creating guide overflow regions.
+/// Overflow regions smaller than this are ignored to avoid unnecessary grid complexity.
+pub(crate) const MIN_GUIDE_OVERFLOW_SIZE: f32 = 2.0;
 
 /// Spacing multipliers for title and subtitle rows
 const TITLE_ROW_HEIGHT_MULTIPLIER: f32 = 1.15;

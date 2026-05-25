@@ -9,7 +9,7 @@
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 
-use avenger_chart_core::{AxisPosition, LegendPosition};
+use avenger_chart_core::{AxisPosition, FrameLayout, LayoutBounds, LegendPosition};
 
 use crate::{
     error::AvengerChartError,
@@ -19,11 +19,7 @@ use crate::{
     theme::Theme,
 };
 
-use super::{
-    chart_layout::ChartLayout,
-    sizing::EvaluatedLayoutSpec,
-    types::{FrameLayout, LayoutBounds},
-};
+use super::{chart_layout::ChartLayout, sizing::EvaluatedLayoutSpec};
 
 /// Input required to solve a chart frame layout.
 pub(crate) struct FrameLayoutInput<'a> {

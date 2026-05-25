@@ -1107,6 +1107,11 @@ boundaries boring.
      `macros`, `position`, and `position_macros`) after the public
      `avenger_chart::channel::*` surface was rewired directly to core and
      legend owners.
+   - Removed additional private one-line compatibility modules for guide
+     overflow, legend measurement helpers, DataFrame serialization, layout core
+     types, and ZeroD coordinate re-exports. Public façade paths still
+     re-export from their real owner crates, while the top-level crate no
+     longer carries duplicate private wrapper files for them.
    - Removed the final `chart_core` staging namespace after rewiring internal
      imports directly to `avenger-chart-core`. Public compatibility paths such
      as `avenger_chart::maybe`, `param`, `error`, `coords`, `guide`, and

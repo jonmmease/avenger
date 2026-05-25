@@ -25,12 +25,10 @@ use crate::{
 };
 
 use super::{
+    ComponentType, FrameLayout, LayoutBounds, MIN_GUIDE_OVERFLOW_SIZE, OverflowSide, Size2D,
     grid::{GridBuilder, GridLayout},
     info::LegendLayoutInfo,
     sizing::{EvaluatedLayoutSpec, EvaluatedSizeMode},
-    types::{
-        ComponentType, FrameLayout, LayoutBounds, MIN_GUIDE_OVERFLOW_SIZE, OverflowSide, Size2D,
-    },
 };
 
 /// Dynamic grid-based layout manager for data visualization charts.

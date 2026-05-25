@@ -52,11 +52,12 @@ use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
-use avenger_chart_core::maybe::{Maybe, MaybeOptionalExpr};
+use avenger_chart_core::{
+    FrameDimensionSizing, FrameSizingPolicy,
+    maybe::{Maybe, MaybeOptionalExpr},
+};
 
 use crate::serialization::{LogicalExprNodeExt, SerializableExpr, serializable_expr_from_expr};
-
-use super::types::{FrameDimensionSizing, FrameSizingPolicy};
 
 /// Trait for types that can be converted to Expr (for dimensions)
 pub trait IntoExprDimension {
