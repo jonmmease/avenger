@@ -800,6 +800,9 @@ boundaries boring.
      and `partition_expressions`. The old `avenger_chart::utils::*` helper
      paths are compatibility re-exports only; source imports have moved to the
      core boundary where doing so was mechanical.
+   - Moved the tests for core-owned DataFusion helper behavior and strict
+     color parsing from the top-level `utils` compatibility shim into
+     `avenger-chart-core`.
    - Moved the first coordinate authoring trait into core:
      `CoordinateSystemCore` owns required position-channel metadata. The
      top-level `CoordinateSystem` trait remains the layout/runtime extension
@@ -1065,6 +1068,8 @@ boundaries boring.
      imports directly to `avenger-chart-core`. Public compatibility paths such
      as `avenger_chart::maybe`, `param`, `error`, `coords`, `guide`, and
      `layout` remain as narrow re-export shims where needed.
+   - Reduced `avenger_chart::utils` to a behavior-free compatibility re-export;
+     its former tests now live with the core helper implementations.
 
 ## Testing And Validation Strategy
 

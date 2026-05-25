@@ -79,3 +79,38 @@ pub fn parse_color_to_array_strict(color_str: &str) -> Result<[f32; 4], AvengerC
 pub fn parse_color_to_array(color_str: &str) -> [f32; 4] {
     parse_color_to_array_strict(color_str).unwrap_or([0.0, 0.0, 0.0, 1.0])
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_white_color_to_rgba_array() {
+        let white = parse_color_to_array("#FFFFFF");
+        assert!(
+            white[0] > 0.99 && white[0] <= 1.0,
+            "Red should be ~1.0, got {}",
+            white[0]
+        );
+        assert!(
+            white[1] > 0.99 && white[1] <= 1.0,
+            "Green should be ~1.0, got {}",
+            white[1]
+        );
+        assert!(
+            white[2] > 0.99 && white[2] <= 1.0,
+            "Blue should be ~1.0, got {}",
+            white[2]
+        );
+        assert_eq!(white[3], 1.0, "Alpha should be 1.0");
+    }
+
+    #[test]
+    fn parses_black_color_to_rgba_array() {
+        let black = parse_color_to_array("#000000");
+        assert!(black[0] < 0.01, "Red should be ~0.0, got {}", black[0]);
+        assert!(black[1] < 0.01, "Green should be ~0.0, got {}", black[1]);
+        assert!(black[2] < 0.01, "Blue should be ~0.0, got {}", black[2]);
+        assert_eq!(black[3], 1.0, "Alpha should be 1.0");
+    }
+}

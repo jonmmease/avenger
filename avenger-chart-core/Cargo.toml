@@ -34,3 +34,4 @@ typetag = "0.2"
 [dev-dependencies]
 bincode = "1.3"
 serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

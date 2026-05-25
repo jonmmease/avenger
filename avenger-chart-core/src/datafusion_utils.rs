@@ -535,3 +535,156 @@ pub fn partition_expressions(exprs: Vec<Expr>) -> (Vec<Expr>, Vec<Expr>) {
 
     (group_by, aggregates)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use datafusion::{
+        arrow::{
+            array::{Float32Array, StringArray},
+            datatypes::{DataType, Field, Schema},
+            record_batch::RecordBatch,
+        },
+        prelude::SessionContext,
+        scalar::ScalarValue,
+    };
+
+    use super::*;
+
+    #[tokio::test]
+    async fn spans_numeric_columns() {
+        let ctx = SessionContext::new();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("a", DataType::Float32, false),
+            Field::new("b", DataType::Float32, false),
+            Field::new("c", DataType::Float32, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(Float32Array::from(vec![1.0, 2.0, 3.0])),
+                Arc::new(Float32Array::from(vec![4.0, 5.0, 6.0])),
+                Arc::new(Float32Array::from(vec![7.0, 8.0, 9.0])),
+            ],
+        )
+        .unwrap();
+        let df = ctx.read_batch(batch).unwrap();
+
+        let result = df
+            .span()
+            .unwrap()
+            .eval_to_scalar(Some(&ctx), None)
+            .await
+            .unwrap();
+        let span = result.as_f32x2().unwrap();
+
+        assert_eq!(span[0], 1.0);
+        assert_eq!(span[1], 9.0);
+    }
+
+    #[tokio::test]
+    async fn unique_values_collects_distinct_string_values() {
+        let ctx = SessionContext::new();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("col1", DataType::Utf8, false),
+            Field::new("col2", DataType::Utf8, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(StringArray::from(vec!["A", "B", "A"])),
+                Arc::new(StringArray::from(vec!["B", "C", "D"])),
+            ],
+        )
+        .unwrap();
+        let df = ctx.read_batch(batch).unwrap();
+
+        let result = df
+            .unique_values()
+            .unwrap()
+            .eval_to_scalar(Some(&ctx), None)
+            .await
+            .unwrap();
+        let ScalarValue::List(array) = result else {
+            panic!("Expected List result");
+        };
+        let values_vec = array.value(0).to_scalar_vec().unwrap();
+        let mut values: Vec<String> = values_vec
+            .iter()
+            .map(|v| v.as_scalar_string().unwrap())
+            .collect();
+        values.sort();
+        assert_eq!(values, vec!["A", "B", "C", "D"]);
+    }
+
+    #[tokio::test]
+    async fn spans_mixed_numeric_types() {
+        let ctx = SessionContext::new();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("int_col", DataType::Int32, false),
+            Field::new("float_col", DataType::Float64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(datafusion::arrow::array::Int32Array::from(vec![10, 20, 30])),
+                Arc::new(datafusion::arrow::array::Float64Array::from(vec![
+                    5.5, 15.5, 25.5,
+                ])),
+            ],
+        )
+        .unwrap();
+        let df = ctx.read_batch(batch).unwrap();
+
+        let result = df
+            .span()
+            .unwrap()
+            .eval_to_scalar(Some(&ctx), None)
+            .await
+            .unwrap();
+        let span = result.as_f32x2().unwrap();
+
+        assert_eq!(span[0], 5.5);
+        assert_eq!(span[1], 30.0);
+    }
+
+    #[tokio::test]
+    async fn all_values_preserves_duplicates() {
+        let ctx = SessionContext::new();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("col1", DataType::Utf8, false),
+            Field::new("col2", DataType::Utf8, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(StringArray::from(vec!["A", "B", "A"])),
+                Arc::new(StringArray::from(vec!["B", "C", "A"])),
+            ],
+        )
+        .unwrap();
+        let df = ctx.read_batch(batch).unwrap();
+
+        let result = df
+            .all_values()
+            .unwrap()
+            .eval_to_scalar(Some(&ctx), None)
+            .await
+            .unwrap();
+        let ScalarValue::List(array) = result else {
+            panic!("Expected List result");
+        };
+        let values_vec = array.value(0).to_scalar_vec().unwrap();
+        assert_eq!(values_vec.len(), 6);
+
+        let values: Vec<String> = values_vec
+            .iter()
+            .map(|v| v.as_scalar_string().unwrap())
+            .collect();
+
+        assert_eq!(values.iter().filter(|v| v == &"A").count(), 3);
+        assert_eq!(values.iter().filter(|v| v == &"B").count(), 2);
+        assert_eq!(values.iter().filter(|v| v == &"C").count(), 1);
+    }
+}
