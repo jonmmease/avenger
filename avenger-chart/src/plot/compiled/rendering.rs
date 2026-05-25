@@ -32,7 +32,7 @@ use crate::{
     concat::compiled_subplot as compiled_concat_subplot,
     coords::{
         CoordMeasureRequest, CoordMeasurement, FacetAxis, coordinate_overflow_for_guides,
-        coordinate_overflow_for_guides_until,
+        coordinate_overflow_for_guides_until, measure_coordinate_system_transform,
     },
     error::AvengerChartError,
     facet::{
@@ -3135,8 +3135,9 @@ impl CompiledPlot {
         };
         let coord_data = data_override.or(plot_data.as_ref());
 
-        self.coord_transform
-            .measure(CoordMeasureRequest::new(
+        measure_coordinate_system_transform(
+            self.coord_transform.as_ref(),
+            CoordMeasureRequest::new(
                 scales,
                 plot_area_width,
                 plot_area_height,
@@ -3144,8 +3145,9 @@ impl CompiledPlot {
                 coord_data,
                 &self.marks,
                 facet_path,
-            ))
-            .await
+            ),
+        )
+        .await
     }
 
     /// Measure plot components without rendering (for layout coordination).

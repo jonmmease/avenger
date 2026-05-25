@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{any::Any, collections::HashMap};
 
 use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::ScaleImpl;
@@ -45,4 +45,25 @@ pub trait CoordinateSystemTransformCore: Send + Sync {
         channel: &str,
         scale_impl: &dyn ScaleImpl,
     ) -> HashMap<String, ScalarValue>;
+}
+
+/// Serializable, object-safe coordinate transform contract.
+///
+/// This core trait owns the transform behavior external coordinate crates need
+/// to implement. The top-level chart crate layers facet/concat measurement
+/// dispatch around this trait without exposing layout runtime state through the
+/// extension boundary.
+#[typetag::serde(tag = "type")]
+pub trait CoordinateSystemTransform: CoordinateSystemTransformCore {
+    /// Downcast support for top-level built-in measurement dispatch.
+    fn as_any(&self) -> &dyn Any;
+
+    /// Clone this transform into a boxed trait object.
+    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform>;
+}
+
+impl Clone for Box<dyn CoordinateSystemTransform> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
 }

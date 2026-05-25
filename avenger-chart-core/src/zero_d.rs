@@ -3,7 +3,7 @@
 //! The `ZeroDCoord` type represents a zero-dimensional coordinate system:
 //! a single point with no spatial extent.
 
-use std::collections::HashMap;
+use std::{any::Any, collections::HashMap};
 
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_scales::scales::ScaleImpl;
@@ -11,8 +11,8 @@ use datafusion::common::ScalarValue;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AvengerChartError, CoordinateSystemCore, CoordinateSystemTransformCore, PlotGeometry,
-    PointGeometry,
+    AvengerChartError, CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
+    CoordinateSystemTransformCore, NoGuide, PlotGeometry, PointGeometry,
 };
 
 /// A zero-dimensional coordinate system.
@@ -32,6 +32,14 @@ impl ZeroDCoord {
 impl CoordinateSystemCore for ZeroDCoord {
     fn required_channels(&self) -> &'static [&'static str] {
         &[]
+    }
+}
+
+impl CoordinateSystem for ZeroDCoord {
+    type Guide = NoGuide;
+
+    fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
     }
 }
 
@@ -91,6 +99,17 @@ impl CoordinateSystemTransformCore for ZeroDCoord {
         _scale_impl: &dyn ScaleImpl,
     ) -> HashMap<String, ScalarValue> {
         HashMap::new()
+    }
+}
+
+#[typetag::serde]
+impl CoordinateSystemTransform for ZeroDCoord {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
     }
 }
 

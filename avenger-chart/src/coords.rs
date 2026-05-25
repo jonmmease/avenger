@@ -3,15 +3,15 @@ use std::{collections::HashMap, sync::Arc};
 use datafusion::{common::ScalarValue, dataframe::DataFrame};
 
 pub use crate::chart_core::{
-    CoordMeasurement, CoordinateSystemCore, CoordinateSystemTransformCore, CoordinatedLayout,
-    CoordinatedOverflow, EmptyCoordMeasurement, FacetAxis, OverflowSpaceRequirement, PaddingSpec,
-    PlotGeometry, PointGeometry, SubplotGeometry, SubplotRect, extract_channel_title_from_marks,
+    CoordMeasurement, CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
+    CoordinateSystemTransformCore, CoordinatedLayout, CoordinatedOverflow, EmptyCoordMeasurement,
+    FacetAxis, OverflowSpaceRequirement, PaddingSpec, PlotGeometry, PointGeometry, SubplotGeometry,
+    SubplotRect, extract_channel_title_from_marks,
 };
 
 use crate::facet::coord::{FacetBandCoordMeasurement, FacetBandProbeMeasurement};
 use crate::{
     error::AvengerChartError,
-    guide::CoordinateGuide,
     marks::CompiledMark,
     plot::compiled::ComponentsMeasurement,
     render::{CoordinationCheckpoint, EvaluationContext},
@@ -83,23 +83,6 @@ pub(crate) fn apply_coord_measurement_scale_adjustments(
     }
 }
 
-pub trait CoordinateSystem: CoordinateSystemCore {
-    /// The guide type for this coordinate system
-    ///
-    /// This could be axes (Cartesian), geographic features (Geo),
-    /// camera controls (3D), or no guide at all (ZeroD)
-    type Guide: CoordinateGuide;
-
-    // /// The plot geometry type produced by this coordinate system's transform
-    // type PlotGeometry: PlotGeometry;
-
-    /// Create a boxed coordinate system transform for use with CompiledMark
-    ///
-    /// This creates a type-erased version of the coordinate system that can be
-    /// used by the serializable CompiledMark implementations.
-    fn create_transform(&self) -> Box<dyn CoordinateSystemTransform>;
-}
-
 /// Inputs for coordinate-system measurement.
 ///
 /// This request object is the first boundary around coordinate measurement.
@@ -167,30 +150,82 @@ impl<'a> CoordMeasureRequest<'a> {
     }
 }
 
-#[typetag::serde(tag = "type")]
-#[async_trait::async_trait]
-pub trait CoordinateSystemTransform: CoordinateSystemTransformCore {
-    /// Clone this transform into a new boxed instance
-    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform>;
+/// Measure coordinate-system-specific layout state for built-in layout-aware
+/// coordinates.
+///
+/// External coordinate transforms default to no measurement. Facet, concat, and
+/// coordinate-positioned Cartesian subplot measurement stay in the top-level
+/// crate because they depend on full plot/layout runtime state.
+pub(crate) async fn measure_coordinate_system_transform(
+    transform: &dyn CoordinateSystemTransform,
+    request: CoordMeasureRequest<'_>,
+) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
+    let any = transform.as_any();
 
-    async fn measure(
-        &self,
-        _request: CoordMeasureRequest<'_>,
-    ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
-        // Default: return empty measurement for non-facet coordinate systems
-        Ok(Box::new(EmptyCoordMeasurement))
+    if any.is::<crate::cartesian::Cartesian>() {
+        return crate::cartesian::positioned_subplot::measure_cartesian_positioned_subplots(
+            request.scales(),
+            request.plot_width(),
+            request.plot_height(),
+            request.eval_ctx(),
+            request.data(),
+            request.compiled_marks(),
+            request.facet_path(),
+        )
+        .await;
     }
 
-    /// Return a new transform updated with measured padding and overflow data.
-    ///
-    /// # Arguments
-    /// * `spec` - Padding specification (Single for row/col facets, Grid for grid facets)
-    ///
-    /// Default implementation returns an unchanged clone (for non-facet coordinates).
-    fn with_measured_padding(&self, spec: &PaddingSpec) -> Box<dyn CoordinateSystemTransform> {
-        let _ = spec;
-        self.clone_box()
+    if any.is::<crate::concat::HConcat>() {
+        return crate::concat::measure_concat_coord_system(
+            crate::layout::BandDirection::Horizontal,
+            request.plot_width(),
+            request.plot_height(),
+            request.eval_ctx(),
+            request.data(),
+            request.compiled_marks(),
+            request.facet_path(),
+        )
+        .await;
     }
+
+    if any.is::<crate::concat::VConcat>() {
+        return crate::concat::measure_concat_coord_system(
+            crate::layout::BandDirection::Vertical,
+            request.plot_width(),
+            request.plot_height(),
+            request.eval_ctx(),
+            request.data(),
+            request.compiled_marks(),
+            request.facet_path(),
+        )
+        .await;
+    }
+
+    if any.is::<crate::facet::coord::FacetRow>() {
+        return crate::facet::coord::measure_facet_row(
+            request.scales(),
+            request.plot_width(),
+            request.eval_ctx(),
+            request.data(),
+            request.compiled_marks(),
+            request.facet_path(),
+        )
+        .await;
+    }
+
+    if any.is::<crate::facet::coord::FacetColumn>() {
+        return crate::facet::coord::measure_facet_column(
+            request.scales(),
+            request.plot_height(),
+            request.eval_ctx(),
+            request.data(),
+            request.compiled_marks(),
+            request.facet_path(),
+        )
+        .await;
+    }
+
+    Ok(Box::new(EmptyCoordMeasurement))
 }
 
 #[cfg(test)]

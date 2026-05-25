@@ -1,8 +1,9 @@
-use std::collections::HashMap;
+use std::{any::Any, collections::HashMap};
 
 use avenger_chart_core::{
-    AvengerChartError, CoordinateSystemCore, CoordinateSystemTransformCore, PlotAreaRangeEndpoint,
-    PlotGeometry, PointGeometry, ScaleRangeBinding,
+    AvengerChartError, CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
+    CoordinateSystemTransformCore, PlotAreaRangeEndpoint, PlotGeometry, PointGeometry,
+    ScaleRangeBinding,
 };
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
@@ -22,6 +23,14 @@ impl Polar {
 impl CoordinateSystemCore for Polar {
     fn required_channels(&self) -> &'static [&'static str] {
         &["r", "theta"]
+    }
+}
+
+impl CoordinateSystem for Polar {
+    type Guide = crate::guide::PolarGuide;
+
+    fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
     }
 }
 
@@ -127,5 +136,16 @@ impl CoordinateSystemTransformCore for Polar {
         }
 
         options
+    }
+}
+
+#[typetag::serde]
+impl CoordinateSystemTransform for Polar {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
     }
 }

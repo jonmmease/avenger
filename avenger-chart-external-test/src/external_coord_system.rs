@@ -3,16 +3,14 @@
 use std::{any::Any, collections::HashMap, marker::PhantomData, sync::Arc};
 
 use async_trait::async_trait;
-use avenger_chart::{
-    coords::{CoordinateSystem, CoordinateSystemTransform},
-    define_position_channels, impl_mark_trait_common,
-};
+use avenger_chart::{define_position_channels, impl_mark_trait_common};
 use avenger_chart_core::{
     define_common_mark_channels, impl_mark_base, AvengerChartError, Axis, ChannelDescriptor,
     ChannelValue, CompiledDataContext, CompiledGuide, CompiledMark, CompiledMarkCore,
-    CompiledMarkState, CoordMeasurement, CoordinateGuide, CoordinateSystemCore,
-    CoordinateSystemTransformCore, GuideSharingContext, Mark, MarkRuntimeContext, MarkState,
-    OverflowSpaceRequirement, PlotGeometry, PointGeometry, PositionConfig,
+    CompiledMarkState, CoordMeasurement, CoordinateGuide, CoordinateSystem, CoordinateSystemCore,
+    CoordinateSystemTransform, CoordinateSystemTransformCore, GuideSharingContext, LayoutBounds,
+    Mark, MarkRuntimeContext, MarkState, OverflowSpaceRequirement, PlotGeometry, PointGeometry,
+    PositionConfig, Theme,
 };
 use avenger_chart_scales::{Auto, Scale, ScaleChannelValue};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
@@ -212,7 +210,7 @@ impl CompiledGuide for CompiledIsometricGuide {
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _plot_width: f32,
         _plot_height: f32,
-        _theme: &avenger_chart::theme::Theme,
+        _theme: &Theme,
         _params: &IndexMap<String, ScalarValue>,
         _data_override: Option<&datafusion::dataframe::DataFrame>,
         _ctx: &datafusion::prelude::SessionContext,
@@ -232,9 +230,9 @@ impl CompiledGuide for CompiledIsometricGuide {
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _plot_width: f32,
         _plot_height: f32,
-        _plot_bounds: &avenger_chart::layout::LayoutBounds,
+        _plot_bounds: &LayoutBounds,
         _guide_overflow: &OverflowSpaceRequirement,
-        _theme: &avenger_chart::theme::Theme,
+        _theme: &Theme,
         _params: &IndexMap<String, ScalarValue>,
         _ctx: &datafusion::prelude::SessionContext,
         _data_override: Option<&datafusion::dataframe::DataFrame>,
@@ -413,9 +411,12 @@ impl CoordinateSystemTransformCore for IsometricTransform {
     }
 }
 
-#[async_trait::async_trait]
 #[typetag::serde]
 impl CoordinateSystemTransform for IsometricTransform {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
         Box::new(self.clone())
     }

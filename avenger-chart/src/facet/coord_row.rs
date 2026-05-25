@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{any::Any, collections::HashMap};
 
 use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::ScaleImpl;
@@ -8,12 +8,11 @@ use tracing::trace;
 
 use crate::{
     coords::{
-        CoordMeasureRequest, CoordMeasurement, CoordinateSystem, CoordinateSystemCore,
-        CoordinateSystemTransform, CoordinateSystemTransformCore, PaddingSpec, PlotGeometry,
-        SubplotGeometry, SubplotRect,
+        CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
+        CoordinateSystemTransformCore, PlotGeometry, SubplotGeometry, SubplotRect,
     },
     error::AvengerChartError,
-    facet::{coord::measure_facet_row, guide::FacetRowGuideConfig},
+    facet::guide::FacetRowGuideConfig,
     scales::{PlotAreaRangeEndpoint, ScaleRangeBinding},
 };
 
@@ -183,30 +182,13 @@ impl CoordinateSystemTransformCore for FacetRow {
     }
 }
 
-#[async_trait::async_trait]
 #[typetag::serde]
 impl CoordinateSystemTransform for FacetRow {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
-        Box::new(self.clone())
-    }
-
-    async fn measure(
-        &self,
-        request: CoordMeasureRequest<'_>,
-    ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
-        measure_facet_row(
-            request.scales(),
-            request.plot_width(),
-            request.eval_ctx(),
-            request.data(),
-            request.compiled_marks(),
-            request.facet_path(),
-        )
-        .await
-    }
-
-    fn with_measured_padding(&self, _spec: &PaddingSpec) -> Box<dyn CoordinateSystemTransform> {
-        // Facet spacing is encoded in the column/row band scale options.
         Box::new(self.clone())
     }
 }

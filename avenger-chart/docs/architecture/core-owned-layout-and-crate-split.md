@@ -271,11 +271,13 @@ movement. The key cycles and leaks found in the code are:
   `cartesian`, so `Subplot` is not a neutral mark crate type yet.
 - `channel` value/config code stores scale and legend config directly and its
   fluent traits import both scale builders and legend builders.
-- `GuideSharingContext` and the guide traits now live in core. Concrete guide
-  implementations still live with their owning coordinate/container modules.
-- `coords::CoordinateSystemTransform::measure` imports top-level rendering,
-  mark, scale, and layout runtime types. That signature needs a core-owned
-  request/view type before coordinate crates can stand alone.
+- `GuideSharingContext` and the guide traits now live in core. Cartesian and
+  Polar guide implementations now live with their coordinate crates; facet and
+  concat guide behavior remains with the top-level layout/container runtime.
+- `CoordinateSystem` and `CoordinateSystemTransform` now live in core. Built-in
+  facet, concat, and Cartesian positioned-subplot measurement is dispatched by
+  the top-level chart crate through `CoordMeasureRequest`, so coordinate crates
+  do not need top-level layout runtime traits.
 - `layout::types` imports `AxisPosition`, `LegendPosition`, and `FacetAxis`.
   These side/axis concepts need a core home or neutral replacements.
 - `plot::plot` imports Cartesian, Polar, Legend, and layout-specific enums for
@@ -584,14 +586,14 @@ Migration discipline:
 
    Progress:
 
-   - `CoordinateSystemTransform::measure(...)` now accepts a single
-     `CoordMeasureRequest` instead of a long argument list. The request still
-     carries current in-crate runtime types, but it gives the split one owned
-     surface to narrow into stable core views.
-   - Only plot dimensions are public on `CoordMeasureRequest` for external
-     coordinate implementations. Built-in container/facet measurement can still
-     access scales, evaluation state, data, marks, and facet paths through
-     crate-private accessors while those internals are being split.
+   - Built-in coordinate measurement now uses a top-level
+     `measure_coordinate_system_transform(...)` dispatcher over the core
+     `CoordinateSystemTransform` trait object instead of a public transform
+     `measure(...)` method. External coordinate transforms default to no
+     measurement, while built-in facet, concat, and Cartesian positioned
+     subplot measurement can still access scales, evaluation state, data,
+     marks, and facet paths through crate-private `CoordMeasureRequest`
+     accessors.
    - The object-safe `CoordMeasurement` trait and `EmptyCoordMeasurement` now
      live in the real `avenger-chart-core` crate. The top-level chart crate
      keeps layout-only measurement behavior, such as facet band scale
@@ -600,22 +602,20 @@ Migration discipline:
    - Core-safe transform behavior now lives in the real
      `avenger-chart-core` crate as `CoordinateSystemTransformCore`: required
      channels, position transformation, default range bindings/ranges, and
-     coordinate-specific scale options. The top-level
-     `CoordinateSystemTransform` trait extends this core trait and keeps only
-     chart-runtime measurement, chart-object cloning, and measured-padding
-     hooks. This makes the future coordinate-crate transform surface real
-     without moving facet/concat measurement runtime into core.
+     coordinate-specific scale options. The serializable
+     `CoordinateSystemTransform` trait now also lives in core and adds only
+     object downcasting and boxed cloning.
    - Core-safe coordinate metadata now lives in the real `avenger-chart-core`
-     crate as `CoordinateSystemCore`. The top-level `CoordinateSystem` trait
-     extends it and keeps only guide association plus serializable transform
-     creation. The object-safe `Mark<C>` trait now depends on
-     `CoordinateSystemCore`, so mark authoring no longer needs the full
-     top-level coordinate/layout contract.
+     crate as `CoordinateSystemCore`. The full authoring
+     `CoordinateSystem` trait now also lives in core and owns guide association
+     plus serializable transform creation. The object-safe `Mark<C>` trait
+     depends on `CoordinateSystemCore`, so mark authoring does not need the
+     full guide/transform contract.
    - `ZeroDCoord` now lives in the real `avenger-chart-core` crate with its
-     core-safe coordinate metadata and transform implementation. The top-level
-     `avenger_chart::zerod` module remains a compatibility adapter that adds
-     the facade-owned guide/transform trait impls. External subplot-coordinate
-     dogfood imports `ZeroDCoord` directly from core.
+     coordinate metadata, transform implementation, and no-guide coordinate
+     implementation. The top-level `avenger_chart::zerod` module is a
+     compatibility re-export. External subplot-coordinate dogfood imports
+     `ZeroDCoord` directly from core.
 
 10. Split public/base evaluation context from internal layout state.
     The core `EvaluationContext` should contain theme, session context,
@@ -916,37 +916,34 @@ boundaries boring.
    Progress:
 
    - Created the real `avenger-chart-cartesian` workspace crate.
-   - Moved the real `Cartesian` coordinate type plus its core-safe
-     `CoordinateSystemCore` and `CoordinateSystemTransformCore` implementation
-     into `avenger-chart-cartesian`. The top-level
-     `avenger_chart::cartesian::coord` module is now a compatibility/adapter
-     module that re-exports the moved type and implements the still-facade-owned
-     `CoordinateSystem` and `CoordinateSystemTransform` runtime traits so
-     Cartesian positioned subplot measurement remains in core-owned layout for
-     now.
+   - Moved the real `Cartesian` coordinate type plus its core
+     `CoordinateSystem`, `CoordinateSystemCore`, `CoordinateSystemTransform`,
+     and `CoordinateSystemTransformCore` implementations into
+     `avenger-chart-cartesian`. The top-level
+     `avenger_chart::cartesian::coord` module is now a compatibility re-export.
+     Cartesian positioned subplot measurement remains facade-owned through the
+     top-level coordinate measurement dispatcher.
    - External custom mark/scale dogfood imports the `Cartesian` type directly
      from `avenger-chart-cartesian`, uses core `Mark` / `CompiledMark`
      contracts, and still uses the top-level facade for `Plot`.
    - The external custom-coordinate dogfood now imports already-moved core and
      scale authoring contracts directly from `avenger-chart-core` and
      `avenger-chart-scales`: axis/channel/config/state/data/geometry types,
-     `CoordMeasurement`, `CoordinateSystemCore`,
-     `CoordinateSystemTransformCore`, `CoordinateGuide`, `CompiledGuide`,
-     `GuideSharingContext`, `Mark`, `CompiledMark`, `MarkRuntimeContext`,
-     mark-constructor macros, and scale builders. It still imports the
-     top-level coordinate runtime trait and the `Subplot` compile hook from the
-     top-level facade, making the remaining coordinate-crate extraction
-     boundary explicit.
+     `CoordMeasurement`, `CoordinateSystem`, `CoordinateSystemCore`,
+     `CoordinateSystemTransform`, `CoordinateSystemTransformCore`,
+     `CoordinateGuide`, `CompiledGuide`, `GuideSharingContext`, `Mark`,
+     `CompiledMark`, `MarkRuntimeContext`, mark-constructor macros, and scale
+     builders. It still imports the top-level facade for `Plot` and
+     coordinate-channel helper macros.
    - The external subplot-coordinate dogfood now imports
      `CompiledDataContext`, `CompiledMarkState`, channel descriptors, geometry,
-     error types, `CoordMeasurement`, `CoordinateSystemCore`,
+     error types, `CoordMeasurement`, `CoordinateSystem`,
+     `CoordinateSystemCore`, `CoordinateSystemTransform`,
      `CoordinateSystemTransformCore`, `GuideUpdate`, `CoordinateGuide`,
      `CompiledGuide`, `GuideSharingContext`, and `OverflowSpaceRequirement`
      directly from `avenger-chart-core` while still using the top-level facade
-     for `Subplot`, `CompiledSubplotPayload`,
-     `SubplotContainerCoordinateSystem`, coordinate traits, and render context.
-     This confirms the narrow extension goal is still alive while the remaining
-     coordinate/runtime trait boundary moves.
+     for `Subplot`, `CompiledSubplotPayload`, and
+     `SubplotContainerCoordinateSystem`.
    - External coordinate dogfood implements the generic
      `CoordinateGuide::set_compiled_marks<M: CompiledMarkCore>(...)` hook from
      `avenger-chart-core`, proving guide setup no longer requires the top-level
@@ -975,12 +972,11 @@ boundaries boring.
    Progress:
 
    - Created the real `avenger-chart-polar` workspace crate.
-   - Moved the real `Polar` coordinate type plus its core-safe
-     `CoordinateSystemCore` and `CoordinateSystemTransformCore` implementation
-     into `avenger-chart-polar`. The top-level `avenger_chart::polar::coord`
-     module is now a compatibility/adapter module that re-exports the moved
-     type and implements the still-facade-owned `CoordinateSystem` and
-     `CoordinateSystemTransform` runtime traits.
+   - Moved the real `Polar` coordinate type plus its core
+     `CoordinateSystem`, `CoordinateSystemCore`, `CoordinateSystemTransform`,
+     and `CoordinateSystemTransformCore` implementations into
+     `avenger-chart-polar`. The top-level `avenger_chart::polar::coord`
+     module is now a compatibility re-export.
    - `PolarAxis`, `PolarAxisType`, `PolarDirection`, and
      `PolarPositionConfig` now live in the real `avenger-chart-polar` crate.
      The top-level `avenger_chart::polar::{axis,channels}` modules are

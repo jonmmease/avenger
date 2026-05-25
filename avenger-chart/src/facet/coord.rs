@@ -18,10 +18,9 @@ use crate::{
     chart_core::{AxisPosition, SharingLevel},
     container::{ChildFrameKey, ChildFrameScopeKey, ContainerPathSegment},
     coords::{
-        CellDomainInfo, CoordMeasureRequest, CoordMeasurement, CoordinateSystem,
-        CoordinateSystemCore, CoordinateSystemTransform, CoordinateSystemTransformCore,
-        CoordinatedLayout, CoordinatedOverflow, FacetAxis, PaddingSpec, PlotGeometry,
-        SubplotGeometry, SubplotRect,
+        CellDomainInfo, CoordMeasurement, CoordinateSystem, CoordinateSystemCore,
+        CoordinateSystemTransform, CoordinateSystemTransformCore, CoordinatedLayout,
+        CoordinatedOverflow, FacetAxis, PlotGeometry, SubplotGeometry, SubplotRect,
     },
     error::AvengerChartError,
     facet::FacetDirection,
@@ -4019,6 +4018,27 @@ pub(crate) async fn measure_facet_row(
     .await
 }
 
+pub(crate) async fn measure_facet_column(
+    scales: &HashMap<String, ConfiguredScaleWithSpec>,
+    plot_height: f32,
+    eval_ctx: &EvaluationContext,
+    data: Option<&DataFrame>,
+    compiled_marks: &[Arc<dyn CompiledMark>],
+    facet_path: &[ScalarValue],
+) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
+    FacetBandMeasurePipeline::new(
+        FacetAxisOps::for_axis(FacetAxis::Column),
+        scales,
+        plot_height,
+        eval_ctx,
+        data,
+        compiled_marks,
+        facet_path,
+    )
+    .run()
+    .await
+}
+
 impl CoordinateSystemCore for FacetColumn {
     fn required_channels(&self) -> &'static [&'static str] {
         &["column"]
@@ -4115,33 +4135,14 @@ impl CoordinateSystemTransformCore for FacetColumn {
     }
 }
 
-#[async_trait::async_trait]
 #[typetag::serde]
 impl CoordinateSystemTransform for FacetColumn {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
         Box::new(self.clone())
-    }
-
-    fn with_measured_padding(&self, _spec: &PaddingSpec) -> Box<dyn CoordinateSystemTransform> {
-        // Facet spacing is encoded in the column/row band scale options.
-        Box::new(self.clone())
-    }
-
-    async fn measure(
-        &self,
-        request: CoordMeasureRequest<'_>,
-    ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
-        FacetBandMeasurePipeline::new(
-            FacetAxisOps::for_axis(FacetAxis::Column),
-            request.scales(),
-            request.plot_height(),
-            request.eval_ctx(),
-            request.data(),
-            request.compiled_marks(),
-            request.facet_path(),
-        )
-        .run()
-        .await
     }
 }
 

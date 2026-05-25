@@ -274,11 +274,11 @@ impl CompiledPlot {
 pub struct ComponentsMeasurement {
     /// Coordinate-system-specific measurement data (e.g., facet cell layout)
     ///
-    /// This is computed by `coord_transform.measure()` and contains layout data
-    /// that's available to both guides and marks during rendering. For facet
-    /// coordinate systems, this includes cell positions, subplot measurements,
-    /// and computed padding. For non-facet coordinate systems, this is an
-    /// `EmptyCoordMeasurement`.
+    /// This is computed by top-level coordinate measurement dispatch and
+    /// contains layout data that's available to both guides and marks during
+    /// rendering. For facet coordinate systems, this includes cell positions,
+    /// subplot measurements, and computed padding. For non-layout coordinate
+    /// systems, this is an `EmptyCoordMeasurement`.
     pub coord_measurement: Box<dyn crate::coords::CoordMeasurement>,
 
     /// Scales for rendering

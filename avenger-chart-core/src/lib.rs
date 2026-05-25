@@ -86,8 +86,8 @@ pub use container_sharing::{
 };
 pub use coord_measurement::{CoordMeasurement, EmptyCoordMeasurement};
 pub use coordinate_guide::{CompiledGuide, CoordinateGuide, GuideSharingContext};
-pub use coordinate_system::CoordinateSystemCore;
-pub use coordinate_transform::CoordinateSystemTransformCore;
+pub use coordinate_system::{CoordinateSystem, CoordinateSystemCore};
+pub use coordinate_transform::{CoordinateSystemTransform, CoordinateSystemTransformCore};
 pub use coordination_values::{CoordinatedLayout, CoordinatedOverflow};
 pub use data_context::DataContext;
 pub use datafusion_utils::{

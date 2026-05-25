@@ -1,8 +1,9 @@
-use std::collections::HashMap;
+use std::{any::Any, collections::HashMap};
 
 use avenger_chart_core::{
-    AvengerChartError, CoordinateSystemCore, CoordinateSystemTransformCore, PlotAreaRangeEndpoint,
-    PlotGeometry, PointGeometry, ScaleRangeBinding,
+    AvengerChartError, CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
+    CoordinateSystemTransformCore, PlotAreaRangeEndpoint, PlotGeometry, PointGeometry,
+    ScaleRangeBinding,
 };
 use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
@@ -16,6 +17,14 @@ pub struct Cartesian;
 impl CoordinateSystemCore for Cartesian {
     fn required_channels(&self) -> &'static [&'static str] {
         &["x", "y"]
+    }
+}
+
+impl CoordinateSystem for Cartesian {
+    type Guide = crate::guide::CartesianGuide;
+
+    fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
     }
 }
 
@@ -94,5 +103,16 @@ impl CoordinateSystemTransformCore for Cartesian {
         }
 
         options
+    }
+}
+
+#[typetag::serde]
+impl CoordinateSystemTransform for Cartesian {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
     }
 }

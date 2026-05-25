@@ -22,8 +22,8 @@ use crate::{
         ContainerPathSegment,
     },
     coords::{
-        CoordMeasureRequest, CoordMeasurement, CoordinateSystem, CoordinateSystemCore,
-        CoordinateSystemTransform, CoordinateSystemTransformCore, PlotGeometry, PointGeometry,
+        CoordMeasurement, CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
+        CoordinateSystemTransformCore, PlotGeometry, PointGeometry,
     },
     error::AvengerChartError,
     guide::{
@@ -228,27 +228,14 @@ impl CoordinateSystemTransformCore for HConcat {
     }
 }
 
-#[async_trait::async_trait]
 #[typetag::serde]
 impl CoordinateSystemTransform for HConcat {
-    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
-        Box::new(self.clone())
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 
-    async fn measure(
-        &self,
-        request: CoordMeasureRequest<'_>,
-    ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
-        measure_concat_coord_system(
-            BandDirection::Horizontal,
-            request.plot_width(),
-            request.plot_height(),
-            request.eval_ctx(),
-            request.data(),
-            request.compiled_marks(),
-            request.facet_path(),
-        )
-        .await
+    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
     }
 }
 
@@ -280,27 +267,14 @@ impl CoordinateSystemTransformCore for VConcat {
     }
 }
 
-#[async_trait::async_trait]
 #[typetag::serde]
 impl CoordinateSystemTransform for VConcat {
-    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
-        Box::new(self.clone())
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 
-    async fn measure(
-        &self,
-        request: CoordMeasureRequest<'_>,
-    ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
-        measure_concat_coord_system(
-            BandDirection::Vertical,
-            request.plot_width(),
-            request.plot_height(),
-            request.eval_ctx(),
-            request.data(),
-            request.compiled_marks(),
-            request.facet_path(),
-        )
-        .await
+    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
     }
 }
 
@@ -575,7 +549,7 @@ async fn measure_prepared_concat_child(
     })
 }
 
-async fn measure_concat_coord_system(
+pub(crate) async fn measure_concat_coord_system(
     direction: BandDirection,
     plot_width: f32,
     plot_height: f32,

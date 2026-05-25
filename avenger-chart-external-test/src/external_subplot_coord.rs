@@ -8,17 +8,15 @@
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use avenger_chart::{
-    coords::{CoordinateSystem, CoordinateSystemTransform},
-    marks::{
-        compile_subplot_payload, CompiledSubplotPayload, Subplot, SubplotContainerCoordinateSystem,
-    },
+use avenger_chart::marks::{
+    compile_subplot_payload, CompiledSubplotPayload, Subplot, SubplotContainerCoordinateSystem,
 };
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledGuide, CompiledMark,
-    CompiledMarkCore, CompiledMarkState, CoordMeasurement, CoordinateGuide, CoordinateSystemCore,
-    CoordinateSystemTransformCore, GuideSharingContext, GuideUpdate, MarkRuntimeContext,
-    OverflowSpaceRequirement, PlotGeometry, PointGeometry,
+    CompiledMarkCore, CompiledMarkState, CoordMeasurement, CoordinateGuide, CoordinateSystem,
+    CoordinateSystemCore, CoordinateSystemTransform, CoordinateSystemTransformCore,
+    GuideSharingContext, GuideUpdate, LayoutBounds, MarkRuntimeContext, OverflowSpaceRequirement,
+    PlotGeometry, PointGeometry, Theme,
 };
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::{group::Clip, mark::SceneMark};
@@ -87,9 +85,12 @@ impl CoordinateSystemTransformCore for ExternalSubplotCoordTransform {
     }
 }
 
-#[async_trait]
 #[typetag::serde]
 impl CoordinateSystemTransform for ExternalSubplotCoordTransform {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
         Box::new(self.clone())
     }
@@ -133,7 +134,7 @@ impl CompiledGuide for ExternalSubplotCoordGuide {
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _plot_width: f32,
         _plot_height: f32,
-        _theme: &avenger_chart::theme::Theme,
+        _theme: &Theme,
         _params: &IndexMap<String, ScalarValue>,
         _data_override: Option<&DataFrame>,
         _ctx: &datafusion::prelude::SessionContext,
@@ -148,9 +149,9 @@ impl CompiledGuide for ExternalSubplotCoordGuide {
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _plot_width: f32,
         _plot_height: f32,
-        _plot_bounds: &avenger_chart::layout::LayoutBounds,
+        _plot_bounds: &LayoutBounds,
         _guide_overflow: &OverflowSpaceRequirement,
-        _theme: &avenger_chart::theme::Theme,
+        _theme: &Theme,
         _params: &IndexMap<String, ScalarValue>,
         _ctx: &datafusion::prelude::SessionContext,
         _data_override: Option<&DataFrame>,
