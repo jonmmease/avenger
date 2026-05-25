@@ -23,7 +23,10 @@ use crate::{
         ChildFrameKey, ChildFramePlacementResult, ChildFrameRenderPlacement, ChildFrameScopeKey,
         ChildFrameSharingLevel, ContainerPathSegment,
     },
-    coords::{CoordMeasurement, CoordinateSystemTransformCore, EmptyCoordMeasurement},
+    coords::{
+        CoordMeasurement, CoordinateSystemTransformCore, EmptyCoordMeasurement,
+        OverflowSpaceRequirement,
+    },
     error::AvengerChartError,
     layout::Size2D,
     marks::{
@@ -34,8 +37,9 @@ use crate::{
     plot::CompiledPlot,
     plot::compiled::{
         ChildFrameDataSelection, ChildFrameDomainSharingInput, ChildFrameRuntime,
-        ComponentsMeasurement, MarkDataRequest, coordinated_child_frame_domain_extents,
-        prepare_mark_data_runtime,
+        ComponentsMeasurement, MarkDataRequest, child_frame_container_overflow,
+        child_frame_container_view_from_cartesian_positioned,
+        coordinated_child_frame_domain_extents, prepare_mark_data_runtime,
     },
     render::{EvaluationContext, RenderContext},
     scales::ConfiguredScaleWithSpec,
@@ -367,6 +371,15 @@ impl CoordMeasurement for CartesianPositionedCoordMeasurement {
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+
+    fn positioned_subplot_overflow(
+        &self,
+        plot_width: f32,
+        plot_height: f32,
+    ) -> Result<Option<OverflowSpaceRequirement>, AvengerChartError> {
+        let container = child_frame_container_view_from_cartesian_positioned(self)?;
+        child_frame_container_overflow(plot_width, plot_height, &container).map(Some)
     }
 }
 

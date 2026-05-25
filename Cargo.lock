@@ -567,6 +567,7 @@ dependencies = [
  "avenger-chart-core",
  "avenger-chart-marks",
  "avenger-common",
+ "avenger-geometry",
  "avenger-guides",
  "avenger-scales",
  "avenger-scenegraph",

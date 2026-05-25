@@ -571,8 +571,9 @@ Migration discipline:
      `AxisVisibility`, and the guide-sharing view traits now live in the real
      `avenger-chart-core` crate. The top-level `guide` module is a
      compatibility re-export plus the still-facade-owned overflow helper shim.
-     Concrete Cartesian, Polar, facet, and concat guide implementations remain
-     with their owning top-level/coordinate modules for now.
+     Cartesian and Polar guide implementations now live in their coordinate
+     crates; facet/concat guide behavior remains with the top-level
+     layout/container runtime.
 
 9. Reduce coordinate transform measurement signatures.
    Replace direct references to top-level `EvaluationContext`,
@@ -957,10 +958,12 @@ boundaries boring.
      checks over core `GuideSharingContext`, now lives in
      `avenger-chart-cartesian`. External custom-mark dogfood imports
      `CartesianPositionConfig` directly from `avenger-chart-cartesian`.
-   - `CartesianOptions`, the pure coordinate guide/options spec, now lives in
-     `avenger-chart-cartesian`. The top-level Cartesian guide module still owns
-     guide measurement/rendering because it depends on facet/child-frame
-     sharing and layout runtime state.
+   - `CartesianGuide` and `CartesianOptions` now live in
+     `avenger-chart-cartesian`, including guide measurement/rendering and
+     background rendering. The top-level `avenger_chart::cartesian::guide`
+     module is a compatibility re-export. Child-frame overflow remains
+     facade-owned and is exposed to the coordinate-owned guide only through the
+     narrow core `CoordMeasurement::positioned_subplot_overflow(...)` query.
    - Cartesian position-channel builder extension traits and coordinate-owned
      `Line`, `Rect`, and `Symbol` `Mark<Cartesian>` / `CompiledMark`
      implementations now live in `avenger-chart-cartesian`. The top-level

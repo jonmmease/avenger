@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use crate::CoordinatedOverflow;
+use crate::{AvengerChartError, CoordinatedOverflow, OverflowSpaceRequirement};
 
 /// Coordinate-system-specific measurement data computed during the measure phase.
 ///
@@ -20,6 +20,20 @@ pub trait CoordMeasurement: Send + Sync + 'static {
     /// Returns `None` for non-coordinatable measurements.
     fn coordinated_overflow(&self) -> Option<&CoordinatedOverflow> {
         None
+    }
+
+    /// Overflow required by coordinate-positioned child plots, if this
+    /// coordinate measurement contains them.
+    ///
+    /// The core trait only exposes the final overflow requirement. The
+    /// top-level chart crate still owns child-frame placement, layout
+    /// refinement, and container runtime state.
+    fn positioned_subplot_overflow(
+        &self,
+        _plot_width: f32,
+        _plot_height: f32,
+    ) -> Result<Option<OverflowSpaceRequirement>, AvengerChartError> {
+        Ok(None)
     }
 }
 

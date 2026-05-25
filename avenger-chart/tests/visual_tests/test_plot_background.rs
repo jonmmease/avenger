@@ -45,62 +45,66 @@ fn create_test_data() -> DataFrame {
     ctx.read_batch(batch).unwrap()
 }
 
-#[tokio::test]
-async fn test_cartesian_plot_background() {
-    let ctx = SessionContext::new();
-    let df = create_test_data();
+#[test]
+fn test_cartesian_plot_background() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = create_test_data();
 
-    // Create a plot with light blue background
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .configure_guide(CartesianGuide::new().plot_background_color("#e6f2ff")) // Light blue
-        .mark(
-            Line::new()
-                .x_with(col("x"), |c| c.scale(|s| s))
-                .y_with(col("y"), |c| c.scale(|s| s))
-                .stroke("#e74c3c")
-                .stroke_width(3.0),
-        );
+        // Create a plot with light blue background
+        let plot = Plot::<Cartesian>::new()
+            .data(df)
+            .configure_guide(CartesianGuide::new().plot_background_color("#e6f2ff")) // Light blue
+            .mark(
+                Line::new()
+                    .x_with(col("x"), |c| c.scale(|s| s))
+                    .y_with(col("y"), |c| c.scale(|s| s))
+                    .stroke("#e74c3c")
+                    .stroke_width(3.0),
+            );
 
-    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
-    assert_visual_match_default(
-        &compiled,
-        &ctx,
-        None,
-        "plot_background",
-        "cartesian_background",
-    )
-    .await;
+        let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "plot_background",
+            "cartesian_background",
+        )
+        .await;
+    });
 }
 
-#[tokio::test]
-async fn test_cartesian_background_with_grid() {
-    let ctx = SessionContext::new();
-    let df = create_test_data();
+#[test]
+fn test_cartesian_background_with_grid() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = create_test_data();
 
-    // Create a scatter plot with dark background to show grid lines clearly
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .configure_guide(CartesianGuide::new().plot_background_color("#33334d")) // Dark blue-gray
-        .mark(
-            Symbol::new()
-                .x_with(col("x"), |c| c.scale(|s| s).axis(|a| a.grid(true)))
-                .y_with(col("y"), |c| c.scale(|s| s).axis(|a| a.grid(true)))
-                .size(100.0)
-                .fill("#f39c12")
-                .stroke("#ffffff")
-                .stroke_width(2.0),
-        );
+        // Create a scatter plot with dark background to show grid lines clearly
+        let plot = Plot::<Cartesian>::new()
+            .data(df)
+            .configure_guide(CartesianGuide::new().plot_background_color("#33334d")) // Dark blue-gray
+            .mark(
+                Symbol::new()
+                    .x_with(col("x"), |c| c.scale(|s| s).axis(|a| a.grid(true)))
+                    .y_with(col("y"), |c| c.scale(|s| s).axis(|a| a.grid(true)))
+                    .size(100.0)
+                    .fill("#f39c12")
+                    .stroke("#ffffff")
+                    .stroke_width(2.0),
+            );
 
-    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
-    assert_visual_match_default(
-        &compiled,
-        &ctx,
-        None,
-        "plot_background",
-        "cartesian_dark_with_grid",
-    )
-    .await;
+        let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "plot_background",
+            "cartesian_dark_with_grid",
+        )
+        .await;
+    });
 }
 
 #[test]
