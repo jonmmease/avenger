@@ -1,169 +1,92 @@
-# Adjust API - Post-Scale Position Adjustments
+# Adjust API
 
-## Purpose
+## Goal Review
 
-Modify mark positions after scales have been applied, operating in visual/pixel space. Enables dodge positioning, jitter for overplotting, and smart label placement.
+The goal is still valid: chart authors need post-scale placement adjustments
+such as jitter, dodge, collision avoidance, and label nudging. These operations
+act after data values have been scaled into plot-area coordinates, so they do
+not belong in ordinary DataFusion input transforms.
 
-**Dependencies**: Add `rand = "0.8"` and `rand_chacha = "0.3"` for deterministic jitter.
+One possible design is for every mark to hand a DataFrame of scaled positions
+and bounding boxes to a generic `Adjust` trait. That shape does not match the
+current runtime yet. The current renderer prepares mark data through
+`prepare_mark_data_runtime`, then each `CompiledMark::render_from_data`
+produces scenegraph marks with mark-specific geometry. There is no shared
+post-scale table containing mark bounds.
 
-## Core Design
+## Current System Fit
 
-### Trait Definition
+Useful existing pieces:
+
+- `MarkRuntimeContext` and `CoordinateSystemTransformCore` give marks access
+  to configured scales and coordinate transforms.
+- `CompiledMarkCore::default_channel_range` and coordinate
+  `ScaleRangeBinding` already separate data domain from visual range.
+- `EvaluatedPlot` can include a `SceneGraphRTree`, which can support overlap
+  and hit-test queries after rendering.
+- Debug/layout paths already create scenegraph overlays, proving that
+  evaluation can add geometry outside ordinary data marks.
+
+The missing piece is an adjustment boundary between scaled channel evaluation
+and final scenegraph mark creation.
+
+## Recommended Direction
+
+Design adjustments as mark-runtime modifiers, not as generic plot-level
+DataFrame transforms. A first version should target marks whose geometry can be
+represented as point anchors plus optional extents:
+
+- `Jitter`: deterministic offsets on point anchors.
+- `Dodge`: grouped offsets along one coordinate channel.
+- `Nudge`: explicit pixel offsets for labels and annotations.
+
+The compiled mark should decide whether an adjustment is supported. A generic
+`Adjust` trait can operate over a shared `MarkGeometryTable` only after that
+table exists.
+
+Possible boundary:
 
 ```rust
-use datafusion::dataframe::DataFrame;
-use datafusion::prelude::{SessionContext, Expr, col, lit};
-
-/// Context provided to post-scale transforms
-#[derive(Clone)]
-pub struct TransformContext {
-    pub dimensions: PlotDimensions,
-    pub session: SessionContext,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct PlotDimensions {
-    pub width: f64,
-    pub height: f64,
-}
-
-/// Trait for post-scale adjustments
-pub trait Adjust: Send + Sync {
-    /// Adjust mark positions/properties after scaling
-    ///
-    /// DataFrame contains:
-    /// - Scaled visual coordinates (x, y, size, etc.) in pixels
-    /// - bbox struct column with {x_min, y_min, x_max, y_max}
-    /// - Original data columns for grouping/filtering
-    fn adjust(
+pub trait MarkAdjustment: Send + Sync {
+    fn adjust_points(
         &self,
-        df: DataFrame,
-        context: &TransformContext,
-    ) -> Result<DataFrame, AvengerChartError>;
+        points: &mut PointAdjustmentTable,
+        context: &AdjustmentContext,
+    ) -> Result<(), AvengerChartError>;
 }
 ```
 
-### Function Wrapper for Closures
+`PointAdjustmentTable` should contain scaled x/y anchors, optional width/height
+or radius, original row identity, and relevant grouping values. It should not
+try to represent every possible mark shape in v1.
 
-```rust
-pub struct AdjustFn<F> {
-    f: F,
-}
+## Alternate Paradigms
 
-impl<F> AdjustFn<F>
-where
-    F: Fn(DataFrame, &TransformContext) -> Result<DataFrame, AvengerChartError> + Send + Sync,
-{
-    pub fn new(f: F) -> Self {
-        Self { f }
-    }
-}
+- **Data transform before scaling**: good for binning and grouping, but wrong
+  for jitter/dodge measured in pixels.
+- **Scenegraph post-processing**: could adjust rendered scene marks directly,
+  but it would lose channel/domain context and make legends/guides harder to
+  reason about.
+- **Per-mark builder options only**: simplest for built-ins, but it blocks a
+  reusable adjustment ecosystem.
 
-impl<F> Adjust for AdjustFn<F>
-where
-    F: Fn(DataFrame, &TransformContext) -> Result<DataFrame, AvengerChartError> + Send + Sync,
-{
-    fn adjust(&self, df: DataFrame, context: &TransformContext) -> Result<DataFrame, AvengerChartError> {
-        (self.f)(df, context)
-    }
-}
-```
+## Readiness
 
-## Key Implementations
+Ready for a design spike, not a full implementation plan.
 
-### Jitter - Add Random Noise
+The spike should implement one narrow point-only adjustment, probably
+deterministic jitter for Cartesian `Symbol`, and use that to decide whether the
+shared geometry table belongs in `avenger-chart-core`, `avenger-chart-marks`,
+or the facade runtime.
 
-```rust
-pub struct Jitter {
-    x_amount: Option<f64>,
-    y_amount: Option<f64>,
-    seed: Option<u64>,
-}
+## Decisions Needed
 
-impl Adjust for Jitter {
-    fn adjust(&self, df: DataFrame, _context: &TransformContext) -> Result<DataFrame, AvengerChartError> {
-        use rand::{Rng, SeedableRng};
-        use rand_chacha::ChaCha8Rng;
-
-        let mut rng = match self.seed {
-            Some(seed) => ChaCha8Rng::seed_from_u64(seed),
-            None => ChaCha8Rng::from_entropy(),
-        };
-
-        let mut result = df;
-
-        if let Some(amount) = self.x_amount {
-            // Create UDF that generates random jitter for each row
-            let jitter_udf = create_jitter_udf(amount, &mut rng);
-
-            // Apply jitter to x column
-            result = result.with_column("x", col("x") + jitter_udf)?;
-        }
-
-        // Similar for y_amount
-        Ok(result)
-    }
-}
-```
-
-### Dodge - Avoid Overlaps
-
-```rust
-pub struct Dodge {
-    padding: f64,
-    group_by: Option<String>,
-}
-
-impl Adjust for Dodge {
-    fn adjust(&self, df: DataFrame, _context: &TransformContext) -> Result<DataFrame, AvengerChartError> {
-        // Strategy:
-        // 1. Window function to count items per x position (and optional group)
-        // 2. Window function to assign index within each x position
-        // 3. Calculate offset: (index - (count-1)/2) * (width + padding)
-        // 4. Apply offset to x column
-
-        let partition_cols = if let Some(ref group_col) = self.group_by {
-            vec![col("x"), col(group_col)]
-        } else {
-            vec![col("x")]
-        };
-
-        // Use window functions to calculate per-group offsets
-        let result = df
-            .with_column("_dodge_count", count(col("x")).over(partition_cols.clone()))?
-            .with_column("_dodge_index", row_number().over(partition_cols))?
-            .with_column(
-                "x",
-                col("x") + (col("_dodge_index") - (col("_dodge_count") - lit(1)) / lit(2))
-                    * lit(self.padding)
-            )?
-            .drop_columns(&["_dodge_count", "_dodge_index"])?;
-
-        Ok(result)
-    }
-}
-```
-
-## Usage Examples
-
-```rust
-use datafusion::prelude::*;
-
-// Built-in adjustments
-Symbol::new()
-    .data(df)
-    .x(col("category"))
-    .y(col("value"))
-    .adjust(Jitter::new().x(10.0).seed(42))
-    .adjust(Dodge::new().padding(2.0));
-
-// Custom adjustment with closure
-Symbol::new()
-    .adjust(AdjustFn::new(|df, context| {
-        // Center points in left half of viewport
-        let condition = col("x").lt(lit(context.dimensions.width / 2.0));
-        let new_x = when(condition, col("x") + lit(context.dimensions.width / 4.0))
-            .otherwise(col("x"))?;
-        Ok(df.with_column("x", new_x)?)
-    }));
-```
+- Whether adjustment traits are core extension contracts or built-in facade
+  features.
+- How to represent adjusted geometry without forcing all marks into the same
+  shape model.
+- How adjusted positions interact with clipping, legends, hit testing, and
+  scale-domain inference.
+- Whether collision avoidance uses pre-render approximations or the final
+  `SceneGraphRTree`.
+- How deterministic randomness is configured and serialized.

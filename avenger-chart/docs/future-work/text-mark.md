@@ -1,213 +1,73 @@
-# Text Mark Implementation
+# Text Mark
 
-## Purpose
+## Goal Review
 
-Render text labels on visualizations, needed for annotations, labels, and titles.
+The goal is valid: the chart authoring API needs a high-level data text mark
+for labels, annotations, direct labeling, and derived mark workflows.
 
-## Implementation
+Several lower-level pieces already exist:
 
-```rust
-use crate::coords::CoordinateSystem;
-use crate::error::AvengerChartError;
-use crate::marks::MarkState;
-use avenger_scenegraph::marks::text::{
-    TextMark as SceneTextMark,
-    TextAlign as SceneTextAlign,
-    TextBaseline as SceneTextBaseline,
-    FontWeight,
-};
+- `avenger-scenegraph::marks::text::SceneTextMark` is the rendered scenegraph
+  primitive.
+- Cartesian and Polar guides render text labels and titles through
+  `SceneTextMark`.
+- `CompiledPlot` renders plot titles and subtitles with text scene marks.
+- Container/facet labels use shared scenegraph text utilities.
 
-pub struct Text<C: CoordinateSystem> {
-    pub(crate) state: MarkState,
-    pub(crate) _phantom: std::marker::PhantomData<C>,
-}
+What is missing is a user-facing `Text<C>` mark with channel configs,
+coordinate-specific position support, scale/legend behavior for visual
+channels, and tests.
 
-impl<C: CoordinateSystem> Text<C> {
-    pub fn new() -> Self {
-        Self {
-            state: MarkState::default(),
-        }
-    }
+## Current System Fit
 
-    // Channel methods
-    channel_methods! {
-        text: String,
-        font: String,
-        font_size: f64,
-        font_weight: TextWeight,
-        align: TextAlign,
-        baseline: TextBaseline,
-        angle: f64,
-        dx: f64,  // Horizontal offset
-        dy: f64,  // Vertical offset
-        limit: f64,  // Text truncation limit
-    }
-}
+`Text<C>` should be a normal mark in the `avenger-chart-marks` family with
+coordinate-specific render implementations in coordinate crates where needed.
+It should use the same core contracts as `Line`, `Rect`, and `Symbol`:
 
-impl<C: CoordinateSystem> Mark<C> for Text<C> {
-    fn to_scene_graph(&self, scales: &ScaleSet) -> Result<Vec<SceneMark>, AvengerChartError> {
-        let df = self.resolve_data(scales)?;
+- `Mark<C>` and `CompiledMark`,
+- `MarkState` and `CompiledMarkState`,
+- `ChannelValue`,
+- coordinate-specific position channel extension traits,
+- normal visual channels such as `fill`, `opacity`, and `angle`.
 
-        let mut text_marks = vec![];
+The text mark should not be implemented as a guide-only feature. Guides already
+use text internally, but data labels need ordinary mark behavior.
 
-        for row in df.iter() {
-            let text_mark = SceneTextMark {
-                text: row.get_string("text")?,
-                x: row.get_f64("x")?,
-                y: row.get_f64("y")?,
-                font: row.get_string_or("font", "Atkinson Hyperlegible Next")?,
-                font_size: row.get_f64_or("font_size", 12.0)?,
-                font_weight: row.get_enum_or("font_weight", TextWeight::Normal)?,
-                align: row.get_enum_or("align", TextAlign::Left)?,
-                baseline: row.get_enum_or("baseline", TextBaseline::Alphabetic)?,
-                angle: row.get_f64_or("angle", 0.0)?,
-                dx: row.get_f64_or("dx", 0.0)?,
-                dy: row.get_f64_or("dy", 0.0)?,
-                fill: row.get_color_or("fill", Color::BLACK)?,
-                opacity: row.get_f64_or("opacity", 1.0)?,
-                limit: row.get_f64_or("limit", f64::INFINITY)?,
-            };
+## Recommended Direction
 
-            text_marks.push(SceneMark::Text(text_mark));
-        }
+Implement a minimal `Text<C>` mark before smart label placement:
 
-        Ok(text_marks)
-    }
-}
-```
+- required or defaultable `text` channel,
+- coordinate position channels from the target coordinate crate,
+- unscaled visual channels for font family, font size, align, baseline, angle,
+  dx, dy, and limit,
+- scaled visual channels only where they make sense, probably `fill` and
+  `opacity`,
+- `Cartesian` render support first, then `Polar` if the positioning semantics
+  are clear.
 
-## Smart Label Placement
+Smart label placement should wait for the post-scale adjustment boundary in
+[adjust-api.md](adjust-api.md).
 
-```rust
-pub struct SmartLabelPlacement {
-    avoid_overlap: bool,
-    avoid_marks: bool,
-    padding: f64,
-    max_iterations: usize,
-}
+## Alternate Paradigms
 
-impl Adjust for SmartLabelPlacement {
-    fn adjust(&self, df: DataFrame, _context: &TransformContext) -> Result<DataFrame, AvengerChartError> {
-        if !self.avoid_overlap {
-            return Ok(df);
-        }
+- **Annotation objects outside marks**: useful for fixed annotations, but not
+  enough for data-driven labels.
+- **Derived labels only**: makes common labels convenient, but still needs an
+  underlying text mark.
+- **Guide labels**: appropriate for axes and facets, not for arbitrary data
+  rows.
 
-        // Build spatial index of existing labels
-        let mut rtree = RTree::new();
-        let mut label_bounds = vec![];
+## Readiness
 
-        for (i, row) in df.iter().enumerate() {
-            let bounds = calculate_text_bounds(
-                row.get_string("text")?,
-                row.get_f64("font_size")?,
-                row.get_f64("x")?,
-                row.get_f64("y")?,
-            );
+Ready for an implementation plan for the minimal mark.
 
-            rtree.insert(bounds.clone());
-            label_bounds.push(bounds);
-        }
+Smart placement is not ready; it depends on adjustment/collision contracts.
 
-        // Iteratively adjust overlapping labels
-        for _ in 0..self.max_iterations {
-            let mut adjusted = false;
+## Decisions Needed
 
-            for i in 0..label_bounds.len() {
-                let bounds = &label_bounds[i];
-
-                // Find overlapping labels
-                let overlaps: Vec<_> = rtree.locate_in_envelope_intersecting(bounds)
-                    .filter(|other| !std::ptr::eq(*other, bounds))
-                    .collect();
-
-                if !overlaps.is_empty() {
-                    // Calculate repulsion vector
-                    let mut dx = 0.0;
-                    let mut dy = 0.0;
-
-                    for other in overlaps {
-                        let overlap_x = bounds.center_x() - other.center_x();
-                        let overlap_y = bounds.center_y() - other.center_y();
-                        let distance = (overlap_x * overlap_x + overlap_y * overlap_y).sqrt();
-
-                        if distance > 0.0 {
-                            dx += overlap_x / distance * self.padding;
-                            dy += overlap_y / distance * self.padding;
-                        }
-                    }
-
-                    // Update position
-                    label_bounds[i].translate(dx, dy);
-                    adjusted = true;
-                }
-            }
-
-            if !adjusted {
-                break;
-            }
-        }
-
-        // Apply adjusted positions to DataFrame
-        let mut result = df;
-        for (i, bounds) in label_bounds.iter().enumerate() {
-            result = result.with_column_at_index(
-                i,
-                "x",
-                lit(bounds.center_x())
-            )?;
-            result = result.with_column_at_index(
-                i,
-                "y",
-                lit(bounds.center_y())
-            )?;
-        }
-
-        Ok(result)
-    }
-}
-```
-
-## Usage Examples
-
-```rust
-use datafusion::prelude::*;
-
-// Basic text mark
-Text::new()
-    .data(df)
-    .x(col("x_position"))
-    .y(col("y_position"))
-    .text(col("label"))
-    .font_size(14.0)  // Visual property: unscaled literal
-    .align(TextAlign::Center);
-
-// Annotations with offsets
-Text::new()
-    .data(df)
-    .x(col("x"))
-    .y(col("y"))
-    .text(col("country"))
-    .dy(-10.0)  // Visual offset: unscaled literal
-    .align(TextAlign::Center);
-
-// Rotated labels
-Text::new()
-    .data(df)
-    .x(col("category"))
-    .y(lit(0.0))  // Data value: scaled through y scale
-    .text(col("category"))
-    .angle(-45.0)  // Visual property: unscaled literal
-    .align(TextAlign::Right);
-```
-
-## Dependencies
-
-- Uses existing `avenger-scenegraph::marks::text` and `cosmic-text` (already available)
-- Smart label placement needs `rstar = "0.12"` for spatial indexing
-- Required by [Derive API](derive-api.md) for label generation
-
-## Notes
-
-- Text rendering already implemented in avenger-scenegraph
-- This adds the high-level mark API
-- `SmartLabelPlacement` uses R-tree for overlap detection
+- Which channels are scaled and which are literal by default.
+- Whether `text` can be conditional and whether null text suppresses rows.
+- How text bounds are measured before rendering for collision and layout.
+- Which coordinate crates implement text positioning in the first slice.
+- How text participates in legends, if at all.

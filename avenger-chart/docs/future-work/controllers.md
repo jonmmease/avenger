@@ -1,281 +1,81 @@
-# Controllers and Interactivity
+# Controllers And Interactivity
 
-## Purpose
+## Goal Review
 
-Manage interactive behaviors like pan/zoom, selection, and brushing through a controller abstraction with state management.
+The goal is valid: Avenger should support reusable chart interactions such as
+pan/zoom, brushing, selection, hover highlighting, linked views, and reset
+actions.
 
-## Core Architecture
+Part of the foundation already exists outside `avenger-chart`:
+
+- `avenger-eventstream` has `EventStreamConfig`, `EventStreamFilter`,
+  `EventStreamHandler`, and `EventStreamManager`.
+- `avenger-app` wires event streams into application state updates.
+- `avenger-chart-core::Param` and `Plot::add_param` allow runtime parameter
+  values to flow into expressions, themes, layout, and scale building.
+- `EvaluatedPlot` can contain a `SceneGraphRTree` for hit testing.
+- The `examples/iris-pan-zoom` demo implements pan/zoom behavior manually
+  through event streams and parameter-like state.
+
+That is not yet a chart controller API. Today, interactions are application
+code that knows chart details.
+
+## Current System Fit
+
+Controllers should not be mark types or coordinate systems. They should be
+chart/application adapters that:
+
+- declare which scenegraph events they listen to,
+- maintain interaction state,
+- emit updated `Param` values or evaluation options,
+- optionally use `SceneGraphRTree` hit-test results,
+- optionally coordinate state across facet paths or child-frame paths.
+
+The natural boundary is above `CompiledPlot::evaluate_with_options` and below
+the app event loop.
+
+## Recommended Direction
+
+Create a small controller layer that composes existing event streams with chart
+params. A first built-in controller should be pan/zoom for Cartesian plots
+because the manual example already proves most of the event math.
+
+Possible shape:
 
 ```rust
-use datafusion::logical_expr::expr::Placeholder;
-use datafusion::logical_expr::Expr;
-use datafusion::scalar::ScalarValue;
-
-/// A parameter that can be updated by controllers
-/// (Already implemented in avenger-chart/src/param.rs)
-#[derive(Debug, Clone)]
-pub struct Param {
-    pub name: String,
-    pub default: ScalarValue,
-}
-
-impl Param {
-    pub fn new<S: Into<String>, T: Into<ScalarValue>>(name: S, default: T) -> Self {
-        Self {
-            name: name.into(),
-            default: default.into(),
-        }
-    }
-
-    pub fn expr(&self) -> Expr {
-        Expr::Placeholder(Placeholder {
-            id: format!("${}", self.name),
-            data_type: Some(self.default.data_type()),
-        })
-    }
-}
-
-/// Controller trait for organizing interaction logic
-pub trait Controller: Debug + Send + Sync + 'static {
-    type State: Clone + Default + Send + Sync + 'static;
-
-    fn name(&self) -> &str;
-    fn state_mode(&self, chart_config: &ChartConfig) -> StateMode;
-    fn create_param_streams(
-        &self,
-        scale_registry: &ScaleRegistry,
-        state_map: &StateMap<Self::State>,
-    ) -> Vec<Arc<dyn ParamStream>>;
-    fn generate_params(&self, state_map: &StateMap<Self::State>) -> Vec<Param>;
-    fn generate_scale_modifiers(
-        &self,
-        scale_registry: &ScaleRegistry,
-        state_map: &StateMap<Self::State>,
-    ) -> Vec<ScaleModifier>;
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum StateMode {
-    Shared,        // Single state for all facets
-    PerFacet,      // Independent state per facet
-    PerRow,        // Shared state per row
-    PerColumn,     // Shared state per column
+pub trait ChartController: Send + Sync {
+    fn event_streams(&self) -> Vec<EventStreamConfig>;
+    fn update(&self, event: &SceneGraphEvent, state: &mut ControllerState);
+    fn params(&self, state: &ControllerState) -> IndexMap<String, ScalarValue>;
 }
 ```
 
-## Pan/Zoom Controller Implementation
+The trait should be treated as experimental until linked brushing and faceted
+state sharing are designed.
 
-```rust
-#[derive(Debug, Clone)]
-pub struct PanZoom {
-    x_channel: Option<String>,
-    y_channel: Option<String>,
-    wheel_zoom: bool,
-    drag_pan: bool,
-    double_click_reset: bool,
-}
+## Alternate Paradigms
 
-#[derive(Debug, Clone, Default)]
-pub struct PanZoomState {
-    x_domain: Option<(f64, f64)>,
-    y_domain: Option<(f64, f64)>,
-    x_translate: f64,
-    y_translate: f64,
-    scale: f64,
-}
+- **Application-only interactions**: current demos prove this works. It keeps
+  `avenger-chart` simpler but makes common chart behaviors hard to reuse.
+- **Reactive params only**: expose params and let users build event streams.
+  This is flexible but still too low-level for pan/zoom and brush selection.
+- **Vega-like signal graph**: powerful, but likely too large a semantic system
+  for the current Rust-first API.
 
-impl Controller for PanZoom {
-    type State = PanZoomState;
+## Readiness
 
-    fn name(&self) -> &str {
-        "pan-zoom"
-    }
+Ready for a design spike.
 
-    fn state_mode(&self, _chart_config: &ChartConfig) -> StateMode {
-        StateMode::Shared  // Usually want consistent zoom across facets
-    }
+Do not design the full selection grammar first. Port the existing pan/zoom demo
+into a reusable experimental controller and use that to settle state ownership,
+parameter naming, and facet sharing.
 
-    fn create_param_streams(
-        &self,
-        scale_registry: &ScaleRegistry,
-        state_map: &StateMap<Self::State>,
-    ) -> Vec<Arc<dyn ParamStream>> {
-        let mut streams = vec![];
+## Decisions Needed
 
-        // Create wheel zoom stream
-        if self.wheel_zoom {
-            streams.push(Arc::new(WheelZoomStream::new(
-                self.x_channel.clone(),
-                self.y_channel.clone(),
-                state_map.clone(),
-            )));
-        }
-
-        // Create drag pan stream
-        if self.drag_pan {
-            streams.push(Arc::new(DragPanStream::new(
-                self.x_channel.clone(),
-                self.y_channel.clone(),
-                state_map.clone(),
-            )));
-        }
-
-        streams
-    }
-
-    fn generate_params(&self, state_map: &StateMap<Self::State>) -> Vec<Param> {
-        let mut params = vec![];
-
-        for (facet_id, state) in state_map.iter() {
-            if let Some((x_min, x_max)) = state.x_domain {
-                params.push(Param::new(
-                    format!("{}_x_min", facet_id),
-                    ScalarValue::Float64(Some(x_min)),
-                ));
-                params.push(Param::new(
-                    format!("{}_x_max", facet_id),
-                    ScalarValue::Float64(Some(x_max)),
-                ));
-            }
-
-            if let Some((y_min, y_max)) = state.y_domain {
-                params.push(Param::new(
-                    format!("{}_y_min", facet_id),
-                    ScalarValue::Float64(Some(y_min)),
-                ));
-                params.push(Param::new(
-                    format!("{}_y_max", facet_id),
-                    ScalarValue::Float64(Some(y_max)),
-                ));
-            }
-        }
-
-        params
-    }
-
-    fn generate_scale_modifiers(
-        &self,
-        scale_registry: &ScaleRegistry,
-        state_map: &StateMap<Self::State>,
-    ) -> Vec<ScaleModifier> {
-        let mut modifiers = vec![];
-
-        for (facet_id, state) in state_map.iter() {
-            if let Some((x_min, x_max)) = state.x_domain {
-                modifiers.push(ScaleModifier {
-                    target: ScaleTarget::Named(vec![format!("{}_x", facet_id)]),
-                    transform: ScaleTransform::SetDomain(x_min, x_max),
-                });
-            }
-
-            if let Some((y_min, y_max)) = state.y_domain {
-                modifiers.push(ScaleModifier {
-                    target: ScaleTarget::Named(vec![format!("{}_y", facet_id)]),
-                    transform: ScaleTransform::SetDomain(y_min, y_max),
-                });
-            }
-        }
-
-        modifiers
-    }
-}
-```
-
-## Box Selection Controller
-
-```rust
-#[derive(Debug, Clone)]
-pub struct BoxSelect {
-    channels: Vec<String>,
-    selection_param: String,
-    clear_on_empty: bool,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct BoxSelectState {
-    selection_bounds: Option<SelectionBounds>,
-    selected_indices: Vec<usize>,
-}
-
-#[derive(Debug, Clone)]
-struct SelectionBounds {
-    x_min: f64,
-    x_max: f64,
-    y_min: f64,
-    y_max: f64,
-}
-
-impl Controller for BoxSelect {
-    type State = BoxSelectState;
-
-    fn generate_params(&self, state_map: &StateMap<Self::State>) -> Vec<Param> {
-        use datafusion::prelude::{col, lit};
-
-        let mut params = vec![];
-
-        for (facet_id, state) in state_map.iter() {
-            if let Some(ref bounds) = state.selection_bounds {
-                // Create selection filter expression using .and() method
-                let _filter = col("x")
-                    .gt_eq(lit(bounds.x_min))
-                    .and(col("x").lt_eq(lit(bounds.x_max)))
-                    .and(col("y").gt_eq(lit(bounds.y_min)))
-                    .and(col("y").lt_eq(lit(bounds.y_max)));
-
-                params.push(Param::new(
-                    format!("{}_{}", self.selection_param, facet_id),
-                    ScalarValue::Boolean(Some(true)),  // Placeholder
-                ));
-            }
-        }
-
-        params
-    }
-}
-```
-
-## Usage with Marks
-
-```rust
-use avenger_chart::prelude::*;
-use datafusion::scalar::ScalarValue;
-use datafusion::logical_expr::when;
-
-// Create plot with pan/zoom (future API)
-let plot = Plot::<Cartesian>::new()
-    .controller(PanZoom::new()  // Future: .controller() method
-        .x_channel("x")
-        .y_channel("y")
-        .wheel_zoom(true)
-        .drag_pan(true))
-    .mark(Symbol::new()
-        .data(df)
-        .x(col("gdp"))
-        .y(col("life_expectancy")));
-
-// Box selection with conditional encoding (future API)
-let selection_param = Param::new("selection", ScalarValue::Boolean(Some(false)));
-
-let plot = Plot::<Cartesian>::new()
-    .add_param(selection_param.clone())
-    .controller(BoxSelect::new()  // Future: .controller() method
-        .channels(vec!["x", "y"])
-        .selection_param("selection"))
-    .mark(Symbol::new()
-        .data(df)
-        .x(col("x"))
-        .y(col("y"))
-        .fill_with(
-            when(selection_param.expr(), lit("#4682b4"))
-                .otherwise(lit("#cccccc"))
-                .unwrap(),
-            |c| c
-        ));
-```
-
-## Implementation Notes
-
-- Controllers modify scales or generate parameters
-- State is maintained per-facet or shared based on StateMode
-- Event streams are created from controllers during plot compilation
-- Integrates with existing avenger-eventstream infrastructure
+- Whether controllers live in `avenger-chart`, `avenger-app`, or a new
+  `avenger-chart-interaction` crate.
+- How controller state is scoped across facets, concat children, positioned
+  subplots, and multiple rendered charts.
+- How controllers discover scale names and coordinate channels.
+- How selections map scenegraph hits back to data rows or mark identities.
+- Whether interaction state is serialized with chart specs.
