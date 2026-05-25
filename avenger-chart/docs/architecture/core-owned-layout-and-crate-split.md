@@ -1076,6 +1076,9 @@ boundaries boring.
      `Symbol<Polar>` `Mark<Polar>` / `CompiledMark` implementation now live in
      `avenger-chart-polar`. The top-level Polar symbol module is a
      compatibility re-export shim.
+   - External dogfood now includes a direct `avenger-chart-polar` import test
+     that pairs `Polar` / `PolarSymbolPositionChannels` from the coordinate
+     crate with generic `Symbol` from `avenger-chart-marks`.
 
 7. Shrink the top-level `avenger-chart` crate.
    Leave `Plot`, `CompiledPlot`, facet, concat, partition, layout solvers,

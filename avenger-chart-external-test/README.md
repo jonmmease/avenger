@@ -5,6 +5,8 @@ This crate demonstrates how external crates can extend avenger-chart with custom
 - **Marks**: Custom visualization marks
 - **Coordinate Systems**: Custom coordinate projections and transformations
 - **Subplot-capable Coordinate Systems**: Coordinate systems that opt into compiling `Subplot` marks
+- **Built-in Coordinate Crates**: Direct use of split coordinate crates such as
+  `avenger-chart-polar`
 
 ## Structure
 
@@ -55,6 +57,7 @@ Each module has corresponding integration tests in the `tests/` directory:
 - `tests/test_custom_mark.rs` - Tests mark implementation  
 - `tests/test_custom_coord_system.rs` - Tests coordinate system implementation
 - `tests/test_external_subplot_coord.rs` - Tests subplot compilation for an external coordinate system
+- `tests/test_builtin_coordinate_crates.rs` - Tests direct imports from built-in coordinate crates
 
 Run all tests with:
 ```bash
