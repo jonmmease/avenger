@@ -1,0 +1,145 @@
+//! Zero-dimensional coordinate system.
+//!
+//! The `ZeroDCoord` type represents a zero-dimensional coordinate system:
+//! a single point with no spatial extent.
+
+use std::collections::HashMap;
+
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+use avenger_scales::scales::ScaleImpl;
+use datafusion::common::ScalarValue;
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    AvengerChartError, CoordinateSystemCore, CoordinateSystemTransformCore, PlotGeometry,
+    PointGeometry,
+};
+
+/// A zero-dimensional coordinate system.
+///
+/// Represents a 0D space where marks have no spatial extent or position
+/// channels. Useful for legends and other non-spatial mark rendering.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct ZeroDCoord;
+
+impl ZeroDCoord {
+    /// Create a new zero-dimensional coordinate system.
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl CoordinateSystemCore for ZeroDCoord {
+    fn required_channels(&self) -> &'static [&'static str] {
+        &[]
+    }
+}
+
+impl CoordinateSystemTransformCore for ZeroDCoord {
+    fn required_channels(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    fn transform(
+        &self,
+        position_channels: &HashMap<&str, ScalarOrArray<f32>>,
+        position_values: Option<&HashMap<&str, Vec<ScalarValue>>>,
+        plot_width: f32,
+        plot_height: f32,
+    ) -> Result<Box<dyn PlotGeometry>, AvengerChartError> {
+        let _ = position_values;
+
+        // In 0D space, all points collapse to the center of the plot area.
+        let center_x = plot_width / 2.0;
+        let center_y = plot_height / 2.0;
+
+        let len = position_channels
+            .values()
+            .find_map(|v| match v.value() {
+                ScalarOrArrayValue::Array(arr) => Some(arr.len()),
+                _ => None,
+            })
+            .unwrap_or(1);
+
+        let (x, y) = if len == 1 {
+            (
+                ScalarOrArray::new_scalar(center_x),
+                ScalarOrArray::new_scalar(center_y),
+            )
+        } else {
+            (
+                ScalarOrArray::new_array(vec![center_x; len]),
+                ScalarOrArray::new_array(vec![center_y; len]),
+            )
+        };
+
+        Ok(Box::new(PointGeometry { x, y }))
+    }
+
+    fn default_range(
+        &self,
+        _channel: &str,
+        _plot_area_width: f64,
+        _plot_area_height: f64,
+    ) -> Option<(f64, f64)> {
+        None
+    }
+
+    fn default_scale_options(
+        &self,
+        _channel: &str,
+        _scale_impl: &dyn ScaleImpl,
+    ) -> HashMap<String, ScalarValue> {
+        HashMap::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_zerod_transform_to_center() {
+        let coord = ZeroDCoord::new();
+
+        let position_channels = HashMap::new();
+        let geometry = coord
+            .transform(&position_channels, None, 100.0, 100.0)
+            .unwrap();
+        let point_geometry = geometry
+            .as_any()
+            .downcast_ref::<PointGeometry>()
+            .expect("Expected PointGeometry");
+
+        match (point_geometry.x.value(), point_geometry.y.value()) {
+            (ScalarOrArrayValue::Scalar(x_val), ScalarOrArrayValue::Scalar(y_val)) => {
+                assert_eq!(*x_val, 50.0);
+                assert_eq!(*y_val, 50.0);
+            }
+            _ => panic!("Expected scalar values for single point"),
+        }
+
+        let mut position_channels_with_data = HashMap::new();
+        position_channels_with_data.insert("dummy", ScalarOrArray::new_array(vec![1.0, 2.0, 3.0]));
+
+        let geometry_arr = coord
+            .transform(&position_channels_with_data, None, 100.0, 100.0)
+            .unwrap();
+        let point_geometry_arr = geometry_arr
+            .as_any()
+            .downcast_ref::<PointGeometry>()
+            .expect("Expected PointGeometry");
+
+        match (point_geometry_arr.x.value(), point_geometry_arr.y.value()) {
+            (ScalarOrArrayValue::Array(x_vals), ScalarOrArrayValue::Array(y_vals)) => {
+                assert_eq!(x_vals.len(), 3);
+                assert_eq!(y_vals.len(), 3);
+                for i in 0..3 {
+                    assert_eq!(x_vals[i], 50.0);
+                    assert_eq!(y_vals[i], 50.0);
+                }
+            }
+            _ => panic!("Expected array values for multiple points"),
+        }
+    }
+}

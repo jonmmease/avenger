@@ -1,8 +1,8 @@
 use avenger_chart::{
     marks::{Mark, Subplot},
     plot::Plot,
-    zerod::ZeroDCoord,
 };
+use avenger_chart_core::ZeroDCoord;
 use avenger_chart_external_test::external_subplot_coord::{
     CompiledExternalCoordSubplot, ExternalSubplotCoord,
 };

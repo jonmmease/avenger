@@ -47,6 +47,7 @@ pub mod scale_type;
 pub mod serialization;
 pub mod theme;
 pub mod theme_context;
+pub mod zero_d;
 
 #[doc(hidden)]
 pub mod __private {
@@ -130,3 +131,4 @@ pub use serialization::{
 };
 pub use theme::{AngleUnit, CssRgba, LengthUnit, Theme, ThemeValue};
 pub use theme_context::ThemeContext;
+pub use zero_d::ZeroDCoord;

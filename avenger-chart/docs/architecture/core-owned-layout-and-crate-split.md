@@ -600,6 +600,11 @@ Migration discipline:
      creation. The object-safe `Mark<C>` trait now depends on
      `CoordinateSystemCore`, so mark authoring no longer needs the full
      top-level coordinate/layout contract.
+   - `ZeroDCoord` now lives in the real `avenger-chart-core` crate with its
+     core-safe coordinate metadata and transform implementation. The top-level
+     `avenger_chart::zerod` module remains a compatibility adapter that adds
+     the facade-owned guide/transform trait impls. External subplot-coordinate
+     dogfood imports `ZeroDCoord` directly from core.
 
 10. Split public/base evaluation context from internal layout state.
     The core `EvaluationContext` should contain theme, session context,
@@ -745,9 +750,9 @@ boundaries boring.
      wrapper for guide association and transform creation.
    - Moved the first coordinate-extension value contracts into core:
      `PlotGeometry`, `PointGeometry`, `SubplotRect`, `SubplotGeometry`,
-     `PaddingSpec`, and the pure `BandPosition` value. The band-scale iterator
-     remains in top-level layout because it depends on chart-layer configured
-     scales.
+     `PaddingSpec`, the pure `BandPosition` value, and `ZeroDCoord`. The
+     band-scale iterator remains in top-level layout because it depends on
+     chart-layer configured scales.
    - `SerializableDataFrame` now lives in `avenger-chart-core` and is
      re-exported through `avenger_chart::serialization`. The chart-specific
      logical expression/plan conversion traits that use
