@@ -267,9 +267,9 @@ movement. The key cycles and leaks found in the code are:
   and `preferred_merged_legend_renderer`.
 - `marks` depends on `scales` through default scale/range APIs, while `scales`
   depends on mark radius expressions through `ScaleDomain`.
-- `marks::subplot` still has facade-only compatibility accessors that downcast
-  the core child-plot trait object to `CompiledPlot`. The facet row/column
-  config values have moved to core, and coordinate-specific compiled subplot
+- Production `marks::subplot` code no longer imports `Plot`, `CompiledPlot`,
+  `RenderContext`, `concat`, `facet`, or `cartesian`. Facade-only child-plot
+  downcasts live in `plot::compiled`, and coordinate-specific compiled subplot
   implementations have moved out of the neutral subplot module.
 - `channel` value/config code stores scale and legend config directly and its
   fluent traits import both scale builders and legend builders.
@@ -508,9 +508,10 @@ Migration discipline:
      `SubplotDataSource` now live in the real `avenger-chart-core` crate.
      `CompiledSubplotPayload` stores an `Arc<dyn CompiledSubplotChildPlot>`;
      the facade-owned layout runtime downcasts that handle back to
-     `CompiledPlot` through explicit compatibility accessors where facet,
+     `CompiledPlot` through explicit helpers in `plot::compiled`, where facet,
      concat, and Cartesian positioned-subplot measurement/rendering still need
-     the concrete top-level plot runtime.
+     the concrete top-level plot runtime. The neutral payload itself no longer
+     imports `CompiledPlot`.
    - Inherited parent-data conversion now depends only on `SessionContext`, not
      the full top-level `RenderContext`.
    - The facet empty-cell policy and row/column dimension-channel identifiers

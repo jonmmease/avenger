@@ -14,7 +14,6 @@ use crate::{
     marks::{
         ChannelValue, CompiledMark, CompiledMarkState, DataContext, FacetStrategy, Mark, MarkState,
     },
-    plot::CompiledPlot,
 };
 
 /// Shared compiled state for a child plot owned by a container subplot mark.
@@ -46,23 +45,6 @@ impl CompiledSubplotPayload {
 
     pub fn compiled_child_plot(&self) -> &Arc<dyn CompiledSubplotChildPlot> {
         &self.compiled_subplot
-    }
-
-    pub fn compiled_subplot(&self) -> &CompiledPlot {
-        self.compiled_subplot
-            .as_any()
-            .downcast_ref::<CompiledPlot>()
-            .expect("subplot payload child plot is not an avenger-chart CompiledPlot")
-    }
-
-    pub(crate) fn compiled_subplot_arc(&self) -> Arc<CompiledPlot> {
-        match Arc::clone(&self.compiled_subplot)
-            .into_any_arc()
-            .downcast::<CompiledPlot>()
-        {
-            Ok(compiled) => compiled,
-            Err(_) => panic!("subplot payload child plot is not an avenger-chart CompiledPlot"),
-        }
     }
 
     pub fn compiled_state(&self) -> &CompiledMarkState {

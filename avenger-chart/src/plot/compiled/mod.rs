@@ -39,7 +39,7 @@ use crate::{
         SinglePlotContentMeasurement, SinglePlotContentSolver,
     },
     legend::Legend,
-    marks::CompiledMark,
+    marks::{CompiledMark, CompiledSubplotPayload},
     scales::{ConfiguredScaleWithSpec, ScaleBuilder, ScaleRangeBinding},
     serialization::SerializableDataFrame,
     theme::Theme,
@@ -261,6 +261,28 @@ impl CompiledPlot {
             params,
         )
         .await
+    }
+}
+
+pub(crate) fn compiled_subplot_payload_child_plot(
+    payload: &CompiledSubplotPayload,
+) -> &CompiledPlot {
+    payload
+        .compiled_child_plot()
+        .as_any()
+        .downcast_ref::<CompiledPlot>()
+        .expect("subplot payload child plot is not an avenger-chart CompiledPlot")
+}
+
+pub(crate) fn compiled_subplot_payload_child_plot_arc(
+    payload: &CompiledSubplotPayload,
+) -> Arc<CompiledPlot> {
+    match Arc::clone(payload.compiled_child_plot())
+        .into_any_arc()
+        .downcast::<CompiledPlot>()
+    {
+        Ok(compiled) => compiled,
+        Err(_) => panic!("subplot payload child plot is not an avenger-chart CompiledPlot"),
     }
 }
 

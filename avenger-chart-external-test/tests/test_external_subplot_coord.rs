@@ -1,6 +1,6 @@
 use avenger_chart::{
     marks::{Mark, Subplot},
-    plot::Plot,
+    plot::{CompiledPlot, Plot},
 };
 use avenger_chart_core::ZeroDCoord;
 use avenger_chart_external_test::external_subplot_coord::{
@@ -26,7 +26,13 @@ async fn external_coordinate_can_compile_subplot_mark() {
     assert_eq!(compiled.payload().label(), Some("child label"));
     assert_eq!(compiled.payload().key(), Some("child-key"));
     assert!(compiled.payload().inherits_parent_data());
-    assert_eq!(compiled.payload().compiled_subplot().marks().len(), 0);
+    let child = compiled
+        .payload()
+        .compiled_child_plot()
+        .as_any()
+        .downcast_ref::<CompiledPlot>()
+        .unwrap();
+    assert_eq!(child.marks().len(), 0);
 }
 
 #[tokio::test]

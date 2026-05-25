@@ -34,11 +34,10 @@ use crate::{
         CompiledSubplotPayload, Mark, Subplot, SubplotContainerCoordinateSystem,
         compile_subplot_payload,
     },
-    plot::CompiledPlot,
     plot::compiled::{
-        ChildFrameDataSelection, ChildFrameDomainSharingInput, ChildFrameRuntime,
+        ChildFrameDataSelection, ChildFrameDomainSharingInput, ChildFrameRuntime, CompiledPlot,
         ComponentsMeasurement, MarkDataRequest, child_frame_container_overflow,
-        child_frame_container_view_from_cartesian_positioned,
+        child_frame_container_view_from_cartesian_positioned, compiled_subplot_payload_child_plot,
         coordinated_child_frame_domain_extents, prepare_mark_data_runtime,
     },
     render::{EvaluationContext, RenderContext},
@@ -137,7 +136,7 @@ pub struct CompiledCartesianSubplot {
 
 impl CompiledCartesianSubplot {
     pub fn compiled_subplot(&self) -> &CompiledPlot {
-        self.payload.compiled_subplot()
+        compiled_subplot_payload_child_plot(&self.payload)
     }
 
     pub fn label(&self) -> Option<&str> {

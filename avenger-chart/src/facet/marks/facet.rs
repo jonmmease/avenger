@@ -17,6 +17,9 @@ use crate::marks::{
     CompiledSubplotPayload, Subplot, SubplotContainerCoordinateSystem, SubplotDataSource,
 };
 use crate::plot::CompiledPlot;
+use crate::plot::compiled::{
+    compiled_subplot_payload_child_plot, compiled_subplot_payload_child_plot_arc,
+};
 use crate::render::{EvaluationContext, RenderContext};
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 use datafusion::prelude::SessionContext;
@@ -395,11 +398,11 @@ pub struct CompiledFacetRowSubplot {
 
 impl CompiledFacetRowSubplot {
     pub fn compiled_subplot(&self) -> &CompiledPlot {
-        self.payload.compiled_subplot()
+        compiled_subplot_payload_child_plot(&self.payload)
     }
 
     pub(crate) fn compiled_subplot_arc(&self) -> Arc<CompiledPlot> {
-        self.payload.compiled_subplot_arc()
+        compiled_subplot_payload_child_plot_arc(&self.payload)
     }
     pub fn compiled_state(&self) -> &CompiledMarkState {
         self.payload.compiled_state()
@@ -578,11 +581,11 @@ pub struct CompiledFacetColumnSubplot {
 
 impl CompiledFacetColumnSubplot {
     pub fn compiled_subplot(&self) -> &CompiledPlot {
-        self.payload.compiled_subplot()
+        compiled_subplot_payload_child_plot(&self.payload)
     }
 
     pub(crate) fn compiled_subplot_arc(&self) -> Arc<CompiledPlot> {
-        self.payload.compiled_subplot_arc()
+        compiled_subplot_payload_child_plot_arc(&self.payload)
     }
     pub fn compiled_state(&self) -> &CompiledMarkState {
         self.payload.compiled_state()

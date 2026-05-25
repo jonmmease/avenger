@@ -21,7 +21,10 @@ use crate::{
         CompiledSubplotPayload, Subplot, SubplotContainerCoordinateSystem, SubplotDataSource,
         compile_subplot_payload,
     },
-    plot::{CompiledPlot, compiled::ChildFrameSharingLevel},
+    plot::{
+        CompiledPlot,
+        compiled::{ChildFrameSharingLevel, compiled_subplot_payload_child_plot},
+    },
     render::RenderContext,
     theme::Theme,
 };
@@ -68,7 +71,7 @@ impl CompiledConcatSubplot {
     }
 
     pub fn compiled_subplot(&self) -> &CompiledPlot {
-        self.payload.compiled_subplot()
+        compiled_subplot_payload_child_plot(&self.payload)
     }
 
     pub fn compiled_state(&self) -> &CompiledMarkState {
