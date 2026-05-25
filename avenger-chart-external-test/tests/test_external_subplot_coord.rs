@@ -1,11 +1,9 @@
-use avenger_chart::{
-    marks::{Mark, Subplot},
-    plot::{CompiledPlot, Plot},
-};
-use avenger_chart_core::ZeroDCoord;
+use avenger_chart::plot::{CompiledPlot, Plot};
+use avenger_chart_core::{Mark, ZeroDCoord};
 use avenger_chart_external_test::external_subplot_coord::{
     CompiledExternalCoordSubplot, ExternalSubplotCoord,
 };
+use avenger_chart_marks::Subplot;
 use datafusion::prelude::SessionContext;
 
 #[tokio::test]

@@ -622,6 +622,7 @@ dependencies = [
  "avenger-chart-cartesian",
  "avenger-chart-core",
  "avenger-chart-legend",
+ "avenger-chart-marks",
  "avenger-chart-scales",
  "avenger-common",
  "avenger-guides",

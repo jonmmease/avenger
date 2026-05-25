@@ -518,9 +518,10 @@ Migration discipline:
    - The facet empty-cell policy and row/column dimension-channel identifiers
      now live in `avenger-chart-core`, so the neutral subplot configuration no
      longer imports top-level facet modules for those shared spec values.
-   - The neutral `Subplot<OuterC>` type is now bounded only by
-     `CoordinateSystemCore`, and shared payload compilation is expressed
-     through the core `SubplotMarkCore` view. The
+   - The neutral `Subplot<OuterC>` type now lives in the real
+     `avenger-chart-marks` crate, is bounded only by `CoordinateSystemCore`,
+     and shared payload compilation is expressed through the core
+     `SubplotMarkCore` view. The
      `SubplotContainerCoordinateSystem` compile hook now also takes
      `&dyn SubplotMarkCore` instead of `&Subplot<Self>`.
      `SubplotContainerCoordinateSystem` itself now lives in
@@ -548,21 +549,20 @@ Migration discipline:
      `CompiledCartesianSubplot` and the `SubplotContainerCoordinateSystem`
      impl for `Cartesian`; the top-level facade keeps only the built-in
      child-frame measurement/render dispatcher and the temporary
-     `Subplot<Cartesian>` builder extension trait while `Subplot` remains in
-     the facade.
-   - `marks::subplot` now contains the neutral subplot mark, its core
-     `Mark<C>` impl, and unit coverage only. Temporary compatibility
-     re-exports remain for the old compiled subplot type paths.
+     `Subplot<Cartesian>` builder extension trait.
+   - The real neutral `Subplot` mark and its core `Mark<C>` impl now live in
+     `avenger-chart-marks`. The top-level `marks::subplot` module is a
+     compatibility re-export shim with facade-level subplot coverage.
    - Cartesian positioned-subplot authoring methods and facet row/column
      subplot channel methods now use extension traits rather than inherent
      `Subplot<...>` impls. The facade prelude re-exports
      `CartesianSubplotPositionChannels`, `FacetRowSubplotChannels`, and
      `FacetColumnSubplotChannels`, preserving chart-author ergonomics while
      removing one orphan-rule blocker for moving neutral `Subplot` later.
-   - Moving `Subplot` itself into `avenger-chart-marks` is the next mark
-     boundary. The earlier orphan-rule blocker has been removed by moving the
-     compile hook to core and the Cartesian hook impl to
-     `avenger-chart-cartesian`.
+   - The next boundary is to decide whether the temporary
+     `Subplot<Cartesian>` builder extension trait can move once coordinate
+     authoring ergonomics are fully crate-owned, or whether it remains a
+     facade compatibility trait until the public prelude settles.
 
 8. Replace concrete guide sharing context with an opaque core view.
    `CoordinateGuide` should receive a core-owned `GuideSharingContext` that
@@ -846,11 +846,11 @@ boundaries boring.
    - The initial neutral mark state/data types were promoted to
      `avenger-chart-core` after clarifying that custom marks should not need to
      depend on the built-in mark crate.
-   - `avenger-chart-marks` owns the generic built-in `Line<C>`, `Rect<C>`, and
-     `Symbol<C>` mark families, their common-channel builders, mark-specific
-     default descriptors, and small shared helpers such as line dictionary
-     partition keys and symbol legend-kind selection.
-   - The old `avenger-chart::marks::{line,rect,symbol}` modules are
+   - `avenger-chart-marks` owns the generic built-in `Line<C>`, `Rect<C>`,
+     `Symbol<C>`, and `Subplot<C>` mark families, their common-channel
+     builders, mark-specific default descriptors, and small shared helpers such
+     as line dictionary partition keys and symbol legend-kind selection.
+   - The old `avenger-chart::marks::{line,rect,symbol,subplot}` modules are
      compatibility re-export shims over `avenger-chart-marks`.
    - Cartesian and Polar now own coordinate-specific position-channel builder
      extension traits for those generic marks:
@@ -858,11 +858,11 @@ boundaries boring.
      `CartesianSymbolPositionChannels`, and `PolarSymbolPositionChannels`.
      These are re-exported from the facade prelude so normal chart-author
      ergonomics stay intact while the ownership boundary becomes real.
-   - The next real mark move is neutral `Subplot`, but it should wait until the
-     coordinate subplot hook no longer pulls top-level plot/layout runtime
-     types into the mark crate. The compiled child payload boundary is now
-     core-owned, and the hook signature now uses the core `SubplotMarkCore`
-     view rather than the concrete facade-owned `Subplot` type.
+   - Neutral `Subplot` moved after the coordinate subplot hook stopped pulling
+     top-level plot/layout runtime types into the mark crate. The compiled
+     child payload boundary is core-owned, and the hook signature uses the core
+     `SubplotMarkCore` view rather than the concrete facade-owned `Subplot`
+     type.
    - `avenger-chart` now depends on `avenger-chart-marks`, and
      `avenger-chart/src/marks/data_context.rs`,
      `avenger-chart/src/marks/compiled_data_context.rs`, and
@@ -986,7 +986,8 @@ boundaries boring.
      `CompiledGuide`, `GuideSharingContext`, `OverflowSpaceRequirement`,
      `CompiledSubplotPayload`, `SubplotMarkCore`, and
      `SubplotContainerCoordinateSystem` directly from `avenger-chart-core`
-     while still using the top-level facade for the concrete `Subplot` mark.
+     and imports the concrete `Subplot` mark directly from
+     `avenger-chart-marks`.
    - External coordinate dogfood implements the generic
      `CoordinateGuide::set_compiled_marks<M: CompiledMarkCore>(...)` hook from
      `avenger-chart-core`, proving guide setup no longer requires the top-level

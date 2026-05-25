@@ -4,6 +4,7 @@ pub mod facet_strategy;
 pub mod line;
 pub mod rect;
 pub mod state;
+pub mod subplot;
 pub mod symbol;
 pub mod zero_d;
 
@@ -13,5 +14,6 @@ pub use facet_strategy::FacetStrategy;
 pub use line::{Line, PartitionKey, ensure_dictionary_array, line_channel_defaults};
 pub use rect::{Rect, rect_channel_defaults};
 pub use state::{CompiledMarkState, MarkState};
+pub use subplot::Subplot;
 pub use symbol::{Symbol, symbol_channel_defaults, symbol_legend_renderer_kind};
 pub use zero_d::CompiledZeroDSymbol;

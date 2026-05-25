@@ -8,6 +8,7 @@ description = "Test crate to verify external avenger-chart extension points"
 avenger-chart = { path = "../avenger-chart" }
 avenger-chart-core = { path = "../avenger-chart-core" }
 avenger-chart-legend = { path = "../avenger-chart-legend" }
+avenger-chart-marks = { path = "../avenger-chart-marks" }
 avenger-chart-scales = { path = "../avenger-chart-scales" }
 avenger-chart-cartesian = { path = "../avenger-chart-cartesian" }
 avenger-scales = { path = "../avenger-scales" }
