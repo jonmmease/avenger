@@ -267,8 +267,10 @@ movement. The key cycles and leaks found in the code are:
   and `preferred_merged_legend_renderer`.
 - `marks` depends on `scales` through default scale/range APIs, while `scales`
   depends on mark radius expressions through `ScaleDomain`.
-- `marks::subplot` imports `Plot`, `CompiledPlot`, `concat`, `facet`, and
-  `cartesian`, so `Subplot` is not a neutral mark crate type yet.
+- `marks::subplot` still depends on the top-level compiled child plot and
+  render context through `CompiledPlot` and `RenderContext`. The facet
+  row/column config values have moved to core, and coordinate-specific compiled
+  subplot implementations have moved out of the neutral subplot module.
 - `channel` value/config code stores scale and legend config directly and its
   fluent traits import both scale builders and legend builders.
 - `GuideSharingContext` and the guide traits now live in core. Cartesian and
@@ -371,6 +373,11 @@ Migration discipline:
      compatibility re-exports for existing paths.
    - `FacetAxis` now lives under `chart_core`. `coords::FacetAxis` remains a
      compatibility re-export for existing paths.
+   - `FacetEmptyCellPolicy`, `FacetDimensionConfig`, `RowDimensionConfig`, and
+     `ColumnDimensionConfig` now live in the real `avenger-chart-core` crate.
+     The old `facet::empty_cell_policy` and `facet::dimension_config` modules
+     are compatibility re-exports only. This keeps neutral subplot
+     configuration from importing top-level facet internals.
    - `LayoutBounds`, `Size2D`, `EdgeSlabs`, `OverflowSide`,
      `FrameAllocation`, `FrameDemand`, `FrameLayout`, and related frame sizing
      types now live under `chart_core`. `layout::*` remains a compatibility
@@ -497,6 +504,9 @@ Migration discipline:
    - `Subplot` now stores a `SubplotChildPlotSpec` trait object instead of a
      concrete `Plot<C>`. The `Plot<C>` implementation lives with `plot`, so the
      neutral subplot mark no longer imports the concrete plot builder type.
+   - The facet empty-cell policy and row/column dimension-channel identifiers
+     now live in `avenger-chart-core`, so the neutral subplot configuration no
+     longer imports top-level facet modules for those shared spec values.
    - The neutral `Subplot<OuterC>` type and shared `compile_subplot_payload`
      helper are now bounded only by `CoordinateSystemCore`. The
      `SubplotContainerCoordinateSystem` compile hook still requires the full
@@ -731,7 +741,9 @@ boundaries boring.
 
    - Created the real `avenger-chart-core` workspace crate.
    - Moved the first low-risk value modules into it: `Axis`, `AxisPosition`,
-     `FacetAxis`, `IntoExpr`, shared frame/layout value types,
+     `FacetAxis`, `FacetEmptyCellPolicy`, `FacetDimensionConfig`,
+     `RowDimensionConfig`, `ColumnDimensionConfig`, `IntoExpr`,
+     shared frame/layout value types,
      `LegendPosition`, `LegendOrientation`, `LegendRendererKind`,
      `OverflowSpaceRequirement`, `MeasurementResult`, `Maybe`,
      `MaybeOptionalExpr`, `Param`, `RadiusExpression`, `ResolvedDomain`,

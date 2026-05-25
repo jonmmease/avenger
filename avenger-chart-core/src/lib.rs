@@ -21,6 +21,8 @@ pub mod error;
 pub mod evaluation_context;
 pub mod expr_eval;
 pub mod facet_axis;
+pub mod facet_dimension;
+pub mod facet_empty_cell_policy;
 pub mod facet_strategy;
 pub mod geometry;
 pub mod guide_context;
@@ -103,6 +105,8 @@ pub use expr_eval::{
     evaluate_string_expr, evaluate_usize_expr,
 };
 pub use facet_axis::FacetAxis;
+pub use facet_dimension::{ColumnDimensionConfig, FacetDimensionConfig, RowDimensionConfig};
+pub use facet_empty_cell_policy::FacetEmptyCellPolicy;
 pub use facet_strategy::FacetStrategy;
 pub use geometry::{
     BandPosition, PaddingSpec, PlotGeometry, PointGeometry, SubplotGeometry, SubplotRect,

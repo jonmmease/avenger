@@ -4,12 +4,11 @@ use avenger_scales::scales::ConfiguredScale;
 use datafusion::{common::ScalarValue, dataframe::DataFrame, logical_expr::lit};
 
 use crate::{
-    chart_core::SharingLevel,
+    chart_core::{FacetEmptyCellPolicy, SharingLevel},
     coords::{FacetAxis, OverflowSpaceRequirement},
     error::AvengerChartError,
     facet::{
         coord::{ChannelDomainExtent, FacetBandNestedMeasureContext},
-        empty_cell_policy::FacetEmptyCellPolicy,
         evaluated_facet_tree::EvaluatedFacetTree,
         layout_plan::{FacetBandPlan, FacetCellEmptyKind},
         probe_summary::FacetCellProbeSummary,

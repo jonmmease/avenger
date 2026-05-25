@@ -1,5 +1,4 @@
-use crate::chart_core::ScaleSharing;
-use crate::facet::empty_cell_policy::FacetEmptyCellPolicy;
+use crate::chart_core::{FacetEmptyCellPolicy, ScaleSharing};
 
 #[derive(Clone, Default)]
 pub struct FacetRowChannelConfig {

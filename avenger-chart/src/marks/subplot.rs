@@ -4,9 +4,12 @@ use datafusion::{arrow::record_batch::RecordBatch, dataframe::DataFrame, prelude
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    chart_core::{
+        ColumnDimensionConfig, FacetDimensionConfig, FacetEmptyCellPolicy, RowDimensionConfig,
+        ScaleSharing,
+    },
     coords::{CoordinateSystem, CoordinateSystemCore},
     error::AvengerChartError,
-    facet::dimension_config::{ColumnDimensionConfig, FacetDimensionConfig, RowDimensionConfig},
     marks::{
         ChannelValue, CompiledMark, CompiledMarkState, DataContext, FacetStrategy, Mark, MarkState,
     },
@@ -151,14 +154,12 @@ pub(crate) struct SubplotConfig {
     pub(crate) plot_height: Option<f32>,
     pub(crate) facet_row_title: Option<String>,
     pub(crate) facet_col_title: Option<String>,
-    pub(crate) facet_row_slot_sharing: Option<crate::chart_core::ScaleSharing>,
-    pub(crate) facet_col_slot_sharing: Option<crate::chart_core::ScaleSharing>,
+    pub(crate) facet_row_slot_sharing: Option<ScaleSharing>,
+    pub(crate) facet_col_slot_sharing: Option<ScaleSharing>,
     pub(crate) facet_row_position: Option<String>,
     pub(crate) facet_col_position: Option<String>,
-    pub(crate) facet_row_empty_cell_policy:
-        Option<crate::facet::empty_cell_policy::FacetEmptyCellPolicy>,
-    pub(crate) facet_col_empty_cell_policy:
-        Option<crate::facet::empty_cell_policy::FacetEmptyCellPolicy>,
+    pub(crate) facet_row_empty_cell_policy: Option<FacetEmptyCellPolicy>,
+    pub(crate) facet_col_empty_cell_policy: Option<FacetEmptyCellPolicy>,
 }
 
 /// Mark that owns one child plot inside an outer coordinate system.
@@ -322,8 +323,8 @@ mod tests {
     use super::*;
     use crate::{
         chart_core::CompiledMarkCore,
+        chart_core::{FacetDimensionConfig, RowDimensionConfig},
         concat::{HConcat, compiled_subplot},
-        facet::dimension_config::{FacetDimensionConfig, RowDimensionConfig},
         plot::Plot,
         zerod::ZeroDCoord,
     };

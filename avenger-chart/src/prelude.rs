@@ -20,10 +20,9 @@
 
 // Re-export coordinate systems
 pub use crate::cartesian::Cartesian;
-pub use crate::chart_core::ScaleSharing;
+pub use crate::chart_core::{FacetEmptyCellPolicy, ScaleSharing};
 pub use crate::concat::{ConcatGuide, HConcat, VConcat};
 pub use crate::facet::coord::{FacetColumn, FacetRow};
-pub use crate::facet::empty_cell_policy::FacetEmptyCellPolicy;
 pub use crate::polar::Polar;
 pub use crate::zerod::ZeroDCoord;
 

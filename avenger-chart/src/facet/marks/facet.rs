@@ -1,11 +1,10 @@
-use crate::chart_core::{MarkRuntimeContext, ScaleSharing, ScaleTypePreference};
+use crate::chart_core::{
+    ColumnDimensionConfig, FacetDimensionConfig, FacetEmptyCellPolicy, MarkRuntimeContext,
+    RowDimensionConfig, ScaleSharing, ScaleTypePreference,
+};
 use crate::coords::{CoordinateSystemCore, CoordinateSystemTransformCore, FacetAxis};
 use crate::error::AvengerChartError;
 use crate::facet::coord::{FacetBandCoordMeasurement, FacetColumn, FacetRow};
-use crate::facet::dimension_config::{
-    ColumnDimensionConfig, FacetDimensionConfig, RowDimensionConfig,
-};
-use crate::facet::empty_cell_policy::FacetEmptyCellPolicy;
 use crate::facet::marks::facet_config::{FacetColChannelConfig, FacetRowChannelConfig};
 use crate::facet::ownership_policy::{
     cell_requires_invalid_path_axis_fallback_hidden, has_holes_from_cells,

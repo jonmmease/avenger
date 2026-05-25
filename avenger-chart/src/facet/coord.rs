@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, trace};
 
 use crate::{
-    chart_core::{AxisPosition, SharingLevel},
+    chart_core::{AxisPosition, FacetEmptyCellPolicy, SharingLevel},
     container::{ChildFrameKey, ChildFrameScopeKey, ContainerPathSegment},
     coords::{
         CellDomainInfo, CoordMeasurement, CoordinateSystem, CoordinateSystemCore,
@@ -39,7 +39,6 @@ use crate::{
         domain_coordination::{
             aggregate_domain_extents, coordinated_extents_for_cell, domain_infos_for_cell,
         },
-        empty_cell_policy::FacetEmptyCellPolicy,
         guide::FacetColGuideConfig,
         layout_plan::{
             FacetBandPlan, FacetCellEmptyKind, FacetCellPlan, compute_padding_from_overflows,

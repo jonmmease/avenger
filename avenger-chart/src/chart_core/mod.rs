@@ -81,6 +81,14 @@ pub mod facet_axis {
     pub use avenger_chart_core::facet_axis::*;
 }
 
+pub mod facet_dimension {
+    pub use avenger_chart_core::facet_dimension::*;
+}
+
+pub mod facet_empty_cell_policy {
+    pub use avenger_chart_core::facet_empty_cell_policy::*;
+}
+
 pub mod facet_strategy {
     pub use avenger_chart_core::facet_strategy::*;
 }
@@ -180,21 +188,22 @@ pub mod sharing {
 pub use avenger_chart_core::{
     AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, AngleChannelConfig, ArrayRefHelpers, Axis, AxisPosition,
     BandPosition, BaseChannelName, ChannelConfig, ChannelDefault, ChannelDescriptor,
-    ChannelResolutionError, ChannelValue, ColorChannelConfig, CompiledDataContext, CompiledGuide,
-    CompiledMark, CompiledMarkCore, CompiledMarkState, ConditionalValue,
-    ContainerEdgeLevelProjection, CoordMeasurement, CoordinateGuide, CoordinateSystem,
-    CoordinateSystemCore, CoordinateSystemTransform, CoordinateSystemTransformCore,
-    CoordinatedLayout, CoordinatedOverflow, CoordinationAxis, DataContext, DataFrameChartHelpers,
-    EdgeSlabs, EmptyCoordMeasurement, ExprHelpers, FacetAxis, FacetStrategy, FrameAllocation,
-    FrameDemand, FrameDimensionSizing, FrameLayout, FrameSizingPolicy, GenericPositionConfig,
-    GuideContext, GuideOverflowPhase, GuideSharingContext, GuideUpdate,
+    ChannelResolutionError, ChannelValue, ColorChannelConfig, ColumnDimensionConfig,
+    CompiledDataContext, CompiledGuide, CompiledMark, CompiledMarkCore, CompiledMarkState,
+    ConditionalValue, ContainerEdgeLevelProjection, CoordMeasurement, CoordinateGuide,
+    CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
+    CoordinateSystemTransformCore, CoordinatedLayout, CoordinatedOverflow, CoordinationAxis,
+    DataContext, DataFrameChartHelpers, EdgeSlabs, EmptyCoordMeasurement, ExprHelpers, FacetAxis,
+    FacetDimensionConfig, FacetEmptyCellPolicy, FacetStrategy, FrameAllocation, FrameDemand,
+    FrameDimensionSizing, FrameLayout, FrameSizingPolicy, GenericPositionConfig, GuideContext,
+    GuideOverflowPhase, GuideSharingContext, GuideUpdate,
     INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM, IntoExpr, LayoutBounds, Legend,
     LegendOrientation, LegendPosition, LegendRendererKind, Mark, MarkRenderContext,
     MarkRuntimeContext, MarkState, Maybe, MaybeOptionalExpr, MeasurementResult, NoGuide,
     OpacityChannelConfig, OverflowSide, OverflowSpaceRequirement, OwnedEdgeSlabs, PaddingSpec,
     Param, PlotAreaDimension, PlotAreaRangeEndpoint, PlotAreaRangeExpr, PlotGeometry,
-    PointGeometry, PositionConfig, RadiusExpression, ScalarValueHelpers, ScaleConfigSpec,
-    ScaleRange, ScaleRangeBinding, ScaleSharing, ScaleSpec, ScaleTypePreference,
+    PointGeometry, PositionConfig, RadiusExpression, RowDimensionConfig, ScalarValueHelpers,
+    ScaleConfigSpec, ScaleRange, ScaleRangeBinding, ScaleSharing, ScaleSpec, ScaleTypePreference,
     ShapeChannelConfig, SharingGroupEdge, SharingLevel, Size2D, SizeChannelConfig,
     StrokeDashChannelConfig, StrokeWidthChannelConfig, SubplotGeometry, SubplotRect,
     axis_owner_ignore_empty_cells_from_params, axis_ownership_mode_from_params,

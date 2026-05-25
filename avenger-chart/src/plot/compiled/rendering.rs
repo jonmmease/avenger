@@ -28,7 +28,7 @@ use tracing::{Level, debug, trace};
 use crate::{
     cartesian::positioned_subplot::compiled_cartesian_subplot,
     chart_core::maybe::Maybe,
-    chart_core::{AxisPosition, LegendPosition, evaluate_f32_expr},
+    chart_core::{AxisPosition, FacetEmptyCellPolicy, LegendPosition, evaluate_f32_expr},
     concat::compiled_subplot as compiled_concat_subplot,
     coords::{
         CoordMeasureRequest, CoordMeasurement, FacetAxis, coordinate_overflow_for_guides,
@@ -42,7 +42,6 @@ use crate::{
             retarget_scale_ranges_for_plot_area,
         },
         debug as facet_debug,
-        empty_cell_policy::FacetEmptyCellPolicy,
         evaluated_facet_tree::EvaluatedFacetTree,
         layout_plan::{FacetBandPaddingFeedback, FacetBandPaddingFeedbackMap},
         marks::facet::{FacetSubplotRef, facet_subplot_ref},
