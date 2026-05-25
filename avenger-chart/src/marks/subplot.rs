@@ -15,7 +15,6 @@ use crate::{
         ChannelValue, CompiledMark, CompiledMarkState, DataContext, FacetStrategy, Mark, MarkState,
     },
     plot::CompiledPlot,
-    render::RenderContext,
 };
 
 /// Shared compiled state for a child plot owned by a container subplot mark.
@@ -101,15 +100,14 @@ impl CompiledSubplotPayload {
     pub(crate) fn inherited_data_override(
         &self,
         data: Option<&RecordBatch>,
-        context: &RenderContext<'_>,
+        session_context: &SessionContext,
     ) -> Result<Option<DataFrame>, AvengerChartError> {
         if !self.inherits_parent_data() {
             return Ok(None);
         }
 
         data.map(|batch| {
-            context
-                .session_context()
+            session_context
                 .read_batch(batch.clone())
                 .map_err(AvengerChartError::DataFusionError)
         })

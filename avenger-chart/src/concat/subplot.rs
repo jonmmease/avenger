@@ -111,7 +111,8 @@ impl CompiledConcatSubplot {
         data: Option<&RecordBatch>,
         context: &RenderContext<'_>,
     ) -> Result<Option<DataFrame>, AvengerChartError> {
-        self.payload.inherited_data_override(data, context)
+        self.payload
+            .inherited_data_override(data, context.session_context().as_ref())
     }
 
     pub(crate) fn render_with_context<'a>(
