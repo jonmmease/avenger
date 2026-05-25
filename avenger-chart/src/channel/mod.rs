@@ -8,23 +8,14 @@
 //! - Macros for channel definitions
 
 pub mod config_traits;
-mod configs;
-mod descriptor;
-#[macro_use]
-mod macros;
-mod position;
-#[macro_use]
-mod position_macros;
 pub(crate) mod resolution;
 pub mod value;
 
 // Re-export main types
-pub use self::configs::{
-    AngleChannelConfig, ColorChannelConfig, OpacityChannelConfig, ShapeChannelConfig,
-    SizeChannelConfig, StrokeDashChannelConfig, StrokeWidthChannelConfig,
+pub use avenger_chart_core::{
+    AngleChannelConfig, BaseChannelName, ChannelConfig, ChannelDefault, ChannelDescriptor,
+    ChannelValue, ColorChannelConfig, ConditionalValue, GenericPositionConfig,
+    OpacityChannelConfig, PositionConfig, ShapeChannelConfig, SizeChannelConfig,
+    StrokeDashChannelConfig, StrokeWidthChannelConfig,
 };
-pub use self::descriptor::{ChannelDefault, ChannelDescriptor};
-pub use self::position::GenericPositionConfig;
-pub use self::value::{BaseChannelName, ChannelValue, ConditionalValue};
-pub use crate::legend::LegendableChannel;
-pub use avenger_chart_core::{ChannelConfig, PositionConfig};
+pub use avenger_chart_legend::LegendableChannel;

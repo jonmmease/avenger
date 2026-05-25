@@ -1100,6 +1100,13 @@ boundaries boring.
      crates took ownership. Public top-level compatibility paths now live in
      the existing `marks`, `scales`, `legend`, `cartesian`, and `polar`
      modules as direct `pub use` shims.
+   - Flattened several compatibility re-export paths so `marks` and `channel`
+     re-export directly from their owning crates instead of bouncing through
+     other facade modules.
+   - Removed dead private channel shim modules (`configs`, `descriptor`,
+     `macros`, `position`, and `position_macros`) after the public
+     `avenger_chart::channel::*` surface was rewired directly to core and
+     legend owners.
    - Removed the final `chart_core` staging namespace after rewiring internal
      imports directly to `avenger-chart-core`. Public compatibility paths such
      as `avenger_chart::maybe`, `param`, `error`, `coords`, `guide`, and
