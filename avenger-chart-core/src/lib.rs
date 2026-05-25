@@ -8,6 +8,7 @@ pub mod channel_value;
 pub mod color;
 pub mod compiled_data_context;
 pub mod compiled_mark;
+pub mod container_sharing;
 pub mod coord_measurement;
 pub mod coordinate_guide;
 pub mod coordinate_system;
@@ -71,6 +72,11 @@ pub use channel_value::{ChannelValue, ConditionalValue};
 pub use compiled_data_context::CompiledDataContext;
 pub use compiled_mark::{
     CompiledMarkCore, default_channel_value_for_eval, extract_channel_title_from_marks,
+};
+pub use container_sharing::{
+    ContainerEdgeLevelProjection, SharingGroupEdge, enumeration_ancestor_path, is_group_end,
+    is_group_start, owner_for_edge, project_container_edge_levels, shared_path_key,
+    sharing_group_boundary,
 };
 pub use coord_measurement::{CoordMeasurement, EmptyCoordMeasurement};
 pub use coordinate_guide::{CompiledGuide, CoordinateGuide, GuideSharingContext};

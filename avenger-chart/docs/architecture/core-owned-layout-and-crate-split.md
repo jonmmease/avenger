@@ -762,6 +762,11 @@ boundaries boring.
      `CoordinateGuide`, `CompiledGuide`, `GuideSharingContext`, `NoGuide`,
      `AxisVisibility`, and the guide-sharing view traits. Concrete guide
      implementations remain in their owning modules.
+   - Moved mode-neutral child-frame sharing math into core:
+     `SharingGroupEdge`, shared/enumeration path helpers, edge owner checks,
+     and child-frame edge-level projection. Top-level layout keeps the scoped
+     coordination keys and runtime container state, but coordinate/guide code
+     can now consume the pure ownership primitives from core.
    - Moved the first coordinate-extension value contracts into core:
      `PlotGeometry`, `PointGeometry`, `SubplotRect`, `SubplotGeometry`,
      `PaddingSpec`, the pure `BandPosition` value, and `ZeroDCoord`. The
