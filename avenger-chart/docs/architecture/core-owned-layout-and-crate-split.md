@@ -521,6 +521,11 @@ Migration discipline:
      helper are now bounded only by `CoordinateSystemCore`. The
      `SubplotContainerCoordinateSystem` compile hook still lives with the
      top-level mark module until `Subplot` itself moves to its final crate.
+   - Top-level consumers now use hidden `Subplot` accessor methods for
+     child-frame sizing, facet row/column options, channel injection, and
+     data-context inspection instead of reaching into crate-private config
+     fields. This is the prerequisite for moving the real `Subplot` type across
+     a crate boundary without duplicating configuration state.
 
 7. Move built-in subplot implementations out of `marks::subplot`.
    Keep only the neutral `Subplot`, payload, and compile hook in the mark/core
@@ -541,6 +546,12 @@ Migration discipline:
    - `marks::subplot` now contains the neutral subplot mark, shared compiled
      payload, shared compile hook, and unit coverage only. Temporary
      compatibility re-exports remain for the old compiled subplot type paths.
+   - Moving `Subplot` itself into `avenger-chart-marks` must follow the same
+     extension-trait pattern used for coordinate-specific position channels.
+     A direct move would violate Rust orphan rules for the facade-owned
+     `Subplot<Cartesian>`, `Subplot<FacetRow>`, and `Subplot<FacetColumn>`
+     inherent methods, and for the Cartesian subplot compile-hook impl because
+     both `Subplot` and `Cartesian` already live outside the facade crate.
 
 8. Replace concrete guide sharing context with an opaque core view.
    `CoordinateGuide` should receive a core-owned `GuideSharingContext` that

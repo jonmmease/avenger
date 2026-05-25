@@ -75,21 +75,20 @@ impl Subplot<Cartesian> {
 
     /// Set the child plot-area width used for each positioned child frame.
     pub fn plot_width(mut self, width: f32) -> Self {
-        self.config_mut().plot_width = Some(width);
+        self.set_plot_width_config(Some(width));
         self
     }
 
     /// Set the child plot-area height used for each positioned child frame.
     pub fn plot_height(mut self, height: f32) -> Self {
-        self.config_mut().plot_height = Some(height);
+        self.set_plot_height_config(Some(height));
         self
     }
 
     /// Set both child plot-area dimensions used for each positioned child frame.
     pub fn plot_size(mut self, width: f32, height: f32) -> Self {
-        let config = self.config_mut();
-        config.plot_width = Some(width);
-        config.plot_height = Some(height);
+        self.set_plot_width_config(Some(width));
+        self.set_plot_height_config(Some(height));
         self
     }
 
@@ -120,8 +119,8 @@ impl SubplotContainerCoordinateSystem for Cartesian {
 
         Ok(Arc::new(CompiledCartesianSubplot {
             payload: compile_subplot_payload(subplot, compiled_state, session_context).await?,
-            plot_width: subplot.config().plot_width.unwrap_or(80.0).max(1.0),
-            plot_height: subplot.config().plot_height.unwrap_or(80.0).max(1.0),
+            plot_width: subplot.plot_width_config().unwrap_or(80.0).max(1.0),
+            plot_height: subplot.plot_height_config().unwrap_or(80.0).max(1.0),
         }))
     }
 }

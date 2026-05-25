@@ -3,17 +3,11 @@ use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 use datafusion::{arrow::record_batch::RecordBatch, dataframe::DataFrame, prelude::SessionContext};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    chart_core::{
-        ColumnDimensionConfig, CompiledSubplotChildPlot, FacetDimensionConfig,
-        FacetEmptyCellPolicy, RowDimensionConfig, ScaleSharing, SubplotChildPlotSpec,
-        SubplotDataSource,
-    },
-    coords::{CoordinateSystem, CoordinateSystemCore},
-    error::AvengerChartError,
-    marks::{
-        ChannelValue, CompiledMark, CompiledMarkState, DataContext, FacetStrategy, Mark, MarkState,
-    },
+use avenger_chart_core::{
+    AvengerChartError, ChannelValue, ColumnDimensionConfig, CompiledMark, CompiledMarkState,
+    CompiledSubplotChildPlot, CoordinateSystem, CoordinateSystemCore, DataContext,
+    FacetDimensionConfig, FacetEmptyCellPolicy, FacetStrategy, Mark, MarkState, RowDimensionConfig,
+    ScaleSharing, SubplotChildPlotSpec, SubplotDataSource,
 };
 
 /// Shared compiled state for a child plot owned by a container subplot mark.
@@ -79,7 +73,8 @@ impl CompiledSubplotPayload {
         self.data_source == SubplotDataSource::ExplicitChild
     }
 
-    pub(crate) fn inherited_data_override(
+    #[doc(hidden)]
+    pub fn inherited_data_override(
         &self,
         data: Option<&RecordBatch>,
         session_context: &SessionContext,
@@ -189,16 +184,107 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         self
     }
 
-    pub(crate) fn data_context_ref(&self) -> &DataContext {
+    #[doc(hidden)]
+    pub fn data_context_ref(&self) -> &DataContext {
         &self.state.data
     }
 
-    pub(crate) fn config(&self) -> &SubplotConfig {
-        &self.config
+    #[doc(hidden)]
+    pub fn label_config(&self) -> Option<&str> {
+        self.config.label.as_deref()
     }
 
-    pub(crate) fn config_mut(&mut self) -> &mut SubplotConfig {
-        &mut self.config
+    #[doc(hidden)]
+    pub fn key_config(&self) -> Option<&str> {
+        self.config.key.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn plot_width_config(&self) -> Option<f32> {
+        self.config.plot_width
+    }
+
+    #[doc(hidden)]
+    pub fn plot_height_config(&self) -> Option<f32> {
+        self.config.plot_height
+    }
+
+    #[doc(hidden)]
+    pub fn set_plot_width_config(&mut self, width: Option<f32>) {
+        self.config.plot_width = width;
+    }
+
+    #[doc(hidden)]
+    pub fn set_plot_height_config(&mut self, height: Option<f32>) {
+        self.config.plot_height = height;
+    }
+
+    #[doc(hidden)]
+    pub fn set_facet_row_options(
+        &mut self,
+        title: Option<String>,
+        slot_sharing: Option<ScaleSharing>,
+        position: Option<String>,
+        empty_cell_policy: Option<FacetEmptyCellPolicy>,
+    ) {
+        self.config.facet_row_title = title;
+        self.config.facet_row_slot_sharing = slot_sharing;
+        self.config.facet_row_position = position;
+        self.config.facet_row_empty_cell_policy = empty_cell_policy;
+    }
+
+    #[doc(hidden)]
+    pub fn facet_row_title_config(&self) -> Option<&str> {
+        self.config.facet_row_title.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn facet_row_slot_sharing_config(&self) -> Option<ScaleSharing> {
+        self.config.facet_row_slot_sharing
+    }
+
+    #[doc(hidden)]
+    pub fn facet_row_position_config(&self) -> Option<&str> {
+        self.config.facet_row_position.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn facet_row_empty_cell_policy_config(&self) -> Option<FacetEmptyCellPolicy> {
+        self.config.facet_row_empty_cell_policy
+    }
+
+    #[doc(hidden)]
+    pub fn set_facet_col_options(
+        &mut self,
+        title: Option<String>,
+        slot_sharing: Option<ScaleSharing>,
+        position: Option<String>,
+        empty_cell_policy: Option<FacetEmptyCellPolicy>,
+    ) {
+        self.config.facet_col_title = title;
+        self.config.facet_col_slot_sharing = slot_sharing;
+        self.config.facet_col_position = position;
+        self.config.facet_col_empty_cell_policy = empty_cell_policy;
+    }
+
+    #[doc(hidden)]
+    pub fn facet_col_title_config(&self) -> Option<&str> {
+        self.config.facet_col_title.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn facet_col_slot_sharing_config(&self) -> Option<ScaleSharing> {
+        self.config.facet_col_slot_sharing
+    }
+
+    #[doc(hidden)]
+    pub fn facet_col_position_config(&self) -> Option<&str> {
+        self.config.facet_col_position.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn facet_col_empty_cell_policy_config(&self) -> Option<FacetEmptyCellPolicy> {
+        self.config.facet_col_empty_cell_policy
     }
 
     pub fn has_plot_level_data(&self) -> bool {
@@ -212,19 +298,14 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         self.subplot.compile_boxed(session_context).await
     }
 
-    pub(crate) fn with_channel_value(
-        mut self,
-        channel_name: &'static str,
-        value: ChannelValue,
-    ) -> Self {
+    #[doc(hidden)]
+    pub fn with_channel_value(mut self, channel_name: &'static str, value: ChannelValue) -> Self {
         self.state.data = self.state.data.with_channel_value(channel_name, value);
         self
     }
 
-    pub(crate) fn validate_no_facet_channels(
-        &self,
-        outer_label: &str,
-    ) -> Result<(), AvengerChartError> {
+    #[doc(hidden)]
+    pub fn validate_no_facet_channels(&self, outer_label: &str) -> Result<(), AvengerChartError> {
         let channels = self.state.data.channels();
         for channel_name in [
             RowDimensionConfig::channel_name(),

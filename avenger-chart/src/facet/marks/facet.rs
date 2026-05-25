@@ -282,11 +282,12 @@ impl Subplot<FacetRow> {
     {
         let mut s = self.row(value);
         let cfg = f(FacetRowChannelConfig::default());
-        let config = s.config_mut();
-        config.facet_row_title = cfg.title;
-        config.facet_row_slot_sharing = cfg.slot_sharing;
-        config.facet_row_position = cfg.position;
-        config.facet_row_empty_cell_policy = cfg.empty_cell_policy;
+        s.set_facet_row_options(
+            cfg.title,
+            cfg.slot_sharing,
+            cfg.position,
+            cfg.empty_cell_policy,
+        );
         s
     }
 }
@@ -305,11 +306,12 @@ impl Subplot<FacetColumn> {
     {
         let mut s = self.column(value);
         let cfg = f(FacetColChannelConfig::default());
-        let config = s.config_mut();
-        config.facet_col_title = cfg.title;
-        config.facet_col_slot_sharing = cfg.slot_sharing;
-        config.facet_col_position = cfg.position;
-        config.facet_col_empty_cell_policy = cfg.empty_cell_policy;
+        s.set_facet_col_options(
+            cfg.title,
+            cfg.slot_sharing,
+            cfg.position,
+            cfg.empty_cell_policy,
+        );
         s
     }
 
@@ -324,14 +326,14 @@ impl Subplot<FacetColumn> {
 }
 
 fn facet_title_for_channel(
-    explicit_title: &Option<String>,
+    explicit_title: Option<&str>,
     channel_name: &str,
     compiled_state: &CompiledMarkState,
     session_context: &SessionContext,
 ) -> Option<String> {
     match explicit_title {
         Some(title) if title.is_empty() => None,
-        Some(title) => Some(title.clone()),
+        Some(title) => Some(title.to_string()),
         None => compiled_state
             .data
             .channels()
@@ -444,7 +446,7 @@ impl SubplotContainerCoordinateSystem for FacetRow {
         let compiled_subplot = compile_facet_subplot_child(subplot, session_context).await?;
         let channel_name = RowDimensionConfig::channel_name();
         let facet_title = facet_title_for_channel(
-            &subplot.config().facet_row_title,
+            subplot.facet_row_title_config(),
             channel_name,
             &compiled_state,
             session_context,
@@ -454,16 +456,15 @@ impl SubplotContainerCoordinateSystem for FacetRow {
             payload: CompiledSubplotPayload::new(
                 compiled_state,
                 compiled_subplot,
-                subplot.config().label.clone(),
-                subplot.config().key.clone(),
+                subplot.label_config().map(ToOwned::to_owned),
+                subplot.key_config().map(ToOwned::to_owned),
                 SubplotDataSource::InheritParent,
             ),
             facet_title,
-            facet_slot_sharing: subplot.config().facet_row_slot_sharing,
-            facet_position: subplot.config().facet_row_position.clone(),
+            facet_slot_sharing: subplot.facet_row_slot_sharing_config(),
+            facet_position: subplot.facet_row_position_config().map(ToOwned::to_owned),
             facet_empty_cell_policy: subplot
-                .config()
-                .facet_row_empty_cell_policy
+                .facet_row_empty_cell_policy_config()
                 .unwrap_or_default(),
         }))
     }
@@ -627,7 +628,7 @@ impl SubplotContainerCoordinateSystem for FacetColumn {
         let compiled_subplot = compile_facet_subplot_child(subplot, session_context).await?;
         let channel_name = ColumnDimensionConfig::channel_name();
         let facet_title = facet_title_for_channel(
-            &subplot.config().facet_col_title,
+            subplot.facet_col_title_config(),
             channel_name,
             &compiled_state,
             session_context,
@@ -637,16 +638,15 @@ impl SubplotContainerCoordinateSystem for FacetColumn {
             payload: CompiledSubplotPayload::new(
                 compiled_state,
                 compiled_subplot,
-                subplot.config().label.clone(),
-                subplot.config().key.clone(),
+                subplot.label_config().map(ToOwned::to_owned),
+                subplot.key_config().map(ToOwned::to_owned),
                 SubplotDataSource::InheritParent,
             ),
             facet_title,
-            facet_slot_sharing: subplot.config().facet_col_slot_sharing,
-            facet_position: subplot.config().facet_col_position.clone(),
+            facet_slot_sharing: subplot.facet_col_slot_sharing_config(),
+            facet_position: subplot.facet_col_position_config().map(ToOwned::to_owned),
             facet_empty_cell_policy: subplot
-                .config()
-                .facet_col_empty_cell_policy
+                .facet_col_empty_cell_policy_config()
                 .unwrap_or_default(),
         }))
     }
