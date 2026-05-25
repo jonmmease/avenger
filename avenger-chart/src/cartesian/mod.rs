@@ -13,3 +13,4 @@ pub use guide::{CartesianGuide, CartesianOptions};
 pub use marks::{
     CartesianLinePositionChannels, CartesianRectPositionChannels, CartesianSymbolPositionChannels,
 };
+pub use positioned_subplot::CartesianSubplotPositionChannels;

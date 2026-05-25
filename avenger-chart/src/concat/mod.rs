@@ -664,6 +664,7 @@ mod tests {
         facet::{
             coord::{FacetBandCoordMeasurement, FacetColumn, FacetRow},
             evaluated_facet_tree::EvaluatedFacetTree,
+            marks::{FacetColumnSubplotChannels, FacetRowSubplotChannels},
         },
         layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
         marks::{Subplot, line::Line, symbol::Symbol},

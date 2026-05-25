@@ -546,12 +546,17 @@ Migration discipline:
    - `marks::subplot` now contains the neutral subplot mark, shared compiled
      payload, shared compile hook, and unit coverage only. Temporary
      compatibility re-exports remain for the old compiled subplot type paths.
+   - Cartesian positioned-subplot authoring methods and facet row/column
+     subplot channel methods now use extension traits rather than inherent
+     `Subplot<...>` impls. The facade prelude re-exports
+     `CartesianSubplotPositionChannels`, `FacetRowSubplotChannels`, and
+     `FacetColumnSubplotChannels`, preserving chart-author ergonomics while
+     removing one orphan-rule blocker for moving neutral `Subplot` later.
    - Moving `Subplot` itself into `avenger-chart-marks` must follow the same
      extension-trait pattern used for coordinate-specific position channels.
      A direct move would violate Rust orphan rules for the facade-owned
-     `Subplot<Cartesian>`, `Subplot<FacetRow>`, and `Subplot<FacetColumn>`
-     inherent methods, and for the Cartesian subplot compile-hook impl because
-     both `Subplot` and `Cartesian` already live outside the facade crate.
+     Cartesian subplot compile-hook impl because both `Subplot` and
+     `Cartesian` already live outside the facade crate.
 
 8. Replace concrete guide sharing context with an opaque core view.
    `CoordinateGuide` should receive a core-owned `GuideSharingContext` that

@@ -268,14 +268,24 @@ async fn render_facet_band_common(
     .await
 }
 
-impl Subplot<FacetRow> {
+/// Facet row channel builder methods for `Subplot<FacetRow>`.
+pub trait FacetRowSubplotChannels: Sized {
     /// Set the faceting channel for rows.
-    pub fn row<V: Into<ChannelValue>>(self, value: V) -> Self {
+    fn row<V: Into<ChannelValue>>(self, value: V) -> Self;
+
+    /// Configure row with facet options (e.g., title, slot sharing).
+    fn row_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(FacetRowChannelConfig) -> FacetRowChannelConfig;
+}
+
+impl FacetRowSubplotChannels for Subplot<FacetRow> {
+    fn row<V: Into<ChannelValue>>(self, value: V) -> Self {
         self.with_channel_value(RowDimensionConfig::channel_name(), value.into())
     }
 
-    /// Configure row with facet options (e.g., title, slot sharing).
-    pub fn row_with<V, F>(self, value: V, f: F) -> Self
+    fn row_with<V, F>(self, value: V, f: F) -> Self
     where
         V: Into<ChannelValue>,
         F: FnOnce(FacetRowChannelConfig) -> FacetRowChannelConfig,
@@ -292,14 +302,30 @@ impl Subplot<FacetRow> {
     }
 }
 
-impl Subplot<FacetColumn> {
+/// Facet column channel builder methods for `Subplot<FacetColumn>`.
+pub trait FacetColumnSubplotChannels: Sized {
     /// Set the faceting channel for columns.
-    pub fn column<V: Into<ChannelValue>>(self, value: V) -> Self {
+    fn column<V: Into<ChannelValue>>(self, value: V) -> Self;
+
+    /// Configure column with facet options (e.g., title, slot sharing, position).
+    fn col_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(FacetColChannelConfig) -> FacetColChannelConfig;
+
+    /// Configure column with facet options.
+    fn column_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(FacetColChannelConfig) -> FacetColChannelConfig;
+}
+
+impl FacetColumnSubplotChannels for Subplot<FacetColumn> {
+    fn column<V: Into<ChannelValue>>(self, value: V) -> Self {
         self.with_channel_value(ColumnDimensionConfig::channel_name(), value.into())
     }
 
-    /// Configure column with facet options (e.g., title, slot sharing, position).
-    pub fn col_with<V, F>(self, value: V, f: F) -> Self
+    fn col_with<V, F>(self, value: V, f: F) -> Self
     where
         V: Into<ChannelValue>,
         F: FnOnce(FacetColChannelConfig) -> FacetColChannelConfig,
@@ -315,8 +341,7 @@ impl Subplot<FacetColumn> {
         s
     }
 
-    /// Configure column with facet options.
-    pub fn column_with<V, F>(self, value: V, f: F) -> Self
+    fn column_with<V, F>(self, value: V, f: F) -> Self
     where
         V: Into<ChannelValue>,
         F: FnOnce(FacetColChannelConfig) -> FacetColChannelConfig,

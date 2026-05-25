@@ -35,8 +35,10 @@ pub use crate::theme::Theme;
 
 // Re-export marks
 pub use crate::cartesian::{
-    CartesianLinePositionChannels, CartesianRectPositionChannels, CartesianSymbolPositionChannels,
+    CartesianLinePositionChannels, CartesianRectPositionChannels, CartesianSubplotPositionChannels,
+    CartesianSymbolPositionChannels,
 };
+pub use crate::facet::marks::{FacetColumnSubplotChannels, FacetRowSubplotChannels};
 pub use crate::marks::line::Line;
 pub use crate::marks::rect::Rect;
 pub use crate::marks::subplot::Subplot;
