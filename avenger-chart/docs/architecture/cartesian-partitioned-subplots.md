@@ -111,159 +111,228 @@ parent data
          one filtered dataframe per partition value
 ```
 
-## Recommended Implementation Chunks
+## Full Implementation Milestone
 
-### Chunk 1: Add API and compiled metadata
+Implement the full partitioned Cartesian subplot feature in one coherent pass,
+not as a sequence of narrow product slices. Internal checkpoints are still
+useful for keeping the code reviewable, but the milestone is not complete until
+the API, scale inference, child data partitioning, measurement/rendering, and
+dogfood coverage all work together.
 
-Files:
+### Public API
 
-- `avenger-chart-cartesian/src/marks/subplot.rs`
-- `avenger-chart-marks/src/subplot.rs`
-- `avenger-chart-core/src/subplot_child_plot.rs` only if a hidden core accessor
-  becomes necessary
-- `avenger-chart/src/prelude.rs` if a new extension trait name is introduced
+Add one public authoring method to `CartesianSubplotPositionChannels`:
 
-Work:
+```rust
+fn partition_by<V: Into<ChannelValue>>(self, value: V) -> Self;
+```
 
-- Add `partition_by<V: Into<ChannelValue>>(...)` to
-  `CartesianSubplotPositionChannels`.
-- Store the value as the `"partition"` channel.
-- Add `"partition"` to `CompiledCartesianSubplot::supported_channels()` as an
-  optional column-ref channel.
-- During `SubplotContainerCoordinateSystem for Cartesian` compilation, inspect
-  the original subplot channel map for `"partition"`.
-- Store the original partition expression on `CompiledCartesianSubplot`, for
-  filtering raw parent data later.
-- If partitioned and `subplot.has_plot_level_data()` is true, return a clear
-  invalid-argument error explaining that partitioned Cartesian subplots inherit
-  parent data.
-- Validate `x`/`y` expressions for partitioned mode using the original channel
-  expressions:
-  - aggregate/literal/partition-key expression: OK,
-  - other row-level expression: error.
+Do not add a shorter `.partition(...)` alias in the first implementation. The
+more explicit name is easier to search, avoids ambiguity with internal
+partition helpers, and can be aliased later without breaking users.
 
-Validation:
+The method stores a channel named `"partition"` on `Subplot<Cartesian>`.
+`CompiledCartesianSubplot::supported_channels()` should include this as an
+optional column-reference channel so the existing mark data preparation path can
+project partition values alongside scaled `x`/`y` placement values.
 
-- Focused unit tests around compile-time validation:
-  - partitioned subplot rejects child plot `.data(...)`,
-  - partitioned subplot rejects raw row-level `x`/`y`,
-  - aggregate `x`/`y` compiles,
-  - partition-key/literal placement compiles.
+### Compile-Time Semantics
 
-### Chunk 2: Extract placement-summary planning
+`SubplotContainerCoordinateSystem for Cartesian` should inspect the original
+subplot mark view before it builds `CompiledCartesianSubplot`.
 
-Files:
+If no `"partition"` channel exists, compile exactly as today.
 
-- `avenger-chart/src/cartesian/positioned_subplot.rs`
-- optionally a new small helper module under `avenger-chart/src/cartesian/`
+If `"partition"` exists:
 
-Work:
+- Reject child plots with plot-level `.data(...)`. Partitioned Cartesian
+  subplots inherit parent data; explicit child data would make partitioning
+  ambiguous.
+- Store the original partition expression on `CompiledCartesianSubplot`.
+  Runtime filtering must use this original expression against raw parent data,
+  not a rewritten aggregate-output column.
+- Validate parent placement channels:
+  - literals are valid,
+  - aggregate expressions are valid,
+  - the partition expression itself is valid,
+  - any other raw row-level expression is invalid.
+- Keep using the existing aggregate compile rewrite when `x` or `y` contains
+  aggregates. Because the partition channel is a non-aggregate channel on the
+  mark, the existing rewrite groups by partition and produces a placement
+  summary dataframe. That summary is useful for parent placement and scale
+  inference as long as raw parent data is still used for child filtering.
 
-- Add a partitioned path alongside the current row-wise path in
-  `prepare_positioned_subplot`.
-- Build a placement summary from the current parent dataframe:
-  - group by the original partition expression,
-  - compute each aggregate placement expression once per partition,
-  - preserve literal placement expressions as scalar channels,
-  - preserve partition-key placement expressions by projecting the grouped key.
-- Reuse the channel-scale application path so summary `x`/`y` values are scaled
-  exactly like ordinary positioned subplot coordinates.
-- Produce child specs containing:
-  - child index,
-  - mark index,
-  - stable partition value,
-  - formatted label/key fallback,
-  - scaled `x` and `y`,
-  - per-partition data override.
+This keeps aggregate placement domain inference aligned with existing aggregate
+mark behavior. Parent `x`/`y` domains should infer from the placement summary
+without requiring users to set explicit domains.
 
-Implementation note:
+### Runtime Data Model
 
-- The placement summary is a planning artifact. It should not replace the raw
-  parent dataframe in the child-frame runtime.
-- If there are no rows for a partitioned subplot, produce no children, matching
-  the current no-mark-output behavior.
+Refactor Cartesian positioned subplot preparation around an explicit child
+planning model:
 
-Validation:
+```text
+PreparedPositionedSubplot
+  - subplot: &CompiledCartesianSubplot
+  - children: Vec<PreparedPositionedChild>
 
-- Unit tests for the helper with a small dataframe:
-  - one child per partition value,
-  - `avg`/`sum` placement values are correct before scaling,
-  - filtered child data contains only rows for that partition,
-  - deterministic partition ordering.
+PreparedPositionedChild
+  - spec: PositionedChildSpec
+  - prepared_child_plot: PreparedChildFramePlot
+```
 
-### Chunk 3: Measure and render partitioned children
+The existing non-partitioned path may keep using a shared
+`PreparedChildFramePlot` internally for efficiency, but the data model should
+allow partitioned children to carry their own `PreparedChildFramePlot` because
+each partition has a different inherited data override and therefore different
+local child domains.
 
-Files:
+For partitioned subplots:
 
-- `avenger-chart/src/cartesian/positioned_subplot.rs`
-- child-frame scope/path helpers only if stable partition identity needs a
-  small extension
+1. Resolve parent data from the current coordinate measurement input. This may
+   be top-level plot data or a filtered parent data override when nested inside
+   another container.
+2. Use the prepared subplot mark data only as the placement summary source.
+   For aggregate `x`/`y`, this will often be the compile-time aggregate output.
+3. Extract one child spec per partition value from the placement summary:
+   partition value, scaled `x`, scaled `y`, order index, mark index, and
+   optional user key/label.
+4. Sort partitioned children deterministically by partition value unless the
+   user later gets an explicit order channel.
+5. Build the child data override by filtering the raw parent dataframe with
+   `original_partition_expr == partition_value`.
+6. Call `ChildFrameRuntime::prepare_plot(...)` separately for each partition
+   child with `ChildFrameDataSelection::InheritParent` and the filtered data.
 
-Work:
+For non-partitioned subplots, preserve the current behavior: one child per
+prepared mark row and the existing inherited/explicit child data selection.
 
-- Feed each partition's filtered dataframe into `ChildFrameRuntime::prepare_plot`
-  as inherited parent data.
-- Preserve existing child-frame domain sharing behavior by creating one
-  `ChildFrameDomainSharingInput` per partition child.
-- Update container path / sharing key construction so partitioned children are
-  stable and distinguishable.
-- Render from saved measurements exactly like current positioned subplots.
+### Child Identity And Paths
 
-Validation:
+Add explicit partitioned-positioned identity variants instead of overloading
+row indices:
 
-- Focused chart tests that inspect scene groups or measurement state:
-  - child group count equals partition count,
-  - child groups are positioned at aggregate coordinates,
-  - child data changes child mark output per partition.
+```rust
+ChildFrameKey::PositionedPartition {
+    mark_index,
+    value,
+    key,
+}
 
-### Chunk 4: Scale-domain inference for aggregate placement
+ContainerPathSegment::PositionedPartition {
+    mark_index,
+    value,
+    key,
+}
+```
 
-Why this matters:
+Then add a `ChildFrameSharingLevel::positioned_partition(...)` constructor.
+This keeps non-partitioned row-wise positioned subplots distinct from
+partitioned positioned subplots in guide/legend/domain sharing keys, debug
+paths, and future broadcast/filter/skip work.
 
-Parent Cartesian `x`/`y` scales are built before coordinate measurement. If
-partitioned placement aggregation is deferred to measurement, scale inference
-must still see the placement-summary values. Otherwise users would need to set
-explicit parent domains for every partitioned subplot chart.
+Scene group names can continue to include the child index for uniqueness, but
+partitioned groups should also include a formatted partition value when no user
+key is provided. That makes debug output intelligible without making identity
+depend on string formatting.
 
-Preferred work:
+### Scale And Domain Behavior
 
-- Reuse or extract the existing aggregate-channel planning logic from
-  `Plot::compile_mark_with_aggregation`.
-- Teach the scale-builder path to handle aggregate channel expressions when a
-  mark's aggregate transformation is deferred to runtime.
-- For partitioned Cartesian subplots, infer `x`/`y` domains from the placement
-  summary, not from raw rows.
+No temporary explicit-domain requirement. The complete feature should infer
+parent placement domains.
 
-Pragmatic fallback if this chunk gets too large:
+Expected behavior:
 
-- Temporarily require explicit parent `x`/`y` domains for partitioned
-  aggregate placement and return a clear error when scale inference cannot
-  evaluate aggregate placement domains.
-- This fallback should be short-lived. The intended user experience is inferred
-  domains.
+- Aggregate placement channels infer from the compile-time placement summary.
+- Partition-key placement channels infer from the parent data domain, which is
+  equivalent for min/max or distinct-domain purposes.
+- Literal placement channels remain scalar and do not require a data domain.
+- Child plot domains are built per partition through
+  `ChildFrameRuntime::prepare_plot`, then coordinated through the existing
+  child-frame domain sharing machinery.
 
-Validation:
+If implementation reveals a case where scale inference still sees raw rows
+instead of partition summaries, fix the scale-builder path as part of this
+milestone rather than deferring it. The intended user experience is that the
+example in the Goal section works without explicit parent `x`/`y` domains.
 
-- A test with no explicit parent `x`/`y` domains should infer domains from
-  aggregate placement values.
-- A test nested under an existing facet data override should infer from the
-  current inherited dataframe rather than compile-time top-level data.
+### Measurement And Rendering
 
-### Chunk 5: Visual dogfood
+Keep the existing shape: Cartesian positioned child frames are measured during
+coordinate measurement and rendered from saved measurement state.
 
-Add visual coverage in `avenger-chart/tests/visual_tests/test_cartesian_subplot.rs`.
+Update `measure_cartesian_positioned_subplots(...)` so partitioned and
+non-partitioned children both produce:
 
-Scenarios:
+- `CartesianPositionedChildMeasurement`,
+- `ChildFrameDomainSharingInput`,
+- `ChildFrameRenderPlacement`,
+- child-frame overflow through the existing `CoordMeasurement` implementation.
 
-- Partitioned Cartesian mini bar charts:
-  - parent `x = avg(...)`, `y = avg(...)`,
-  - child plot is a small Cartesian bar chart using inherited partition data.
-- Partitioned Cartesian mini scatter plots:
-  - child plot shows only the partition rows.
-- Optional, after Polar has the needed mark support:
-  - partitioned mini Polar scatter/pie-like child plot.
+Rendering should not recompute partitions. It should read the saved
+`CartesianPositionedChildMeasurement`, pass the saved child measurement and
+saved filtered data override to `build_plot_components(...)`, and translate the
+result into the saved render placement.
 
-No broadcast coverage in this chunk.
+### Error Messages
+
+Add clear errors for:
+
+- partitioned Cartesian subplot without parent data,
+- partitioned Cartesian subplot whose child plot has `.data(...)`,
+- partitioned Cartesian subplot missing `x` or `y`,
+- partitioned Cartesian subplot with raw row-level non-aggregate placement,
+- partitioned Cartesian subplot whose placement summary does not include the
+  partition channel,
+- partitioned Cartesian subplot where `x`, `y`, and partition arrays disagree
+  in length.
+
+These should be `InvalidArgument` when caused by chart author input and
+`InternalError` only for violated internal invariants.
+
+### Tests And Dogfood
+
+Add focused tests before visual baselines:
+
+- compile rejects child plot `.data(...)` in partitioned mode,
+- compile rejects raw row-level `x`/`y` in partitioned mode,
+- aggregate `x`/`y` with `.partition_by(...)` compiles without explicit parent
+  domains,
+- partition-key/literal placement compiles,
+- child group count equals partition count,
+- child groups are positioned at aggregate coordinates,
+- child plot output changes per partition, proving the child sees filtered
+  partition rows.
+
+Add visual coverage in `avenger-chart/tests/visual_tests/test_cartesian_subplot.rs`:
+
+- partitioned Cartesian mini bar charts:
+  parent `x = avg(...)`, `y = avg(...)`, child plot is a small Cartesian bar
+  chart using inherited partition data,
+- partitioned Cartesian mini scatter plots:
+  child plot shows only the partition rows,
+- optional after Polar has the needed mark support:
+  partitioned mini Polar scatter/pie-like child plot.
+
+No broadcast coverage in this milestone.
+
+### Validation For The Milestone
+
+Use a broader validation gate than a tiny mechanical move:
+
+```bash
+cargo check -p avenger-chart --all-targets
+cargo test -p avenger-chart --lib cartesian -- --nocapture
+cargo test -p avenger-chart --test visual_regression cartesian_subplot -- --nocapture
+cargo test --manifest-path avenger-chart-external-test/Cargo.toml -- --nocapture
+cargo clippy --release -p avenger-chart --all-targets
+cargo fmt --all --check
+git diff --check
+```
+
+Run the full release chart lib test if the implementation touches generic mark
+aggregation, scale-builder behavior, or child-frame sharing keys beyond
+Cartesian positioned subplots.
 
 ## Broadcast/Filter/Skip Follow-Up
 
@@ -286,24 +355,22 @@ The first partitioned Cartesian subplot implementation should continue using
 filtered inherited data for all child marks, matching current row/column facet
 behavior.
 
-## Open Questions To Resolve During Implementation
+## Deferred Work
 
-- Should the public method be only `.partition_by(...)`, or should we also add
-  a shorter `.partition(...)` alias later?
-- Should child frame identity gain an explicit `PartitionedPositionedSubplot`
-  variant, or is the current `PositionedSubplot { mark_index, row_index, key }`
-  enough if `key` includes the partition value?
-- Should partition values be labels by default, or remain only identity unless
-  `.label(...)` is provided?
-- Should `plot_width`/`plot_height` eventually accept partition-level
-  expressions? The first step keeps them fixed.
+- Broadcast/filter/skip data selection for child marks inside partitioned
+  containers.
+- A shorter `.partition(...)` alias.
+- Partition-level `plot_width` / `plot_height` / size encodings.
+- Explicit partition ordering.
+- Collision avoidance between overlapping child frames.
+- Polar bar/pie-specific dogfood once Polar has the needed mark support.
 
-## Suggested First Commit
+## Suggested Commit Shape
 
-Start with Chunk 1 plus validation tests. It gives us the public shape and
-strict semantics without touching the measurement loop yet:
+This should land as one feature branch milestone, with commits split only along
+reviewable code boundaries:
 
 ```text
-feat(chart): add partition metadata for Cartesian subplots
+feat(chart): add partitioned Cartesian subplots
+test(chart): cover partitioned Cartesian subplots
 ```
-
