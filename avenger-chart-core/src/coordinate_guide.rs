@@ -168,6 +168,7 @@ pub trait CoordinateGuide: Clone + Default + Send + Sync {
     fn build(self) -> Box<dyn CompiledGuide>;
 }
 
+#[allow(clippy::too_many_arguments)]
 #[async_trait::async_trait]
 #[typetag::serde(tag = "type")]
 pub trait CompiledGuide: Send + Sync + 'static {

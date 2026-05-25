@@ -219,6 +219,7 @@ impl Axis for PolarAxis {
 }
 
 #[allow(async_fn_in_trait)]
+#[allow(clippy::too_many_arguments)]
 #[doc(hidden)]
 pub trait PolarAxisEvaluateExt {
     /// Extract tick values from an Arrow array as Vec<f64>.

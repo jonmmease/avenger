@@ -355,7 +355,7 @@ fn facet_title_for_channel(
     session_context: &SessionContext,
 ) -> Option<String> {
     match explicit_title {
-        Some(title) if title.is_empty() => None,
+        Some("") => None,
         Some(title) => Some(title.to_string()),
         None => compiled_state
             .data

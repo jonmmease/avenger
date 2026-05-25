@@ -9,6 +9,7 @@ use serde_with::{FromInto, serde_as};
 use crate::{SerializableExpr, SerializableScalar};
 
 #[serde_as]
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ScaleRange {
     Numeric(

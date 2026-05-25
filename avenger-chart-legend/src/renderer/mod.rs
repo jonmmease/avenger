@@ -34,6 +34,7 @@ pub fn renderer_for_kind(kind: LegendRendererKind) -> Arc<dyn LegendRenderer> {
 }
 
 /// Trait for implementing custom legend renderers
+#[allow(clippy::too_many_arguments)]
 #[async_trait::async_trait]
 #[typetag::serde(tag = "type")]
 pub trait LegendRenderer: Send + Sync + 'static {
@@ -137,6 +138,7 @@ pub trait LegendRenderer: Send + Sync + 'static {
 }
 
 /// Information about a related channel that may affect legend rendering
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 pub enum ChannelInfo {
     /// Channel that varies based on a scale

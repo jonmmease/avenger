@@ -28,6 +28,7 @@ pub struct ScaleDomain {
 }
 
 #[serde_as]
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ScaleDefaultDomain {
     // Intervals

@@ -300,6 +300,7 @@ fn child_frame_axis_title_scope(
 
 /// Evaluate a Cartesian axis to scene marks.
 #[doc(hidden)]
+#[allow(clippy::too_many_arguments)]
 pub async fn evaluate_cartesian_axis(
     axis: &CartesianAxis,
     channel: &str,

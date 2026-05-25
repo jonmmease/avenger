@@ -9,6 +9,7 @@ use crate::SerializableExpr;
 /// Used to determine how much space a mark needs beyond its base position,
 /// accounting for visual properties like size, stroke width, etc.
 #[serde_as]
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RadiusExpression {
     /// Same radius in all directions (e.g., circular symbols)

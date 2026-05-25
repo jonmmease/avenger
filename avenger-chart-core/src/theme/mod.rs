@@ -253,6 +253,7 @@ pub(crate) mod lab_color;
 pub(crate) mod media_query;
 pub(crate) mod parser;
 pub(crate) mod selector_impl;
+#[allow(clippy::module_inception)]
 mod theme;
 
 use avenger_text::font_resolver::{FontResolver, default_font_resolver};

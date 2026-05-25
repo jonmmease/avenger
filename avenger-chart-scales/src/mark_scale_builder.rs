@@ -1,5 +1,7 @@
 //! Scale building and domain inference from compiled mark channels.
 
+#![allow(clippy::borrowed_box, clippy::too_many_arguments)]
+
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,

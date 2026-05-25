@@ -75,6 +75,7 @@ pub struct ScaleBuilder {
 }
 
 /// Cached data for a single channel's scale
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum ChannelScaleData {
     /// Standard scale: cache final data extents
@@ -515,6 +516,7 @@ impl ScaleBuilder {
     ///
     /// # Returns
     /// HashMap of channel name to ConfiguredScaleWithSpec
+    #[allow(clippy::too_many_arguments)]
     pub async fn build_scales(
         &self,
         width: f32,
