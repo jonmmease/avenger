@@ -15,7 +15,8 @@ pub use compiled::CompiledPlot;
 pub use plot::Plot;
 
 // Re-export title types
-pub use title::{PlotSubtitle, PlotTitle, TitleAlign, TitleSpan};
+pub use avenger_chart_core::{TitleAlign, TitleSpan};
+pub use title::{PlotSubtitle, PlotTitle};
 
 // Re-export specification types
 pub use avenger_chart_core::AxisSpec;

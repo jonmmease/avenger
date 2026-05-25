@@ -60,6 +60,7 @@ pub mod sharing;
 pub mod subplot_child_plot;
 pub mod theme;
 pub mod theme_context;
+pub mod title_spec;
 pub mod zero_d;
 
 #[doc(hidden)]
@@ -172,4 +173,5 @@ pub use subplot_child_plot::{
 };
 pub use theme::{AngleUnit, CssRgba, LengthUnit, Theme, ThemeValue};
 pub use theme_context::ThemeContext;
+pub use title_spec::{TitleAlign, TitleSpan};
 pub use zero_d::ZeroDCoord;

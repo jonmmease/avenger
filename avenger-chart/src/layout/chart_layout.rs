@@ -11,12 +11,14 @@ use taffy::{
 };
 use tracing::debug;
 
-use avenger_chart_core::{AxisPosition, LegendPosition, evaluate_string_expr, maybe::Maybe};
+use avenger_chart_core::{
+    AxisPosition, LegendPosition, TitleSpan, evaluate_string_expr, maybe::Maybe,
+};
 
 use crate::{
     error::AvengerChartError,
     guide::OverflowSpaceRequirement,
-    plot::{PlotSubtitle, PlotTitle, TitleSpan},
+    plot::{PlotSubtitle, PlotTitle},
     render::{LayoutSolution, LegendMeasurements},
     serialization::LogicalExprNodeExt,
     theme::{Theme, ThemeContext},

@@ -780,8 +780,8 @@ boundaries boring.
      `ScaleRange`, `ScaleDomain`, `ScaleDefaultDomain`, `DomainExpr`,
      `ScaleSharing`, `SharingLevel`, `CoordinationAxis`, `PositionConfig`,
      `ScaleRangeBinding`, plot-area range binding endpoint types, `AxisSpec`,
-     `ScaleSpec`, built-in scale marker types, `ScaleTypePreference`,
-     mark-facing scale helper functions, `ChannelConfig`, common channel config structs,
+     `TitleSpan`, `TitleAlign`, `ScaleSpec`, built-in scale marker types,
+     `ScaleTypePreference`, mark-facing scale helper functions, `ChannelConfig`, common channel config structs,
      `ChannelDescriptor`, `ChannelDefault`,
      `BaseChannelName`, `ChannelValue`, `ConditionalValue`, `DataContext`,
      `CompiledDataContext`, `MarkState`, `CompiledMarkState`, `FacetStrategy`,
@@ -848,6 +848,10 @@ boundaries boring.
      serializable spec data.
    - `AxisSpec` now lives in `avenger-chart-core`; the top-level
      `avenger_chart::plot::AxisSpec` path is only a compatibility re-export.
+   - Pure title span/alignment spec enums (`TitleSpan`, `TitleAlign`) now live
+     in `avenger-chart-core`; the top-level plot/prelude paths re-export them.
+     `PlotTitle` and `PlotSubtitle` remain facade-owned for now because they
+     store chart-codec serialized expressions.
 
 2. Extract `avenger-chart-marks`.
    Move built-in generic mark families. The facade keeps
