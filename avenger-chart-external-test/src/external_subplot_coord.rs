@@ -8,15 +8,14 @@
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use avenger_chart::marks::{
-    compile_subplot_payload, CompiledSubplotPayload, Subplot, SubplotContainerCoordinateSystem,
-};
+use avenger_chart::marks::SubplotContainerCoordinateSystem;
 use avenger_chart_core::{
-    AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledGuide, CompiledMark,
-    CompiledMarkCore, CompiledMarkState, CoordMeasurement, CoordinateGuide, CoordinateSystem,
-    CoordinateSystemCore, CoordinateSystemTransform, CoordinateSystemTransformCore,
-    GuideSharingContext, GuideUpdate, LayoutBounds, MarkRuntimeContext, OverflowSpaceRequirement,
-    PlotGeometry, PointGeometry, Theme,
+    compile_subplot_payload, AvengerChartError, ChannelDescriptor, CompiledDataContext,
+    CompiledGuide, CompiledMark, CompiledMarkCore, CompiledMarkState, CompiledSubplotPayload,
+    CoordMeasurement, CoordinateGuide, CoordinateSystem, CoordinateSystemCore,
+    CoordinateSystemTransform, CoordinateSystemTransformCore, GuideSharingContext, GuideUpdate,
+    LayoutBounds, MarkRuntimeContext, OverflowSpaceRequirement, PlotGeometry, PointGeometry,
+    SubplotMarkCore, Theme,
 };
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::{group::Clip, mark::SceneMark};
@@ -45,7 +44,7 @@ impl CoordinateSystem for ExternalSubplotCoord {
 #[async_trait]
 impl SubplotContainerCoordinateSystem for ExternalSubplotCoord {
     async fn compile_subplot_mark(
-        subplot: &Subplot<Self>,
+        subplot: &dyn SubplotMarkCore,
         compiled_state: CompiledMarkState,
         session_context: &datafusion::prelude::SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {

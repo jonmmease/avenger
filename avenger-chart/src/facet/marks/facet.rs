@@ -2,7 +2,7 @@ use crate::chart_core::{
     ColumnDimensionConfig, FacetDimensionConfig, FacetEmptyCellPolicy, MarkRuntimeContext,
     RowDimensionConfig, ScaleSharing, ScaleTypePreference,
 };
-use crate::coords::{CoordinateSystemCore, CoordinateSystemTransformCore, FacetAxis};
+use crate::coords::{CoordinateSystemTransformCore, FacetAxis};
 use crate::error::AvengerChartError;
 use crate::facet::coord::{FacetBandCoordMeasurement, FacetColumn, FacetRow};
 use crate::facet::marks::facet_config::{FacetColChannelConfig, FacetRowChannelConfig};
@@ -15,6 +15,7 @@ use crate::layout::Size2D;
 use crate::marks::{
     ChannelDescriptor, ChannelValue, CompiledMark, CompiledMarkCore, CompiledMarkState,
     CompiledSubplotPayload, Subplot, SubplotContainerCoordinateSystem, SubplotDataSource,
+    SubplotMarkCore,
 };
 use crate::plot::CompiledPlot;
 use crate::plot::compiled::{
@@ -368,8 +369,8 @@ fn facet_title_for_channel(
     }
 }
 
-async fn compile_facet_subplot_child<OuterC: CoordinateSystemCore>(
-    subplot: &Subplot<OuterC>,
+async fn compile_facet_subplot_child(
+    subplot: &dyn SubplotMarkCore,
     session_context: &SessionContext,
 ) -> Result<Arc<CompiledPlot>, AvengerChartError> {
     if subplot.has_plot_level_data() {
@@ -392,23 +393,6 @@ async fn compile_facet_subplot_child<OuterC: CoordinateSystemCore>(
                     .to_string(),
             )
         })
-}
-
-fn validate_no_channel(
-    subplot: &Subplot<impl CoordinateSystemCore>,
-    channel_name: &'static str,
-    outer_label: &str,
-) -> Result<(), AvengerChartError> {
-    if subplot
-        .data_context_ref()
-        .channels()
-        .contains_key(channel_name)
-    {
-        return Err(AvengerChartError::InvalidArgument(format!(
-            "{outer_label} subplots do not support channel `{channel_name}`"
-        )));
-    }
-    Ok(())
 }
 
 /// Compiled subplot mark specialized for the FacetRow outer coordinate system.
@@ -463,11 +447,11 @@ impl CompiledFacetRowSubplot {
 #[async_trait::async_trait]
 impl SubplotContainerCoordinateSystem for FacetRow {
     async fn compile_subplot_mark(
-        subplot: &Subplot<Self>,
+        subplot: &dyn SubplotMarkCore,
         compiled_state: CompiledMarkState,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        validate_no_channel(subplot, ColumnDimensionConfig::channel_name(), "FacetRow")?;
+        subplot.validate_no_channel(ColumnDimensionConfig::channel_name(), "FacetRow")?;
         let compiled_subplot = compile_facet_subplot_child(subplot, session_context).await?;
         let channel_name = RowDimensionConfig::channel_name();
         let facet_title = facet_title_for_channel(
@@ -645,11 +629,11 @@ impl CompiledFacetColumnSubplot {
 #[async_trait::async_trait]
 impl SubplotContainerCoordinateSystem for FacetColumn {
     async fn compile_subplot_mark(
-        subplot: &Subplot<Self>,
+        subplot: &dyn SubplotMarkCore,
         compiled_state: CompiledMarkState,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        validate_no_channel(subplot, RowDimensionConfig::channel_name(), "FacetColumn")?;
+        subplot.validate_no_channel(RowDimensionConfig::channel_name(), "FacetColumn")?;
         let compiled_subplot = compile_facet_subplot_child(subplot, session_context).await?;
         let channel_name = ColumnDimensionConfig::channel_name();
         let facet_title = facet_title_for_channel(

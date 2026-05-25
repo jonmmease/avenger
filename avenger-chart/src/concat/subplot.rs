@@ -18,8 +18,8 @@ use crate::{
     layout::BandDirection,
     marks::{
         ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState,
-        CompiledSubplotPayload, Subplot, SubplotContainerCoordinateSystem, SubplotDataSource,
-        compile_subplot_payload,
+        CompiledSubplotPayload, SubplotContainerCoordinateSystem, SubplotDataSource,
+        SubplotMarkCore, compile_subplot_payload,
     },
     plot::{
         CompiledPlot,
@@ -32,7 +32,7 @@ use crate::{
 #[async_trait::async_trait]
 impl SubplotContainerCoordinateSystem for HConcat {
     async fn compile_subplot_mark(
-        subplot: &Subplot<Self>,
+        subplot: &dyn SubplotMarkCore,
         compiled_state: CompiledMarkState,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
@@ -47,7 +47,7 @@ impl SubplotContainerCoordinateSystem for HConcat {
 #[async_trait::async_trait]
 impl SubplotContainerCoordinateSystem for VConcat {
     async fn compile_subplot_mark(
-        subplot: &Subplot<Self>,
+        subplot: &dyn SubplotMarkCore,
         compiled_state: CompiledMarkState,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {

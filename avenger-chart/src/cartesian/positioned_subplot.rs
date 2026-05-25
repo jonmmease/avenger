@@ -31,7 +31,7 @@ use crate::{
     layout::Size2D,
     marks::{
         ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState,
-        CompiledSubplotPayload, Mark, Subplot, SubplotContainerCoordinateSystem,
+        CompiledSubplotPayload, Mark, Subplot, SubplotContainerCoordinateSystem, SubplotMarkCore,
         compile_subplot_payload,
     },
     plot::compiled::{
@@ -139,7 +139,7 @@ where
 #[async_trait::async_trait]
 impl SubplotContainerCoordinateSystem for Cartesian {
     async fn compile_subplot_mark(
-        subplot: &Subplot<Self>,
+        subplot: &dyn SubplotMarkCore,
         compiled_state: CompiledMarkState,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {

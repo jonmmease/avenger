@@ -285,16 +285,17 @@ impl<OuterC: CoordinateSystemCore> SubplotMarkCore for Subplot<OuterC> {
 
 #[async_trait::async_trait]
 pub trait SubplotContainerCoordinateSystem: CoordinateSystem + Sized {
-    /// Compile a `Subplot<Self>` mark for this coordinate system.
+    /// Compile a subplot mark for this coordinate system.
     ///
-    /// Outer-coordinate-specific builder methods still live on `Subplot<Self>`
-    /// extension impls. This hook only owns the final conversion from a generic
-    /// subplot mark plus compiled mark state into the coordinate-system-specific
-    /// compiled mark. The core layout engine keeps facet and concat behavior
-    /// built in; external coordinate crates can implement this hook when their
-    /// coordinate system supports positioned child plots.
+    /// Outer-coordinate-specific builder methods still live on concrete
+    /// `Subplot<...>` extension traits. This hook only owns the final
+    /// conversion from a generic subplot mark view plus compiled mark state
+    /// into the coordinate-system-specific compiled mark. The core layout
+    /// engine keeps facet and concat behavior built in; external coordinate
+    /// crates can implement this hook when their coordinate system supports
+    /// positioned child plots.
     async fn compile_subplot_mark(
-        subplot: &Subplot<Self>,
+        subplot: &dyn SubplotMarkCore,
         compiled_state: CompiledMarkState,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError>;

@@ -521,9 +521,10 @@ Migration discipline:
    - The neutral `Subplot<OuterC>` type is now bounded only by
      `CoordinateSystemCore`, and shared payload compilation is expressed
      through the core `SubplotMarkCore` view. The
-     `SubplotContainerCoordinateSystem` compile hook still lives with the
-     top-level mark module until its signature no longer depends on the
-     concrete facade-owned `Subplot` type.
+     `SubplotContainerCoordinateSystem` compile hook now also takes
+     `&dyn SubplotMarkCore` instead of `&Subplot<Self>`, but it still lives
+     with the top-level mark module until the Cartesian hook implementation can
+     move to the Cartesian crate.
    - Top-level consumers now use hidden `Subplot` accessor methods for
      child-frame sizing, facet row/column options, channel injection, and
      data-context inspection instead of reaching into crate-private config
@@ -559,8 +560,9 @@ Migration discipline:
    - Moving `Subplot` itself into `avenger-chart-marks` must follow the same
      extension-trait pattern used for coordinate-specific position channels.
      A direct move would violate Rust orphan rules for the facade-owned
-     Cartesian subplot compile-hook impl because both `Subplot` and
-     `Cartesian` already live outside the facade crate.
+     Cartesian subplot compile-hook impl because `Cartesian` already lives
+     outside the facade crate and the hook trait has not yet moved to the
+     lower boundary where Cartesian can own its implementation.
 
 8. Replace concrete guide sharing context with an opaque core view.
    `CoordinateGuide` should receive a core-owned `GuideSharingContext` that
@@ -859,7 +861,8 @@ boundaries boring.
    - The next real mark move is neutral `Subplot`, but it should wait until the
      coordinate subplot hook no longer pulls top-level plot/layout runtime
      types into the mark crate. The compiled child payload boundary is now
-     core-owned.
+     core-owned, and the hook signature now uses the core `SubplotMarkCore`
+     view rather than the concrete facade-owned `Subplot` type.
    - `avenger-chart` now depends on `avenger-chart-marks`, and
      `avenger-chart/src/marks/data_context.rs`,
      `avenger-chart/src/marks/compiled_data_context.rs`, and
