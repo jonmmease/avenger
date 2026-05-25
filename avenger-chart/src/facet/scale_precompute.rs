@@ -840,7 +840,7 @@ pub(crate) async fn ensure_subtree_precomputed(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scales::domain_extent::{DomainExtent, SerializableDomainValue};
+    use avenger_chart_scales::domain_extent::{DomainExtent, SerializableDomainValue};
 
     fn s_utf8(value: &str) -> ScalarValue {
         ScalarValue::Utf8(Some(value.to_string()))

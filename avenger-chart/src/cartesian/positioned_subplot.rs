@@ -8,6 +8,7 @@
 use std::{any::Any, collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 use avenger_chart_core::coerce_numeric_channel_with_renderer;
+use avenger_chart_scales::DomainExtent;
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
@@ -379,7 +380,7 @@ async fn measure_positioned_child(
     total_child_count: usize,
     eval_ctx: &EvaluationContext,
     facet_path: &[ScalarValue],
-    domain_extents: &HashMap<String, crate::scales::DomainExtent>,
+    domain_extents: &HashMap<String, DomainExtent>,
 ) -> Result<CartesianPositionedChildMeasurement, AvengerChartError> {
     let runtime = ChildFrameRuntime::new();
     let child_layout_spec = runtime.fixed_plot_area_layout_spec(

@@ -12,10 +12,10 @@
 
 use std::collections::HashSet;
 
+use avenger_chart_core::{AvengerChartError, FacetAxis};
 use tracing::{debug, trace};
 
 use crate::{
-    error::AvengerChartError,
     facet::{
         coord::renderable_for_empty_policy,
         coordination_apply::{
@@ -539,8 +539,8 @@ pub(crate) fn validate_retarget_plan_coverage(
         }
         let slabs = FacetOverflowSlabs::from_coordinated(&node.requirements.coordinated_overflow);
         let (legend_start, legend_end) = match node.requirements.axis {
-            crate::coords::FacetAxis::Column => slabs.legend_vertical(),
-            crate::coords::FacetAxis::Row => slabs.legend_horizontal(),
+            FacetAxis::Column => slabs.legend_vertical(),
+            FacetAxis::Row => slabs.legend_horizontal(),
         };
         if (node.requirements.legend_main_axis_slab.start - legend_start).abs() > 0.01
             || (node.requirements.legend_main_axis_slab.end - legend_end).abs() > 0.01

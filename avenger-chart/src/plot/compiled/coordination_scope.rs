@@ -184,9 +184,8 @@ impl From<&str> for CoordinationChannel {
 
 #[cfg(test)]
 mod tests {
+    use avenger_chart_core::FacetAxis;
     use datafusion::common::ScalarValue;
-
-    use crate::coords::FacetAxis;
 
     use super::*;
 

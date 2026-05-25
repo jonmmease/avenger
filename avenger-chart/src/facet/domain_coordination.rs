@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use avenger_chart_core::SharingLevel;
+use avenger_chart_scales::DomainExtent;
 use datafusion::common::ScalarValue;
 
 use crate::{
@@ -9,7 +10,6 @@ use crate::{
     plot::compiled::{
         ChildFrameDomainRequest, CoordinationKind, CoordinationScopeKey, aggregate_domain_requests,
     },
-    scales::domain_extent::DomainExtent,
 };
 
 pub(crate) fn aggregate_domain_extents(
@@ -107,7 +107,9 @@ pub(crate) fn domain_coordination_scope_key(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scales::domain_extent::{DomainBounds, DomainExtent, SerializableDomainValue};
+    use avenger_chart_scales::domain_extent::{
+        DomainBounds, DomainExtent, SerializableDomainValue,
+    };
 
     fn s(value: &str) -> ScalarValue {
         ScalarValue::Utf8(Some(value.to_string()))

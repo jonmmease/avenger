@@ -11,10 +11,12 @@
 
 use std::{collections::HashMap, hash::Hash};
 
-use avenger_chart_core::{AxisPosition, CoordinationAxis};
+use avenger_chart_core::{
+    AxisPosition, CoordinatedLayout, CoordinatedOverflow, CoordinationAxis, FacetAxis,
+    OverflowSpaceRequirement,
+};
 
 use crate::{
-    coords::{CoordinatedLayout, CoordinatedOverflow, FacetAxis},
     facet::overflow_projection::{FacetOverflowProjection, project_facet_overflow},
     plot::compiled::{CoordinationKind, CoordinationScopeKey},
 };
@@ -578,11 +580,7 @@ fn side_is_start(side: AxisPosition) -> bool {
     matches!(side, AxisPosition::Left | AxisPosition::Top)
 }
 
-fn set_overflow_side(
-    overflow: &mut crate::coords::OverflowSpaceRequirement,
-    side: AxisPosition,
-    value: f32,
-) {
+fn set_overflow_side(overflow: &mut OverflowSpaceRequirement, side: AxisPosition, value: f32) {
     match side {
         AxisPosition::Top => overflow.top = value,
         AxisPosition::Right => overflow.right = value,
@@ -768,7 +766,6 @@ pub(crate) fn build_requirement_pass(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::coords::OverflowSpaceRequirement;
 
     fn overflow(top: f32, right: f32, bottom: f32, left: f32) -> CoordinatedOverflow {
         CoordinatedOverflow {

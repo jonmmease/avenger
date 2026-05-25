@@ -272,7 +272,7 @@ mod tests {
         let path = vec![
             ContainerPathSegment::concat_child(0, Some("outer")),
             ContainerPathSegment::facet_value(
-                crate::coords::FacetAxis::Row,
+                avenger_chart_core::FacetAxis::Row,
                 0,
                 ScalarValue::Utf8(Some("A".to_string())),
             ),

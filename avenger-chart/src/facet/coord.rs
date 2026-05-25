@@ -14,16 +14,18 @@ use datafusion::{common::ScalarValue, dataframe::DataFrame, scalar::ScalarValue 
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace};
 
-use avenger_chart_core::{AxisPosition, FacetEmptyCellPolicy, SharingLevel};
+use avenger_chart_core::{
+    AvengerChartError, AxisPosition, CoordMeasurement, CoordinateSystem, CoordinateSystemCore,
+    CoordinateSystemTransform, CoordinateSystemTransformCore, CoordinatedLayout,
+    CoordinatedOverflow, FacetAxis, FacetEmptyCellPolicy, PlotGeometry, SharingLevel,
+    SubplotGeometry, SubplotRect,
+};
+#[cfg(test)]
+use avenger_chart_core::{GuideSharingContext, OverflowSpaceRequirement};
 
 use crate::{
     container::{ChildFrameKey, ChildFrameScopeKey, ContainerPathSegment},
-    coords::{
-        CellDomainInfo, CoordMeasurement, CoordinateSystem, CoordinateSystemCore,
-        CoordinateSystemTransform, CoordinateSystemTransformCore, CoordinatedLayout,
-        CoordinatedOverflow, FacetAxis, PlotGeometry, SubplotGeometry, SubplotRect,
-    },
-    error::AvengerChartError,
+    coords::CellDomainInfo,
     facet::FacetDirection,
     facet::{
         band_attributes::{
@@ -81,8 +83,6 @@ use crate::{
     },
 };
 
-#[cfg(test)]
-use crate::coords::OverflowSpaceRequirement;
 #[cfg(test)]
 use crate::facet::coordination_plans::CellRetargetAction;
 #[cfg(test)]
@@ -3345,7 +3345,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                     .iter()
                     .map(|(name, scale)| (name.clone(), scale.configured().clone()))
                     .collect::<HashMap<_, _>>();
-                let sharing_context = crate::guide::GuideSharingContext::new(
+                let sharing_context = GuideSharingContext::new(
                     self.eval_ctx.facet_tree.as_ref(),
                     self.facet_path,
                     self.eval_ctx.child_frame_sharing_path(),
@@ -4151,13 +4151,11 @@ mod tests {
     use super::*;
     use crate::facet::FacetDirection;
     use crate::facet::evaluated_facet_tree::{EvaluatedFacetTree, PartitionNode};
-    use crate::layout::{LayoutBounds, Size2D};
     use crate::prelude::*;
     use crate::render::LegendMeasurements;
     use crate::render::types::LegendMeasurement;
-    use crate::scales::{Linear, Scale};
-    use crate::theme::Theme;
-    use avenger_chart_core::LegendPosition;
+    use avenger_chart_core::{LayoutBounds, LegendPosition, Size2D, Theme};
+    use avenger_chart_scales::{Linear, Scale};
     use avenger_scales::scales::{band::BandScale, linear::LinearScale};
     use datafusion::prelude::SessionContext;
     use indexmap::IndexMap;

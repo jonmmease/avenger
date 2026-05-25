@@ -1131,6 +1131,10 @@ boundaries boring.
      coordinate, legend, theme, serialization, and scale contracts to the
      owner crates while leaving the concrete plot/layout runtime in
      `avenger-chart`.
+   - Rewired remaining facet coordination and child-frame view source imports
+     for core overflow, axis, measurement, layout, and scale-domain value types
+     to the core/scale owner crates. Top-level coordinate-measurement
+     dispatch helpers remain in `avenger-chart`.
    - Removed the final `chart_core` staging namespace after rewiring internal
      imports directly to `avenger-chart-core`. Public compatibility paths such
      as `avenger_chart::maybe`, `param`, `error`, `coords`, `guide`, and

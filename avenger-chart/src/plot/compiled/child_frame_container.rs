@@ -6,14 +6,15 @@
 
 use std::collections::HashSet;
 
+use avenger_chart_core::{
+    AvengerChartError, CoordMeasurement, FrameAllocation, OverflowSpaceRequirement,
+};
+
 use crate::{
     cartesian::positioned_subplot::CartesianPositionedCoordMeasurement,
     concat::ConcatCoordMeasurement,
     container::{ChildFramePlacementResult, project_child_frame_bounds},
-    error::AvengerChartError,
     facet::{coord::FacetBandCoordMeasurement, placement::resolve_facet_child_frame_placement},
-    guide::OverflowSpaceRequirement,
-    layout::FrameAllocation,
     partition::format_partition_value,
 };
 
@@ -94,7 +95,7 @@ impl ComponentsMeasurement {
 }
 
 pub(crate) fn child_frame_container_view_for_coord_measurement<'a>(
-    coord_measurement: &'a dyn crate::coords::CoordMeasurement,
+    coord_measurement: &'a dyn CoordMeasurement,
     measurement: &'a ComponentsMeasurement,
 ) -> Result<Option<ChildFrameContainerView<'a>>, AvengerChartError> {
     if let Some(concat) = coord_measurement
