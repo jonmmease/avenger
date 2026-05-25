@@ -36,6 +36,12 @@ pub(crate) enum ChildFrameKey {
         row_index: usize,
         key: Option<String>,
     },
+    /// Child subplot positioned from a partitioned parent-coordinate mark.
+    PositionedPartition {
+        mark_index: usize,
+        value: ScalarValue,
+        key: Option<String>,
+    },
     /// Facet cell value at one row/column facet level.
     FacetValue {
         axis: FacetAxis,
@@ -53,6 +59,12 @@ pub(crate) enum ContainerPathSegment {
     PositionedSubplot {
         mark_index: usize,
         row_index: usize,
+        key: Option<String>,
+    },
+    /// Child subplot positioned from a partitioned coordinate-system ancestor.
+    PositionedPartition {
+        mark_index: usize,
+        value: ScalarValue,
         key: Option<String>,
     },
     /// Facet cell value at one row/column facet level.
@@ -79,6 +91,18 @@ impl ContainerPathSegment {
         Self::PositionedSubplot {
             mark_index,
             row_index,
+            key: key.map(ToOwned::to_owned),
+        }
+    }
+
+    pub(crate) fn positioned_partition(
+        mark_index: usize,
+        value: ScalarValue,
+        key: Option<&str>,
+    ) -> Self {
+        Self::PositionedPartition {
+            mark_index,
+            value,
             key: key.map(ToOwned::to_owned),
         }
     }
@@ -142,6 +166,21 @@ impl ChildFrameSharingLevel {
             index,
             count,
             segment: ContainerPathSegment::positioned_subplot(mark_index, row_index, key),
+        }
+    }
+
+    pub(crate) fn positioned_partition(
+        index: usize,
+        count: usize,
+        mark_index: usize,
+        value: ScalarValue,
+        key: Option<&str>,
+    ) -> Self {
+        Self {
+            axis: CoordinationAxis::Positioned,
+            index,
+            count,
+            segment: ContainerPathSegment::positioned_partition(mark_index, value, key),
         }
     }
 }

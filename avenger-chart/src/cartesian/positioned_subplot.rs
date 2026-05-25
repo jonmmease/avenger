@@ -7,11 +7,17 @@
 
 use std::{any::Any, collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
-use avenger_chart_core::coerce_numeric_channel_with_renderer;
+use avenger_chart_cartesian::CARTESIAN_SUBPLOT_PARTITION_CHANNEL;
+use avenger_chart_core::{
+    DefaultLogicalExprNodeExt, coerce_numeric_channel_with_renderer, scalar_total_cmp,
+};
 use avenger_chart_scales::DomainExtent;
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
-use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
+use datafusion::{
+    arrow::record_batch::RecordBatch, common::ScalarValue, dataframe::DataFrame, logical_expr::lit,
+    prelude::SessionContext,
+};
 
 use crate::{
     cartesian::CompiledCartesianSubplot,
@@ -23,11 +29,13 @@ use crate::{
     error::AvengerChartError,
     layout::Size2D,
     marks::{CompiledMark, CompiledMarkCore},
+    partition::format_partition_value,
     plot::compiled::{
         ChildFrameDataSelection, ChildFrameDomainSharingInput, ChildFrameRuntime, CompiledPlot,
-        ComponentsMeasurement, MarkDataRequest, child_frame_container_overflow,
-        child_frame_container_view_from_cartesian_positioned, compiled_subplot_payload_child_plot,
-        coordinated_child_frame_domain_extents, prepare_mark_data_runtime,
+        ComponentsMeasurement, MarkDataRequest, PreparedChildFramePlot,
+        child_frame_container_overflow, child_frame_container_view_from_cartesian_positioned,
+        compiled_subplot_payload_child_plot, coordinated_child_frame_domain_extents,
+        prepare_mark_data_runtime,
     },
     render::{EvaluationContext, RenderContext},
     scales::ConfiguredScaleWithSpec,
@@ -67,13 +75,7 @@ pub(crate) fn render_cartesian_subplot_with_context<'a>(
             let child_plot = cartesian_subplot_child_plot(subplot);
             let mut params = child_plot.get_default_params().clone();
             params.extend(context.eval.params.clone());
-            let sharing_level = ChildFrameSharingLevel::positioned_subplot(
-                child.child_index,
-                child_count,
-                child.mark_index,
-                child.row_index,
-                child.key.as_deref(),
-            );
+            let sharing_level = child.sharing_level(child_count);
             let child_eval_ctx = context
                 .eval
                 .with_params(params)
@@ -102,7 +104,7 @@ pub(crate) fn render_cartesian_subplot_with_context<'a>(
             all_marks.extend(components.debug_marks);
 
             marks.push(SceneMark::Group(SceneGroup {
-                name: subplot.group_name(child.child_index),
+                name: child.group_name(),
                 origin: render_placement.origin,
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 marks: all_marks,
@@ -185,7 +187,7 @@ impl CoordMeasurement for CartesianPositionedCoordMeasurement {
 pub(crate) struct CartesianPositionedChildMeasurement {
     pub(crate) child_index: usize,
     pub(crate) mark_index: usize,
-    pub(crate) row_index: usize,
+    pub(crate) identity: PositionedChildIdentity,
     pub(crate) key: Option<String>,
     pub(crate) label: Option<String>,
     pub(crate) container_path: Vec<ContainerPathSegment>,
@@ -198,9 +200,37 @@ impl CartesianPositionedChildMeasurement {
         positioned_child_scope_key(
             &self.container_path,
             self.mark_index,
-            self.row_index,
+            &self.identity,
             self.key.as_deref(),
         )
+    }
+
+    pub(crate) fn sharing_level(&self, child_count: usize) -> ChildFrameSharingLevel {
+        positioned_child_sharing_level(
+            self.child_index,
+            child_count,
+            self.mark_index,
+            &self.identity,
+            self.key.as_deref(),
+        )
+    }
+
+    pub(crate) fn group_name(&self) -> String {
+        match (self.key.as_deref(), &self.identity) {
+            (Some(key), _) => format!(
+                "cartesian_subplot_{}_{}_{}",
+                self.mark_index, self.child_index, key
+            ),
+            (None, PositionedChildIdentity::Partition { value }) => format!(
+                "cartesian_subplot_{}_{}_{}",
+                self.mark_index,
+                self.child_index,
+                format_partition_value(value)
+            ),
+            (None, PositionedChildIdentity::Row { .. }) => {
+                format!("cartesian_subplot_{}_{}", self.mark_index, self.child_index)
+            }
+        }
     }
 }
 
@@ -215,17 +245,49 @@ pub(crate) fn cartesian_positioned_coord_ref(
 fn positioned_child_scope_key(
     container_path: &[ContainerPathSegment],
     mark_index: usize,
-    row_index: usize,
+    identity: &PositionedChildIdentity,
     key: Option<&str>,
 ) -> ChildFrameScopeKey {
-    ChildFrameScopeKey::new(
-        container_path.to_vec(),
-        ChildFrameKey::PositionedSubplot {
+    let child_key = match identity {
+        PositionedChildIdentity::Row { row_index } => ChildFrameKey::PositionedSubplot {
             mark_index,
-            row_index,
+            row_index: *row_index,
             key: key.map(ToOwned::to_owned),
         },
-    )
+        PositionedChildIdentity::Partition { value } => ChildFrameKey::PositionedPartition {
+            mark_index,
+            value: value.clone(),
+            key: key.map(ToOwned::to_owned),
+        },
+    };
+    ChildFrameScopeKey::new(container_path.to_vec(), child_key)
+}
+
+fn positioned_child_sharing_level(
+    child_index: usize,
+    child_count: usize,
+    mark_index: usize,
+    identity: &PositionedChildIdentity,
+    key: Option<&str>,
+) -> ChildFrameSharingLevel {
+    match identity {
+        PositionedChildIdentity::Row { row_index } => ChildFrameSharingLevel::positioned_subplot(
+            child_index,
+            child_count,
+            mark_index,
+            *row_index,
+            key,
+        ),
+        PositionedChildIdentity::Partition { value } => {
+            ChildFrameSharingLevel::positioned_partition(
+                child_index,
+                child_count,
+                mark_index,
+                value.clone(),
+                key,
+            )
+        }
+    }
 }
 
 fn expanded_values(
@@ -243,21 +305,154 @@ fn expanded_values(
     }
 }
 
+fn record_batch_channel_values(
+    batch: &RecordBatch,
+    channel: &str,
+) -> Result<Option<Vec<ScalarValue>>, AvengerChartError> {
+    let Some(column) = batch.column_by_name(channel) else {
+        return Ok(None);
+    };
+
+    let mut values = Vec::with_capacity(batch.num_rows());
+    for row in 0..batch.num_rows() {
+        values.push(ScalarValue::try_from_array(column, row)?);
+    }
+    Ok(Some(values))
+}
+
+fn scalar_values_for_channel(
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+) -> Result<Vec<ScalarValue>, AvengerChartError> {
+    if let Some(data_batch) = data
+        && let Some(values) = record_batch_channel_values(data_batch, channel)?
+    {
+        return Ok(values);
+    }
+
+    if let Some(values) = record_batch_channel_values(scalars, channel)? {
+        return Ok(values);
+    }
+
+    Err(AvengerChartError::InternalError(format!(
+        "Cartesian subplot channel `{channel}` was not prepared"
+    )))
+}
+
+fn expanded_scalar_values(
+    values: &[ScalarValue],
+    len: usize,
+    channel: &str,
+) -> Result<Vec<ScalarValue>, AvengerChartError> {
+    if values.len() == len {
+        Ok(values.to_vec())
+    } else if values.len() == 1 {
+        Ok(vec![values[0].clone(); len])
+    } else {
+        Err(AvengerChartError::InternalError(format!(
+            "Cartesian subplot channel `{channel}` produced {} values but expected {len}",
+            values.len()
+        )))
+    }
+}
+
+fn partitioned_child_specs(
+    subplot: &CompiledCartesianSubplot,
+    xs: &[f32],
+    ys: &[f32],
+    partition_values: &[ScalarValue],
+    next_child_index: &mut usize,
+) -> Vec<PositionedChildSpec> {
+    let mut specs = Vec::new();
+
+    for row_index in 0..partition_values.len() {
+        let value = partition_values[row_index].clone();
+        if specs.iter().any(|spec: &PositionedChildSpec| {
+            matches!(
+                &spec.identity,
+                PositionedChildIdentity::Partition { value: existing } if existing == &value
+            )
+        }) {
+            continue;
+        }
+
+        specs.push(PositionedChildSpec {
+            child_index: 0,
+            mark_index: subplot.mark_index(),
+            identity: PositionedChildIdentity::Partition {
+                value: value.clone(),
+            },
+            key: subplot.key().map(ToOwned::to_owned),
+            label: subplot
+                .label()
+                .map(ToOwned::to_owned)
+                .or_else(|| Some(format_partition_value(&value))),
+            x: xs[row_index],
+            y: ys[row_index],
+        });
+    }
+
+    specs.sort_by(|a, b| match (&a.identity, &b.identity) {
+        (
+            PositionedChildIdentity::Partition { value: a },
+            PositionedChildIdentity::Partition { value: b },
+        ) => scalar_total_cmp(a, b),
+        _ => std::cmp::Ordering::Equal,
+    });
+
+    for spec in &mut specs {
+        spec.child_index = *next_child_index;
+        *next_child_index += 1;
+    }
+
+    specs
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum PositionedChildIdentity {
+    Row { row_index: usize },
+    Partition { value: ScalarValue },
+}
+
 #[derive(Debug, Clone)]
 struct PositionedChildSpec {
     child_index: usize,
     mark_index: usize,
-    row_index: usize,
+    identity: PositionedChildIdentity,
     key: Option<String>,
     label: Option<String>,
     x: f32,
     y: f32,
 }
 
+enum PreparedPositionedChildPlots<'a> {
+    Shared(PreparedChildFramePlot<'a>),
+    PerChild(Vec<PreparedChildFramePlot<'a>>),
+}
+
 struct PreparedPositionedSubplot<'a> {
     subplot: &'a CompiledCartesianSubplot,
-    child_plot: crate::plot::compiled::PreparedChildFramePlot<'a>,
+    child_plots: PreparedPositionedChildPlots<'a>,
     child_specs: Vec<PositionedChildSpec>,
+}
+
+impl<'a> PreparedPositionedSubplot<'a> {
+    fn child_plot(
+        &self,
+        spec_index: usize,
+    ) -> Result<&PreparedChildFramePlot<'a>, AvengerChartError> {
+        match &self.child_plots {
+            PreparedPositionedChildPlots::Shared(child_plot) => Ok(child_plot),
+            PreparedPositionedChildPlots::PerChild(child_plots) => {
+                child_plots.get(spec_index).ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Missing Cartesian positioned child plot for spec index {spec_index}"
+                    ))
+                })
+            }
+        }
+    }
 }
 
 fn mark_inherited_data(
@@ -272,6 +467,115 @@ fn mark_inherited_data(
 }
 
 #[allow(clippy::too_many_arguments)]
+async fn prepare_partitioned_positioned_subplot<'a>(
+    subplot: &'a CompiledCartesianSubplot,
+    scales: &HashMap<String, ConfiguredScaleWithSpec>,
+    plot_width: f32,
+    plot_height: f32,
+    eval_ctx: &EvaluationContext,
+    data: Option<&DataFrame>,
+    facet_path: &[ScalarValue],
+    next_child_index: &mut usize,
+) -> Result<Option<PreparedPositionedSubplot<'a>>, AvengerChartError> {
+    let ctx = eval_ctx.session_context.as_ref();
+    let parent_data = data.ok_or_else(|| {
+        AvengerChartError::InvalidArgument(
+            "Partitioned Cartesian subplots require parent plot data".to_string(),
+        )
+    })?;
+    let partition_expr = subplot
+        .partition_expr()
+        .ok_or_else(|| {
+            AvengerChartError::InternalError(
+                "Partitioned Cartesian subplot is missing its partition expression".to_string(),
+            )
+        })?
+        .to_expr(ctx)?;
+
+    let prepared_mark = prepare_mark_data_runtime(MarkDataRequest {
+        mark: subplot,
+        plot_data: None,
+        provided_plot_df: data,
+        eval_ctx,
+        scales,
+        plot_width,
+        plot_height,
+    })
+    .await?;
+    let Some(prepared_mark) = prepared_mark else {
+        return Ok(None);
+    };
+
+    let empty_coord = EmptyCoordMeasurement;
+    let render_ctx = RenderContext::new(
+        eval_ctx,
+        &prepared_mark.render_state,
+        facet_path,
+        &empty_coord,
+    );
+    let mark_context = render_ctx.core_view();
+    let x = coerce_numeric_channel_with_renderer(
+        subplot,
+        prepared_mark.data_batch.as_ref(),
+        &prepared_mark.scalar_batch,
+        "x",
+        &mark_context,
+        0.0,
+    )?;
+    let y = coerce_numeric_channel_with_renderer(
+        subplot,
+        prepared_mark.data_batch.as_ref(),
+        &prepared_mark.scalar_batch,
+        "y",
+        &mark_context,
+        0.0,
+    )?;
+    let partition_values = scalar_values_for_channel(
+        prepared_mark.data_batch.as_ref(),
+        &prepared_mark.scalar_batch,
+        CARTESIAN_SUBPLOT_PARTITION_CHANNEL,
+    )?;
+
+    let child_count = x.len().max(y.len()).max(partition_values.len()).max(1);
+    let xs = expanded_values(&x, child_count, "x")?;
+    let ys = expanded_values(&y, child_count, "y")?;
+    let partition_values = expanded_scalar_values(
+        &partition_values,
+        child_count,
+        CARTESIAN_SUBPLOT_PARTITION_CHANNEL,
+    )?;
+    let child_specs =
+        partitioned_child_specs(subplot, &xs, &ys, &partition_values, next_child_index);
+
+    let runtime = ChildFrameRuntime::new();
+    let mut child_plots = Vec::with_capacity(child_specs.len());
+    for spec in &child_specs {
+        let PositionedChildIdentity::Partition { value } = &spec.identity else {
+            continue;
+        };
+        let filtered_data = parent_data
+            .clone()
+            .filter(partition_expr.clone().eq(lit(value.clone())))?;
+        child_plots.push(
+            runtime
+                .prepare_plot(
+                    cartesian_subplot_child_plot(subplot),
+                    ChildFrameDataSelection::InheritParent,
+                    Some(&filtered_data),
+                    eval_ctx,
+                )
+                .await?,
+        );
+    }
+
+    Ok(Some(PreparedPositionedSubplot {
+        subplot,
+        child_plots: PreparedPositionedChildPlots::PerChild(child_plots),
+        child_specs,
+    }))
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn prepare_positioned_subplot<'a>(
     subplot: &'a CompiledCartesianSubplot,
     scales: &HashMap<String, ConfiguredScaleWithSpec>,
@@ -282,6 +586,20 @@ async fn prepare_positioned_subplot<'a>(
     facet_path: &[ScalarValue],
     next_child_index: &mut usize,
 ) -> Result<Option<PreparedPositionedSubplot<'a>>, AvengerChartError> {
+    if subplot.is_partitioned() {
+        return prepare_partitioned_positioned_subplot(
+            subplot,
+            scales,
+            plot_width,
+            plot_height,
+            eval_ctx,
+            data,
+            facet_path,
+            next_child_index,
+        )
+        .await;
+    }
+
     let prepared_mark = prepare_mark_data_runtime(MarkDataRequest {
         mark: subplot,
         plot_data: None,
@@ -331,7 +649,7 @@ async fn prepare_positioned_subplot<'a>(
         child_specs.push(PositionedChildSpec {
             child_index,
             mark_index: subplot.mark_index(),
-            row_index,
+            identity: PositionedChildIdentity::Row { row_index },
             key: subplot.key().map(ToOwned::to_owned),
             label: subplot.label().map(ToOwned::to_owned),
             x: xs[row_index],
@@ -358,7 +676,7 @@ async fn prepare_positioned_subplot<'a>(
 
     Ok(Some(PreparedPositionedSubplot {
         subplot,
-        child_plot,
+        child_plots: PreparedPositionedChildPlots::Shared(child_plot),
         child_specs,
     }))
 }
@@ -376,6 +694,7 @@ fn positioned_render_origin(
 #[allow(clippy::too_many_arguments)]
 async fn measure_positioned_child(
     prepared: &PreparedPositionedSubplot<'_>,
+    spec_index: usize,
     spec: &PositionedChildSpec,
     total_child_count: usize,
     eval_ctx: &EvaluationContext,
@@ -387,16 +706,16 @@ async fn measure_positioned_child(
         prepared.subplot.plot_width(),
         prepared.subplot.plot_height(),
     );
-    let sharing_level = ChildFrameSharingLevel::positioned_subplot(
+    let sharing_level = positioned_child_sharing_level(
         spec.child_index,
         total_child_count,
         spec.mark_index,
-        spec.row_index,
+        &spec.identity,
         spec.key.as_deref(),
     );
     let child_eval_ctx = runtime.eval_context(eval_ctx, sharing_level);
-    let measurement = prepared
-        .child_plot
+    let child_plot = prepared.child_plot(spec_index)?;
+    let measurement = child_plot
         .measure(
             &child_eval_ctx,
             &child_layout_spec,
@@ -408,11 +727,11 @@ async fn measure_positioned_child(
     Ok(CartesianPositionedChildMeasurement {
         child_index: spec.child_index,
         mark_index: spec.mark_index,
-        row_index: spec.row_index,
+        identity: spec.identity.clone(),
         key: spec.key.clone(),
         label: spec.label.clone(),
         container_path: eval_ctx.child_frame_container_path().to_vec(),
-        data_override: prepared.child_plot.data_override().cloned(),
+        data_override: child_plot.data_override().cloned(),
         measurement,
     })
 }
@@ -459,7 +778,7 @@ pub(crate) async fn measure_cartesian_positioned_subplots(
             scope_keys.push(positioned_child_scope_key(
                 eval_ctx.child_frame_container_path(),
                 spec.mark_index,
-                spec.row_index,
+                &spec.identity,
                 spec.key.as_deref(),
             ));
         }
@@ -468,11 +787,12 @@ pub(crate) async fn measure_cartesian_positioned_subplots(
     let mut domain_inputs = Vec::with_capacity(next_child_index);
     let mut scope_index = 0usize;
     for prepared in &prepared_subplots {
-        for _spec in &prepared.child_specs {
+        for (spec_index, _spec) in prepared.child_specs.iter().enumerate() {
+            let child_plot = prepared.child_plot(spec_index)?;
             domain_inputs.push(ChildFrameDomainSharingInput::new(
                 &scope_keys[scope_index],
-                prepared.child_plot.local_domain_extents(),
-                prepared.child_plot.channel_domain_sharing_levels(),
+                child_plot.local_domain_extents(),
+                child_plot.channel_domain_sharing_levels(),
             ));
             scope_index += 1;
         }
@@ -483,10 +803,11 @@ pub(crate) async fn measure_cartesian_positioned_subplots(
     let mut render_placements = Vec::with_capacity(next_child_index);
     let mut domain_index = 0usize;
     for prepared in &prepared_subplots {
-        for spec in &prepared.child_specs {
+        for (spec_index, spec) in prepared.child_specs.iter().enumerate() {
             children.push(
                 measure_positioned_child(
                     prepared,
+                    spec_index,
                     spec,
                     next_child_index,
                     eval_ctx,
@@ -510,4 +831,170 @@ pub(crate) async fn measure_cartesian_positioned_subplots(
             render_placements,
         ),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use avenger_scenegraph::marks::{mark::SceneMark, symbol::SceneSymbolMark};
+    use datafusion::{
+        arrow::{
+            array::{Array, Float64Array, StringArray},
+            record_batch::RecordBatch as ArrowRecordBatch,
+        },
+        functions_aggregate::average::avg,
+        prelude::*,
+    };
+
+    use crate::{
+        cartesian::{Cartesian, CartesianSubplotPositionChannels, CartesianSymbolPositionChannels},
+        error::AvengerChartError,
+        marks::Subplot,
+        plot::Plot,
+        scales::ScaleChannelConfig,
+    };
+    use avenger_chart_core::Linear;
+    use avenger_chart_marks::Symbol;
+
+    fn partitioned_parent_data(ctx: &SessionContext) -> DataFrame {
+        let batch = ArrowRecordBatch::try_from_iter(vec![
+            (
+                "group",
+                Arc::new(StringArray::from(vec!["A", "A", "B", "B", "B"])) as Arc<dyn Array>,
+            ),
+            (
+                "px",
+                Arc::new(Float64Array::from(vec![1.0, 1.0, 3.0, 3.0, 3.0])) as Arc<dyn Array>,
+            ),
+            (
+                "py",
+                Arc::new(Float64Array::from(vec![1.0, 1.0, 2.0, 2.0, 2.0])) as Arc<dyn Array>,
+            ),
+            (
+                "x",
+                Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0])) as Arc<dyn Array>,
+            ),
+            (
+                "y",
+                Arc::new(Float64Array::from(vec![1.0, 2.0, 1.5, 2.5, 3.5])) as Arc<dyn Array>,
+            ),
+        ])
+        .expect("partitioned parent batch");
+        ctx.read_batch(batch).expect("partitioned parent data")
+    }
+
+    fn inherited_child_plot() -> Plot<Cartesian> {
+        Plot::<Cartesian>::new().mark(
+            Symbol::new()
+                .x_with(col("x"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((lit(0.0), lit(6.0))))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((lit(0.0), lit(4.0))))
+                }),
+        )
+    }
+
+    fn find_symbol_mark(mark: &SceneMark) -> Option<&SceneSymbolMark> {
+        match mark {
+            SceneMark::Symbol(symbol) => Some(symbol),
+            SceneMark::Group(group) => group.marks.iter().find_map(find_symbol_mark),
+            _ => None,
+        }
+    }
+
+    #[tokio::test]
+    async fn partitioned_cartesian_subplots_filter_child_data() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let plot = Plot::<Cartesian>::new()
+            .plot_size(360.0, 240.0)
+            .data(partitioned_parent_data(&ctx))
+            .mark(
+                Subplot::new(inherited_child_plot())
+                    .partition_by(col("group"))
+                    .x(avg(col("px")))
+                    .y(avg(col("py")))
+                    .plot_size(80.0, 64.0),
+            );
+
+        let compiled = plot.compile(&ctx).await?;
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let group_names = evaluated.scene_graph.group_names();
+        let first_path = group_names
+            .get("cartesian_subplot_0_0_A")
+            .expect("first partitioned subplot group should render");
+        let second_path = group_names
+            .get("cartesian_subplot_0_1_B")
+            .expect("second partitioned subplot group should render");
+        let first_group = evaluated
+            .scene_graph
+            .get_mark(first_path)
+            .expect("first partitioned subplot path should resolve");
+        let second_group = evaluated
+            .scene_graph
+            .get_mark(second_path)
+            .expect("second partitioned subplot path should resolve");
+
+        assert_eq!(
+            find_symbol_mark(first_group)
+                .expect("first partition should render symbols")
+                .len,
+            2
+        );
+        assert_eq!(
+            find_symbol_mark(second_group)
+                .expect("second partition should render symbols")
+                .len,
+            3
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn partitioned_cartesian_subplots_reject_raw_position_channels() {
+        let ctx = SessionContext::new();
+        let plot = Plot::<Cartesian>::new()
+            .data(partitioned_parent_data(&ctx))
+            .mark(
+                Subplot::new(inherited_child_plot())
+                    .partition_by(col("group"))
+                    .x(col("px"))
+                    .y(1.0),
+            );
+
+        let err = match plot.compile(&ctx).await {
+            Ok(_) => panic!("raw row-level placement should fail"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string()
+                .contains("must be an aggregate, literal/constant, or the partition expression"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn partitioned_cartesian_subplots_reject_explicit_child_data() {
+        let ctx = SessionContext::new();
+        let child_plot = inherited_child_plot().data(partitioned_parent_data(&ctx));
+        let plot = Plot::<Cartesian>::new()
+            .data(partitioned_parent_data(&ctx))
+            .mark(
+                Subplot::new(child_plot)
+                    .partition_by(col("group"))
+                    .x(avg(col("px")))
+                    .y(avg(col("py"))),
+            );
+
+        let err = match plot.compile(&ctx).await {
+            Ok(_) => panic!("partitioned subplot with explicit child data should fail"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string()
+                .contains("remove plot-level data from the child plot"),
+            "unexpected error: {err}"
+        );
+    }
 }

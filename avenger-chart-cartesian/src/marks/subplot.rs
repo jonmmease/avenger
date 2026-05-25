@@ -3,15 +3,21 @@ use std::{any::Any, sync::Arc};
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, ChannelValue, CompiledDataContext, CompiledMark,
     CompiledMarkCore, CompiledMarkState, CompiledSubplotPayload, CoordinateSystemTransformCore,
-    Mark, MarkRuntimeContext, PositionConfig, RadiusExpression, SubplotContainerCoordinateSystem,
-    SubplotMarkCore, compile_subplot_payload,
+    DefaultLogicalExprNodeExt, Mark, MarkRuntimeContext, PositionConfig, RadiusExpression,
+    SerializableExpr, SubplotContainerCoordinateSystem, SubplotMarkCore, compile_subplot_payload,
+    contains_aggregate,
 };
 use avenger_chart_marks::Subplot;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::{arrow::record_batch::RecordBatch, logical_expr::Expr, prelude::SessionContext};
+use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
+use serde_with::{FromInto, serde_as};
 
 use crate::{Cartesian, CartesianPositionConfig};
+
+#[doc(hidden)]
+pub const CARTESIAN_SUBPLOT_PARTITION_CHANNEL: &str = "partition";
 
 /// Position-channel builder methods for `Subplot<Cartesian>`.
 pub trait CartesianSubplotPositionChannels: Sized {
@@ -20,6 +26,9 @@ pub trait CartesianSubplotPositionChannels: Sized {
 
     /// Set the parent y-position for coordinate-positioned child plot frames.
     fn y<V: Into<ChannelValue>>(self, value: V) -> Self;
+
+    /// Partition parent data into one coordinate-positioned child frame per value.
+    fn partition_by<V: Into<ChannelValue>>(self, value: V) -> Self;
 
     /// Configure the parent x-position channel for coordinate-positioned child plot frames.
     fn x_with<V, F>(self, value: V, f: F) -> Self
@@ -50,6 +59,10 @@ impl CartesianSubplotPositionChannels for Subplot<Cartesian> {
 
     fn y<V: Into<ChannelValue>>(self, value: V) -> Self {
         self.with_channel_value("y", value.into())
+    }
+
+    fn partition_by<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value(CARTESIAN_SUBPLOT_PARTITION_CHANNEL, value.into().no_scale())
     }
 
     fn x_with<V, F>(self, value: V, f: F) -> Self
@@ -105,6 +118,68 @@ where
     mark
 }
 
+fn partition_expr_node(
+    subplot: &dyn SubplotMarkCore,
+    session_context: &SessionContext,
+) -> Result<Option<LogicalExprNode>, AvengerChartError> {
+    let Some(channel) = subplot
+        .data_context_ref()
+        .channels()
+        .get(CARTESIAN_SUBPLOT_PARTITION_CHANNEL)
+    else {
+        return Ok(None);
+    };
+
+    let Some(expr) = channel.expr(session_context) else {
+        return Err(AvengerChartError::InvalidArgument(
+            "Cartesian subplot partition_by does not support conditional values".to_string(),
+        ));
+    };
+
+    validate_partitioned_subplot(subplot, session_context, &expr)?;
+    LogicalExprNode::from_expr(expr).map(Some)
+}
+
+fn validate_partitioned_subplot(
+    subplot: &dyn SubplotMarkCore,
+    session_context: &SessionContext,
+    partition_expr: &Expr,
+) -> Result<(), AvengerChartError> {
+    if subplot.has_plot_level_data() {
+        return Err(AvengerChartError::InvalidArgument(
+            "Partitioned Cartesian subplots inherit parent data; remove plot-level data from the child plot".to_string(),
+        ));
+    }
+
+    for channel_name in ["x", "y"] {
+        let Some(channel) = subplot.data_context_ref().channels().get(channel_name) else {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Partitioned Cartesian subplots require channel `{channel_name}`"
+            )));
+        };
+        let Some(expr) = channel.expr(session_context) else {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Partitioned Cartesian subplot channel `{channel_name}` does not support conditional values"
+            )));
+        };
+
+        if !valid_partition_position_expr(&expr, partition_expr) {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Partitioned Cartesian subplot channel `{channel_name}` must be an aggregate, literal/constant, or the partition expression"
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn valid_partition_position_expr(expr: &Expr, partition_expr: &Expr) -> bool {
+    contains_aggregate(expr)
+        || !expr.any_column_refs()
+        || expr == partition_expr
+        || expr.to_string() == partition_expr.to_string()
+}
+
 #[async_trait::async_trait]
 impl SubplotContainerCoordinateSystem for Cartesian {
     async fn compile_subplot_mark(
@@ -113,21 +188,26 @@ impl SubplotContainerCoordinateSystem for Cartesian {
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
         subplot.validate_no_facet_channels("Cartesian")?;
+        let partition_expr = partition_expr_node(subplot, session_context)?;
 
         Ok(Arc::new(CompiledCartesianSubplot {
             payload: compile_subplot_payload(subplot, compiled_state, session_context).await?,
             plot_width: subplot.plot_width_config().unwrap_or(80.0).max(1.0),
             plot_height: subplot.plot_height_config().unwrap_or(80.0).max(1.0),
+            partition_expr,
         }))
     }
 }
 
 /// Compiled child-plot mark positioned by Cartesian x/y channels.
+#[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledCartesianSubplot {
     payload: CompiledSubplotPayload,
     plot_width: f32,
     plot_height: f32,
+    #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
+    partition_expr: Option<LogicalExprNode>,
 }
 
 impl CompiledCartesianSubplot {
@@ -153,6 +233,16 @@ impl CompiledCartesianSubplot {
 
     pub fn plot_height(&self) -> f32 {
         self.plot_height
+    }
+
+    #[doc(hidden)]
+    pub fn is_partitioned(&self) -> bool {
+        self.partition_expr.is_some()
+    }
+
+    #[doc(hidden)]
+    pub fn partition_expr(&self) -> Option<&LogicalExprNode> {
+        self.partition_expr.as_ref()
     }
 
     pub fn inherits_parent_data(&self) -> bool {
@@ -204,6 +294,12 @@ impl CompiledMarkCore for CompiledCartesianSubplot {
             ChannelDescriptor {
                 name: "y",
                 required: true,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: CARTESIAN_SUBPLOT_PARTITION_CHANNEL,
+                required: false,
                 default_value: None,
                 allow_column_ref: true,
             },

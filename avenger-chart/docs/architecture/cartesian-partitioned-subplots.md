@@ -1,5 +1,33 @@
 # Cartesian Partitioned Subplots Plan
 
+## Status
+
+Implemented in this milestone:
+
+- `Subplot<Cartesian>::partition_by(...)` stores an unscaled internal
+  `"partition"` channel.
+- `CompiledCartesianSubplot` stores the original partition expression for
+  runtime filtering against raw parent data.
+- Partitioned mode rejects explicit child plot data, missing/conditional
+  placement channels, and raw row-level non-aggregate `x`/`y` placement.
+- Cartesian positioned measurement now has a partitioned path that creates one
+  child frame per partition value, filters raw parent data per child, prepares a
+  separate `PreparedChildFramePlot` per partition, and renders from saved
+  measurement state.
+- Child-frame scope identity distinguishes row-positioned children from
+  partition-positioned children with `PositionedPartition` keys/path segments.
+- Focused unit coverage verifies aggregate placement without explicit parent
+  domains, filtered child data per partition, raw placement rejection, and
+  explicit child-data rejection.
+
+Still deferred:
+
+- Broadcast/filter/skip data selection for child marks inside partitioned
+  containers.
+- Visual baseline dogfood for mini bar/scatter charts.
+- Explicit ordering, size encodings, overlap handling, and the shorter
+  `.partition(...)` alias.
+
 ## Goal
 
 Add the first real partitioned mode for `Subplot<Cartesian>`:
