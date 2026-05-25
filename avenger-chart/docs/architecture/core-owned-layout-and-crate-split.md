@@ -921,6 +921,11 @@ boundaries boring.
      shims plus the still-facade-owned, layout-aware Cartesian axis evaluation
      helper. External custom-mark dogfood imports `CartesianPositionConfig`
      directly from `avenger-chart-cartesian`.
+   - Cartesian position-channel builder extension traits for the generic
+     `Line`, `Rect`, and `Symbol` marks now live in
+     `avenger-chart-cartesian`. The top-level Cartesian mark modules keep the
+     render/compile implementations for now and re-export the moved traits for
+     compatibility.
 
 6. Extract `avenger-chart-polar`.
    Move Polar coordinate, axes, guides, channels, and Polar mark impls.
@@ -939,6 +944,9 @@ boundaries boring.
      The top-level `avenger_chart::polar::{axis,channels}` modules are
      compatibility shims plus the still-facade-owned Polar guide/axis
      evaluation glue.
+   - `PolarSymbolPositionChannels` now lives in `avenger-chart-polar`. The
+     top-level Polar symbol module keeps the render/compile implementation for
+     now and re-exports the moved trait for compatibility.
 
 7. Shrink the top-level `avenger-chart` crate.
    Leave `Plot`, `CompiledPlot`, facet, concat, partition, layout solvers,

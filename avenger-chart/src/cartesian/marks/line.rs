@@ -10,9 +10,11 @@ use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
+pub use avenger_chart_cartesian::CartesianLinePositionChannels;
+
 use crate::{
-    cartesian::{Cartesian, channels::CartesianPositionConfig},
-    channel::{ChannelDescriptor, ChannelValue, PositionConfig},
+    cartesian::Cartesian,
+    channel::ChannelDescriptor,
     chart_core::{LegendRendererKind, RadiusExpression, is_continuous_scale},
     coords::{CoordinateSystemTransformCore, PointGeometry},
     error::AvengerChartError,
@@ -30,64 +32,6 @@ use crate::{
 };
 
 pub use crate::marks::line::ensure_dictionary_array as ensure_dictionary_array_fn;
-
-/// Cartesian position-channel builders for the generic `Line` mark.
-pub trait CartesianLinePositionChannels: Sized {
-    fn x<V: Into<ChannelValue>>(self, value: V) -> Self;
-    fn x_with<V, F>(self, value: V, f: F) -> Self
-    where
-        V: Into<ChannelValue>,
-        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
-    fn y<V: Into<ChannelValue>>(self, value: V) -> Self;
-    fn y_with<V, F>(self, value: V, f: F) -> Self
-    where
-        V: Into<ChannelValue>,
-        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
-}
-
-impl CartesianLinePositionChannels for Line<Cartesian> {
-    fn x<V: Into<ChannelValue>>(self, value: V) -> Self {
-        self.with_channel_value("x", value.into())
-    }
-
-    fn x_with<V, F>(self, value: V, f: F) -> Self
-    where
-        V: Into<ChannelValue>,
-        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
-    {
-        configure_cartesian_position_channel(self, "x", value.into(), f)
-    }
-
-    fn y<V: Into<ChannelValue>>(self, value: V) -> Self {
-        self.with_channel_value("y", value.into())
-    }
-
-    fn y_with<V, F>(self, value: V, f: F) -> Self
-    where
-        V: Into<ChannelValue>,
-        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
-    {
-        configure_cartesian_position_channel(self, "y", value.into(), f)
-    }
-}
-
-fn configure_cartesian_position_channel(
-    mark: Line<Cartesian>,
-    channel_name: &str,
-    channel_value: ChannelValue,
-    f: impl FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
-) -> Line<Cartesian> {
-    let config = CartesianPositionConfig::new(channel_value);
-    let configured = f(config);
-    let (channel_value, axis_config) = configured.take_axis_config();
-    let mut mark = mark.with_channel_value(channel_name, channel_value);
-    if let Some(axis_config) = axis_config {
-        mark.state_mut()
-            .axis_configs
-            .insert(channel_name.to_string(), Arc::new(axis_config));
-    }
-    mark
-}
 
 // Implement Mark trait for Cartesian Line with any axis type
 #[async_trait::async_trait]

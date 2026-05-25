@@ -564,6 +564,7 @@ name = "avenger-chart-cartesian"
 version = "0.1.0"
 dependencies = [
  "avenger-chart-core",
+ "avenger-chart-marks",
  "avenger-common",
  "avenger-scales",
  "datafusion",
@@ -686,6 +687,7 @@ name = "avenger-chart-polar"
 version = "0.1.0"
 dependencies = [
  "avenger-chart-core",
+ "avenger-chart-marks",
  "avenger-common",
  "avenger-scales",
  "datafusion",
