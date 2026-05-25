@@ -11,7 +11,7 @@ use datafusion::{common::ScalarValue, logical_expr::lit, prelude::SessionContext
 use indexmap::IndexMap;
 use tracing::debug;
 
-use avenger_chart_core::{LegendPosition, LegendRendererKind, SharingLevel, maybe::Maybe};
+use avenger_chart_core::{LegendPosition, LegendRendererKind, SharingLevel};
 
 use crate::{
     channel::value::ChannelValue,
@@ -31,23 +31,11 @@ use crate::{
     scales::ConfiguredScaleWithSpec,
     serialization::LogicalExprNodeExt,
 };
-use avenger_chart_legend::measure_legend_size_with_channels;
+use avenger_chart_legend::{
+    apply_legend_theme_defaults, measure_legend_size_with_channels, themed_default_legend,
+};
 
 use super::CompiledPlot;
-
-/// Convert normalized color array [0.0-1.0] to hex string
-fn color_array_to_hex(color: [f32; 4]) -> String {
-    let r = (color[0] * 255.0) as u8;
-    let g = (color[1] * 255.0) as u8;
-    let b = (color[2] * 255.0) as u8;
-    let a = (color[3] * 255.0) as u8;
-
-    if a < 255 {
-        format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a)
-    } else {
-        format!("#{:02x}{:02x}{:02x}", r, g, b)
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LegendPlanScope {
@@ -302,26 +290,6 @@ impl CompiledPlot {
         format!("{primary_channel}@{:016x}", hasher.finish())
     }
 
-    /// Apply a theme value to a legend field if the field is Unset
-    ///
-    /// This helper reduces repetition when applying theme defaults to legend properties.
-    /// It checks if a field is Unset and applies the theme value using a setter function.
-    fn apply_theme_to_legend<T, U, F, G>(
-        legend: &mut Legend,
-        field_check: F,
-        theme_query: G,
-        setter: impl FnOnce(Legend, T) -> Legend,
-    ) where
-        F: FnOnce(&Legend) -> &Maybe<Option<U>>,
-        G: FnOnce() -> Option<T>,
-    {
-        if matches!(field_check(legend), Maybe::Unset)
-            && let Some(value) = theme_query()
-        {
-            *legend = setter(legend.clone(), value);
-        }
-    }
-
     /// Create default legends for channels with scales
     fn create_default_legends(
         &self,
@@ -384,80 +352,8 @@ impl CompiledPlot {
             let theme = self.get_theme();
             let title = self.infer_legend_title(channel, session_context);
             let position = self.default_legend_position(channel);
-            let mut legend = Legend::new().title(title).position(position);
-
-            // Create legend context for querying theme values
-            let legend_ctx = theme.legend_context_with_params(legend_type, params.clone());
-            let bg_ctx = legend_ctx.child("background");
-            let base_font_size = theme.get_base_font_size(&legend_ctx.params);
-
-            // Apply background padding if set
-            if let Some(value) = theme.query(&bg_ctx, "padding")
-                && let Some(padding) = value.as_font_size(&legend_ctx.params, base_font_size)
-            {
-                legend = legend.background_padding(padding);
-            }
-
-            // Apply background corner radius if set
-            if let Some(value) = theme.query(&bg_ctx, "corner-radius")
-                && let Some(radius) = value.as_font_size(&legend_ctx.params, base_font_size)
-            {
-                legend = legend.background_corner_radius(radius);
-            }
-
-            // Apply optional theme defaults
-            if let Some(fill) = theme.fill_color(&bg_ctx) {
-                // Convert [f32; 4] to hex string
-                legend = legend.background_fill(color_array_to_hex(fill));
-            }
-            if let Some(stroke) = theme.stroke_color(&bg_ctx) {
-                // Convert [f32; 4] to hex string
-                legend = legend.background_stroke(color_array_to_hex(stroke));
-            }
-            // Apply stroke-width from theme
-            if let Some(value) = theme.query(&bg_ctx, "stroke-width")
-                && let Some(stroke_width) = value.as_font_size(&legend_ctx.params, base_font_size)
-            {
-                legend = legend.background_stroke_width(stroke_width);
-            }
-
-            // Set text colors and typography from theme (using defaults if theme doesn't specify)
-            if let Some(color) = theme.text_color(&legend_ctx.child("title")) {
-                legend = legend.title_color(color_array_to_hex(color));
-            }
-            if let Some(color) = theme.text_color(&legend_ctx.child("label")) {
-                legend = legend.label_color(color_array_to_hex(color));
-            }
-            if let Some(font_family) = theme.font_family(&legend_ctx.child("title")) {
-                legend = legend.title_font_family(font_family);
-            }
-            if let Some(size) = theme.font_size(&legend_ctx.child("title")) {
-                legend = legend.title_font_size(size);
-            }
-            if let Some(weight) = theme.font_weight(&legend_ctx.child("title")) {
-                legend = legend.title_font_weight(weight);
-            }
-            if let Some(font_family) = theme.font_family(&legend_ctx.child("label")) {
-                legend = legend.label_font_family(font_family);
-            }
-            if let Some(size) = theme.font_size(&legend_ctx.child("label")) {
-                legend = legend.label_font_size(size);
-            }
-            if let Some(weight) = theme.font_weight(&legend_ctx.child("label")) {
-                legend = legend.label_font_weight(weight);
-            }
-            if let Some(font_family) = theme.font_family(&legend_ctx.child("tick")) {
-                legend = legend.tick_font_family(font_family);
-            }
-            if let Some(size) = theme.font_size(&legend_ctx.child("tick")) {
-                legend = legend.tick_font_size(size);
-            }
-            if let Some(weight) = theme.font_weight(&legend_ctx.child("tick")) {
-                legend = legend.tick_font_weight(weight);
-            }
-            if let Some(color) = theme.text_color(&legend_ctx.child("tick")) {
-                legend = legend.tick_color(color_array_to_hex(color));
-            }
+            let legend =
+                themed_default_legend(title, position, legend_type, theme.as_ref(), params);
 
             default_legends.insert(channel.clone(), legend);
         }
@@ -539,190 +435,7 @@ impl CompiledPlot {
                 .legend_renderer_kind_for_channel(channel, scales)
                 .map(LegendRendererKind::theme_selector);
 
-            // Create legend context for querying theme values
-            let legend_ctx = theme.legend_context_with_params(legend_type, params.clone());
-
-            // Theme only fills in Unset values - apply theme properties if not explicitly set
-
-            // Title styling
-            Self::apply_theme_to_legend(
-                legend,
-                |l| &l.title_color,
-                || {
-                    theme
-                        .text_color(&legend_ctx.child("title"))
-                        .map(color_array_to_hex)
-                },
-                |l, v| l.title_color(v),
-            );
-            Self::apply_theme_to_legend(
-                legend,
-                |l| &l.title_font_family,
-                || theme.font_family(&legend_ctx.child("title")),
-                |l, v| l.title_font_family(v),
-            );
-            Self::apply_theme_to_legend(
-                legend,
-                |l| &l.title_font_size,
-                || theme.font_size(&legend_ctx.child("title")),
-                |l, v| l.title_font_size(v),
-            );
-            Self::apply_theme_to_legend(
-                legend,
-                |l| &l.title_font_weight,
-                || theme.font_weight(&legend_ctx.child("title")),
-                |l, v| l.title_font_weight(v),
-            );
-
-            // Label styling
-            Self::apply_theme_to_legend(
-                legend,
-                |l| &l.label_color,
-                || {
-                    theme
-                        .text_color(&legend_ctx.child("label"))
-                        .map(color_array_to_hex)
-                },
-                |l, v| l.label_color(v),
-            );
-            Self::apply_theme_to_legend(
-                legend,
-                |l| &l.label_font_family,
-                || theme.font_family(&legend_ctx.child("label")),
-                |l, v| l.label_font_family(v),
-            );
-            Self::apply_theme_to_legend(
-                legend,
-                |l| &l.label_font_size,
-                || theme.font_size(&legend_ctx.child("label")),
-                |l, v| l.label_font_size(v),
-            );
-            Self::apply_theme_to_legend(
-                legend,
-                |l| &l.label_font_weight,
-                || theme.font_weight(&legend_ctx.child("label")),
-                |l, v| l.label_font_weight(v),
-            );
-
-            // Tick styling (for colorbar legends)
-            Self::apply_theme_to_legend(
-                legend,
-                |l| &l.tick_color,
-                || {
-                    theme
-                        .text_color(&legend_ctx.child("tick"))
-                        .map(color_array_to_hex)
-                },
-                |l, v| l.tick_color(v),
-            );
-            Self::apply_theme_to_legend(
-                legend,
-                |l| &l.tick_font_family,
-                || theme.font_family(&legend_ctx.child("tick")),
-                |l, v| l.tick_font_family(v),
-            );
-            Self::apply_theme_to_legend(
-                legend,
-                |l| &l.tick_font_size,
-                || theme.font_size(&legend_ctx.child("tick")),
-                |l, v| l.tick_font_size(v),
-            );
-            Self::apply_theme_to_legend(
-                legend,
-                |l| &l.tick_font_weight,
-                || theme.font_weight(&legend_ctx.child("tick")),
-                |l, v| l.tick_font_weight(v),
-            );
-
-            // Background styling
-            Self::apply_theme_to_legend(
-                legend,
-                |l| &l.background_fill,
-                || {
-                    theme
-                        .fill_color(&legend_ctx.child("background"))
-                        .map(color_array_to_hex)
-                },
-                |l, v| l.background_fill(v),
-            );
-            Self::apply_theme_to_legend(
-                legend,
-                |l| &l.background_stroke,
-                || {
-                    theme
-                        .stroke_color(&legend_ctx.child("background"))
-                        .map(color_array_to_hex)
-                },
-                |l, v| l.background_stroke(v),
-            );
-            Self::apply_theme_to_legend(
-                legend,
-                |l| &l.background_stroke_width,
-                || {
-                    let bg_ctx = legend_ctx.child("background");
-                    let base_font_size = theme.get_base_font_size(&legend_ctx.params);
-                    theme
-                        .query(&bg_ctx, "stroke-width")
-                        .and_then(|value| value.as_font_size(&legend_ctx.params, base_font_size))
-                },
-                |l, v| l.background_stroke_width(v),
-            );
-            Self::apply_theme_to_legend(
-                legend,
-                |l| &l.background_padding,
-                || {
-                    let bg_ctx = legend_ctx.child("background");
-                    let base_font_size = theme.get_base_font_size(&legend_ctx.params);
-                    theme
-                        .query(&bg_ctx, "padding")
-                        .and_then(|value| value.as_font_size(&legend_ctx.params, base_font_size))
-                },
-                |l, v| l.background_padding(v),
-            );
-            Self::apply_theme_to_legend(
-                legend,
-                |l| &l.background_corner_radius,
-                || {
-                    let bg_ctx = legend_ctx.child("background");
-                    let base_font_size = theme.get_base_font_size(&legend_ctx.params);
-                    theme
-                        .query(&bg_ctx, "corner-radius")
-                        .and_then(|value| value.as_font_size(&legend_ctx.params, base_font_size))
-                },
-                |l, v| l.background_corner_radius(v),
-            );
-
-            // Apply legend position from theme if not explicitly set
-            // Don't set position at compile time if there are media queries -
-            // it will be determined at evaluate time with actual parameters
-            if matches!(legend.position, Maybe::Unset) {
-                // Check if theme has any media queries that affect legend position
-                let has_media_queries =
-                    theme.has_media_queries_for_property(&legend_ctx, "position");
-
-                if !has_media_queries {
-                    // No media queries, apply static position from theme
-                    if let Some(theme_value) = theme.query(&legend_ctx, "position")
-                        && let Some(position_str) = theme_value.as_string()
-                    {
-                        let position = match position_str.to_lowercase().as_str() {
-                            "top" => Some(LegendPosition::Top),
-                            "bottom" => Some(LegendPosition::Bottom),
-                            "left" => Some(LegendPosition::Left),
-                            "right" => Some(LegendPosition::Right),
-                            _ => None,
-                        };
-                        if let Some(pos) = position {
-                            *legend = legend.clone().position(pos);
-                        }
-                    }
-                }
-                // If there are media queries, leave position unset - it will be
-                // determined at evaluate time
-            }
-
-            // Note: Don't apply theme background settings - they're only for default legends
-            // This matches PlotRenderer behavior
+            apply_legend_theme_defaults(legend, legend_type, theme.as_ref(), params);
         }
 
         all_legends

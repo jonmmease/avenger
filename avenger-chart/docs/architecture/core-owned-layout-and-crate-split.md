@@ -202,9 +202,9 @@ Current extraction state:
   `CompiledLineLegend`, `CompiledRectLegend`, and `CompiledColorbar`.
 - Plot legend planning remains in `avenger-chart` for now because it still
   walks compiled marks, configured scales, and layout placement state. Renderer
-  implementations and legend size measurement consume core
-  `LegendRendererKind`, core expression/color helpers, and scale-crate
-  configured-scale extension traits through the legend crate.
+  implementations, legend size measurement, and legend theme/default
+  application consume core `LegendRendererKind`, core expression/color helpers,
+  and scale-crate configured-scale extension traits through the legend crate.
 
 ### `avenger-chart-cartesian`
 
@@ -958,6 +958,11 @@ boundaries boring.
    - Moved legend size measurement into `avenger-chart-legend` as
      `measure_legend_size_with_channels`. The old
      `avenger_chart::layout::legend::*` path is now a compatibility re-export.
+   - Moved legend theme/default application helpers into
+     `avenger-chart-legend`: `themed_default_legend`,
+     `apply_legend_theme_defaults`, and the private color conversion used by
+     them. The top-level planner still owns mark walking and facet/child-frame
+     hoisting, but no longer duplicates legend field-default logic.
    - Plot legend planning remains top-level until its mark-walking and layout
      placement dependencies are narrowed.
    - The external legend dogfood now imports `LegendBuilder`,
