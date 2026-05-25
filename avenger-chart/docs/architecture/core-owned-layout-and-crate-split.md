@@ -911,6 +911,10 @@ boundaries boring.
      configured-scale DataFusion/legend extension traits, scale UDF creation,
      `AvengerChartExtensionCodec`, and the chart-specific logical expr/plan
      serialization traits that use that codec.
+   - Scale-extension coverage for serializing `ChannelValue` scale config now
+     lives with `avenger-chart-scales`, leaving the top-level
+     `avenger_chart::channel::value` module as a behavior-free compatibility
+     re-export.
    - Moved the real `ScaleBuilder`, `ChannelScaleData`, and `DataExtents`
      implementation into `avenger-chart-scales`. The builder now receives a
      `DefaultScaleRangeResolver` callback instead of importing top-level
