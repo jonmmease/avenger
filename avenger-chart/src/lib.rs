@@ -30,7 +30,6 @@ pub mod prelude;
 pub mod render;
 // render_context moved to render/context
 pub mod maybe;
-pub(crate) mod scalar_cmp;
 pub mod scales;
 pub mod serialization;
 pub mod theme;

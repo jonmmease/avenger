@@ -6,10 +6,9 @@
 
 use std::collections::HashMap;
 
-use crate::{
-    scalar_cmp::scalar_total_cmp,
-    scales::domain_extent::{DomainBounds, DomainExtent, RadiusPadding},
-};
+use avenger_chart_core::scalar_total_cmp;
+
+use crate::scales::domain_extent::{DomainBounds, DomainExtent, RadiusPadding};
 
 use super::CoordinationScopeKey;
 

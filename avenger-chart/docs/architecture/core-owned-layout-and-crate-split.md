@@ -1099,6 +1099,10 @@ boundaries boring.
      override specs had real owners. The public `avenger_chart::plot::*`
      compatibility exports now point directly at `avenger-chart-core` and
      `avenger-chart-scales`.
+   - Removed the private `scalar_cmp` shim and rewired remaining top-level
+     implementation imports of scalar comparison and parameter conversion to
+     use `avenger-chart-core` directly. Public compatibility shims remain only
+     where external facade paths need them.
 
 ## Testing And Validation Strategy
 

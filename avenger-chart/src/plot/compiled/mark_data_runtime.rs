@@ -21,7 +21,7 @@ use datafusion::{
 };
 use datafusion_proto::protobuf::LogicalPlanNode;
 
-use avenger_chart_core::{EvaluationContext, color::parse_color_string};
+use avenger_chart_core::{EvaluationContext, color::parse_color_string, params_to_datafusion};
 
 use crate::{
     channel::{
@@ -33,7 +33,6 @@ use crate::{
     render::RenderState,
     scales::{ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec},
     serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
-    utils::params_to_datafusion,
 };
 
 /// Prepared data for mark evaluation.

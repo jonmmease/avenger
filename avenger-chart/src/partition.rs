@@ -15,7 +15,9 @@ use datafusion::{
 };
 use indexmap::IndexMap;
 
-use crate::{error::AvengerChartError, facet::FacetDirection, scalar_cmp::scalar_total_cmp};
+use avenger_chart_core::scalar_total_cmp;
+
+use crate::{error::AvengerChartError, facet::FacetDirection};
 
 /// Format a partition value for display in container guides.
 pub(crate) fn format_partition_value(value: &ScalarValue) -> String {
