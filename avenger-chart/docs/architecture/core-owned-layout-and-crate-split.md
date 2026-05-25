@@ -976,8 +976,9 @@ boundaries boring.
    - `PolarAxis`, `PolarAxisType`, `PolarDirection`, and
      `PolarPositionConfig` now live in the real `avenger-chart-polar` crate.
      The top-level `avenger_chart::polar::{axis,channels}` modules are
-     compatibility shims plus the still-facade-owned Polar guide/axis
-     evaluation glue.
+     compatibility shims. Polar axis evaluation now lives in
+     `avenger-chart-polar`, and the top-level Polar guide module calls that
+     coordinate-owned evaluator.
    - `PolarOptions`, the pure coordinate guide/options spec, now lives in
      `avenger-chart-polar`. The top-level Polar guide module still owns guide
      measurement/rendering until the guide runtime boundary moves.
