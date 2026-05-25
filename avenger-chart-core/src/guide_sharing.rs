@@ -1,6 +1,13 @@
 use datafusion::common::ScalarValue;
+use indexmap::IndexMap;
 
 use crate::{AxisPosition, CoordinationAxis, SharingLevel};
+
+#[doc(hidden)]
+pub const INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM: &str =
+    "__avenger_hide_invalid_facet_path_axes";
+#[doc(hidden)]
+pub const AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM: &str = "__avenger_axis_owner_ignore_empty_cells";
 
 /// Result of guide axis visibility computation for a container cell.
 ///
@@ -40,6 +47,35 @@ pub enum AxisOwnershipMode {
     DomainSlots,
     /// Compute owners against non-empty cells only (hole-aware behavior).
     NonEmptySlots,
+}
+
+impl AxisOwnershipMode {
+    #[doc(hidden)]
+    pub fn from_ignore_empty_cells(ignore_empty_cells: bool) -> Self {
+        if ignore_empty_cells {
+            Self::NonEmptySlots
+        } else {
+            Self::DomainSlots
+        }
+    }
+}
+
+#[doc(hidden)]
+pub fn axis_owner_ignore_empty_cells_from_params(params: &IndexMap<String, ScalarValue>) -> bool {
+    params
+        .get(AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM)
+        .and_then(|value| match value {
+            ScalarValue::Boolean(Some(value)) => Some(*value),
+            _ => None,
+        })
+        .unwrap_or(false)
+}
+
+#[doc(hidden)]
+pub fn axis_ownership_mode_from_params(
+    params: &IndexMap<String, ScalarValue>,
+) -> AxisOwnershipMode {
+    AxisOwnershipMode::from_ignore_empty_cells(axis_owner_ignore_empty_cells_from_params(params))
 }
 
 #[doc(hidden)]

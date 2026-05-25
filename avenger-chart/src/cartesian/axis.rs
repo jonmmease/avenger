@@ -11,41 +11,20 @@ pub use avenger_chart_cartesian::{AxisPosition, CartesianAxis};
 
 use crate::{
     chart_core::{
-        CoordinationAxis, SharingLevel, evaluate_axis_position_expr, evaluate_bool_expr,
+        CoordinationAxis, INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM, SharingLevel,
+        axis_ownership_mode_from_params, evaluate_axis_position_expr, evaluate_bool_expr,
         evaluate_f32_expr, evaluate_string_expr,
     },
     error::AvengerChartError,
-    facet::ownership_policy::axis_ownership_mode_from_ignore_empty_cells,
-    guide::{AxisOwnershipMode, AxisVisibility, GuideSharingContext},
+    guide::{AxisVisibility, GuideSharingContext},
     layout::LayoutBounds,
     plot::compiled::{
         CoordinationKind, EdgeOwnershipRequest, EdgeOwnershipScope, SharingGroupEdge,
         edge_ownership_scope_for_request, owner_for_scope, project_container_edge_levels,
     },
-    render::context::{
-        AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM,
-    },
     serialization::LogicalExprNodeExt,
     theme::Theme,
 };
-
-fn axis_owner_ignore_empty_cells_from_params(
-    params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-) -> bool {
-    params
-        .get(AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM)
-        .and_then(|value| match value {
-            datafusion::common::ScalarValue::Boolean(Some(v)) => Some(*v),
-            _ => None,
-        })
-        .unwrap_or(false)
-}
-
-fn axis_ownership_mode_from_params(
-    params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-) -> AxisOwnershipMode {
-    axis_ownership_mode_from_ignore_empty_cells(axis_owner_ignore_empty_cells_from_params(params))
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ChildFrameAxisOwnershipRole {
@@ -387,16 +366,17 @@ pub(crate) async fn evaluate_cartesian_axis(
 #[cfg(test)]
 mod tests {
     use super::{
-        AxisPosition, ChildFrameAxisOwnershipRole, axis_owner_ignore_empty_cells_from_params,
-        axis_ownership_mode_from_params, child_frame_axis_ownership_scope,
+        AxisPosition, ChildFrameAxisOwnershipRole, child_frame_axis_ownership_scope,
         child_frame_axis_title_scope,
     };
-    use crate::chart_core::SharingLevel;
+    use crate::chart_core::{
+        AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, SharingLevel,
+        axis_owner_ignore_empty_cells_from_params, axis_ownership_mode_from_params,
+    };
     use crate::container::{ChildFrameSharingLevel, ChildFrameSharingPath};
     use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
     use crate::guide::AxisOwnershipMode;
     use crate::guide::GuideSharingContext;
-    use crate::render::context::AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM;
     use datafusion::common::ScalarValue;
     use indexmap::IndexMap;
 

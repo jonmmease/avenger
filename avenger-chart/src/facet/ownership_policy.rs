@@ -24,11 +24,7 @@ pub(crate) fn resolve_facet_ownership_policy(
 }
 
 pub(crate) fn axis_ownership_mode_from_ignore_empty_cells(ignore: bool) -> AxisOwnershipMode {
-    if ignore {
-        AxisOwnershipMode::NonEmptySlots
-    } else {
-        AxisOwnershipMode::DomainSlots
-    }
+    AxisOwnershipMode::from_ignore_empty_cells(ignore)
 }
 
 pub(crate) fn cell_requires_invalid_path_axis_fallback_hidden(

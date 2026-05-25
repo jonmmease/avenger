@@ -767,6 +767,10 @@ boundaries boring.
      and child-frame edge-level projection. Top-level layout keeps the scoped
      coordination keys and runtime container state, but coordinate/guide code
      can now consume the pure ownership primitives from core.
+   - Moved hidden guide-sharing axis owner params and their ownership-mode
+     mapping into core. Facet still decides when those params are set, but
+     coordinate-owned axis evaluators no longer need to import facet ownership
+     policy or top-level render constants to interpret them.
    - Moved the first coordinate-extension value contracts into core:
      `PlotGeometry`, `PointGeometry`, `SubplotRect`, `SubplotGeometry`,
      `PaddingSpec`, the pure `BandPosition` value, and `ZeroDCoord`. The

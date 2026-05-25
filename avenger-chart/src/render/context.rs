@@ -34,9 +34,9 @@ use crate::{
     theme::{Theme, ThemeContext, ThemeValue},
 };
 
-pub const INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM: &str =
-    "__avenger_hide_invalid_facet_path_axes";
-pub const AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM: &str = "__avenger_axis_owner_ignore_empty_cells";
+pub use crate::chart_core::{
+    AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PhysicalDimension {

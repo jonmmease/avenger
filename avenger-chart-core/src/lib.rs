@@ -104,7 +104,10 @@ pub use geometry::{
 pub use guide_context::GuideContext;
 pub use guide_overflow_phase::GuideOverflowPhase;
 pub use guide_sharing::{
-    AxisOwnershipMode, AxisVisibility, ChildFrameGuideSharingView, FacetGuideSharingView,
+    AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, AxisOwnershipMode, AxisVisibility,
+    ChildFrameGuideSharingView, FacetGuideSharingView,
+    INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM, axis_owner_ignore_empty_cells_from_params,
+    axis_ownership_mode_from_params,
 };
 pub use guide_update::GuideUpdate;
 pub use into_expr::IntoExpr;
