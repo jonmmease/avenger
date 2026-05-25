@@ -1,1 +1,1 @@
-pub use crate::chart_core::AvengerChartError;
+pub use avenger_chart_core::AvengerChartError;

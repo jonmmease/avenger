@@ -11,10 +11,11 @@ use datafusion::{
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
+use avenger_chart_core::{
+    CompiledSubplotChildPlot, IntoExpr, Param, SubplotChildPlotSpec, contains_aggregate,
+};
+
 use crate::{
-    chart_core::{
-        CompiledSubplotChildPlot, IntoExpr, Param, SubplotChildPlotSpec, contains_aggregate,
-    },
     coords::CoordinateSystem,
     error::AvengerChartError,
     guide::CoordinateGuide,

@@ -1,4 +1,4 @@
-use crate::chart_core::{FacetEmptyCellPolicy, ScaleSharing};
+use avenger_chart_core::{FacetEmptyCellPolicy, ScaleSharing};
 
 #[derive(Clone, Default)]
 pub struct FacetRowChannelConfig {

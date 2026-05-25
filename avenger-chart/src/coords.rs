@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{common::ScalarValue, dataframe::DataFrame};
 
-pub use crate::chart_core::{
+pub use avenger_chart_core::{
     CoordMeasurement, CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
     CoordinateSystemTransformCore, CoordinatedLayout, CoordinatedOverflow, EmptyCoordMeasurement,
     FacetAxis, OverflowSpaceRequirement, PaddingSpec, PlotGeometry, PointGeometry, SubplotGeometry,

@@ -12,7 +12,7 @@ pub(crate) mod legend;
 mod sizing;
 mod types;
 
-pub use crate::chart_core::BandPosition;
+pub use avenger_chart_core::BandPosition;
 pub(crate) use band_child_frame::{
     BandChildFrameInput, BandChildFramePlacement, BandDirection, BandPlacedChild, BandSpacing,
     BoundaryDemand1D,

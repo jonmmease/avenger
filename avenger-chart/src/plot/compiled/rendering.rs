@@ -25,12 +25,14 @@ use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
 use tracing::{Level, debug, trace};
 
+use avenger_chart_core::{
+    AxisPosition, FacetEmptyCellPolicy, LegendPosition, evaluate_f32_expr, maybe::Maybe,
+};
+
 use crate::{
     cartesian::positioned_subplot::{
         compiled_cartesian_subplot, render_cartesian_subplot_with_context,
     },
-    chart_core::maybe::Maybe,
-    chart_core::{AxisPosition, FacetEmptyCellPolicy, LegendPosition, evaluate_f32_expr},
     concat::compiled_subplot as compiled_concat_subplot,
     coords::{
         CoordMeasureRequest, CoordMeasurement, FacetAxis, coordinate_overflow_for_guides,
@@ -932,7 +934,7 @@ impl CompiledPlot {
             resolved_chart_sizing,
         );
 
-        let scale_eval_ctx = crate::chart_core::EvaluationContext::new(
+        let scale_eval_ctx = avenger_chart_core::EvaluationContext::new(
             self.get_theme(),
             Arc::new(ctx.clone()),
             merged_params.clone(),
@@ -4103,7 +4105,7 @@ impl CompiledPlot {
             resolved_chart_sizing,
         );
 
-        let scale_eval_ctx = crate::chart_core::EvaluationContext::new(
+        let scale_eval_ctx = avenger_chart_core::EvaluationContext::new(
             self.get_theme(),
             Arc::new(ctx.clone()),
             merged_params.clone(),
@@ -5288,7 +5290,7 @@ mod tests {
             resolved_chart_sizing,
         );
 
-        let scale_eval_ctx = crate::chart_core::EvaluationContext::new(
+        let scale_eval_ctx = avenger_chart_core::EvaluationContext::new(
             compiled.get_theme(),
             Arc::new(ctx.clone()),
             merged_params.clone(),

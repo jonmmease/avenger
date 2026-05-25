@@ -3,7 +3,6 @@
 //! This module is a thin wrapper around the shared facet-band guide engine.
 
 use crate::cartesian::axis::CartesianAxis;
-use crate::chart_core::SharingLevel;
 use crate::error::AvengerChartError;
 use crate::facet::guide::band_guide_engine::{self, ColGuideAxisOps, FacetGuideState};
 use crate::facet::marks::facet::CompiledFacetColumnSubplot;
@@ -16,6 +15,7 @@ use crate::layout::LayoutBounds;
 use crate::marks::CompiledMarkCore;
 use crate::plot::compiled::CompiledPlot;
 use crate::serialization::SerializableDataFrame;
+use avenger_chart_core::SharingLevel;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -282,10 +282,10 @@ impl FacetColGuide {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chart_core::AxisPosition;
     use crate::facet::FacetDirection;
     use crate::facet::evaluated_facet_tree::{EvaluatedFacetTree, PartitionNode};
     use crate::facet::guide_utils::facet_guide_labels_visible_for_cell;
+    use avenger_chart_core::AxisPosition;
     use indexmap::IndexMap;
 
     fn s(value: &str) -> datafusion::common::ScalarValue {

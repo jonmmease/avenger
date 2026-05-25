@@ -5,11 +5,12 @@ use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
+use avenger_chart_core::{
+    IntoExpr,
+    maybe::{Maybe, MaybeOptionalExpr},
+};
+
 use crate::{
-    chart_core::{
-        IntoExpr,
-        maybe::{Maybe, MaybeOptionalExpr},
-    },
     coords::CoordinateSystem,
     plot::Plot,
     serialization::{LogicalExprNodeExt, SerializableExpr},

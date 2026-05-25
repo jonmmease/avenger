@@ -14,11 +14,12 @@ use std::{
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 
+use avenger_chart_core::{
+    EvaluationContext as CoreEvaluationContext, MarkRenderContext as CoreMarkRenderContext,
+    MarkRuntimeContext,
+};
+
 use crate::{
-    chart_core::{
-        EvaluationContext as CoreEvaluationContext, MarkRenderContext as CoreMarkRenderContext,
-        MarkRuntimeContext,
-    },
     container::{ChildFrameSharingLevel, ChildFrameSharingPath, ContainerPathSegment},
     coords::CoordMeasurement,
     coords::FacetAxis,
@@ -35,7 +36,7 @@ use crate::{
     theme::{Theme, ThemeContext, ThemeValue},
 };
 
-pub use crate::chart_core::{
+pub use avenger_chart_core::{
     AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM,
 };
 

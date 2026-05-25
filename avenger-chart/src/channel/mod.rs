@@ -26,5 +26,5 @@ pub use self::configs::{
 pub use self::descriptor::{ChannelDefault, ChannelDescriptor};
 pub use self::position::GenericPositionConfig;
 pub use self::value::{BaseChannelName, ChannelValue, ConditionalValue};
-pub use crate::chart_core::{ChannelConfig, PositionConfig};
 pub use crate::legend::LegendableChannel;
+pub use avenger_chart_core::{ChannelConfig, PositionConfig};

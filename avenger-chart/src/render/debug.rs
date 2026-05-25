@@ -2,15 +2,13 @@
 
 use std::sync::Arc;
 
+use avenger_chart_core::AxisPosition;
 use avenger_common::types::ColorOrGradient;
 use avenger_scales::color::parse_color_string;
 use avenger_scenegraph::marks::{mark::SceneMark, rect::SceneRectMark, text::SceneTextMark};
 use avenger_text::types::{TextAlign, TextBaseline};
 
-use crate::{
-    chart_core::AxisPosition,
-    layout::{ContentLayout, EdgeSlabs, FrameLayout, LayoutBounds, OverflowSide},
-};
+use crate::layout::{ContentLayout, EdgeSlabs, FrameLayout, LayoutBounds, OverflowSide};
 
 const MIN_DEBUG_RECT_SIZE: f32 = 0.01;
 const DEBUG_OVERLAY_LABEL_FONT_SIZE: f32 = 7.0;

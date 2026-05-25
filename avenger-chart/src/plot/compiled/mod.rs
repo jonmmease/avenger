@@ -27,9 +27,10 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
+use avenger_chart_core::{CompiledSubplotChildPlot, EvaluationContext as CoreEvaluationContext};
+
 use crate::{
     channel::value::strip_trailing_numbers,
-    chart_core::{CompiledSubplotChildPlot, EvaluationContext as CoreEvaluationContext},
     coords::CoordinateSystemTransform,
     error::AvengerChartError,
     guide::CompiledGuide,

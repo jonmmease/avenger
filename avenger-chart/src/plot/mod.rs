@@ -11,7 +11,7 @@ mod specs;
 mod title;
 
 // Re-export core plot types
-pub use crate::chart_core::IntoExpr;
+pub use avenger_chart_core::IntoExpr;
 pub use compiled::CompiledPlot;
 pub use plot::Plot;
 

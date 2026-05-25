@@ -11,8 +11,9 @@
 
 use std::{collections::HashMap, hash::Hash};
 
+use avenger_chart_core::{AxisPosition, CoordinationAxis};
+
 use crate::{
-    chart_core::{AxisPosition, CoordinationAxis},
     coords::{CoordinatedLayout, CoordinatedOverflow, FacetAxis},
     facet::overflow_projection::{FacetOverflowProjection, project_facet_overflow},
     plot::compiled::{CoordinationKind, CoordinationScopeKey},

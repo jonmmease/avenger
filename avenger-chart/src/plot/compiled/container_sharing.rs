@@ -5,7 +5,7 @@
 //! coordination scope wrappers that still depend on `CompiledPlot` container
 //! identity.
 
-pub(crate) use crate::chart_core::{
+pub(crate) use avenger_chart_core::{
     ContainerEdgeLevelProjection, SharingGroupEdge, SharingLevel, enumeration_ancestor_path,
     owner_for_edge, project_container_edge_levels, shared_path_key, sharing_group_boundary,
 };
@@ -114,7 +114,7 @@ pub(crate) fn edge_ownership_scope_for_request(
 mod tests {
     use datafusion::common::ScalarValue;
 
-    use crate::chart_core::{CoordinationAxis, ScaleSharing};
+    use avenger_chart_core::{CoordinationAxis, ScaleSharing};
 
     use super::*;
 

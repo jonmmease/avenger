@@ -1,1 +1,1 @@
-pub use crate::chart_core::GenericPositionConfig;
+pub use avenger_chart_core::GenericPositionConfig;

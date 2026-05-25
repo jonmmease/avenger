@@ -1,7 +1,3 @@
-use crate::chart_core::{
-    ColumnDimensionConfig, FacetDimensionConfig, FacetEmptyCellPolicy, MarkRuntimeContext,
-    RowDimensionConfig, ScaleSharing, ScaleTypePreference,
-};
 use crate::coords::{CoordinateSystemTransformCore, FacetAxis};
 use crate::error::AvengerChartError;
 use crate::facet::coord::{FacetBandCoordMeasurement, FacetColumn, FacetRow};
@@ -22,6 +18,10 @@ use crate::plot::compiled::{
     compiled_subplot_payload_child_plot, compiled_subplot_payload_child_plot_arc,
 };
 use crate::render::{EvaluationContext, RenderContext};
+use avenger_chart_core::{
+    ColumnDimensionConfig, FacetDimensionConfig, FacetEmptyCellPolicy, MarkRuntimeContext,
+    RowDimensionConfig, ScaleSharing, ScaleTypePreference,
+};
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 use datafusion::prelude::SessionContext;
 use serde::{Deserialize, Serialize};

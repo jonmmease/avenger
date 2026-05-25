@@ -317,10 +317,9 @@ Migration discipline:
    gives imports a target shape:
    `chart_core`, `chart_marks`, `chart_scales`, `chart_legend`,
    `chart_cartesian`, and `chart_polar`. These started as `pub(crate)`
-   staging namespaces in `avenger-chart/src`, not new public API. The
-   non-core staging namespaces have since been removed as their real crates
-   took ownership; `chart_core` remains as the temporary bridge for core-owned
-   shared types that have not yet moved fully out of the facade crate.
+   staging namespaces in `avenger-chart/src`, not new public API. They have
+   now all been removed as their real crates took ownership and internal
+   imports moved directly to those crates.
 
 2. Move shared side/spec/value types to the future core boundary.
    Centralize `AxisPosition`, `LegendPosition`, `LegendOrientation`,
@@ -330,20 +329,20 @@ Migration discipline:
 
    Progress:
 
-   - `maybe` and `param` now live under `chart_core`. `crate::maybe` and
+   - `maybe` and `param` now live in `avenger-chart-core`. `crate::maybe` and
      `crate::param` are compatibility shims only, and internal imports have
      moved to the new owner.
-   - `AxisPosition` now lives under `chart_core`. `cartesian::axis::AxisPosition`
+   - `AxisPosition` now lives in `avenger-chart-core`. `cartesian::axis::AxisPosition`
      and `cartesian::AxisPosition` remain compatibility re-exports for existing
      public paths.
-   - `LegendPosition` and `LegendOrientation` now live under `chart_core`.
+   - `LegendPosition` and `LegendOrientation` now live in `avenger-chart-core`.
      `legend::LegendPosition`, `legend::LegendOrientation`, and prelude exports
      remain compatibility re-exports for existing public paths.
-   - `ScaleSharing` now lives under `chart_core`.
+   - `ScaleSharing` now lives in `avenger-chart-core`.
      `channel::config_traits::ScaleSharing` remains a compatibility re-export,
      and internal imports have moved to the new owner.
    - `RadiusExpression` now lives in the real `avenger-chart-core` crate.
-     `chart_core`, `marks::RadiusExpression`, and prelude exports remain
+     `avenger-chart-core`, `marks::RadiusExpression`, and prelude exports remain
      compatibility re-exports, and scale/domain code no longer imports it
      through `marks`.
    - `ScaleRange`, `ScaleDomain`, `ScaleDefaultDomain`, `DomainExpr`, and
@@ -372,10 +371,10 @@ Migration discipline:
    - `Legend` spec data now lives in the real `avenger-chart-core` crate.
      `legend::Legend` remains a compatibility re-export, while legend builders,
      renderer traits, and renderer implementations remain in `legend`.
-   - `OverflowSpaceRequirement` and `MeasurementResult` now live under
-     `chart_core`. `guide::*` and `coords::OverflowSpaceRequirement` remain
+   - `OverflowSpaceRequirement` and `MeasurementResult` now live in
+     `avenger-chart-core`. `guide::*` and `coords::OverflowSpaceRequirement` remain
      compatibility re-exports for existing paths.
-   - `FacetAxis` now lives under `chart_core`. `coords::FacetAxis` remains a
+   - `FacetAxis` now lives in `avenger-chart-core`. `coords::FacetAxis` remains a
      compatibility re-export for existing paths.
    - `FacetEmptyCellPolicy`, `FacetDimensionConfig`, `RowDimensionConfig`, and
      `ColumnDimensionConfig` now live in the real `avenger-chart-core` crate.
@@ -384,7 +383,7 @@ Migration discipline:
      configuration from importing top-level facet internals.
    - `LayoutBounds`, `Size2D`, `EdgeSlabs`, `OverflowSide`,
      `FrameAllocation`, `FrameDemand`, `FrameLayout`, and related frame sizing
-     types now live under `chart_core`. `layout::*` remains a compatibility
+     types now live in `avenger-chart-core`. `layout::*` remains a compatibility
      re-export, while layout-private grid component metadata remains in
      `layout::types`.
    - `CoordinatedOverflow` and `CoordinatedLayout` now live in the real
@@ -458,7 +457,7 @@ Migration discipline:
 
    Progress:
 
-   - `CompiledMark` now returns `chart_core::LegendRendererKind` from
+   - `CompiledMark` now returns `avenger_chart_core::LegendRendererKind` from
      `preferred_legend_renderer_kind(...)` instead of returning
      `Arc<dyn LegendRenderer>`.
    - Concrete mark implementations no longer import legend renderer
@@ -485,7 +484,7 @@ Migration discipline:
    - `ResolvedDomain` now lives in the real `avenger-chart-core` crate;
      `scales::ResolvedDomain` remains a compatibility re-export.
    - Mark `preferred_scale_type(...)` methods now return
-     `chart_core::ScaleTypePreference` instead of `Box<dyn ScaleSpec>`.
+     `avenger_chart_core::ScaleTypePreference` instead of `Box<dyn ScaleSpec>`.
    - Core maps `ScaleTypePreference` back to concrete `ScaleSpec`
      implementations with `scale_spec_for_preference(...)`; the scales layer
      consumes those descriptors when constructing configured scales.
@@ -668,7 +667,7 @@ Migration discipline:
     Progress:
 
     - The stable `theme`, `session_context`, and `params` fields now live in
-      `chart_core::evaluation_context::EvaluationContext`.
+      `avenger_chart_core::evaluation_context::EvaluationContext`.
     - `render::EvaluationContext` wraps that core context and continues to own
       facet/layout runtime state. It implements `Deref` to the core context as
       a temporary compatibility bridge while in-crate callers are migrated.
@@ -717,7 +716,7 @@ Migration discipline:
      leaving `plot::compiled::expr_eval` as a compatibility shim.
    - Strict color-string parsing and color-to-RGBA helpers now live in the
      real `avenger-chart-core` crate. Guide, legend renderer, and mark-data
-     call sites import them through `chart_core::color`, while
+     call sites import them through `avenger_chart_core::color`, while
      `avenger_chart::utils::*` remains a compatibility path.
    - Base mark channel coercion helpers now live in the real
      `avenger-chart-core` crate under `mark_channel_coercion`, including the
@@ -731,10 +730,10 @@ Migration discipline:
 
     Progress:
 
-    - `IntoExpr` now lives under `chart_core`, with `plot::IntoExpr` preserved
+    - `IntoExpr` now lives in `avenger-chart-core`, with `plot::IntoExpr` preserved
       as a compatibility re-export.
     - Core-owned implementations for primitive values, `Param`, `AxisPosition`,
-      `LegendPosition`, and `LegendOrientation` live with `chart_core`.
+      `LegendPosition`, and `LegendOrientation` live with `avenger-chart-core`.
     - Owner-specific implementations for `PolarAxisType`, `PolarDirection`,
       `TitleSpan`, and `TitleAlign` now live beside those owning types instead
       of in `plot::plot`.
@@ -748,8 +747,7 @@ Migration discipline:
 
     - The real `AvengerChartError` enum now lives in the real
       `avenger-chart-core` crate with the core-compatible variants. The public
-      `crate::error` and `chart_core::error` modules are compatibility
-      re-exports.
+      `crate::error` is a compatibility re-export.
     - `ChannelResolutionError` now lives in `avenger-chart-core`, which removes
       the final chart-local dependency from the core error enum.
     - Runtime-only `AvengerAppError`, `image::ImageError`, and
@@ -829,9 +827,10 @@ boundaries boring.
      logical expression/plan conversion traits that use
      `AvengerChartExtensionCodec` remain in `avenger-chart` with the scale UDF
      codec.
-   - `avenger-chart` now depends on `avenger-chart-core` and re-exports those
-     moved items through the existing `chart_core` staging namespace, including
-     thin compatibility submodules for old in-crate paths.
+   - `avenger-chart` now depends on `avenger-chart-core` and re-exports moved
+     items through narrow public compatibility modules for old facade paths.
+     The temporary `chart_core` staging namespace was removed after direct
+     `avenger-chart-core` imports landed.
    - Theme-only parser dependencies (`cssparser`, `selectors`, and
      `precomputed-hash`) are now owned by `avenger-chart-core`, not the
      top-level facade crate.
@@ -1057,6 +1056,10 @@ boundaries boring.
      crates took ownership. Public top-level compatibility paths now live in
      the existing `marks`, `scales`, `legend`, `cartesian`, and `polar`
      modules as direct `pub use` shims.
+   - Removed the final `chart_core` staging namespace after rewiring internal
+     imports directly to `avenger-chart-core`. Public compatibility paths such
+     as `avenger_chart::maybe`, `param`, `error`, `coords`, `guide`, and
+     `layout` remain as narrow re-export shims where needed.
 
 ## Testing And Validation Strategy
 

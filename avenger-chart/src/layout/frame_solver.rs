@@ -9,8 +9,9 @@
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 
+use avenger_chart_core::{AxisPosition, LegendPosition};
+
 use crate::{
-    chart_core::{AxisPosition, LegendPosition},
     error::AvengerChartError,
     guide::OverflowSpaceRequirement,
     plot::{PlotSubtitle, PlotTitle},

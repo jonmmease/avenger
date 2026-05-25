@@ -11,13 +11,13 @@ mod tests {
 
     use super::*;
     use crate::{
-        chart_core::{
-            AvengerChartError, CompiledMarkCore, CompiledMarkState, FacetDimensionConfig, Mark,
-            RowDimensionConfig, SubplotDataSource,
-        },
         concat::{HConcat, compiled_subplot},
         plot::Plot,
         zerod::ZeroDCoord,
+    };
+    use avenger_chart_core::{
+        AvengerChartError, CompiledMarkCore, CompiledMarkState, FacetDimensionConfig, Mark,
+        RowDimensionConfig, SubplotDataSource,
     };
 
     fn single_column_df(ctx: &SessionContext, value: f32) -> datafusion::dataframe::DataFrame {

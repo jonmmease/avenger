@@ -8,10 +8,11 @@ use datafusion::{
 };
 use serde::{Deserialize, Serialize};
 
+use avenger_chart_core::{
+    MarkRuntimeContext, RadiusExpression, ResolvedDomain, ScaleRange, ScaleTypePreference,
+};
+
 use crate::{
-    chart_core::{
-        MarkRuntimeContext, RadiusExpression, ResolvedDomain, ScaleRange, ScaleTypePreference,
-    },
     concat::{HConcat, VConcat, concat_coord_ref},
     coords::CoordinateSystemTransformCore,
     error::AvengerChartError,

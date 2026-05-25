@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
+use avenger_chart_core::SharingLevel;
 use datafusion::common::ScalarValue;
 
 use crate::{
-    chart_core::SharingLevel,
     coords::CellDomainInfo,
     facet::{coord::ChannelDomainExtent, sharing_policy},
     plot::compiled::{

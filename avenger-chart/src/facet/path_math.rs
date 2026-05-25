@@ -7,7 +7,9 @@
 
 use datafusion::common::ScalarValue;
 
-use crate::{chart_core::SharingLevel, plot::compiled::shared_path_key};
+use avenger_chart_core::SharingLevel;
+
+use crate::plot::compiled::shared_path_key;
 
 /// Compute the current-cell ancestor key implied by a child facet's slot sharing.
 ///

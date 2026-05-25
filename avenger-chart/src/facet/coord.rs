@@ -14,8 +14,9 @@ use datafusion::{common::ScalarValue, dataframe::DataFrame, scalar::ScalarValue 
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace};
 
+use avenger_chart_core::{AxisPosition, FacetEmptyCellPolicy, SharingLevel};
+
 use crate::{
-    chart_core::{AxisPosition, FacetEmptyCellPolicy, SharingLevel},
     container::{ChildFrameKey, ChildFrameScopeKey, ContainerPathSegment},
     coords::{
         CellDomainInfo, CoordMeasurement, CoordinateSystem, CoordinateSystemCore,
@@ -4148,7 +4149,6 @@ impl CoordinateSystemTransform for FacetColumn {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chart_core::LegendPosition;
     use crate::facet::FacetDirection;
     use crate::facet::evaluated_facet_tree::{EvaluatedFacetTree, PartitionNode};
     use crate::layout::{LayoutBounds, Size2D};
@@ -4157,6 +4157,7 @@ mod tests {
     use crate::render::types::LegendMeasurement;
     use crate::scales::{Linear, Scale};
     use crate::theme::Theme;
+    use avenger_chart_core::LegendPosition;
     use avenger_scales::scales::{band::BandScale, linear::LinearScale};
     use datafusion::prelude::SessionContext;
     use indexmap::IndexMap;

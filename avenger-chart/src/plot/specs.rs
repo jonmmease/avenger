@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::chart_core::Axis;
+use avenger_chart_core::Axis;
 
 pub use avenger_chart_scales::PlotScaleSpec as ScaleSpec;
 

@@ -1,10 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
+use avenger_chart_core::{FacetEmptyCellPolicy, SharingLevel};
 use avenger_scales::scales::ConfiguredScale;
 use datafusion::{common::ScalarValue, dataframe::DataFrame, logical_expr::lit};
 
 use crate::{
-    chart_core::{FacetEmptyCellPolicy, SharingLevel},
     coords::{FacetAxis, OverflowSpaceRequirement},
     error::AvengerChartError,
     facet::{

@@ -659,7 +659,6 @@ mod tests {
     use super::*;
     use crate::{
         cartesian::{Cartesian, CartesianLinePositionChannels, CartesianSymbolPositionChannels},
-        chart_core::{CoordinationAxis, ScaleSharing},
         coords::FacetAxis,
         facet::{
             coord::{FacetBandCoordMeasurement, FacetColumn, FacetRow},
@@ -680,6 +679,7 @@ mod tests {
         scales::{Linear, ScaleChannelConfig},
         zerod::ZeroDCoord,
     };
+    use avenger_chart_core::{CoordinationAxis, ScaleSharing};
 
     fn run_with_large_stack<F, Fut>(f: F)
     where

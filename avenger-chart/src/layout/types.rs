@@ -1,9 +1,9 @@
-pub use crate::chart_core::{
+pub use avenger_chart_core::{
     EdgeSlabs, FrameAllocation, FrameDemand, FrameDimensionSizing, FrameLayout, FrameSizingPolicy,
     LayoutBounds, OverflowSide, OwnedEdgeSlabs, Size2D,
 };
 
-use crate::chart_core::LegendPosition;
+use avenger_chart_core::LegendPosition;
 
 /// Types of components that can be laid out.
 #[derive(Debug, Clone)]

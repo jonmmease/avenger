@@ -21,13 +21,13 @@ use datafusion::{
 };
 use datafusion_proto::protobuf::LogicalPlanNode;
 
+use avenger_chart_core::{EvaluationContext, color::parse_color_string};
+
 use crate::{
     channel::{
         resolution::resolve_all_channel_refs,
         value::{ChannelValue, ConditionalValue, strip_trailing_numbers},
     },
-    chart_core::EvaluationContext,
-    chart_core::color::parse_color_string,
     error::AvengerChartError,
     marks::CompiledMark,
     render::RenderState,
@@ -351,7 +351,6 @@ mod tests {
     use super::*;
     use crate::{
         cartesian::{Cartesian, CartesianSymbolPositionChannels},
-        chart_core::EvaluationContext,
         concat::HConcat,
         error::AvengerChartError,
         marks::{ChannelValue, Mark, Subplot, symbol::Symbol},
@@ -361,6 +360,7 @@ mod tests {
         theme::Theme,
         zerod::ZeroDCoord,
     };
+    use avenger_chart_core::EvaluationContext;
 
     fn eval_context(session: Arc<SessionContext>) -> EvaluationContext {
         EvaluationContext::new(Arc::new(Theme::light()), session, IndexMap::new())

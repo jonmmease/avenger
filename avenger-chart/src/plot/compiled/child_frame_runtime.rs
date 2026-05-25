@@ -8,8 +8,9 @@ use std::collections::HashMap;
 
 use datafusion::{common::ScalarValue, dataframe::DataFrame};
 
+use avenger_chart_core::{EvaluationContext as CoreEvaluationContext, SharingLevel};
+
 use crate::{
-    chart_core::{EvaluationContext as CoreEvaluationContext, SharingLevel},
     error::AvengerChartError,
     layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
     render::EvaluationContext,

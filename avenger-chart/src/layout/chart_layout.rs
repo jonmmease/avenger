@@ -11,9 +11,9 @@ use taffy::{
 };
 use tracing::debug;
 
+use avenger_chart_core::{AxisPosition, LegendPosition, evaluate_string_expr, maybe::Maybe};
+
 use crate::{
-    chart_core::maybe::Maybe,
-    chart_core::{AxisPosition, LegendPosition, evaluate_string_expr},
     error::AvengerChartError,
     guide::OverflowSpaceRequirement,
     plot::{PlotSubtitle, PlotTitle, TitleSpan},

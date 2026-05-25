@@ -7,8 +7,9 @@
 
 use datafusion::common::ScalarValue;
 
+use avenger_chart_core::{AxisPosition, CoordinationAxis, LegendPosition, SharingLevel};
+
 use crate::{
-    chart_core::{AxisPosition, CoordinationAxis, LegendPosition, SharingLevel},
     facet::FacetDirection,
     plot::compiled::{
         ContainerEdgeLevelProjection, CoordinationKind, EdgeOwnershipRequest, EdgeOwnershipScope,

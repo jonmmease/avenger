@@ -6,9 +6,10 @@
 
 use std::collections::HashMap;
 
+use avenger_chart_core::SharingLevel;
+
 use crate::{
     channel::value::strip_trailing_numbers,
-    chart_core::SharingLevel,
     scales::{DomainExtent, ScaleBuilder},
 };
 

@@ -3,13 +3,13 @@
 //! This module is shared by facet coordinate measurement and facet guides to
 //! keep cell planning and overflow edge/gap semantics consistent.
 
-use crate::chart_core::{AxisPosition, SharingLevel};
 use crate::coords::{FacetAxis, OverflowSpaceRequirement};
 use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
 use crate::guide::{AxisOwnershipMode, AxisVisibility, FacetGuideSharingView};
 pub(crate) use crate::partition::{
     PartitionCellEmptyKind as FacetCellEmptyKind, PartitionCellPlan as FacetCellPlan,
 };
+use avenger_chart_core::{AxisPosition, SharingLevel};
 use datafusion::common::ScalarValue;
 use std::collections::HashMap;
 use tracing::trace;

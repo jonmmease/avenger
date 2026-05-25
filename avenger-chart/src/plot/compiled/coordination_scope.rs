@@ -6,7 +6,7 @@
 
 use datafusion::common::ScalarValue;
 
-use crate::chart_core::CoordinationAxis;
+use avenger_chart_core::CoordinationAxis;
 
 use super::{ChildFrameKey, ChildFrameScopeKey, ContainerPathSegment};
 

@@ -11,9 +11,10 @@ use datafusion::{common::ScalarValue, logical_expr::lit, prelude::SessionContext
 use indexmap::IndexMap;
 use tracing::debug;
 
+use avenger_chart_core::{LegendPosition, LegendRendererKind, SharingLevel, maybe::Maybe};
+
 use crate::{
     channel::value::ChannelValue,
-    chart_core::{LegendPosition, LegendRendererKind, SharingLevel, maybe::Maybe},
     coords::extract_channel_title_from_marks,
     error::AvengerChartError,
     facet::{evaluated_facet_tree::EvaluatedFacetTree, sharing_policy},
@@ -765,7 +766,7 @@ impl CompiledPlot {
 
         // For channels not explicitly set, check if they have theme defaults
         // This ensures legend symbols match the chart's actual appearance
-        let eval_ctx = crate::chart_core::EvaluationContext::new(
+        let eval_ctx = avenger_chart_core::EvaluationContext::new(
             self.get_theme(),
             Arc::new(ctx.clone()),
             params.clone(),
@@ -856,7 +857,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
     ) -> Result<LegendPosition, AvengerChartError> {
-        use crate::chart_core::evaluate_legend_position_expr;
+        use avenger_chart_core::evaluate_legend_position_expr;
 
         if let Some(node) = legend.position.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
@@ -895,7 +896,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
     ) -> Result<(Vec<Vec<LegendChannel>>, IndexMap<String, Legend>), AvengerChartError> {
-        use crate::chart_core::{evaluate_bool_expr, evaluate_i32_expr};
+        use avenger_chart_core::{evaluate_bool_expr, evaluate_i32_expr};
 
         // Collect all channels that need legends from all marks
         let mut all_channels = Vec::new();

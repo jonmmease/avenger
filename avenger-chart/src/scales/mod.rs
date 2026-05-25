@@ -22,11 +22,11 @@ pub(crate) fn default_range_for_compiled_marks<'a>(
 ) -> impl Fn(
     &str,
     &dyn avenger_scales::scales::ScaleImpl,
-    &crate::chart_core::ResolvedDomain,
+    &avenger_chart_core::ResolvedDomain,
     &datafusion::arrow::datatypes::DataType,
     &crate::theme::Theme,
     &indexmap::IndexMap<String, datafusion_common::ScalarValue>,
-) -> Option<crate::chart_core::ScaleRange>
+) -> Option<avenger_chart_core::ScaleRange>
 + 'a {
     move |channel_name, scale_impl, resolved_domain, data_type, theme, params| {
         for mark in compiled_marks {

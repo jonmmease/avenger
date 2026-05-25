@@ -5,8 +5,9 @@ use std::{collections::HashMap, sync::Arc};
 use datafusion::{arrow::datatypes::DataType as ArrowDataType, dataframe::DataFrame};
 use datafusion_proto::protobuf::LogicalPlanNode;
 
+use avenger_chart_core::EvaluationContext as CoreEvaluationContext;
+
 use crate::{
-    chart_core::EvaluationContext as CoreEvaluationContext,
     coords::CoordinateSystemTransform,
     error::AvengerChartError,
     marks::CompiledMark,
@@ -92,7 +93,7 @@ mod tests {
             &compiled.coord_transform,
             &compiled.data,
             None,
-            &crate::chart_core::EvaluationContext::new(
+            &avenger_chart_core::EvaluationContext::new(
                 compiled.get_theme(),
                 Arc::new(ctx.clone()),
                 params.clone(),
@@ -196,7 +197,7 @@ mod tests {
 
     #[tokio::test]
     async fn legend_titles_radius_padding_matches_data() {
-        use crate::chart_core::ScalarValueHelpers;
+        use avenger_chart_core::ScalarValueHelpers;
         use datafusion::arrow::array::Float64Array;
         use datafusion::prelude::*;
 

@@ -8,10 +8,9 @@
 use datafusion::common::ScalarValue;
 
 #[cfg(test)]
-use crate::{
-    chart_core::{AxisPosition, SharingLevel},
-    facet::evaluated_facet_tree::EvaluatedFacetTree,
-};
+use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
+#[cfg(test)]
+use avenger_chart_core::{AxisPosition, SharingLevel};
 
 /// Format a ScalarValue for display as a facet label.
 pub(crate) fn format_scalar_value(value: &ScalarValue) -> String {

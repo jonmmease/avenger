@@ -10,7 +10,7 @@ pub(crate) mod plot_legends;
 pub mod renderer;
 
 // Re-export main types
-pub use crate::chart_core::LegendRendererKind;
+pub use avenger_chart_core::LegendRendererKind;
 pub use avenger_chart_legend::{
     AngleLegendBuilder, ColorLegendBuilder, Legend, LegendBuilder, LegendOrientation,
     LegendPosition, LegendableChannel, LegendableChannelValue, OpacityLegendBuilder,

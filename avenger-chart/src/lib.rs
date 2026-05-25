@@ -10,7 +10,6 @@
 pub mod axis;
 pub mod cartesian;
 pub mod channel;
-pub(crate) mod chart_core;
 pub mod color;
 pub mod concat;
 #[doc(hidden)]

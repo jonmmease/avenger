@@ -4,10 +4,9 @@ use std::sync::Arc;
 
 use avenger_scenegraph::marks::mark::SceneMark;
 
-use crate::{
-    chart_core::{evaluate_f32_expr, evaluate_string_expr},
-    error::AvengerChartError,
-};
+use avenger_chart_core::{evaluate_f32_expr, evaluate_string_expr};
+
+use crate::error::AvengerChartError;
 
 use super::CompiledPlot;
 
@@ -47,7 +46,7 @@ impl CompiledPlot {
 
         // Evaluate font_size
         let font_size = match title.font_size.as_ref() {
-            crate::chart_core::maybe::Maybe::Set(Some(node)) => {
+            avenger_chart_core::maybe::Maybe::Set(Some(node)) => {
                 let expr = node.to_expr(ctx)?;
                 evaluate_f32_expr(&expr, ctx, params).await?
             }
@@ -58,7 +57,7 @@ impl CompiledPlot {
 
         // Evaluate font_family
         let font_family = match title.font_family.as_ref() {
-            crate::chart_core::maybe::Maybe::Set(Some(node)) => {
+            avenger_chart_core::maybe::Maybe::Set(Some(node)) => {
                 let expr = node.to_expr(ctx)?;
                 evaluate_string_expr(&expr, ctx, params).await?
             }
@@ -69,7 +68,7 @@ impl CompiledPlot {
 
         // Evaluate text alignment (from expression or theme)
         let text_align = match title.align.as_ref() {
-            crate::chart_core::maybe::Maybe::Set(Some(node)) => {
+            avenger_chart_core::maybe::Maybe::Set(Some(node)) => {
                 let expr = node.to_expr(ctx)?;
                 let align_str = evaluate_string_expr(&expr, ctx, params).await?;
                 match align_str.to_lowercase().as_str() {
@@ -159,7 +158,7 @@ impl CompiledPlot {
 
         // Evaluate font_size
         let font_size = match subtitle.font_size.as_ref() {
-            crate::chart_core::maybe::Maybe::Set(Some(node)) => {
+            avenger_chart_core::maybe::Maybe::Set(Some(node)) => {
                 let expr = node.to_expr(ctx)?;
                 evaluate_f32_expr(&expr, ctx, params).await?
             }
@@ -170,7 +169,7 @@ impl CompiledPlot {
 
         // Evaluate font_family
         let font_family = match subtitle.font_family.as_ref() {
-            crate::chart_core::maybe::Maybe::Set(Some(node)) => {
+            avenger_chart_core::maybe::Maybe::Set(Some(node)) => {
                 let expr = node.to_expr(ctx)?;
                 evaluate_string_expr(&expr, ctx, params).await?
             }
@@ -181,7 +180,7 @@ impl CompiledPlot {
 
         // Evaluate text alignment (from expression or theme)
         let text_align = match subtitle.align.as_ref() {
-            crate::chart_core::maybe::Maybe::Set(Some(node)) => {
+            avenger_chart_core::maybe::Maybe::Set(Some(node)) => {
                 let expr = node.to_expr(ctx)?;
                 let align_str = evaluate_string_expr(&expr, ctx, params).await?;
                 match align_str.to_lowercase().as_str() {

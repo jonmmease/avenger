@@ -7,7 +7,9 @@
 
 use datafusion::common::ScalarValue;
 
-use crate::{chart_core::CoordinationAxis, coords::FacetAxis, guide::ChildFrameGuideSharingView};
+use avenger_chart_core::CoordinationAxis;
+
+use crate::{coords::FacetAxis, guide::ChildFrameGuideSharingView};
 
 /// Stable identity for one measured child frame within a container.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

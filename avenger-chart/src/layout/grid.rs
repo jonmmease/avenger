@@ -12,9 +12,9 @@ use indexmap::IndexMap;
 use taffy::prelude::*;
 use tracing::debug;
 
+use avenger_chart_core::{LegendPosition, evaluate_f32_expr, evaluate_string_expr, maybe::Maybe};
+
 use crate::{
-    chart_core::maybe::Maybe,
-    chart_core::{LegendPosition, evaluate_f32_expr, evaluate_string_expr},
     error::AvengerChartError,
     guide::OverflowSpaceRequirement,
     plot::{PlotSubtitle, PlotTitle},

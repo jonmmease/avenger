@@ -7,8 +7,9 @@ use datafusion::logical_expr::LogicalPlan;
 use datafusion::{common::ScalarValue, dataframe::DataFrame};
 use tracing::{debug, trace};
 
+use avenger_chart_core::SharingLevel;
+
 use crate::{
-    chart_core::SharingLevel,
     concat::compiled_subplot,
     coords::CellDomainInfo,
     error::AvengerChartError,

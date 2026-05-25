@@ -11,8 +11,9 @@ use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 use tracing::{debug, trace};
 
+use avenger_chart_core::{AxisPosition, SharingLevel};
+
 use crate::{
-    chart_core::{AxisPosition, SharingLevel},
     coords::{CoordMeasurement, FacetAxis, OverflowSpaceRequirement},
     error::AvengerChartError,
     facet::{

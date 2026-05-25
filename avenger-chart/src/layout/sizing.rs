@@ -52,10 +52,9 @@ use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
-use crate::{
-    chart_core::maybe::{Maybe, MaybeOptionalExpr},
-    serialization::{LogicalExprNodeExt, SerializableExpr, serializable_expr_from_expr},
-};
+use avenger_chart_core::maybe::{Maybe, MaybeOptionalExpr};
+
+use crate::serialization::{LogicalExprNodeExt, SerializableExpr, serializable_expr_from_expr};
 
 use super::types::{FrameDimensionSizing, FrameSizingPolicy};
 

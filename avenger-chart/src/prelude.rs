@@ -20,11 +20,11 @@
 
 // Re-export coordinate systems
 pub use crate::cartesian::Cartesian;
-pub use crate::chart_core::{FacetEmptyCellPolicy, ScaleSharing};
 pub use crate::concat::{ConcatGuide, HConcat, VConcat};
 pub use crate::facet::coord::{FacetColumn, FacetRow};
 pub use crate::polar::Polar;
 pub use crate::zerod::ZeroDCoord;
+pub use avenger_chart_core::{FacetEmptyCellPolicy, ScaleSharing};
 
 // Re-export the Plot type
 pub use crate::layout::{CanvasConstraint, PlotConstraint};
@@ -46,8 +46,8 @@ pub use crate::marks::symbol::Symbol;
 pub use crate::polar::PolarSymbolPositionChannels;
 
 // Re-export mark traits and types
-pub use crate::chart_core::RadiusExpression;
 pub use crate::marks::{ChannelValue, ConditionalValue, FacetStrategy, Mark, MarkState};
+pub use avenger_chart_core::RadiusExpression;
 
 // Re-export channel config traits - ESSENTIAL for using channel methods
 pub use crate::channel::{ChannelConfig, LegendableChannel};
@@ -71,17 +71,17 @@ pub use crate::scales::{
 };
 
 // Re-export legend types
-pub use crate::chart_core::{LegendOrientation, LegendPosition};
 pub use crate::legend::Legend;
 pub use crate::legend::{
     AngleLegendBuilder, ColorLegendBuilder, LegendBuilder, OpacityLegendBuilder,
     ShapeLegendBuilder, SizeLegendBuilder, StrokeDashLegendBuilder, StrokeWidthLegendBuilder,
 };
+pub use avenger_chart_core::{LegendOrientation, LegendPosition};
 
 // Re-export axis types
 pub use crate::cartesian::CartesianAxis;
-pub use crate::chart_core::AxisPosition;
 pub use crate::polar::PolarAxis;
+pub use avenger_chart_core::AxisPosition;
 
 // Re-export rendering types
 pub use crate::render::CanvasExt;
@@ -95,7 +95,7 @@ pub use crate::render::{
 pub use crate::error::AvengerChartError;
 
 // Re-export parameter type
-pub use crate::chart_core::param::Param;
+pub use avenger_chart_core::param::Param;
 
 // Re-export DataFusion types for data manipulation
 pub use datafusion::{

@@ -27,7 +27,6 @@ pub use crate::partition::{PartitionContent, PartitionNode};
 pub(crate) use crate::guide::AxisOwnershipMode;
 pub use crate::guide::AxisVisibility;
 use crate::{
-    chart_core::{AxisPosition, SharingLevel},
     error::AvengerChartError,
     facet::FacetDirection,
     facet::{
@@ -42,6 +41,7 @@ use crate::{
     },
     serialization::LogicalPlanNodeExt,
 };
+use avenger_chart_core::{AxisPosition, SharingLevel};
 
 /// Evaluated facet structure - built once from data at evaluate() time, queried throughout.
 ///
@@ -2156,7 +2156,7 @@ mod tests {
 
     #[test]
     fn test_cache_parity_is_jagged_for_axis() {
-        use crate::chart_core::AxisPosition;
+        use avenger_chart_core::AxisPosition;
 
         let tree = build_jagged_test_tree();
         for axis_position in [
@@ -2236,7 +2236,7 @@ mod tests {
 
     #[test]
     fn test_axis_visibility_for_path_checked_valid_path_returns_some() {
-        use crate::chart_core::AxisPosition;
+        use avenger_chart_core::AxisPosition;
 
         let tree = build_enumeration_test_tree();
         let path = vec![scalar("East"), scalar("Eng"), scalar("A")];
@@ -2246,7 +2246,7 @@ mod tests {
 
     #[test]
     fn test_axis_visibility_for_path_checked_invalid_path_returns_none() {
-        use crate::chart_core::AxisPosition;
+        use avenger_chart_core::AxisPosition;
 
         let tree = build_enumeration_test_tree();
         let path = vec![scalar("North"), scalar("Eng"), scalar("A")];
@@ -2256,7 +2256,7 @@ mod tests {
 
     #[test]
     fn test_axis_visibility_for_path_wrapper_defaults_invalid_to_visible() {
-        use crate::chart_core::AxisPosition;
+        use avenger_chart_core::AxisPosition;
 
         let tree = build_enumeration_test_tree();
         let path = vec![scalar("North"), scalar("Eng"), scalar("A")];
@@ -2267,7 +2267,7 @@ mod tests {
 
     #[test]
     fn test_channel_axis_visibility_for_path_checked_valid_path_returns_some() {
-        use crate::chart_core::AxisPosition;
+        use avenger_chart_core::AxisPosition;
 
         let tree = build_enumeration_test_tree();
         let path = vec![scalar("East"), scalar("Eng"), scalar("A")];
@@ -2278,7 +2278,7 @@ mod tests {
 
     #[test]
     fn test_channel_axis_visibility_for_path_checked_invalid_path_returns_none() {
-        use crate::chart_core::AxisPosition;
+        use avenger_chart_core::AxisPosition;
 
         let tree = build_enumeration_test_tree();
         let path = vec![scalar("North"), scalar("Eng"), scalar("A")];
@@ -2289,7 +2289,7 @@ mod tests {
 
     #[test]
     fn test_channel_axis_visibility_for_path_wrapper_defaults_invalid_to_visible() {
-        use crate::chart_core::AxisPosition;
+        use avenger_chart_core::AxisPosition;
 
         let tree = build_enumeration_test_tree();
         let path = vec![scalar("North"), scalar("Eng"), scalar("A")];
@@ -2300,7 +2300,7 @@ mod tests {
 
     #[test]
     fn test_channel_axis_visibility_non_empty_mode_relocates_bottom_owner() {
-        use crate::chart_core::AxisPosition;
+        use avenger_chart_core::AxisPosition;
 
         let tree = build_hole_visibility_test_tree();
         let path = vec![scalar("narrow"), scalar("Iris-setosa")];
@@ -2330,7 +2330,7 @@ mod tests {
 
     #[test]
     fn test_channel_axis_visibility_non_empty_mode_relocates_right_owner() {
-        use crate::chart_core::AxisPosition;
+        use avenger_chart_core::AxisPosition;
 
         let tree = build_hole_visibility_test_tree();
         let path = vec![scalar("narrow"), scalar("Iris-setosa")];
@@ -2360,7 +2360,7 @@ mod tests {
 
     #[test]
     fn test_channel_axis_visibility_domain_mode_matches_default_path() {
-        use crate::chart_core::AxisPosition;
+        use avenger_chart_core::AxisPosition;
 
         let tree = build_hole_visibility_test_tree();
         let path = vec![scalar("wide"), scalar("Iris-virginica")];
@@ -2379,7 +2379,7 @@ mod tests {
 
     #[test]
     fn test_channel_axis_title_uses_branch_local_edge_owner() {
-        use crate::chart_core::AxisPosition;
+        use avenger_chart_core::AxisPosition;
 
         let tree = build_free_row_title_test_tree();
 
@@ -2400,7 +2400,7 @@ mod tests {
 
     #[test]
     fn test_channel_axis_title_non_empty_mode_relocates_to_visible_edge_owner() {
-        use crate::chart_core::AxisPosition;
+        use avenger_chart_core::AxisPosition;
 
         let tree = build_free_row_title_test_tree();
         let narrow_top = vec![scalar("narrow"), scalar("Iris-setosa")];
@@ -2419,7 +2419,7 @@ mod tests {
 
     #[test]
     fn test_path_resolution_matches_utf8_and_utf8view_values() {
-        use crate::chart_core::AxisPosition;
+        use avenger_chart_core::AxisPosition;
 
         let row_leaf = PartitionNode::leaf(
             FacetDirection::Row,

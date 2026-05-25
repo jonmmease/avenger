@@ -7,13 +7,13 @@
 
 use std::{any::Any, collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
+use avenger_chart_core::coerce_numeric_channel_with_renderer;
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
 
 use crate::{
     cartesian::CompiledCartesianSubplot,
-    chart_core::coerce_numeric_channel_with_renderer,
     container::{
         ChildFrameKey, ChildFramePlacementResult, ChildFrameRenderPlacement, ChildFrameScopeKey,
         ChildFrameSharingLevel, ContainerPathSegment,
