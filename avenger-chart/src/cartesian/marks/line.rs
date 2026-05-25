@@ -15,17 +15,17 @@ pub use avenger_chart_cartesian::CartesianLinePositionChannels;
 use crate::{
     cartesian::Cartesian,
     channel::ChannelDescriptor,
-    chart_core::{LegendRendererKind, RadiusExpression, is_continuous_scale},
+    chart_core::{
+        LegendRendererKind, RadiusExpression, coerce_bool_channel_with_renderer,
+        coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
+        is_continuous_scale,
+    },
     coords::{CoordinateSystemTransformCore, PointGeometry},
     error::AvengerChartError,
     impl_mark_trait_common,
     marks::{
         CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState, Mark,
         line::{Line, PartitionKey, ensure_dictionary_array, line_channel_defaults},
-        util::{
-            coerce_bool_channel_with_renderer, coerce_color_channel_with_renderer,
-            coerce_numeric_channel_with_renderer,
-        },
     },
     render::RenderContext,
     serialization::LogicalExprNodeExt,

@@ -13,7 +13,8 @@ use crate::{
     cartesian::Cartesian,
     channel::ChannelDescriptor,
     chart_core::{
-        LegendRendererKind, ScaleTypePreference, default_scale_type_for_data_type,
+        LegendRendererKind, ScaleTypePreference, coerce_color_channel_with_renderer,
+        coerce_numeric_channel_with_renderer, default_scale_type_for_data_type,
         is_continuous_scale,
     },
     coords::{CoordinateSystemTransformCore, PointGeometry},
@@ -22,7 +23,6 @@ use crate::{
     marks::{
         CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState, Mark,
         rect::{Rect, rect_channel_defaults},
-        util::{coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer},
     },
     render::RenderContext,
 };

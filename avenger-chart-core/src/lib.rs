@@ -118,9 +118,11 @@ pub use layout_types::{
 pub use legend::{LegendOrientation, LegendPosition, LegendRendererKind};
 pub use legend_spec::Legend;
 pub use mark_channel_coercion::{
-    coerce_bool_channel, coerce_channel, coerce_color_channel, coerce_numeric_channel,
-    coerce_opacity_channel, coerce_stroke_cap_channel, coerce_stroke_dash_channel,
-    coerce_stroke_join_channel, coerce_text_channel,
+    coerce_bool_channel, coerce_bool_channel_with_renderer, coerce_channel, coerce_color_channel,
+    coerce_color_channel_with_renderer, coerce_numeric_channel,
+    coerce_numeric_channel_with_renderer, coerce_opacity_channel, coerce_stroke_cap_channel,
+    coerce_stroke_cap_channel_with_renderer, coerce_stroke_dash_channel,
+    coerce_stroke_join_channel, coerce_stroke_join_channel_with_renderer, coerce_text_channel,
 };
 pub use mark_render_context::MarkRenderContext;
 pub use mark_state::{CompiledMarkState, MarkState};

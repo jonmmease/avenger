@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     cartesian::{Cartesian, CartesianPositionConfig},
     channel::{ChannelValue, PositionConfig},
-    chart_core::RadiusExpression,
+    chart_core::{RadiusExpression, coerce_numeric_channel_with_renderer},
     container::{
         ChildFrameKey, ChildFramePlacementResult, ChildFrameRenderPlacement, ChildFrameScopeKey,
         ChildFrameSharingLevel, ContainerPathSegment,
@@ -29,7 +29,7 @@ use crate::{
     marks::{
         ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState,
         CompiledSubplotPayload, Mark, Subplot, SubplotContainerCoordinateSystem,
-        compile_subplot_payload, util::coerce_numeric_channel_with_renderer,
+        compile_subplot_payload,
     },
     plot::CompiledPlot,
     plot::compiled::{

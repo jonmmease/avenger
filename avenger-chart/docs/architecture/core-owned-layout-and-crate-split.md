@@ -675,9 +675,9 @@ Migration discipline:
      call sites import them through `chart_core::color`, while
      `avenger_chart::utils::*` remains a compatibility path.
    - Base mark channel coercion helpers now live in the real
-     `avenger-chart-core` crate under `mark_channel_coercion`. The old
-     `avenger_chart::marks::util::*` path re-exports the raw helpers and keeps
-     only the `CompiledMark` default-aware wrappers top-level for now.
+     `avenger-chart-core` crate under `mark_channel_coercion`, including the
+     compiled-mark default-aware wrappers used by built-in renderers. The old
+     `avenger_chart::marks::util::*` path is now a compatibility re-export.
 
 11. Move `IntoExpr` to the future core boundary.
     Once `IntoExpr` is low-level, `AxisPosition`, `LegendPosition`,

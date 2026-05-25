@@ -20,7 +20,9 @@ use crate::{
     channel::ChannelDescriptor,
     chart_core::{
         LegendRendererKind, RadiusExpression, ResolvedDomain, ScalarValueHelpers, ScaleRange,
-        ScaleTypePreference, default_scale_type_for_data_type, is_continuous_scale,
+        ScaleTypePreference, coerce_color_channel_with_renderer,
+        coerce_numeric_channel_with_renderer, default_scale_type_for_data_type,
+        is_continuous_scale,
     },
     coords::{CoordinateSystemTransformCore, PointGeometry},
     error::AvengerChartError,
@@ -28,7 +30,6 @@ use crate::{
     marks::{
         CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState, Mark,
         symbol::{Symbol, symbol_channel_defaults, symbol_legend_renderer_kind},
-        util::{coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer},
     },
     render::RenderContext,
     serialization::LogicalExprNodeExt,

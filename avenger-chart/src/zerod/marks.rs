@@ -14,14 +14,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     channel::ChannelDescriptor,
-    chart_core::{LegendRendererKind, ScalarValueHelpers},
+    chart_core::{
+        LegendRendererKind, ScalarValueHelpers, coerce_color_channel_with_renderer,
+        coerce_numeric_channel_with_renderer,
+    },
     coords::{CoordinateSystemTransformCore, PointGeometry},
     error::AvengerChartError,
     impl_mark_trait_common,
     marks::{
         CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState, Mark,
         symbol::{Symbol, symbol_channel_defaults, symbol_legend_renderer_kind},
-        util::{coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer},
     },
     render::RenderContext,
     zerod::ZeroDCoord,
