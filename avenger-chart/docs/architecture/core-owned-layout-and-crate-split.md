@@ -1120,6 +1120,10 @@ boundaries boring.
      legend, theme, channel, axis, and error types directly from their owner
      crates. Top-level-only plot, facet/concat, layout-constraint, render, and
      canvas exports continue to come from `avenger-chart`.
+   - Rewired facet mark and facet guide implementations to import moved mark
+     contracts, subplot types, channel helpers, theme, layout value types, and
+     errors directly from core/marks/Cartesian owner crates. Facet itself
+     remains top-level layout/runtime code.
    - Removed the final `chart_core` staging namespace after rewiring internal
      imports directly to `avenger-chart-core`. Public compatibility paths such
      as `avenger_chart::maybe`, `param`, `error`, `coords`, `guide`, and

@@ -1,5 +1,3 @@
-use crate::coords::{CoordinateSystemTransformCore, FacetAxis};
-use crate::error::AvengerChartError;
 use crate::facet::coord::{FacetBandCoordMeasurement, FacetColumn, FacetRow};
 use crate::facet::marks::facet_config::{FacetColChannelConfig, FacetRowChannelConfig};
 use crate::facet::ownership_policy::{
@@ -7,21 +5,20 @@ use crate::facet::ownership_policy::{
     resolve_facet_ownership_policy,
 };
 use crate::facet::placement::{FacetBandPlacement, facet_child_frame_placement_from_band};
-use crate::layout::Size2D;
-use crate::marks::{
-    ChannelDescriptor, ChannelValue, CompiledMark, CompiledMarkCore, CompiledMarkState,
-    CompiledSubplotPayload, Subplot, SubplotContainerCoordinateSystem, SubplotDataSource,
-    SubplotMarkCore,
-};
 use crate::plot::CompiledPlot;
 use crate::plot::compiled::{
     compiled_subplot_payload_child_plot, compiled_subplot_payload_child_plot_arc,
 };
 use crate::render::{EvaluationContext, RenderContext};
 use avenger_chart_core::{
-    ColumnDimensionConfig, FacetDimensionConfig, FacetEmptyCellPolicy, MarkRuntimeContext,
-    RowDimensionConfig, ScaleSharing, ScaleTypePreference,
+    AvengerChartError, ChannelDescriptor, ChannelValue, ColumnDimensionConfig, CompiledDataContext,
+    CompiledMark, CompiledMarkCore, CompiledMarkState, CompiledSubplotPayload,
+    CoordinateSystemTransformCore, FacetAxis, FacetDimensionConfig, FacetEmptyCellPolicy,
+    MarkRuntimeContext, RowDimensionConfig, ScaleSharing, ScaleTypePreference, Size2D,
+    SubplotContainerCoordinateSystem, SubplotDataSource, SubplotMarkCore,
+    channel_value::expr_to_string, default_scale_type_for_data_type,
 };
+use avenger_chart_marks::Subplot;
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 use datafusion::prelude::SessionContext;
 use serde::{Deserialize, Serialize};
@@ -365,7 +362,7 @@ fn facet_title_for_channel(
             .channels()
             .get(channel_name)
             .and_then(|cv| cv.expr(session_context))
-            .map(|expr| crate::channel::value::expr_to_string(&expr)),
+            .map(|expr| expr_to_string(&expr)),
     }
 }
 
@@ -488,7 +485,7 @@ impl CompiledMarkCore for CompiledFacetRowSubplot {
         self.payload.compiled_state_mut()
     }
 
-    fn data_context(&self) -> &crate::marks::CompiledDataContext {
+    fn data_context(&self) -> &CompiledDataContext {
         &self.payload.compiled_state().data
     }
 
@@ -522,7 +519,7 @@ impl CompiledMarkCore for CompiledFacetRowSubplot {
             // Use band scale for row faceting regardless of domain type (categorical input expected)
             Some(ScaleTypePreference::Band)
         } else {
-            crate::marks::default_scale_type_for_data_type(data_type)
+            default_scale_type_for_data_type(data_type)
         }
     }
 
@@ -727,7 +724,7 @@ impl CompiledMarkCore for CompiledFacetColumnSubplot {
         self.payload.compiled_state_mut()
     }
 
-    fn data_context(&self) -> &crate::marks::CompiledDataContext {
+    fn data_context(&self) -> &CompiledDataContext {
         &self.payload.compiled_state().data
     }
 
@@ -761,7 +758,7 @@ impl CompiledMarkCore for CompiledFacetColumnSubplot {
             // Use band scale for column faceting regardless of domain type (categorical input expected)
             Some(ScaleTypePreference::Band)
         } else {
-            crate::marks::default_scale_type_for_data_type(data_type)
+            default_scale_type_for_data_type(data_type)
         }
     }
 
@@ -816,7 +813,7 @@ impl CompiledMark for CompiledFacetColumnSubplot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{marks::Mark, zerod::ZeroDCoord};
+    use avenger_chart_core::{Mark, ZeroDCoord};
     use datafusion::prelude::{SessionContext, col};
 
     #[test]

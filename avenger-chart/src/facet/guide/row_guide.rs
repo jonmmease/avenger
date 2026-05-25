@@ -2,16 +2,15 @@
 //!
 //! This module is a thin wrapper around the shared facet-band guide engine.
 
-use crate::error::AvengerChartError;
 use crate::facet::guide::band_guide_engine::{self, FacetGuideState, RowGuideAxisOps};
 use crate::facet::marks::facet::CompiledFacetRowSubplot;
 use crate::facet::overflow_projection::FacetOverflowResolutionPhase;
 use crate::plot::compiled::CompiledPlot;
 use avenger_chart_cartesian::CartesianAxis;
 use avenger_chart_core::{
-    CompiledGuide, CompiledMarkCore, CoordMeasurement, CoordinateGuide, GuideOverflowPhase,
-    GuideSharingContext, LayoutBounds, MeasurementResult, OverflowSpaceRequirement,
-    SerializableDataFrame, SharingLevel,
+    AvengerChartError, CompiledGuide, CompiledMarkCore, CoordMeasurement, CoordinateGuide,
+    GuideOverflowPhase, GuideSharingContext, LayoutBounds, MeasurementResult,
+    OverflowSpaceRequirement, SerializableDataFrame, SharingLevel, Theme,
 };
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::group::Clip;
@@ -147,7 +146,7 @@ impl CompiledGuide for FacetRowGuide {
         scales: &HashMap<String, ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
-        theme: &crate::theme::Theme,
+        theme: &Theme,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &SessionContext,
@@ -174,7 +173,7 @@ impl CompiledGuide for FacetRowGuide {
         scales: &HashMap<String, ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
-        theme: &crate::theme::Theme,
+        theme: &Theme,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &SessionContext,
@@ -207,7 +206,7 @@ impl CompiledGuide for FacetRowGuide {
         _scales: &HashMap<String, ConfiguredScale>,
         _plot_width: f32,
         _plot_height: f32,
-        _theme: &crate::theme::Theme,
+        _theme: &Theme,
         _params: &IndexMap<String, datafusion::common::ScalarValue>,
         _data_override: Option<&datafusion::dataframe::DataFrame>,
         _ctx: &SessionContext,
@@ -224,7 +223,7 @@ impl CompiledGuide for FacetRowGuide {
         plot_height: f32,
         plot_bounds: &LayoutBounds,
         guide_overflow: &OverflowSpaceRequirement,
-        theme: &crate::theme::Theme,
+        theme: &Theme,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         ctx: &SessionContext,
         data_override: Option<&datafusion::dataframe::DataFrame>,
