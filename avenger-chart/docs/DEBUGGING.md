@@ -57,8 +57,8 @@ RUST_LOG=avenger_chart=trace cargo run
 # Show only warnings and errors
 RUST_LOG=avenger_chart=warn cargo run
 
-# Show debug for specific modules
-RUST_LOG=avenger_chart::layout=debug,avenger_chart::legend=trace cargo run
+# Show debug for specific crates/modules
+RUST_LOG=avenger_chart::layout=debug,avenger_chart_legend=trace cargo run
 ```
 
 **Important**: When running tests, use `-- --nocapture` to see log output:
@@ -71,21 +71,22 @@ RUST_LOG=avenger_chart=debug cargo test -- --nocapture
 
 The crate provides structured logging for various operations:
 
-#### Layout Module (`avenger_chart::layout`)
+#### Layout And Facet Runtime (`avenger_chart::layout`, `avenger_chart::facet`)
 - Layout container positioning
 - Plot area bounds calculation
 - Axis and guide placement
 - Grid configuration
 - Taffy layout tree operations
+- Facet measurement and coordination
 
-#### Legend Module (`avenger_chart::legend`)
+#### Legend Crate (`avenger_chart_legend`)
 - Legend measurement and sizing
 - Symbol/line/colorbar legend configuration
 - Domain value extraction
 - Text label formatting
 - Padding and background settings
 
-#### Utils Module (`avenger_chart::utils`)
+#### Core Utilities (`avenger_chart_core`)
 - Expression simplification
 - Scalar value conversions
 - Color parsing operations
@@ -144,9 +145,10 @@ When enabled, magenta rectangles and labels are added for:
 
 ### Implementation Details
 
-The visual debug feature is implemented in:
+The visual debug feature lives in:
 - `avenger-chart/src/render/debug.rs` - Rectangle generation logic
-- `avenger-chart/src/plot/compiled/rendering.rs:1007` - Environment variable check
+- `avenger-chart/src/facet/debug.rs` - Environment and option resolution
+- `avenger-chart/src/plot/compiled/rendering.rs` - Overlay mode wiring during evaluation/rendering
 
 ## Combining Both Approaches
 
@@ -157,7 +159,7 @@ For comprehensive debugging, combine tracing logs with visual rectangles:
 AVENGER_CHART_DEBUG_LAYOUT=1 RUST_LOG=avenger_chart::layout=debug cargo test -- --nocapture
 
 # Legend debugging
-AVENGER_CHART_DEBUG_LAYOUT=1 RUST_LOG=avenger_chart::legend=trace cargo test -- --nocapture
+AVENGER_CHART_DEBUG_LAYOUT=1 RUST_LOG=avenger_chart_legend=trace cargo test -- --nocapture
 
 # Everything (very verbose)
 AVENGER_CHART_DEBUG_LAYOUT=1 RUST_LOG=avenger_chart=trace cargo test -- --nocapture
@@ -203,7 +205,9 @@ fn main() {
 **Q: I set `RUST_LOG` but see no output**
 - Make sure you're using `-- --nocapture` with cargo test
 - Verify you've initialized a tracing subscriber in your application/test
-- Check that the module path is correct (e.g., `avenger_chart::layout`, not `avenger_chart::chart_layout`)
+- Check that the module or crate path is correct (for example,
+  `avenger_chart::layout` for top-level layout code or `avenger_chart_legend`
+  for legend renderer code)
 
 **Q: Visual debug rectangles don't appear**
 - Verify `AVENGER_CHART_DEBUG_LAYOUT` is set to `1`

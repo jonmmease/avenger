@@ -1,6 +1,8 @@
 # Avenger Chart - Future Work
 
-This directory contains specifications and design ideas for experimental features planned for future implementation.
+This directory contains speculative designs for features that are not part of
+the current architecture reference. Use `avenger-chart/docs/architecture/` for
+the current system design.
 
 ## Feature Documents
 
@@ -59,16 +61,8 @@ This directory contains specifications and design ideas for experimental feature
 - Parent containers as guides, leaves as marks
 - Dynamic hierarchy depth and interactive drilling
 
-## Purpose
+## Use
 
-These documents consolidate all experimental features and design work, providing complete specifications for an LLM or developer to rebuild these features. Each feature is documented with:
-
-- Purpose and motivation
-- Core design and trait definitions
-- Key implementations with code examples
-- Usage examples
-- Integration points with existing code
-
-## Status
-
-All features in this directory are **planned but not yet implemented**.
+The files in this directory are design sketches. They are not canonical
+descriptions of the current runtime, and they should not be cited as
+architecture references.
