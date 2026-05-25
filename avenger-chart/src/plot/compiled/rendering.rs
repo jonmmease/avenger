@@ -1502,49 +1502,51 @@ impl CompiledPlot {
             .as_any()
             .downcast_ref::<FacetBandCoordMeasurement>()
         {
-            for cell in &facet_band.cells {
-                requests.extend(
-                    cell.measurement
-                        .legend_plan
-                        .hoisted_requests
-                        .iter()
-                        .cloned(),
-                );
-            }
+            Self::extend_child_hoisted_legend_requests(
+                &mut requests,
+                facet_band.cells.iter().map(|cell| &cell.measurement),
+            );
         }
 
         if let Some(concat) = coord_measurement
             .as_any()
             .downcast_ref::<crate::concat::ConcatCoordMeasurement>()
         {
-            for child in &concat.children {
-                requests.extend(
-                    child
-                        .measurement
-                        .legend_plan
-                        .hoisted_requests
-                        .iter()
-                        .cloned(),
-                );
-            }
+            Self::extend_child_hoisted_legend_requests(
+                &mut requests,
+                concat.children.iter().map(|child| &child.measurement),
+            );
         }
 
         if let Some(cartesian) = coord_measurement.as_any().downcast_ref::<
             crate::cartesian::positioned_subplot::CartesianPositionedCoordMeasurement,
         >() {
-            for child in &cartesian.children {
-                requests.extend(
-                    child
-                        .measurement
-                        .legend_plan
-                        .hoisted_requests
-                        .iter()
-                        .cloned(),
-                );
-            }
+            Self::extend_child_hoisted_legend_requests(
+                &mut requests,
+                cartesian.children.iter().map(|child| &child.measurement),
+            );
+        }
+
+        if let Some(polar) = coord_measurement
+            .as_any()
+            .downcast_ref::<crate::polar::positioned_subplot::PolarPositionedCoordMeasurement>(
+        ) {
+            Self::extend_child_hoisted_legend_requests(
+                &mut requests,
+                polar.children.iter().map(|child| &child.measurement),
+            );
         }
 
         requests
+    }
+
+    fn extend_child_hoisted_legend_requests<'a>(
+        requests: &mut Vec<HoistedLegendRequest>,
+        measurements: impl IntoIterator<Item = &'a ComponentsMeasurement>,
+    ) {
+        for measurement in measurements {
+            requests.extend(measurement.legend_plan.hoisted_requests.iter().cloned());
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -4266,6 +4268,7 @@ mod tests {
         prelude::*,
         render::FacetLayoutRefinement,
     };
+    use avenger_chart_polar::PolarSubplotPositionChannels;
     use datafusion::{
         arrow::{
             array::{Float64Array, StringArray},
@@ -4273,6 +4276,7 @@ mod tests {
             record_batch::RecordBatch,
         },
         dataframe::DataFrame,
+        functions_aggregate::average::avg,
         prelude::SessionContext,
     };
     use std::future::Future;
@@ -4585,6 +4589,28 @@ mod tests {
         .expect("read three-level legend sharing test data")
     }
 
+    async fn positioned_legend_sharing_dataframe(ctx: &SessionContext) -> DataFrame {
+        ctx.sql(
+            "SELECT
+                column1 AS slot,
+                column2 AS parent_r,
+                column3 AS parent_theta,
+                column4 AS child_x,
+                column5 AS child_y,
+                column6 AS category
+             FROM (VALUES
+                ('near', 0.34, 0.70, 0.10, 0.20, 'Alpha'),
+                ('near', 0.34, 0.70, 0.26, 0.48, 'Alpha'),
+                ('near', 0.34, 0.70, 0.42, 0.78, 'Alpha'),
+                ('far',  0.70, 3.80, 0.58, 0.28, 'Beta'),
+                ('far',  0.70, 3.80, 0.76, 0.56, 'Beta'),
+                ('far',  0.70, 3.80, 0.92, 0.84, 'Beta')
+             )",
+        )
+        .await
+        .expect("create positioned legend sharing test data")
+    }
+
     async fn two_level_col_col_refinement_dataframe(ctx: &SessionContext) -> DataFrame {
         ctx.sql(
             "CREATE TABLE two_level_col_col_refinement AS VALUES
@@ -4871,6 +4897,51 @@ mod tests {
                 )
                 .column(col("division")),
             )
+    }
+
+    fn build_shared_positioned_legend_child() -> Plot<Cartesian> {
+        Plot::<Cartesian>::new().mark(
+            Symbol::new()
+                .x_with(col("child_x"), |c| {
+                    c.scale_with::<Linear>(|s| {
+                        s.domain((lit(0.0), lit(1.0))).nice(false).zero(false)
+                    })
+                    .axis(|a| a.show_title(false))
+                })
+                .y_with(col("child_y"), |c| {
+                    c.scale_with::<Linear>(|s| {
+                        s.domain((lit(0.0), lit(1.0))).nice(false).zero(false)
+                    })
+                    .axis(|a| a.show_title(false))
+                })
+                .fill_with(col("category"), |c| {
+                    c.with_scale_sharing(ScaleSharing::Shared)
+                        .legend(|legend| legend.title("Category").position(LegendPosition::Right))
+                })
+                .stroke("#ffffff")
+                .stroke_width(1.0)
+                .size(72.0),
+        )
+    }
+
+    fn build_polar_positioned_legend_sharing_plot(df: DataFrame) -> Plot<Polar> {
+        Plot::<Polar>::new().data(df).plot_size(480.0, 360.0).mark(
+            Subplot::<Polar>::new(build_shared_positioned_legend_child())
+                .partition_by(col("slot"))
+                .r_with(avg(col("parent_r")), |c| {
+                    c.scale_with::<Linear>(|s| {
+                        s.domain((lit(0.0), lit(1.0))).nice(false).zero(false)
+                    })
+                })
+                .theta_with(avg(col("parent_theta")), |c| {
+                    c.scale_with::<Linear>(|s| {
+                        s.domain((lit(0.0), lit(std::f64::consts::TAU)))
+                            .nice(false)
+                            .zero(false)
+                    })
+                })
+                .plot_size(118.0, 92.0),
+        )
     }
 
     fn build_nested_sparse_row_plot(df: DataFrame) -> Plot<FacetRow> {
@@ -6793,6 +6864,31 @@ mod tests {
                 "hoisted right legend should still be measured in the final layout"
             );
             assert_legends_within_canvas(&measurement);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn legend_disposition_polar_positioned_child_requests_are_collected() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled = build_polar_positioned_legend_sharing_plot(
+                positioned_legend_sharing_dataframe(&ctx).await,
+            )
+            .compile(&ctx)
+            .await?;
+            let (_, _, measurement) =
+                prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+
+            assert_eq!(
+                measurement.legend_plan.measurements.len(),
+                1,
+                "the shared positioned-subplot legend should be measured by the polar parent"
+            );
+            assert!(
+                measurement.legend_plan.hoisted_requests.is_empty(),
+                "the polar parent should consume child legend requests anchored to its frame"
+            );
             Ok(())
         });
     }

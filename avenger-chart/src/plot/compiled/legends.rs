@@ -1366,6 +1366,27 @@ mod tests {
     }
 
     #[test]
+    fn legend_disposition_free_child_frame_renders_inside_child() {
+        let sharing_path = ChildFrameSharingPath::root()
+            .appended(ChildFrameSharingLevel::hconcat_child(1, 2, Some("right")));
+
+        assert_eq!(
+            CompiledPlot::legend_disposition(
+                "fill",
+                &LegendPlanScope::ChildFrame { sharing_path },
+                &make_two_level_column_tree_with_sharing(HashMap::new()),
+                &[],
+                LegendPosition::Right,
+                SharingLevel::FREE,
+                SharingLevel::FREE,
+                &HashMap::new(),
+                &IndexMap::new(),
+            ),
+            LegendDisposition::RenderHere
+        );
+    }
+
+    #[test]
     fn legend_disposition_child_frame_level1_hoists_to_immediate_parent() {
         let sharing_path = ChildFrameSharingPath::root()
             .appended(ChildFrameSharingLevel::hconcat_child(0, 2, Some("outer")))
@@ -1383,6 +1404,26 @@ mod tests {
                     ContainerPathSegment::concat_child(0, Some("outer"))
                 ]),
                 sharing_level: SharingLevel::from_raw(1),
+            }
+        );
+    }
+
+    #[test]
+    fn legend_disposition_child_frame_shared_hoists_to_root_container() {
+        let sharing_path = ChildFrameSharingPath::root()
+            .appended(ChildFrameSharingLevel::hconcat_child(1, 2, Some("outer")))
+            .appended(ChildFrameSharingLevel::vconcat_child(1, 2, Some("inner")));
+
+        assert_eq!(
+            CompiledPlot::legend_disposition_for_child_frame_path(
+                &sharing_path,
+                SharingLevel::GLOBAL,
+                LegendPosition::Bottom,
+                "fill",
+            ),
+            LegendDisposition::Hoist {
+                anchor: HoistedLegendAnchor::ChildFrameContainer(vec![]),
+                sharing_level: SharingLevel::GLOBAL,
             }
         );
     }
