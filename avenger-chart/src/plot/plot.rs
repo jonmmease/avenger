@@ -12,7 +12,7 @@ use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    CompiledSubplotChildPlot, IntoExpr, Param, SubplotChildPlotSpec, contains_aggregate,
+    AxisSpec, CompiledSubplotChildPlot, IntoExpr, Param, SubplotChildPlotSpec, contains_aggregate,
 };
 
 use crate::{
@@ -28,7 +28,7 @@ use crate::{
 
 use super::{
     compiled::CompiledPlot,
-    specs::{AxisSpec, ScaleSpec},
+    specs::ScaleSpec,
     title::{PlotSubtitle, PlotTitle},
 };
 

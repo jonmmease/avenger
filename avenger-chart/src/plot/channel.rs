@@ -5,12 +5,14 @@ use std::collections::{HashMap, hash_map::Entry};
 use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
 
+use avenger_chart_core::AxisSpec;
+
 use crate::{
     channel::resolution::resolve_all_channel_refs,
     coords::CoordinateSystem,
     legend::Legend,
     marks::{ChannelValue, Mark},
-    plot::{AxisSpec, ScaleSpec},
+    plot::ScaleSpec,
 };
 
 /// Extract scale, legend, and axis configurations from a mark's channels

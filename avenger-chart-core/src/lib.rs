@@ -1,5 +1,6 @@
 pub mod axis;
 pub mod axis_position;
+pub mod axis_spec;
 pub mod channel;
 pub mod channel_config;
 pub mod channel_configs;
@@ -68,6 +69,7 @@ pub mod __private {
 
 pub use axis::Axis;
 pub use axis_position::AxisPosition;
+pub use axis_spec::AxisSpec;
 pub use channel::{BaseChannelName, ChannelDefault, ChannelDescriptor, strip_trailing_numbers};
 pub use channel_config::ChannelConfig;
 pub use channel_configs::{

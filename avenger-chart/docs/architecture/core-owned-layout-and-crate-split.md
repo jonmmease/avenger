@@ -779,9 +779,9 @@ boundaries boring.
      `MaybeOptionalExpr`, `Param`, `RadiusExpression`, `ResolvedDomain`,
      `ScaleRange`, `ScaleDomain`, `ScaleDefaultDomain`, `DomainExpr`,
      `ScaleSharing`, `SharingLevel`, `CoordinationAxis`, `PositionConfig`,
-     `ScaleRangeBinding`, plot-area range binding endpoint types, `ScaleSpec`,
-     built-in scale marker types, `ScaleTypePreference`, mark-facing scale
-     helper functions, `ChannelConfig`, common channel config structs,
+     `ScaleRangeBinding`, plot-area range binding endpoint types, `AxisSpec`,
+     `ScaleSpec`, built-in scale marker types, `ScaleTypePreference`,
+     mark-facing scale helper functions, `ChannelConfig`, common channel config structs,
      `ChannelDescriptor`, `ChannelDefault`,
      `BaseChannelName`, `ChannelValue`, `ConditionalValue`, `DataContext`,
      `CompiledDataContext`, `MarkState`, `CompiledMarkState`, `FacetStrategy`,
@@ -846,6 +846,8 @@ boundaries boring.
      core. The split keeps renderer dispatch in the legend layer and uses core
      renderer descriptors instead of storing `LegendRenderer` trait objects in
      serializable spec data.
+   - `AxisSpec` now lives in `avenger-chart-core`; the top-level
+     `avenger_chart::plot::AxisSpec` path is only a compatibility re-export.
 
 2. Extract `avenger-chart-marks`.
    Move built-in generic mark families. The facade keeps

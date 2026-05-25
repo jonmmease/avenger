@@ -27,7 +27,9 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
-use avenger_chart_core::{CompiledSubplotChildPlot, EvaluationContext as CoreEvaluationContext};
+use avenger_chart_core::{
+    AxisSpec, CompiledSubplotChildPlot, EvaluationContext as CoreEvaluationContext,
+};
 
 use crate::{
     channel::value::strip_trailing_numbers,
@@ -87,7 +89,7 @@ pub(crate) use self::mark_data_runtime::{
 };
 
 use super::{
-    specs::{AxisSpec, ScaleSpec},
+    specs::ScaleSpec,
     title::{PlotSubtitle, PlotTitle},
 };
 
