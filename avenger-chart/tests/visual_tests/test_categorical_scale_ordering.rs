@@ -57,7 +57,7 @@ fn ordered_rect_mark(sharing: Option<ScaleSharing>) -> Rect<Cartesian> {
             };
             c.axis(|a| a.title("Category"))
         })
-        .x2_with(col(":x"), |c| c.band(0.72))
+        .x2_with(col(":x"), |c| c.band(1.0))
         .y_with(lit(0.0), |c| {
             c.scale(|s| s.domain((0.0, 100.0)))
                 .axis(|a| a.title("Value"))
