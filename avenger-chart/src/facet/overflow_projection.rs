@@ -667,10 +667,25 @@ fn realized_facet_band_overflow(
 }
 
 fn realized_cell_overflow(measurement: &ComponentsMeasurement) -> CoordinatedOverflow {
-    CoordinatedOverflow {
+    let mut overflow = CoordinatedOverflow {
         guide: measurement.layout.overflow.clone(),
         total: measurement.layout.total_overflow.clone(),
+    };
+
+    if let Some(facet_measurement) = facet_band_from_coord(measurement.coord_measurement.as_ref())
+        && let Some(realized) = realized_facet_band_overflow(facet_measurement)
+    {
+        let active_layout = facet_measurement
+            .coordinated_layout
+            .as_ref()
+            .unwrap_or(&facet_measurement.local_layout);
+        let rendered =
+            rendered_subtree_overflow_for_facet_band(facet_measurement, &realized, active_layout);
+        overflow.guide = overflow.guide.max_components(&rendered.guide);
+        overflow.total = overflow.total.max_components(&rendered.total);
     }
+
+    overflow
 }
 
 pub(crate) fn rendered_boundary_demand_for_measurement(
