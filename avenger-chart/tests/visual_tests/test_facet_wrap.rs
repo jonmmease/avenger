@@ -83,6 +83,45 @@ async fn nested_row_wrap_data(ctx: &SessionContext) -> DataFrame {
     .expect("nested row wrap data")
 }
 
+async fn nested_row_wrap_independent_order_data(ctx: &SessionContext) -> DataFrame {
+    ctx.sql(
+        "SELECT * FROM (VALUES
+            ('North', 'Alpha',  0.2, 0.10, 'low',  15.0),
+            ('North', 'Alpha',  0.8, 0.35, 'mid',  15.0),
+            ('North', 'Alpha',  1.4, 0.70, 'high', 15.0),
+            ('North', 'Bravo',  8.2, 0.25, 'mid',  24.0),
+            ('North', 'Bravo',  8.8, 0.55, 'high', 24.0),
+            ('North', 'Bravo',  9.4, 0.95, 'low',  24.0),
+            ('North', 'Cedar', 16.2, 0.20, 'high', 34.0),
+            ('North', 'Cedar', 16.8, 0.50, 'low',  34.0),
+            ('North', 'Cedar', 17.4, 0.85, 'mid',  34.0),
+            ('North', 'Delta', 24.2, 0.15, 'low',  44.0),
+            ('North', 'Delta', 24.8, 0.45, 'mid',  44.0),
+            ('North', 'Delta', 25.4, 0.80, 'high', 44.0),
+            ('North', 'Ember', 32.2, 0.30, 'mid',  54.0),
+            ('North', 'Ember', 32.8, 0.60, 'high', 54.0),
+            ('North', 'Ember', 33.4, 1.00, 'low',  54.0),
+            ('South', 'Alpha', 100.2, 20.2, 'low',  58.0),
+            ('South', 'Alpha', 100.8, 20.6, 'mid',  58.0),
+            ('South', 'Alpha', 101.4, 21.1, 'high', 58.0),
+            ('South', 'Bravo', 112.2, 20.4, 'mid',  48.0),
+            ('South', 'Bravo', 112.8, 21.0, 'high', 48.0),
+            ('South', 'Bravo', 113.4, 21.8, 'low',  48.0),
+            ('South', 'Cedar', 124.2, 20.1, 'high', 38.0),
+            ('South', 'Cedar', 124.8, 21.3, 'low',  38.0),
+            ('South', 'Cedar', 125.4, 22.5, 'mid',  38.0),
+            ('South', 'Delta', 136.2, 20.5, 'low',  28.0),
+            ('South', 'Delta', 136.8, 22.1, 'mid',  28.0),
+            ('South', 'Delta', 137.4, 23.0, 'high', 28.0),
+            ('South', 'Ember', 148.2, 20.9, 'mid',  18.0),
+            ('South', 'Ember', 148.8, 22.8, 'high', 18.0),
+            ('South', 'Ember', 149.4, 24.2, 'low',  18.0)
+        ) AS t(region, facet, x, y, group_name, rank_score)",
+    )
+    .await
+    .expect("nested row wrap independent order data")
+}
+
 fn wrap_leaf_plot(x_sharing: u8, y_sharing: u8, fill_sharing: u8) -> Plot<Cartesian> {
     Plot::<Cartesian>::new()
         .configure_guide(CartesianGuide::new().plot_background_color("#fffefa"))
@@ -180,6 +219,23 @@ fn nested_row_wrap_plot(df: DataFrame) -> Plot<FacetRow> {
         .mark(Subplot::new(wrap).row_with(col("region"), |c| c.guide(|g| g.title("Region"))))
 }
 
+fn nested_column_wrap_plot(df: DataFrame) -> Plot<FacetColumn> {
+    let wrap = Plot::<FacetWrap>::new().mark(Subplot::new(wrap_leaf_plot(1, 1, 2)).wrap_with(
+        col("facet"),
+        |c| {
+            c.columns(3)
+                .order_by(max(col("rank_score")))
+                .order_desc()
+                .guide(|g| g.title("Wrapped facet"))
+        },
+    ));
+
+    Plot::<FacetColumn>::new()
+        .data(df)
+        .canvas_size(1420.0, 760.0)
+        .mark(Subplot::new(wrap).column_with(col("region"), |c| c.guide(|g| g.title("Region"))))
+}
+
 #[tokio::test]
 async fn facet_row_wrap_nested_level_1_sharing() {
     let ctx = SessionContext::new();
@@ -191,6 +247,21 @@ async fn facet_row_wrap_nested_level_1_sharing() {
         None,
         BASELINE_CATEGORY,
         "facet_row_wrap_nested_level_1_sharing",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn facet_column_wrap_nested_independent_ordering() {
+    let ctx = SessionContext::new();
+    let plot = nested_column_wrap_plot(nested_row_wrap_independent_order_data(&ctx).await);
+    let compiled = plot.compile(&ctx).await.expect("compile");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        BASELINE_CATEGORY,
+        "facet_column_wrap_nested_independent_ordering",
     )
     .await;
 }
