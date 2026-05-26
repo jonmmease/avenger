@@ -12,6 +12,7 @@ use avenger_chart_core::{
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
 use datafusion::{
     common::ScalarValue,
+    dataframe::DataFrame,
     logical_expr::{Expr, LogicalPlan},
     prelude::SessionContext,
 };
@@ -56,12 +57,17 @@ struct ScaleDomainCacheSubject {
     marks_ptr: usize,
     scale_specs_ptr: usize,
     data_ptr: usize,
+    data_override_plan: Option<String>,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub(crate) enum ScaleDomainCacheScope {
     TopLevel,
     FacetPath(Vec<String>),
+    ChildFrame {
+        container_path: Vec<String>,
+        data_selection: String,
+    },
 }
 
 /// Request object for evaluating a `PlotSession`.
@@ -250,6 +256,7 @@ impl CompiledPlot {
             &self.marks,
             &self.scale_specs,
             &self.data,
+            None,
             ctx,
             params,
             ScaleDomainCacheScope::TopLevel,
@@ -261,12 +268,19 @@ pub(crate) fn scale_domain_cache_key_for_parts_with_scope(
     compiled_marks: &[Arc<dyn avenger_chart_core::CompiledMark>],
     scale_specs: &HashMap<String, PlotScaleSpec>,
     data: &Option<LogicalPlanNode>,
+    data_override: Option<&DataFrame>,
     ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
     scope: ScaleDomainCacheScope,
 ) -> ScaleDomainCacheKey {
-    let relevant_params =
-        scale_domain_dependency_params(compiled_marks, scale_specs, data, ctx, params);
+    let relevant_params = scale_domain_dependency_params(
+        compiled_marks,
+        scale_specs,
+        data,
+        data_override,
+        ctx,
+        params,
+    );
     ScaleDomainCacheKey {
         subject: ScaleDomainCacheSubject {
             marks_ptr: compiled_marks.as_ptr() as usize,
@@ -275,6 +289,7 @@ pub(crate) fn scale_domain_cache_key_for_parts_with_scope(
                 .as_ref()
                 .map(|node| node as *const LogicalPlanNode as usize)
                 .unwrap_or(0),
+            data_override_plan: data_override.map(|df| format!("{:?}", df.logical_plan())),
         },
         scope,
         params: relevant_params
@@ -295,6 +310,7 @@ fn scale_domain_dependency_params(
     compiled_marks: &[Arc<dyn avenger_chart_core::CompiledMark>],
     scale_specs: &HashMap<String, PlotScaleSpec>,
     data: &Option<LogicalPlanNode>,
+    data_override: Option<&DataFrame>,
     ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
 ) -> BTreeSet<String> {
@@ -302,6 +318,9 @@ fn scale_domain_dependency_params(
     let mut names = BTreeSet::new();
 
     collect_plan_placeholders(data.as_ref(), ctx, &mut names, &all_param_names);
+    if let Some(df) = data_override {
+        collect_logical_plan_placeholders(df.logical_plan(), &mut names);
+    }
     for mark in compiled_marks {
         collect_plan_placeholders(
             mark.data_context().logical_plan_node(),
@@ -547,6 +566,45 @@ mod tests {
             .await
     }
 
+    async fn compile_positioned_child_width_param_scale_cache_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let width = Param::new("width", ScalarValue::Float64(Some(520.0)));
+        let parent_df = ctx
+            .sql("SELECT * FROM (VALUES (0.3, 0.5), (0.7, 0.5)) AS t(parent_x, parent_y)")
+            .await?;
+        let child_df = ctx
+            .sql("SELECT * FROM (VALUES (1.0, 2.0), (2.0, 3.5), (3.0, 5.0)) AS t(child_x, child_y)")
+            .await?;
+        let child = Plot::<Cartesian>::new().data(child_df).mark(
+            Symbol::new()
+                .x(col("child_x"))
+                .y(col("child_y"))
+                .size(18.0)
+                .fill("#4682b4"),
+        );
+        Plot::<Cartesian>::new()
+            .add_param(width.clone())
+            .canvas_size(width.expr(), 320.0)
+            .data(parent_df)
+            .mark(
+                Subplot::<Cartesian>::new(child)
+                    .subplot_x_with(col("parent_x"), |c| {
+                        c.scale_with::<Linear>(|s| {
+                            s.domain((lit(0.0), lit(1.0))).nice(false).zero(false)
+                        })
+                    })
+                    .subplot_y_with(col("parent_y"), |c| {
+                        c.scale_with::<Linear>(|s| {
+                            s.domain((lit(0.0), lit(1.0))).nice(false).zero(false)
+                        })
+                    })
+                    .plot_size(140.0, 100.0),
+            )
+            .compile(ctx)
+            .await
+    }
+
     #[tokio::test]
     async fn plot_session_exact_matches_one_shot() -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
@@ -720,6 +778,41 @@ mod tests {
         assert!(
             second.pipeline.scale_domain_cache_hits > 1,
             "width-only reevaluation should hit top-level and facet-scope scale-domain caches"
+        );
+        assert_eq!(second.pipeline.scale_domain_cache_misses, 0);
+        assert_eq!(second.pipeline.scale_builder_builds, 0);
+        assert_eq!(second.pipeline.scale_domain_collects, 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn scale_domain_cache_reuses_child_frame_builders_for_width_only_param_change()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_positioned_child_width_param_scale_cache_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let (_evaluated, first) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            first.pipeline.scale_domain_cache_misses > 1,
+            "initial positioned-subplot evaluation should populate top-level and child-frame scale-domain caches"
+        );
+        assert!(
+            first.pipeline.scale_domain_collects > 0,
+            "initial positioned-subplot evaluation should infer scale domains"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(700.0)));
+        let (_evaluated, second) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(patch))
+            .await?;
+        assert!(
+            second.pipeline.scale_domain_cache_hits > 1,
+            "width-only reevaluation should hit top-level and child-frame scale-domain caches"
         );
         assert_eq!(second.pipeline.scale_domain_cache_misses, 0);
         assert_eq!(second.pipeline.scale_builder_builds, 0);

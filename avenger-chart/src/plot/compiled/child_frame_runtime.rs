@@ -20,7 +20,9 @@ use crate::{
 use super::{
     ChildFrameChannelDomainExtent, ChildFrameSharingLevel, CompiledPlot, ComponentsMeasurement,
     child_frame_domain_sharing_levels_for_plot, extract_child_frame_shared_domain_extents,
-    scale_provider::DynamicScaleProvider, scales::build_scale_builder_from_marks,
+    scale_provider::DynamicScaleProvider,
+    scales::build_scale_builder_from_marks,
+    session::{ScaleDomainCacheScope, scale_domain_cache_key_for_parts_with_scope},
 };
 
 /// How a child frame should source data when the container measures it.
@@ -84,6 +86,51 @@ impl ChildFrameRuntime {
             ChildFrameDataSelection::ExplicitChild => None,
             ChildFrameDataSelection::InheritParent => inherited_data.cloned(),
         };
+        let cache_lookup = eval_ctx.scale_domain_cache().map(|cache| {
+            let scope = ScaleDomainCacheScope::ChildFrame {
+                container_path: eval_ctx
+                    .child_frame_container_path()
+                    .iter()
+                    .map(|segment| format!("{segment:?}"))
+                    .collect(),
+                data_selection: format!("{data_selection:?}"),
+            };
+            let key = scale_domain_cache_key_for_parts_with_scope(
+                &plot.marks,
+                &plot.scale_specs,
+                &plot.data,
+                data_override.as_ref(),
+                eval_ctx.session_context.as_ref(),
+                eval_ctx.params(),
+                scope,
+            );
+            (cache.clone(), key)
+        });
+        if let Some((cache, key)) = &cache_lookup {
+            let cached_builder = {
+                cache
+                    .lock()
+                    .expect("scale-domain cache lock poisoned")
+                    .get(key)
+            };
+            if let Some(builder) = cached_builder {
+                eval_ctx.record_scale_domain_cache_hit();
+                let channel_domain_sharing_levels =
+                    child_frame_domain_sharing_levels_for_plot(plot);
+                let local_domain_extents = extract_child_frame_shared_domain_extents(
+                    &builder,
+                    &channel_domain_sharing_levels,
+                );
+                return Ok(PreparedChildFramePlot {
+                    plot,
+                    data_override,
+                    scale_builder: builder,
+                    local_domain_extents,
+                    channel_domain_sharing_levels,
+                });
+            }
+            eval_ctx.record_scale_domain_cache_miss();
+        }
         eval_ctx.record_scale_builder_build();
         let scale_builder = Box::pin(build_scale_builder_from_marks(
             &plot.marks,
@@ -101,6 +148,12 @@ impl ChildFrameRuntime {
             &scale_builder,
             &channel_domain_sharing_levels,
         );
+        if let Some((cache, key)) = cache_lookup {
+            cache
+                .lock()
+                .expect("scale-domain cache lock poisoned")
+                .insert(key, scale_builder.clone());
+        }
 
         Ok(PreparedChildFramePlot {
             plot,

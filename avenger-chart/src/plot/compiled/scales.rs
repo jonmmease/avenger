@@ -79,6 +79,7 @@ pub(crate) async fn build_scale_builder_from_marks_with_facet_scope(
             compiled_marks,
             scale_specs,
             data,
+            df_override.as_ref(),
             eval_ctx.session_context.as_ref(),
             eval_ctx.params(),
             scope,

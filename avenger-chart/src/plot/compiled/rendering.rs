@@ -2366,6 +2366,7 @@ impl CompiledPlot {
                 &self.marks,
                 &self.scale_specs,
                 &self.data,
+                data_override.as_ref(),
                 eval_ctx.session_context.as_ref(),
                 eval_ctx.params(),
                 scope,
