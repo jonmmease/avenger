@@ -161,7 +161,7 @@ pub use resolved_domain::ResolvedDomain;
 pub use scalar_cmp::scalar_total_cmp;
 pub use scale::Scale;
 pub use scale_channel_config::{ScaleChannelConfig, ScaleChannelValue};
-pub use scale_config_spec::ScaleConfigSpec;
+pub use scale_config_spec::{ScaleConfigSpec, ScaleOrderingSpec};
 pub use scale_domain::{DomainExpr, ScaleDefaultDomain, ScaleDomain};
 pub use scale_range::ScaleRange;
 pub use scale_range_binding::{

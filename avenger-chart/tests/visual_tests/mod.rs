@@ -10,6 +10,7 @@ pub mod test_bar_defaults;
 pub mod test_bar_scale_color;
 pub mod test_cartesian_subplot;
 pub mod test_case_expression_title_simple;
+pub mod test_categorical_scale_ordering;
 pub mod test_categorical_scale_sharing;
 pub mod test_color_mix;
 pub mod test_color_mix_stroke_param;

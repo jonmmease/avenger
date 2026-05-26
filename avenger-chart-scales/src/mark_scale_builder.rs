@@ -14,7 +14,10 @@ use datafusion::{
         compute::cast,
         datatypes::{DataType as ArrowDataType, Float64Type},
     },
-    common::{DFSchema, ScalarValue, tree_node::Transformed},
+    common::{
+        DFSchema, ScalarValue,
+        tree_node::{Transformed, TreeNodeRecursion},
+    },
     dataframe::DataFrame,
     functions_aggregate::min_max::{max, min},
     logical_expr::{Expr, ExprSchemable, LogicalPlan, lit},
@@ -27,9 +30,9 @@ use tracing::trace;
 
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, CompiledMark, CoordinateSystemTransformCore,
-    EvaluationContext as CoreEvaluationContext, RadiusExpression, ScaleRange, Theme,
-    array_value_to_f64, default_channel_value_for_eval, params_to_datafusion,
-    resolve_all_channel_refs, scalar_total_cmp, strip_trailing_numbers,
+    EvaluationContext as CoreEvaluationContext, Maybe, RadiusExpression, ScaleOrderingSpec,
+    ScaleRange, Theme, array_value_to_f64, contains_aggregate, default_channel_value_for_eval,
+    params_to_datafusion, resolve_all_channel_refs, scalar_total_cmp, strip_trailing_numbers,
 };
 
 use crate::{
@@ -56,6 +59,9 @@ enum PreparedRadiusExpression {
 }
 
 const RADIUS_CHANNEL_PLACEHOLDER_PREFIX: &str = "__avenger_radius_channel__";
+const SCALE_ORDER_CATEGORY_COL: &str = "__avenger_scale_order_category__";
+const SCALE_ORDER_VALUE_COL: &str = "__avenger_scale_order_value__";
+const SCALE_ORDER_COLUMN_PREFIX: &str = "__avenger_scale_order_col_";
 
 fn prepared_radius_from_serialized(
     radius: &RadiusExpression,
@@ -247,7 +253,7 @@ where
     // PHASE 1: Build non-positional scale builders
     // We build non‑positional scales first so their configured scales can be used to construct radius‑aware positional expressions
     for channel in &non_positional_channels {
-        if let Some((spec, dt, options, _has_explicit_domain, domain_opt)) =
+        if let Some((spec, dt, options, _has_explicit_domain, domain_opt, ordering)) =
             Box::pin(build_scale_for_channel(
                 channel,
                 prepared_marks,
@@ -269,6 +275,7 @@ where
                 &dt,
                 options,
                 domain_opt,
+                ordering,
                 prepared_marks,
                 ctx,
                 params,
@@ -303,7 +310,7 @@ where
 
     // PHASE 2: Build positional scales with scale-aware radius expressions
     for channel in &positional_channels {
-        if let Some((spec, dt, options, has_explicit_domain, domain_opt)) =
+        if let Some((spec, dt, options, has_explicit_domain, domain_opt, ordering)) =
             Box::pin(build_scale_for_channel(
                 channel,
                 prepared_marks,
@@ -340,6 +347,7 @@ where
                 &dt,
                 options,
                 domain_opt,
+                ordering,
                 prepared_marks,
                 ctx,
                 params,
@@ -374,6 +382,7 @@ async fn build_scale_for_channel<C>(
         HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
         bool,
         Option<ScaleDomain>,
+        Option<ScaleOrderingSpec>,
     )>,
     AvengerChartError,
 >
@@ -521,6 +530,11 @@ where
     {
         scale = scale.domain(domain.clone());
     }
+    if let Some(channel_scale) = &chosen_scale_config
+        && let Some(ordering) = channel_scale.get_ordering()
+    {
+        scale.config_mut().ordering = Maybe::Set(ordering.clone());
+    }
 
     // Check if domain is explicitly set by user on the channel
     let mut has_explicit_domain = chosen_scale_config
@@ -586,6 +600,7 @@ where
 
     let options = scale.get_options().clone();
     let domain_opt = scale.get_domain().cloned();
+    let ordering = scale.get_ordering().cloned();
 
     Ok(Some((
         scale_spec,
@@ -593,6 +608,7 @@ where
         options,
         has_explicit_domain,
         domain_opt,
+        ordering,
     )))
 }
 
@@ -709,6 +725,7 @@ async fn cache_domain_data(
     dt: &ArrowDataType,
     options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
     domain_opt: Option<ScaleDomain>,
+    ordering: Option<ScaleOrderingSpec>,
     prepared_marks: &[PreparedScaleMark],
     ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
@@ -728,6 +745,18 @@ async fn cache_domain_data(
     for (key, value_node) in &options {
         let expr = value_node.to_expr(ctx)?;
         scale = scale.option(key, expr);
+    }
+
+    let target_domain_kind = spec.domain_kind();
+    if ordering
+        .as_ref()
+        .and_then(|ordering| ordering.order_expr.as_ref())
+        .is_some()
+        && target_domain_kind != DomainKind::Categorical
+    {
+        return Err(AvengerChartError::InvalidArgument(
+            "Scale order_by is only supported for categorical-domain scales".to_string(),
+        ));
     }
 
     // If the domain is set to an explicit interval/discrete, cache as explicit and return.
@@ -902,9 +931,6 @@ async fn cache_domain_data(
         .map(|(df, expr, _)| (df.clone(), expr.clone()))
         .collect();
 
-    // Prefer the scale's declared domain kind when choosing inference path
-    let target_domain_kind = spec.domain_kind();
-
     // Determine if any entry carries radius or caller provided one
     let has_any_radius = radius_expr_opt.is_some() || entries.iter().any(|(_, _, r)| r.is_some());
 
@@ -929,6 +955,7 @@ async fn cache_domain_data(
             spec,
             options,
             &data_expressions,
+            ordering.as_ref(),
             ctx,
             params,
             builder,
@@ -1176,16 +1203,10 @@ async fn cache_radius_aware_data(
     Ok(())
 }
 
-async fn cache_categorical_data(
-    channel: &str,
-    spec: &Box<dyn ScaleSpec>,
-    options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
+async fn distinct_categorical_values(
     data_expressions: &[(Arc<DataFrame>, Expr)],
-    _ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
-    builder: &mut ScaleBuilder,
-    dt: &ArrowDataType,
-) -> Result<(), AvengerChartError> {
+) -> Result<Vec<ScalarValue>, AvengerChartError> {
     let mut all_unique_values: Vec<ScalarValue> = Vec::new();
 
     for (df, expr) in data_expressions {
@@ -1212,8 +1233,6 @@ async fn cache_categorical_data(
             let value_array = batch.column(0);
             for i in 0..value_array.len() {
                 let scalar = ScalarValue::try_from_array(value_array, i)?;
-                // Skip NULL values - these come from conditional literal branches
-                // that use NULL placeholders and shouldn't affect the domain
                 if scalar.is_null() {
                     continue;
                 }
@@ -1224,10 +1243,227 @@ async fn cache_categorical_data(
         }
     }
 
-    if !all_unique_values.is_empty() {
-        all_unique_values.sort_by(scalar_total_cmp);
+    all_unique_values.sort_by(scalar_total_cmp);
+    Ok(all_unique_values)
+}
 
-        let extents = DataExtents::Discrete(all_unique_values);
+async fn ordered_categorical_values(
+    data_expressions: &[(Arc<DataFrame>, Expr)],
+    order_expr: &Expr,
+    order_descending: bool,
+    params: &IndexMap<String, ScalarValue>,
+) -> Result<(Vec<ScalarValue>, bool), AvengerChartError> {
+    let Some((_, category_expr)) = data_expressions.first() else {
+        return Ok((Vec::new(), false));
+    };
+
+    validate_scale_order_expr(category_expr, order_expr)?;
+
+    if !contains_aggregate(order_expr) {
+        let mut values = distinct_categorical_values(data_expressions, params).await?;
+        if order_expr_matches_category(category_expr, order_expr) && order_descending {
+            values.sort_by(|a, b| scalar_total_cmp(b, a));
+            return Ok((values, true));
+        }
+        return Ok((values, false));
+    }
+
+    let order_column_names = order_expr_column_names(order_expr);
+    let order_column_aliases = order_column_names
+        .iter()
+        .enumerate()
+        .map(|(index, name)| {
+            (
+                name.clone(),
+                format!("{SCALE_ORDER_COLUMN_PREFIX}{index}__"),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let rewritten_order_expr =
+        rewrite_order_expr_columns(order_expr.clone(), &order_column_aliases)?;
+
+    let mut projected_sources = Vec::with_capacity(data_expressions.len());
+    for (df, category_expr) in data_expressions {
+        let mut select_exprs = vec![category_expr.clone().alias(SCALE_ORDER_CATEGORY_COL)];
+        for name in &order_column_names {
+            let alias = order_column_aliases
+                .get(name)
+                .expect("order column alias missing");
+            select_exprs.push(col(name.clone()).alias(alias));
+        }
+        let projected = df.as_ref().clone().select(select_exprs).map_err(|err| {
+            AvengerChartError::InvalidArgument(format!(
+                "Scale order_by expression could not be evaluated for all contributing categorical domain data sources: {err}"
+            ))
+        })?;
+        projected_sources.push(projected);
+    }
+
+    let mut sources = projected_sources.into_iter();
+    let Some(mut ordered_rows) = sources.next() else {
+        return Ok((Vec::new(), true));
+    };
+    for source in sources {
+        ordered_rows = ordered_rows.union(source).map_err(|err| {
+            AvengerChartError::InvalidArgument(format!(
+                "Scale order_by data sources must project compatible category and ordering column types: {err}"
+            ))
+        })?;
+    }
+
+    let ordered_df = ordered_rows
+        .aggregate(
+            vec![col(SCALE_ORDER_CATEGORY_COL)],
+            vec![rewritten_order_expr.alias(SCALE_ORDER_VALUE_COL)],
+        )
+        .map_err(|err| {
+            AvengerChartError::InvalidArgument(format!(
+                "Scale order_by expression must be a valid aggregate over the contributing domain rows: {err}"
+            ))
+        })?;
+
+    let batches = if !params.is_empty() {
+        if let Some(param_values) = params_to_datafusion(params) {
+            ordered_df
+                .with_param_values(param_values)?
+                .collect()
+                .await?
+        } else {
+            ordered_df.collect().await?
+        }
+    } else {
+        ordered_df.collect().await?
+    };
+
+    let mut keyed_values = Vec::new();
+    for batch in &batches {
+        let category_column = batch
+            .column_by_name(SCALE_ORDER_CATEGORY_COL)
+            .ok_or_else(|| {
+                AvengerChartError::InternalError(
+                    "Scale order_by category column not found".to_string(),
+                )
+            })?;
+        let order_column = batch.column_by_name(SCALE_ORDER_VALUE_COL).ok_or_else(|| {
+            AvengerChartError::InternalError("Scale order_by value column not found".to_string())
+        })?;
+        for row in 0..batch.num_rows() {
+            let category = ScalarValue::try_from_array(category_column, row)?;
+            if category.is_null() {
+                continue;
+            }
+            let order_value = ScalarValue::try_from_array(order_column, row)?;
+            keyed_values.push((category, order_value));
+        }
+    }
+
+    keyed_values.sort_by(|(lhs_key, lhs_order), (rhs_key, rhs_order)| {
+        let primary = scalar_total_cmp(lhs_order, rhs_order);
+        let primary = if order_descending {
+            primary.reverse()
+        } else {
+            primary
+        };
+        primary.then_with(|| scalar_total_cmp(lhs_key, rhs_key))
+    });
+
+    let mut values = Vec::with_capacity(keyed_values.len());
+    for (key, _) in keyed_values {
+        if !values.iter().any(|existing| existing == &key) {
+            values.push(key);
+        }
+    }
+
+    Ok((values, true))
+}
+
+fn validate_scale_order_expr(
+    category_expr: &Expr,
+    order_expr: &Expr,
+) -> Result<(), AvengerChartError> {
+    if contains_aggregate(order_expr)
+        || !order_expr.any_column_refs()
+        || order_expr_matches_category(category_expr, order_expr)
+    {
+        return Ok(());
+    }
+
+    Err(AvengerChartError::InvalidArgument(
+        "Scale order_by expression must be an aggregate, literal/constant, or the scale category expression"
+            .to_string(),
+    ))
+}
+
+fn order_expr_matches_category(category_expr: &Expr, order_expr: &Expr) -> bool {
+    order_expr == category_expr || order_expr.to_string() == category_expr.to_string()
+}
+
+fn order_expr_column_names(expr: &Expr) -> Vec<String> {
+    let mut names = Vec::new();
+    let _ = expr.apply(|candidate| {
+        if let Expr::Column(column) = candidate
+            && !names.iter().any(|name| name == &column.name)
+        {
+            names.push(column.name.clone());
+        }
+        Ok(TreeNodeRecursion::Continue)
+    });
+    names
+}
+
+fn rewrite_order_expr_columns(
+    expr: Expr,
+    aliases: &HashMap<String, String>,
+) -> Result<Expr, AvengerChartError> {
+    expr.transform(&|candidate| {
+        if let Expr::Column(column) = &candidate
+            && let Some(alias) = aliases.get(&column.name)
+        {
+            return Ok(Transformed::yes(col(alias.clone())));
+        }
+
+        Ok(Transformed::no(candidate))
+    })
+    .data()
+    .map_err(AvengerChartError::DataFusionError)
+}
+
+async fn cache_categorical_data(
+    channel: &str,
+    spec: &Box<dyn ScaleSpec>,
+    options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
+    data_expressions: &[(Arc<DataFrame>, Expr)],
+    ordering: Option<&ScaleOrderingSpec>,
+    _ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+    builder: &mut ScaleBuilder,
+    dt: &ArrowDataType,
+) -> Result<(), AvengerChartError> {
+    let ordering_expr = ordering.and_then(|ordering| ordering.order_expr.as_ref());
+    let (all_unique_values, ordered) = if let Some(order_expr_node) = ordering_expr {
+        let order_expr = order_expr_node.to_expr(_ctx)?;
+        ordered_categorical_values(
+            data_expressions,
+            &order_expr,
+            ordering
+                .map(ScaleOrderingSpec::order_descending)
+                .unwrap_or(false),
+            params,
+        )
+        .await?
+    } else {
+        (
+            distinct_categorical_values(data_expressions, params).await?,
+            false,
+        )
+    };
+
+    if !all_unique_values.is_empty() {
+        let extents = if ordered {
+            DataExtents::OrderedDiscrete(all_unique_values)
+        } else {
+            DataExtents::Discrete(all_unique_values)
+        };
         builder.add_standard(channel.to_string(), spec.clone_box(), extents, options);
 
         // For ordinal scales with continuous range, store Float64 type
@@ -1370,4 +1606,237 @@ async fn cache_numeric_data(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use datafusion::{
+        arrow::{
+            array::{Float64Array, StringArray},
+            datatypes::{DataType, Field, Schema},
+            record_batch::RecordBatch,
+        },
+        functions_aggregate::{expr_fn::sum, min_max::max},
+        prelude::{SessionContext, col, lit},
+    };
+    use indexmap::IndexMap;
+
+    use super::*;
+    use crate::{Band, Linear};
+
+    fn s(value: &str) -> ScalarValue {
+        ScalarValue::Utf8(Some(value.to_string()))
+    }
+
+    fn df(
+        ctx: &SessionContext,
+        categories: Vec<&str>,
+        values: Vec<f64>,
+    ) -> datafusion::error::Result<DataFrame> {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("category", DataType::Utf8, false),
+            Field::new("value", DataType::Float64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(StringArray::from(categories)),
+                Arc::new(Float64Array::from(values)),
+            ],
+        )?;
+        ctx.read_batch(batch)
+    }
+
+    #[tokio::test]
+    async fn categorical_order_by_max_descends_and_ties_by_category() {
+        let ctx = SessionContext::new();
+        let data = df(
+            &ctx,
+            vec!["A", "B", "C", "A", "B", "C"],
+            vec![2.0, 9.0, 9.0, 5.0, 1.0, 4.0],
+        )
+        .unwrap();
+
+        let (values, ordered) = ordered_categorical_values(
+            &[(Arc::new(data), col("category"))],
+            &max(col("value")),
+            true,
+            &IndexMap::new(),
+        )
+        .await
+        .unwrap();
+
+        assert!(ordered);
+        assert_eq!(values, vec![s("B"), s("C"), s("A")]);
+    }
+
+    #[tokio::test]
+    async fn categorical_order_by_sum_combines_multiple_sources() {
+        let ctx = SessionContext::new();
+        let left = df(&ctx, vec!["A", "B"], vec![5.0, 9.0]).unwrap();
+        let right = df(&ctx, vec!["A", "B"], vec![10.0, 1.0]).unwrap();
+
+        let (values, ordered) = ordered_categorical_values(
+            &[
+                (Arc::new(left), col("category")),
+                (Arc::new(right), col("category")),
+            ],
+            &sum(col("value")),
+            true,
+            &IndexMap::new(),
+        )
+        .await
+        .unwrap();
+
+        assert!(ordered);
+        assert_eq!(values, vec![s("A"), s("B")]);
+    }
+
+    #[tokio::test]
+    async fn categorical_order_by_category_descends_without_aggregate() {
+        let ctx = SessionContext::new();
+        let data = df(&ctx, vec!["B", "A", "C"], vec![1.0, 1.0, 1.0]).unwrap();
+
+        let (values, ordered) = ordered_categorical_values(
+            &[(Arc::new(data), col("category"))],
+            &col("category"),
+            true,
+            &IndexMap::new(),
+        )
+        .await
+        .unwrap();
+
+        assert!(ordered);
+        assert_eq!(values, vec![s("C"), s("B"), s("A")]);
+    }
+
+    #[tokio::test]
+    async fn categorical_order_by_literal_keeps_default_category_order() {
+        let ctx = SessionContext::new();
+        let data = df(&ctx, vec!["B", "A", "C"], vec![1.0, 1.0, 1.0]).unwrap();
+
+        let (values, ordered) = ordered_categorical_values(
+            &[(Arc::new(data), col("category"))],
+            &lit(1.0),
+            true,
+            &IndexMap::new(),
+        )
+        .await
+        .unwrap();
+
+        assert!(!ordered);
+        assert_eq!(values, vec![s("A"), s("B"), s("C")]);
+    }
+
+    #[tokio::test]
+    async fn categorical_order_by_rejects_non_aggregate_non_category_column() {
+        let ctx = SessionContext::new();
+        let data = df(&ctx, vec!["A", "B"], vec![1.0, 2.0]).unwrap();
+
+        let err = ordered_categorical_values(
+            &[(Arc::new(data), col("category"))],
+            &col("value"),
+            false,
+            &IndexMap::new(),
+        )
+        .await
+        .expect_err("expected invalid ordering expression");
+
+        match err {
+            AvengerChartError::InvalidArgument(message) => {
+                assert!(message.contains("Scale order_by expression"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn categorical_order_by_ignores_explicit_discrete_domain() {
+        let ctx = SessionContext::new();
+        let spec: Box<dyn ScaleSpec> = Box::new(Band);
+        let ordering = Scale::<Band>::new()
+            .order_by(max(col("value")))
+            .order_desc()
+            .into_config()
+            .ordering
+            .into_option()
+            .expect("ordering config");
+        let mut builder = ScaleBuilder::new();
+
+        cache_domain_data(
+            "x",
+            &spec,
+            &ArrowDataType::Utf8,
+            HashMap::new(),
+            Some(ScaleDomain::new_discrete(vec![lit("B"), lit("A")])),
+            Some(ordering),
+            &[],
+            &ctx,
+            &IndexMap::new(),
+            &HashMap::new(),
+            &mut builder,
+            None,
+            &Theme::light(),
+        )
+        .await
+        .unwrap();
+
+        let domain = match builder.channel_builders().get("x") {
+            Some(ChannelScaleData::ExplicitDomain { domain, .. }) => domain,
+            other => panic!("expected explicit domain builder, got {other:?}"),
+        };
+        let values = match &domain.default_domain {
+            ScaleDefaultDomain::Discrete(values) => values,
+            other => panic!("expected discrete domain, got {other:?}"),
+        };
+        let decoded = values
+            .iter()
+            .map(|node| match node.to_expr(&ctx).unwrap() {
+                Expr::Literal(ScalarValue::Utf8(Some(value)), _) => value,
+                other => panic!("unexpected domain literal: {other:?}"),
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(decoded, vec!["B", "A"]);
+    }
+
+    #[tokio::test]
+    async fn scale_order_by_rejects_non_categorical_scale() {
+        let ctx = SessionContext::new();
+        let spec: Box<dyn ScaleSpec> = Box::new(Linear);
+        let ordering = Scale::<Linear>::new()
+            .order_by(col("value"))
+            .into_config()
+            .ordering
+            .into_option()
+            .expect("ordering config");
+        let mut builder = ScaleBuilder::new();
+
+        let err = cache_domain_data(
+            "x",
+            &spec,
+            &ArrowDataType::Float64,
+            HashMap::new(),
+            None,
+            Some(ordering),
+            &[],
+            &ctx,
+            &IndexMap::new(),
+            &HashMap::new(),
+            &mut builder,
+            None,
+            &Theme::light(),
+        )
+        .await
+        .expect_err("expected non-categorical order_by rejection");
+
+        match err {
+            AvengerChartError::InvalidArgument(message) => {
+                assert!(message.contains("only supported for categorical-domain scales"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
 }

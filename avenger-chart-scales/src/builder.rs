@@ -130,6 +130,8 @@ pub enum DataExtents {
     Interval(f64, f64),
     /// Categorical: unique values
     Discrete(Vec<ScalarValue>),
+    /// Categorical: intentionally ordered unique values
+    OrderedDiscrete(Vec<ScalarValue>),
     /// Temporal interval: (min, max) as Unix timestamps
     Temporal(i64, i64),
 }
@@ -286,12 +288,17 @@ impl ScaleBuilder {
                         let extent = match data_extents {
                             DataExtents::Interval(min, max) => DomainExtent::numeric(*min, *max),
                             DataExtents::Temporal(min, max) => DomainExtent::temporal(*min, *max),
-                            DataExtents::Discrete(values) => {
+                            DataExtents::Discrete(values)
+                            | DataExtents::OrderedDiscrete(values) => {
                                 let serializable_values: Vec<SerializableDomainValue> = values
                                     .iter()
                                     .map(SerializableDomainValue::from_scalar)
                                     .collect();
-                                DomainExtent::discrete(serializable_values)
+                                if matches!(data_extents, DataExtents::OrderedDiscrete(_)) {
+                                    DomainExtent::ordered_discrete(serializable_values)
+                                } else {
+                                    DomainExtent::discrete(serializable_values)
+                                }
                             }
                         };
                         result.insert(channel.to_string(), extent);
@@ -322,6 +329,7 @@ impl ScaleBuilder {
                                         max_lower: max_radius_lower,
                                         max_upper: max_radius_upper,
                                     }),
+                                    ordered_discrete: false,
                                 },
                             );
                         }
@@ -405,7 +413,8 @@ impl ScaleBuilder {
                                 *local_max = (*local_max).max(*shared_max);
                             }
                             (
-                                DataExtents::Discrete(local_values),
+                                DataExtents::Discrete(local_values)
+                                | DataExtents::OrderedDiscrete(local_values),
                                 DomainBounds::Discrete(shared_values),
                             ) => {
                                 // For categorical plot scale sharing, replace local values with shared values.
@@ -415,8 +424,13 @@ impl ScaleBuilder {
                                     shared_values = shared_values.len(),
                                     "Replacing discrete extents with shared values"
                                 );
-                                *local_values =
+                                let replacement_values =
                                     shared_values.iter().map(|v| v.to_scalar()).collect();
+                                *data_extents = if shared_extent.ordered_discrete {
+                                    DataExtents::OrderedDiscrete(replacement_values)
+                                } else {
+                                    DataExtents::Discrete(replacement_values)
+                                };
                             }
                             _ => {
                                 trace!(channel, "No matching extent variant for shared extent");
@@ -822,7 +836,7 @@ impl DataExtents {
     pub fn to_scale_domain(&self) -> Result<ScaleDomain, AvengerChartError> {
         match self {
             DataExtents::Interval(min, max) => Ok(ScaleDomain::new_interval(lit(*min), lit(*max))),
-            DataExtents::Discrete(values) => {
+            DataExtents::Discrete(values) | DataExtents::OrderedDiscrete(values) => {
                 let exprs: Vec<_> = values.iter().map(|v| lit(v.clone())).collect();
                 Ok(ScaleDomain::new_discrete(exprs))
             }

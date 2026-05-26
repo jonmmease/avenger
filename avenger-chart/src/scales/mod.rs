@@ -1,5 +1,6 @@
 pub use avenger_chart_core::{
-    Auto, Scale, ScaleChannelConfig, ScaleChannelValue, ScaleConfigSpec, ScaleSpec,
+    Auto, Scale, ScaleChannelConfig, ScaleChannelValue, ScaleConfigSpec, ScaleOrderingSpec,
+    ScaleSpec,
 };
 
 pub mod builder {

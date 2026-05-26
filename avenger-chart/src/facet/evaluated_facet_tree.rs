@@ -604,6 +604,12 @@ impl EvaluatedFacetTree {
             .unwrap_or(SharingLevel::GLOBAL)
     }
 
+    pub(crate) fn has_free_channel_domain_sharing(&self) -> bool {
+        self.channel_domain_sharing_levels
+            .values()
+            .any(|sharing| sharing.is_free())
+    }
+
     pub(crate) fn domain_extent_channels(&self) -> Vec<String> {
         let mut channels = ["x", "y", "x2", "y2"]
             .into_iter()

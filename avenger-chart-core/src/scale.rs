@@ -13,9 +13,9 @@ use palette::Srgba;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Auto, AvengerChartError, DefaultLogicalExprNodeExt, DomainExpr, LogicalPlanNodeExt, Maybe,
-    RadiusExpression, ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, ScaleRange, ScaleSpec,
-    scalar_to_scalar_value,
+    Auto, AvengerChartError, DefaultLogicalExprNodeExt, DomainExpr, IntoExpr, LogicalPlanNodeExt,
+    Maybe, RadiusExpression, ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, ScaleOrderingSpec,
+    ScaleRange, ScaleSpec, scalar_to_scalar_value,
 };
 
 /// Type-safe scale authoring wrapper.
@@ -74,6 +74,7 @@ impl<S: ScaleSpec> Scale<S> {
                 } else {
                     Maybe::Unset
                 },
+                Maybe::Unset,
                 Maybe::Unset,
                 Maybe::Unset,
                 options,
@@ -136,6 +137,15 @@ impl<S: ScaleSpec> Scale<S> {
             self.config.range = other.config.range;
         }
 
+        // Update ordering if set. Merge individual fields so plot-level
+        // overrides can set only direction or only the expression.
+        if let Maybe::Set(other_ordering) = other.config.ordering {
+            match &mut self.config.ordering {
+                Maybe::Set(ordering) => ordering.merge(other_ordering),
+                Maybe::Unset => self.config.ordering = Maybe::Set(other_ordering),
+            }
+        }
+
         // Update options - all options in other override those in self
         // (presence in HashMap means it was explicitly set)
         for (key, value) in other.config.options {
@@ -178,6 +188,42 @@ impl<S: ScaleSpec> Scale<S> {
         self.config.domain = Maybe::Set(ScaleDomain::new_discrete(
             values.into_iter().map(|v| v.into()).collect(),
         ));
+        self
+    }
+
+    /// Order an inferred categorical domain by an aggregate, constant, or category expression.
+    pub fn order_by(mut self, expr: impl IntoExpr) -> Self {
+        let mut ordering = self
+            .config
+            .ordering
+            .unwrap_or_else(ScaleOrderingSpec::empty);
+        ordering.order_expr = Some(
+            LogicalExprNode::from_expr(expr.into_expr())
+                .expect("Failed to serialize scale order expression"),
+        );
+        self.config.ordering = Maybe::Set(ordering);
+        self
+    }
+
+    /// Sort inferred categorical domains in ascending order by their order expression.
+    pub fn order_asc(mut self) -> Self {
+        let mut ordering = self
+            .config
+            .ordering
+            .unwrap_or_else(ScaleOrderingSpec::empty);
+        ordering.order_descending = Some(false);
+        self.config.ordering = Maybe::Set(ordering);
+        self
+    }
+
+    /// Sort inferred categorical domains in descending order by their order expression.
+    pub fn order_desc(mut self) -> Self {
+        let mut ordering = self
+            .config
+            .ordering
+            .unwrap_or_else(ScaleOrderingSpec::empty);
+        ordering.order_descending = Some(true);
+        self.config.ordering = Maybe::Set(ordering);
         self
     }
 
@@ -364,6 +410,7 @@ impl<S: ScaleSpec> Scale<S> {
                 scale_spec,
                 self.config.domain,
                 self.config.range,
+                self.config.ordering,
                 options,
             ),
             _phantom: PhantomData,
@@ -401,6 +448,10 @@ impl<S: ScaleSpec> Scale<S> {
 
     pub fn get_range(&self) -> Option<&ScaleRange> {
         self.config.range.as_option()
+    }
+
+    pub fn get_ordering(&self) -> Option<&ScaleOrderingSpec> {
+        self.config.ordering.as_option()
     }
 
     pub fn get_options(&self) -> &HashMap<String, LogicalExprNode> {
@@ -463,6 +514,7 @@ impl Scale<Auto> {
         Self {
             config: ScaleConfigSpec::new(
                 Maybe::Set(scale_spec),
+                Maybe::Unset,
                 Maybe::Unset,
                 Maybe::Unset,
                 HashMap::new(), // Start empty, not pre-populated with defaults

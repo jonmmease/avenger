@@ -61,7 +61,7 @@ pub use avenger_chart_core::{
 pub use avenger_chart_cartesian::CartesianPositionConfig;
 
 // Re-export scale types
-pub use avenger_chart_core::{Auto, ScaleConfigSpec};
+pub use avenger_chart_core::{Auto, ScaleConfigSpec, ScaleOrderingSpec};
 pub use avenger_chart_scales::{
     Band, BandScaleExt, Linear, LinearScaleExt, Log, LogScaleExt, Ordinal, OrdinalScaleExt, Point,
     PointScaleExt, Pow, PowScaleExt, Quantile, Quantize, ScaleRuntimeExt, Sqrt, SqrtScaleExt,

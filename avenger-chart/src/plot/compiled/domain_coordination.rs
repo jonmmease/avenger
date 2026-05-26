@@ -70,6 +70,7 @@ pub(crate) fn union_domain_extents(a: &DomainExtent, b: &DomainExtent) -> Domain
                 max: a_max.max(*b_max),
             },
             radius: union_radius_padding(&a.radius, &b.radius),
+            ordered_discrete: false,
         },
         (
             DomainBounds::Temporal {
@@ -86,6 +87,7 @@ pub(crate) fn union_domain_extents(a: &DomainExtent, b: &DomainExtent) -> Domain
                 max: (*a_max).max(*b_max),
             },
             radius: union_radius_padding(&a.radius, &b.radius),
+            ordered_discrete: false,
         },
         (DomainBounds::Discrete(a_vals), DomainBounds::Discrete(b_vals)) => {
             let mut combined = a_vals.clone();
@@ -94,10 +96,14 @@ pub(crate) fn union_domain_extents(a: &DomainExtent, b: &DomainExtent) -> Domain
                     combined.push(val.clone());
                 }
             }
-            combined.sort_by(|a, b| scalar_total_cmp(&a.to_scalar(), &b.to_scalar()));
+            let ordered_discrete = a.ordered_discrete || b.ordered_discrete;
+            if !ordered_discrete {
+                combined.sort_by(|a, b| scalar_total_cmp(&a.to_scalar(), &b.to_scalar()));
+            }
             DomainExtent {
                 bounds: DomainBounds::Discrete(combined),
                 radius: None,
+                ordered_discrete,
             }
         }
         _ => a.clone(), // Type mismatch: keep first.
@@ -227,6 +233,33 @@ mod tests {
                     SerializableDomainValue::String("B".to_string()),
                     SerializableDomainValue::String("C".to_string()),
                     SerializableDomainValue::String("D".to_string()),
+                ]
+                .as_slice()
+            )
+        );
+    }
+
+    #[test]
+    fn ordered_discrete_domain_union_preserves_computed_order() {
+        let a = DomainExtent::ordered_discrete(vec![
+            SerializableDomainValue::String("C".to_string()),
+            SerializableDomainValue::String("A".to_string()),
+        ]);
+        let b = DomainExtent::ordered_discrete(vec![
+            SerializableDomainValue::String("B".to_string()),
+            SerializableDomainValue::String("A".to_string()),
+        ]);
+
+        let unified = union_domain_extents(&a, &b);
+
+        assert!(unified.ordered_discrete);
+        assert_eq!(
+            unified.discrete_values(),
+            Some(
+                [
+                    SerializableDomainValue::String("C".to_string()),
+                    SerializableDomainValue::String("A".to_string()),
+                    SerializableDomainValue::String("B".to_string()),
                 ]
                 .as_slice()
             )

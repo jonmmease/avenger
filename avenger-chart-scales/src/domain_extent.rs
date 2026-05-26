@@ -178,6 +178,8 @@ pub enum SerializableDataExtents {
     },
     /// Categorical: unique values
     Discrete(Vec<SerializableDomainValue>),
+    /// Categorical: values whose order was computed by scale ordering.
+    OrderedDiscrete(Vec<SerializableDomainValue>),
     /// Temporal interval: (min, max) as Unix timestamps
     Temporal { min: i64, max: i64 },
 }
@@ -217,6 +219,16 @@ impl SerializableDataExtents {
                 .collect(),
         )
     }
+
+    /// Create from ordered discrete values.
+    pub fn ordered_discrete(values: Vec<ScalarValue>) -> Self {
+        Self::OrderedDiscrete(
+            values
+                .iter()
+                .map(SerializableDomainValue::from_scalar)
+                .collect(),
+        )
+    }
 }
 
 // ============================================================================
@@ -235,6 +247,9 @@ pub struct DomainExtent {
     /// Present when the domain was extracted from a radius-aware scale builder.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub radius: Option<RadiusPadding>,
+    /// True when discrete values carry intentional scale ordering.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub ordered_discrete: bool,
 }
 
 /// The bounds of a domain extent.
@@ -269,6 +284,7 @@ impl DomainExtent {
         Self {
             bounds: DomainBounds::Numeric { min, max },
             radius: None,
+            ordered_discrete: false,
         }
     }
 
@@ -285,6 +301,7 @@ impl DomainExtent {
                 max_lower: max_radius_lower,
                 max_upper: max_radius_upper,
             }),
+            ordered_discrete: false,
         }
     }
 
@@ -293,6 +310,16 @@ impl DomainExtent {
         Self {
             bounds: DomainBounds::Discrete(values),
             radius: None,
+            ordered_discrete: false,
+        }
+    }
+
+    /// Create an intentionally ordered discrete (categorical) extent.
+    pub fn ordered_discrete(values: Vec<SerializableDomainValue>) -> Self {
+        Self {
+            bounds: DomainBounds::Discrete(values),
+            radius: None,
+            ordered_discrete: true,
         }
     }
 
@@ -301,6 +328,7 @@ impl DomainExtent {
         Self {
             bounds: DomainBounds::Temporal { min, max },
             radius: None,
+            ordered_discrete: false,
         }
     }
 
@@ -355,6 +383,9 @@ impl From<SerializableDataExtents> for DomainExtent {
                 max_radius_upper,
             } => DomainExtent::numeric_with_radius(min, max, max_radius_lower, max_radius_upper),
             SerializableDataExtents::Discrete(values) => DomainExtent::discrete(values),
+            SerializableDataExtents::OrderedDiscrete(values) => {
+                DomainExtent::ordered_discrete(values)
+            }
             SerializableDataExtents::Temporal { min, max } => DomainExtent::temporal(min, max),
         }
     }
@@ -375,7 +406,13 @@ impl From<DomainExtent> for SerializableDataExtents {
                     SerializableDataExtents::Interval { min, max }
                 }
             }
-            DomainBounds::Discrete(values) => SerializableDataExtents::Discrete(values),
+            DomainBounds::Discrete(values) => {
+                if extent.ordered_discrete {
+                    SerializableDataExtents::OrderedDiscrete(values)
+                } else {
+                    SerializableDataExtents::Discrete(values)
+                }
+            }
             DomainBounds::Temporal { min, max } => SerializableDataExtents::Temporal { min, max },
         }
     }
@@ -394,9 +431,16 @@ impl From<&SerializableDataExtents> for DomainExtent {
                 DomainExtent::numeric_with_radius(*min, *max, *max_radius_lower, *max_radius_upper)
             }
             SerializableDataExtents::Discrete(values) => DomainExtent::discrete(values.clone()),
+            SerializableDataExtents::OrderedDiscrete(values) => {
+                DomainExtent::ordered_discrete(values.clone())
+            }
             SerializableDataExtents::Temporal { min, max } => DomainExtent::temporal(*min, *max),
         }
     }
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 // ============================================================================

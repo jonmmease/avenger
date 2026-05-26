@@ -64,6 +64,7 @@ use crate::{
             FacetScaleNodeArtifacts, FacetScaleNodeKey, build_node_artifacts, canonicalize_path,
             ensure_subtree_precomputed,
         },
+        sharing_policy,
         subtree_plot_area::{LeafPlotAreaSize, estimate_path_plot_area_from_leaf_size},
     },
     layout::{
@@ -2055,22 +2056,18 @@ fn resolve_nested_scale_plan<'a>(
         return Ok(NestedScalePlan::EmptySharedNoData);
     }
 
+    if facet_tree.has_free_channel_domain_sharing() {
+        return Ok(per_cell_nested_scale_plan(
+            cell,
+            per_cell_scale_builder_cache,
+        ));
+    }
+
     match child_facet_slot_sharing {
-        Some(sharing_level) if sharing_level.is_free() => {
-            let canonical_full_path = canonicalize_path(&cell.full_path);
-            if let Some(cached_builder) = per_cell_scale_builder_cache
-                .get(&canonical_full_path)
-                .or_else(|| per_cell_scale_builder_cache.get(&cell.full_path))
-            {
-                Ok(NestedScalePlan::PerCellCachedBuilder { cached_builder })
-            } else {
-                debug!(
-                    full_path = ?cell.full_path,
-                    "Facet child-slot measurement missing per-cell cached builder; falling back to on-demand build"
-                );
-                Ok(NestedScalePlan::PerCellBuilderFallback)
-            }
-        }
+        Some(sharing_level) if sharing_level.is_free() => Ok(per_cell_nested_scale_plan(
+            cell,
+            per_cell_scale_builder_cache,
+        )),
         Some(sharing_level) if sharing_level < child_facet_depth => {
             let ancestor_key = path_math::child_facet_slot_ancestor_key(
                 &cell.full_path,
@@ -2106,6 +2103,25 @@ fn resolve_nested_scale_plan<'a>(
             })
         }
         _ => Ok(NestedScalePlan::Shared),
+    }
+}
+
+fn per_cell_nested_scale_plan<'a>(
+    cell: &FacetCellPlan,
+    per_cell_scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
+) -> NestedScalePlan<'a> {
+    let canonical_full_path = canonicalize_path(&cell.full_path);
+    if let Some(cached_builder) = per_cell_scale_builder_cache
+        .get(&canonical_full_path)
+        .or_else(|| per_cell_scale_builder_cache.get(&cell.full_path))
+    {
+        NestedScalePlan::PerCellCachedBuilder { cached_builder }
+    } else {
+        debug!(
+            full_path = ?cell.full_path,
+            "Facet measurement missing per-cell cached builder; falling back to on-demand build"
+        );
+        NestedScalePlan::PerCellBuilderFallback
     }
 }
 
@@ -2584,8 +2600,10 @@ async fn coordinate_cell_domains_before_measurement(
     compiled_subplot: &Arc<CompiledPlot>,
     nested_ctx: &FacetBandNestedMeasureContext,
 ) -> Result<HashMap<String, SharingLevel>, AvengerChartError> {
+    let mut ordered_owner_extent_cache: HashMap<(Vec<ScalarValue>, String), DomainExtent> =
+        HashMap::new();
     for cell in cells.iter_mut() {
-        let local_extents = if cell.plan.has_data_rows {
+        let mut local_extents = if cell.plan.has_data_rows {
             let extent_builder = Box::pin(build_extent_builder_for_cell(
                 cell,
                 &cell.data_override,
@@ -2605,6 +2623,51 @@ async fn coordinate_cell_domains_before_measurement(
         } else {
             HashMap::new()
         };
+        for (channel, annotated) in local_extents.iter_mut() {
+            if !annotated.extent.ordered_discrete || annotated.domain_sharing_level.is_free() {
+                continue;
+            }
+            let owner_path = sharing_policy::domain_group_key(
+                &cell.plan.full_path,
+                annotated.domain_sharing_level,
+                facet_depth,
+            );
+            let cache_key = (canonicalize_path(&owner_path), channel.clone());
+            if let Some(cached_extent) = ordered_owner_extent_cache.get(&cache_key) {
+                annotated.extent = cached_extent.clone();
+                continue;
+            }
+
+            let owner_data =
+                if let Some(predicate) = nested_ctx.facet_tree.path_predicate(&owner_path) {
+                    nested_ctx.data_df.clone().filter(predicate).map_err(|e| {
+                        AvengerChartError::InternalError(format!(
+                            "Failed to filter data for ordered scale-domain owner {:?}: {}",
+                            owner_path, e
+                        ))
+                    })?
+                } else {
+                    nested_ctx.data_df.clone()
+                };
+            let owner_builder = Box::pin(build_scale_builder_from_marks_with_facet_scope(
+                &compiled_subplot.marks,
+                &compiled_subplot.scale_specs,
+                &compiled_subplot.coord_transform,
+                &compiled_subplot.data,
+                Some(owner_data),
+                &nested_ctx.eval_ctx,
+                &owner_path,
+                compiled_subplot.get_theme().as_ref(),
+            ))
+            .await?;
+            if let Some(owner_extent) = owner_builder
+                .extract_domain_extents(&[channel.as_str()])
+                .remove(channel)
+            {
+                annotated.extent = owner_extent.clone();
+                ordered_owner_extent_cache.insert(cache_key, owner_extent);
+            }
+        }
         cell.local_domain_extents = local_extents;
     }
 

@@ -40,6 +40,17 @@ fn test_typed_scale_with_band() {
 }
 
 #[test]
+fn test_band_scale_ordering_api() {
+    let _plot = Plot::<Cartesian>::new().mark(
+        Rect::new()
+            .x_with(col("category"), |c| {
+                c.scale_with::<Band>(|s| s.order_by(col("category")).order_desc())
+            })
+            .y(col("value")),
+    );
+}
+
+#[test]
 fn test_auto_scale_preserves_type() {
     // Test that Auto scale preserves the inferred type
     let _plot =

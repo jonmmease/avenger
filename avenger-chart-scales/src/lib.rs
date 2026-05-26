@@ -17,7 +17,8 @@ pub mod udf;
 
 pub use avenger_chart_core::{
     Auto, ConfiguredScaleLegendExt, DomainValues, PlotAreaDimension, PlotAreaRangeEndpoint,
-    PlotAreaRangeExpr, ResolvedDomain, Scale, ScaleConfigSpec, ScaleRangeBinding, ScaleSpec,
+    PlotAreaRangeExpr, ResolvedDomain, Scale, ScaleConfigSpec, ScaleOrderingSpec,
+    ScaleRangeBinding, ScaleSpec,
 };
 pub use builder::{ChannelScaleData, DataExtents, DefaultScaleRangeResolver, ScaleBuilder};
 pub use channel_config::{ScaleChannelConfig, ScaleChannelValue};

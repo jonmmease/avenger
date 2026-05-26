@@ -548,8 +548,10 @@ pub(crate) async fn build_node_artifacts(
         HashMap::new()
     };
 
-    let per_cell_scale_builder_cache = if matches!(child_facet_slot_sharing, Some(level) if level.is_free())
-    {
+    let needs_per_cell_scale_builder_cache = matches!(child_facet_slot_sharing, Some(level) if level.is_free())
+        || facet_tree.has_free_channel_domain_sharing();
+
+    let per_cell_scale_builder_cache = if needs_per_cell_scale_builder_cache {
         Box::pin(build_per_cell_scale_builders(
             cell_values,
             facet_path,
@@ -582,6 +584,8 @@ async fn collect_node_domain_infos(
     artifacts: &FacetScaleNodeArtifacts,
 ) -> Result<Vec<CellDomainInfo>, AvengerChartError> {
     let mut infos = Vec::new();
+    let mut ordered_owner_extent_cache: HashMap<(Vec<ScalarValue>, String), DomainExtent> =
+        HashMap::new();
 
     for value in cell_values {
         let mut full_path = facet_path.to_vec();
@@ -630,8 +634,47 @@ async fn collect_node_domain_infos(
             .iter()
             .map(String::as_str)
             .collect::<Vec<_>>();
-        for (channel, extent) in builder.extract_domain_extents(&domain_channel_refs) {
+        for (channel, mut extent) in builder.extract_domain_extents(&domain_channel_refs) {
             let domain_sharing_level = facet_tree.channel_domain_sharing_level(&channel);
+            let sharing_level = SharingLevel::from_raw(domain_sharing_level);
+            if extent.ordered_discrete && !sharing_level.is_free() {
+                let owner_path =
+                    sharing_policy::domain_group_key(&full_path, sharing_level, facet_depth);
+                let cache_key = (canonicalize_path(&owner_path), channel.clone());
+                if let Some(cached_extent) = ordered_owner_extent_cache.get(&cache_key) {
+                    extent = cached_extent.clone();
+                } else {
+                    let owner_data = if let Some(predicate) = facet_tree.path_predicate(&owner_path)
+                    {
+                        inherited_data_df.clone().filter(predicate).map_err(|e| {
+                            AvengerChartError::InternalError(format!(
+                                "Failed to filter data for ordered scale-domain owner {:?}: {}",
+                                owner_path, e
+                            ))
+                        })?
+                    } else {
+                        inherited_data_df.clone()
+                    };
+                    let owner_builder = Box::pin(build_scale_builder_from_marks_with_facet_scope(
+                        &compiled_subplot.marks,
+                        &compiled_subplot.scale_specs,
+                        &compiled_subplot.coord_transform,
+                        &compiled_subplot.data,
+                        Some(owner_data),
+                        eval_ctx,
+                        &owner_path,
+                        compiled_subplot.get_theme().as_ref(),
+                    ))
+                    .await?;
+                    if let Some(owner_extent) = owner_builder
+                        .extract_domain_extents(&[channel.as_str()])
+                        .remove(&channel)
+                    {
+                        extent = owner_extent.clone();
+                        ordered_owner_extent_cache.insert(cache_key, owner_extent);
+                    }
+                }
+            }
             infos.push(CellDomainInfo {
                 full_cell_path: full_path.clone(),
                 channel,
