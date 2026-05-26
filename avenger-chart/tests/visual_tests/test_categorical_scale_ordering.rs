@@ -66,6 +66,28 @@ fn ordered_rect_mark(sharing: Option<ScaleSharing>) -> Rect<Cartesian> {
         .fill("#4c78a8")
 }
 
+fn color_ordered_rect_mark(sharing: Option<ScaleSharing>) -> Rect<Cartesian> {
+    Rect::new()
+        .x_with(col("category"), |c| {
+            c.scale_with::<Band>(|s| s).axis(|a| a.title("Category"))
+        })
+        .x2_with(col(":x"), |c| c.band(1.0))
+        .y_with(lit(0.0), |c| {
+            c.scale(|s| s.domain((0.0, 100.0)))
+                .axis(|a| a.title("Value"))
+        })
+        .y2(col("value"))
+        .fill_with(col("category"), move |c| {
+            let c = c.scale_with::<Ordinal>(|s| s.order_by(max(col("value"))).order_desc());
+            let c = if let Some(sharing) = sharing.clone() {
+                c.with_scale_sharing(sharing)
+            } else {
+                c
+            };
+            c.legend(|l| l.title("Category").position(LegendPosition::Right))
+        })
+}
+
 #[tokio::test]
 async fn categorical_band_order_by_max_desc() {
     let ctx = SessionContext::new();
@@ -81,6 +103,28 @@ async fn categorical_band_order_by_max_desc() {
         None,
         "categorical_scale_ordering",
         "categorical_band_order_by_max_desc",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn categorical_ordinal_fill_order_by_max_desc() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .data(ordered_bar_data(&ctx))
+        .canvas_size(760, 360)
+        .mark(color_ordered_rect_mark(None));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile color ordered bar plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "categorical_scale_ordering",
+        "categorical_ordinal_fill_order_by_max_desc",
     )
     .await;
 }
@@ -113,6 +157,33 @@ async fn facet_free_categorical_band_order_by_max_desc() {
 }
 
 #[tokio::test]
+async fn facet_free_categorical_ordinal_fill_order_by_max_desc() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<FacetColumn>::new()
+        .data(ordered_facet_data(&ctx))
+        .canvas_size(1080, 390)
+        .mark(
+            Subplot::new(
+                Plot::<Cartesian>::new().mark(color_ordered_rect_mark(Some(ScaleSharing::Free))),
+            )
+            .col_with(col("group"), |c| c.facet(|f| f.title("Group"))),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile free color ordered facet");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "categorical_scale_ordering",
+        "facet_free_categorical_ordinal_fill_order_by_max_desc",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn facet_shared_categorical_band_order_by_max_desc() {
     let ctx = SessionContext::new();
     let plot = Plot::<FacetColumn>::new()
@@ -135,6 +206,33 @@ async fn facet_shared_categorical_band_order_by_max_desc() {
         None,
         "categorical_scale_ordering",
         "facet_shared_categorical_band_order_by_max_desc",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn facet_shared_categorical_ordinal_fill_order_by_max_desc() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<FacetColumn>::new()
+        .data(ordered_facet_data(&ctx))
+        .canvas_size(1080, 390)
+        .mark(
+            Subplot::new(
+                Plot::<Cartesian>::new().mark(color_ordered_rect_mark(Some(ScaleSharing::Shared))),
+            )
+            .col_with(col("group"), |c| c.facet(|f| f.title("Group"))),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile shared color ordered facet");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "categorical_scale_ordering",
+        "facet_shared_categorical_ordinal_fill_order_by_max_desc",
     )
     .await;
 }
