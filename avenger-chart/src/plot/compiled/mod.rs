@@ -15,6 +15,7 @@ mod mark_data_runtime;
 pub(crate) mod rendering;
 pub mod scale_provider;
 pub(crate) mod scales; // Made public so plot.rs can call build_scale_builder_from_marks
+mod session;
 mod titles;
 mod validation;
 
@@ -80,6 +81,7 @@ pub(crate) use self::mark_data_runtime::{
     LogicalMarkDataRequest, MarkDataRequest, PreparedMarkData, prepare_logical_mark_data,
     prepare_mark_data as prepare_mark_data_runtime,
 };
+pub use self::session::{EvaluationRequest, PlotSession};
 
 use super::title::{PlotSubtitle, PlotTitle};
 

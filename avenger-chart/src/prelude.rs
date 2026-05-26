@@ -27,7 +27,9 @@ pub use avenger_chart_polar::Polar;
 
 // Re-export the Plot type
 pub use crate::layout::{CanvasConstraint, PlotConstraint};
-pub use crate::plot::{Plot, PlotSubtitle, PlotTitle, TitleAlign, TitleSpan};
+pub use crate::plot::{
+    EvaluationRequest, Plot, PlotSession, PlotSubtitle, PlotTitle, TitleAlign, TitleSpan,
+};
 
 // Re-export theme types
 pub use avenger_chart_core::Theme;
@@ -86,9 +88,9 @@ pub use avenger_chart_polar::PolarAxis;
 // Re-export rendering types
 pub use crate::render::CanvasExt;
 pub use crate::render::{
-    CoordinationCheckpoint, EvaluationOptions, FacetLayoutRefinement, FacetSubtreeCheckpoint,
-    FacetSubtreeSelector, FacetSubtreeSnapshot, LayoutDebugOverlayMode, LayoutSnapshot,
-    RefinementCheckpoint, WholeChartSnapshot,
+    CoordinationCheckpoint, EvaluationMode, EvaluationOptions, FacetLayoutRefinement,
+    FacetSubtreeCheckpoint, FacetSubtreeSelector, FacetSubtreeSnapshot, LayoutDebugOverlayMode,
+    LayoutSnapshot, RefinementCheckpoint, WholeChartSnapshot,
 };
 
 // Re-export error type

@@ -118,6 +118,21 @@ impl LayoutDebugOverlayMode {
     }
 }
 
+/// Evaluation strategy requested by a reusable plot session.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum EvaluationMode {
+    /// Canonical evaluation semantics. Valid caches may be reused.
+    #[default]
+    Exact,
+    /// Low-latency interaction mode. Phase 1 falls back to exact evaluation.
+    Preview,
+    /// Canonical evaluation while bypassing measurement-profile caches.
+    ///
+    /// Phase 1 has no measurement-profile cache yet, so this also falls back to
+    /// exact evaluation while preserving the requested mode in metrics.
+    ForceRemeasure,
+}
+
 /// Runtime evaluation options for selecting layout snapshots and debug overlays.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EvaluationOptions {
@@ -167,6 +182,8 @@ impl Default for EvaluationOptions {
 #[doc(hidden)]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EvaluationMetrics {
+    /// Requested evaluation mode for this run.
+    pub mode: EvaluationMode,
     /// Metrics for recursive facet layout measurement.
     pub facet_layout: FacetLayoutMetrics,
     /// Metrics for top-level evaluation pipeline work that future sessions

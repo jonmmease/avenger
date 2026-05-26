@@ -11,7 +11,7 @@ mod title;
 
 // Re-export core plot types
 pub use avenger_chart_core::IntoExpr;
-pub use compiled::CompiledPlot;
+pub use compiled::{CompiledPlot, EvaluationRequest, PlotSession};
 pub use plot::Plot;
 
 // Re-export title types
