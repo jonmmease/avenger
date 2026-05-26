@@ -28,7 +28,9 @@ pub use domain_extent::{
     DomainBounds, DomainExtent, RadiusPadding, SerializableDataExtents, SerializableDomainValue,
 };
 pub use extensions::ConfiguredScaleDataFusionExt;
-pub use mark_scale_builder::build_scale_builder_from_marks;
+pub use mark_scale_builder::{
+    PreparedScaleMark, build_scale_builder_from_marks, build_scale_builder_from_prepared_marks,
+};
 pub use range::ScaleRange;
 pub use scale::{
     BandScaleExt, LinearScaleExt, LogScaleExt, OrdinalScaleExt, PointScaleExt, PowScaleExt,

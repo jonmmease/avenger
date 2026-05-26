@@ -6,7 +6,19 @@ use crate::ScaleSharing;
 /// - `0` => free
 /// - `N` => shared at level `N`
 /// - `255` => global
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct SharingLevel(u8);
 
 impl SharingLevel {

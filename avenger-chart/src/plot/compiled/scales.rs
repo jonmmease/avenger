@@ -2,7 +2,9 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use datafusion::{arrow::datatypes::DataType as ArrowDataType, dataframe::DataFrame};
+use datafusion::{
+    arrow::datatypes::DataType as ArrowDataType, common::ScalarValue, dataframe::DataFrame,
+};
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
@@ -10,8 +12,10 @@ use avenger_chart_core::{
     AvengerChartError, CompiledMark, CoordinateSystemTransform,
     EvaluationContext as CoreEvaluationContext, ResolvedDomain, ScaleRange, Theme,
 };
-use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
+use avenger_chart_scales::{PlotScaleSpec, PreparedScaleMark, ScaleBuilder};
 use avenger_scales::scales::ScaleImpl;
+
+use super::{LogicalMarkDataRequest, prepare_logical_mark_data};
 
 pub(crate) async fn build_scale_builder_from_marks(
     compiled_marks: &[Arc<dyn CompiledMark>],
@@ -22,12 +26,68 @@ pub(crate) async fn build_scale_builder_from_marks(
     eval_ctx: &CoreEvaluationContext,
     theme: &Theme,
 ) -> Result<ScaleBuilder, AvengerChartError> {
-    avenger_chart_scales::build_scale_builder_from_marks(
-        compiled_marks,
+    let mut prepared_marks = Vec::with_capacity(compiled_marks.len());
+    for mark in compiled_marks {
+        let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
+            mark: mark.as_ref(),
+            plot_data: data.as_ref(),
+            provided_plot_df: df_override.as_ref(),
+            facet_data_scope: None,
+            eval_ctx,
+        })
+        .await?;
+        prepared_marks.push(PreparedScaleMark::new(
+            mark.clone(),
+            prepared.dataframe,
+            prepared.channels,
+        ));
+    }
+
+    avenger_chart_scales::build_scale_builder_from_prepared_marks(
+        &prepared_marks,
         scale_specs,
         coord_transform.as_ref(),
-        data,
-        df_override,
+        eval_ctx,
+        theme,
+    )
+    .await
+}
+
+pub(crate) async fn build_scale_builder_from_marks_with_facet_scope(
+    compiled_marks: &[Arc<dyn CompiledMark>],
+    scale_specs: &HashMap<String, PlotScaleSpec>,
+    coord_transform: &Box<dyn CoordinateSystemTransform>,
+    data: &Option<LogicalPlanNode>,
+    df_override: Option<DataFrame>,
+    eval_ctx: &crate::render::EvaluationContext,
+    facet_path: &[ScalarValue],
+    theme: &Theme,
+) -> Result<ScaleBuilder, AvengerChartError> {
+    let mut prepared_marks = Vec::with_capacity(compiled_marks.len());
+    for mark in compiled_marks {
+        let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
+            mark: mark.as_ref(),
+            plot_data: data.as_ref(),
+            provided_plot_df: df_override.as_ref(),
+            facet_data_scope: Some(crate::facet::data_scope::FacetDataScopeContext::new(
+                eval_ctx.facet_tree.as_ref(),
+                eval_ctx.facet_data_root(),
+                facet_path,
+            )),
+            eval_ctx,
+        })
+        .await?;
+        prepared_marks.push(PreparedScaleMark::new(
+            mark.clone(),
+            prepared.dataframe,
+            prepared.channels,
+        ));
+    }
+
+    avenger_chart_scales::build_scale_builder_from_prepared_marks(
+        &prepared_marks,
+        scale_specs,
+        coord_transform.as_ref(),
         eval_ctx,
         theme,
     )
@@ -42,7 +102,7 @@ pub(super) fn default_range_for_compiled_marks<'a>(
     &ResolvedDomain,
     &ArrowDataType,
     &Theme,
-    &IndexMap<String, datafusion_common::ScalarValue>,
+    &IndexMap<String, ScalarValue>,
 ) -> Option<ScaleRange>
 + 'a {
     move |channel_name, scale_impl, resolved_domain, data_type, theme, params| {

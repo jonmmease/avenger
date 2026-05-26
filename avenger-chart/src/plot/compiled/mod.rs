@@ -77,7 +77,8 @@ pub(crate) use self::coordination_scope::{CoordinationKind, CoordinationScopeKey
 pub(crate) use self::domain_coordination::{ChildFrameDomainRequest, aggregate_domain_requests};
 use self::legends::PreparedLegendPlan;
 pub(crate) use self::mark_data_runtime::{
-    MarkDataRequest, PreparedMarkData, prepare_mark_data as prepare_mark_data_runtime,
+    LogicalMarkDataRequest, MarkDataRequest, PreparedMarkData, prepare_logical_mark_data,
+    prepare_mark_data as prepare_mark_data_runtime,
 };
 
 use super::title::{PlotSubtitle, PlotTitle};

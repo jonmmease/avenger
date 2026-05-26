@@ -11,8 +11,8 @@ Some of the old proposal is already covered:
 
 - `DataContext` and `CompiledDataContext` already store plot-level and
   mark-level data.
-- `Plot::compile` detects aggregate expressions in mark channels and rewrites
-  mark data for those aggregate encodings.
+- Runtime mark-data preparation detects aggregate expressions in mark channels
+  and builds the grouped DataFusion plan used by rendering and scale inference.
 - Users can always transform a DataFusion `DataFrame` before passing it to
   `Plot::data` or mark `.data(...)`.
 

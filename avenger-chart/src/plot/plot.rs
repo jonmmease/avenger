@@ -2,19 +2,13 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use datafusion::{
-    common::{DFSchema, ScalarValue},
-    dataframe::DataFrame,
-    logical_expr::{EmptyRelation, LogicalPlan},
-    prelude::Expr,
-};
+use datafusion::{common::ScalarValue, dataframe::DataFrame};
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    AvengerChartError, AxisSpec, ChannelValue, CompiledMark, CompiledMarkState,
-    CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, IntoExpr, Legend, Mark, MarkState,
-    Param, SubplotChildPlotSpec, Theme, contains_aggregate,
+    AvengerChartError, AxisSpec, CompiledMark, CompiledMarkState, CompiledSubplotChildPlot,
+    CoordinateGuide, CoordinateSystem, IntoExpr, Legend, Mark, Param, SubplotChildPlotSpec, Theme,
 };
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
 
@@ -138,7 +132,9 @@ impl<C: CoordinateSystem> Plot<C> {
             );
         }
 
-        // 2. Compile all marks, applying aggregation if needed
+        // 2. Compile all marks. Aggregate channels are intentionally prepared at
+        // runtime so faceted marks aggregate after mark-level data scope has been
+        // resolved.
         let mut compiled_marks: Vec<Arc<dyn CompiledMark>> = Vec::new();
         for (mark_index, m) in self.marks.iter().enumerate() {
             let mark_state = m.state();
@@ -149,35 +145,9 @@ impl<C: CoordinateSystem> Plot<C> {
                 .cloned()
                 .or_else(|| self.data.clone());
 
-            // Check if any channel uses aggregate functions
-            let needs_aggregation = mark_state
-                .data
-                .channels()
-                .values()
-                .filter_map(|value| value.expr(session_context))
-                .any(|expr| contains_aggregate(&expr));
-
-            let compiled_mark = if needs_aggregation {
-                // Apply aggregation and update channel expressions
-                // If no data is available but aggregation is requested, use an empty DataFrame
-                // which will result in an empty aggregated DataFrame
-                let df = df_opt.unwrap_or_else(|| {
-                    DataFrame::new(
-                        session_context.state().clone(),
-                        LogicalPlan::EmptyRelation(EmptyRelation {
-                            produce_one_row: false,
-                            schema: Arc::new(DFSchema::empty()),
-                        }),
-                    )
-                });
-                self.compile_mark_with_aggregation(mark_index, m, mark_state, df, session_context)
-                    .await?
-            } else {
-                // No aggregation needed - compile as-is
-                let compiled_state = CompiledMarkState::from_mark_state(mark_state, df_opt)
-                    .with_mark_index(mark_index);
-                m.compile(compiled_state, session_context).await?
-            };
+            let compiled_state =
+                CompiledMarkState::from_mark_state(mark_state, df_opt).with_mark_index(mark_index);
+            let compiled_mark = m.compile(compiled_state, session_context).await?;
             compiled_marks.push(compiled_mark);
         }
 
@@ -255,102 +225,6 @@ impl<C: CoordinateSystem> Plot<C> {
             data: data_plan_node,
             default_params,
         })
-    }
-
-    /// Helper method to compile a mark with aggregation
-    ///
-    /// This detects aggregate functions in channels, applies DataFrame aggregation,
-    /// and updates channel expressions to reference the aggregated output columns.
-    async fn compile_mark_with_aggregation(
-        &self,
-        mark_index: usize,
-        mark: &Arc<dyn Mark<C>>,
-        mark_state: &MarkState,
-        df: DataFrame,
-        session_context: &datafusion::prelude::SessionContext,
-    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        use avenger_chart_scales::serialization::LogicalExprNodeExt;
-        use datafusion::prelude::col;
-        use datafusion_proto::protobuf::LogicalExprNode;
-
-        // Collect all channel expressions and deduplicate group expressions
-        // IndexMap preserves insertion order which matches schema field order
-        let mut unique_group_exprs = indexmap::IndexMap::new(); // expr -> insertion_index
-        let mut unique_agg_exprs = indexmap::IndexMap::new(); // expr -> insertion_index
-        let mut channel_info: Vec<(String, Expr, bool, bool, ChannelValue)> = Vec::new(); // (name, expr, is_aggregate, is_literal, original_channel_value)
-
-        for (channel_name, channel_value) in mark_state.data.channels() {
-            // Skip channels without expressions (e.g., conditional channels)
-            if let Some(expr) = channel_value.expr(session_context) {
-                let is_aggregate = contains_aggregate(&expr);
-                let is_literal = matches!(expr, Expr::Literal(_, _));
-
-                if is_aggregate {
-                    // Track unique aggregate expressions
-                    if !unique_agg_exprs.contains_key(&expr) {
-                        unique_agg_exprs.insert(expr.clone(), unique_agg_exprs.len());
-                    }
-                } else if !is_literal {
-                    // Track unique group expressions (excluding literals)
-                    if !unique_group_exprs.contains_key(&expr) {
-                        unique_group_exprs.insert(expr.clone(), unique_group_exprs.len());
-                    }
-                }
-
-                channel_info.push((
-                    channel_name.clone(),
-                    expr,
-                    is_aggregate,
-                    is_literal,
-                    channel_value.clone(),
-                ));
-            }
-        }
-
-        // Extract deduplicated expression lists for aggregation
-        let group_by_exprs: Vec<Expr> = unique_group_exprs.keys().cloned().collect();
-        let agg_exprs: Vec<Expr> = unique_agg_exprs.keys().cloned().collect();
-
-        // Apply aggregation
-        let agg_df = df.aggregate(group_by_exprs.clone(), agg_exprs.clone())?;
-
-        // Get the schema to discover DataFusion's chosen column names
-        let schema = agg_df.schema();
-
-        // Build updated channels by matching expressions to schema fields
-        let mut updated_channels = indexmap::IndexMap::new();
-
-        for (channel_name, original_expr, is_aggregate, is_literal, original_channel_value) in
-            channel_info
-        {
-            if is_literal {
-                // Literals stay as-is - keep original channel value unchanged
-                updated_channels.insert(channel_name, original_channel_value);
-            } else if is_aggregate {
-                // Look up which aggregate expression this is
-                let agg_index = unique_agg_exprs.get(&original_expr).unwrap();
-                // Aggregate expressions come after grouping expressions in schema
-                let field_index = group_by_exprs.len() + agg_index;
-                let field_name = schema.field(field_index).name().clone();
-                // Update expression while preserving channel configuration (band, scale, etc.)
-                let new_expr = LogicalExprNode::from_expr(col(&field_name))?;
-                updated_channels.insert(channel_name, original_channel_value.with_expr(new_expr));
-            } else {
-                // Look up which group expression this is
-                let group_index = unique_group_exprs.get(&original_expr).unwrap();
-                let field_name = schema.field(*group_index).name().clone();
-                // Update expression while preserving channel configuration (band, scale, etc.)
-                let new_expr = LogicalExprNode::from_expr(col(&field_name))?;
-                updated_channels.insert(channel_name, original_channel_value.with_expr(new_expr));
-            }
-        }
-
-        // Create CompiledMarkState with aggregated DataFrame and updated channels
-        let compiled_state =
-            CompiledMarkState::from_mark_state_with_channels(mark_state, agg_df, updated_channels)
-                .with_mark_index(mark_index);
-
-        mark.compile(compiled_state, session_context).await
     }
 
     /// Get a reference to the coordinate system

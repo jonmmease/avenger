@@ -39,6 +39,29 @@ use crate::{
     serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
 };
 
+/// Mark data and channels after the chart runtime has resolved any container
+/// data scope and runtime aggregate preparation.
+#[derive(Clone)]
+pub struct PreparedScaleMark {
+    pub mark: Arc<dyn CompiledMark>,
+    pub dataframe: Option<DataFrame>,
+    pub channels: IndexMap<String, ChannelValue>,
+}
+
+impl PreparedScaleMark {
+    pub fn new(
+        mark: Arc<dyn CompiledMark>,
+        dataframe: Option<DataFrame>,
+        channels: IndexMap<String, ChannelValue>,
+    ) -> Self {
+        Self {
+            mark,
+            dataframe,
+            channels,
+        }
+    }
+}
+
 /// Build ScaleBuilder by executing expensive data queries once
 ///
 /// This function implements a two-phase approach to handle radius-aware positional scales:
@@ -70,32 +93,55 @@ where
     C: CoordinateSystemTransformCore + ?Sized,
 {
     let ctx = eval_ctx.session_context.as_ref();
+    let plot_df = data.as_ref().and_then(|data_node| {
+        let logical_plan = LogicalPlanNode::to_logical_plan(data_node, ctx).ok()?;
+        Some(DataFrame::new(ctx.state().clone(), logical_plan))
+    });
+    let inherited_df = df_override.or(plot_df);
+    let prepared_marks = compiled_marks
+        .iter()
+        .map(|mark| {
+            let dataframe = mark
+                .data_context()
+                .dataframe_with_context(ctx)
+                .or_else(|| inherited_df.clone());
+            PreparedScaleMark::new(
+                mark.clone(),
+                dataframe,
+                mark.data_context().channels().clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    build_scale_builder_from_prepared_marks(
+        &prepared_marks,
+        scale_specs,
+        coord_transform,
+        eval_ctx,
+        theme,
+    )
+    .await
+}
+
+/// Build a ScaleBuilder from mark-specific prepared data and channels.
+pub async fn build_scale_builder_from_prepared_marks<C>(
+    prepared_marks: &[PreparedScaleMark],
+    scale_specs: &HashMap<String, PlotScaleSpec>,
+    coord_transform: &C,
+    eval_ctx: &CoreEvaluationContext,
+    theme: &Theme,
+) -> Result<ScaleBuilder, AvengerChartError>
+where
+    C: CoordinateSystemTransformCore + ?Sized,
+{
+    let ctx = eval_ctx.session_context.as_ref();
     let params = &eval_ctx.params;
     let mut builder = ScaleBuilder::new();
 
-    // Get DataFrame if available - mark-level data takes precedence over plot-level data
-    // If df_override is provided, use that instead of plot-level data
-    let df_opt = if let Some(df) = df_override {
-        Some(df)
-    } else {
-        compiled_marks
-            .iter()
-            .find_map(|mark| mark.data_context().dataframe_with_context(ctx))
-            .or_else(|| {
-                // Fall back to plot-level data if no mark has data
-                if let Some(data_node) = data {
-                    let logical_plan = LogicalPlanNode::to_logical_plan(data_node, ctx).ok()?;
-                    Some(DataFrame::new(ctx.state().clone(), logical_plan))
-                } else {
-                    None
-                }
-            })
-    };
-
     // Collect channels needing scales from marks
     let mut channels_with_scales = HashSet::new();
-    for mark in compiled_marks {
-        let encodings = mark.data_context().channels();
+    for prepared in prepared_marks {
+        let encodings = &prepared.channels;
         let resolved =
             resolve_all_channel_refs(encodings, ctx).unwrap_or_else(|_| encodings.clone());
         for (channel_name, channel_value) in resolved {
@@ -146,8 +192,7 @@ where
         if let Some((spec, dt, options, _has_explicit_domain, domain_opt)) =
             build_scale_for_channel(
                 channel,
-                compiled_marks,
-                &df_opt,
+                prepared_marks,
                 ctx,
                 params,
                 false,           // no radius for non-positional
@@ -166,8 +211,7 @@ where
                 &dt,
                 options,
                 domain_opt,
-                compiled_marks,
-                &df_opt,
+                prepared_marks,
                 ctx,
                 params,
                 &HashMap::new(), // no phase1 scales yet
@@ -203,8 +247,7 @@ where
     for channel in &positional_channels {
         if let Some((spec, dt, options, has_explicit_domain, domain_opt)) = build_scale_for_channel(
             channel,
-            compiled_marks,
-            &df_opt,
+            prepared_marks,
             ctx,
             params,
             true, // check radius for positional
@@ -222,7 +265,7 @@ where
                 get_radius_expression(
                     channel,
                     &spec,
-                    compiled_marks,
+                    prepared_marks,
                     ctx,
                     &phase1_configured,
                     theme,
@@ -238,8 +281,7 @@ where
                 &dt,
                 options,
                 domain_opt,
-                compiled_marks,
-                &df_opt,
+                prepared_marks,
                 ctx,
                 params,
                 &phase1_configured,
@@ -258,8 +300,7 @@ where
 /// Build scale specification for a channel
 async fn build_scale_for_channel<C>(
     channel: &str,
-    compiled_marks: &[Arc<dyn CompiledMark>],
-    df_opt: &Option<DataFrame>,
+    prepared_marks: &[PreparedScaleMark],
     ctx: &SessionContext,
     _params: &IndexMap<String, ScalarValue>,
     _check_radius: bool,
@@ -289,8 +330,9 @@ where
     let mut chosen_spec: Option<Box<dyn ScaleSpec>> = None;
     let mut data_type: Option<ArrowDataType> = None;
 
-    'outer: for mark in compiled_marks {
-        let channels = mark.data_context().channels();
+    'outer: for prepared in prepared_marks {
+        let mark = &prepared.mark;
+        let channels = &prepared.channels;
         let resolved = resolve_all_channel_refs(channels, ctx).unwrap_or_else(|_| channels.clone());
 
         // Look for any channel whose scale name matches the target channel
@@ -316,13 +358,10 @@ where
             // string literal override should infer as numeric, not string).
             let maybe_dt = {
                 if let Some(expr) = channel_value.scale_input_expr(ctx) {
-                    // Try to infer type using the mark's own DataFrame first,
-                    // then fall back to plot-level DataFrame if available.
-                    let mark_df = mark.data_context().dataframe_with_context(ctx);
-                    // Skip EmptyRelation placeholders and use plot-level DataFrame instead
-                    let df_for_inference = mark_df
-                        .filter(|df| !is_empty_relation(df))
-                        .or_else(|| df_opt.clone());
+                    let df_for_inference = prepared
+                        .dataframe
+                        .clone()
+                        .filter(|df| !is_empty_relation(df));
 
                     if let Some(df) = df_for_inference {
                         match &expr {
@@ -364,8 +403,8 @@ where
     // Check for explicit scale config (type, domain, options like nice, zero, etc.)
     // Look for any channel whose scale maps to the target channel
     let mut chosen_scale_config: Option<Scale<Auto>> = None;
-    'config_outer: for mark in compiled_marks {
-        let channels = mark.data_context().channels();
+    'config_outer: for prepared in prepared_marks {
+        let channels = &prepared.channels;
         let resolved = resolve_all_channel_refs(channels, ctx).unwrap_or_else(|_| channels.clone());
 
         for (channel_name, channel_value) in &resolved {
@@ -443,9 +482,8 @@ where
         }
 
         // Find mark that has a channel mapping to this scale
-        if let Some(mark) = compiled_marks.iter().find(|m| {
-            let channels = m.data_context().channels();
-            channels.iter().any(|(ch_name, ch_val)| {
+        if let Some(prepared) = prepared_marks.iter().find(|prepared| {
+            prepared.channels.iter().any(|(ch_name, ch_val)| {
                 if let Some(scale_name) = ch_val.get_scale_name(ch_name) {
                     scale_name == channel
                 } else {
@@ -453,7 +491,9 @@ where
                 }
             })
         }) {
-            let mark_opts = mark.default_scale_options(channel, scale_impl.as_ref(), &dt);
+            let mark_opts = prepared
+                .mark
+                .default_scale_options(channel, scale_impl.as_ref(), &dt);
             for (k, v) in mark_opts {
                 // Skip domain-affecting options if user set explicit domain
                 if has_explicit_domain && (k == "nice" || k == "zero" || k == "padding") {
@@ -499,7 +539,7 @@ where
 fn get_radius_expression(
     channel: &str,
     spec: &Box<dyn ScaleSpec>,
-    compiled_marks: &[Arc<dyn CompiledMark>],
+    prepared_marks: &[PreparedScaleMark],
     ctx: &SessionContext,
     phase1_configured: &HashMap<String, ConfiguredScaleWithSpec>,
     theme: &Theme,
@@ -517,8 +557,9 @@ fn get_radius_expression(
     }
 
     // Find a mark that uses this channel
-    for mark in compiled_marks {
-        let channels = mark.data_context().channels();
+    for prepared in prepared_marks {
+        let mark = &prepared.mark;
+        let channels = &prepared.channels;
         let resolved = resolve_all_channel_refs(channels, ctx).unwrap_or_else(|_| channels.clone());
 
         // Check if this mark uses this channel
@@ -596,8 +637,7 @@ async fn cache_domain_data(
     dt: &ArrowDataType,
     options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
     domain_opt: Option<ScaleDomain>,
-    compiled_marks: &[Arc<dyn CompiledMark>],
-    df_opt: &Option<DataFrame>,
+    prepared_marks: &[PreparedScaleMark],
     ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
     phase1_configured: &HashMap<String, ConfiguredScaleWithSpec>,
@@ -667,18 +707,19 @@ async fn cache_domain_data(
 
     // If overrides didn't provide DomainExprs, fall back to collecting from marks
     if entries.is_empty() {
-        for mark in compiled_marks {
-            let mark_df = mark.data_context().dataframe_with_context(ctx);
-            // Skip EmptyRelation placeholders and use plot-level DataFrame instead
-            let df = if let Some(mark_df) = mark_df.filter(|df| !is_empty_relation(df)) {
+        for prepared in prepared_marks {
+            let mark = &prepared.mark;
+            let df = if let Some(mark_df) = prepared
+                .dataframe
+                .clone()
+                .filter(|df| !is_empty_relation(df))
+            {
                 Arc::new(mark_df)
-            } else if let Some(plot_df) = df_opt.as_ref() {
-                Arc::new(plot_df.clone())
             } else {
                 continue;
             };
 
-            let channels = mark.data_context().channels();
+            let channels = &prepared.channels;
             let resolved =
                 resolve_all_channel_refs(channels, ctx).unwrap_or_else(|_| channels.clone());
 

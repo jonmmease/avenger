@@ -74,7 +74,7 @@ use crate::{
     plot::compiled::{
         CompiledPlot, ComponentsMeasurement, CoordinationKind, CoordinationScopeKey,
         fixed_child_plot_area_layout_spec, measure_child_frame_plot_with_builder,
-        scales::build_scale_builder_from_marks,
+        scales::build_scale_builder_from_marks_with_facet_scope,
     },
     render::{EvaluationContext, FacetSubtreeCheckpoint, FacetSubtreeSelector},
     scales::{
@@ -2146,13 +2146,14 @@ async fn execute_measurement_from_plan(
             .map(|measurement| MeasuredFacetCell { measurement })
         }
         NestedScalePlan::PerCellBuilderFallback => {
-            let cell_scale_builder = build_scale_builder_from_marks(
+            let cell_scale_builder = build_scale_builder_from_marks_with_facet_scope(
                 &compiled_subplot.marks,
                 &compiled_subplot.scale_specs,
                 &compiled_subplot.coord_transform,
                 &compiled_subplot.data,
                 Some(data_override.clone()),
                 eval_ctx,
+                &cell.full_path,
                 compiled_subplot.get_theme().as_ref(),
             )
             .await?;
@@ -2564,13 +2565,14 @@ async fn build_extent_builder_for_cell(
         return Ok(cached_builder.clone());
     }
 
-    build_scale_builder_from_marks(
+    build_scale_builder_from_marks_with_facet_scope(
         &compiled_subplot.marks,
         &compiled_subplot.scale_specs,
         &compiled_subplot.coord_transform,
         &compiled_subplot.data,
         Some(data_override.clone()),
         &nested_ctx.eval_ctx,
+        &cell.plan.full_path,
         compiled_subplot.get_theme().as_ref(),
     )
     .await
@@ -4156,6 +4158,7 @@ mod tests {
     use super::*;
     use crate::facet::FacetDirection;
     use crate::facet::evaluated_facet_tree::{EvaluatedFacetTree, PartitionNode};
+    use crate::plot::compiled::scales::build_scale_builder_from_marks;
     use crate::prelude::*;
     use crate::render::LegendMeasurements;
     use crate::render::types::LegendMeasurement;

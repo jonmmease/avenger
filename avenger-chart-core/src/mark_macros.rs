@@ -14,7 +14,7 @@ macro_rules! impl_mark_base {
                 Self {
                     state: $crate::MarkState {
                         data: $crate::DataContext::default(),
-                        facet_strategy: $crate::FacetStrategy::Filter,
+                        facet_data_scope: $crate::FacetDataScope::FILTERED,
                         details: None,
                         zindex: None,
                         axis_configs: std::collections::HashMap::new(),
@@ -40,14 +40,20 @@ macro_rules! impl_mark_base {
             }
 
             /// Control faceting behavior.
-            pub fn facet_strategy(mut self, strategy: $crate::FacetStrategy) -> Self {
-                self.state.facet_strategy = strategy;
+            pub fn facet_data_scope(mut self, scope: $crate::FacetDataScope) -> Self {
+                self.state.facet_data_scope = scope;
+                self
+            }
+
+            /// Set the faceting data scope by level.
+            pub fn facet_data_level(mut self, level: u8) -> Self {
+                self.state.facet_data_scope = $crate::FacetDataScope::level(level);
                 self
             }
 
             /// Make this mark appear in all facets.
             pub fn broadcast_to_facets(mut self) -> Self {
-                self.state.facet_strategy = $crate::FacetStrategy::Broadcast;
+                self.state.facet_data_scope = $crate::FacetDataScope::BROADCAST;
                 self
             }
 

@@ -24,7 +24,8 @@ use crate::{
         ChildFrameDomainRequest, CompiledPlot, ContainerPathSegment, CoordinationKind,
         CoordinationScopeKey, aggregate_domain_requests,
         child_frame_domain_sharing_levels_for_plot, compiled_subplot_payload_child_plot,
-        container_path_without_facet_segments, scales::build_scale_builder_from_marks,
+        container_path_without_facet_segments,
+        scales::build_scale_builder_from_marks_with_facet_scope,
     },
     render::EvaluationContext,
     scales::{DomainExtent, ScaleBuilder},
@@ -422,13 +423,14 @@ async fn build_ancestor_group_scale_builders(
             data_df.clone()
         };
 
-        let scale_builder = build_scale_builder_from_marks(
+        let scale_builder = build_scale_builder_from_marks_with_facet_scope(
             &compiled_subplot.marks,
             &compiled_subplot.scale_specs,
             &compiled_subplot.coord_transform,
             &compiled_subplot.data,
             Some(filtered_df),
             eval_ctx,
+            &ancestor_key,
             compiled_subplot.get_theme().as_ref(),
         )
         .await?;
@@ -467,13 +469,14 @@ async fn build_per_cell_scale_builders(
             data_df.clone()
         };
 
-        let scale_builder = build_scale_builder_from_marks(
+        let scale_builder = build_scale_builder_from_marks_with_facet_scope(
             &compiled_subplot.marks,
             &compiled_subplot.scale_specs,
             &compiled_subplot.coord_transform,
             &compiled_subplot.data,
             Some(data_override),
             eval_ctx,
+            &full_path,
             compiled_subplot.get_theme().as_ref(),
         )
         .await?;
@@ -492,13 +495,14 @@ pub(crate) async fn build_node_artifacts(
     facet_tree: &EvaluatedFacetTree,
     eval_ctx: &EvaluationContext,
 ) -> Result<FacetScaleNodeArtifacts, AvengerChartError> {
-    let shared_scale_builder = build_scale_builder_from_marks(
+    let shared_scale_builder = build_scale_builder_from_marks_with_facet_scope(
         &compiled_subplot.marks,
         &compiled_subplot.scale_specs,
         &compiled_subplot.coord_transform,
         &compiled_subplot.data,
         Some(inherited_data_df.clone()),
         eval_ctx,
+        facet_path,
         compiled_subplot.get_theme().as_ref(),
     )
     .await?;
@@ -587,13 +591,14 @@ async fn collect_node_domain_infos(
                 inherited_data_df.clone()
             };
 
-            scale_builder = build_scale_builder_from_marks(
+            scale_builder = build_scale_builder_from_marks_with_facet_scope(
                 &compiled_subplot.marks,
                 &compiled_subplot.scale_specs,
                 &compiled_subplot.coord_transform,
                 &compiled_subplot.data,
                 Some(data_override),
                 eval_ctx,
+                &full_path,
                 compiled_subplot.get_theme().as_ref(),
             )
             .await?;
@@ -694,13 +699,14 @@ async fn collect_positioned_child_frame_domain_infos_for_mark(
             .values()
             .any(|sharing_level| !sharing_level.is_free())
         {
-            let scale_builder = build_scale_builder_from_marks(
+            let scale_builder = build_scale_builder_from_marks_with_facet_scope(
                 &child_plot.marks,
                 &child_plot.scale_specs,
                 &child_plot.coord_transform,
                 &child_plot.data,
                 Some(filtered_data.clone()),
                 eval_ctx,
+                full_cell_path,
                 child_plot.get_theme().as_ref(),
             )
             .await?;
@@ -784,13 +790,14 @@ async fn collect_child_frame_domain_infos_for_marks(
         } else {
             None
         };
-        let scale_builder = build_scale_builder_from_marks(
+        let scale_builder = build_scale_builder_from_marks_with_facet_scope(
             &child_plot.marks,
             &child_plot.scale_specs,
             &child_plot.coord_transform,
             &child_plot.data,
             child_data_override.clone(),
             eval_ctx,
+            full_cell_path,
             child_plot.get_theme().as_ref(),
         )
         .await?;

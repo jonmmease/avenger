@@ -1,6 +1,6 @@
 pub mod compiled_data_context;
 pub mod data_context;
-pub mod facet_strategy;
+pub mod facet_data_scope;
 pub mod line;
 #[macro_use]
 pub mod macros;
@@ -16,7 +16,7 @@ pub(crate) use avenger_chart_core::default_channel_value_for_eval;
 pub use avenger_chart_core::{
     ChannelDefault, ChannelDescriptor, ChannelValue, CompiledDataContext, CompiledMark,
     CompiledMarkCore, CompiledMarkState, CompiledSubplotChildPlot, CompiledSubplotPayload,
-    ConditionalValue, DataContext, FacetStrategy, Mark, MarkState, RadiusExpression,
+    ConditionalValue, DataContext, FacetDataScope, Mark, MarkState, RadiusExpression,
     SubplotChildPlotSpec, SubplotContainerCoordinateSystem, SubplotDataSource, SubplotMarkCore,
     compile_subplot_payload, default_scale_type_for_data_type,
 };

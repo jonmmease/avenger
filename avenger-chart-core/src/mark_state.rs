@@ -2,12 +2,11 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use datafusion::dataframe::DataFrame;
 
-use crate::{Axis, ChannelValue, CompiledDataContext, DataContext, FacetStrategy};
+use crate::{Axis, CompiledDataContext, DataContext, FacetDataScope};
 
 /// State shared by all mark types (uncompiled version)
 /// Used during mark construction - stores live DataFrames that can be transformed
@@ -16,7 +15,7 @@ pub struct MarkState {
     pub data: DataContext,
 
     // Faceting behavior for this mark
-    pub facet_strategy: FacetStrategy,
+    pub facet_data_scope: FacetDataScope,
 
     pub details: Option<Vec<String>>,
     pub zindex: Option<i32>,
@@ -35,7 +34,7 @@ pub struct CompiledMarkState {
     pub mark_index: usize,
 
     // Faceting behavior for this mark
-    pub facet_strategy: FacetStrategy,
+    pub facet_data_scope: FacetDataScope,
 
     pub details: Option<Vec<String>>,
     pub zindex: Option<i32>,
@@ -45,34 +44,12 @@ pub struct CompiledMarkState {
 }
 
 impl CompiledMarkState {
-    /// Convert MarkState to CompiledMarkState with a transformed DataFrame
-    ///
-    /// This is used during plot compilation to apply transformations (like aggregation)
-    /// to the mark's data before serialization.
+    /// Convert MarkState to CompiledMarkState with an optional serialized DataFrame.
     pub fn from_mark_state(state: &MarkState, transformed_df: Option<DataFrame>) -> Self {
         Self {
             data: CompiledDataContext::new(transformed_df, state.data.channels().clone()),
             mark_index: 0,
-            facet_strategy: state.facet_strategy.clone(),
-            details: state.details.clone(),
-            zindex: state.zindex,
-            axis_configs: state.axis_configs.clone(),
-        }
-    }
-
-    /// Convert MarkState to CompiledMarkState with a transformed DataFrame and updated channels
-    ///
-    /// This is used when transformations (like aggregation) modify the channel expressions
-    /// to reference the output columns of the transformation.
-    pub fn from_mark_state_with_channels(
-        state: &MarkState,
-        transformed_df: DataFrame,
-        channels: IndexMap<String, ChannelValue>,
-    ) -> Self {
-        Self {
-            data: CompiledDataContext::new(Some(transformed_df), channels),
-            mark_index: 0,
-            facet_strategy: state.facet_strategy.clone(),
+            facet_data_scope: state.facet_data_scope.clone(),
             details: state.details.clone(),
             zindex: state.zindex,
             axis_configs: state.axis_configs.clone(),

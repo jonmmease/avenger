@@ -1,6 +1,6 @@
 pub mod compiled_data_context;
 pub mod data_context;
-pub mod facet_strategy;
+pub mod facet_data_scope;
 pub mod line;
 pub mod rect;
 pub mod state;
@@ -10,7 +10,7 @@ pub mod zero_d;
 
 pub use compiled_data_context::CompiledDataContext;
 pub use data_context::DataContext;
-pub use facet_strategy::FacetStrategy;
+pub use facet_data_scope::FacetDataScope;
 pub use line::{Line, PartitionKey, ensure_dictionary_array, line_channel_defaults};
 pub use rect::{Rect, rect_channel_defaults};
 pub use state::{CompiledMarkState, MarkState};

@@ -4,8 +4,8 @@ use datafusion::prelude::SessionContext;
 
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, ColumnDimensionConfig, CompiledMark, CompiledMarkState,
-    CompiledSubplotChildPlot, CoordinateSystemCore, DataContext, FacetDimensionConfig,
-    FacetEmptyCellPolicy, FacetStrategy, Mark, MarkState, RowDimensionConfig, ScaleSharing,
+    CompiledSubplotChildPlot, CoordinateSystemCore, DataContext, FacetDataScope,
+    FacetDimensionConfig, FacetEmptyCellPolicy, Mark, MarkState, RowDimensionConfig, ScaleSharing,
     SubplotChildPlotSpec, SubplotContainerCoordinateSystem, SubplotMarkCore,
 };
 
@@ -47,7 +47,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         Self {
             state: MarkState {
                 data: DataContext::default(),
-                facet_strategy: FacetStrategy::Filter,
+                facet_data_scope: FacetDataScope::FILTERED,
                 details: None,
                 zindex: None,
                 axis_configs: HashMap::new(),

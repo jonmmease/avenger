@@ -11,7 +11,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use datafusion::{common::ScalarValue, prelude::SessionContext};
+use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
@@ -191,6 +191,9 @@ pub struct EvaluationContext {
     pub(crate) core: CoreEvaluationContext,
     /// Pre-computed facet structure for efficient domain lookups and visibility decisions.
     pub facet_tree: Arc<EvaluatedFacetTree>,
+    /// Unfiltered data inherited by the current facet tree, used by mark-level
+    /// facet data scopes that look above the current cell.
+    pub(crate) facet_data_root: Option<DataFrame>,
     /// Whether invalid facet paths should hide axis labels/titles instead of showing them.
     ///
     /// This is used when rendering placeholder facet slots as empty subplots to avoid
@@ -239,6 +242,7 @@ impl EvaluationContext {
         Self {
             core: CoreEvaluationContext::new(theme, session_context, params),
             facet_tree,
+            facet_data_root: None,
             hide_invalid_facet_path_axes: false,
             facet_scale_precompute_store: Arc::new(FacetScalePrecomputeStore::default()),
             facet_runtime_sizing_mode: FacetRuntimeSizingMode::CanvasFit,
@@ -259,6 +263,7 @@ impl EvaluationContext {
         Self {
             core: self.core.with_params(params),
             facet_tree: self.facet_tree.clone(),
+            facet_data_root: self.facet_data_root.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
@@ -279,6 +284,7 @@ impl EvaluationContext {
         Self {
             core: self.core.with_dimension_params(width, height),
             facet_tree: self.facet_tree.clone(),
+            facet_data_root: self.facet_data_root.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
@@ -304,6 +310,7 @@ impl EvaluationContext {
         Self {
             core: self.core.with_params(params),
             facet_tree: self.facet_tree.clone(),
+            facet_data_root: self.facet_data_root.clone(),
             hide_invalid_facet_path_axes: hidden,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
@@ -329,6 +336,7 @@ impl EvaluationContext {
         Self {
             core: self.core.with_params(params),
             facet_tree: self.facet_tree.clone(),
+            facet_data_root: self.facet_data_root.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
@@ -348,6 +356,7 @@ impl EvaluationContext {
         Self {
             core: self.core.clone(),
             facet_tree: self.facet_tree.clone(),
+            facet_data_root: self.facet_data_root.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: mode,
@@ -367,10 +376,35 @@ impl EvaluationContext {
         self.facet_runtime_sizing_mode
     }
 
+    pub(crate) fn with_facet_data_root(&self, facet_data_root: Option<DataFrame>) -> Self {
+        Self {
+            core: self.core.clone(),
+            facet_tree: self.facet_tree.clone(),
+            facet_data_root,
+            hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
+            facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
+            debug_layout_overlay: self.debug_layout_overlay,
+            facet_layout_refinement: self.facet_layout_refinement,
+            facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_padding_feedback: self.facet_padding_feedback.clone(),
+            facet_coord_node_path: self.facet_coord_node_path.clone(),
+            child_frame_container_path: self.child_frame_container_path.clone(),
+            child_frame_sharing_path: self.child_frame_sharing_path.clone(),
+            evaluation_metrics: self.evaluation_metrics.clone(),
+            facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+        }
+    }
+
+    pub(crate) fn facet_data_root(&self) -> Option<&DataFrame> {
+        self.facet_data_root.as_ref()
+    }
+
     pub(crate) fn with_debug_layout_overlay(&self, mode: LayoutDebugOverlayMode) -> Self {
         Self {
             core: self.core.clone(),
             facet_tree: self.facet_tree.clone(),
+            facet_data_root: self.facet_data_root.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
@@ -390,6 +424,7 @@ impl EvaluationContext {
         Self {
             core: self.core.clone(),
             facet_tree: self.facet_tree.clone(),
+            facet_data_root: self.facet_data_root.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
@@ -416,6 +451,7 @@ impl EvaluationContext {
         Self {
             core: self.core.clone(),
             facet_tree: self.facet_tree.clone(),
+            facet_data_root: self.facet_data_root.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
@@ -447,6 +483,7 @@ impl EvaluationContext {
         Self {
             core: self.core.clone(),
             facet_tree: self.facet_tree.clone(),
+            facet_data_root: self.facet_data_root.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
@@ -483,6 +520,7 @@ impl EvaluationContext {
         Self {
             core: self.core.clone(),
             facet_tree: self.facet_tree.clone(),
+            facet_data_root: self.facet_data_root.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
@@ -505,6 +543,7 @@ impl EvaluationContext {
         Self {
             core: self.core.clone(),
             facet_tree: self.facet_tree.clone(),
+            facet_data_root: self.facet_data_root.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
@@ -526,6 +565,7 @@ impl EvaluationContext {
         Self {
             core: self.core.clone(),
             facet_tree: self.facet_tree.clone(),
+            facet_data_root: self.facet_data_root.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
@@ -562,6 +602,7 @@ impl EvaluationContext {
         Self {
             core: self.core.clone(),
             facet_tree: self.facet_tree.clone(),
+            facet_data_root: self.facet_data_root.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
@@ -586,6 +627,7 @@ impl EvaluationContext {
         Self {
             core: self.core.clone(),
             facet_tree: self.facet_tree.clone(),
+            facet_data_root: self.facet_data_root.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,

@@ -959,6 +959,7 @@ impl CompiledPlot {
             merged_params,
             facet_tree,
         )
+        .with_facet_data_root(dataframe_from_compiled_plot_data(&self.data, ctx)?)
         .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode())
         .with_facet_layout_refinement(options.facet_layout_refinement)
         .with_debug_layout_overlay(facet_debug::resolve_layout_overlay_mode(
@@ -1107,6 +1108,18 @@ async fn evaluate_margins(
     })
 }
 
+fn dataframe_from_compiled_plot_data(
+    data: &Option<datafusion_proto::protobuf::LogicalPlanNode>,
+    ctx: &SessionContext,
+) -> Result<Option<DataFrame>, AvengerChartError> {
+    data.as_ref()
+        .map(|node| {
+            let logical_plan = node.to_logical_plan(ctx)?;
+            Ok(DataFrame::new(ctx.state().clone(), logical_plan))
+        })
+        .transpose()
+}
+
 /// Evaluate a LayoutSpec to get an EvaluatedLayoutSpec with concrete f32 values
 async fn evaluate_layout_spec(
     layout_spec: &LayoutSpec,
@@ -1139,11 +1152,18 @@ impl CompiledPlot {
         plot_width: f32,
         plot_height: f32,
         provided_plot_df: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
     ) -> Result<Option<PreparedMarkData>, AvengerChartError> {
         let prepared = prepare_mark_data_runtime(MarkDataRequest {
             mark,
             plot_data: self.data.as_ref(),
             provided_plot_df,
+            facet_data_scope: Some(crate::facet::data_scope::FacetDataScopeContext::new(
+                eval_ctx.facet_tree.as_ref(),
+                eval_ctx.facet_data_root(),
+                facet_path,
+            )),
+            prepared_logical: None,
             eval_ctx,
             scales,
             plot_width,
@@ -1176,6 +1196,7 @@ impl CompiledPlot {
                 plot_width,
                 plot_height,
                 provided_plot_df,
+                facet_path,
             )
             .await?;
 
@@ -4125,6 +4146,7 @@ impl CompiledPlot {
             merged_params,
             facet_tree.clone(),
         )
+        .with_facet_data_root(dataframe_from_compiled_plot_data(&self.data, ctx)?)
         .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode())
         .with_facet_layout_refinement(options.facet_layout_refinement)
         .with_debug_layout_overlay(facet_debug::resolve_layout_overlay_mode(
@@ -5375,6 +5397,7 @@ mod tests {
             merged_params,
             facet_tree,
         )
+        .with_facet_data_root(dataframe_from_compiled_plot_data(&compiled.data, ctx)?)
         .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode());
 
         let measurement = compiled

@@ -226,7 +226,7 @@ All marks share common options that affect layering:
 
 - **`.data(...)`** – Attaches a dedicated `DataFrame` to the mark
 - **`.zindex(...)`** – Sets explicit draw order (higher values draw on top)
-- **`.facet_strategy(...)`** and **`.broadcast_to_facets()`** – Control how marks participate in faceting
+- **`.facet_data_scope(...)`**, **`.facet_data_level(...)`**, and **`.broadcast_to_facets()`** – Control how much faceted data a mark sees
 - **`.details([...])`** – Stores additional fields for future tooltip/interaction layers (values are carried through evaluation but no tooltip UI ships yet)
 
 ## Next Steps

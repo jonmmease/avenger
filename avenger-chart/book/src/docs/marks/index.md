@@ -117,7 +117,7 @@ All marks share a common builder API with these key methods:
 
 - **`.details(Vec<Expr>)`** – Carry additional data fields through evaluation for future tooltip and interaction systems. Values are preserved but no tooltip UI currently ships.
 
-- **`.facet_strategy(...)`** and **`.broadcast_to_facets()`** – Control how marks participate in faceted plots (data-driven subplots).
+- **`.facet_data_scope(...)`**, **`.facet_data_level(...)`**, and **`.broadcast_to_facets()`** – Control how much data a mark sees in each faceted plot.
 
 These capabilities work consistently across all mark types, enabling flexible composition patterns. See the [Layering](./layering.md) page for detailed examples.
 

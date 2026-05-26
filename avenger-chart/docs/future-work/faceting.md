@@ -51,12 +51,12 @@ The main question is whether `FacetGrid` should be a real coordinate system or
 a builder that expands to nested row/column facets. Expansion is preferable if
 it can keep error messages and labels clear.
 
-### Facet Mark Data Strategy
+### Facet Mark Data Scope
 
-`FacetStrategy` exists in core with `Filter`, `Broadcast`, and `Skip`, and
-mark builders have `broadcast_to_facets`. The current facet runtime does not
-yet use that strategy as a complete data-selection policy. This is still valid
-future work.
+`FacetDataScope` exists in core with `FILTERED`, `BROADCAST`, and `level(...)`.
+Mark builders expose `facet_data_scope(...)`, `facet_data_level(...)`, and
+`broadcast_to_facets()`. The runtime applies this scope to inherited facet data
+before mark evaluation and aggregate-channel preparation.
 
 The motivating case is a faceted foreground layer over a broadcast background
 layer, such as showing all points in gray and the current facet subset in
@@ -93,9 +93,9 @@ FacetWrap is ready for a design spike. The spike should prove whether computed
 row/column fields can be inserted before `EvaluatedFacetTree` construction
 without weakening domain sharing or empty-cell behavior.
 
-Facet data strategy is ready for an implementation plan after one decision:
-whether `Broadcast` and `Skip` are mark-level policies only, or whether
-subplots need equivalent data-source policy controls.
+Remaining facet data-scope work is mostly refinement: whether explicit mark
+data should ever opt into facet scoping, and how positioned subplot partitioning
+should expose equivalent data-source policy controls.
 
 ## Decisions Needed
 
@@ -103,7 +103,9 @@ subplots need equivalent data-source policy controls.
   facets over computed fields.
 - Whether `FacetGrid` exists as a type or just as a builder/helper.
 - How computed wrap slots are named and exposed in labels/debugging.
-- How `FacetStrategy::Broadcast` interacts with mark-level data, plot-level
-  data, child-frame inherited data, and positioned subplot partitioning.
+- Whether `FacetDataScope::BROADCAST` should ever apply to explicit mark-level
+  data, or only to inherited facet data.
+- Whether positioned subplot partitioning needs separate data-source policy
+  controls beyond mark-level `FacetDataScope`.
 - Whether empty-cell and axis-ownership modes need new defaults for wrapped
   facets.

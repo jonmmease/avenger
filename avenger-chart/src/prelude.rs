@@ -43,7 +43,7 @@ pub use avenger_chart_polar::PolarSymbolPositionChannels;
 
 // Re-export mark traits and types
 pub use avenger_chart_core::{
-    ChannelValue, ConditionalValue, FacetStrategy, Mark, MarkState, RadiusExpression,
+    ChannelValue, ConditionalValue, FacetDataScope, Mark, MarkState, RadiusExpression,
 };
 
 // Re-export channel config traits - ESSENTIAL for using channel methods

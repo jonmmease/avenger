@@ -14,14 +14,17 @@ use datafusion::{
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
-    common::ScalarValue,
+    common::{DFSchema, ScalarValue},
     dataframe::DataFrame,
-    logical_expr::{Expr, lit, when},
+    logical_expr::{EmptyRelation, Expr, LogicalPlan, lit, when},
     prelude::SessionContext,
 };
-use datafusion_proto::protobuf::LogicalPlanNode;
+use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
+use indexmap::IndexMap;
 
-use avenger_chart_core::{EvaluationContext, color::parse_color_string, params_to_datafusion};
+use avenger_chart_core::{
+    EvaluationContext, color::parse_color_string, contains_aggregate, params_to_datafusion,
+};
 
 use crate::{
     channel::{
@@ -29,11 +32,19 @@ use crate::{
         value::{ChannelValue, ConditionalValue, strip_trailing_numbers},
     },
     error::AvengerChartError,
+    facet::data_scope::{FacetDataScopeContext, inherited_data_for_scope},
     marks::CompiledMark,
     render::RenderState,
     scales::{ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec},
     serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
 };
+
+/// Mark data and channels after container data scope and aggregate preparation.
+#[derive(Clone)]
+pub(crate) struct PreparedLogicalMarkData {
+    pub(crate) dataframe: Option<DataFrame>,
+    pub(crate) channels: IndexMap<String, ChannelValue>,
+}
 
 /// Prepared data for mark evaluation.
 pub(crate) struct PreparedMarkData {
@@ -49,10 +60,199 @@ pub(crate) struct MarkDataRequest<'a> {
     pub(crate) mark: &'a dyn CompiledMark,
     pub(crate) plot_data: Option<&'a LogicalPlanNode>,
     pub(crate) provided_plot_df: Option<&'a DataFrame>,
+    pub(crate) facet_data_scope: Option<FacetDataScopeContext<'a>>,
+    pub(crate) prepared_logical: Option<&'a PreparedLogicalMarkData>,
     pub(crate) eval_ctx: &'a EvaluationContext,
     pub(crate) scales: &'a HashMap<String, ConfiguredScaleWithSpec>,
     pub(crate) plot_width: f32,
     pub(crate) plot_height: f32,
+}
+
+pub(crate) struct LogicalMarkDataRequest<'a> {
+    pub(crate) mark: &'a dyn CompiledMark,
+    pub(crate) plot_data: Option<&'a LogicalPlanNode>,
+    pub(crate) provided_plot_df: Option<&'a DataFrame>,
+    pub(crate) facet_data_scope: Option<FacetDataScopeContext<'a>>,
+    pub(crate) eval_ctx: &'a EvaluationContext,
+}
+
+fn channel_exprs_reference_columns(
+    channels: &IndexMap<String, ChannelValue>,
+    ctx: &SessionContext,
+) -> bool {
+    channels.values().any(|channel_value| {
+        channel_value
+            .all_exprs(ctx)
+            .into_iter()
+            .any(|expr| !expr.column_refs().is_empty())
+    })
+}
+
+fn aggregate_channels_need_preparation(
+    channels: &IndexMap<String, ChannelValue>,
+    ctx: &SessionContext,
+) -> bool {
+    channels
+        .values()
+        .flat_map(|channel_value| channel_value.all_exprs(ctx))
+        .any(|expr| contains_aggregate(&expr))
+}
+
+fn validate_runtime_aggregate_channels(
+    channels: &IndexMap<String, ChannelValue>,
+    ctx: &SessionContext,
+) -> Result<(), AvengerChartError> {
+    for (channel_name, channel_value) in channels {
+        if matches!(channel_value, ChannelValue::Conditional { .. })
+            && channel_value
+                .all_exprs(ctx)
+                .into_iter()
+                .any(|expr| !expr.column_refs().is_empty() || contains_aggregate(&expr))
+        {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Aggregate marks with conditional channel `{channel_name}` are not supported yet"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn dataframe_for_mark(
+    mark: &dyn CompiledMark,
+    plot_data: Option<&LogicalPlanNode>,
+    provided_plot_df: Option<&DataFrame>,
+    facet_data_scope: Option<FacetDataScopeContext<'_>>,
+    channels: &IndexMap<String, ChannelValue>,
+    ctx: &SessionContext,
+) -> Result<Option<DataFrame>, AvengerChartError> {
+    if let Some(mark_df) = mark.data_context().dataframe_with_context(ctx) {
+        return Ok(Some(mark_df));
+    }
+
+    if let Some(df_override) = inherited_data_for_scope(
+        provided_plot_df,
+        mark.state().facet_data_scope,
+        facet_data_scope,
+    )? {
+        return Ok(Some(df_override));
+    }
+
+    if !channel_exprs_reference_columns(channels, ctx) {
+        return Ok(None);
+    }
+    if let Some(df) = plot_data.and_then(|node| {
+        node.to_logical_plan(ctx)
+            .ok()
+            .map(|plan| DataFrame::new(ctx.state().clone(), plan))
+    }) {
+        return Ok(Some(df));
+    }
+    Err(AvengerChartError::InternalError(
+        "Mark expressions reference columns but no data is available".to_string(),
+    ))
+}
+
+fn empty_dataframe(ctx: &SessionContext) -> DataFrame {
+    DataFrame::new(
+        ctx.state().clone(),
+        LogicalPlan::EmptyRelation(EmptyRelation {
+            produce_one_row: false,
+            schema: Arc::new(DFSchema::empty()),
+        }),
+    )
+}
+
+/// Resolve channel references and run aggregate channel preparation on the
+/// selected mark data. This intentionally happens at runtime so faceted marks
+/// aggregate after their facet data scope has been selected.
+pub(crate) async fn prepare_logical_mark_data(
+    request: LogicalMarkDataRequest<'_>,
+) -> Result<PreparedLogicalMarkData, AvengerChartError> {
+    let ctx = request.eval_ctx.session_context.as_ref();
+    let channels = resolve_all_channel_refs(request.mark.data_context().channels(), ctx)?;
+    let dataframe = dataframe_for_mark(
+        request.mark,
+        request.plot_data,
+        request.provided_plot_df,
+        request.facet_data_scope,
+        &channels,
+        ctx,
+    )?;
+
+    if !aggregate_channels_need_preparation(&channels, ctx) {
+        return Ok(PreparedLogicalMarkData {
+            dataframe,
+            channels,
+        });
+    }
+
+    validate_runtime_aggregate_channels(&channels, ctx)?;
+    let df = dataframe.unwrap_or_else(|| empty_dataframe(ctx));
+
+    let mut unique_group_exprs = IndexMap::new();
+    let mut unique_agg_exprs = IndexMap::new();
+    let mut channel_info: Vec<(String, Expr, bool, bool, ChannelValue)> = Vec::new();
+
+    for (channel_name, channel_value) in &channels {
+        let Some(expr) = channel_value.expr(ctx) else {
+            continue;
+        };
+        let is_aggregate = contains_aggregate(&expr);
+        let is_literal = matches!(expr, Expr::Literal(_, _));
+
+        if is_aggregate {
+            if !unique_agg_exprs.contains_key(&expr) {
+                unique_agg_exprs.insert(expr.clone(), unique_agg_exprs.len());
+            }
+        } else if !is_literal && !unique_group_exprs.contains_key(&expr) {
+            unique_group_exprs.insert(expr.clone(), unique_group_exprs.len());
+        }
+
+        channel_info.push((
+            channel_name.clone(),
+            expr,
+            is_aggregate,
+            is_literal,
+            channel_value.clone(),
+        ));
+    }
+
+    if unique_agg_exprs.is_empty() {
+        return Ok(PreparedLogicalMarkData {
+            dataframe: Some(df),
+            channels,
+        });
+    }
+
+    let group_by_exprs: Vec<Expr> = unique_group_exprs.keys().cloned().collect();
+    let agg_exprs: Vec<Expr> = unique_agg_exprs.keys().cloned().collect();
+    let agg_df = df.aggregate(group_by_exprs.clone(), agg_exprs.clone())?;
+    let schema = agg_df.schema();
+    let mut updated_channels = IndexMap::new();
+
+    for (channel_name, original_expr, is_aggregate, is_literal, original_channel_value) in
+        channel_info
+    {
+        if is_literal {
+            updated_channels.insert(channel_name, original_channel_value);
+        } else if is_aggregate {
+            let agg_index = unique_agg_exprs.get(&original_expr).unwrap();
+            let field_index = group_by_exprs.len() + agg_index;
+            let field_name = schema.field(field_index).name().clone();
+            let new_expr = LogicalExprNode::from_expr(datafusion::prelude::col(&field_name))?;
+            updated_channels.insert(channel_name, original_channel_value.with_expr(new_expr));
+        } else {
+            let group_index = unique_group_exprs.get(&original_expr).unwrap();
+            let field_name = schema.field(*group_index).name().clone();
+            let new_expr = LogicalExprNode::from_expr(datafusion::prelude::col(&field_name))?;
+            updated_channels.insert(channel_name, original_channel_value.with_expr(new_expr));
+        }
+    }
+
+    Ok(PreparedLogicalMarkData {
+        dataframe: Some(agg_df),
+        channels: updated_channels,
+    })
 }
 
 /// Apply a scale transformation to a channel expression.
@@ -156,52 +356,23 @@ pub(crate) async fn prepare_mark_data(
     let params = &request.eval_ctx.params;
     let mark = request.mark;
 
-    let channels = resolve_all_channel_refs(mark.data_context().channels(), ctx)?;
-
-    let references_columns = channels.values().any(|channel_value| match channel_value {
-        ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => expr
-            .to_expr(ctx)
-            .map(|e| !e.column_refs().is_empty())
-            .unwrap_or(false),
-        ChannelValue::Conditional {
-            conditions,
-            otherwise,
-            ..
-        } => {
-            conditions.iter().any(|(condition, value)| {
-                let cond_has_refs = condition
-                    .to_expr(ctx)
-                    .map(|e| !e.column_refs().is_empty())
-                    .unwrap_or(false);
-                let value_has_refs = value
-                    .expr(ctx)
-                    .map(|e| !e.column_refs().is_empty())
-                    .unwrap_or(false);
-                cond_has_refs || value_has_refs
-            }) || otherwise
-                .expr(ctx)
-                .map(|e| !e.column_refs().is_empty())
-                .unwrap_or(false)
-        }
-    });
-
-    let df_ref = if let Some(mark_df) = mark.data_context().dataframe_with_context(ctx) {
-        Some(mark_df)
-    } else if let Some(df_override) = request.provided_plot_df.cloned() {
-        Some(df_override)
-    } else if !references_columns {
-        None
-    } else if let Some(df) = request.plot_data.and_then(|node| {
-        node.to_logical_plan(ctx)
-            .ok()
-            .map(|plan| DataFrame::new(ctx.state().clone(), plan))
-    }) {
-        Some(df)
+    let prepared_storage;
+    let prepared_logical = if let Some(prepared) = request.prepared_logical {
+        prepared
     } else {
-        return Err(AvengerChartError::InternalError(
-            "Mark expressions reference columns but no data is available".to_string(),
-        ));
+        prepared_storage = prepare_logical_mark_data(LogicalMarkDataRequest {
+            mark,
+            plot_data: request.plot_data,
+            provided_plot_df: request.provided_plot_df,
+            facet_data_scope: request.facet_data_scope,
+            eval_ctx: request.eval_ctx,
+        })
+        .await?;
+        &prepared_storage
     };
+
+    let channels = &prepared_logical.channels;
+    let df_ref = prepared_logical.dataframe.clone();
 
     let df = if let Some(df_ref) = df_ref {
         if let Some(sort_channel_name) = mark.sorting_channel() {
@@ -341,6 +512,7 @@ mod tests {
             datatypes::{DataType, Field, Schema},
             record_batch::RecordBatch,
         },
+        functions_aggregate::average::avg,
         logical_expr::{Expr, col},
         prelude::SessionContext,
     };
@@ -352,6 +524,12 @@ mod tests {
         cartesian::{Cartesian, CartesianSymbolPositionChannels},
         concat::HConcat,
         error::AvengerChartError,
+        facet::{
+            coord::{FacetColumn, FacetRow},
+            data_scope::FacetDataScopeContext,
+            evaluated_facet_tree::EvaluatedFacetTree,
+            marks::facet::{FacetColumnSubplotChannels, FacetRowSubplotChannels},
+        },
         marks::{ChannelValue, Mark, Subplot, symbol::Symbol},
         plot::Plot,
         scales::{Linear, Scale, ScaleRangeBinding, ScaleSpec},
@@ -379,6 +557,37 @@ mod tests {
         )
         .expect("test batch");
         ctx.read_batch(batch).expect("test dataframe")
+    }
+
+    async fn scoped_facet_dataframe(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
+        ctx.sql(
+            "SELECT * FROM (VALUES \
+             ('North', 'West', 0.0, 0.2), \
+             ('North', 'West', 2.0, 0.4), \
+             ('North', 'East', 10.0, 0.6), \
+             ('North', 'East', 12.0, 0.8), \
+             ('South', 'West', 100.0, 0.2), \
+             ('South', 'West', 102.0, 0.4), \
+             ('South', 'East', 110.0, 0.6), \
+             ('South', 'East', 112.0, 0.8) \
+             ) AS t(facet_row, facet_col, x, y)",
+        )
+        .await
+        .expect("scoped facet dataframe")
+    }
+
+    async fn scoped_facet_tree(
+        df: datafusion::dataframe::DataFrame,
+        ctx: &SessionContext,
+    ) -> Result<EvaluatedFacetTree, AvengerChartError> {
+        let leaf = Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y")));
+        let col_plot =
+            Plot::<FacetColumn>::new().mark(Subplot::new(leaf).col_with(col("facet_col"), |c| c));
+        let row_plot = Plot::<FacetRow>::new()
+            .data(df)
+            .mark(Subplot::new(col_plot).row_with(col("facet_row"), |c| c));
+        let compiled = row_plot.compile(ctx).await?;
+        EvaluatedFacetTree::from_compiled_plot(&compiled, ctx).await
     }
 
     fn plot_data_node(
@@ -420,6 +629,28 @@ mod tests {
         (0..values.len()).map(|idx| values.value(idx)).collect()
     }
 
+    async fn prepared_channel_values(
+        prepared: PreparedLogicalMarkData,
+        ctx: &SessionContext,
+        channel: &str,
+    ) -> Result<Vec<f64>, AvengerChartError> {
+        let dataframe = prepared
+            .dataframe
+            .expect("prepared aggregate should have dataframe");
+        let expr = prepared
+            .channels
+            .get(channel)
+            .and_then(|channel_value| channel_value.expr(ctx))
+            .expect("prepared channel expression");
+        let batches = dataframe
+            .select(vec![expr.alias(channel)])?
+            .collect()
+            .await?;
+        let schema = batches[0].schema();
+        let batch = concat_batches(&schema, &batches)?;
+        Ok(values_as_f64(&batch, channel))
+    }
+
     #[tokio::test]
     async fn prepare_mark_data_applies_scaled_position_channels() -> Result<(), AvengerChartError> {
         let session = Arc::new(SessionContext::new());
@@ -437,6 +668,8 @@ mod tests {
             mark: compiled_mark.as_ref(),
             plot_data: Some(&plot_node),
             provided_plot_df: None,
+            facet_data_scope: None,
+            prepared_logical: None,
             eval_ctx: &eval_ctx,
             scales: &scales,
             plot_width: 100.0,
@@ -467,6 +700,8 @@ mod tests {
             mark: compiled_mark.as_ref(),
             plot_data: Some(&plot_node),
             provided_plot_df: None,
+            facet_data_scope: None,
+            prepared_logical: None,
             eval_ctx: &eval_ctx,
             scales: &scales,
             plot_width: 100.0,
@@ -493,6 +728,8 @@ mod tests {
             mark: compiled_mark.as_ref(),
             plot_data: None,
             provided_plot_df: None,
+            facet_data_scope: None,
+            prepared_logical: None,
             eval_ctx: &eval_ctx,
             scales: &scales,
             plot_width: 100.0,
@@ -522,6 +759,8 @@ mod tests {
             mark: compiled_mark.as_ref(),
             plot_data: None,
             provided_plot_df: Some(&df),
+            facet_data_scope: None,
+            prepared_logical: None,
             eval_ctx: &eval_ctx,
             scales: &scales,
             plot_width: 100.0,
@@ -535,6 +774,129 @@ mod tests {
         assert!(data_batch.column_by_name("x").is_some());
         assert!(data_batch.column_by_name("y").is_some());
         assert_eq!(prepared.scalar_batch.num_rows(), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn prepare_logical_mark_data_aggregates_after_facet_data_scope()
+    -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let df = scoped_facet_dataframe(&session).await;
+        let facet_tree = scoped_facet_tree(df.clone(), &session).await?;
+        let full_path = vec![
+            ScalarValue::Utf8(Some("North".to_string())),
+            ScalarValue::Utf8(Some("West".to_string())),
+        ];
+        let leaf_df = df
+            .clone()
+            .filter(
+                facet_tree
+                    .cell_predicate(&full_path, 0)
+                    .expect("leaf facet predicate"),
+            )
+            .expect("leaf filtered data");
+        let eval_ctx = eval_context(session.clone());
+
+        let aggregate_value_for_scope = |mark: Symbol<Cartesian>| {
+            let session = session.clone();
+            let eval_ctx = eval_ctx.clone();
+            let df = df.clone();
+            let leaf_df = leaf_df.clone();
+            let facet_tree = facet_tree.clone();
+            let full_path = full_path.clone();
+            async move {
+                let compiled_mark = mark.compile_untransformed(&session).await?;
+                let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
+                    mark: compiled_mark.as_ref(),
+                    plot_data: None,
+                    provided_plot_df: Some(&leaf_df),
+                    facet_data_scope: Some(FacetDataScopeContext::new(
+                        &facet_tree,
+                        Some(&df),
+                        &full_path,
+                    )),
+                    eval_ctx: &eval_ctx,
+                })
+                .await?;
+                let values = prepared_channel_values(prepared, &session, "x").await?;
+                Ok::<f64, AvengerChartError>(values[0])
+            }
+        };
+
+        let filtered = aggregate_value_for_scope(
+            Symbol::<Cartesian>::new()
+                .x(avg(col("x")))
+                .y(lit(0.5))
+                .size(120.0),
+        )
+        .await?;
+        let row_level = aggregate_value_for_scope(
+            Symbol::<Cartesian>::new()
+                .x(avg(col("x")))
+                .y(lit(0.5))
+                .size(120.0)
+                .facet_data_level(1),
+        )
+        .await?;
+        let global = aggregate_value_for_scope(
+            Symbol::<Cartesian>::new()
+                .x(avg(col("x")))
+                .y(lit(0.5))
+                .size(120.0)
+                .broadcast_to_facets(),
+        )
+        .await?;
+
+        assert_eq!(filtered, 1.0);
+        assert_eq!(row_level, 6.0);
+        assert_eq!(global, 56.0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn prepare_logical_mark_data_keeps_explicit_mark_data_unscoped()
+    -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let root_df = scoped_facet_dataframe(&session).await;
+        let explicit_df = session
+            .sql("SELECT * FROM (VALUES (999.0), (1001.0)) AS t(x)")
+            .await
+            .expect("explicit mark dataframe");
+        let facet_tree = scoped_facet_tree(root_df.clone(), &session).await?;
+        let full_path = vec![
+            ScalarValue::Utf8(Some("North".to_string())),
+            ScalarValue::Utf8(Some("West".to_string())),
+        ];
+        let leaf_df = root_df
+            .clone()
+            .filter(
+                facet_tree
+                    .cell_predicate(&full_path, 0)
+                    .expect("leaf facet predicate"),
+            )
+            .expect("leaf filtered data");
+        let mark = Symbol::<Cartesian>::new()
+            .data(explicit_df)
+            .x(avg(col("x")))
+            .y(lit(0.5))
+            .broadcast_to_facets();
+        let compiled_mark = mark.compile_untransformed(&session).await?;
+        let eval_ctx = eval_context(session.clone());
+        let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
+            mark: compiled_mark.as_ref(),
+            plot_data: None,
+            provided_plot_df: Some(&leaf_df),
+            facet_data_scope: Some(FacetDataScopeContext::new(
+                &facet_tree,
+                Some(&root_df),
+                &full_path,
+            )),
+            eval_ctx: &eval_ctx,
+        })
+        .await?;
+        let values = prepared_channel_values(prepared, &session, "x").await?;
+
+        assert_eq!(values, vec![1000.0]);
         Ok(())
     }
 }
