@@ -6,10 +6,11 @@ use std::{
 };
 
 use avenger_chart_core::{
-    DefaultLogicalExprNodeExt, FacetWrapColumnMode, LogicalPlanNodeExt, Maybe, RadiusExpression,
-    ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain,
+    ChannelInfo, DefaultLogicalExprNodeExt, FacetWrapColumnMode, LegendChannel, LegendPosition,
+    LogicalPlanNodeExt, Maybe, RadiusExpression, ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain,
 };
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
+use avenger_scales::scales::ConfiguredScale;
 use datafusion::{
     common::ScalarValue,
     dataframe::DataFrame,
@@ -29,18 +30,23 @@ use crate::{
         scale_precompute::FacetScalePrecomputeStore,
     },
     guide::OverflowSpaceRequirement,
+    layout::Size2D,
     partition::PartitionSlotCache,
     plot::compiled::ChildFrameSharingPath,
-    render::{EvaluatedPlot, EvaluationMetrics, EvaluationMode, EvaluationOptions},
+    render::{
+        EvaluatedPlot, EvaluationMetrics, EvaluationMode, EvaluationOptions,
+        types::LegendMeasurement,
+    },
     scales::ConfiguredScaleWithSpec,
 };
 
-use super::{CompiledPlot, compiled_subplot_payload_child_plot};
+use super::{CompiledPlot, compiled_subplot_payload_child_plot, legends::PreparedLegendGroup};
 
 pub(crate) type ScaleDomainCacheHandle = Arc<Mutex<ScaleDomainCache>>;
 pub(crate) type FacetSemanticCacheHandle = Arc<Mutex<PartitionSlotCache>>;
 pub(crate) type FacetScalePrecomputeCacheHandle = Arc<Mutex<FacetScalePrecomputeSessionCache>>;
 pub(crate) type GuideOverflowCacheHandle = Arc<Mutex<GuideOverflowCache>>;
+pub(crate) type LegendMeasurementCacheHandle = Arc<Mutex<LegendMeasurementCache>>;
 
 /// Session-owned cache for scale-domain inference artifacts.
 #[derive(Default)]
@@ -144,6 +150,39 @@ pub(crate) struct GuideOverflowCacheKey {
     data_override_plan: Option<String>,
 }
 
+/// Session-owned cache for exact legend measurement profiles.
+#[derive(Default)]
+pub(crate) struct LegendMeasurementCache {
+    measurements: HashMap<LegendMeasurementCacheKey, LegendMeasurement>,
+}
+
+impl LegendMeasurementCache {
+    pub(crate) fn get(&self, key: &LegendMeasurementCacheKey) -> Option<LegendMeasurement> {
+        self.measurements.get(key).cloned()
+    }
+
+    pub(crate) fn insert(
+        &mut self,
+        key: LegendMeasurementCacheKey,
+        measurement: LegendMeasurement,
+    ) {
+        self.measurements.insert(key, measurement);
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub(crate) struct LegendMeasurementCacheKey {
+    program_ptr: usize,
+    layout_key: String,
+    renderer_name: String,
+    legend: String,
+    channels: Vec<String>,
+    available_width: u32,
+    available_height: u32,
+    position: String,
+    params: Vec<(String, String)>,
+}
+
 /// Request object for evaluating a `PlotSession`.
 #[derive(Clone, Debug)]
 pub struct EvaluationRequest {
@@ -220,6 +259,7 @@ pub struct PlotSession {
     facet_semantic_cache: FacetSemanticCacheHandle,
     facet_scale_precompute_cache: FacetScalePrecomputeCacheHandle,
     guide_overflow_cache: GuideOverflowCacheHandle,
+    legend_measurement_cache: LegendMeasurementCacheHandle,
 }
 
 impl PlotSession {
@@ -238,6 +278,7 @@ impl PlotSession {
                 FacetScalePrecomputeSessionCache::default(),
             )),
             guide_overflow_cache: Arc::new(Mutex::new(GuideOverflowCache::default())),
+            legend_measurement_cache: Arc::new(Mutex::new(LegendMeasurementCache::default())),
         }
     }
 
@@ -287,6 +328,7 @@ impl PlotSession {
                 self.facet_semantic_cache.clone(),
                 self.facet_scale_precompute_cache.clone(),
                 self.guide_overflow_cache.clone(),
+                self.legend_measurement_cache.clone(),
             )
             .await?;
         metrics.mode = mode;
@@ -415,6 +457,33 @@ impl CompiledPlot {
             data_override_plan: data_override.map(|df| format!("{:?}", df.logical_plan())),
         }
     }
+
+    pub(crate) fn legend_measurement_cache_key(
+        &self,
+        group: &PreparedLegendGroup,
+        available_space: Size2D,
+        position: LegendPosition,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> LegendMeasurementCacheKey {
+        LegendMeasurementCacheKey {
+            program_ptr: self as *const _ as usize,
+            layout_key: group.layout_key.clone(),
+            renderer_name: group.renderer.name().to_string(),
+            legend: format!("{:?}", group.legend),
+            channels: group
+                .channels
+                .iter()
+                .map(legend_channel_signature)
+                .collect(),
+            available_width: available_space.width.to_bits(),
+            available_height: available_space.height.to_bits(),
+            position: format!("{position:?}"),
+            params: params
+                .iter()
+                .map(|(name, value)| (name.clone(), format!("{value:?}")))
+                .collect(),
+        }
+    }
 }
 
 pub(crate) fn scale_domain_cache_key_for_parts_with_scope(
@@ -499,7 +568,10 @@ fn facet_scale_precompute_dependency_params(
 }
 
 fn configured_scale_signature(scale: &ConfiguredScaleWithSpec) -> String {
-    let configured = scale.configured();
+    configured_scale_runtime_signature(scale.configured())
+}
+
+fn configured_scale_runtime_signature(configured: &ConfiguredScale) -> String {
     let mut options = configured
         .config
         .options
@@ -514,6 +586,38 @@ fn configured_scale_signature(scale: &ConfiguredScaleWithSpec) -> String {
         configured.range(),
         options
     )
+}
+
+fn legend_channel_signature(channel: &LegendChannel) -> String {
+    let mut related_channels = channel
+        .related_channels
+        .iter()
+        .map(|(name, info)| (name.clone(), channel_info_signature(info)))
+        .collect::<Vec<_>>();
+    related_channels.sort_by(|a, b| a.0.cmp(&b.0));
+    format!(
+        "name={};expr={:?};scale={};channel_type={};sharing={:?};mark_type={};mark_index={};related={:?}",
+        channel.name,
+        channel.expression,
+        configured_scale_runtime_signature(&channel.scale),
+        channel.channel_type,
+        channel.sharing_level,
+        channel.mark_type,
+        channel.mark_index,
+        related_channels
+    )
+}
+
+fn channel_info_signature(info: &ChannelInfo) -> String {
+    match info {
+        ChannelInfo::Scaled { expr, scale } => {
+            format!(
+                "scaled:expr={expr:?};scale={}",
+                configured_scale_runtime_signature(scale)
+            )
+        }
+        ChannelInfo::Constant { expr } => format!("constant:expr={expr:?}"),
+    }
 }
 
 fn collect_plot_dependency_placeholders(
@@ -837,6 +941,31 @@ mod tests {
             .await
     }
 
+    async fn compile_legend_cache_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    (1.0, 2.0, 'A'), (2.0, 3.0, 'B'), (3.0, 5.0, 'A')
+                ) AS t(x, y, category)",
+            )
+            .await?;
+        Plot::<Cartesian>::new()
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x(col("x"))
+                    .y(col("y"))
+                    .fill_with(col("category"), |c| {
+                        c.legend(|l| l.title("Category").position(LegendPosition::Right))
+                    })
+                    .size(20.0),
+            )
+            .compile(ctx)
+            .await
+    }
+
     async fn compile_facet_width_param_scale_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
@@ -1104,6 +1233,41 @@ mod tests {
             second.pipeline.guide_overflow_measure_calls
                 < first.pipeline.guide_overflow_measure_calls,
             "warm exact evaluation should skip the cached initial guide-overflow probe"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn legend_measurement_cache_reuses_measurements_for_repeated_exact_evaluation()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_legend_cache_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let (_evaluated, first) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            first.pipeline.legend_measurement_cache_misses > 0,
+            "initial evaluation should populate legend measurement cache"
+        );
+        assert!(
+            first.pipeline.legend_measurements > 0,
+            "initial evaluation should measure at least one legend"
+        );
+
+        let (_evaluated, second) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            second.pipeline.legend_measurement_cache_hits > 0,
+            "warm exact evaluation should reuse cached legend measurements"
+        );
+        assert_eq!(second.pipeline.legend_measurement_cache_misses, 0);
+        assert_eq!(
+            second.pipeline.legend_measurements, 0,
+            "warm exact evaluation should avoid uncached legend measurements"
         );
 
         Ok(())

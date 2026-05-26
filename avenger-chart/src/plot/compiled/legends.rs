@@ -28,7 +28,7 @@ use crate::{
         ChildFrameSharingPath, ContainerPathSegment, CoordinationKind, EdgeOwnershipRequest,
         edge_ownership_scope_for_request,
     },
-    render::{LegendMeasurements, types::LegendMeasurement},
+    render::{EvaluationContext, LegendMeasurements, types::LegendMeasurement},
     scales::ConfiguredScaleWithSpec,
     serialization::LogicalExprNodeExt,
 };
@@ -769,6 +769,7 @@ impl CompiledPlot {
 
     pub(super) async fn prepare_legend_plan(
         &self,
+        eval_ctx: &EvaluationContext,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         available_space: Size2D,
         ctx: &SessionContext,
@@ -891,37 +892,29 @@ impl CompiledPlot {
                     continue;
                 }
 
-                // Measure the legend with the same channels that will be used for rendering
-                let theme = self.get_theme();
-                let (size, flexible) = measure_legend_size_with_channels(
-                    &channels,
-                    group.legend.as_ref(),
-                    group.renderer.clone(),
-                    available_space,
-                    theme.as_ref(),
-                    params,
-                    ctx,
-                )
-                .await?;
+                // Measure the legend with the same channels that will be used for rendering.
+                let measurement = self
+                    .measure_legend_group(
+                        eval_ctx,
+                        &group,
+                        resolved_position,
+                        available_space,
+                        ctx,
+                        params,
+                    )
+                    .await?;
 
                 debug!(
                     channel = primary_channel.name.as_str(),
-                    width = size.width,
-                    height = size.height,
-                    flexible,
+                    width = measurement.size.width,
+                    height = measurement.size.height,
+                    flexible = measurement.flexible,
                     position = ?resolved_position,
                     child_frame_sharing = child_frame_sharing_level.raw(),
                     facet_sharing = facet_sharing_level.raw(),
                     "Legend measure"
                 );
-                legend_measurements.insert(
-                    layout_key,
-                    LegendMeasurement {
-                        size,
-                        flexible,
-                        position: resolved_position,
-                    },
-                );
+                legend_measurements.insert(layout_key, measurement);
 
                 groups.push(group);
             }
@@ -931,6 +924,74 @@ impl CompiledPlot {
             groups,
             measurements: legend_measurements,
             hoisted_requests,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn measure_legend_group(
+        &self,
+        eval_ctx: &EvaluationContext,
+        group: &PreparedLegendGroup,
+        position: LegendPosition,
+        available_space: Size2D,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<LegendMeasurement, AvengerChartError> {
+        let Some(cache) = eval_ctx.legend_measurement_cache() else {
+            let measurement = self
+                .measure_legend_group_uncached(group, position, available_space, ctx, params)
+                .await?;
+            eval_ctx.record_legend_measurements(1);
+            return Ok(measurement);
+        };
+
+        let key = self.legend_measurement_cache_key(group, available_space, position, params);
+        let cached = {
+            cache
+                .lock()
+                .expect("legend measurement cache lock poisoned")
+                .get(&key)
+        };
+        if let Some(measurement) = cached {
+            eval_ctx.record_legend_measurement_cache_hit();
+            return Ok(measurement);
+        }
+
+        eval_ctx.record_legend_measurement_cache_miss();
+        let measurement = self
+            .measure_legend_group_uncached(group, position, available_space, ctx, params)
+            .await?;
+        eval_ctx.record_legend_measurements(1);
+        cache
+            .lock()
+            .expect("legend measurement cache lock poisoned")
+            .insert(key, measurement.clone());
+        Ok(measurement)
+    }
+
+    async fn measure_legend_group_uncached(
+        &self,
+        group: &PreparedLegendGroup,
+        position: LegendPosition,
+        available_space: Size2D,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<LegendMeasurement, AvengerChartError> {
+        let theme = self.get_theme();
+        let (size, flexible) = measure_legend_size_with_channels(
+            &group.channels,
+            group.legend.as_ref(),
+            group.renderer.clone(),
+            available_space,
+            theme.as_ref(),
+            params,
+            ctx,
+        )
+        .await?;
+        Ok(LegendMeasurement {
+            size,
+            flexible,
+            position,
         })
     }
 
@@ -972,51 +1033,44 @@ impl CompiledPlot {
 
     pub(super) async fn add_measured_hoisted_legends_to_plan(
         &self,
+        eval_ctx: &EvaluationContext,
         legend_plan: &mut PreparedLegendPlan,
         requests: Vec<HoistedLegendRequest>,
         available_space: Size2D,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
     ) -> Result<(), AvengerChartError> {
-        let theme = self.get_theme();
         for request in requests {
             let layout_key = request.group.layout_key.clone();
             if legend_plan.measurements.contains_key(&layout_key) {
                 continue;
             }
 
-            let (size, flexible) = measure_legend_size_with_channels(
-                &request.group.channels,
-                request.group.legend.as_ref(),
-                request.group.renderer.clone(),
-                available_space,
-                theme.as_ref(),
-                params,
-                ctx,
-            )
-            .await?;
+            let measurement = self
+                .measure_legend_group(
+                    eval_ctx,
+                    &request.group,
+                    request.position,
+                    available_space,
+                    ctx,
+                    params,
+                )
+                .await?;
 
             debug!(
                 channel = request.group.primary_channel.as_str(),
                 layout_key = layout_key.as_str(),
                 owner = ?request.owner,
                 anchor = ?request.anchor,
-                width = size.width,
-                height = size.height,
-                flexible,
+                width = measurement.size.width,
+                height = measurement.size.height,
+                flexible = measurement.flexible,
                 position = ?request.position,
                 sharing = request.sharing_level.raw(),
                 "Hoisted legend measure"
             );
 
-            legend_plan.measurements.insert(
-                layout_key,
-                LegendMeasurement {
-                    size,
-                    flexible,
-                    position: request.position,
-                },
-            );
+            legend_plan.measurements.insert(layout_key, measurement);
             legend_plan.groups.push(request.group);
         }
 

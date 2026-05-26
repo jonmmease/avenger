@@ -87,7 +87,8 @@ use super::{
     scales::build_scale_builder_from_marks,
     session::{
         FacetScalePrecomputeCacheHandle, FacetSemanticCacheHandle, GuideOverflowCacheHandle,
-        ScaleDomainCacheHandle, ScaleDomainCacheScope, scale_domain_cache_key_for_parts_with_scope,
+        LegendMeasurementCacheHandle, ScaleDomainCacheHandle, ScaleDomainCacheScope,
+        scale_domain_cache_key_for_parts_with_scope,
     },
 };
 
@@ -1530,6 +1531,7 @@ impl CompiledPlot {
     ) -> Result<(LayoutSolution, PreparedLegendPlan), AvengerChartError> {
         eval_ctx.record_legend_plan_build();
         let legend_plan = Box::pin(self.prepare_legend_plan(
+            eval_ctx,
             scales,
             available_size,
             ctx,
@@ -1572,6 +1574,7 @@ impl CompiledPlot {
     ) -> Result<(LayoutSolution, PreparedLegendPlan), AvengerChartError> {
         if let Some(coord_measurement) = coord_measurement {
             Box::pin(self.consume_anchored_hoisted_legends(
+                eval_ctx,
                 &mut legend_plan,
                 coord_measurement,
                 facet_path,
@@ -1583,7 +1586,6 @@ impl CompiledPlot {
             .await?;
         }
 
-        eval_ctx.record_legend_measurements(legend_plan.measurements.len());
         let mut result = Box::pin(TaffyFrameLayoutSolver::solve(FrameLayoutInput {
             overflow,
             layout_spec,
@@ -1667,6 +1669,7 @@ impl CompiledPlot {
     #[allow(clippy::too_many_arguments)]
     async fn consume_anchored_hoisted_legends(
         &self,
+        eval_ctx: &EvaluationContext,
         legend_plan: &mut PreparedLegendPlan,
         coord_measurement: &dyn CoordMeasurement,
         facet_path: &[ScalarValue],
@@ -1692,6 +1695,7 @@ impl CompiledPlot {
 
         legend_plan.hoisted_requests.extend(remaining);
         self.add_measured_hoisted_legends_to_plan(
+            eval_ctx,
             legend_plan,
             anchored_here,
             available_size,
@@ -4259,9 +4263,9 @@ impl CompiledPlot {
         params: Option<IndexMap<String, ScalarValue>>,
         options: EvaluationOptions,
     ) -> Result<EvaluatedPlot, AvengerChartError> {
-        Box::pin(
-            self.evaluate_with_options_internal(ctx, params, options, None, None, None, None, None),
-        )
+        Box::pin(self.evaluate_with_options_internal(
+            ctx, params, options, None, None, None, None, None, None,
+        ))
         .await
     }
 
@@ -4279,6 +4283,7 @@ impl CompiledPlot {
             params,
             options,
             Some(metrics.clone()),
+            None,
             None,
             None,
             None,
@@ -4301,6 +4306,7 @@ impl CompiledPlot {
         facet_semantic_cache: FacetSemanticCacheHandle,
         facet_scale_precompute_cache: FacetScalePrecomputeCacheHandle,
         guide_overflow_cache: GuideOverflowCacheHandle,
+        legend_measurement_cache: LegendMeasurementCacheHandle,
     ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
         let metrics = Arc::new(Mutex::new(EvaluationMetrics::default()));
         let evaluated = Box::pin(self.evaluate_with_options_internal(
@@ -4312,6 +4318,7 @@ impl CompiledPlot {
             Some(facet_semantic_cache),
             Some(facet_scale_precompute_cache),
             Some(guide_overflow_cache),
+            Some(legend_measurement_cache),
         ))
         .await?;
         let metrics = metrics
@@ -4331,6 +4338,7 @@ impl CompiledPlot {
         facet_semantic_cache: Option<FacetSemanticCacheHandle>,
         facet_scale_precompute_cache: Option<FacetScalePrecomputeCacheHandle>,
         guide_overflow_cache: Option<GuideOverflowCacheHandle>,
+        legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
     ) -> Result<EvaluatedPlot, AvengerChartError> {
         // Merge provided params with defaults
         let merged_params = if let Some(provided) = params {
@@ -4520,6 +4528,9 @@ impl CompiledPlot {
         }
         if let Some(cache) = &guide_overflow_cache {
             eval_ctx = eval_ctx.with_guide_overflow_cache(cache.clone());
+        }
+        if let Some(cache) = &legend_measurement_cache {
+            eval_ctx = eval_ctx.with_legend_measurement_cache(cache.clone());
         }
         if let Some(store) = facet_scale_precompute_store {
             eval_ctx = eval_ctx.with_facet_scale_precompute_store(store);

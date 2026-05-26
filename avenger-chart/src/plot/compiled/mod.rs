@@ -82,7 +82,9 @@ pub(crate) use self::mark_data_runtime::{
     prepare_mark_data as prepare_mark_data_runtime,
 };
 pub use self::session::{EvaluationRequest, PlotSession};
-pub(crate) use self::session::{GuideOverflowCacheHandle, ScaleDomainCacheHandle};
+pub(crate) use self::session::{
+    GuideOverflowCacheHandle, LegendMeasurementCacheHandle, ScaleDomainCacheHandle,
+};
 
 use super::title::{PlotSubtitle, PlotTitle};
 
