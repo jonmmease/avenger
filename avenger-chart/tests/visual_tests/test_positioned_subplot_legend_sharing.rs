@@ -6,28 +6,8 @@ use avenger_chart::polar::{PolarGuide, PolarSubplotPositionChannels};
 use avenger_chart::prelude::*;
 use datafusion::functions_aggregate::average::avg;
 use datafusion::prelude::*;
-use std::future::Future;
 
 const BASELINE_CATEGORY: &str = "positioned_subplot_legend_sharing";
-
-fn run_async_test<F, Fut>(f: F)
-where
-    F: FnOnce() -> Fut + Send + 'static,
-    Fut: Future<Output = ()> + 'static,
-{
-    std::thread::Builder::new()
-        .name("positioned-subplot-legend-sharing-visual-default-stack".to_string())
-        .spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("build tokio runtime for positioned subplot legend sharing test");
-            rt.block_on(f());
-        })
-        .expect("spawn default-stack positioned subplot legend sharing test thread")
-        .join()
-        .expect("default-stack positioned subplot legend sharing test panicked");
-}
 
 async fn positioned_legend_data(ctx: &SessionContext) -> DataFrame {
     ctx.sql(
@@ -130,35 +110,35 @@ fn polar_parent_plot(df: DataFrame) -> Plot<Polar> {
         )
 }
 
-fn assert_positioned_subplot_legend_baseline<C>(
+async fn assert_positioned_subplot_legend_baseline<C>(
     name: &'static str,
     make_plot: impl FnOnce(DataFrame) -> Plot<C> + Send + 'static,
 ) where
     C: CoordinateSystem + 'static,
 {
-    run_async_test(move || async move {
-        let ctx = SessionContext::new();
-        let plot = make_plot(positioned_legend_data(&ctx).await);
-        let compiled = plot
-            .compile(&ctx)
-            .await
-            .expect("compile positioned subplot legend sharing plot");
-        assert_visual_match_default(&compiled, &ctx, None, BASELINE_CATEGORY, name).await;
-    });
+    let ctx = SessionContext::new();
+    let plot = make_plot(positioned_legend_data(&ctx).await);
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile positioned subplot legend sharing plot");
+    assert_visual_match_default(&compiled, &ctx, None, BASELINE_CATEGORY, name).await;
 }
 
-#[test]
-fn positioned_subplot_legend_sharing_cartesian_parent_shared_fill_legend() {
+#[tokio::test]
+async fn positioned_subplot_legend_sharing_cartesian_parent_shared_fill_legend() {
     assert_positioned_subplot_legend_baseline(
         "positioned_subplot_legend_sharing_cartesian_parent_shared_fill_legend",
         cartesian_parent_plot,
-    );
+    )
+    .await;
 }
 
-#[test]
-fn positioned_subplot_legend_sharing_polar_parent_shared_fill_legend() {
+#[tokio::test]
+async fn positioned_subplot_legend_sharing_polar_parent_shared_fill_legend() {
     assert_positioned_subplot_legend_baseline(
         "positioned_subplot_legend_sharing_polar_parent_shared_fill_legend",
         polar_parent_plot,
-    );
+    )
+    .await;
 }

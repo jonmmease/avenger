@@ -7,26 +7,6 @@ use avenger_chart::prelude::*;
 use avenger_scenegraph::marks::{mark::SceneMark, symbol::SceneSymbolMark};
 use datafusion::functions_aggregate::average::avg;
 use datafusion::prelude::*;
-use std::future::Future;
-
-fn run_async_test<F, Fut>(f: F)
-where
-    F: FnOnce() -> Fut + Send + 'static,
-    Fut: Future<Output = ()> + 'static,
-{
-    std::thread::Builder::new()
-        .name("positioned-subplot-visual-default-stack".to_string())
-        .spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("build tokio runtime for positioned subplot visual test");
-            rt.block_on(f());
-        })
-        .expect("spawn default-stack positioned subplot visual test thread")
-        .join()
-        .expect("default-stack positioned subplot visual test panicked");
-}
 
 async fn positioned_data(ctx: &SessionContext) -> DataFrame {
     ctx.sql(
@@ -233,293 +213,267 @@ async fn polar_child(ctx: &SessionContext) -> Plot<Polar> {
     )
 }
 
-#[test]
-fn cartesian_partitioned_subplot_scatter() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let plot = Plot::<Cartesian>::new()
-            .plot_size(620.0, 400.0)
-            .data(partitioned_subplot_data(&ctx).await)
-            .title("Cartesian partitioned subplots")
-            .mark(
-                Subplot::<Cartesian>::new(inherited_cartesian_scatter_child(
-                    ScaleSharing::Shared,
-                    ScaleSharing::Shared,
-                ))
-                .partition_by(col("species"))
-                .subplot_x_with(avg(col("parent_x")), |c| {
-                    c.scale_with::<Linear>(|s| {
-                        s.domain((lit(0.0), lit(6.2))).nice(false).zero(false)
-                    })
-                })
-                .subplot_y_with(avg(col("parent_y")), |c| {
-                    c.scale_with::<Linear>(|s| {
-                        s.domain((lit(0.0), lit(3.2))).nice(false).zero(false)
-                    })
-                })
-                .plot_size(110.0, 82.0),
-            );
+#[tokio::test]
+async fn cartesian_partitioned_subplot_scatter() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .plot_size(620.0, 400.0)
+        .data(partitioned_subplot_data(&ctx).await)
+        .title("Cartesian partitioned subplots")
+        .mark(
+            Subplot::<Cartesian>::new(inherited_cartesian_scatter_child(
+                ScaleSharing::Shared,
+                ScaleSharing::Shared,
+            ))
+            .partition_by(col("species"))
+            .subplot_x_with(avg(col("parent_x")), |c| {
+                c.scale_with::<Linear>(|s| s.domain((lit(0.0), lit(6.2))).nice(false).zero(false))
+            })
+            .subplot_y_with(avg(col("parent_y")), |c| {
+                c.scale_with::<Linear>(|s| s.domain((lit(0.0), lit(3.2))).nice(false).zero(false))
+            })
+            .plot_size(110.0, 82.0),
+        );
 
-        let compiled = plot
-            .compile(&ctx)
-            .await
-            .expect("compile Cartesian partitioned positioned subplots");
-        assert_partitioned_child_counts(&compiled, &ctx, "cartesian").await;
-        assert_visual_match_default(
-            &compiled,
-            &ctx,
-            None,
-            "positioned_subplot",
-            "cartesian_partitioned_subplot_scatter",
-        )
-        .await;
-    });
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile Cartesian partitioned positioned subplots");
+    assert_partitioned_child_counts(&compiled, &ctx, "cartesian").await;
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "positioned_subplot",
+        "cartesian_partitioned_subplot_scatter",
+    )
+    .await;
 }
 
-#[test]
-fn cartesian_partitioned_subplot_polar_children() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let plot = Plot::<Cartesian>::new()
-            .plot_size(620.0, 400.0)
-            .data(partitioned_subplot_data(&ctx).await)
-            .title("Cartesian partitioned polar children")
-            .mark(
-                Subplot::<Cartesian>::new(inherited_polar_scatter_child(
-                    ScaleSharing::Free,
-                    ScaleSharing::Free,
-                ))
-                .partition_by(col("species"))
-                .subplot_x_with(avg(col("parent_x")), |c| {
-                    c.scale_with::<Linear>(|s| {
-                        s.domain((lit(0.0), lit(6.2))).nice(false).zero(false)
-                    })
-                })
-                .subplot_y_with(avg(col("parent_y")), |c| {
-                    c.scale_with::<Linear>(|s| {
-                        s.domain((lit(0.0), lit(3.2))).nice(false).zero(false)
-                    })
-                })
-                .plot_size(104.0, 104.0),
-            );
+#[tokio::test]
+async fn cartesian_partitioned_subplot_polar_children() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .plot_size(620.0, 400.0)
+        .data(partitioned_subplot_data(&ctx).await)
+        .title("Cartesian partitioned polar children")
+        .mark(
+            Subplot::<Cartesian>::new(inherited_polar_scatter_child(
+                ScaleSharing::Free,
+                ScaleSharing::Free,
+            ))
+            .partition_by(col("species"))
+            .subplot_x_with(avg(col("parent_x")), |c| {
+                c.scale_with::<Linear>(|s| s.domain((lit(0.0), lit(6.2))).nice(false).zero(false))
+            })
+            .subplot_y_with(avg(col("parent_y")), |c| {
+                c.scale_with::<Linear>(|s| s.domain((lit(0.0), lit(3.2))).nice(false).zero(false))
+            })
+            .plot_size(104.0, 104.0),
+        );
 
-        let compiled = plot
-            .compile(&ctx)
-            .await
-            .expect("compile Cartesian partitioned positioned polar children");
-        assert_partitioned_child_counts(&compiled, &ctx, "cartesian").await;
-        assert_visual_match_default(
-            &compiled,
-            &ctx,
-            None,
-            "positioned_subplot",
-            "cartesian_partitioned_subplot_polar_children",
-        )
-        .await;
-    });
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile Cartesian partitioned positioned polar children");
+    assert_partitioned_child_counts(&compiled, &ctx, "cartesian").await;
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "positioned_subplot",
+        "cartesian_partitioned_subplot_polar_children",
+    )
+    .await;
 }
 
-#[test]
-fn polar_partitioned_subplot_cartesian_children() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let plot = Plot::<Polar>::new()
-            .plot_size(520.0, 440.0)
-            .data(partitioned_subplot_data(&ctx).await)
-            .title("Polar partitioned Cartesian children")
-            .mark(
-                Subplot::<Polar>::new(inherited_cartesian_scatter_child(
-                    ScaleSharing::Free,
-                    ScaleSharing::Free,
-                ))
-                .partition_by(col("species"))
-                .r_with(avg(col("parent_radius")), |c| {
-                    c.scale_with::<Linear>(|s| {
-                        s.domain((lit(0.0), lit(1.35))).nice(false).zero(false)
-                    })
+#[tokio::test]
+async fn polar_partitioned_subplot_cartesian_children() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Polar>::new()
+        .plot_size(520.0, 440.0)
+        .data(partitioned_subplot_data(&ctx).await)
+        .title("Polar partitioned Cartesian children")
+        .mark(
+            Subplot::<Polar>::new(inherited_cartesian_scatter_child(
+                ScaleSharing::Free,
+                ScaleSharing::Free,
+            ))
+            .partition_by(col("species"))
+            .r_with(avg(col("parent_radius")), |c| {
+                c.scale_with::<Linear>(|s| s.domain((lit(0.0), lit(1.35))).nice(false).zero(false))
+            })
+            .theta_with(avg(col("parent_angle")), |c| {
+                c.scale_with::<Linear>(|s| {
+                    s.domain((lit(0.0), lit(6.283185307179586)))
+                        .nice(false)
+                        .zero(false)
                 })
-                .theta_with(avg(col("parent_angle")), |c| {
-                    c.scale_with::<Linear>(|s| {
-                        s.domain((lit(0.0), lit(6.283185307179586)))
-                            .nice(false)
-                            .zero(false)
-                    })
-                })
-                .plot_size(104.0, 78.0),
-            );
+            })
+            .plot_size(104.0, 78.0),
+        );
 
-        let compiled = plot
-            .compile(&ctx)
-            .await
-            .expect("compile Polar partitioned positioned Cartesian children");
-        assert_partitioned_child_counts(&compiled, &ctx, "polar").await;
-        assert_visual_match_default(
-            &compiled,
-            &ctx,
-            None,
-            "positioned_subplot",
-            "polar_partitioned_subplot_cartesian_children",
-        )
-        .await;
-    });
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile Polar partitioned positioned Cartesian children");
+    assert_partitioned_child_counts(&compiled, &ctx, "polar").await;
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "positioned_subplot",
+        "polar_partitioned_subplot_cartesian_children",
+    )
+    .await;
 }
 
-#[test]
-fn polar_partitioned_subplot_polar_children() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let plot = Plot::<Polar>::new()
-            .plot_size(520.0, 440.0)
-            .data(partitioned_subplot_data(&ctx).await)
-            .title("Polar partitioned polar children")
-            .mark(
-                Subplot::<Polar>::new(inherited_polar_scatter_child(
-                    ScaleSharing::Level(1),
-                    ScaleSharing::Level(1),
-                ))
-                .partition_by(col("species"))
-                .r_with(avg(col("parent_radius")), |c| {
-                    c.scale_with::<Linear>(|s| {
-                        s.domain((lit(0.0), lit(1.35))).nice(false).zero(false)
-                    })
+#[tokio::test]
+async fn polar_partitioned_subplot_polar_children() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Polar>::new()
+        .plot_size(520.0, 440.0)
+        .data(partitioned_subplot_data(&ctx).await)
+        .title("Polar partitioned polar children")
+        .mark(
+            Subplot::<Polar>::new(inherited_polar_scatter_child(
+                ScaleSharing::Level(1),
+                ScaleSharing::Level(1),
+            ))
+            .partition_by(col("species"))
+            .r_with(avg(col("parent_radius")), |c| {
+                c.scale_with::<Linear>(|s| s.domain((lit(0.0), lit(1.35))).nice(false).zero(false))
+            })
+            .theta_with(avg(col("parent_angle")), |c| {
+                c.scale_with::<Linear>(|s| {
+                    s.domain((lit(0.0), lit(6.283185307179586)))
+                        .nice(false)
+                        .zero(false)
                 })
-                .theta_with(avg(col("parent_angle")), |c| {
-                    c.scale_with::<Linear>(|s| {
-                        s.domain((lit(0.0), lit(6.283185307179586)))
-                            .nice(false)
-                            .zero(false)
-                    })
+            })
+            .plot_size(96.0, 96.0),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile Polar partitioned positioned polar children");
+    assert_partitioned_child_counts(&compiled, &ctx, "polar").await;
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "positioned_subplot",
+        "polar_partitioned_subplot_polar_children",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn cartesian_positioned_cartesian_subplots() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .plot_size(430.0, 300.0)
+        .data(positioned_data(&ctx).await)
+        .title("Cartesian-positioned subplots")
+        .mark(
+            Subplot::new(cartesian_child(&ctx).await)
+                .subplot_x_with(col("x"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((lit(0.7), lit(4.1))))
                 })
-                .plot_size(96.0, 96.0),
-            );
+                .subplot_y_with(col("y"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((lit(0.7), lit(2.3))))
+                })
+                .plot_size(86.0, 64.0),
+        );
 
-        let compiled = plot
-            .compile(&ctx)
-            .await
-            .expect("compile Polar partitioned positioned polar children");
-        assert_partitioned_child_counts(&compiled, &ctx, "polar").await;
-        assert_visual_match_default(
-            &compiled,
-            &ctx,
-            None,
-            "positioned_subplot",
-            "polar_partitioned_subplot_polar_children",
-        )
-        .await;
-    });
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile Cartesian-positioned Cartesian subplots");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "cartesian_subplot",
+        "cartesian_positioned_cartesian_subplots",
+    )
+    .await;
 }
 
-#[test]
-fn cartesian_positioned_cartesian_subplots() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let plot = Plot::<Cartesian>::new()
-            .plot_size(430.0, 300.0)
-            .data(positioned_data(&ctx).await)
-            .title("Cartesian-positioned subplots")
-            .mark(
-                Subplot::new(cartesian_child(&ctx).await)
-                    .subplot_x_with(col("x"), |c| {
-                        c.scale_with::<Linear>(|s| s.domain((lit(0.7), lit(4.1))))
-                    })
-                    .subplot_y_with(col("y"), |c| {
-                        c.scale_with::<Linear>(|s| s.domain((lit(0.7), lit(2.3))))
-                    })
-                    .plot_size(86.0, 64.0),
-            );
-
-        let compiled = plot
-            .compile(&ctx)
-            .await
-            .expect("compile Cartesian-positioned Cartesian subplots");
-        assert_visual_match_default(
-            &compiled,
-            &ctx,
-            None,
-            "cartesian_subplot",
-            "cartesian_positioned_cartesian_subplots",
+#[tokio::test]
+async fn cartesian_positioned_mixed_subplots() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .plot_size(430.0, 300.0)
+        .data(positioned_data(&ctx).await)
+        .title("Mixed positioned subplots")
+        .mark(
+            Subplot::new(cartesian_child(&ctx).await)
+                .subplot_x_with(lit(1.2), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((lit(0.8), lit(3.9))))
+                })
+                .subplot_y_with(lit(1.2), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((lit(0.8), lit(2.1))))
+                })
+                .plot_size(82.0, 62.0),
         )
-        .await;
-    });
+        .mark(
+            Subplot::new(polar_child(&ctx).await)
+                .subplot_x(lit(3.5))
+                .subplot_y(lit(1.8))
+                .plot_size(82.0, 82.0),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile mixed coordinate positioned subplots");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "cartesian_subplot",
+        "cartesian_positioned_mixed_subplots",
+    )
+    .await;
 }
 
-#[test]
-fn cartesian_positioned_mixed_subplots() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let plot = Plot::<Cartesian>::new()
-            .plot_size(430.0, 300.0)
-            .data(positioned_data(&ctx).await)
-            .title("Mixed positioned subplots")
-            .mark(
-                Subplot::new(cartesian_child(&ctx).await)
-                    .subplot_x_with(lit(1.2), |c| {
-                        c.scale_with::<Linear>(|s| s.domain((lit(0.8), lit(3.9))))
-                    })
-                    .subplot_y_with(lit(1.2), |c| {
-                        c.scale_with::<Linear>(|s| s.domain((lit(0.8), lit(2.1))))
-                    })
-                    .plot_size(82.0, 62.0),
-            )
-            .mark(
-                Subplot::new(polar_child(&ctx).await)
-                    .subplot_x(lit(3.5))
-                    .subplot_y(lit(1.8))
-                    .plot_size(82.0, 82.0),
-            );
+#[tokio::test]
+async fn cartesian_positioned_components_debug() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .plot_size(430.0, 300.0)
+        .data(positioned_data(&ctx).await)
+        .title("Positioned subplot debug")
+        .mark(
+            Subplot::new(cartesian_child(&ctx).await)
+                .key("mini")
+                .label("Mini")
+                .subplot_x_with(col("x"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((lit(0.7), lit(4.1))))
+                })
+                .subplot_y_with(col("y"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((lit(0.7), lit(2.3))))
+                })
+                .plot_size(86.0, 64.0),
+        );
 
-        let compiled = plot
-            .compile(&ctx)
-            .await
-            .expect("compile mixed coordinate positioned subplots");
-        assert_visual_match_default(
-            &compiled,
-            &ctx,
-            None,
-            "cartesian_subplot",
-            "cartesian_positioned_mixed_subplots",
-        )
-        .await;
-    });
-}
-
-#[test]
-fn cartesian_positioned_components_debug() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let plot = Plot::<Cartesian>::new()
-            .plot_size(430.0, 300.0)
-            .data(positioned_data(&ctx).await)
-            .title("Positioned subplot debug")
-            .mark(
-                Subplot::new(cartesian_child(&ctx).await)
-                    .key("mini")
-                    .label("Mini")
-                    .subplot_x_with(col("x"), |c| {
-                        c.scale_with::<Linear>(|s| s.domain((lit(0.7), lit(4.1))))
-                    })
-                    .subplot_y_with(col("y"), |c| {
-                        c.scale_with::<Linear>(|s| s.domain((lit(0.7), lit(2.3))))
-                    })
-                    .plot_size(86.0, 64.0),
-            );
-
-        let compiled = plot
-            .compile(&ctx)
-            .await
-            .expect("compile positioned subplot debug chart");
-        assert_visual_match_default_with_options(
-            &compiled,
-            &ctx,
-            None,
-            EvaluationOptions {
-                debug_layout_overlay: LayoutDebugOverlayMode::Components,
-                layout_snapshot: LayoutSnapshot::Final,
-                ..EvaluationOptions::default()
-            },
-            "cartesian_subplot",
-            "cartesian_positioned_components_debug",
-        )
-        .await;
-    });
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile positioned subplot debug chart");
+    assert_visual_match_default_with_options(
+        &compiled,
+        &ctx,
+        None,
+        EvaluationOptions {
+            debug_layout_overlay: LayoutDebugOverlayMode::Components,
+            layout_snapshot: LayoutSnapshot::Final,
+            ..EvaluationOptions::default()
+        },
+        "cartesian_subplot",
+        "cartesian_positioned_components_debug",
+    )
+    .await;
 }

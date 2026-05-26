@@ -1,4 +1,4 @@
-use std::{any::Any, collections::HashMap, future::Future, sync::Arc};
+use std::{any::Any, collections::HashMap, sync::Arc};
 
 use avenger_chart::plot::{CompiledPlot, Plot};
 use avenger_chart_cartesian::{
@@ -29,25 +29,6 @@ use datafusion::{
 };
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-
-fn run_async_test<F, Fut>(f: F)
-where
-    F: FnOnce() -> Fut + Send + 'static,
-    Fut: Future<Output = ()> + 'static,
-{
-    std::thread::Builder::new()
-        .name("external-subplot-coord-default-stack".to_string())
-        .spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("build tokio runtime for external subplot coord test");
-            rt.block_on(f());
-        })
-        .expect("spawn default-stack external subplot coord test thread")
-        .join()
-        .expect("default-stack external subplot coord test panicked");
-}
 
 fn external_position_data(ctx: &SessionContext) -> DataFrame {
     ctx.read_batch(
@@ -98,26 +79,24 @@ async fn external_coordinate_can_compile_subplot_mark() {
     assert_eq!(child.marks().len(), 0);
 }
 
-#[test]
-fn external_coordinate_subplot_can_be_added_to_plot() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let plot = Plot::<ExternalSubplotCoord>::new()
-            .data(external_position_data(&ctx))
-            .mark(
-                Subplot::new(Plot::<ZeroDCoord>::new())
-                    .subplot_u(col("subplot_u"))
-                    .subplot_v(col("subplot_v"))
-                    .plot_size(40.0, 30.0),
-            );
+#[tokio::test]
+async fn external_coordinate_subplot_can_be_added_to_plot() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<ExternalSubplotCoord>::new()
+        .data(external_position_data(&ctx))
+        .mark(
+            Subplot::new(Plot::<ZeroDCoord>::new())
+                .subplot_u(col("subplot_u"))
+                .subplot_v(col("subplot_v"))
+                .plot_size(40.0, 30.0),
+        );
 
-        let compiled = plot.compile(&ctx).await.unwrap();
+    let compiled = plot.compile(&ctx).await.unwrap();
 
-        assert_eq!(compiled.marks().len(), 1);
-        assert_eq!(compiled.marks()[0].mark_type(), "subplot");
-        assert!(compiled.marks()[0].as_positioned_subplot().is_some());
-        compiled.evaluate(&ctx, None).await.unwrap();
-    });
+    assert_eq!(compiled.marks().len(), 1);
+    assert_eq!(compiled.marks()[0].mark_type(), "subplot");
+    assert!(compiled.marks()[0].as_positioned_subplot().is_some());
+    compiled.evaluate(&ctx, None).await.unwrap();
 }
 
 #[tokio::test]

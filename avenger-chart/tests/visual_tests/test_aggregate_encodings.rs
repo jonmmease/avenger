@@ -9,27 +9,7 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::functions_aggregate::average::avg;
 use datafusion::functions_aggregate::expr_fn::{count, sum};
 use datafusion::prelude::*;
-use std::future::Future;
 use std::sync::Arc;
-
-fn run_async_test<F, Fut>(f: F)
-where
-    F: FnOnce() -> Fut + Send + 'static,
-    Fut: Future<Output = ()> + 'static,
-{
-    std::thread::Builder::new()
-        .name("aggregate-visual-default-stack".to_string())
-        .spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("build tokio runtime for aggregate visual test");
-            rt.block_on(f());
-        })
-        .expect("spawn default-stack aggregate visual test thread")
-        .join()
-        .expect("default-stack aggregate visual test panicked");
-}
 
 /// Create a dataset for testing aggregation
 /// This creates multiple rows per category to test aggregation
@@ -68,216 +48,200 @@ fn create_sales_data() -> DataFrame {
         .expect("Failed to read batch into DataFrame")
 }
 
-#[test]
-fn test_aggregate_sum_by_category() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let df = create_sales_data();
+#[tokio::test]
+async fn test_aggregate_sum_by_category() {
+    let ctx = SessionContext::new();
+    let df = create_sales_data();
 
-        // Bar chart with aggregation: sum of sales by category
-        // This should automatically group by category and sum sales
-        let plot = Plot::<Cartesian>::new()
-            .title("Total Sales by Category")
-            .subtitle("Automatically aggregated using sum()")
-            .data(df)
-            .mark(
-                Rect::new()
-                    .x(col("category")) // grouping dimension
-                    .x2_with(col("category"), |c| c.band(1.0)) // end of band
-                    .y(lit(0.0)) // baseline at 0
-                    .y2(sum(col("sales"))) // aggregate dimension
-                    .fill("#3498db"),
-            );
+    // Bar chart with aggregation: sum of sales by category
+    // This should automatically group by category and sum sales
+    let plot = Plot::<Cartesian>::new()
+        .title("Total Sales by Category")
+        .subtitle("Automatically aggregated using sum()")
+        .data(df)
+        .mark(
+            Rect::new()
+                .x(col("category")) // grouping dimension
+                .x2_with(col("category"), |c| c.band(1.0)) // end of band
+                .y(lit(0.0)) // baseline at 0
+                .y2(sum(col("sales"))) // aggregate dimension
+                .fill("#3498db"),
+        );
 
-        let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
-        assert_visual_match_default(&compiled, &ctx, None, "aggregate", "sum_by_category").await;
-    });
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "aggregate", "sum_by_category").await;
 }
 
-#[test]
-fn test_aggregate_mean_by_category() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let df = create_sales_data();
+#[tokio::test]
+async fn test_aggregate_mean_by_category() {
+    let ctx = SessionContext::new();
+    let df = create_sales_data();
 
-        // Bar chart with avg aggregation
-        let plot = Plot::<Cartesian>::new()
-            .title("Average Profit by Category")
-            .subtitle("Automatically aggregated using avg()")
-            .data(df)
-            .mark(
-                Rect::new()
-                    .x(col("category")) // grouping dimension
-                    .x2_with(col("category"), |c| c.band(1.0)) // end of band
-                    .y(lit(0.0)) // baseline at 0
-                    .y2(avg(col("profit"))) // aggregate dimension
-                    .fill("#e74c3c"),
-            );
+    // Bar chart with avg aggregation
+    let plot = Plot::<Cartesian>::new()
+        .title("Average Profit by Category")
+        .subtitle("Automatically aggregated using avg()")
+        .data(df)
+        .mark(
+            Rect::new()
+                .x(col("category")) // grouping dimension
+                .x2_with(col("category"), |c| c.band(1.0)) // end of band
+                .y(lit(0.0)) // baseline at 0
+                .y2(avg(col("profit"))) // aggregate dimension
+                .fill("#e74c3c"),
+        );
 
-        let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
-        assert_visual_match_default(&compiled, &ctx, None, "aggregate", "mean_by_category").await;
-    });
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "aggregate", "mean_by_category").await;
 }
 
-#[test]
-fn test_aggregate_multiple_aggregates() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let df = create_sales_data();
+#[tokio::test]
+async fn test_aggregate_multiple_aggregates() {
+    let ctx = SessionContext::new();
+    let df = create_sales_data();
 
-        // Bar chart with multiple aggregated encodings
-        // Both y and fill use aggregates, x is the grouping dimension
-        let plot = Plot::<Cartesian>::new()
-            .title("Sales with Profit-based Color")
-            .subtitle("Multiple aggregate encodings (sum + avg)")
-            .data(df)
-            .mark(
-                Rect::new()
-                    .x(col("category")) // grouping dimension
-                    .x2_with(col("category"), |c| c.band(1.0)) // end of band
-                    .y(lit(0.0)) // baseline at 0
-                    .y2(sum(col("sales"))) // aggregate dimension
-                    .fill_with(avg(col("profit")), |c| {
-                        // Color by avg profit
-                        c.legend(|l| l.title("Avg Profit"))
-                    }),
-            );
+    // Bar chart with multiple aggregated encodings
+    // Both y and fill use aggregates, x is the grouping dimension
+    let plot = Plot::<Cartesian>::new()
+        .title("Sales with Profit-based Color")
+        .subtitle("Multiple aggregate encodings (sum + avg)")
+        .data(df)
+        .mark(
+            Rect::new()
+                .x(col("category")) // grouping dimension
+                .x2_with(col("category"), |c| c.band(1.0)) // end of band
+                .y(lit(0.0)) // baseline at 0
+                .y2(sum(col("sales"))) // aggregate dimension
+                .fill_with(avg(col("profit")), |c| {
+                    // Color by avg profit
+                    c.legend(|l| l.title("Avg Profit"))
+                }),
+        );
 
-        let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
-        assert_visual_match_default(&compiled, &ctx, None, "aggregate", "multiple_aggregates")
-            .await;
-    });
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "aggregate", "multiple_aggregates").await;
 }
 
-#[test]
-fn test_aggregate_count() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let df = create_sales_data();
+#[tokio::test]
+async fn test_aggregate_count() {
+    let ctx = SessionContext::new();
+    let df = create_sales_data();
 
-        // Bar chart counting rows per category
-        let plot = Plot::<Cartesian>::new()
-            .title("Count of Records by Category")
-            .subtitle("Using count() aggregation")
-            .data(df)
-            .mark(
-                Rect::new()
-                    .x(col("category")) // grouping dimension
-                    .x2_with(col("category"), |c| c.band(1.0)) // end of band
-                    .y(lit(0.0)) // baseline at 0
-                    .y2(count(col("sales"))) // count aggregate
-                    .fill("#2ecc71"),
-            );
+    // Bar chart counting rows per category
+    let plot = Plot::<Cartesian>::new()
+        .title("Count of Records by Category")
+        .subtitle("Using count() aggregation")
+        .data(df)
+        .mark(
+            Rect::new()
+                .x(col("category")) // grouping dimension
+                .x2_with(col("category"), |c| c.band(1.0)) // end of band
+                .y(lit(0.0)) // baseline at 0
+                .y2(count(col("sales"))) // count aggregate
+                .fill("#2ecc71"),
+        );
 
-        let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
-        assert_visual_match_default(&compiled, &ctx, None, "aggregate", "count_by_category").await;
-    });
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "aggregate", "count_by_category").await;
 }
 
-#[test]
-fn test_aggregate_no_grouping() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let df = create_sales_data();
+#[tokio::test]
+async fn test_aggregate_no_grouping() {
+    let ctx = SessionContext::new();
+    let df = create_sales_data();
 
-        // Single bar showing total of all sales (no grouping dimension)
-        // This tests the empty group_by case
-        // Add a constant column for the x position
-        let df = df.with_column("label", lit("Total")).unwrap();
+    // Single bar showing total of all sales (no grouping dimension)
+    // This tests the empty group_by case
+    // Add a constant column for the x position
+    let df = df.with_column("label", lit("Total")).unwrap();
 
-        let plot = Plot::<Cartesian>::new()
-            .title("Total Sales (All Categories)")
-            .subtitle("Full table aggregation with no GROUP BY")
-            .data(df)
-            .mark(
-                Rect::new()
-                    .x(col("label")) // constant column with value "Total"
-                    .x2_with(col("label"), |c| c.band(1.0)) // end of band
-                    .y(lit(0.0)) // baseline at 0
-                    .y2(sum(col("sales"))) // aggregate dimension
-                    .fill("#9b59b6"),
-            );
+    let plot = Plot::<Cartesian>::new()
+        .title("Total Sales (All Categories)")
+        .subtitle("Full table aggregation with no GROUP BY")
+        .data(df)
+        .mark(
+            Rect::new()
+                .x(col("label")) // constant column with value "Total"
+                .x2_with(col("label"), |c| c.band(1.0)) // end of band
+                .y(lit(0.0)) // baseline at 0
+                .y2(sum(col("sales"))) // aggregate dimension
+                .fill("#9b59b6"),
+        );
 
-        let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
-        assert_visual_match_default(&compiled, &ctx, None, "aggregate", "no_grouping").await;
-    });
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "aggregate", "no_grouping").await;
 }
 
-#[test]
-fn test_aggregate_movies_by_mpaa_rating() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let df = test_data::movies(&ctx)
-            .await
-            .expect("Failed to load movies dataset");
+#[tokio::test]
+async fn test_aggregate_movies_by_mpaa_rating() {
+    let ctx = SessionContext::new();
+    let df = test_data::movies(&ctx)
+        .await
+        .expect("Failed to load movies dataset");
 
-        // Bar chart: Average worldwide gross by MPAA rating, colored by average IMDB rating
-        // This tests aggregation with a real-world dataset
-        let plot = Plot::<Cartesian>::new()
-            .title("Average Worldwide Gross by MPAA Rating")
-            .subtitle("Colored by Average IMDB Rating")
-            .data(df)
-            .mark(
-                Rect::new()
-                    .x(col("MPAA Rating")) // grouping dimension
-                    .x2_with(col("MPAA Rating"), |c| c.band(1.0)) // end of band
-                    .y_with(lit(0.0), |c| {
-                        // baseline at 0 with formatted axis
-                        c.axis(|a| a.format(".2s")) // SI prefix format with 2 significant digits
-                    })
-                    .y2(avg(col("Worldwide Gross"))) // aggregate dimension
-                    .fill_with(avg(col("IMDB Rating")), |c| {
-                        // Color by avg IMDB rating
-                        c.legend(|l| l.title("Avg IMDB Rating"))
-                    }),
-            );
+    // Bar chart: Average worldwide gross by MPAA rating, colored by average IMDB rating
+    // This tests aggregation with a real-world dataset
+    let plot = Plot::<Cartesian>::new()
+        .title("Average Worldwide Gross by MPAA Rating")
+        .subtitle("Colored by Average IMDB Rating")
+        .data(df)
+        .mark(
+            Rect::new()
+                .x(col("MPAA Rating")) // grouping dimension
+                .x2_with(col("MPAA Rating"), |c| c.band(1.0)) // end of band
+                .y_with(lit(0.0), |c| {
+                    // baseline at 0 with formatted axis
+                    c.axis(|a| a.format(".2s")) // SI prefix format with 2 significant digits
+                })
+                .y2(avg(col("Worldwide Gross"))) // aggregate dimension
+                .fill_with(avg(col("IMDB Rating")), |c| {
+                    // Color by avg IMDB rating
+                    c.legend(|l| l.title("Avg IMDB Rating"))
+                }),
+        );
 
-        let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
-        assert_visual_match_default(&compiled, &ctx, None, "aggregate", "movies_by_mpaa_rating")
-            .await;
-    });
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "aggregate", "movies_by_mpaa_rating").await;
 }
 
-#[test]
-fn test_aggregate_movies_symbol_plot() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let df = test_data::movies(&ctx)
-            .await
-            .expect("Failed to load movies dataset");
+#[tokio::test]
+async fn test_aggregate_movies_symbol_plot() {
+    let ctx = SessionContext::new();
+    let df = test_data::movies(&ctx)
+        .await
+        .expect("Failed to load movies dataset");
 
-        // Filter to non-null MPAA Rating and Creative Type
-        let df = df
-            .filter(
-                col("MPAA Rating")
-                    .is_not_null()
-                    .and(col("Creative Type").is_not_null())
-                    .and(col("Rotten Tomatoes Rating").is_not_null()),
-            )
-            .unwrap();
+    // Filter to non-null MPAA Rating and Creative Type
+    let df = df
+        .filter(
+            col("MPAA Rating")
+                .is_not_null()
+                .and(col("Creative Type").is_not_null())
+                .and(col("Rotten Tomatoes Rating").is_not_null()),
+        )
+        .unwrap();
 
-        // Symbol plot: MPAA Rating vs Creative Type
-        // Size by count, color by avg Rotten Tomatoes Rating
-        let plot = Plot::<Cartesian>::new()
-            .title("Movie Count by MPAA Rating and Creative Type")
-            .subtitle("Size: Count, Color: Avg Rotten Tomatoes Rating")
-            .canvas_size(600.0, 300.0) // 50% wider than default (400x300)
-            .data(df)
-            .mark(
-                Symbol::new()
-                    .x(col("MPAA Rating")) // grouping dimension
-                    .y(col("Creative Type")) // grouping dimension
-                    .size_with(count(col("MPAA Rating")), |c| {
-                        // count aggregate for size
-                        c.legend(|l| l.title("Count"))
-                    })
-                    .fill_with(avg(col("Rotten Tomatoes Rating")), |c| {
-                        // color by avg rating
-                        c.legend(|l| l.title("Avg RT Rating"))
-                    }),
-            );
+    // Symbol plot: MPAA Rating vs Creative Type
+    // Size by count, color by avg Rotten Tomatoes Rating
+    let plot = Plot::<Cartesian>::new()
+        .title("Movie Count by MPAA Rating and Creative Type")
+        .subtitle("Size: Count, Color: Avg Rotten Tomatoes Rating")
+        .canvas_size(600.0, 300.0) // 50% wider than default (400x300)
+        .data(df)
+        .mark(
+            Symbol::new()
+                .x(col("MPAA Rating")) // grouping dimension
+                .y(col("Creative Type")) // grouping dimension
+                .size_with(count(col("MPAA Rating")), |c| {
+                    // count aggregate for size
+                    c.legend(|l| l.title("Count"))
+                })
+                .fill_with(avg(col("Rotten Tomatoes Rating")), |c| {
+                    // color by avg rating
+                    c.legend(|l| l.title("Avg RT Rating"))
+                }),
+        );
 
-        let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
-        assert_visual_match_default(&compiled, &ctx, None, "aggregate", "movies_symbol_plot").await;
-    });
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "aggregate", "movies_symbol_plot").await;
 }

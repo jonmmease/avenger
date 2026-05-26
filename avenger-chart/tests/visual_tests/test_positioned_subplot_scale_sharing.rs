@@ -3,28 +3,8 @@ use avenger_chart::cartesian::guide::CartesianGuide;
 use avenger_chart::legend::LegendPosition;
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
-use std::future::Future;
 
 const BASELINE_CATEGORY: &str = "positioned_subplot_sharing";
-
-fn run_async_test<F, Fut>(f: F)
-where
-    F: FnOnce() -> Fut + Send + 'static,
-    Fut: Future<Output = ()> + 'static,
-{
-    std::thread::Builder::new()
-        .name("positioned-subplot-sharing-visual-default-stack".to_string())
-        .spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("build tokio runtime for positioned subplot sharing visual test");
-            rt.block_on(f());
-        })
-        .expect("spawn default-stack positioned subplot sharing visual test thread")
-        .join()
-        .expect("default-stack positioned subplot sharing visual test panicked");
-}
 
 async fn positioned_subplot_sharing_data(ctx: &SessionContext) -> DataFrame {
     ctx.sql(
@@ -255,77 +235,74 @@ fn row_col_positioned_subplot_fill_plot(df: DataFrame, fill_sharing_level: u8) -
         )
 }
 
-fn assert_xy_sharing_baseline(
+async fn assert_xy_sharing_baseline(
     name: &'static str,
     subplot_x_sharing_level: u8,
     subplot_y_sharing_level: u8,
 ) {
-    run_async_test(move || async move {
-        let ctx = SessionContext::new();
-        let plot = row_col_positioned_subplot_plot(
-            positioned_subplot_sharing_data(&ctx).await,
-            subplot_x_sharing_level,
-            subplot_y_sharing_level,
-        );
-        let compiled = plot
-            .compile(&ctx)
-            .await
-            .expect("compile row/column positioned subplot sharing plot");
-        assert_visual_match_default(&compiled, &ctx, None, BASELINE_CATEGORY, name).await;
-    });
+    let ctx = SessionContext::new();
+    let plot = row_col_positioned_subplot_plot(
+        positioned_subplot_sharing_data(&ctx).await,
+        subplot_x_sharing_level,
+        subplot_y_sharing_level,
+    );
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile row/column positioned subplot sharing plot");
+    assert_visual_match_default(&compiled, &ctx, None, BASELINE_CATEGORY, name).await;
 }
 
-fn assert_fill_sharing_baseline(name: &'static str, fill_sharing_level: u8) {
-    run_async_test(move || async move {
-        let ctx = SessionContext::new();
-        let plot = row_col_positioned_subplot_fill_plot(
-            positioned_subplot_fill_sharing_data(&ctx).await,
-            fill_sharing_level,
-        );
-        let compiled = plot
-            .compile(&ctx)
-            .await
-            .expect("compile row/column positioned subplot fill sharing plot");
-        assert_visual_match_default(&compiled, &ctx, None, BASELINE_CATEGORY, name).await;
-    });
+async fn assert_fill_sharing_baseline(name: &'static str, fill_sharing_level: u8) {
+    let ctx = SessionContext::new();
+    let plot = row_col_positioned_subplot_fill_plot(
+        positioned_subplot_fill_sharing_data(&ctx).await,
+        fill_sharing_level,
+    );
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile row/column positioned subplot fill sharing plot");
+    assert_visual_match_default(&compiled, &ctx, None, BASELINE_CATEGORY, name).await;
 }
 
-#[test]
-fn facet_row_col_cartesian_subplots_xy_levels_x0_y3() {
-    assert_xy_sharing_baseline("facet_row_col_cartesian_subplots_xy_levels_x0_y3", 0, 3);
+#[tokio::test]
+async fn facet_row_col_cartesian_subplots_xy_levels_x0_y3() {
+    assert_xy_sharing_baseline("facet_row_col_cartesian_subplots_xy_levels_x0_y3", 0, 3).await;
 }
 
-#[test]
-fn facet_row_col_cartesian_subplots_xy_levels_x1_y2() {
-    assert_xy_sharing_baseline("facet_row_col_cartesian_subplots_xy_levels_x1_y2", 1, 2);
+#[tokio::test]
+async fn facet_row_col_cartesian_subplots_xy_levels_x1_y2() {
+    assert_xy_sharing_baseline("facet_row_col_cartesian_subplots_xy_levels_x1_y2", 1, 2).await;
 }
 
-#[test]
-fn facet_row_col_cartesian_subplots_xy_levels_x2_y1() {
-    assert_xy_sharing_baseline("facet_row_col_cartesian_subplots_xy_levels_x2_y1", 2, 1);
+#[tokio::test]
+async fn facet_row_col_cartesian_subplots_xy_levels_x2_y1() {
+    assert_xy_sharing_baseline("facet_row_col_cartesian_subplots_xy_levels_x2_y1", 2, 1).await;
 }
 
-#[test]
-fn facet_row_col_cartesian_subplots_xy_levels_x3_y0() {
-    assert_xy_sharing_baseline("facet_row_col_cartesian_subplots_xy_levels_x3_y0", 3, 0);
+#[tokio::test]
+async fn facet_row_col_cartesian_subplots_xy_levels_x3_y0() {
+    assert_xy_sharing_baseline("facet_row_col_cartesian_subplots_xy_levels_x3_y0", 3, 0).await;
 }
 
-#[test]
-fn facet_row_col_cartesian_subplots_fill_level_0_free() {
-    assert_fill_sharing_baseline("facet_row_col_cartesian_subplots_fill_level_0_free", 0);
+#[tokio::test]
+async fn facet_row_col_cartesian_subplots_fill_level_0_free() {
+    assert_fill_sharing_baseline("facet_row_col_cartesian_subplots_fill_level_0_free", 0).await;
 }
 
-#[test]
-fn facet_row_col_cartesian_subplots_fill_level_1_cartesian() {
-    assert_fill_sharing_baseline("facet_row_col_cartesian_subplots_fill_level_1_cartesian", 1);
+#[tokio::test]
+async fn facet_row_col_cartesian_subplots_fill_level_1_cartesian() {
+    assert_fill_sharing_baseline("facet_row_col_cartesian_subplots_fill_level_1_cartesian", 1)
+        .await;
 }
 
-#[test]
-fn facet_row_col_cartesian_subplots_fill_level_2_row() {
-    assert_fill_sharing_baseline("facet_row_col_cartesian_subplots_fill_level_2_row", 2);
+#[tokio::test]
+async fn facet_row_col_cartesian_subplots_fill_level_2_row() {
+    assert_fill_sharing_baseline("facet_row_col_cartesian_subplots_fill_level_2_row", 2).await;
 }
 
-#[test]
-fn facet_row_col_cartesian_subplots_fill_level_3_global() {
-    assert_fill_sharing_baseline("facet_row_col_cartesian_subplots_fill_level_3_global", 3);
+#[tokio::test]
+async fn facet_row_col_cartesian_subplots_fill_level_3_global() {
+    assert_fill_sharing_baseline("facet_row_col_cartesian_subplots_fill_level_3_global", 3).await;
 }

@@ -2,28 +2,8 @@ use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::prelude::*;
 use datafusion::functions_aggregate::average::avg;
 use datafusion::prelude::*;
-use std::future::Future;
 
 const BASELINE_CATEGORY: &str = "facet_data_scope";
-
-fn run_async_test<F, Fut>(f: F)
-where
-    F: FnOnce() -> Fut + Send + 'static,
-    Fut: Future<Output = ()> + 'static,
-{
-    std::thread::Builder::new()
-        .name("facet-data-scope-visual-default-stack".to_string())
-        .spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("build tokio runtime for facet data scope test");
-            rt.block_on(f());
-        })
-        .expect("spawn default-stack facet data scope test thread")
-        .join()
-        .expect("default-stack facet data scope test panicked");
-}
 
 async fn facet_scope_data(ctx: &SessionContext) -> DataFrame {
     ctx.sql(
@@ -108,23 +88,21 @@ fn scoped_facet_plot(
         .mark(Subplot::new(col_plot).row_with(col("facet_row"), |c| c.facet(|f| f.title("Row"))))
 }
 
-fn assert_facet_data_scope_baseline(
+async fn assert_facet_data_scope_baseline(
     name: &'static str,
     make_plot: impl FnOnce(DataFrame) -> Plot<FacetRow> + Send + 'static,
 ) {
-    run_async_test(move || async move {
-        let ctx = SessionContext::new();
-        let plot = make_plot(facet_scope_data(&ctx).await);
-        let compiled = plot
-            .compile(&ctx)
-            .await
-            .expect("compile facet data scope plot");
-        assert_visual_match_default(&compiled, &ctx, None, BASELINE_CATEGORY, name).await;
-    });
+    let ctx = SessionContext::new();
+    let plot = make_plot(facet_scope_data(&ctx).await);
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile facet data scope plot");
+    assert_visual_match_default(&compiled, &ctx, None, BASELINE_CATEGORY, name).await;
 }
 
-#[test]
-fn facet_data_scope_broadcast_background() {
+#[tokio::test]
+async fn facet_data_scope_broadcast_background() {
     assert_facet_data_scope_baseline("facet_data_scope_broadcast_background", |df| {
         scoped_facet_plot(
             df,
@@ -132,11 +110,12 @@ fn facet_data_scope_broadcast_background() {
             None,
             "Broadcast background, filtered foreground",
         )
-    });
+    })
+    .await;
 }
 
-#[test]
-fn facet_data_scope_row_level_background() {
+#[tokio::test]
+async fn facet_data_scope_row_level_background() {
     assert_facet_data_scope_baseline("facet_data_scope_row_level_background", |df| {
         scoped_facet_plot(
             df,
@@ -144,11 +123,12 @@ fn facet_data_scope_row_level_background() {
             None,
             "Row-level background, filtered foreground",
         )
-    });
+    })
+    .await;
 }
 
-#[test]
-fn facet_data_scope_row_level_average_marker() {
+#[tokio::test]
+async fn facet_data_scope_row_level_average_marker() {
     assert_facet_data_scope_baseline("facet_data_scope_row_level_average_marker", |df| {
         scoped_facet_plot(
             df,
@@ -156,11 +136,12 @@ fn facet_data_scope_row_level_average_marker() {
             Some(FacetDataScope::level(1)),
             "Row-level average marker",
         )
-    });
+    })
+    .await;
 }
 
-#[test]
-fn facet_data_scope_filtered_average_marker() {
+#[tokio::test]
+async fn facet_data_scope_filtered_average_marker() {
     assert_facet_data_scope_baseline("facet_data_scope_filtered_average_marker", |df| {
         scoped_facet_plot(
             df,
@@ -168,5 +149,6 @@ fn facet_data_scope_filtered_average_marker() {
             Some(FacetDataScope::FILTERED),
             "Filtered average marker",
         )
-    });
+    })
+    .await;
 }

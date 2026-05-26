@@ -2,7 +2,6 @@ use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::legend::LegendPosition;
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
-use std::future::Future;
 
 async fn make_legend_sharing_df(ctx: &SessionContext) -> DataFrame {
     ctx.sql(
@@ -135,184 +134,150 @@ fn make_two_level_col_plot_merged_group(df: DataFrame) -> Plot<FacetColumn> {
         )
 }
 
-fn run_async_test<F, Fut>(f: F)
-where
-    F: FnOnce() -> Fut + Send + 'static,
-    Fut: Future<Output = ()> + 'static,
-{
-    std::thread::Builder::new()
-        .spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("build runtime");
-            rt.block_on(f());
-        })
-        .expect("spawn thread")
-        .join()
-        .expect("join thread");
+#[tokio::test]
+async fn test_facet_col_legend_sharing_level0_right() {
+    let ctx = SessionContext::new();
+    let df = make_legend_sharing_df(&ctx).await;
+
+    let plot = make_two_level_col_plot(df, ScaleSharing::Free, LegendPosition::Right);
+    let compiled = plot.compile(&ctx).await.expect("compile level0-right plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet_legend_sharing",
+        "facet_col_legend_sharing_level0_right",
+    )
+    .await;
 }
 
-#[test]
-fn test_facet_col_legend_sharing_level0_right() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let df = make_legend_sharing_df(&ctx).await;
+#[tokio::test]
+async fn test_facet_col_legend_sharing_level1_right() {
+    let ctx = SessionContext::new();
+    let df = make_legend_sharing_df(&ctx).await;
 
-        let plot = make_two_level_col_plot(df, ScaleSharing::Free, LegendPosition::Right);
-        let compiled = plot.compile(&ctx).await.expect("compile level0-right plot");
-        assert_visual_match_default(
-            &compiled,
-            &ctx,
-            None,
-            "facet_legend_sharing",
-            "facet_col_legend_sharing_level0_right",
-        )
-        .await;
-    });
+    let plot = make_two_level_col_plot(df, ScaleSharing::Level(1), LegendPosition::Right);
+    let compiled = plot.compile(&ctx).await.expect("compile level1-right plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet_legend_sharing",
+        "facet_col_legend_sharing_level1_right",
+    )
+    .await;
 }
 
-#[test]
-fn test_facet_col_legend_sharing_level1_right() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let df = make_legend_sharing_df(&ctx).await;
+#[tokio::test]
+async fn test_facet_col_legend_sharing_level1_left() {
+    let ctx = SessionContext::new();
+    let df = make_legend_sharing_df(&ctx).await;
 
-        let plot = make_two_level_col_plot(df, ScaleSharing::Level(1), LegendPosition::Right);
-        let compiled = plot.compile(&ctx).await.expect("compile level1-right plot");
-        assert_visual_match_default(
-            &compiled,
-            &ctx,
-            None,
-            "facet_legend_sharing",
-            "facet_col_legend_sharing_level1_right",
-        )
-        .await;
-    });
+    let plot = make_two_level_col_plot(df, ScaleSharing::Level(1), LegendPosition::Left);
+    let compiled = plot.compile(&ctx).await.expect("compile level1-left plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet_legend_sharing",
+        "facet_col_legend_sharing_level1_left",
+    )
+    .await;
 }
 
-#[test]
-fn test_facet_col_legend_sharing_level1_left() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let df = make_legend_sharing_df(&ctx).await;
+#[tokio::test]
+async fn test_facet_col_legend_sharing_level1_top() {
+    let ctx = SessionContext::new();
+    let df = make_legend_sharing_df(&ctx).await;
 
-        let plot = make_two_level_col_plot(df, ScaleSharing::Level(1), LegendPosition::Left);
-        let compiled = plot.compile(&ctx).await.expect("compile level1-left plot");
-        assert_visual_match_default(
-            &compiled,
-            &ctx,
-            None,
-            "facet_legend_sharing",
-            "facet_col_legend_sharing_level1_left",
-        )
-        .await;
-    });
+    let plot = make_two_level_col_plot(df, ScaleSharing::Level(1), LegendPosition::Top);
+    let compiled = plot.compile(&ctx).await.expect("compile level1-top plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet_legend_sharing",
+        "facet_col_legend_sharing_level1_top",
+    )
+    .await;
 }
 
-#[test]
-fn test_facet_col_legend_sharing_level1_top() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let df = make_legend_sharing_df(&ctx).await;
+#[tokio::test]
+async fn test_facet_col_legend_sharing_level1_bottom() {
+    let ctx = SessionContext::new();
+    let df = make_legend_sharing_df(&ctx).await;
 
-        let plot = make_two_level_col_plot(df, ScaleSharing::Level(1), LegendPosition::Top);
-        let compiled = plot.compile(&ctx).await.expect("compile level1-top plot");
-        assert_visual_match_default(
-            &compiled,
-            &ctx,
-            None,
-            "facet_legend_sharing",
-            "facet_col_legend_sharing_level1_top",
-        )
-        .await;
-    });
+    let plot = make_two_level_col_plot(df, ScaleSharing::Level(1), LegendPosition::Bottom);
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile level1-bottom plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet_legend_sharing",
+        "facet_col_legend_sharing_level1_bottom",
+    )
+    .await;
 }
 
-#[test]
-fn test_facet_col_legend_sharing_level1_bottom() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let df = make_legend_sharing_df(&ctx).await;
+#[tokio::test]
+async fn test_facet_col_legend_sharing_level2_right_three_levels() {
+    let ctx = SessionContext::new();
+    let df = make_legend_sharing_df(&ctx).await;
 
-        let plot = make_two_level_col_plot(df, ScaleSharing::Level(1), LegendPosition::Bottom);
-        let compiled = plot
-            .compile(&ctx)
-            .await
-            .expect("compile level1-bottom plot");
-        assert_visual_match_default(
-            &compiled,
-            &ctx,
-            None,
-            "facet_legend_sharing",
-            "facet_col_legend_sharing_level1_bottom",
-        )
-        .await;
-    });
+    let plot = make_three_level_col_plot(df, ScaleSharing::Level(2), LegendPosition::Right);
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile level2-right-three-level plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet_legend_sharing",
+        "facet_col_legend_sharing_level2_right_three_levels",
+    )
+    .await;
 }
 
-#[test]
-fn test_facet_col_legend_sharing_level2_right_three_levels() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let df = make_legend_sharing_df(&ctx).await;
+#[tokio::test]
+async fn test_facet_col_legend_sharing_shared255_right_phase1() {
+    let ctx = SessionContext::new();
+    let df = make_legend_sharing_df(&ctx).await;
 
-        let plot = make_three_level_col_plot(df, ScaleSharing::Level(2), LegendPosition::Right);
-        let compiled = plot
-            .compile(&ctx)
-            .await
-            .expect("compile level2-right-three-level plot");
-        assert_visual_match_default(
-            &compiled,
-            &ctx,
-            None,
-            "facet_legend_sharing",
-            "facet_col_legend_sharing_level2_right_three_levels",
-        )
-        .await;
-    });
+    let plot = make_two_level_col_plot(df, ScaleSharing::Shared, LegendPosition::Right);
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile shared255-right-phase1 plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet_legend_sharing",
+        "facet_col_legend_sharing_shared255_right_phase1",
+    )
+    .await;
 }
 
-#[test]
-fn test_facet_col_legend_sharing_shared255_right_phase1() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let df = make_legend_sharing_df(&ctx).await;
+#[tokio::test]
+async fn test_facet_col_legend_sharing_merged_group_min_level() {
+    let ctx = SessionContext::new();
+    let df = make_legend_sharing_df(&ctx).await;
 
-        let plot = make_two_level_col_plot(df, ScaleSharing::Shared, LegendPosition::Right);
-        let compiled = plot
-            .compile(&ctx)
-            .await
-            .expect("compile shared255-right-phase1 plot");
-        assert_visual_match_default(
-            &compiled,
-            &ctx,
-            None,
-            "facet_legend_sharing",
-            "facet_col_legend_sharing_shared255_right_phase1",
-        )
-        .await;
-    });
-}
-
-#[test]
-fn test_facet_col_legend_sharing_merged_group_min_level() {
-    run_async_test(|| async {
-        let ctx = SessionContext::new();
-        let df = make_legend_sharing_df(&ctx).await;
-
-        let plot = make_two_level_col_plot_merged_group(df);
-        let compiled = plot
-            .compile(&ctx)
-            .await
-            .expect("compile merged-group-min-level plot");
-        assert_visual_match_default(
-            &compiled,
-            &ctx,
-            None,
-            "facet_legend_sharing",
-            "facet_col_legend_sharing_merged_group_min_level",
-        )
-        .await;
-    });
+    let plot = make_two_level_col_plot_merged_group(df);
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile merged-group-min-level plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet_legend_sharing",
+        "facet_col_legend_sharing_merged_group_min_level",
+    )
+    .await;
 }
