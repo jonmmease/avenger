@@ -39,7 +39,9 @@ use crate::{
 };
 pub(crate) use avenger_chart_core::AxisOwnershipMode;
 pub use avenger_chart_core::AxisVisibility;
-use avenger_chart_core::{AxisPosition, CompiledMark, LogicalPlanNodeExt, SharingLevel};
+use avenger_chart_core::{
+    AxisPosition, CompiledMark, DefaultLogicalExprNodeExt, LogicalPlanNodeExt, SharingLevel,
+};
 
 /// Evaluated facet structure - built once from data at evaluate() time, queried throughout.
 ///
@@ -221,7 +223,8 @@ impl EvaluatedFacetTree {
 
         // Build partition tree by walking marks
         // Start at depth 1 (outermost facet level)
-        let root = build_partition_tree(&plot.marks, &df, ctx, None, 1, &mut slot_cache).await?;
+        let root =
+            build_partition_tree(&plot.marks, &df, ctx, &[], &[], 1, &mut slot_cache).await?;
 
         // Extract channel-domain sharing levels from the innermost marks.
         let channel_domain_sharing_levels = extract_channel_domain_sharing_levels(&plot.marks);
@@ -1356,14 +1359,27 @@ struct FacetPartitionMarkSpec<'a> {
 }
 
 impl<'a> FacetPartitionMarkSpec<'a> {
-    fn from_facet_mark(facet_mark: FacetSubplotRef<'a>, ctx: &SessionContext) -> Option<Self> {
-        let (channels, channel_name, direction, subplot, slot_sharing) = match facet_mark {
+    fn from_facet_mark(
+        facet_mark: FacetSubplotRef<'a>,
+        ctx: &SessionContext,
+    ) -> Result<Option<Self>, AvengerChartError> {
+        let (
+            channels,
+            channel_name,
+            direction,
+            subplot,
+            slot_sharing,
+            order_expr_node,
+            order_descending,
+        ) = match facet_mark {
             FacetSubplotRef::Row(facet_row) => (
                 facet_row.compiled_state().data.channels(),
                 "row",
                 FacetDirection::Row,
                 facet_row.compiled_subplot(),
                 facet_row.facet_slot_sharing(),
+                facet_row.facet_order_expr(),
+                facet_row.facet_order_descending(),
             ),
             FacetSubplotRef::Col(facet_col) => (
                 facet_col.compiled_state().data.channels(),
@@ -1371,20 +1387,28 @@ impl<'a> FacetPartitionMarkSpec<'a> {
                 FacetDirection::Column,
                 facet_col.compiled_subplot(),
                 facet_col.facet_slot_sharing(),
+                facet_col.facet_order_expr(),
+                facet_col.facet_order_descending(),
             ),
         };
 
-        let channel_value = channels.get(channel_name)?;
-        let field_expr = channel_value.expr(ctx)?;
+        let Some(channel_value) = channels.get(channel_name) else {
+            return Ok(None);
+        };
+        let Some(field_expr) = channel_value.expr(ctx) else {
+            return Ok(None);
+        };
+        let order_expr = order_expr_node.map(|expr| expr.to_expr(ctx)).transpose()?;
         let sharing = slot_sharing
             .or_else(|| channel_value.get_share_mode())
             .map(|s| s.to_level())
             .unwrap_or(0);
 
-        Some(Self {
-            dimension: PartitionDimensionSpec::new(direction, sharing, field_expr),
+        Ok(Some(Self {
+            dimension: PartitionDimensionSpec::new(direction, sharing, field_expr)
+                .with_ordering(order_expr, order_descending),
             subplot,
-        })
+        }))
     }
 }
 
@@ -1394,27 +1418,30 @@ impl<'a> FacetPartitionMarkSpec<'a> {
 /// * `marks` - The marks to search for facets
 /// * `df` - The DataFrame to query for distinct values
 /// * `ctx` - Session context for expression evaluation
-/// * `parent_filter` - Optional filter predicate from parent partitions (for non-shared slots)
+/// * `parent_path` - Values from outer facet levels.
+/// * `ancestor_filters` - One filter expression for each value in `parent_path`.
 /// * `current_depth` - Current depth in the facet hierarchy (1 = outermost)
 /// * `slot_cache` - Cache for shared facet slot values to avoid redundant queries
 async fn build_partition_tree(
     marks: &[Arc<dyn CompiledMark>],
     df: &DataFrame,
     ctx: &SessionContext,
-    parent_filter: Option<Expr>,
+    parent_path: &[ScalarValue],
+    ancestor_filters: &[Expr],
     current_depth: u8,
     slot_cache: &mut PartitionSlotCache,
 ) -> Result<Option<PartitionNode>, AvengerChartError> {
     for mark in marks {
         if let Some(facet_mark) = facet_subplot_ref(mark.as_ref()) {
-            let Some(spec) = FacetPartitionMarkSpec::from_facet_mark(facet_mark, ctx) else {
+            let Some(spec) = FacetPartitionMarkSpec::from_facet_mark(facet_mark, ctx)? else {
                 return Ok(None);
             };
             return Box::pin(build_partition_node(
                 &spec,
                 df,
                 ctx,
-                parent_filter,
+                parent_path,
+                ancestor_filters,
                 current_depth,
                 slot_cache,
             ))
@@ -1431,14 +1458,19 @@ async fn build_partition_node(
     spec: &FacetPartitionMarkSpec<'_>,
     df: &DataFrame,
     ctx: &SessionContext,
-    parent_filter: Option<Expr>,
+    parent_path: &[ScalarValue],
+    ancestor_filters: &[Expr],
     current_depth: u8,
     slot_cache: &mut PartitionSlotCache,
 ) -> Result<Option<PartitionNode>, AvengerChartError> {
     let dimension = &spec.dimension;
+    let parent_filter = combine_filters(ancestor_filters);
+    let sharing_level = SharingLevel::from_raw(dimension.sharing);
+    let domain_scope_path = enumeration_ancestor_path(parent_path, sharing_level, current_depth);
+    let domain_filter = combine_filters(&ancestor_filters[..domain_scope_path.len()]);
     let observed_values = dimension.observed_values(df, parent_filter.clone()).await?;
     let values = dimension
-        .domain_values(df, parent_filter.clone(), current_depth, slot_cache)
+        .domain_values(df, domain_filter, slot_cache)
         .await?;
 
     if values.is_empty() {
@@ -1446,35 +1478,25 @@ async fn build_partition_node(
     }
 
     // Check for nested facets in subplot
-    let nested_facet = Box::pin(build_partition_tree(
-        &spec.subplot.marks,
-        df,
-        ctx,
-        None,
-        current_depth + 1,
-        slot_cache,
-    ))
-    .await?;
-
-    if nested_facet.is_some() {
+    if contains_facet_mark(&spec.subplot.marks) {
         // Build branch node with children for each value
         let mut children = IndexMap::new();
 
         for value in &values {
             // Build filter for this value to pass to child
             let value_filter = dimension.value_filter(value);
-            let combined_filter = if let Some(pf) = &parent_filter {
-                pf.clone().and(value_filter)
-            } else {
-                value_filter
-            };
+            let mut child_path = parent_path.to_vec();
+            child_path.push(value.clone());
+            let mut child_filters = ancestor_filters.to_vec();
+            child_filters.push(value_filter);
 
             // Recursively build child partition using the combined filter
             if let Some(child) = Box::pin(build_partition_tree(
                 &spec.subplot.marks,
                 df,
                 ctx,
-                Some(combined_filter),
+                &child_path,
+                &child_filters,
                 current_depth + 1,
                 slot_cache,
             ))
@@ -1515,6 +1537,19 @@ async fn build_partition_node(
             observed_values,
         )))
     }
+}
+
+fn combine_filters(filters: &[Expr]) -> Option<Expr> {
+    filters
+        .iter()
+        .cloned()
+        .reduce(|combined, filter| combined.and(filter))
+}
+
+fn contains_facet_mark(marks: &[Arc<dyn CompiledMark>]) -> bool {
+    marks
+        .iter()
+        .any(|mark| facet_subplot_ref(mark.as_ref()).is_some())
 }
 
 #[cfg(test)]

@@ -1,4 +1,5 @@
-use avenger_chart_core::{FacetEmptyCellPolicy, ScaleSharing};
+use avenger_chart_core::{DefaultLogicalExprNodeExt, FacetEmptyCellPolicy, IntoExpr, ScaleSharing};
+use datafusion_proto::protobuf::LogicalExprNode;
 
 #[derive(Clone, Default)]
 pub struct FacetRowChannelConfig {
@@ -6,6 +7,8 @@ pub struct FacetRowChannelConfig {
     pub(crate) slot_sharing: Option<ScaleSharing>,
     pub(crate) position: Option<String>,
     pub(crate) empty_cell_policy: Option<FacetEmptyCellPolicy>,
+    pub(crate) order_expr: Option<LogicalExprNode>,
+    pub(crate) order_descending: bool,
 }
 
 #[derive(Clone, Default)]
@@ -79,6 +82,24 @@ impl FacetOptions {
 }
 
 impl FacetRowChannelConfig {
+    pub fn order_by(mut self, expr: impl IntoExpr) -> Self {
+        self.order_expr = Some(
+            LogicalExprNode::from_default_expr(expr.into_expr())
+                .expect("Failed to serialize facet row order expression"),
+        );
+        self
+    }
+
+    pub fn order_asc(mut self) -> Self {
+        self.order_descending = false;
+        self
+    }
+
+    pub fn order_desc(mut self) -> Self {
+        self.order_descending = true;
+        self
+    }
+
     pub fn facet<F>(mut self, f: F) -> Self
     where
         F: FnOnce(FacetOptions) -> FacetOptions,
@@ -98,9 +119,29 @@ pub struct FacetColChannelConfig {
     pub(crate) slot_sharing: Option<ScaleSharing>,
     pub(crate) position: Option<String>,
     pub(crate) empty_cell_policy: Option<FacetEmptyCellPolicy>,
+    pub(crate) order_expr: Option<LogicalExprNode>,
+    pub(crate) order_descending: bool,
 }
 
 impl FacetColChannelConfig {
+    pub fn order_by(mut self, expr: impl IntoExpr) -> Self {
+        self.order_expr = Some(
+            LogicalExprNode::from_default_expr(expr.into_expr())
+                .expect("Failed to serialize facet column order expression"),
+        );
+        self
+    }
+
+    pub fn order_asc(mut self) -> Self {
+        self.order_descending = false;
+        self
+    }
+
+    pub fn order_desc(mut self) -> Self {
+        self.order_descending = true;
+        self
+    }
+
     pub fn facet<F>(mut self, f: F) -> Self
     where
         F: FnOnce(FacetOptions) -> FacetOptions,

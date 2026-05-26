@@ -5,6 +5,7 @@ use avenger_chart::facet::FacetDirection;
 use avenger_chart::facet::evaluated_facet_tree::EvaluatedFacetTree;
 use avenger_chart::prelude::*;
 use datafusion::common::ScalarValue;
+use datafusion::functions_aggregate::expr_fn::sum;
 use datafusion::prelude::*;
 
 /// Helper to create a simple test DataFrame with species and region columns
@@ -374,6 +375,223 @@ async fn test_sharing_level_stored_in_node() {
     // Inner level should have sharing = 2 (Level(2))
     let child = root.child(&scalar("east")).expect("child");
     assert_eq!(child.sharing, 2);
+}
+
+#[tokio::test]
+async fn test_row_facet_order_by_aggregate_descending() {
+    let ctx = SessionContext::new();
+    let df = create_test_data(&ctx).await;
+
+    let plot = Plot::<FacetRow>::new().data(df).mark(
+        Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))))
+            .row_with(col("species"), |c| {
+                c.order_by(sum(col("value"))).order_desc()
+            }),
+    );
+
+    let compiled = plot.compile(&ctx).await.expect("compile");
+    let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
+        .await
+        .expect("build spec");
+
+    let root = spec.root().expect("should have root");
+    let values: Vec<_> = root.values().cloned().collect();
+    assert_eq!(
+        values,
+        vec![scalar("virginica"), scalar("versicolor"), scalar("setosa")]
+    );
+}
+
+#[tokio::test]
+async fn test_facet_order_by_rejects_non_aggregate_non_partition_column() {
+    let ctx = SessionContext::new();
+    let df = create_test_data(&ctx).await;
+
+    let plot = Plot::<FacetRow>::new().data(df).mark(
+        Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))))
+            .row_with(col("species"), |c| c.order_by(col("region"))),
+    );
+
+    let compiled = plot.compile(&ctx).await.expect("compile");
+    let err = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
+        .await
+        .expect_err("invalid facet order expression");
+
+    assert!(matches!(
+        err,
+        avenger_chart::error::AvengerChartError::InvalidArgument(message)
+            if message.contains("Facet order_by expression")
+    ));
+}
+
+#[tokio::test]
+async fn test_free_nested_facet_ordering_is_parent_scoped() {
+    let ctx = SessionContext::new();
+    let df = create_varying_domain_data(&ctx).await;
+
+    let plot = Plot::<FacetRow>::new().data(df).mark(
+        Subplot::new(
+            Plot::<FacetRow>::new().mark(
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))),
+                )
+                .row_with(col("species"), |c| {
+                    c.order_by(sum(col("value"))).order_desc()
+                }),
+            ),
+        )
+        .row(col("region")),
+    );
+
+    let compiled = plot.compile(&ctx).await.expect("compile");
+    let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
+        .await
+        .expect("build spec");
+
+    let root = spec.root().expect("should have root");
+    let east_child = root.child(&scalar("east")).expect("east child");
+    let west_child = root.child(&scalar("west")).expect("west child");
+
+    assert_eq!(
+        east_child.values().cloned().collect::<Vec<_>>(),
+        vec![scalar("versicolor"), scalar("setosa")]
+    );
+    assert_eq!(
+        west_child.values().cloned().collect::<Vec<_>>(),
+        vec![scalar("virginica"), scalar("versicolor")]
+    );
+}
+
+#[tokio::test]
+async fn test_shared_nested_facet_ordering_uses_global_scope() {
+    let ctx = SessionContext::new();
+    let df = create_varying_domain_data(&ctx).await;
+
+    let plot = Plot::<FacetRow>::new().data(df).mark(
+        Subplot::new(
+            Plot::<FacetRow>::new().mark(
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))),
+                )
+                .row_with(col("species"), |c| {
+                    c.order_by(sum(col("value")))
+                        .order_desc()
+                        .facet(|f| f.share_slots())
+                }),
+            ),
+        )
+        .row(col("region")),
+    );
+
+    let compiled = plot.compile(&ctx).await.expect("compile");
+    let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
+        .await
+        .expect("build spec");
+
+    let root = spec.root().expect("should have root");
+    let east_child = root.child(&scalar("east")).expect("east child");
+    let west_child = root.child(&scalar("west")).expect("west child");
+    let expected = vec![scalar("versicolor"), scalar("virginica"), scalar("setosa")];
+
+    assert_eq!(east_child.values().cloned().collect::<Vec<_>>(), expected);
+    assert_eq!(west_child.values().cloned().collect::<Vec<_>>(), expected);
+}
+
+async fn create_three_level_ordering_data(
+    ctx: &SessionContext,
+) -> datafusion::dataframe::DataFrame {
+    ctx.read_batch(
+        datafusion::arrow::record_batch::RecordBatch::try_from_iter(vec![
+            (
+                "division",
+                std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
+                    "Eng", "Eng", "Eng", "Eng", "Ops", "Ops", "Ops", "Ops",
+                ])) as datafusion::arrow::array::ArrayRef,
+            ),
+            (
+                "department",
+                std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
+                    "Platform", "Platform", "Apps", "Apps", "Field", "Field", "Support", "Support",
+                ])) as datafusion::arrow::array::ArrayRef,
+            ),
+            (
+                "team",
+                std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
+                    "Alpha", "Beta", "Alpha", "Beta", "Alpha", "Beta", "Alpha", "Beta",
+                ])) as datafusion::arrow::array::ArrayRef,
+            ),
+            (
+                "value",
+                std::sync::Arc::new(datafusion::arrow::array::Float64Array::from(vec![
+                    10.0, 1.0, 1.0, 5.0, 1.0, 10.0, 5.0, 1.0,
+                ])) as datafusion::arrow::array::ArrayRef,
+            ),
+        ])
+        .unwrap(),
+    )
+    .unwrap()
+}
+
+#[tokio::test]
+async fn test_level1_nested_facet_ordering_uses_ancestor_scope() {
+    let ctx = SessionContext::new();
+    let df = create_three_level_ordering_data(&ctx).await;
+
+    let plot = Plot::<FacetColumn>::new().data(df).mark(
+        Subplot::new(
+            Plot::<FacetColumn>::new().mark(
+                Subplot::new(
+                    Plot::<FacetRow>::new().mark(
+                        Subplot::new(
+                            Plot::<Cartesian>::new()
+                                .mark(Symbol::new().x(col("value")).y(col("value"))),
+                        )
+                        .row_with(col("team"), |c| {
+                            c.order_by(sum(col("value")))
+                                .order_desc()
+                                .facet(|f| f.with_slot_sharing(ScaleSharing::Level(1)))
+                        }),
+                    ),
+                )
+                .col_with(col("department"), |c| c.facet(|f| f.free_slots())),
+            ),
+        )
+        .col_with(col("division"), |c| c.facet(|f| f.free_slots())),
+    );
+
+    let compiled = plot.compile(&ctx).await.expect("compile");
+    let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
+        .await
+        .expect("build spec");
+
+    let eng_platform = spec
+        .node_at_path(&[scalar("Eng"), scalar("Platform")])
+        .expect("Eng Platform teams");
+    let eng_apps = spec
+        .node_at_path(&[scalar("Eng"), scalar("Apps")])
+        .expect("Eng Apps teams");
+    let ops_field = spec
+        .node_at_path(&[scalar("Ops"), scalar("Field")])
+        .expect("Ops Field teams");
+    let ops_support = spec
+        .node_at_path(&[scalar("Ops"), scalar("Support")])
+        .expect("Ops Support teams");
+
+    let eng_expected = vec![scalar("Alpha"), scalar("Beta")];
+    let ops_expected = vec![scalar("Beta"), scalar("Alpha")];
+    assert_eq!(
+        eng_platform.values().cloned().collect::<Vec<_>>(),
+        eng_expected
+    );
+    assert_eq!(eng_apps.values().cloned().collect::<Vec<_>>(), eng_expected);
+    assert_eq!(
+        ops_field.values().cloned().collect::<Vec<_>>(),
+        ops_expected
+    );
+    assert_eq!(
+        ops_support.values().cloned().collect::<Vec<_>>(),
+        ops_expected
+    );
 }
 
 #[tokio::test]

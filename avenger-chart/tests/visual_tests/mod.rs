@@ -33,6 +33,7 @@ pub mod test_facet_layout_snapshots;
 pub mod test_facet_legend_sharing;
 pub mod test_facet_legends;
 pub mod test_facet_measurement_edge_cases;
+pub mod test_facet_ordering;
 pub mod test_facet_overflow_overlap;
 pub mod test_facet_plot_size_nested;
 pub mod test_facet_plot_size_single_level;

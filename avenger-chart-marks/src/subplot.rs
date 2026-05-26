@@ -1,6 +1,7 @@
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 
 use datafusion::prelude::SessionContext;
+use datafusion_proto::protobuf::LogicalExprNode;
 
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, ColumnDimensionConfig, CompiledMark, CompiledMarkState,
@@ -23,6 +24,10 @@ pub(crate) struct SubplotConfig {
     pub(crate) facet_col_position: Option<String>,
     pub(crate) facet_row_empty_cell_policy: Option<FacetEmptyCellPolicy>,
     pub(crate) facet_col_empty_cell_policy: Option<FacetEmptyCellPolicy>,
+    pub(crate) facet_row_order_expr: Option<LogicalExprNode>,
+    pub(crate) facet_col_order_expr: Option<LogicalExprNode>,
+    pub(crate) facet_row_order_descending: bool,
+    pub(crate) facet_col_order_descending: bool,
 }
 
 /// Mark that owns one child plot inside an outer coordinate system.
@@ -122,11 +127,15 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         slot_sharing: Option<ScaleSharing>,
         position: Option<String>,
         empty_cell_policy: Option<FacetEmptyCellPolicy>,
+        order_expr: Option<LogicalExprNode>,
+        order_descending: bool,
     ) {
         self.config.facet_row_title = title;
         self.config.facet_row_slot_sharing = slot_sharing;
         self.config.facet_row_position = position;
         self.config.facet_row_empty_cell_policy = empty_cell_policy;
+        self.config.facet_row_order_expr = order_expr;
+        self.config.facet_row_order_descending = order_descending;
     }
 
     #[doc(hidden)]
@@ -150,17 +159,31 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     }
 
     #[doc(hidden)]
+    pub fn facet_row_order_expr_config(&self) -> Option<&LogicalExprNode> {
+        self.config.facet_row_order_expr.as_ref()
+    }
+
+    #[doc(hidden)]
+    pub fn facet_row_order_descending_config(&self) -> bool {
+        self.config.facet_row_order_descending
+    }
+
+    #[doc(hidden)]
     pub fn set_facet_col_options(
         &mut self,
         title: Option<String>,
         slot_sharing: Option<ScaleSharing>,
         position: Option<String>,
         empty_cell_policy: Option<FacetEmptyCellPolicy>,
+        order_expr: Option<LogicalExprNode>,
+        order_descending: bool,
     ) {
         self.config.facet_col_title = title;
         self.config.facet_col_slot_sharing = slot_sharing;
         self.config.facet_col_position = position;
         self.config.facet_col_empty_cell_policy = empty_cell_policy;
+        self.config.facet_col_order_expr = order_expr;
+        self.config.facet_col_order_descending = order_descending;
     }
 
     #[doc(hidden)]
@@ -181,6 +204,16 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     #[doc(hidden)]
     pub fn facet_col_empty_cell_policy_config(&self) -> Option<FacetEmptyCellPolicy> {
         self.config.facet_col_empty_cell_policy
+    }
+
+    #[doc(hidden)]
+    pub fn facet_col_order_expr_config(&self) -> Option<&LogicalExprNode> {
+        self.config.facet_col_order_expr.as_ref()
+    }
+
+    #[doc(hidden)]
+    pub fn facet_col_order_descending_config(&self) -> bool {
+        self.config.facet_col_order_descending
     }
 
     pub fn has_plot_level_data(&self) -> bool {
@@ -255,6 +288,14 @@ impl<OuterC: CoordinateSystemCore> SubplotMarkCore for Subplot<OuterC> {
         self.config.facet_row_empty_cell_policy
     }
 
+    fn facet_row_order_expr_config(&self) -> Option<&LogicalExprNode> {
+        self.config.facet_row_order_expr.as_ref()
+    }
+
+    fn facet_row_order_descending_config(&self) -> bool {
+        self.config.facet_row_order_descending
+    }
+
     fn facet_col_title_config(&self) -> Option<&str> {
         self.config.facet_col_title.as_deref()
     }
@@ -269,6 +310,14 @@ impl<OuterC: CoordinateSystemCore> SubplotMarkCore for Subplot<OuterC> {
 
     fn facet_col_empty_cell_policy_config(&self) -> Option<FacetEmptyCellPolicy> {
         self.config.facet_col_empty_cell_policy
+    }
+
+    fn facet_col_order_expr_config(&self) -> Option<&LogicalExprNode> {
+        self.config.facet_col_order_expr.as_ref()
+    }
+
+    fn facet_col_order_descending_config(&self) -> bool {
+        self.config.facet_col_order_descending
     }
 
     fn has_plot_level_data(&self) -> bool {

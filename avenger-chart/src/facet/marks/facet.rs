@@ -13,16 +13,18 @@ use crate::render::{EvaluationContext, RenderContext};
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, ChannelValue, ColumnDimensionConfig, CompiledDataContext,
     CompiledMark, CompiledMarkCore, CompiledMarkState, CompiledSubplotPayload,
-    CoordinateSystemTransformCore, FacetAxis, FacetDimensionConfig, FacetEmptyCellPolicy,
-    MarkRuntimeContext, RowDimensionConfig, ScaleSharing, ScaleTypePreference, Size2D,
-    SubplotContainerCoordinateSystem, SubplotDataSource, SubplotMarkCore,
-    channel_value::expr_to_string, default_scale_type_for_data_type,
+    CoordinateSystemTransformCore, DefaultLogicalExprNodeExt, FacetAxis, FacetDimensionConfig,
+    FacetEmptyCellPolicy, MarkRuntimeContext, RowDimensionConfig, ScaleSharing,
+    ScaleTypePreference, SerializableExpr, Size2D, SubplotContainerCoordinateSystem,
+    SubplotDataSource, SubplotMarkCore, channel_value::expr_to_string,
+    default_scale_type_for_data_type,
 };
 use avenger_chart_marks::Subplot;
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 use datafusion::prelude::SessionContext;
+use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
+use serde_with::{FromInto, serde_as};
 use std::{future::Future, pin::Pin, sync::Arc};
 use tracing::trace;
 
@@ -295,6 +297,8 @@ impl FacetRowSubplotChannels for Subplot<FacetRow> {
             cfg.slot_sharing,
             cfg.position,
             cfg.empty_cell_policy,
+            cfg.order_expr,
+            cfg.order_descending,
         );
         s
     }
@@ -335,6 +339,8 @@ impl FacetColumnSubplotChannels for Subplot<FacetColumn> {
             cfg.slot_sharing,
             cfg.position,
             cfg.empty_cell_policy,
+            cfg.order_expr,
+            cfg.order_descending,
         );
         s
     }
@@ -402,6 +408,10 @@ pub struct CompiledFacetRowSubplot {
     pub(crate) facet_position: Option<String>,
     #[serde(default)]
     pub(crate) facet_empty_cell_policy: FacetEmptyCellPolicy,
+    #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
+    pub(crate) facet_order_expr: Option<LogicalExprNode>,
+    #[serde(default)]
+    pub(crate) facet_order_descending: bool,
 }
 
 impl CompiledFacetRowSubplot {
@@ -426,6 +436,12 @@ impl CompiledFacetRowSubplot {
     }
     pub fn facet_empty_cell_policy(&self) -> FacetEmptyCellPolicy {
         self.facet_empty_cell_policy
+    }
+    pub fn facet_order_expr(&self) -> Option<&LogicalExprNode> {
+        self.facet_order_expr.as_ref()
+    }
+    pub fn facet_order_descending(&self) -> bool {
+        self.facet_order_descending
     }
 
     pub(crate) fn render_with_context<'a>(
@@ -472,6 +488,8 @@ impl SubplotContainerCoordinateSystem for FacetRow {
             facet_empty_cell_policy: subplot
                 .facet_row_empty_cell_policy_config()
                 .unwrap_or_default(),
+            facet_order_expr: subplot.facet_row_order_expr_config().cloned(),
+            facet_order_descending: subplot.facet_row_order_descending_config(),
         }))
     }
 }
@@ -584,6 +602,10 @@ pub struct CompiledFacetColumnSubplot {
     pub(crate) facet_position: Option<String>,
     #[serde(default)]
     pub(crate) facet_empty_cell_policy: FacetEmptyCellPolicy,
+    #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
+    pub(crate) facet_order_expr: Option<LogicalExprNode>,
+    #[serde(default)]
+    pub(crate) facet_order_descending: bool,
 }
 
 impl CompiledFacetColumnSubplot {
@@ -608,6 +630,12 @@ impl CompiledFacetColumnSubplot {
     }
     pub fn facet_empty_cell_policy(&self) -> FacetEmptyCellPolicy {
         self.facet_empty_cell_policy
+    }
+    pub fn facet_order_expr(&self) -> Option<&LogicalExprNode> {
+        self.facet_order_expr.as_ref()
+    }
+    pub fn facet_order_descending(&self) -> bool {
+        self.facet_order_descending
     }
 
     pub(crate) fn render_with_context<'a>(
@@ -654,6 +682,8 @@ impl SubplotContainerCoordinateSystem for FacetColumn {
             facet_empty_cell_policy: subplot
                 .facet_col_empty_cell_policy_config()
                 .unwrap_or_default(),
+            facet_order_expr: subplot.facet_col_order_expr_config().cloned(),
+            facet_order_descending: subplot.facet_col_order_descending_config(),
         }))
     }
 }
@@ -676,6 +706,29 @@ impl<'a> FacetSubplotRef<'a> {
         match self {
             Self::Row(mark) => mark.facet_slot_sharing(),
             Self::Col(mark) => mark.facet_slot_sharing(),
+        }
+    }
+
+    pub fn facet_order_expr(
+        self,
+        ctx: &SessionContext,
+    ) -> Result<Option<datafusion::logical_expr::Expr>, AvengerChartError> {
+        match self {
+            Self::Row(mark) => mark
+                .facet_order_expr()
+                .map(|expr| expr.to_expr(ctx))
+                .transpose(),
+            Self::Col(mark) => mark
+                .facet_order_expr()
+                .map(|expr| expr.to_expr(ctx))
+                .transpose(),
+        }
+    }
+
+    pub fn facet_order_descending(self) -> bool {
+        match self {
+            Self::Row(mark) => mark.facet_order_descending(),
+            Self::Col(mark) => mark.facet_order_descending(),
         }
     }
 

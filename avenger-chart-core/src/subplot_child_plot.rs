@@ -99,6 +99,14 @@ pub trait SubplotMarkCore: Send + Sync {
         None
     }
 
+    fn facet_row_order_expr_config(&self) -> Option<&LogicalExprNode> {
+        None
+    }
+
+    fn facet_row_order_descending_config(&self) -> bool {
+        false
+    }
+
     fn facet_col_title_config(&self) -> Option<&str> {
         None
     }
@@ -113,6 +121,14 @@ pub trait SubplotMarkCore: Send + Sync {
 
     fn facet_col_empty_cell_policy_config(&self) -> Option<FacetEmptyCellPolicy> {
         None
+    }
+
+    fn facet_col_order_expr_config(&self) -> Option<&LogicalExprNode> {
+        None
+    }
+
+    fn facet_col_order_descending_config(&self) -> bool {
+        false
     }
 
     fn has_plot_level_data(&self) -> bool;
