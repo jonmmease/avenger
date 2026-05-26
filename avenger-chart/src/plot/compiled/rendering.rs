@@ -86,8 +86,8 @@ use super::{
     scale_provider::{DynamicScaleProvider, ScaleProvider},
     scales::build_scale_builder_from_marks,
     session::{
-        FacetSemanticCacheHandle, ScaleDomainCacheHandle, ScaleDomainCacheScope,
-        scale_domain_cache_key_for_parts_with_scope,
+        FacetScalePrecomputeCacheHandle, FacetSemanticCacheHandle, ScaleDomainCacheHandle,
+        ScaleDomainCacheScope, scale_domain_cache_key_for_parts_with_scope,
     },
 };
 
@@ -4210,7 +4210,8 @@ impl CompiledPlot {
         params: Option<IndexMap<String, ScalarValue>>,
         options: EvaluationOptions,
     ) -> Result<EvaluatedPlot, AvengerChartError> {
-        Box::pin(self.evaluate_with_options_internal(ctx, params, options, None, None, None)).await
+        Box::pin(self.evaluate_with_options_internal(ctx, params, options, None, None, None, None))
+            .await
     }
 
     /// Evaluate the plot while collecting focused performance diagnostics.
@@ -4229,6 +4230,7 @@ impl CompiledPlot {
             Some(metrics.clone()),
             None,
             None,
+            None,
         ))
         .await?;
         let metrics = metrics
@@ -4245,6 +4247,7 @@ impl CompiledPlot {
         options: EvaluationOptions,
         scale_domain_cache: ScaleDomainCacheHandle,
         facet_semantic_cache: FacetSemanticCacheHandle,
+        facet_scale_precompute_cache: FacetScalePrecomputeCacheHandle,
     ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
         let metrics = Arc::new(Mutex::new(EvaluationMetrics::default()));
         let evaluated = Box::pin(self.evaluate_with_options_internal(
@@ -4254,6 +4257,7 @@ impl CompiledPlot {
             Some(metrics.clone()),
             Some(scale_domain_cache),
             Some(facet_semantic_cache),
+            Some(facet_scale_precompute_cache),
         ))
         .await?;
         let metrics = metrics
@@ -4271,6 +4275,7 @@ impl CompiledPlot {
         evaluation_metrics: Option<Arc<Mutex<EvaluationMetrics>>>,
         scale_domain_cache: Option<ScaleDomainCacheHandle>,
         facet_semantic_cache: Option<FacetSemanticCacheHandle>,
+        facet_scale_precompute_cache: Option<FacetScalePrecomputeCacheHandle>,
     ) -> Result<EvaluatedPlot, AvengerChartError> {
         // Merge provided params with defaults
         let merged_params = if let Some(provided) = params {
@@ -4342,6 +4347,25 @@ impl CompiledPlot {
             depth = facet_tree.depth(),
             "evaluated facet tree construction completed"
         );
+        let facet_scale_precompute_store = facet_scale_precompute_cache
+            .as_ref()
+            .filter(|_| facet_tree.depth() > 0)
+            .map(|cache| {
+                let (store, hit) = self.facet_scale_precompute_store_from_session_cache(
+                    cache,
+                    ctx,
+                    &merged_params,
+                    facet_tree.as_ref(),
+                );
+                Self::record_evaluation_metric(&evaluation_metrics, |metrics| {
+                    if hit {
+                        metrics.record_facet_scale_precompute_cache_hit();
+                    } else {
+                        metrics.record_facet_scale_precompute_cache_miss();
+                    }
+                });
+                store
+            });
 
         let measured_layout_spec = Self::layout_spec_for_resolved_chart_sizing(
             &evaluated_layout_spec,
@@ -4438,6 +4462,9 @@ impl CompiledPlot {
         }
         if let Some(cache) = &scale_domain_cache {
             eval_ctx = eval_ctx.with_scale_domain_cache(cache.clone());
+        }
+        if let Some(store) = facet_scale_precompute_store {
+            eval_ctx = eval_ctx.with_facet_scale_precompute_store(store);
         }
         if let Some(metrics) = evaluation_metrics {
             eval_ctx = eval_ctx.with_evaluation_metrics(metrics);

@@ -550,6 +550,30 @@ impl EvaluationContext {
         &self.facet_scale_precompute_store
     }
 
+    pub(crate) fn with_facet_scale_precompute_store(
+        &self,
+        store: Arc<FacetScalePrecomputeStore>,
+    ) -> Self {
+        Self {
+            core: self.core.clone(),
+            facet_tree: self.facet_tree.clone(),
+            facet_data_root: self.facet_data_root.clone(),
+            hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
+            facet_scale_precompute_store: store,
+            facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
+            debug_layout_overlay: self.debug_layout_overlay,
+            facet_layout_refinement: self.facet_layout_refinement,
+            facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_padding_feedback: self.facet_padding_feedback.clone(),
+            facet_coord_node_path: self.facet_coord_node_path.clone(),
+            child_frame_container_path: self.child_frame_container_path.clone(),
+            child_frame_sharing_path: self.child_frame_sharing_path.clone(),
+            evaluation_metrics: self.evaluation_metrics.clone(),
+            scale_domain_cache: self.scale_domain_cache.clone(),
+            facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+        }
+    }
+
     pub(crate) fn with_evaluation_metrics(&self, metrics: Arc<Mutex<EvaluationMetrics>>) -> Self {
         Self {
             core: self

@@ -6,8 +6,8 @@ use std::{
 };
 
 use avenger_chart_core::{
-    DefaultLogicalExprNodeExt, LogicalPlanNodeExt, Maybe, RadiusExpression, ScaleConfigSpec,
-    ScaleDefaultDomain, ScaleDomain,
+    DefaultLogicalExprNodeExt, FacetWrapColumnMode, LogicalPlanNodeExt, Maybe, RadiusExpression,
+    ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain,
 };
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
 use datafusion::{
@@ -21,15 +21,22 @@ use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
 use indexmap::IndexMap;
 
 use crate::{
+    concat,
     error::AvengerChartError,
+    facet::{
+        evaluated_facet_tree::EvaluatedFacetTree,
+        marks::facet::{FacetSubplotRef, facet_subplot_ref},
+        scale_precompute::FacetScalePrecomputeStore,
+    },
     partition::PartitionSlotCache,
     render::{EvaluatedPlot, EvaluationMetrics, EvaluationMode, EvaluationOptions},
 };
 
-use super::CompiledPlot;
+use super::{CompiledPlot, compiled_subplot_payload_child_plot};
 
 pub(crate) type ScaleDomainCacheHandle = Arc<Mutex<ScaleDomainCache>>;
 pub(crate) type FacetSemanticCacheHandle = Arc<Mutex<PartitionSlotCache>>;
+pub(crate) type FacetScalePrecomputeCacheHandle = Arc<Mutex<FacetScalePrecomputeSessionCache>>;
 
 /// Session-owned cache for scale-domain inference artifacts.
 #[derive(Default)]
@@ -70,6 +77,33 @@ pub(crate) enum ScaleDomainCacheScope {
         container_path: Vec<String>,
         data_selection: String,
     },
+}
+
+/// Session-owned cache of facet scale-precompute stores.
+#[derive(Default)]
+pub(crate) struct FacetScalePrecomputeSessionCache {
+    stores: HashMap<FacetScalePrecomputeCacheKey, Arc<FacetScalePrecomputeStore>>,
+}
+
+impl FacetScalePrecomputeSessionCache {
+    fn store_for_key(
+        &mut self,
+        key: FacetScalePrecomputeCacheKey,
+    ) -> (Arc<FacetScalePrecomputeStore>, bool) {
+        if let Some(store) = self.stores.get(&key) {
+            return (store.clone(), true);
+        }
+        let store = Arc::new(FacetScalePrecomputeStore::default());
+        self.stores.insert(key, store.clone());
+        (store, false)
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct FacetScalePrecomputeCacheKey {
+    program_ptr: usize,
+    facet_tree_structure: Vec<String>,
+    params: Vec<(String, String)>,
 }
 
 /// Request object for evaluating a `PlotSession`.
@@ -146,6 +180,7 @@ pub struct PlotSession {
     last_metrics: Option<EvaluationMetrics>,
     scale_domain_cache: ScaleDomainCacheHandle,
     facet_semantic_cache: FacetSemanticCacheHandle,
+    facet_scale_precompute_cache: FacetScalePrecomputeCacheHandle,
 }
 
 impl PlotSession {
@@ -160,6 +195,9 @@ impl PlotSession {
             last_metrics: None,
             scale_domain_cache: Arc::new(Mutex::new(ScaleDomainCache::default())),
             facet_semantic_cache: Arc::new(Mutex::new(PartitionSlotCache::new())),
+            facet_scale_precompute_cache: Arc::new(Mutex::new(
+                FacetScalePrecomputeSessionCache::default(),
+            )),
         }
     }
 
@@ -207,6 +245,7 @@ impl PlotSession {
                 request.options,
                 self.scale_domain_cache.clone(),
                 self.facet_semantic_cache.clone(),
+                self.facet_scale_precompute_cache.clone(),
             )
             .await?;
         metrics.mode = mode;
@@ -267,6 +306,35 @@ impl CompiledPlot {
             ScaleDomainCacheScope::TopLevel,
         )
     }
+
+    pub(crate) fn facet_scale_precompute_store_from_session_cache(
+        &self,
+        cache: &FacetScalePrecomputeCacheHandle,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+        facet_tree: &EvaluatedFacetTree,
+    ) -> (Arc<FacetScalePrecomputeStore>, bool) {
+        let relevant_params = facet_scale_precompute_dependency_params(self, ctx, params)
+            .into_iter()
+            .map(|name| {
+                let value = params
+                    .get(&name)
+                    .or_else(|| params.get(&format!("${name}")))
+                    .map(|value| format!("{value:?}"))
+                    .unwrap_or_else(|| "<missing>".to_string());
+                (name, value)
+            })
+            .collect();
+        let key = FacetScalePrecomputeCacheKey {
+            program_ptr: self as *const _ as usize,
+            facet_tree_structure: facet_tree.structure_cache_key(),
+            params: relevant_params,
+        };
+        cache
+            .lock()
+            .expect("facet scale precompute cache lock poisoned")
+            .store_for_key(key)
+    }
 }
 
 pub(crate) fn scale_domain_cache_key_for_parts_with_scope(
@@ -326,22 +394,7 @@ fn scale_domain_dependency_params(
     if let Some(df) = data_override {
         collect_logical_plan_placeholders(df.logical_plan(), &mut names);
     }
-    for mark in compiled_marks {
-        collect_plan_placeholders(
-            mark.data_context().logical_plan_node(),
-            ctx,
-            &mut names,
-            &all_param_names,
-        );
-        for channel in mark.data_context().channels().values() {
-            for expr in channel.all_exprs(ctx) {
-                collect_expr_placeholders(&expr, &mut names);
-            }
-            if let Some(config) = channel.get_scale_config() {
-                collect_scale_config_placeholders(config, ctx, &mut names, &all_param_names);
-            }
-        }
-    }
+    collect_marks_direct_dependency_placeholders(compiled_marks, ctx, &mut names, &all_param_names);
 
     for scale_spec in scale_specs.values() {
         match scale_spec {
@@ -352,6 +405,153 @@ fn scale_domain_dependency_params(
     }
 
     names
+}
+
+fn facet_scale_precompute_dependency_params(
+    plot: &CompiledPlot,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+) -> BTreeSet<String> {
+    let all_param_names = params.keys().cloned().collect::<BTreeSet<_>>();
+    let mut names = BTreeSet::new();
+    collect_plot_dependency_placeholders(plot, ctx, &mut names, &all_param_names);
+    names
+}
+
+fn collect_plot_dependency_placeholders(
+    plot: &CompiledPlot,
+    ctx: &SessionContext,
+    names: &mut BTreeSet<String>,
+    all_param_names: &BTreeSet<String>,
+) {
+    collect_plan_placeholders(plot.data.as_ref(), ctx, names, all_param_names);
+    collect_marks_dependency_placeholders(&plot.marks, ctx, names, all_param_names);
+    for scale_spec in plot.scale_specs.values() {
+        match scale_spec {
+            PlotScaleSpec::Local(config) => {
+                collect_scale_config_placeholders(config, ctx, names, all_param_names);
+            }
+        }
+    }
+}
+
+fn collect_marks_dependency_placeholders(
+    compiled_marks: &[Arc<dyn avenger_chart_core::CompiledMark>],
+    ctx: &SessionContext,
+    names: &mut BTreeSet<String>,
+    all_param_names: &BTreeSet<String>,
+) {
+    for mark in compiled_marks {
+        collect_mark_dependency_placeholders(mark.as_ref(), ctx, names, all_param_names);
+    }
+}
+
+fn collect_marks_direct_dependency_placeholders(
+    compiled_marks: &[Arc<dyn avenger_chart_core::CompiledMark>],
+    ctx: &SessionContext,
+    names: &mut BTreeSet<String>,
+    all_param_names: &BTreeSet<String>,
+) {
+    for mark in compiled_marks {
+        collect_mark_direct_dependency_placeholders(mark.as_ref(), ctx, names, all_param_names);
+    }
+}
+
+fn collect_mark_dependency_placeholders(
+    mark: &dyn avenger_chart_core::CompiledMark,
+    ctx: &SessionContext,
+    names: &mut BTreeSet<String>,
+    all_param_names: &BTreeSet<String>,
+) {
+    collect_mark_direct_dependency_placeholders(mark, ctx, names, all_param_names);
+
+    if let Some(facet_subplot) = facet_subplot_ref(mark) {
+        collect_facet_subplot_dependency_placeholders(facet_subplot, ctx, names, all_param_names);
+    }
+    if let Some(positioned_subplot) = mark.as_positioned_subplot() {
+        if let Some(partition_expr) = positioned_subplot.partition_expr() {
+            collect_expr_node_placeholders(Some(partition_expr), ctx, names, all_param_names);
+        }
+        collect_plot_dependency_placeholders(
+            compiled_subplot_payload_child_plot(positioned_subplot.payload()),
+            ctx,
+            names,
+            all_param_names,
+        );
+    }
+    if let Some(concat_subplot) = concat::compiled_subplot(mark) {
+        collect_plot_dependency_placeholders(
+            concat_subplot.compiled_subplot(),
+            ctx,
+            names,
+            all_param_names,
+        );
+    }
+}
+
+fn collect_mark_direct_dependency_placeholders(
+    mark: &dyn avenger_chart_core::CompiledMark,
+    ctx: &SessionContext,
+    names: &mut BTreeSet<String>,
+    all_param_names: &BTreeSet<String>,
+) {
+    collect_plan_placeholders(
+        mark.data_context().logical_plan_node(),
+        ctx,
+        names,
+        all_param_names,
+    );
+    for channel in mark.data_context().channels().values() {
+        for expr in channel.all_exprs(ctx) {
+            collect_expr_placeholders(&expr, names);
+        }
+        if let Some(config) = channel.get_scale_config() {
+            collect_scale_config_placeholders(config, ctx, names, all_param_names);
+        }
+    }
+}
+
+fn collect_facet_subplot_dependency_placeholders(
+    facet_subplot: FacetSubplotRef<'_>,
+    ctx: &SessionContext,
+    names: &mut BTreeSet<String>,
+    all_param_names: &BTreeSet<String>,
+) {
+    match facet_subplot {
+        FacetSubplotRef::Row(mark) => {
+            collect_expr_node_placeholders(mark.facet_order_expr(), ctx, names, all_param_names);
+            collect_plot_dependency_placeholders(
+                mark.compiled_subplot(),
+                ctx,
+                names,
+                all_param_names,
+            );
+        }
+        FacetSubplotRef::Col(mark) => {
+            collect_expr_node_placeholders(mark.facet_order_expr(), ctx, names, all_param_names);
+            collect_plot_dependency_placeholders(
+                mark.compiled_subplot(),
+                ctx,
+                names,
+                all_param_names,
+            );
+        }
+        FacetSubplotRef::Wrap(mark) => {
+            collect_expr_node_placeholders(mark.facet_order_expr(), ctx, names, all_param_names);
+            match mark.facet_column_mode() {
+                FacetWrapColumnMode::Auto => {}
+                FacetWrapColumnMode::Fixed(expr) | FacetWrapColumnMode::ResponsiveWidth(expr) => {
+                    collect_expr_node_placeholders(Some(&expr), ctx, names, all_param_names);
+                }
+            }
+            collect_plot_dependency_placeholders(
+                mark.compiled_subplot(),
+                ctx,
+                names,
+                all_param_names,
+            );
+        }
+    }
 }
 
 fn collect_scale_config_placeholders(
@@ -560,6 +760,38 @@ mod tests {
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x(col("x"))
+                            .y(col("y"))
+                            .size(20.0)
+                            .fill("#4682b4"),
+                    ),
+                )
+                .column(col("group_name")),
+            )
+            .compile(ctx)
+            .await
+    }
+
+    async fn compile_facet_child_scale_param_precompute_cache_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let scale_factor = Param::new("scale_factor", ScalarValue::Float64(Some(1.0)));
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('A', 1.0, 2.0), ('A', 2.0, 4.0), ('A', 3.0, 6.0),
+                    ('B', 10.0, 3.0), ('B', 12.0, 5.0), ('B', 14.0, 8.0)
+                ) AS t(group_name, x, y)",
+            )
+            .await?;
+        Plot::<FacetColumn>::new()
+            .add_param(scale_factor.clone())
+            .canvas_size(520.0, 320.0)
+            .data(df)
+            .mark(
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(
+                        Symbol::new()
+                            .x(col("x") * scale_factor.expr())
                             .y(col("y"))
                             .size(20.0)
                             .fill("#4682b4"),
@@ -885,6 +1117,87 @@ mod tests {
             "width-only responsive wrap reevaluation should reuse semantic partition slots"
         );
         assert_eq!(second.pipeline.facet_semantic_cache_misses, 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn facet_scale_precompute_cache_reuses_store_for_width_only_param_change()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_facet_width_param_scale_cache_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let (_evaluated, first) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert_eq!(first.pipeline.facet_scale_precompute_cache_hits, 0);
+        assert_eq!(first.pipeline.facet_scale_precompute_cache_misses, 1);
+
+        let mut patch = IndexMap::new();
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(700.0)));
+        let (_evaluated, second) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(patch))
+            .await?;
+        assert_eq!(second.pipeline.facet_scale_precompute_cache_hits, 1);
+        assert_eq!(second.pipeline.facet_scale_precompute_cache_misses, 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn facet_scale_precompute_cache_invalidates_when_child_channel_param_changes()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_facet_child_scale_param_precompute_cache_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let (_evaluated, first) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert_eq!(first.pipeline.facet_scale_precompute_cache_hits, 0);
+        assert_eq!(first.pipeline.facet_scale_precompute_cache_misses, 1);
+
+        let (_evaluated, second) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert_eq!(second.pipeline.facet_scale_precompute_cache_hits, 1);
+        assert_eq!(second.pipeline.facet_scale_precompute_cache_misses, 0);
+
+        let mut patch = IndexMap::new();
+        patch.insert("scale_factor".to_string(), ScalarValue::Float64(Some(2.0)));
+        let (_evaluated, third) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(patch))
+            .await?;
+        assert_eq!(third.pipeline.facet_scale_precompute_cache_hits, 0);
+        assert_eq!(third.pipeline.facet_scale_precompute_cache_misses, 1);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn facet_scale_precompute_cache_respects_responsive_wrap_structure_changes()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_responsive_wrap_width_param_cache_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let (_evaluated, first) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert_eq!(first.pipeline.facet_scale_precompute_cache_hits, 0);
+        assert_eq!(first.pipeline.facet_scale_precompute_cache_misses, 1);
+
+        let mut patch = IndexMap::new();
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(900.0)));
+        let (_evaluated, second) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(patch))
+            .await?;
+        assert_eq!(
+            second.pipeline.facet_scale_precompute_cache_hits, 0,
+            "a changed responsive-wrap physical structure must not reuse path-keyed precompute artifacts"
+        );
+        assert_eq!(second.pipeline.facet_scale_precompute_cache_misses, 1);
 
         Ok(())
     }

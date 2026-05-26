@@ -221,6 +221,42 @@ impl EvaluatedFacetTree {
         self.depth_cache
     }
 
+    pub(crate) fn structure_cache_key(&self) -> Vec<String> {
+        let mut key = Vec::new();
+        key.push(format!("depth:{:?}", self.depth_cache));
+        let Some(root) = self.root.as_ref() else {
+            key.push("empty".to_string());
+            return key;
+        };
+        Self::push_node_structure_cache_key(root, &mut Vec::new(), &mut key);
+        key
+    }
+
+    fn push_node_structure_cache_key(
+        node: &PartitionNode,
+        path: &mut Vec<ScalarValue>,
+        key: &mut Vec<String>,
+    ) {
+        let values = node.values().cloned().collect::<Vec<_>>();
+        let observed_values = node.observed_values().cloned().collect::<Vec<_>>();
+        key.push(format!(
+            "node:path={:?};direction={:?};sharing={};field={};values={:?};observed={:?}",
+            Self::canonical_path(path),
+            node.direction,
+            node.sharing,
+            node.field,
+            values,
+            observed_values
+        ));
+        if let PartitionContent::Branch { children } = &node.content {
+            for (value, child) in children {
+                path.push(value.clone());
+                Self::push_node_structure_cache_key(child, path, key);
+                path.pop();
+            }
+        }
+    }
+
     // ========================================================================
     // Building
     // ========================================================================
