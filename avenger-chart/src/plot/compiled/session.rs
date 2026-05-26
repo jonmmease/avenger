@@ -22,12 +22,14 @@ use indexmap::IndexMap;
 
 use crate::{
     error::AvengerChartError,
+    partition::PartitionSlotCache,
     render::{EvaluatedPlot, EvaluationMetrics, EvaluationMode, EvaluationOptions},
 };
 
 use super::CompiledPlot;
 
 pub(crate) type ScaleDomainCacheHandle = Arc<Mutex<ScaleDomainCache>>;
+pub(crate) type FacetSemanticCacheHandle = Arc<Mutex<PartitionSlotCache>>;
 
 /// Session-owned cache for scale-domain inference artifacts.
 #[derive(Default)]
@@ -143,6 +145,7 @@ pub struct PlotSession {
     last_measurement: Option<()>,
     last_metrics: Option<EvaluationMetrics>,
     scale_domain_cache: ScaleDomainCacheHandle,
+    facet_semantic_cache: FacetSemanticCacheHandle,
 }
 
 impl PlotSession {
@@ -156,6 +159,7 @@ impl PlotSession {
             last_measurement: None,
             last_metrics: None,
             scale_domain_cache: Arc::new(Mutex::new(ScaleDomainCache::default())),
+            facet_semantic_cache: Arc::new(Mutex::new(PartitionSlotCache::new())),
         }
     }
 
@@ -202,6 +206,7 @@ impl PlotSession {
                 Some(next_params.clone()),
                 request.options,
                 self.scale_domain_cache.clone(),
+                self.facet_semantic_cache.clone(),
             )
             .await?;
         metrics.mode = mode;
@@ -566,6 +571,39 @@ mod tests {
             .await
     }
 
+    async fn compile_responsive_wrap_width_param_cache_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let width = Param::new("width", ScalarValue::Float64(Some(420.0)));
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('A', 1.0, 2.0), ('B', 2.0, 3.0), ('C', 3.0, 4.0),
+                    ('D', 4.0, 5.0), ('E', 5.0, 6.0), ('F', 6.0, 7.0)
+                ) AS t(facet, x, y)",
+            )
+            .await?;
+        Plot::<FacetWrap>::new()
+            .add_param(width.clone())
+            .canvas_constraint(CanvasConstraint::width(width.expr()))
+            .plot_constraint(PlotConstraint::height(120.0))
+            .data(df)
+            .mark(
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(
+                        Symbol::new()
+                            .x(col("x"))
+                            .y(col("y"))
+                            .size(20.0)
+                            .fill("#4682b4"),
+                    ),
+                )
+                .wrap_with(col("facet"), |c| c.responsive_columns(180.0)),
+            )
+            .compile(ctx)
+            .await
+    }
+
     async fn compile_positioned_child_width_param_scale_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
@@ -817,6 +855,36 @@ mod tests {
         assert_eq!(second.pipeline.scale_domain_cache_misses, 0);
         assert_eq!(second.pipeline.scale_builder_builds, 0);
         assert_eq!(second.pipeline.scale_domain_collects, 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn facet_semantic_cache_reuses_slots_for_responsive_wrap_width_change()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_responsive_wrap_width_param_cache_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let (_evaluated, first) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert_eq!(first.pipeline.facet_semantic_cache_hits, 0);
+        assert!(
+            first.pipeline.facet_semantic_cache_misses > 0,
+            "initial responsive wrap evaluation should populate the facet semantic cache"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(900.0)));
+        let (_evaluated, second) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(patch))
+            .await?;
+        assert!(
+            second.pipeline.facet_semantic_cache_hits > 0,
+            "width-only responsive wrap reevaluation should reuse semantic partition slots"
+        );
+        assert_eq!(second.pipeline.facet_semantic_cache_misses, 0);
 
         Ok(())
     }

@@ -257,6 +257,24 @@ impl EvaluatedFacetTree {
         params: &IndexMap<String, ScalarValue>,
         wrap_layout_context: FacetWrapLayoutContext,
     ) -> Result<Self, AvengerChartError> {
+        let mut slot_cache = PartitionSlotCache::new();
+        Self::from_compiled_plot_with_params_wrap_layout_context_and_slot_cache(
+            plot,
+            ctx,
+            params,
+            wrap_layout_context,
+            &mut slot_cache,
+        )
+        .await
+    }
+
+    pub(crate) async fn from_compiled_plot_with_params_wrap_layout_context_and_slot_cache(
+        plot: &CompiledPlot,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+        wrap_layout_context: FacetWrapLayoutContext,
+        slot_cache: &mut PartitionSlotCache,
+    ) -> Result<Self, AvengerChartError> {
         // Get the DataFrame from plot-level data or first mark with data
         let df = get_dataframe_from_plot(plot, ctx);
 
@@ -269,9 +287,6 @@ impl EvaluatedFacetTree {
             }
         };
 
-        // Cache for shared facet slot values to avoid redundant queries.
-        let mut slot_cache = PartitionSlotCache::new();
-
         // Build partition tree by walking marks
         // Start at depth 1 (outermost facet level)
         let root = build_partition_tree(
@@ -282,7 +297,7 @@ impl EvaluatedFacetTree {
             &[],
             &[],
             1,
-            &mut slot_cache,
+            slot_cache,
             wrap_layout_context,
         )
         .await?;
@@ -1677,9 +1692,11 @@ async fn build_partition_node(
     let parent_filter = combine_filters(ancestor_filters);
     let sharing_level = SharingLevel::from_raw(dimension.sharing);
     let domain_filter = domain_filter_for_sharing(ancestor_filters, sharing_level, current_depth);
-    let observed_values = dimension.observed_values(df, parent_filter.clone()).await?;
+    let observed_values = dimension
+        .observed_values(df, parent_filter.clone(), params, slot_cache)
+        .await?;
     let values = dimension
-        .domain_values(df, domain_filter, slot_cache)
+        .domain_values(df, domain_filter, params, slot_cache)
         .await?;
 
     if values.is_empty() {
@@ -2006,9 +2023,11 @@ async fn build_wrap_partition_node(
     let parent_filter = combine_filters(ancestor_filters);
     let sharing_level = SharingLevel::from_raw(dimension.sharing);
     let domain_filter = domain_filter_for_sharing(ancestor_filters, sharing_level, current_depth);
-    let observed_values = dimension.observed_values(df, parent_filter).await?;
+    let observed_values = dimension
+        .observed_values(df, parent_filter, params, slot_cache)
+        .await?;
     let values = dimension
-        .domain_values(df, domain_filter.clone(), slot_cache)
+        .domain_values(df, domain_filter.clone(), params, slot_cache)
         .await?;
 
     if values.is_empty() {

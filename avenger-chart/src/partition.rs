@@ -11,8 +11,9 @@ use datafusion::{
     arrow::record_batch::RecordBatch,
     common::ScalarValue,
     dataframe::DataFrame,
-    logical_expr::{Expr, lit},
+    logical_expr::{Expr, LogicalPlan, lit},
 };
+use datafusion_common::tree_node::{TreeNode, TreeNodeRecursion};
 use indexmap::IndexMap;
 
 use avenger_chart_core::{contains_aggregate, scalar_total_cmp};
@@ -40,11 +41,53 @@ pub(crate) fn format_partition_value(value: &ScalarValue) -> String {
     }
 }
 
-/// Cache for shared partition slot values.
+/// Cache statistics for semantic partition slot queries.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct PartitionSlotCacheStats {
+    pub(crate) hits: usize,
+    pub(crate) misses: usize,
+}
+
+/// Cache for semantic partition slot values.
 ///
-/// Shared partition dimensions enumerate slot values from the unfiltered data.
-/// The cache avoids repeating that query for sibling branches.
-pub(crate) type PartitionSlotCache = HashMap<String, Vec<ScalarValue>>;
+/// Facet tree construction uses this for both displayed domain slots and
+/// observed slots under concrete parent filters. Responsive wrap can then
+/// rebuild physical rows/columns without repeating the semantic partition
+/// queries.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct PartitionSlotCache {
+    values: HashMap<String, Vec<ScalarValue>>,
+    stats: PartitionSlotCacheStats,
+}
+
+impl PartitionSlotCache {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn get(&mut self, key: &str) -> Option<Vec<ScalarValue>> {
+        if let Some(values) = self.values.get(key) {
+            self.stats.hits += 1;
+            Some(values.clone())
+        } else {
+            self.stats.misses += 1;
+            None
+        }
+    }
+
+    pub(crate) fn insert(&mut self, key: String, values: Vec<ScalarValue>) {
+        self.values.insert(key, values);
+    }
+
+    pub(crate) fn merge_from(&mut self, other: PartitionSlotCache) {
+        self.values.extend(other.values);
+        self.stats = other.stats;
+    }
+
+    pub(crate) fn stats(&self) -> PartitionSlotCacheStats {
+        self.stats
+    }
+}
 
 /// One dimension in a nested data-partition tree.
 #[derive(Debug, Clone)]
@@ -165,12 +208,28 @@ impl PartitionDimensionSpec {
         &self,
         df: &DataFrame,
         parent_filter: Option<Expr>,
+        params: &IndexMap<String, ScalarValue>,
+        slot_cache: &mut PartitionSlotCache,
     ) -> Result<Vec<ScalarValue>, AvengerChartError> {
+        let cache_key = self.slot_cache_key(
+            "observed",
+            df.logical_plan(),
+            parent_filter.as_ref(),
+            params,
+        );
+        if let Some(cached) = slot_cache.get(&cache_key) {
+            return Ok(cached);
+        }
         if let Some(parent_filter) = parent_filter {
             let df_filtered = df.clone().filter(parent_filter)?;
-            PartitionKeyExtractor::extract_keys(&df_filtered, &self.field_expr).await
+            let values =
+                PartitionKeyExtractor::extract_keys(&df_filtered, &self.field_expr).await?;
+            slot_cache.insert(cache_key, values.clone());
+            Ok(values)
         } else {
-            PartitionKeyExtractor::extract_keys(df, &self.field_expr).await
+            let values = PartitionKeyExtractor::extract_keys(df, &self.field_expr).await?;
+            slot_cache.insert(cache_key, values.clone());
+            Ok(values)
         }
     }
 
@@ -178,11 +237,13 @@ impl PartitionDimensionSpec {
         &self,
         df: &DataFrame,
         domain_filter: Option<Expr>,
+        params: &IndexMap<String, ScalarValue>,
         slot_cache: &mut PartitionSlotCache,
     ) -> Result<Vec<ScalarValue>, AvengerChartError> {
-        let cache_key = self.slot_cache_key(domain_filter.as_ref());
+        let cache_key =
+            self.slot_cache_key("domain", df.logical_plan(), domain_filter.as_ref(), params);
         if let Some(cached) = slot_cache.get(&cache_key) {
-            return Ok(cached.clone());
+            return Ok(cached);
         }
 
         let scoped_df = if let Some(domain_filter) = domain_filter {
@@ -201,9 +262,17 @@ impl PartitionDimensionSpec {
         Ok(values)
     }
 
-    fn slot_cache_key(&self, domain_filter: Option<&Expr>) -> String {
+    fn slot_cache_key(
+        &self,
+        kind: &str,
+        data_plan: &LogicalPlan,
+        filter: Option<&Expr>,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> String {
         format!(
-            "direction={:?}|sharing={}|field={}|expr={}|order={}|desc={}|filter={}",
+            "kind={}|data={:?}|direction={:?}|sharing={}|field={}|expr={}|order={}|desc={}|filter={}|params={}",
+            kind,
+            data_plan,
             self.direction,
             self.sharing,
             self.field,
@@ -213,11 +282,68 @@ impl PartitionDimensionSpec {
                 .map(ToString::to_string)
                 .unwrap_or_else(|| "<default>".to_string()),
             self.order_descending,
-            domain_filter
+            filter
                 .map(ToString::to_string)
-                .unwrap_or_else(|| "<global>".to_string())
+                .unwrap_or_else(|| "<global>".to_string()),
+            partition_param_fingerprint(
+                data_plan,
+                &self.field_expr,
+                self.order_expr.as_ref(),
+                filter,
+                params
+            )
         )
     }
+}
+
+fn partition_param_fingerprint(
+    data_plan: &LogicalPlan,
+    field_expr: &Expr,
+    order_expr: Option<&Expr>,
+    filter: Option<&Expr>,
+    params: &IndexMap<String, ScalarValue>,
+) -> String {
+    let mut names = Vec::<String>::new();
+    collect_logical_plan_placeholders(data_plan, &mut names);
+    collect_expr_placeholders(field_expr, &mut names);
+    if let Some(order_expr) = order_expr {
+        collect_expr_placeholders(order_expr, &mut names);
+    }
+    if let Some(filter) = filter {
+        collect_expr_placeholders(filter, &mut names);
+    }
+    names.sort();
+    names.dedup();
+    names
+        .into_iter()
+        .map(|name| {
+            let value = params
+                .get(&name)
+                .or_else(|| params.get(&format!("${name}")))
+                .map(|value| format!("{value:?}"))
+                .unwrap_or_else(|| "<missing>".to_string());
+            format!("{name}={value}")
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn collect_logical_plan_placeholders(plan: &LogicalPlan, names: &mut Vec<String>) {
+    let _ = plan.apply(|node| {
+        for expr in node.expressions() {
+            collect_expr_placeholders(&expr, names);
+        }
+        Ok(TreeNodeRecursion::Continue)
+    });
+}
+
+fn collect_expr_placeholders(expr: &Expr, names: &mut Vec<String>) {
+    let _ = expr.apply(|candidate| {
+        if let Expr::Placeholder(placeholder) = candidate {
+            names.push(placeholder.id.trim_start_matches('$').to_string());
+        }
+        Ok(TreeNodeRecursion::Continue)
+    });
 }
 
 impl PartitionKeyExtractor {

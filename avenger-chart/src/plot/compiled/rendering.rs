@@ -86,7 +86,8 @@ use super::{
     scale_provider::{DynamicScaleProvider, ScaleProvider},
     scales::build_scale_builder_from_marks,
     session::{
-        ScaleDomainCacheHandle, ScaleDomainCacheScope, scale_domain_cache_key_for_parts_with_scope,
+        FacetSemanticCacheHandle, ScaleDomainCacheHandle, ScaleDomainCacheScope,
+        scale_domain_cache_key_for_parts_with_scope,
     },
 };
 
@@ -4209,7 +4210,7 @@ impl CompiledPlot {
         params: Option<IndexMap<String, ScalarValue>>,
         options: EvaluationOptions,
     ) -> Result<EvaluatedPlot, AvengerChartError> {
-        Box::pin(self.evaluate_with_options_internal(ctx, params, options, None, None)).await
+        Box::pin(self.evaluate_with_options_internal(ctx, params, options, None, None, None)).await
     }
 
     /// Evaluate the plot while collecting focused performance diagnostics.
@@ -4227,6 +4228,7 @@ impl CompiledPlot {
             options,
             Some(metrics.clone()),
             None,
+            None,
         ))
         .await?;
         let metrics = metrics
@@ -4242,6 +4244,7 @@ impl CompiledPlot {
         params: Option<IndexMap<String, ScalarValue>>,
         options: EvaluationOptions,
         scale_domain_cache: ScaleDomainCacheHandle,
+        facet_semantic_cache: FacetSemanticCacheHandle,
     ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
         let metrics = Arc::new(Mutex::new(EvaluationMetrics::default()));
         let evaluated = Box::pin(self.evaluate_with_options_internal(
@@ -4250,6 +4253,7 @@ impl CompiledPlot {
             options,
             Some(metrics.clone()),
             Some(scale_domain_cache),
+            Some(facet_semantic_cache),
         ))
         .await?;
         let metrics = metrics
@@ -4266,6 +4270,7 @@ impl CompiledPlot {
         options: EvaluationOptions,
         evaluation_metrics: Option<Arc<Mutex<EvaluationMetrics>>>,
         scale_domain_cache: Option<ScaleDomainCacheHandle>,
+        facet_semantic_cache: Option<FacetSemanticCacheHandle>,
     ) -> Result<EvaluatedPlot, AvengerChartError> {
         // Merge provided params with defaults
         let merged_params = if let Some(provided) = params {
@@ -4295,15 +4300,43 @@ impl CompiledPlot {
         });
         let wrap_layout_context =
             Self::facet_wrap_layout_context(&evaluated_layout_spec, resolved_chart_sizing);
-        let facet_tree = Arc::new(
-            EvaluatedFacetTree::from_compiled_plot_with_params_and_wrap_layout_context(
-                self,
-                ctx,
-                &merged_params,
-                wrap_layout_context,
+        let facet_tree = if let Some(cache) = &facet_semantic_cache {
+            let mut slot_cache = cache
+                .lock()
+                .expect("facet semantic cache lock poisoned")
+                .clone();
+            let before = slot_cache.stats();
+            let tree =
+                EvaluatedFacetTree::from_compiled_plot_with_params_wrap_layout_context_and_slot_cache(
+                    self,
+                    ctx,
+                    &merged_params,
+                    wrap_layout_context,
+                    &mut slot_cache,
+                )
+                .await?;
+            let after = slot_cache.stats();
+            Self::record_evaluation_metric(&evaluation_metrics, |metrics| {
+                metrics.record_facet_semantic_cache_hits(after.hits.saturating_sub(before.hits));
+                metrics
+                    .record_facet_semantic_cache_misses(after.misses.saturating_sub(before.misses));
+            });
+            cache
+                .lock()
+                .expect("facet semantic cache lock poisoned")
+                .merge_from(slot_cache);
+            Arc::new(tree)
+        } else {
+            Arc::new(
+                EvaluatedFacetTree::from_compiled_plot_with_params_and_wrap_layout_context(
+                    self,
+                    ctx,
+                    &merged_params,
+                    wrap_layout_context,
+                )
+                .await?,
             )
-            .await?,
-        );
+        };
         debug!(
             elapsed_ms = facet_tree_start.elapsed().as_secs_f64() * 1000.0,
             depth = facet_tree.depth(),

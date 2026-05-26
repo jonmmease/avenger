@@ -196,6 +196,14 @@ impl EvaluationMetrics {
         self.pipeline.facet_tree_builds += 1;
     }
 
+    pub(crate) fn record_facet_semantic_cache_hits(&mut self, count: usize) {
+        self.pipeline.facet_semantic_cache_hits += count;
+    }
+
+    pub(crate) fn record_facet_semantic_cache_misses(&mut self, count: usize) {
+        self.pipeline.facet_semantic_cache_misses += count;
+    }
+
     pub(crate) fn record_scale_builder_build(&mut self) {
         self.pipeline.scale_builder_builds += 1;
     }
@@ -276,6 +284,10 @@ impl EvaluationMetrics {
 pub struct EvaluationPipelineMetrics {
     /// Number of times a top-level `EvaluatedFacetTree` was built.
     pub facet_tree_builds: usize,
+    /// Number of session semantic facet cache hits while building facet trees.
+    pub facet_semantic_cache_hits: usize,
+    /// Number of session semantic facet cache misses while building facet trees.
+    pub facet_semantic_cache_misses: usize,
     /// Number of scale-builder construction requests observed by the chart
     /// runtime. This counts calls to the current domain-inference pipeline,
     /// not configured scale range rebuilds.
