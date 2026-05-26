@@ -4307,9 +4307,9 @@ impl CompiledPlot {
         scale_domain_cache: ScaleDomainCacheHandle,
         facet_semantic_cache: FacetSemanticCacheHandle,
         facet_scale_precompute_cache: FacetScalePrecomputeCacheHandle,
-        guide_overflow_cache: GuideOverflowCacheHandle,
-        legend_measurement_cache: LegendMeasurementCacheHandle,
-        text_measurement_cache: TextMeasurementCacheHandle,
+        guide_overflow_cache: Option<GuideOverflowCacheHandle>,
+        legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
+        text_measurement_cache: Option<TextMeasurementCacheHandle>,
     ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
         let metrics = Arc::new(Mutex::new(EvaluationMetrics::default()));
         let evaluated = Box::pin(self.evaluate_with_options_internal(
@@ -4320,9 +4320,9 @@ impl CompiledPlot {
             Some(scale_domain_cache),
             Some(facet_semantic_cache),
             Some(facet_scale_precompute_cache),
-            Some(guide_overflow_cache),
-            Some(legend_measurement_cache),
-            Some(text_measurement_cache),
+            guide_overflow_cache,
+            legend_measurement_cache,
+            text_measurement_cache,
         ))
         .await?;
         let metrics = metrics

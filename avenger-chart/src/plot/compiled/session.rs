@@ -368,6 +368,7 @@ impl PlotSession {
     ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
         let mode = request.mode;
         let next_params = self.params_for_request(&request);
+        let use_measurement_profile_caches = mode != EvaluationMode::ForceRemeasure;
         let (evaluated, mut metrics) = self
             .program
             .evaluate_with_options_and_metrics_with_scale_domain_cache(
@@ -377,9 +378,9 @@ impl PlotSession {
                 self.scale_domain_cache.clone(),
                 self.facet_semantic_cache.clone(),
                 self.facet_scale_precompute_cache.clone(),
-                self.guide_overflow_cache.clone(),
-                self.legend_measurement_cache.clone(),
-                self.text_measurement_cache.clone(),
+                use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
+                use_measurement_profile_caches.then(|| self.legend_measurement_cache.clone()),
+                use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
             )
             .await?;
         metrics.mode = mode;
@@ -1003,6 +1004,7 @@ mod tests {
             )
             .await?;
         Plot::<Cartesian>::new()
+            .title("Cached Legend Plot")
             .data(df)
             .mark(
                 Symbol::new()
@@ -1361,6 +1363,45 @@ mod tests {
             "warm exact evaluation should reuse cached title measurements"
         );
         assert_eq!(second.pipeline.text_measurement_cache_misses, 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn force_remeasure_bypasses_measurement_profile_caches() -> Result<(), AvengerChartError>
+    {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_legend_cache_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let (_evaluated, warm) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            warm.pipeline.guide_overflow_cache_misses > 0
+                || warm.pipeline.legend_measurement_cache_misses > 0
+                || warm.pipeline.text_measurement_cache_misses > 0,
+            "warm-up exact evaluation should populate at least one measurement-profile cache"
+        );
+
+        let (_evaluated, force) = session
+            .evaluate_with_metrics(EvaluationRequest::new().force_remeasure())
+            .await?;
+        assert_eq!(force.mode, EvaluationMode::ForceRemeasure);
+        assert_eq!(force.pipeline.guide_overflow_cache_hits, 0);
+        assert_eq!(force.pipeline.guide_overflow_cache_misses, 0);
+        assert_eq!(force.pipeline.legend_measurement_cache_hits, 0);
+        assert_eq!(force.pipeline.legend_measurement_cache_misses, 0);
+        assert_eq!(force.pipeline.text_measurement_cache_hits, 0);
+        assert_eq!(force.pipeline.text_measurement_cache_misses, 0);
+        assert!(
+            force.pipeline.guide_overflow_measure_calls > 0,
+            "force remeasure should still run guide overflow measurement"
+        );
+        assert!(
+            force.pipeline.legend_measurements > 0,
+            "force remeasure should still run legend measurement"
+        );
 
         Ok(())
     }
