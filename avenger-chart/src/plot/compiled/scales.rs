@@ -65,6 +65,7 @@ pub(crate) async fn build_scale_builder_from_marks_with_facet_scope(
     facet_path: &[ScalarValue],
     theme: &Theme,
 ) -> Result<ScaleBuilder, AvengerChartError> {
+    eval_ctx.record_scale_builder_build();
     let mut prepared_marks = Vec::with_capacity(compiled_marks.len());
     for mark in compiled_marks {
         let prepared = Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {

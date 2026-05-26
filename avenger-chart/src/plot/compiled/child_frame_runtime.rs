@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use datafusion::{common::ScalarValue, dataframe::DataFrame};
 
-use avenger_chart_core::{EvaluationContext as CoreEvaluationContext, SharingLevel};
+use avenger_chart_core::SharingLevel;
 
 use crate::{
     error::AvengerChartError,
@@ -78,12 +78,13 @@ impl ChildFrameRuntime {
         plot: &'a CompiledPlot,
         data_selection: ChildFrameDataSelection,
         inherited_data: Option<&DataFrame>,
-        eval_ctx: &CoreEvaluationContext,
+        eval_ctx: &EvaluationContext,
     ) -> Result<PreparedChildFramePlot<'a>, AvengerChartError> {
         let data_override = match data_selection {
             ChildFrameDataSelection::ExplicitChild => None,
             ChildFrameDataSelection::InheritParent => inherited_data.cloned(),
         };
+        eval_ctx.record_scale_builder_build();
         let scale_builder = Box::pin(build_scale_builder_from_marks(
             &plot.marks,
             &plot.scale_specs,

@@ -4,7 +4,10 @@
 //! channel batches. Keeping this logic here avoids duplicating scale expression
 //! handling between mark rendering and child-frame container measurement.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use avenger_common::types::ColorOrGradient;
 use datafusion::{
@@ -34,7 +37,7 @@ use crate::{
     error::AvengerChartError,
     facet::data_scope::{FacetDataScopeContext, inherited_data_for_scope},
     marks::CompiledMark,
-    render::RenderState,
+    render::{EvaluationMetrics, RenderState},
     scales::{ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec},
     serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
 };
@@ -63,6 +66,7 @@ pub(crate) struct MarkDataRequest<'a> {
     pub(crate) facet_data_scope: Option<FacetDataScopeContext<'a>>,
     pub(crate) prepared_logical: Option<&'a PreparedLogicalMarkData>,
     pub(crate) eval_ctx: &'a EvaluationContext,
+    pub(crate) evaluation_metrics: Option<Arc<Mutex<EvaluationMetrics>>>,
     pub(crate) scales: &'a HashMap<String, ConfiguredScaleWithSpec>,
     pub(crate) plot_width: f32,
     pub(crate) plot_height: f32,
@@ -74,6 +78,33 @@ pub(crate) struct LogicalMarkDataRequest<'a> {
     pub(crate) provided_plot_df: Option<&'a DataFrame>,
     pub(crate) facet_data_scope: Option<FacetDataScopeContext<'a>>,
     pub(crate) eval_ctx: &'a EvaluationContext,
+}
+
+fn record_mark_data_full_collect(metrics: &Option<Arc<Mutex<EvaluationMetrics>>>) {
+    if let Some(metrics) = metrics {
+        metrics
+            .lock()
+            .expect("evaluation metrics lock poisoned")
+            .record_mark_data_full_collect();
+    }
+}
+
+fn record_mark_data_array_collect(metrics: &Option<Arc<Mutex<EvaluationMetrics>>>) {
+    if let Some(metrics) = metrics {
+        metrics
+            .lock()
+            .expect("evaluation metrics lock poisoned")
+            .record_mark_data_array_collect();
+    }
+}
+
+fn record_mark_data_scalar_collect(metrics: &Option<Arc<Mutex<EvaluationMetrics>>>) {
+    if let Some(metrics) = metrics {
+        metrics
+            .lock()
+            .expect("evaluation metrics lock poisoned")
+            .record_mark_data_scalar_collect();
+    }
 }
 
 fn channel_exprs_reference_columns(
@@ -413,6 +444,7 @@ pub(crate) async fn prepare_mark_data(
 
     let data_batch = if mark.wants_full_data_batch() {
         let datafusion_params = params_to_datafusion(params);
+        record_mark_data_full_collect(&request.evaluation_metrics);
         let batch = if let Some(param_values) = datafusion_params {
             (*df)
                 .clone()
@@ -436,6 +468,7 @@ pub(crate) async fn prepare_mark_data(
             select_exprs.push(expr.clone().alias(*name));
         }
         let datafusion_params = params_to_datafusion(params);
+        record_mark_data_array_collect(&request.evaluation_metrics);
         let batch = if let Some(param_values) = datafusion_params {
             (*df)
                 .clone()
@@ -462,6 +495,7 @@ pub(crate) async fn prepare_mark_data(
     }
     let scalar_batch = if !scalar_select_exprs.is_empty() {
         let datafusion_params = params_to_datafusion(params);
+        record_mark_data_scalar_collect(&request.evaluation_metrics);
         let batch = if let Some(param_values) = datafusion_params {
             (*df)
                 .clone()
@@ -671,6 +705,7 @@ mod tests {
             facet_data_scope: None,
             prepared_logical: None,
             eval_ctx: &eval_ctx,
+            evaluation_metrics: None,
             scales: &scales,
             plot_width: 100.0,
             plot_height: 100.0,
@@ -703,6 +738,7 @@ mod tests {
             facet_data_scope: None,
             prepared_logical: None,
             eval_ctx: &eval_ctx,
+            evaluation_metrics: None,
             scales: &scales,
             plot_width: 100.0,
             plot_height: 100.0,
@@ -731,6 +767,7 @@ mod tests {
             facet_data_scope: None,
             prepared_logical: None,
             eval_ctx: &eval_ctx,
+            evaluation_metrics: None,
             scales: &scales,
             plot_width: 100.0,
             plot_height: 100.0,
@@ -762,6 +799,7 @@ mod tests {
             facet_data_scope: None,
             prepared_logical: None,
             eval_ctx: &eval_ctx,
+            evaluation_metrics: None,
             scales: &scales,
             plot_width: 100.0,
             plot_height: 100.0,

@@ -5,6 +5,13 @@ use indexmap::IndexMap;
 
 use crate::{Theme, ThemeContext, ThemeValue};
 
+/// Diagnostics hook used by higher-level runtime crates to observe expensive
+/// evaluation work without making lower-level crates depend on the facade.
+#[doc(hidden)]
+pub trait EvaluationDiagnostics: Send + Sync {
+    fn record_scale_domain_collect(&self) {}
+}
+
 /// Public/base evaluation context for chart evaluation.
 ///
 /// This owns the stable inputs that coordinate systems, marks, scales, legends,
@@ -18,6 +25,8 @@ pub struct EvaluationContext {
     pub session_context: Arc<SessionContext>,
     /// Parameter values for prepared statements and theme/media evaluation.
     pub params: IndexMap<String, ScalarValue>,
+    #[doc(hidden)]
+    pub diagnostics: Option<Arc<dyn EvaluationDiagnostics>>,
 }
 
 impl EvaluationContext {
@@ -30,6 +39,7 @@ impl EvaluationContext {
             theme,
             session_context,
             params,
+            diagnostics: None,
         }
     }
 
@@ -54,6 +64,24 @@ impl EvaluationContext {
             theme: self.theme.clone(),
             session_context: self.session_context.clone(),
             params,
+            diagnostics: self.diagnostics.clone(),
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn with_diagnostics(&self, diagnostics: Arc<dyn EvaluationDiagnostics>) -> Self {
+        Self {
+            theme: self.theme.clone(),
+            session_context: self.session_context.clone(),
+            params: self.params.clone(),
+            diagnostics: Some(diagnostics),
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn record_scale_domain_collect(&self) {
+        if let Some(diagnostics) = &self.diagnostics {
+            diagnostics.record_scale_domain_collect();
         }
     }
 

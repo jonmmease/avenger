@@ -107,7 +107,7 @@ pub use datafusion_utils::{
     scalar_to_scalar_value, simplify_to_scalar_sync,
 };
 pub use error::AvengerChartError;
-pub use evaluation_context::EvaluationContext;
+pub use evaluation_context::{EvaluationContext, EvaluationDiagnostics};
 pub use expr_eval::{
     evaluate_axis_position_expr, evaluate_bool_expr, evaluate_f32_expr, evaluate_f64_expr,
     evaluate_i32_expr, evaluate_legend_orientation_expr, evaluate_legend_position_expr,

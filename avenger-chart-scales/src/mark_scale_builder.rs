@@ -277,6 +277,7 @@ where
                 domain_opt,
                 ordering,
                 prepared_marks,
+                eval_ctx,
                 ctx,
                 params,
                 &HashMap::new(), // no phase1 scales yet
@@ -349,6 +350,7 @@ where
                 domain_opt,
                 ordering,
                 prepared_marks,
+                eval_ctx,
                 ctx,
                 params,
                 &phase1_configured,
@@ -727,6 +729,7 @@ async fn cache_domain_data(
     domain_opt: Option<ScaleDomain>,
     ordering: Option<ScaleOrderingSpec>,
     prepared_marks: &[PreparedScaleMark],
+    eval_ctx: &CoreEvaluationContext,
     ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
     phase1_configured: &HashMap<String, ConfiguredScaleWithSpec>,
@@ -943,6 +946,7 @@ async fn cache_domain_data(
             options,
             &entries,
             radius_expr_opt.as_ref(),
+            eval_ctx,
             ctx,
             params,
             builder,
@@ -956,6 +960,7 @@ async fn cache_domain_data(
             options,
             &data_expressions,
             ordering.as_ref(),
+            eval_ctx,
             ctx,
             params,
             builder,
@@ -968,6 +973,7 @@ async fn cache_domain_data(
             spec,
             options,
             &data_expressions,
+            eval_ctx,
             ctx,
             params,
             builder,
@@ -980,6 +986,7 @@ async fn cache_domain_data(
             spec,
             options,
             &data_expressions,
+            eval_ctx,
             ctx,
             params,
             builder,
@@ -1094,6 +1101,7 @@ async fn cache_radius_aware_data(
     options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
     entries: &[(Arc<DataFrame>, Expr, Option<PreparedRadiusExpression>)],
     global_radius_opt: Option<&PreparedRadiusExpression>,
+    eval_ctx: &CoreEvaluationContext,
     _ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
     builder: &mut ScaleBuilder,
@@ -1132,6 +1140,7 @@ async fn cache_radius_aware_data(
         };
 
         let df_with_exprs = df.as_ref().clone().select(select_exprs)?;
+        eval_ctx.record_scale_domain_collect();
         let batches = if !params.is_empty() {
             if let Some(param_values) = params_to_datafusion(params) {
                 df_with_exprs
@@ -1205,6 +1214,7 @@ async fn cache_radius_aware_data(
 
 async fn distinct_categorical_values(
     data_expressions: &[(Arc<DataFrame>, Expr)],
+    eval_ctx: &CoreEvaluationContext,
     params: &IndexMap<String, ScalarValue>,
 ) -> Result<Vec<ScalarValue>, AvengerChartError> {
     let mut all_unique_values: Vec<ScalarValue> = Vec::new();
@@ -1216,6 +1226,7 @@ async fn distinct_categorical_values(
             .select(vec![expr.clone().alias("value")])?
             .distinct()?;
 
+        eval_ctx.record_scale_domain_collect();
         let batches = if !params.is_empty() {
             if let Some(param_values) = params_to_datafusion(params) {
                 distinct_df
@@ -1251,6 +1262,7 @@ async fn ordered_categorical_values(
     data_expressions: &[(Arc<DataFrame>, Expr)],
     order_expr: &Expr,
     order_descending: bool,
+    eval_ctx: &CoreEvaluationContext,
     params: &IndexMap<String, ScalarValue>,
 ) -> Result<(Vec<ScalarValue>, bool), AvengerChartError> {
     let Some((_, category_expr)) = data_expressions.first() else {
@@ -1260,7 +1272,7 @@ async fn ordered_categorical_values(
     validate_scale_order_expr(category_expr, order_expr)?;
 
     if !contains_aggregate(order_expr) {
-        let mut values = distinct_categorical_values(data_expressions, params).await?;
+        let mut values = distinct_categorical_values(data_expressions, eval_ctx, params).await?;
         if order_expr_matches_category(category_expr, order_expr) && order_descending {
             values.sort_by(|a, b| scalar_total_cmp(b, a));
             return Ok((values, true));
@@ -1322,6 +1334,7 @@ async fn ordered_categorical_values(
             ))
         })?;
 
+    eval_ctx.record_scale_domain_collect();
     let batches = if !params.is_empty() {
         if let Some(param_values) = params_to_datafusion(params) {
             ordered_df
@@ -1434,6 +1447,7 @@ async fn cache_categorical_data(
     options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
     data_expressions: &[(Arc<DataFrame>, Expr)],
     ordering: Option<&ScaleOrderingSpec>,
+    eval_ctx: &CoreEvaluationContext,
     _ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
     builder: &mut ScaleBuilder,
@@ -1448,12 +1462,13 @@ async fn cache_categorical_data(
             ordering
                 .map(ScaleOrderingSpec::order_descending)
                 .unwrap_or(false),
+            eval_ctx,
             params,
         )
         .await?
     } else {
         (
-            distinct_categorical_values(data_expressions, params).await?,
+            distinct_categorical_values(data_expressions, eval_ctx, params).await?,
             false,
         )
     };
@@ -1483,6 +1498,7 @@ async fn cache_temporal_data(
     spec: &Box<dyn ScaleSpec>,
     options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
     data_expressions: &[(Arc<DataFrame>, Expr)],
+    eval_ctx: &CoreEvaluationContext,
     _ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
     builder: &mut ScaleBuilder,
@@ -1500,6 +1516,7 @@ async fn cache_temporal_data(
             ],
         )?;
 
+        eval_ctx.record_scale_domain_collect();
         let batches = if !params.is_empty() {
             if let Some(param_values) = params_to_datafusion(params) {
                 agg_df.with_param_values(param_values)?.collect().await?
@@ -1554,6 +1571,7 @@ async fn cache_numeric_data(
     spec: &Box<dyn ScaleSpec>,
     options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
     data_expressions: &[(Arc<DataFrame>, Expr)],
+    eval_ctx: &CoreEvaluationContext,
     _ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
     builder: &mut ScaleBuilder,
@@ -1571,6 +1589,7 @@ async fn cache_numeric_data(
             ],
         )?;
 
+        eval_ctx.record_scale_domain_collect();
         let batches = if !params.is_empty() {
             if let Some(param_values) = params_to_datafusion(params) {
                 agg_df.with_param_values(param_values)?.collect().await?
@@ -1649,6 +1668,14 @@ mod tests {
         ctx.read_batch(batch)
     }
 
+    fn eval_ctx(ctx: &SessionContext) -> CoreEvaluationContext {
+        CoreEvaluationContext::new(
+            Arc::new(Theme::light()),
+            Arc::new(ctx.clone()),
+            IndexMap::new(),
+        )
+    }
+
     #[tokio::test]
     async fn categorical_order_by_max_descends_and_ties_by_category() {
         let ctx = SessionContext::new();
@@ -1663,6 +1690,7 @@ mod tests {
             &[(Arc::new(data), col("category"))],
             &max(col("value")),
             true,
+            &eval_ctx(&ctx),
             &IndexMap::new(),
         )
         .await
@@ -1685,6 +1713,7 @@ mod tests {
             ],
             &sum(col("value")),
             true,
+            &eval_ctx(&ctx),
             &IndexMap::new(),
         )
         .await
@@ -1703,6 +1732,7 @@ mod tests {
             &[(Arc::new(data), col("category"))],
             &col("category"),
             true,
+            &eval_ctx(&ctx),
             &IndexMap::new(),
         )
         .await
@@ -1721,6 +1751,7 @@ mod tests {
             &[(Arc::new(data), col("category"))],
             &lit(1.0),
             true,
+            &eval_ctx(&ctx),
             &IndexMap::new(),
         )
         .await
@@ -1739,6 +1770,7 @@ mod tests {
             &[(Arc::new(data), col("category"))],
             &col("value"),
             false,
+            &eval_ctx(&ctx),
             &IndexMap::new(),
         )
         .await
@@ -1773,6 +1805,7 @@ mod tests {
             Some(ScaleDomain::new_discrete(vec![lit("B"), lit("A")])),
             Some(ordering),
             &[],
+            &eval_ctx(&ctx),
             &ctx,
             &IndexMap::new(),
             &HashMap::new(),
@@ -1822,6 +1855,7 @@ mod tests {
             None,
             Some(ordering),
             &[],
+            &eval_ctx(&ctx),
             &ctx,
             &IndexMap::new(),
             &HashMap::new(),

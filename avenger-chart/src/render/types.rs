@@ -169,9 +169,51 @@ impl Default for EvaluationOptions {
 pub struct EvaluationMetrics {
     /// Metrics for recursive facet layout measurement.
     pub facet_layout: FacetLayoutMetrics,
+    /// Metrics for top-level evaluation pipeline work that future sessions
+    /// should cache, reuse, or bypass.
+    pub pipeline: EvaluationPipelineMetrics,
 }
 
 impl EvaluationMetrics {
+    pub(crate) fn record_facet_tree_build(&mut self) {
+        self.pipeline.facet_tree_builds += 1;
+    }
+
+    pub(crate) fn record_scale_builder_build(&mut self) {
+        self.pipeline.scale_builder_builds += 1;
+    }
+
+    pub(crate) fn record_scale_domain_collect(&mut self) {
+        self.pipeline.scale_domain_collects += 1;
+    }
+
+    pub(crate) fn record_guide_overflow_measure_call(&mut self) {
+        self.pipeline.guide_overflow_measure_calls += 1;
+    }
+
+    pub(crate) fn record_legend_plan_build(&mut self) {
+        self.pipeline.legend_plan_builds += 1;
+    }
+
+    pub(crate) fn record_legend_measurements(&mut self, count: usize) {
+        self.pipeline.legend_measurements += count;
+    }
+
+    pub(crate) fn record_mark_data_full_collect(&mut self) {
+        self.pipeline.mark_data_collects += 1;
+        self.pipeline.mark_data_full_collects += 1;
+    }
+
+    pub(crate) fn record_mark_data_array_collect(&mut self) {
+        self.pipeline.mark_data_collects += 1;
+        self.pipeline.mark_data_array_collects += 1;
+    }
+
+    pub(crate) fn record_mark_data_scalar_collect(&mut self) {
+        self.pipeline.mark_data_collects += 1;
+        self.pipeline.mark_data_scalar_collects += 1;
+    }
+
     pub(crate) fn record_plot_component_measure_call(&mut self, facet_depth: usize) {
         self.facet_layout
             .record_plot_component_measure_call(facet_depth);
@@ -201,6 +243,34 @@ impl EvaluationMetrics {
     pub(crate) fn record_facet_refinement_hit_max_passes(&mut self) {
         self.facet_layout.refinement_hit_max_passes = true;
     }
+}
+
+/// Opt-in counters for evaluation pipeline diagnostics.
+#[doc(hidden)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct EvaluationPipelineMetrics {
+    /// Number of times a top-level `EvaluatedFacetTree` was built.
+    pub facet_tree_builds: usize,
+    /// Number of scale-builder construction requests observed by the chart
+    /// runtime. This counts calls to the current domain-inference pipeline,
+    /// not configured scale range rebuilds.
+    pub scale_builder_builds: usize,
+    /// Number of DataFusion collect calls made while inferring scale domains.
+    pub scale_domain_collects: usize,
+    /// Number of coordinate-guide overflow measurements.
+    pub guide_overflow_measure_calls: usize,
+    /// Number of legend plan builds.
+    pub legend_plan_builds: usize,
+    /// Number of legend groups measured while building plans.
+    pub legend_measurements: usize,
+    /// Number of DataFusion collect calls made while preparing mark render data.
+    pub mark_data_collects: usize,
+    /// Mark data collect calls for marks requesting full data batches.
+    pub mark_data_full_collects: usize,
+    /// Mark data collect calls for array channel batches.
+    pub mark_data_array_collects: usize,
+    /// Mark data collect calls for scalar channel batches.
+    pub mark_data_scalar_collects: usize,
 }
 
 /// Opt-in counters for recursive facet layout measurement diagnostics.

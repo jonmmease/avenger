@@ -15,8 +15,8 @@ use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionCont
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    EvaluationContext as CoreEvaluationContext, MarkRenderContext as CoreMarkRenderContext,
-    MarkRuntimeContext,
+    EvaluationContext as CoreEvaluationContext, EvaluationDiagnostics,
+    MarkRenderContext as CoreMarkRenderContext, MarkRuntimeContext,
 };
 
 use crate::{
@@ -176,6 +176,26 @@ impl FacetRuntimeSizingMode {
 pub(crate) struct FacetSubtreeSnapshotCapture {
     pub(crate) request: FacetSubtreeSnapshot,
     pub(crate) result: Option<EvaluatedPlot>,
+}
+
+#[derive(Clone)]
+pub(crate) struct EvaluationMetricsDiagnostics {
+    metrics: Arc<Mutex<EvaluationMetrics>>,
+}
+
+impl EvaluationMetricsDiagnostics {
+    pub(crate) fn new(metrics: Arc<Mutex<EvaluationMetrics>>) -> Self {
+        Self { metrics }
+    }
+}
+
+impl EvaluationDiagnostics for EvaluationMetricsDiagnostics {
+    fn record_scale_domain_collect(&self) {
+        self.metrics
+            .lock()
+            .expect("evaluation metrics lock poisoned")
+            .record_scale_domain_collect();
+    }
 }
 
 /// Immutable context built once at evaluate() entry.
@@ -518,7 +538,9 @@ impl EvaluationContext {
 
     pub(crate) fn with_evaluation_metrics(&self, metrics: Arc<Mutex<EvaluationMetrics>>) -> Self {
         Self {
-            core: self.core.clone(),
+            core: self
+                .core
+                .with_diagnostics(Arc::new(EvaluationMetricsDiagnostics::new(metrics.clone()))),
             facet_tree: self.facet_tree.clone(),
             facet_data_root: self.facet_data_root.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
@@ -690,6 +712,42 @@ impl EvaluationContext {
                 .lock()
                 .expect("evaluation metrics lock poisoned")
                 .record_plot_component_measure_call(facet_depth);
+        }
+    }
+
+    pub(crate) fn record_scale_builder_build(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_scale_builder_build();
+        }
+    }
+
+    pub(crate) fn record_guide_overflow_measure_call(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_guide_overflow_measure_call();
+        }
+    }
+
+    pub(crate) fn record_legend_plan_build(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_legend_plan_build();
+        }
+    }
+
+    pub(crate) fn record_legend_measurements(&self, count: usize) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_legend_measurements(count);
         }
     }
 

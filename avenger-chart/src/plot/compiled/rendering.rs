@@ -63,8 +63,8 @@ use crate::{
     marks::CompiledMark,
     positioned_subplot::{PositionedCoordMeasurement, render_positioned_subplot_with_context},
     render::context::{
-        FacetDimensionSizing, FacetRuntimeSizingMode, FacetRuntimeSizingPolicy,
-        FacetSubtreeSnapshotCapture,
+        EvaluationMetricsDiagnostics, FacetDimensionSizing, FacetRuntimeSizingMode,
+        FacetRuntimeSizingPolicy, FacetSubtreeSnapshotCapture,
     },
     render::{
         CoordinationCheckpoint, EvaluatedPlot, EvaluationContext, EvaluationMetrics,
@@ -1177,6 +1177,15 @@ async fn evaluate_layout_spec(
 }
 
 impl CompiledPlot {
+    fn record_evaluation_metric(
+        evaluation_metrics: &Option<Arc<Mutex<EvaluationMetrics>>>,
+        f: impl FnOnce(&mut EvaluationMetrics),
+    ) {
+        if let Some(metrics) = evaluation_metrics {
+            f(&mut metrics.lock().expect("evaluation metrics lock poisoned"));
+        }
+    }
+
     /// Evaluate a single mark with an optional provided plot-level DataFrame fallback.
     /// If `provided_plot_df` is Some, it is used when the mark has no explicit data and
     /// the channels reference columns. Otherwise, falls back to this CompiledPlot's plot-level data.
@@ -1203,6 +1212,7 @@ impl CompiledPlot {
             )),
             prepared_logical: None,
             eval_ctx,
+            evaluation_metrics: eval_ctx.evaluation_metrics.clone(),
             scales,
             plot_width,
             plot_height,
@@ -1341,6 +1351,7 @@ impl CompiledPlot {
     /// based on the provided EvaluatedLayoutSpec.
     pub(super) async fn compute_layout_with_spec(
         &self,
+        eval_ctx: &EvaluationContext,
         layout_spec: &EvaluatedLayoutSpec,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         ctx: &SessionContext,
@@ -1378,6 +1389,7 @@ impl CompiledPlot {
                 .collect();
             let sharing_context =
                 GuideSharingContext::new(facet_tree, facet_path, child_frame_sharing_path);
+            eval_ctx.record_guide_overflow_measure_call();
             compiled_guide
                 .measure_overflow(
                     &configured_scales,
@@ -1401,6 +1413,7 @@ impl CompiledPlot {
         };
         let scope = Self::legend_scope_for_context(facet_path, child_frame_sharing_path);
         Box::pin(self.compute_layout_with_precomputed_overflow(
+            eval_ctx,
             &overflow,
             layout_spec,
             scales,
@@ -1417,6 +1430,7 @@ impl CompiledPlot {
 
     async fn compute_layout_with_precomputed_overflow(
         &self,
+        eval_ctx: &EvaluationContext,
         overflow: &OverflowSpaceRequirement,
         layout_spec: &EvaluatedLayoutSpec,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
@@ -1429,6 +1443,7 @@ impl CompiledPlot {
         scope: LegendPlanScope,
     ) -> Result<(LayoutSolution, PreparedLegendPlan), AvengerChartError> {
         Box::pin(self.compute_layout_with_precomputed_overflow_and_coord(
+            eval_ctx,
             overflow,
             layout_spec,
             scales,
@@ -1447,6 +1462,7 @@ impl CompiledPlot {
     #[allow(clippy::too_many_arguments)]
     async fn compute_layout_with_precomputed_overflow_and_coord(
         &self,
+        eval_ctx: &EvaluationContext,
         overflow: &OverflowSpaceRequirement,
         layout_spec: &EvaluatedLayoutSpec,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
@@ -1459,6 +1475,7 @@ impl CompiledPlot {
         scope: LegendPlanScope,
         coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<(LayoutSolution, PreparedLegendPlan), AvengerChartError> {
+        eval_ctx.record_legend_plan_build();
         let legend_plan = Box::pin(self.prepare_legend_plan(
             scales,
             available_size,
@@ -1472,6 +1489,7 @@ impl CompiledPlot {
         .await?;
 
         Box::pin(self.compute_layout_from_legend_plan(
+            eval_ctx,
             overflow,
             layout_spec,
             available_size,
@@ -1488,6 +1506,7 @@ impl CompiledPlot {
     #[allow(clippy::too_many_arguments)]
     async fn compute_layout_from_legend_plan(
         &self,
+        eval_ctx: &EvaluationContext,
         overflow: &OverflowSpaceRequirement,
         layout_spec: &EvaluatedLayoutSpec,
         available_size: Size2D,
@@ -1511,6 +1530,7 @@ impl CompiledPlot {
             .await?;
         }
 
+        eval_ctx.record_legend_measurements(legend_plan.measurements.len());
         let mut result = Box::pin(TaffyFrameLayoutSolver::solve(FrameLayoutInput {
             overflow,
             layout_spec,
@@ -1641,6 +1661,7 @@ impl CompiledPlot {
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         let params_with_dims = eval_ctx.with_dimension_params(plot_area_width, plot_area_height);
         let (layout, _) = Box::pin(self.compute_layout_with_precomputed_overflow(
+            &params_with_dims,
             guide_overflow,
             layout_spec,
             scales,
@@ -1677,6 +1698,7 @@ impl CompiledPlot {
 
     async fn measure_overflow_with_coord(
         &self,
+        eval_ctx: &EvaluationContext,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         plot_width: f32,
         plot_height: f32,
@@ -1702,6 +1724,7 @@ impl CompiledPlot {
 
         let sharing_context =
             GuideSharingContext::new(facet_tree, facet_path, child_frame_sharing_path);
+        eval_ctx.record_guide_overflow_measure_call();
         let guide_overflow = compiled_guide
             .measure_overflow_for_phase(
                 &configured_scales,
@@ -1757,6 +1780,7 @@ impl CompiledPlot {
 
     async fn rebuild_layout_with_coord_overflow(
         &self,
+        eval_ctx: &EvaluationContext,
         layout_spec: &EvaluatedLayoutSpec,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         plot_area_width: f32,
@@ -1773,6 +1797,7 @@ impl CompiledPlot {
     {
         let overflow = self
             .measure_overflow_with_coord(
+                eval_ctx,
                 scales,
                 plot_area_width,
                 plot_area_height,
@@ -1789,6 +1814,7 @@ impl CompiledPlot {
 
         let (layout, legend_plan) =
             Box::pin(self.compute_layout_with_precomputed_overflow_and_coord(
+                eval_ctx,
                 &overflow,
                 layout_spec,
                 scales,
@@ -1866,6 +1892,7 @@ impl CompiledPlot {
         let facet_tree = eval_ctx.facet_tree.as_ref();
         let (_, realized_layout, realized_legend_plan) =
             Box::pin(self.rebuild_layout_with_coord_overflow(
+                eval_ctx,
                 layout_spec,
                 &measurement.scales,
                 measurement.plot_area_width,
@@ -2343,6 +2370,7 @@ impl CompiledPlot {
         let params_with_current_dims = eval_ctx
             .with_params(measurement.params.clone())
             .with_facet_probe_size_overrides(Arc::new(probe_size_overrides));
+        params_with_current_dims.record_scale_builder_build();
         let scale_builder = Box::pin(build_scale_builder_from_marks(
             &self.marks,
             &self.scale_specs,
@@ -2403,6 +2431,7 @@ impl CompiledPlot {
         let facet_tree = eval_ctx.facet_tree.as_ref();
         let (_, realized_layout, realized_legend_plan) =
             Box::pin(self.rebuild_layout_with_coord_overflow(
+                eval_ctx,
                 &realized_layout_spec,
                 &measurement.scales,
                 plot_area_width,
@@ -2512,6 +2541,7 @@ impl CompiledPlot {
         let facet_tree = eval_ctx.facet_tree.as_ref();
         let (_, realized_layout, realized_legend_plan) =
             Box::pin(self.rebuild_layout_with_coord_overflow(
+                eval_ctx,
                 &realized_layout_spec,
                 &measurement.scales,
                 plot_area_width,
@@ -3098,6 +3128,7 @@ impl CompiledPlot {
     /// Returns (plot_area_width, plot_area_height, canvas_size, layout, legend_plan)
     async fn compute_layout_and_dimensions(
         &self,
+        eval_ctx: &EvaluationContext,
         dimensions: ResolvedLayoutDimensions,
         layout_spec: &EvaluatedLayoutSpec,
         scale_provider: &dyn ScaleProvider,
@@ -3118,6 +3149,7 @@ impl CompiledPlot {
                 .await?;
 
             let (layout, legend_plan) = Box::pin(self.compute_layout_with_spec(
+                eval_ctx,
                 layout_spec,
                 &initial_scales,
                 ctx,
@@ -3155,6 +3187,7 @@ impl CompiledPlot {
                 .await?;
 
             let (layout, legend_plan) = Box::pin(self.compute_layout_with_spec(
+                eval_ctx,
                 layout_spec,
                 &initial_scales,
                 ctx,
@@ -3286,6 +3319,7 @@ impl CompiledPlot {
         // Phase 2: Compute layout and determine plot area dimensions
         let (plot_area_width, plot_area_height, mut canvas_size, mut layout, mut legend_plan) =
             Box::pin(self.compute_layout_and_dimensions(
+                eval_ctx,
                 dimensions,
                 layout_spec,
                 scale_provider,
@@ -3328,6 +3362,7 @@ impl CompiledPlot {
             let initial_total_overflow = layout.total_overflow;
             let (_, refined_layout, refined_legend_plan) =
                 Box::pin(self.rebuild_layout_with_coord_overflow(
+                    eval_ctx,
                     layout_spec,
                     &final_scales,
                     plot_area_width,
@@ -4171,6 +4206,9 @@ impl CompiledPlot {
         // Responsive wrap columns need the evaluated sizing policy, so this runs
         // after layout expressions are resolved but before measurement.
         let facet_tree_start = Instant::now();
+        Self::record_evaluation_metric(&evaluation_metrics, |metrics| {
+            metrics.record_facet_tree_build();
+        });
         let wrap_layout_context =
             Self::facet_wrap_layout_context(&evaluated_layout_spec, resolved_chart_sizing);
         let facet_tree = Arc::new(
@@ -4194,12 +4232,19 @@ impl CompiledPlot {
             resolved_chart_sizing,
         );
 
-        let scale_eval_ctx = avenger_chart_core::EvaluationContext::new(
+        let mut scale_eval_ctx = avenger_chart_core::EvaluationContext::new(
             self.get_theme(),
             Arc::new(ctx.clone()),
             merged_params.clone(),
         );
+        if let Some(metrics) = &evaluation_metrics {
+            scale_eval_ctx = scale_eval_ctx
+                .with_diagnostics(Arc::new(EvaluationMetricsDiagnostics::new(metrics.clone())));
+        }
         // Build scale provider
+        Self::record_evaluation_metric(&evaluation_metrics, |metrics| {
+            metrics.record_scale_builder_build();
+        });
         let scale_builder = Box::pin(build_scale_builder_from_marks(
             &self.marks,
             &self.scale_specs,
@@ -5419,6 +5464,32 @@ mod tests {
             .await
     }
 
+    async fn compile_domain_param_regular_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = deeply_nested_dataframe(ctx);
+        let x0 = Param::new("x0", ScalarValue::Float64(Some(0.0)));
+        let x1 = Param::new("x1", ScalarValue::Float64(Some(10.0)));
+        let x0_expr = x0.expr();
+        let x1_expr = x1.expr();
+        Plot::<Cartesian>::new()
+            .data(df)
+            .add_params([x0.clone(), x1.clone()])
+            .mark(
+                Symbol::new()
+                    .x_with(col("value"), move |c| {
+                        let x0_expr = x0_expr.clone();
+                        let x1_expr = x1_expr.clone();
+                        c.scale(move |s| s.domain_interval(x0_expr.clone(), x1_expr.clone()))
+                    })
+                    .y(col("value"))
+                    .size(24.0)
+                    .fill("#4682b4"),
+            )
+            .compile(ctx)
+            .await
+    }
+
     async fn prepare_top_level_measurement(
         compiled: &CompiledPlot,
         ctx: &SessionContext,
@@ -6371,6 +6442,197 @@ mod tests {
             facet_metrics.plot_component_measure_calls <= 128,
             "unexpected recursive measurement regression: {metrics:?}"
         );
+        assert_eq!(
+            metrics.pipeline.facet_tree_builds, 1,
+            "evaluation should build one top-level facet tree: {metrics:?}"
+        );
+        assert!(
+            metrics.pipeline.scale_builder_builds > 1,
+            "faceted layout should build top-level and child scale builders: {metrics:?}"
+        );
+        assert!(
+            metrics.pipeline.scale_domain_collects > 0,
+            "faceted layout should collect scale-domain data: {metrics:?}"
+        );
+        assert!(
+            metrics.pipeline.guide_overflow_measure_calls > 0,
+            "facet evaluation should measure guide overflow: {metrics:?}"
+        );
+        assert!(
+            metrics.pipeline.legend_plan_builds > 0,
+            "facet evaluation should build legend plans: {metrics:?}"
+        );
+        assert!(
+            metrics.pipeline.legend_measurements > 0,
+            "legend-sharing fixture should measure legends: {metrics:?}"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn evaluation_metrics_capture_regular_repeated_pipeline_work()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = compile_simple_regular_plot(&ctx).await?;
+        let (_first, first_metrics) = compiled
+            .evaluate_with_options_and_metrics(&ctx, None, EvaluationOptions::default())
+            .await?;
+        let (_second, second_metrics) = compiled
+            .evaluate_with_options_and_metrics(&ctx, None, EvaluationOptions::default())
+            .await?;
+
+        for metrics in [&first_metrics, &second_metrics] {
+            assert_eq!(
+                metrics.pipeline.facet_tree_builds, 1,
+                "one-shot evaluation should rebuild the facet tree each time: {metrics:?}"
+            );
+            assert_eq!(
+                metrics.pipeline.scale_builder_builds, 1,
+                "one-shot regular evaluation should rebuild its top-level scale builder: {metrics:?}"
+            );
+            assert!(
+                metrics.pipeline.guide_overflow_measure_calls > 0,
+                "regular evaluation should measure axis overflow: {metrics:?}"
+            );
+            assert!(
+                metrics.pipeline.scale_domain_collects > 0,
+                "regular evaluation should collect scale-domain data: {metrics:?}"
+            );
+            assert!(
+                metrics.pipeline.legend_plan_builds > 0,
+                "regular evaluation should still build an empty legend plan: {metrics:?}"
+            );
+            assert!(
+                metrics.pipeline.mark_data_collects > 0,
+                "regular evaluation should collect mark data during render: {metrics:?}"
+            );
+            assert_eq!(
+                metrics.facet_layout.plot_component_measure_calls, 1,
+                "regular evaluation should measure one plot component: {metrics:?}"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn evaluation_metrics_capture_facet_plot_repeated_pipeline_work()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = compile_simple_facet_plot_with_plot_size(&ctx).await?;
+        let (_first, first_metrics) = compiled
+            .evaluate_with_options_and_metrics(&ctx, None, EvaluationOptions::default())
+            .await?;
+        let (_second, second_metrics) = compiled
+            .evaluate_with_options_and_metrics(&ctx, None, EvaluationOptions::default())
+            .await?;
+
+        for metrics in [&first_metrics, &second_metrics] {
+            assert_eq!(
+                metrics.pipeline.facet_tree_builds, 1,
+                "one-shot facet evaluation should rebuild the facet tree each time: {metrics:?}"
+            );
+            assert!(
+                metrics.pipeline.scale_builder_builds > 1,
+                "facet evaluation should build top-level and child scale builders: {metrics:?}"
+            );
+            assert!(
+                metrics.pipeline.scale_domain_collects > 0,
+                "facet evaluation should collect scale-domain data: {metrics:?}"
+            );
+            assert!(
+                metrics.pipeline.guide_overflow_measure_calls > 1,
+                "facet evaluation should measure guide overflow for parent and child plots: {metrics:?}"
+            );
+            assert!(
+                metrics.facet_layout.plot_component_measure_calls > 1,
+                "facet evaluation should recursively measure child plots: {metrics:?}"
+            );
+            assert!(
+                metrics.facet_layout.facet_band_measure_runs > 0,
+                "facet evaluation should run facet-band measurement: {metrics:?}"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn evaluation_metrics_capture_wrap_resize_baseline_work() -> Result<(), AvengerChartError>
+    {
+        let ctx = SessionContext::new();
+        let compiled = compile_simple_facet_wrap_plot(&ctx).await?;
+        let (_evaluated, metrics) = compiled
+            .evaluate_with_options_and_metrics(&ctx, None, EvaluationOptions::default())
+            .await?;
+
+        assert_eq!(
+            metrics.pipeline.facet_tree_builds, 1,
+            "wrap evaluation should build one semantic/physical facet tree: {metrics:?}"
+        );
+        assert!(
+            metrics.pipeline.scale_builder_builds > 1,
+            "wrap evaluation should build top-level and child scale builders: {metrics:?}"
+        );
+        assert!(
+            metrics.pipeline.scale_domain_collects > 0,
+            "wrap evaluation should collect scale-domain data: {metrics:?}"
+        );
+        assert!(
+            metrics.facet_layout.plot_component_measure_calls > 1,
+            "wrap evaluation should recursively measure wrapped cells: {metrics:?}"
+        );
+        assert!(
+            metrics.facet_layout.facet_band_measure_runs > 0,
+            "wrap evaluation should run facet-band measurement: {metrics:?}"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn evaluation_metrics_capture_domain_param_update_work() -> Result<(), AvengerChartError>
+    {
+        let ctx = SessionContext::new();
+        let compiled = compile_domain_param_regular_plot(&ctx).await?;
+        let (_default_eval, default_metrics) = compiled
+            .evaluate_with_options_and_metrics(&ctx, None, EvaluationOptions::default())
+            .await?;
+
+        let mut updated_params = indexmap::IndexMap::new();
+        updated_params.insert("x0".to_string(), ScalarValue::Float64(Some(2.0)));
+        updated_params.insert("x1".to_string(), ScalarValue::Float64(Some(6.0)));
+        let (_updated_eval, updated_metrics) = compiled
+            .evaluate_with_options_and_metrics(
+                &ctx,
+                Some(updated_params),
+                EvaluationOptions::default(),
+            )
+            .await?;
+
+        for metrics in [&default_metrics, &updated_metrics] {
+            assert_eq!(
+                metrics.pipeline.facet_tree_builds, 1,
+                "domain-param evaluation should still build the top-level tree: {metrics:?}"
+            );
+            assert_eq!(
+                metrics.pipeline.scale_builder_builds, 1,
+                "domain-param evaluation should rebuild the scale builder in the one-shot path: {metrics:?}"
+            );
+            assert!(
+                metrics.pipeline.scale_domain_collects > 0,
+                "domain-param evaluation should collect scale-domain data: {metrics:?}"
+            );
+            assert!(
+                metrics.pipeline.guide_overflow_measure_calls > 0,
+                "domain-param evaluation should remeasure guide overflow: {metrics:?}"
+            );
+            assert!(
+                metrics.pipeline.mark_data_collects > 0,
+                "domain-param evaluation should collect mark data during render: {metrics:?}"
+            );
+        }
 
         Ok(())
     }
@@ -8011,6 +8273,7 @@ mod tests {
         let child_plot = outer_facet.compiled_subplot.as_ref();
         let (_, coord_aware_layout, _) = child_plot
             .rebuild_layout_with_coord_overflow(
+                &eval_ctx,
                 &child_layout_spec,
                 &child_measurement.scales,
                 child_measurement.plot_area_width,
@@ -8027,6 +8290,7 @@ mod tests {
             .await?;
         let (_, no_coord_layout, _) = child_plot
             .rebuild_layout_with_coord_overflow(
+                &eval_ctx,
                 &child_layout_spec,
                 &child_measurement.scales,
                 child_measurement.plot_area_width,
