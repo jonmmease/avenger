@@ -42,7 +42,7 @@ async fn compile_facet_debug_snapshot_plot(
                     .stroke_width(1.0),
             ),
         )
-        .row_with(col("row_category"), |c| c.guide(|f| f.title("Category"))),
+        .row_with(col("row_category"), |c| c.guide(|g| g.title("Category"))),
     );
 
     plot.compile(ctx).await
@@ -80,13 +80,13 @@ async fn compile_nested_mixed_facet_debug_snapshot_plot(
                                         .size(60.0),
                                 ),
                             )
-                            .row_with(col("team"), |c| c.guide(|f| f.title("Team"))),
+                            .row_with(col("team"), |c| c.guide(|g| g.title("Team"))),
                         ),
                     )
-                    .col_with(col("department"), |c| c.guide(|f| f.title("Department"))),
+                    .col_with(col("department"), |c| c.guide(|g| g.title("Department"))),
                 ),
             )
-            .row_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .row_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     plot.compile(ctx).await
@@ -131,13 +131,13 @@ async fn compile_nested_column_facet_debug_snapshot_plot(
                                         .size(58.0),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|g| g.title("Team"))),
                         ),
                     )
-                    .col_with(col("department"), |c| c.guide(|f| f.title("Department"))),
+                    .col_with(col("department"), |c| c.guide(|g| g.title("Department"))),
                 ),
             )
-            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     plot.compile(ctx).await

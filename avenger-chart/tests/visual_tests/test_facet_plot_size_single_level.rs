@@ -199,7 +199,7 @@ async fn facet_plot_size_col_with_title() {
                         .fill("#4682b4"),
                 ),
             )
-            .col_with(col("species"), |c| c.guide(|f| f.title("Iris Species"))),
+            .col_with(col("species"), |c| c.guide(|g| g.title("Iris Species"))),
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");

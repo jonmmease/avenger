@@ -90,7 +90,7 @@ async fn facet_row_order_by_max_desc() {
         .mark(Subplot::new(leaf_plot()).row_with(col("category"), |c| {
             c.order_by(max(col("y")))
                 .order_desc()
-                .guide(|f| f.title("Aggregate desc"))
+                .guide(|g| g.title("Aggregate desc"))
         }));
 
     let compiled = plot.compile(&ctx).await.expect("compile");
@@ -115,7 +115,7 @@ async fn facet_col_order_by_max_asc() {
         .mark(Subplot::new(leaf_plot()).col_with(col("category"), |c| {
             c.order_by(max(col("y")))
                 .order_asc()
-                .guide(|f| f.title("Aggregate asc"))
+                .guide(|g| g.title("Aggregate asc"))
         }));
 
     let compiled = plot.compile(&ctx).await.expect("compile");
@@ -146,13 +146,13 @@ async fn run_nested_ordering_baseline(name: &str, sharing: Option<ScaleSharing>)
                             Some(mode) => c
                                 .with_slot_sharing(mode)
                                 .empty_cells_as_subplots()
-                                .guide(|f| f.title("Species")),
-                            None => c.guide(|f| f.title("Species")),
+                                .guide(|g| g.title("Species")),
+                            None => c.guide(|g| g.title("Species")),
                         }
                     },
                 )),
             )
-            .row_with(col("region"), |c| c.guide(|f| f.title("Region"))),
+            .row_with(col("region"), |c| c.guide(|g| g.title("Region"))),
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile");

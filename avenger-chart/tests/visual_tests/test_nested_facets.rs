@@ -53,11 +53,11 @@ async fn test_col_with_nested_row() {
                         ),
                     )
                     .row_with(col("petal_width_bin"), |c| {
-                        c.guide(|f| f.title("Petal Width"))
+                        c.guide(|g| g.title("Petal Width"))
                     }),
                 ),
             )
-            .col_with(col("species"), |c| c.guide(|f| f.title("Species"))),
+            .col_with(col("species"), |c| c.guide(|g| g.title("Species"))),
         );
 
     let compiled = outer.compile(&ctx).await.expect("compile nested facets");

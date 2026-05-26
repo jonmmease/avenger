@@ -4429,10 +4429,10 @@ mod tests {
                                     .fill("#4682b4"),
                             ),
                         )
-                        .row_with(col("sub_group"), |c| c.guide(|f| f.title("Sub Group"))),
+                        .row_with(col("sub_group"), |c| c.guide(|g| g.title("Sub Group"))),
                     ),
                 )
-                .col_with(col("outer_group"), |c| c.guide(|f| f.title("Outer Group"))),
+                .col_with(col("outer_group"), |c| c.guide(|g| g.title("Outer Group"))),
             )
     }
 
@@ -4460,21 +4460,21 @@ mod tests {
                                                     .fill("#3498db"),
                                             ),
                                         )
-                                        .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
+                                        .col_with(col("subteam"), |c| c.guide(|g| g.title("Sub"))),
                                     ),
                                 )
                                 .col_with(col("team"), |c| {
                                     c.with_slot_sharing(ScaleSharing::Level(1))
-                                        .guide(|f| f.title("Team"))
+                                        .guide(|g| g.title("Team"))
                                 }),
                             ),
                         )
                         .col_with(col("department"), |c| {
-                            c.free_slots().guide(|f| f.title("Dept"))
+                            c.free_slots().guide(|g| g.title("Dept"))
                         }),
                     ),
                 )
-                .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+                .col_with(col("division"), |c| c.guide(|g| g.title("Division"))),
             )
     }
 
@@ -4950,7 +4950,7 @@ mod tests {
                         )
                         .row_with(col("row_group"), |c| {
                             c.with_slot_sharing(ScaleSharing::Shared)
-                                .guide(|f| f.position("right"))
+                                .guide(|g| g.position("right"))
                         }),
                     ),
                 )
@@ -5038,7 +5038,7 @@ mod tests {
                                 )
                                 .row_with(col("row_group"), |c| {
                                     c.with_slot_sharing(ScaleSharing::Level(1))
-                                        .guide(|f| f.position("right"))
+                                        .guide(|g| g.position("right"))
                                 }),
                             ),
                         )
@@ -5142,10 +5142,10 @@ mod tests {
                                     .fill("#9b59b6"),
                             ),
                         )
-                        .col_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
+                        .col_with(col("department"), |c| c.guide(|g| g.title("Dept"))),
                     ),
                 )
-                .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+                .col_with(col("division"), |c| c.guide(|g| g.title("Division"))),
             )
             .compile(ctx)
             .await

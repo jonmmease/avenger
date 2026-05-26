@@ -349,11 +349,11 @@ async fn test_nested_free_row_with_titles() {
                                 .fill("#4682b4"),
                         ),
                     )
-                    .row_with(col("species"), |c| c.guide(|f| f.title("Species"))),
+                    .row_with(col("species"), |c| c.guide(|g| g.title("Species"))),
                 ),
             )
             .col_with(col("petal_width_bin"), |c| {
-                c.guide(|f| f.title("Petal Width"))
+                c.guide(|g| g.title("Petal Width"))
             }),
         );
 
@@ -400,11 +400,11 @@ async fn test_nested_free_row_with_unified_titles() {
                                 .fill("#4682b4"),
                         ),
                     )
-                    .row_with(col("species"), |c| c.guide(|f| f.title("Species"))),
+                    .row_with(col("species"), |c| c.guide(|g| g.title("Species"))),
                 ),
             )
             .col_with(col("petal_width_bin"), |c| {
-                c.guide(|f| f.title("Petal Width"))
+                c.guide(|g| g.title("Petal Width"))
             }),
         );
 
@@ -1064,12 +1064,12 @@ async fn test_nested_shared_row_with_titles() {
                         ),
                     )
                     .row_with(col("species"), |c| {
-                        c.share_slots().guide(|f| f.title("Species"))
+                        c.share_slots().guide(|g| g.title("Species"))
                     }),
                 ),
             )
             .col_with(col("petal_width_bin"), |c| {
-                c.guide(|f| f.title("Petal Width"))
+                c.guide(|g| g.title("Petal Width"))
             }),
         );
 
@@ -1343,12 +1343,12 @@ async fn test_nested_shared_row_with_unified_titles() {
                         ),
                     )
                     .row_with(col("species"), |c| {
-                        c.share_slots().guide(|f| f.title("Species"))
+                        c.share_slots().guide(|g| g.title("Species"))
                     }),
                 ),
             )
             .col_with(col("petal_width_bin"), |c| {
-                c.guide(|f| f.title("Petal Width"))
+                c.guide(|g| g.title("Petal Width"))
             }),
         );
 
@@ -2194,10 +2194,10 @@ async fn test_three_level_level2_y_right_axis() {
                                 .fill("#2ecc71"),
                         ),
                     )
-                    .row_with(col("country"), |c| c.guide(|f| f.title("Country"))),
+                    .row_with(col("country"), |c| c.guide(|g| g.title("Country"))),
                 ),
             )
-            .col_with(col("region"), |c| c.guide(|f| f.title("Region"))),
+            .col_with(col("region"), |c| c.guide(|g| g.title("Region"))),
         );
 
     let compiled = outer
@@ -2245,10 +2245,10 @@ async fn test_three_level_level2_x_top_axis() {
                                 .fill("#9b59b6"),
                         ),
                     )
-                    .row_with(col("country"), |c| c.guide(|f| f.title("Country"))),
+                    .row_with(col("country"), |c| c.guide(|g| g.title("Country"))),
                 ),
             )
-            .col_with(col("region"), |c| c.guide(|f| f.title("Region"))),
+            .col_with(col("region"), |c| c.guide(|g| g.title("Region"))),
         );
 
     let compiled = outer
@@ -2305,11 +2305,11 @@ async fn test_three_level_nesting_level1_y() {
                                 .fill("#4682b4"),
                         ),
                     )
-                    .row_with(col("species"), |c| c.guide(|f| f.title("Species"))),
+                    .row_with(col("species"), |c| c.guide(|g| g.title("Species"))),
                 ),
             )
             .col_with(col("petal_width_bin"), |c| {
-                c.guide(|f| f.title("Petal Width"))
+                c.guide(|g| g.title("Petal Width"))
             }),
         );
 
@@ -2356,11 +2356,11 @@ async fn test_three_level_nesting_shared_y() {
                                 .fill("#4682b4"),
                         ),
                     )
-                    .row_with(col("species"), |c| c.guide(|f| f.title("Species"))),
+                    .row_with(col("species"), |c| c.guide(|g| g.title("Species"))),
                 ),
             )
             .col_with(col("petal_width_bin"), |c| {
-                c.guide(|f| f.title("Petal Width"))
+                c.guide(|g| g.title("Petal Width"))
             }),
         );
 
@@ -2476,10 +2476,10 @@ async fn test_three_level_level2_y() {
                                 .fill("#e74c3c"),
                         ),
                     )
-                    .row_with(col("country"), |c| c.guide(|f| f.title("Country"))),
+                    .row_with(col("country"), |c| c.guide(|g| g.title("Country"))),
                 ),
             )
-            .col_with(col("region"), |c| c.guide(|f| f.title("Region"))),
+            .col_with(col("region"), |c| c.guide(|g| g.title("Region"))),
         );
 
     let compiled = outer
@@ -2519,10 +2519,10 @@ async fn test_three_level_level1_y() {
                                 .fill("#3498db"),
                         ),
                     )
-                    .row_with(col("country"), |c| c.guide(|f| f.title("Country"))),
+                    .row_with(col("country"), |c| c.guide(|g| g.title("Country"))),
                 ),
             )
-            .col_with(col("region"), |c| c.guide(|f| f.title("Region"))),
+            .col_with(col("region"), |c| c.guide(|g| g.title("Region"))),
         );
 
     let compiled = outer
@@ -2565,10 +2565,10 @@ async fn test_three_level_level2_x() {
                                 .fill("#27ae60"),
                         ),
                     )
-                    .row_with(col("country"), |c| c.guide(|f| f.title("Country"))),
+                    .row_with(col("country"), |c| c.guide(|g| g.title("Country"))),
                 ),
             )
-            .col_with(col("region"), |c| c.guide(|f| f.title("Region"))),
+            .col_with(col("region"), |c| c.guide(|g| g.title("Region"))),
         );
 
     let compiled = outer
@@ -2609,10 +2609,10 @@ async fn test_three_level_level1_x() {
                                 .fill("#9b59b6"),
                         ),
                     )
-                    .row_with(col("country"), |c| c.guide(|f| f.title("Country"))),
+                    .row_with(col("country"), |c| c.guide(|g| g.title("Country"))),
                 ),
             )
-            .col_with(col("region"), |c| c.guide(|f| f.title("Region"))),
+            .col_with(col("region"), |c| c.guide(|g| g.title("Region"))),
         );
 
     let compiled = outer
@@ -2655,10 +2655,10 @@ async fn test_three_level_mixed_x_shared_y_level2() {
                                 .fill("#f39c12"),
                         ),
                     )
-                    .row_with(col("country"), |c| c.guide(|f| f.title("Country"))),
+                    .row_with(col("country"), |c| c.guide(|g| g.title("Country"))),
                 ),
             )
-            .col_with(col("region"), |c| c.guide(|f| f.title("Region"))),
+            .col_with(col("region"), |c| c.guide(|g| g.title("Region"))),
         );
 
     let compiled = outer
@@ -2708,10 +2708,10 @@ async fn test_three_level_mixed_x_level2_y_shared() {
                                 .fill("#1abc9c"),
                         ),
                     )
-                    .row_with(col("country"), |c| c.guide(|f| f.title("Country"))),
+                    .row_with(col("country"), |c| c.guide(|g| g.title("Country"))),
                 ),
             )
-            .col_with(col("region"), |c| c.guide(|f| f.title("Region"))),
+            .col_with(col("region"), |c| c.guide(|g| g.title("Region"))),
         );
 
     let compiled = outer
@@ -2983,13 +2983,13 @@ async fn test_four_level_level2_y() {
                                         .fill("#3498db"),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|g| g.title("Team"))),
                         ),
                     )
-                    .row_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
+                    .row_with(col("department"), |c| c.guide(|g| g.title("Dept"))),
                 ),
             )
-            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     let compiled = outer
@@ -3031,13 +3031,13 @@ async fn test_four_level_level3_y() {
                                         .fill("#9b59b6"),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|g| g.title("Team"))),
                         ),
                     )
-                    .row_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
+                    .row_with(col("department"), |c| c.guide(|g| g.title("Dept"))),
                 ),
             )
-            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     let compiled = outer
@@ -3274,10 +3274,10 @@ async fn test_explicit_domain_with_level2() {
                                 .fill("#1abc9c"),
                         ),
                     )
-                    .row_with(col("country"), |c| c.guide(|f| f.title("Country"))),
+                    .row_with(col("country"), |c| c.guide(|g| g.title("Country"))),
                 ),
             )
-            .col_with(col("region"), |c| c.guide(|f| f.title("Region"))),
+            .col_with(col("region"), |c| c.guide(|g| g.title("Region"))),
         );
 
     let compiled = outer
@@ -3320,7 +3320,7 @@ async fn test_level_exceeds_nesting_depth() {
                         .fill("#c0392b"),
                 ),
             )
-            .col_with(col("region"), |c| c.guide(|f| f.title("Region"))),
+            .col_with(col("region"), |c| c.guide(|g| g.title("Region"))),
         );
 
     let compiled = outer
@@ -3558,13 +3558,13 @@ async fn test_four_level_row_col_row_col() {
                                         .fill("#e74c3c"),
                                 ),
                             )
-                            .row_with(col("team"), |c| c.guide(|f| f.title("Team"))),
+                            .row_with(col("team"), |c| c.guide(|g| g.title("Team"))),
                         ),
                     )
-                    .col_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
+                    .col_with(col("department"), |c| c.guide(|g| g.title("Dept"))),
                 ),
             )
-            .row_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .row_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     let compiled = outer
@@ -3611,13 +3611,13 @@ async fn test_four_level_col_col_row_row() {
                                         .fill("#27ae60"),
                                 ),
                             )
-                            .row_with(col("team"), |c| c.guide(|f| f.title("Team"))),
+                            .row_with(col("team"), |c| c.guide(|g| g.title("Team"))),
                         ),
                     )
-                    .col_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
+                    .col_with(col("department"), |c| c.guide(|g| g.title("Dept"))),
                 ),
             )
-            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     let compiled = outer
@@ -3664,13 +3664,13 @@ async fn test_four_level_row_row_col_col() {
                                         .fill("#f39c12"),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|g| g.title("Team"))),
                         ),
                     )
-                    .row_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
+                    .row_with(col("department"), |c| c.guide(|g| g.title("Dept"))),
                 ),
             )
-            .row_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .row_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     let compiled = outer
@@ -3717,16 +3717,16 @@ async fn test_four_level_row_row_row_row() {
                                                 .fill("#e74c3c"),
                                         ),
                                     )
-                                    .row_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
+                                    .row_with(col("subteam"), |c| c.guide(|g| g.title("Sub"))),
                                 ),
                             )
-                            .row_with(col("team"), |c| c.guide(|f| f.title("Team"))),
+                            .row_with(col("team"), |c| c.guide(|g| g.title("Team"))),
                         ),
                     )
-                    .row_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
+                    .row_with(col("department"), |c| c.guide(|g| g.title("Dept"))),
                 ),
             )
-            .row_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .row_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     let compiled = outer
@@ -3773,16 +3773,16 @@ async fn test_four_level_col_col_col_col() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|g| g.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|g| g.title("Team"))),
                         ),
                     )
-                    .col_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
+                    .col_with(col("department"), |c| c.guide(|g| g.title("Dept"))),
                 ),
             )
-            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     let compiled = outer
@@ -3830,18 +3830,18 @@ async fn test_four_level_col_col_col_col_dept_free() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|g| g.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|g| g.title("Team"))),
                         ),
                     )
                     .col_with(col("department"), |c| {
-                        c.free_slots().guide(|f| f.title("Dept"))
+                        c.free_slots().guide(|g| g.title("Dept"))
                     }),
                 ),
             )
-            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     let compiled = outer
@@ -3888,16 +3888,16 @@ async fn test_four_level_col_col_col_col_y_level2() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|g| g.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|g| g.title("Team"))),
                         ),
                     )
-                    .col_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
+                    .col_with(col("department"), |c| c.guide(|g| g.title("Dept"))),
                 ),
             )
-            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     let compiled = outer
@@ -3940,10 +3940,10 @@ async fn test_two_level_col_col() {
                                 .fill("#9b59b6"),
                         ),
                     )
-                    .col_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
+                    .col_with(col("department"), |c| c.guide(|g| g.title("Dept"))),
                 ),
             )
-            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     let compiled = outer.compile(&ctx).await.expect("compile col>col nesting");
@@ -3981,16 +3981,16 @@ async fn test_four_level_col_col_col_col_y_level2_right() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|g| g.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|g| g.title("Team"))),
                         ),
                     )
-                    .col_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
+                    .col_with(col("department"), |c| c.guide(|g| g.title("Dept"))),
                 ),
             )
-            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     let compiled = outer
@@ -4038,16 +4038,16 @@ async fn test_four_level_col_col_col_col_y_free() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|g| g.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|g| g.title("Team"))),
                         ),
                     )
-                    .col_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
+                    .col_with(col("department"), |c| c.guide(|g| g.title("Dept"))),
                 ),
             )
-            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     let compiled = outer
@@ -4095,16 +4095,16 @@ async fn test_four_level_col_col_col_col_y_level1() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|g| g.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|g| g.title("Team"))),
                         ),
                     )
-                    .col_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
+                    .col_with(col("department"), |c| c.guide(|g| g.title("Dept"))),
                 ),
             )
-            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     let compiled = outer
@@ -4152,18 +4152,18 @@ async fn test_four_level_col_col_col_col_y_level2_dept_free() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|g| g.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|g| g.title("Team"))),
                         ),
                     )
                     .col_with(col("department"), |c| {
-                        c.free_slots().guide(|f| f.title("Dept"))
+                        c.free_slots().guide(|g| g.title("Dept"))
                     }),
                 ),
             )
-            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     let compiled = outer
@@ -4212,18 +4212,18 @@ async fn test_four_level_col_col_col_col_y_level2_right_dept_free() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|g| g.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|g| g.title("Team"))),
                         ),
                     )
                     .col_with(col("department"), |c| {
-                        c.free_slots().guide(|f| f.title("Dept"))
+                        c.free_slots().guide(|g| g.title("Dept"))
                     }),
                 ),
             )
-            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     let compiled = outer
@@ -4272,18 +4272,18 @@ async fn test_four_level_col_col_col_col_y_free_dept_free() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|g| g.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|g| g.title("Team"))),
                         ),
                     )
                     .col_with(col("department"), |c| {
-                        c.free_slots().guide(|f| f.title("Dept"))
+                        c.free_slots().guide(|g| g.title("Dept"))
                     }),
                 ),
             )
-            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     let compiled = outer
@@ -4331,18 +4331,18 @@ async fn test_four_level_col_col_col_col_y_level1_dept_free() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|g| g.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|g| g.title("Team"))),
                         ),
                     )
                     .col_with(col("department"), |c| {
-                        c.free_slots().guide(|f| f.title("Dept"))
+                        c.free_slots().guide(|g| g.title("Dept"))
                     }),
                 ),
             )
-            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     let compiled = outer
@@ -4387,15 +4387,15 @@ async fn test_four_level_col_col_row_row_dept_free() {
                                         .fill("#27ae60"),
                                 ),
                             )
-                            .row_with(col("team"), |c| c.guide(|f| f.title("Team"))),
+                            .row_with(col("team"), |c| c.guide(|g| g.title("Team"))),
                         ),
                     )
                     .col_with(col("department"), |c| {
-                        c.free_slots().guide(|f| f.title("Dept"))
+                        c.free_slots().guide(|g| g.title("Dept"))
                     }),
                 ),
             )
-            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     let compiled = outer
@@ -4447,16 +4447,16 @@ async fn test_four_level_col_col_col_col_team_free_asymmetric() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|g| g.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.free_slots().guide(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.free_slots().guide(|g| g.title("Team"))),
                         ),
                     )
-                    .col_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
+                    .col_with(col("department"), |c| c.guide(|g| g.title("Dept"))),
                 ),
             )
-            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     let compiled = outer
@@ -4508,21 +4508,21 @@ async fn test_four_level_col_col_col_col_dept_free_team_level2() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|g| g.title("Sub"))),
                                 ),
                             )
                             .col_with(col("team"), |c| {
                                 c.with_slot_sharing(ScaleSharing::Level(2))
-                                    .guide(|f| f.title("Team"))
+                                    .guide(|g| g.title("Team"))
                             }),
                         ),
                     )
                     .col_with(col("department"), |c| {
-                        c.free_slots().guide(|f| f.title("Dept"))
+                        c.free_slots().guide(|g| g.title("Dept"))
                     }),
                 ),
             )
-            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     let compiled = outer
@@ -4575,21 +4575,21 @@ async fn test_four_level_col_col_col_col_dept_free_team_level1() {
                                                 .fill("#3498db"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|g| g.title("Sub"))),
                                 ),
                             )
                             .col_with(col("team"), |c| {
                                 c.with_slot_sharing(ScaleSharing::Level(1))
-                                    .guide(|f| f.title("Team"))
+                                    .guide(|g| g.title("Team"))
                             }),
                         ),
                     )
                     .col_with(col("department"), |c| {
-                        c.free_slots().guide(|f| f.title("Dept"))
+                        c.free_slots().guide(|g| g.title("Dept"))
                     }),
                 ),
             )
-            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|g| g.title("Division"))),
         );
 
     let compiled = outer

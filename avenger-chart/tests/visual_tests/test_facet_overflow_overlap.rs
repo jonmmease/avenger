@@ -53,7 +53,7 @@ async fn facet_row_varied_overflow() {
                     .stroke_width(1.0),
             ),
         )
-        .row_with(col("row_category"), |c| c.guide(|f| f.title("Category"))),
+        .row_with(col("row_category"), |c| c.guide(|g| g.title("Category"))),
     );
 
     let compiled = outer.compile(&ctx).await.expect("compile outer");
@@ -105,7 +105,7 @@ async fn facet_col_varied_overflow() {
                         .stroke_width(1.0),
                 ),
             )
-            .col_with(col("col_category"), |c| c.guide(|f| f.title("Column"))),
+            .col_with(col("col_category"), |c| c.guide(|g| g.title("Column"))),
         );
 
     let compiled = outer.compile(&ctx).await.expect("compile outer");

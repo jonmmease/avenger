@@ -37,7 +37,7 @@ async fn test_nested_facet_shared_categorical_x() {
                         .fill("#4682b4"),
                 ),
             )
-            .col_with(col("group"), |c| c.guide(|f| f.title("Group"))),
+            .col_with(col("group"), |c| c.guide(|g| g.title("Group"))),
         );
 
     let compiled = outer.compile(&ctx).await.expect("compile nested facets");
@@ -80,7 +80,7 @@ async fn test_nested_facet_shared_categorical_y() {
                     .fill("#4682b4"),
             ),
         )
-        .row_with(col("group"), |c| c.guide(|f| f.title("Group"))),
+        .row_with(col("group"), |c| c.guide(|g| g.title("Group"))),
     );
 
     let compiled = outer.compile(&ctx).await.expect("compile nested facets");
@@ -180,10 +180,10 @@ async fn test_deeply_nested_categorical_scale_sharing() {
                                 .fill("#4682b4"),
                         ),
                     )
-                    .row_with(col("sub_group"), |c| c.guide(|f| f.title("Sub Group"))),
+                    .row_with(col("sub_group"), |c| c.guide(|g| g.title("Sub Group"))),
                 ),
             )
-            .col_with(col("outer_group"), |c| c.guide(|f| f.title("Outer Group"))),
+            .col_with(col("outer_group"), |c| c.guide(|g| g.title("Outer Group"))),
         );
 
     let compiled = outer
@@ -273,7 +273,7 @@ async fn test_numeric_coded_categorical_sharing() {
                         .fill("#4682b4"),
                 ),
             )
-            .col_with(col("group"), |c| c.guide(|f| f.title("Group"))),
+            .col_with(col("group"), |c| c.guide(|g| g.title("Group"))),
         );
 
     let compiled = outer.compile(&ctx).await.expect("compile nested facets");
@@ -318,7 +318,7 @@ async fn test_nested_facet_level1_categorical() {
                         .fill("#4682b4"),
                 ),
             )
-            .col_with(col("group"), |c| c.guide(|f| f.title("Group"))),
+            .col_with(col("group"), |c| c.guide(|g| g.title("Group"))),
         );
 
     let compiled = outer.compile(&ctx).await.expect("compile nested facets");

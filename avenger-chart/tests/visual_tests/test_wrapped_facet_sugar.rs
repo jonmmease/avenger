@@ -125,7 +125,7 @@ async fn wrapped_facet_via_ranked_rows_and_free_columns() {
             c.order_by(min(col("facet_index")))
                 .order_asc()
                 .free_slots()
-                .guide(|f| f.title("Facet"))
+                .guide(|g| g.title("Facet"))
         }));
     let plot = Plot::<FacetRow>::new()
         .data(data)
@@ -133,7 +133,7 @@ async fn wrapped_facet_via_ranked_rows_and_free_columns() {
         .mark(Subplot::new(column_facets).row_with(col("wrap_row"), |c| {
             c.order_by(min(col("facet_index")))
                 .order_asc()
-                .guide(|f| f.visible(false))
+                .guide(|g| g.visible(false))
         }));
 
     let compiled = plot
