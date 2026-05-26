@@ -81,6 +81,7 @@ pub(crate) use self::mark_data_runtime::{
     LogicalMarkDataRequest, MarkDataRequest, PreparedMarkData, prepare_logical_mark_data,
     prepare_mark_data as prepare_mark_data_runtime,
 };
+pub(crate) use self::session::ScaleDomainCacheHandle;
 pub use self::session::{EvaluationRequest, PlotSession};
 
 use super::title::{PlotSubtitle, PlotTitle};

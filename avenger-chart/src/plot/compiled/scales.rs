@@ -15,7 +15,10 @@ use avenger_chart_core::{
 use avenger_chart_scales::{PlotScaleSpec, PreparedScaleMark, ScaleBuilder};
 use avenger_scales::scales::ScaleImpl;
 
-use super::{LogicalMarkDataRequest, prepare_logical_mark_data};
+use super::{
+    LogicalMarkDataRequest, prepare_logical_mark_data,
+    session::{ScaleDomainCacheScope, scale_domain_cache_key_for_parts_with_scope},
+};
 
 pub(crate) async fn build_scale_builder_from_marks(
     compiled_marks: &[Arc<dyn CompiledMark>],
@@ -65,6 +68,36 @@ pub(crate) async fn build_scale_builder_from_marks_with_facet_scope(
     facet_path: &[ScalarValue],
     theme: &Theme,
 ) -> Result<ScaleBuilder, AvengerChartError> {
+    let cache_lookup = eval_ctx.scale_domain_cache().map(|cache| {
+        let scope = ScaleDomainCacheScope::FacetPath(
+            facet_path
+                .iter()
+                .map(|value| format!("{value:?}"))
+                .collect(),
+        );
+        let key = scale_domain_cache_key_for_parts_with_scope(
+            compiled_marks,
+            scale_specs,
+            data,
+            eval_ctx.session_context.as_ref(),
+            eval_ctx.params(),
+            scope,
+        );
+        (cache.clone(), key)
+    });
+    if let Some((cache, key)) = &cache_lookup {
+        let cached_builder = {
+            cache
+                .lock()
+                .expect("scale-domain cache lock poisoned")
+                .get(key)
+        };
+        if let Some(builder) = cached_builder {
+            eval_ctx.record_scale_domain_cache_hit();
+            return Ok(builder);
+        }
+        eval_ctx.record_scale_domain_cache_miss();
+    }
     eval_ctx.record_scale_builder_build();
     let mut prepared_marks = Vec::with_capacity(compiled_marks.len());
     for mark in compiled_marks {
@@ -87,7 +120,7 @@ pub(crate) async fn build_scale_builder_from_marks_with_facet_scope(
         ));
     }
 
-    Box::pin(
+    let scale_builder = Box::pin(
         avenger_chart_scales::build_scale_builder_from_prepared_marks(
             &prepared_marks,
             scale_specs,
@@ -96,7 +129,14 @@ pub(crate) async fn build_scale_builder_from_marks_with_facet_scope(
             theme,
         ),
     )
-    .await
+    .await?;
+    if let Some((cache, key)) = cache_lookup {
+        cache
+            .lock()
+            .expect("scale-domain cache lock poisoned")
+            .insert(key, scale_builder.clone());
+    }
+    Ok(scale_builder)
 }
 
 pub(super) fn default_range_for_compiled_marks<'a>(

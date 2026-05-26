@@ -85,7 +85,9 @@ use super::{
     prepare_mark_data_runtime,
     scale_provider::{DynamicScaleProvider, ScaleProvider},
     scales::build_scale_builder_from_marks,
-    session::ScaleDomainCacheHandle,
+    session::{
+        ScaleDomainCacheHandle, ScaleDomainCacheScope, scale_domain_cache_key_for_parts_with_scope,
+    },
 };
 
 #[derive(Clone, Debug)]
@@ -2343,6 +2345,66 @@ impl CompiledPlot {
         adjusted
     }
 
+    async fn build_scale_builder_for_render_context(
+        &self,
+        eval_ctx: &EvaluationContext,
+        data_override: Option<DataFrame>,
+        facet_path: &[ScalarValue],
+    ) -> Result<avenger_chart_scales::ScaleBuilder, AvengerChartError> {
+        let cache_lookup = eval_ctx.scale_domain_cache().map(|cache| {
+            let scope = if facet_path.is_empty() && data_override.is_none() {
+                ScaleDomainCacheScope::TopLevel
+            } else {
+                ScaleDomainCacheScope::FacetPath(
+                    facet_path
+                        .iter()
+                        .map(|value| format!("{value:?}"))
+                        .collect(),
+                )
+            };
+            let key = scale_domain_cache_key_for_parts_with_scope(
+                &self.marks,
+                &self.scale_specs,
+                &self.data,
+                eval_ctx.session_context.as_ref(),
+                eval_ctx.params(),
+                scope,
+            );
+            (cache.clone(), key)
+        });
+        if let Some((cache, key)) = &cache_lookup {
+            let cached_builder = {
+                cache
+                    .lock()
+                    .expect("scale-domain cache lock poisoned")
+                    .get(key)
+            };
+            if let Some(builder) = cached_builder {
+                eval_ctx.record_scale_domain_cache_hit();
+                return Ok(builder);
+            }
+            eval_ctx.record_scale_domain_cache_miss();
+        }
+        eval_ctx.record_scale_builder_build();
+        let scale_builder = Box::pin(build_scale_builder_from_marks(
+            &self.marks,
+            &self.scale_specs,
+            &self.coord_transform,
+            &self.data,
+            data_override,
+            eval_ctx,
+            self.get_theme().as_ref(),
+        ))
+        .await?;
+        if let Some((cache, key)) = cache_lookup {
+            cache
+                .lock()
+                .expect("scale-domain cache lock poisoned")
+                .insert(key, scale_builder.clone());
+        }
+        Ok(scale_builder)
+    }
+
     async fn remeasure_policy_coord_at_current_plot_area(
         &self,
         measurement: &mut ComponentsMeasurement,
@@ -2371,15 +2433,10 @@ impl CompiledPlot {
         let params_with_current_dims = eval_ctx
             .with_params(measurement.params.clone())
             .with_facet_probe_size_overrides(Arc::new(probe_size_overrides));
-        params_with_current_dims.record_scale_builder_build();
-        let scale_builder = Box::pin(build_scale_builder_from_marks(
-            &self.marks,
-            &self.scale_specs,
-            &self.coord_transform,
-            &self.data,
-            data_override.cloned(),
+        let scale_builder = Box::pin(self.build_scale_builder_for_render_context(
             &params_with_current_dims,
-            eval_ctx.theme.as_ref(),
+            data_override.cloned(),
+            facet_path,
         ))
         .await?;
         let scale_provider = DynamicScaleProvider {
@@ -4344,6 +4401,9 @@ impl CompiledPlot {
                     result: None,
                 },
             )));
+        }
+        if let Some(cache) = &scale_domain_cache {
+            eval_ctx = eval_ctx.with_scale_domain_cache(cache.clone());
         }
         if let Some(metrics) = evaluation_metrics {
             eval_ctx = eval_ctx.with_evaluation_metrics(metrics);

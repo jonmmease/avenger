@@ -46,13 +46,22 @@ impl ScaleDomainCache {
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub(crate) struct ScaleDomainCacheKey {
+    subject: ScaleDomainCacheSubject,
     scope: ScaleDomainCacheScope,
     params: Vec<(String, String)>,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-enum ScaleDomainCacheScope {
+struct ScaleDomainCacheSubject {
+    marks_ptr: usize,
+    scale_specs_ptr: usize,
+    data_ptr: usize,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub(crate) enum ScaleDomainCacheScope {
     TopLevel,
+    FacetPath(Vec<String>),
 }
 
 /// Request object for evaluating a `PlotSession`.
@@ -237,34 +246,63 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
     ) -> ScaleDomainCacheKey {
-        let relevant_params = scale_domain_dependency_params(self, ctx, params);
-        ScaleDomainCacheKey {
-            scope: ScaleDomainCacheScope::TopLevel,
-            params: relevant_params
-                .into_iter()
-                .map(|name| {
-                    let value = params
-                        .get(&name)
-                        .or_else(|| params.get(&format!("${name}")))
-                        .map(|value| format!("{value:?}"))
-                        .unwrap_or_else(|| "<missing>".to_string());
-                    (name, value)
-                })
-                .collect(),
-        }
+        scale_domain_cache_key_for_parts_with_scope(
+            &self.marks,
+            &self.scale_specs,
+            &self.data,
+            ctx,
+            params,
+            ScaleDomainCacheScope::TopLevel,
+        )
+    }
+}
+
+pub(crate) fn scale_domain_cache_key_for_parts_with_scope(
+    compiled_marks: &[Arc<dyn avenger_chart_core::CompiledMark>],
+    scale_specs: &HashMap<String, PlotScaleSpec>,
+    data: &Option<LogicalPlanNode>,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+    scope: ScaleDomainCacheScope,
+) -> ScaleDomainCacheKey {
+    let relevant_params =
+        scale_domain_dependency_params(compiled_marks, scale_specs, data, ctx, params);
+    ScaleDomainCacheKey {
+        subject: ScaleDomainCacheSubject {
+            marks_ptr: compiled_marks.as_ptr() as usize,
+            scale_specs_ptr: scale_specs as *const _ as usize,
+            data_ptr: data
+                .as_ref()
+                .map(|node| node as *const LogicalPlanNode as usize)
+                .unwrap_or(0),
+        },
+        scope,
+        params: relevant_params
+            .into_iter()
+            .map(|name| {
+                let value = params
+                    .get(&name)
+                    .or_else(|| params.get(&format!("${name}")))
+                    .map(|value| format!("{value:?}"))
+                    .unwrap_or_else(|| "<missing>".to_string());
+                (name, value)
+            })
+            .collect(),
     }
 }
 
 fn scale_domain_dependency_params(
-    plot: &CompiledPlot,
+    compiled_marks: &[Arc<dyn avenger_chart_core::CompiledMark>],
+    scale_specs: &HashMap<String, PlotScaleSpec>,
+    data: &Option<LogicalPlanNode>,
     ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
 ) -> BTreeSet<String> {
     let all_param_names = params.keys().cloned().collect::<BTreeSet<_>>();
     let mut names = BTreeSet::new();
 
-    collect_plan_placeholders(plot.data.as_ref(), ctx, &mut names, &all_param_names);
-    for mark in &plot.marks {
+    collect_plan_placeholders(data.as_ref(), ctx, &mut names, &all_param_names);
+    for mark in compiled_marks {
         collect_plan_placeholders(
             mark.data_context().logical_plan_node(),
             ctx,
@@ -281,7 +319,7 @@ fn scale_domain_dependency_params(
         }
     }
 
-    for scale_spec in plot.scale_specs.values() {
+    for scale_spec in scale_specs.values() {
         match scale_spec {
             PlotScaleSpec::Local(config) => {
                 collect_scale_config_placeholders(config, ctx, &mut names, &all_param_names);
@@ -477,6 +515,38 @@ mod tests {
             .await
     }
 
+    async fn compile_facet_width_param_scale_cache_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let width = Param::new("width", ScalarValue::Float64(Some(520.0)));
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('A', 1.0, 2.0), ('A', 2.0, 4.0), ('A', 3.0, 6.0),
+                    ('B', 10.0, 3.0), ('B', 12.0, 5.0), ('B', 14.0, 8.0)
+                ) AS t(group_name, x, y)",
+            )
+            .await?;
+        Plot::<FacetColumn>::new()
+            .add_param(width.clone())
+            .canvas_size(width.expr(), 320.0)
+            .data(df)
+            .mark(
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(
+                        Symbol::new()
+                            .x(col("x"))
+                            .y(col("y"))
+                            .size(20.0)
+                            .fill("#4682b4"),
+                    ),
+                )
+                .column(col("group_name")),
+            )
+            .compile(ctx)
+            .await
+    }
+
     #[tokio::test]
     async fn plot_session_exact_matches_one_shot() -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
@@ -619,6 +689,41 @@ mod tests {
             third.pipeline.scale_domain_collects > 0,
             "changed channel param should rebuild scale domains"
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn scale_domain_cache_reuses_facet_scoped_builders_for_width_only_param_change()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_facet_width_param_scale_cache_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let (_evaluated, first) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            first.pipeline.scale_domain_cache_misses > 1,
+            "initial faceted evaluation should populate top-level and facet-scope scale-domain caches"
+        );
+        assert!(
+            first.pipeline.scale_domain_collects > 0,
+            "initial faceted evaluation should infer scale domains"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(700.0)));
+        let (_evaluated, second) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(patch))
+            .await?;
+        assert!(
+            second.pipeline.scale_domain_cache_hits > 1,
+            "width-only reevaluation should hit top-level and facet-scope scale-domain caches"
+        );
+        assert_eq!(second.pipeline.scale_domain_cache_misses, 0);
+        assert_eq!(second.pipeline.scale_builder_builds, 0);
+        assert_eq!(second.pipeline.scale_domain_collects, 0);
 
         Ok(())
     }
