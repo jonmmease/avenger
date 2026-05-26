@@ -200,6 +200,14 @@ impl EvaluationMetrics {
         self.pipeline.scale_builder_builds += 1;
     }
 
+    pub(crate) fn record_scale_domain_cache_hit(&mut self) {
+        self.pipeline.scale_domain_cache_hits += 1;
+    }
+
+    pub(crate) fn record_scale_domain_cache_miss(&mut self) {
+        self.pipeline.scale_domain_cache_misses += 1;
+    }
+
     pub(crate) fn record_scale_domain_collect(&mut self) {
         self.pipeline.scale_domain_collects += 1;
     }
@@ -272,6 +280,10 @@ pub struct EvaluationPipelineMetrics {
     /// runtime. This counts calls to the current domain-inference pipeline,
     /// not configured scale range rebuilds.
     pub scale_builder_builds: usize,
+    /// Number of scale-domain cache hits in a reusable `PlotSession`.
+    pub scale_domain_cache_hits: usize,
+    /// Number of scale-domain cache misses in a reusable `PlotSession`.
+    pub scale_domain_cache_misses: usize,
     /// Number of DataFusion collect calls made while inferring scale domains.
     pub scale_domain_collects: usize,
     /// Number of coordinate-guide overflow measurements.

@@ -1,8 +1,22 @@
 //! Reusable evaluation session for a compiled plot.
 
-use std::sync::Arc;
+use std::{
+    collections::{BTreeSet, HashMap},
+    sync::{Arc, Mutex},
+};
 
-use datafusion::{common::ScalarValue, prelude::SessionContext};
+use avenger_chart_core::{
+    DefaultLogicalExprNodeExt, LogicalPlanNodeExt, Maybe, RadiusExpression, ScaleConfigSpec,
+    ScaleDefaultDomain, ScaleDomain,
+};
+use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
+use datafusion::{
+    common::ScalarValue,
+    logical_expr::{Expr, LogicalPlan},
+    prelude::SessionContext,
+};
+use datafusion_common::tree_node::{TreeNode, TreeNodeRecursion};
+use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
 use indexmap::IndexMap;
 
 use crate::{
@@ -11,6 +25,35 @@ use crate::{
 };
 
 use super::CompiledPlot;
+
+pub(crate) type ScaleDomainCacheHandle = Arc<Mutex<ScaleDomainCache>>;
+
+/// Session-owned cache for scale-domain inference artifacts.
+#[derive(Default)]
+pub(crate) struct ScaleDomainCache {
+    builders: HashMap<ScaleDomainCacheKey, ScaleBuilder>,
+}
+
+impl ScaleDomainCache {
+    pub(crate) fn get(&self, key: &ScaleDomainCacheKey) -> Option<ScaleBuilder> {
+        self.builders.get(key).cloned()
+    }
+
+    pub(crate) fn insert(&mut self, key: ScaleDomainCacheKey, builder: ScaleBuilder) {
+        self.builders.insert(key, builder);
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub(crate) struct ScaleDomainCacheKey {
+    scope: ScaleDomainCacheScope,
+    params: Vec<(String, String)>,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+enum ScaleDomainCacheScope {
+    TopLevel,
+}
 
 /// Request object for evaluating a `PlotSession`.
 #[derive(Clone, Debug)]
@@ -84,6 +127,7 @@ pub struct PlotSession {
     last_request: Option<EvaluationRequestSummary>,
     last_measurement: Option<()>,
     last_metrics: Option<EvaluationMetrics>,
+    scale_domain_cache: ScaleDomainCacheHandle,
 }
 
 impl PlotSession {
@@ -96,6 +140,7 @@ impl PlotSession {
             last_request: None,
             last_measurement: None,
             last_metrics: None,
+            scale_domain_cache: Arc::new(Mutex::new(ScaleDomainCache::default())),
         }
     }
 
@@ -137,10 +182,11 @@ impl PlotSession {
         let next_params = self.params_for_request(&request);
         let (evaluated, mut metrics) = self
             .program
-            .evaluate_with_options_and_metrics(
+            .evaluate_with_options_and_metrics_with_scale_domain_cache(
                 self.ctx.as_ref(),
                 Some(next_params.clone()),
                 request.options,
+                self.scale_domain_cache.clone(),
             )
             .await?;
         metrics.mode = mode;
@@ -185,6 +231,193 @@ impl CompiledPlot {
         session.set_params(params);
         session
     }
+
+    pub(crate) fn top_level_scale_domain_cache_key(
+        &self,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> ScaleDomainCacheKey {
+        let relevant_params = scale_domain_dependency_params(self, ctx, params);
+        ScaleDomainCacheKey {
+            scope: ScaleDomainCacheScope::TopLevel,
+            params: relevant_params
+                .into_iter()
+                .map(|name| {
+                    let value = params
+                        .get(&name)
+                        .or_else(|| params.get(&format!("${name}")))
+                        .map(|value| format!("{value:?}"))
+                        .unwrap_or_else(|| "<missing>".to_string());
+                    (name, value)
+                })
+                .collect(),
+        }
+    }
+}
+
+fn scale_domain_dependency_params(
+    plot: &CompiledPlot,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+) -> BTreeSet<String> {
+    let all_param_names = params.keys().cloned().collect::<BTreeSet<_>>();
+    let mut names = BTreeSet::new();
+
+    collect_plan_placeholders(plot.data.as_ref(), ctx, &mut names, &all_param_names);
+    for mark in &plot.marks {
+        collect_plan_placeholders(
+            mark.data_context().logical_plan_node(),
+            ctx,
+            &mut names,
+            &all_param_names,
+        );
+        for channel in mark.data_context().channels().values() {
+            for expr in channel.all_exprs(ctx) {
+                collect_expr_placeholders(&expr, &mut names);
+            }
+            if let Some(config) = channel.get_scale_config() {
+                collect_scale_config_placeholders(config, ctx, &mut names, &all_param_names);
+            }
+        }
+    }
+
+    for scale_spec in plot.scale_specs.values() {
+        match scale_spec {
+            PlotScaleSpec::Local(config) => {
+                collect_scale_config_placeholders(config, ctx, &mut names, &all_param_names);
+            }
+        }
+    }
+
+    names
+}
+
+fn collect_scale_config_placeholders(
+    config: &ScaleConfigSpec,
+    ctx: &SessionContext,
+    names: &mut BTreeSet<String>,
+    all_param_names: &BTreeSet<String>,
+) {
+    if let Maybe::Set(domain) = &config.domain {
+        collect_scale_domain_placeholders(domain, ctx, names, all_param_names);
+    }
+    if let Maybe::Set(ordering) = &config.ordering
+        && let Some(order_expr) = &ordering.order_expr
+    {
+        collect_expr_node_placeholders(Some(order_expr), ctx, names, all_param_names);
+    }
+    for option_expr in config.options.values() {
+        collect_expr_node_placeholders(Some(option_expr), ctx, names, all_param_names);
+    }
+}
+
+fn collect_scale_domain_placeholders(
+    domain: &ScaleDomain,
+    ctx: &SessionContext,
+    names: &mut BTreeSet<String>,
+    all_param_names: &BTreeSet<String>,
+) {
+    collect_expr_node_placeholders(domain.raw_domain.as_ref(), ctx, names, all_param_names);
+    match &domain.default_domain {
+        ScaleDefaultDomain::Interval(start, end) => {
+            collect_expr_node_placeholders(Some(start), ctx, names, all_param_names);
+            collect_expr_node_placeholders(Some(end), ctx, names, all_param_names);
+        }
+        ScaleDefaultDomain::Discrete(values) => {
+            for value in values {
+                collect_expr_node_placeholders(Some(value), ctx, names, all_param_names);
+            }
+        }
+        ScaleDefaultDomain::DomainExprs(domain_exprs) => {
+            for domain_expr in domain_exprs {
+                collect_plan_placeholders(
+                    Some(domain_expr.dataframe.as_ref()),
+                    ctx,
+                    names,
+                    all_param_names,
+                );
+                collect_expr_node_placeholders(
+                    Some(&domain_expr.expr),
+                    ctx,
+                    names,
+                    all_param_names,
+                );
+                collect_radius_expr_placeholders(
+                    domain_expr.radius.as_ref(),
+                    ctx,
+                    names,
+                    all_param_names,
+                );
+            }
+        }
+        ScaleDefaultDomain::NoDefault => {}
+    }
+}
+
+fn collect_radius_expr_placeholders(
+    radius: Option<&RadiusExpression>,
+    ctx: &SessionContext,
+    names: &mut BTreeSet<String>,
+    all_param_names: &BTreeSet<String>,
+) {
+    match radius {
+        Some(RadiusExpression::Symmetric(expr)) => {
+            collect_expr_node_placeholders(Some(expr), ctx, names, all_param_names);
+        }
+        Some(RadiusExpression::Asymmetric { lower, upper }) => {
+            collect_expr_node_placeholders(Some(lower), ctx, names, all_param_names);
+            collect_expr_node_placeholders(Some(upper), ctx, names, all_param_names);
+        }
+        None => {}
+    }
+}
+
+fn collect_expr_node_placeholders(
+    node: Option<&LogicalExprNode>,
+    ctx: &SessionContext,
+    names: &mut BTreeSet<String>,
+    all_param_names: &BTreeSet<String>,
+) {
+    let Some(node) = node else {
+        return;
+    };
+    match node.to_expr(ctx) {
+        Ok(expr) => collect_expr_placeholders(&expr, names),
+        Err(_) => names.extend(all_param_names.iter().cloned()),
+    }
+}
+
+fn collect_plan_placeholders(
+    node: Option<&LogicalPlanNode>,
+    ctx: &SessionContext,
+    names: &mut BTreeSet<String>,
+    all_param_names: &BTreeSet<String>,
+) {
+    let Some(node) = node else {
+        return;
+    };
+    match node.to_logical_plan(ctx) {
+        Ok(plan) => collect_logical_plan_placeholders(&plan, names),
+        Err(_) => names.extend(all_param_names.iter().cloned()),
+    }
+}
+
+fn collect_logical_plan_placeholders(plan: &LogicalPlan, names: &mut BTreeSet<String>) {
+    let _ = plan.apply(|node| {
+        for expr in node.expressions() {
+            collect_expr_placeholders(&expr, names);
+        }
+        Ok(TreeNodeRecursion::Continue)
+    });
+}
+
+fn collect_expr_placeholders(expr: &Expr, names: &mut BTreeSet<String>) {
+    let _ = expr.apply(|candidate| {
+        if let Expr::Placeholder(placeholder) = candidate {
+            names.insert(placeholder.id.trim_start_matches('$').to_string());
+        }
+        Ok(TreeNodeRecursion::Continue)
+    });
 }
 
 #[cfg(test)]
@@ -204,6 +437,42 @@ mod tests {
         Plot::<Cartesian>::new()
             .data(df)
             .mark(Symbol::new().x(col("x")).y(col("y")).size(20.0))
+            .compile(ctx)
+            .await
+    }
+
+    async fn compile_width_param_scale_cache_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let width = Param::new("width", ScalarValue::Float64(Some(360.0)));
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0, 2.0), (2.0, 3.0), (3.0, 5.0)) AS t(x, y)")
+            .await?;
+        Plot::<Cartesian>::new()
+            .add_param(width.clone())
+            .canvas_size(width.expr(), 300.0)
+            .data(df)
+            .mark(Symbol::new().x(col("x")).y(col("y")).size(20.0))
+            .compile(ctx)
+            .await
+    }
+
+    async fn compile_scale_param_cache_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let scale_factor = Param::new("scale_factor", ScalarValue::Float64(Some(1.0)));
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0, 2.0), (2.0, 3.0), (3.0, 5.0)) AS t(x, y)")
+            .await?;
+        Plot::<Cartesian>::new()
+            .add_param(scale_factor.clone())
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x(col("x") * scale_factor.expr())
+                    .y(col("y"))
+                    .size(20.0),
+            )
             .compile(ctx)
             .await
     }
@@ -278,6 +547,78 @@ mod tests {
                 Some(mode)
             );
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn scale_domain_cache_reuses_domains_for_width_only_param_change()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_width_param_scale_cache_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let (_evaluated, first) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert_eq!(first.pipeline.scale_domain_cache_hits, 0);
+        assert_eq!(first.pipeline.scale_domain_cache_misses, 1);
+        assert_eq!(first.pipeline.scale_builder_builds, 1);
+        assert!(
+            first.pipeline.scale_domain_collects > 0,
+            "initial evaluation should infer scale domains"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(640.0)));
+        let (_evaluated, second) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(patch))
+            .await?;
+        assert_eq!(second.pipeline.scale_domain_cache_hits, 1);
+        assert_eq!(second.pipeline.scale_domain_cache_misses, 0);
+        assert_eq!(second.pipeline.scale_builder_builds, 0);
+        assert_eq!(second.pipeline.scale_domain_collects, 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn scale_domain_cache_invalidates_when_channel_param_changes()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_scale_param_cache_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let (_evaluated, first) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert_eq!(first.pipeline.scale_domain_cache_hits, 0);
+        assert_eq!(first.pipeline.scale_domain_cache_misses, 1);
+        assert!(
+            first.pipeline.scale_domain_collects > 0,
+            "initial evaluation should infer scale domains"
+        );
+
+        let (_evaluated, second) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert_eq!(second.pipeline.scale_domain_cache_hits, 1);
+        assert_eq!(second.pipeline.scale_domain_cache_misses, 0);
+        assert_eq!(second.pipeline.scale_builder_builds, 0);
+        assert_eq!(second.pipeline.scale_domain_collects, 0);
+
+        let mut patch = IndexMap::new();
+        patch.insert("scale_factor".to_string(), ScalarValue::Float64(Some(2.0)));
+        let (_evaluated, third) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(patch))
+            .await?;
+        assert_eq!(third.pipeline.scale_domain_cache_hits, 0);
+        assert_eq!(third.pipeline.scale_domain_cache_misses, 1);
+        assert_eq!(third.pipeline.scale_builder_builds, 1);
+        assert!(
+            third.pipeline.scale_domain_collects > 0,
+            "changed channel param should rebuild scale domains"
+        );
 
         Ok(())
     }

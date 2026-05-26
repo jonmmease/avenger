@@ -85,6 +85,7 @@ use super::{
     prepare_mark_data_runtime,
     scale_provider::{DynamicScaleProvider, ScaleProvider},
     scales::build_scale_builder_from_marks,
+    session::ScaleDomainCacheHandle,
 };
 
 #[derive(Clone, Debug)]
@@ -4150,7 +4151,7 @@ impl CompiledPlot {
         params: Option<IndexMap<String, ScalarValue>>,
         options: EvaluationOptions,
     ) -> Result<EvaluatedPlot, AvengerChartError> {
-        Box::pin(self.evaluate_with_options_internal(ctx, params, options, None)).await
+        Box::pin(self.evaluate_with_options_internal(ctx, params, options, None, None)).await
     }
 
     /// Evaluate the plot while collecting focused performance diagnostics.
@@ -4167,6 +4168,30 @@ impl CompiledPlot {
             params,
             options,
             Some(metrics.clone()),
+            None,
+        ))
+        .await?;
+        let metrics = metrics
+            .lock()
+            .expect("evaluation metrics lock poisoned")
+            .clone();
+        Ok((evaluated, metrics))
+    }
+
+    pub(crate) async fn evaluate_with_options_and_metrics_with_scale_domain_cache(
+        &self,
+        ctx: &SessionContext,
+        params: Option<IndexMap<String, ScalarValue>>,
+        options: EvaluationOptions,
+        scale_domain_cache: ScaleDomainCacheHandle,
+    ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
+        let metrics = Arc::new(Mutex::new(EvaluationMetrics::default()));
+        let evaluated = Box::pin(self.evaluate_with_options_internal(
+            ctx,
+            params,
+            options,
+            Some(metrics.clone()),
+            Some(scale_domain_cache),
         ))
         .await?;
         let metrics = metrics
@@ -4182,6 +4207,7 @@ impl CompiledPlot {
         params: Option<IndexMap<String, ScalarValue>>,
         options: EvaluationOptions,
         evaluation_metrics: Option<Arc<Mutex<EvaluationMetrics>>>,
+        scale_domain_cache: Option<ScaleDomainCacheHandle>,
     ) -> Result<EvaluatedPlot, AvengerChartError> {
         // Merge provided params with defaults
         let merged_params = if let Some(provided) = params {
@@ -4241,20 +4267,55 @@ impl CompiledPlot {
             scale_eval_ctx = scale_eval_ctx
                 .with_diagnostics(Arc::new(EvaluationMetricsDiagnostics::new(metrics.clone())));
         }
-        // Build scale provider
-        Self::record_evaluation_metric(&evaluation_metrics, |metrics| {
-            metrics.record_scale_builder_build();
-        });
-        let scale_builder = Box::pin(build_scale_builder_from_marks(
-            &self.marks,
-            &self.scale_specs,
-            &self.coord_transform,
-            &self.data,
-            None,
-            &scale_eval_ctx,
-            self.get_theme().as_ref(),
-        ))
-        .await?;
+        let scale_builder = if let Some(scale_domain_cache) = &scale_domain_cache {
+            let cache_key = self.top_level_scale_domain_cache_key(ctx, &merged_params);
+            let cached_builder = {
+                scale_domain_cache
+                    .lock()
+                    .expect("scale-domain cache lock poisoned")
+                    .get(&cache_key)
+            };
+            if let Some(builder) = cached_builder {
+                Self::record_evaluation_metric(&evaluation_metrics, |metrics| {
+                    metrics.record_scale_domain_cache_hit();
+                });
+                builder
+            } else {
+                Self::record_evaluation_metric(&evaluation_metrics, |metrics| {
+                    metrics.record_scale_domain_cache_miss();
+                    metrics.record_scale_builder_build();
+                });
+                let builder = Box::pin(build_scale_builder_from_marks(
+                    &self.marks,
+                    &self.scale_specs,
+                    &self.coord_transform,
+                    &self.data,
+                    None,
+                    &scale_eval_ctx,
+                    self.get_theme().as_ref(),
+                ))
+                .await?;
+                scale_domain_cache
+                    .lock()
+                    .expect("scale-domain cache lock poisoned")
+                    .insert(cache_key, builder.clone());
+                builder
+            }
+        } else {
+            Self::record_evaluation_metric(&evaluation_metrics, |metrics| {
+                metrics.record_scale_builder_build();
+            });
+            Box::pin(build_scale_builder_from_marks(
+                &self.marks,
+                &self.scale_specs,
+                &self.coord_transform,
+                &self.data,
+                None,
+                &scale_eval_ctx,
+                self.get_theme().as_ref(),
+            ))
+            .await?
+        };
 
         let provider = DynamicScaleProvider {
             builder: &scale_builder,
