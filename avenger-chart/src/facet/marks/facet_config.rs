@@ -1,4 +1,6 @@
-use avenger_chart_core::{DefaultLogicalExprNodeExt, FacetEmptyCellPolicy, IntoExpr, ScaleSharing};
+use avenger_chart_core::{
+    DefaultLogicalExprNodeExt, FacetEmptyCellPolicy, FacetWrapColumnMode, IntoExpr, ScaleSharing,
+};
 use datafusion_proto::protobuf::LogicalExprNode;
 
 #[derive(Clone, Default)]
@@ -215,7 +217,7 @@ pub struct FacetWrapChannelConfig {
     pub(crate) empty_cell_policy: Option<FacetEmptyCellPolicy>,
     pub(crate) order_expr: Option<LogicalExprNode>,
     pub(crate) order_descending: bool,
-    pub(crate) columns_expr: Option<LogicalExprNode>,
+    pub(crate) column_mode: FacetWrapColumnMode,
 }
 
 impl FacetWrapChannelConfig {
@@ -225,9 +227,21 @@ impl FacetWrapChannelConfig {
     /// data in the wrap's current sharing scope. When omitted, wrap uses
     /// `ceil(sqrt(slot_count))`.
     pub fn columns(mut self, expr: impl IntoExpr) -> Self {
-        self.columns_expr = Some(
+        self.column_mode = FacetWrapColumnMode::Fixed(
             LogicalExprNode::from_default_expr(expr.into_expr())
                 .expect("Failed to serialize facet wrap columns expression"),
+        );
+        self
+    }
+
+    /// Choose physical columns from an approximate target leaf plot-area width.
+    ///
+    /// This mode is intended for responsive wraps with a canvas-constrained
+    /// width and leaf plot-area-sized height.
+    pub fn responsive_columns(mut self, width: impl IntoExpr) -> Self {
+        self.column_mode = FacetWrapColumnMode::ResponsiveWidth(
+            LogicalExprNode::from_default_expr(width.into_expr())
+                .expect("Failed to serialize facet wrap responsive column width"),
         );
         self
     }
@@ -328,6 +342,16 @@ mod tests {
     #[test]
     fn wrap_columns_serializes_expression() {
         let config = FacetWrapChannelConfig::default().columns(datafusion::prelude::lit(4));
-        assert!(config.columns_expr.is_some());
+        assert!(matches!(config.column_mode, FacetWrapColumnMode::Fixed(_)));
+    }
+
+    #[test]
+    fn responsive_columns_serializes_expression() {
+        let config =
+            FacetWrapChannelConfig::default().responsive_columns(datafusion::prelude::lit(180.0));
+        assert!(matches!(
+            config.column_mode,
+            FacetWrapColumnMode::ResponsiveWidth(_)
+        ));
     }
 }

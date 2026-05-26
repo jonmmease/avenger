@@ -43,7 +43,7 @@ use crate::{
             retarget_scale_ranges_for_plot_area,
         },
         debug as facet_debug,
-        evaluated_facet_tree::EvaluatedFacetTree,
+        evaluated_facet_tree::{EvaluatedFacetTree, FacetWrapLayoutContext},
         layout_plan::{FacetBandPaddingFeedback, FacetBandPaddingFeedbackMap},
         marks::facet::{FacetSubplotRef, facet_subplot_ref},
         overflow_projection::{
@@ -820,6 +820,23 @@ impl CompiledPlot {
         Ok(ResolvedChartSizing::FacetBand(policy))
     }
 
+    fn facet_wrap_layout_context(
+        evaluated_layout_spec: &EvaluatedLayoutSpec,
+        resolved_chart_sizing: ResolvedChartSizing,
+    ) -> FacetWrapLayoutContext {
+        let ResolvedChartSizing::FacetBand(policy) = resolved_chart_sizing else {
+            return FacetWrapLayoutContext::default();
+        };
+        let root_available_width = match policy.width {
+            FacetDimensionSizing::CanvasConstrained { canvas_size } => (canvas_size
+                - evaluated_layout_spec.margins.left
+                - evaluated_layout_spec.margins.right)
+                .max(1.0),
+            FacetDimensionSizing::LeafPlotAreaSized { leaf_plot_size } => leaf_plot_size,
+        };
+        FacetWrapLayoutContext::from_policy(policy, root_available_width)
+    }
+
     fn derive_leaf_subtree_plot_area(
         facet_tree: &EvaluatedFacetTree,
         leaf_plot_width: f32,
@@ -915,9 +932,6 @@ impl CompiledPlot {
             self.default_params.clone()
         };
 
-        let facet_tree = Arc::new(
-            EvaluatedFacetTree::from_compiled_plot_with_params(self, ctx, &merged_params).await?,
-        );
         let evaluated_layout_spec = evaluate_layout_spec(
             &self.layout_spec,
             ctx,
@@ -926,6 +940,17 @@ impl CompiledPlot {
         )
         .await?;
         let resolved_chart_sizing = self.resolve_chart_sizing(&evaluated_layout_spec)?;
+        let wrap_layout_context =
+            Self::facet_wrap_layout_context(&evaluated_layout_spec, resolved_chart_sizing);
+        let facet_tree = Arc::new(
+            EvaluatedFacetTree::from_compiled_plot_with_params_and_wrap_layout_context(
+                self,
+                ctx,
+                &merged_params,
+                wrap_layout_context,
+            )
+            .await?,
+        );
         if !matches!(
             resolved_chart_sizing,
             ResolvedChartSizing::FacetBand(policy) if policy.is_fully_canvas_constrained()
@@ -4090,19 +4115,6 @@ impl CompiledPlot {
             self.default_params.clone()
         };
 
-        // Build evaluated facet tree (pre-pass to discover partition structure).
-        // This queries distinct values for each facet level, respecting facet slot sharing.
-        // Used for efficient facet slot and predicate lookups during nested coordination.
-        let facet_tree_start = Instant::now();
-        let facet_tree = Arc::new(
-            EvaluatedFacetTree::from_compiled_plot_with_params(self, ctx, &merged_params).await?,
-        );
-        debug!(
-            elapsed_ms = facet_tree_start.elapsed().as_secs_f64() * 1000.0,
-            depth = facet_tree.depth(),
-            "evaluated facet tree construction completed"
-        );
-
         // Evaluate layout spec to get concrete dimensions
         let evaluated_layout_spec = evaluate_layout_spec(
             &self.layout_spec,
@@ -4112,6 +4124,28 @@ impl CompiledPlot {
         )
         .await?;
         let resolved_chart_sizing = self.resolve_chart_sizing(&evaluated_layout_spec)?;
+
+        // Build evaluated facet tree (pre-pass to discover partition structure).
+        // Responsive wrap columns need the evaluated sizing policy, so this runs
+        // after layout expressions are resolved but before measurement.
+        let facet_tree_start = Instant::now();
+        let wrap_layout_context =
+            Self::facet_wrap_layout_context(&evaluated_layout_spec, resolved_chart_sizing);
+        let facet_tree = Arc::new(
+            EvaluatedFacetTree::from_compiled_plot_with_params_and_wrap_layout_context(
+                self,
+                ctx,
+                &merged_params,
+                wrap_layout_context,
+            )
+            .await?,
+        );
+        debug!(
+            elapsed_ms = facet_tree_start.elapsed().as_secs_f64() * 1000.0,
+            depth = facet_tree.depth(),
+            "evaluated facet tree construction completed"
+        );
+
         let measured_layout_spec = Self::layout_spec_for_resolved_chart_sizing(
             &evaluated_layout_spec,
             facet_tree.as_ref(),

@@ -17,8 +17,8 @@ use crate::{
     AvengerChartError, ChannelDescriptor, ColumnDimensionConfig, CompiledDataContext, CompiledMark,
     CompiledMarkCore, CompiledMarkState, CoordinateSystem, CoordinateSystemTransformCore,
     DataContext, DefaultLogicalExprNodeExt, FacetDimensionConfig, FacetEmptyCellPolicy,
-    MarkRuntimeContext, RadiusExpression, RowDimensionConfig, ScaleSharing, SerializableExpr,
-    contains_aggregate,
+    FacetWrapColumnMode, MarkRuntimeContext, RadiusExpression, RowDimensionConfig, ScaleSharing,
+    SerializableExpr, contains_aggregate,
 };
 
 /// Data source selected for a compiled subplot's child plot.
@@ -167,8 +167,8 @@ pub trait SubplotMarkCore: Send + Sync {
         false
     }
 
-    fn facet_wrap_columns_expr_config(&self) -> Option<&LogicalExprNode> {
-        None
+    fn facet_wrap_column_mode_config(&self) -> FacetWrapColumnMode {
+        FacetWrapColumnMode::Auto
     }
 
     fn has_plot_level_data(&self) -> bool;

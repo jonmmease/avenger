@@ -33,12 +33,13 @@ use crate::{
     },
     partition::{PartitionDimensionSpec, PartitionSlotCache, scalar_values_equivalent},
     plot::{CompiledPlot, compiled::SharingGroupEdge},
+    render::context::{FacetDimensionSizing, FacetRuntimeSizingPolicy},
 };
 pub(crate) use avenger_chart_core::AxisOwnershipMode;
 pub use avenger_chart_core::AxisVisibility;
 use avenger_chart_core::{
-    AxisPosition, CompiledMark, DefaultLogicalExprNodeExt, ExprHelpers, LogicalPlanNodeExt,
-    SharingLevel, contains_aggregate, params_to_datafusion,
+    AxisPosition, CompiledMark, DefaultLogicalExprNodeExt, ExprHelpers, FacetWrapColumnMode,
+    LogicalPlanNodeExt, SharingLevel, contains_aggregate, params_to_datafusion,
 };
 
 /// Evaluated facet structure - built once from data at evaluate() time, queried throughout.
@@ -74,6 +75,35 @@ pub struct EvaluatedFacetTree {
     jagged_axis_cache: HashMap<AxisPosition, bool>,
     /// Sharing levels observed in channels/nodes plus canonical levels `{0, 255}`.
     used_sharing_levels: Vec<SharingLevel>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct FacetWrapLayoutContext {
+    current_available_width: Option<f32>,
+    width_is_canvas_constrained: bool,
+    height_is_leaf_plot_area_sized: bool,
+}
+
+impl FacetWrapLayoutContext {
+    pub(crate) fn from_policy(policy: FacetRuntimeSizingPolicy, root_available_width: f32) -> Self {
+        Self {
+            current_available_width: match policy.width {
+                FacetDimensionSizing::CanvasConstrained { .. } => Some(root_available_width),
+                FacetDimensionSizing::LeafPlotAreaSized { .. } => None,
+            },
+            width_is_canvas_constrained: policy.width.is_canvas_constrained(),
+            height_is_leaf_plot_area_sized: policy.height.is_leaf_plot_area_sized(),
+        }
+    }
+
+    fn with_column_slots(self, columns: usize) -> Self {
+        Self {
+            current_available_width: self
+                .current_available_width
+                .map(|width| width / columns.max(1) as f32),
+            ..self
+        }
+    }
 }
 
 /// Resolved geometry metadata for a concrete facet path.
@@ -212,6 +242,21 @@ impl EvaluatedFacetTree {
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
     ) -> Result<Self, AvengerChartError> {
+        Self::from_compiled_plot_with_params_and_wrap_layout_context(
+            plot,
+            ctx,
+            params,
+            FacetWrapLayoutContext::default(),
+        )
+        .await
+    }
+
+    pub(crate) async fn from_compiled_plot_with_params_and_wrap_layout_context(
+        plot: &CompiledPlot,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+        wrap_layout_context: FacetWrapLayoutContext,
+    ) -> Result<Self, AvengerChartError> {
         // Get the DataFrame from plot-level data or first mark with data
         let df = get_dataframe_from_plot(plot, ctx);
 
@@ -229,9 +274,18 @@ impl EvaluatedFacetTree {
 
         // Build partition tree by walking marks
         // Start at depth 1 (outermost facet level)
-        let root =
-            build_partition_tree(&plot.marks, &df, ctx, params, &[], &[], 1, &mut slot_cache)
-                .await?;
+        let root = build_partition_tree(
+            &plot.marks,
+            &df,
+            ctx,
+            params,
+            &[],
+            &[],
+            1,
+            &mut slot_cache,
+            wrap_layout_context,
+        )
+        .await?;
 
         // Extract channel-domain sharing levels from the innermost marks.
         let channel_domain_sharing_levels = extract_channel_domain_sharing_levels(&plot.marks);
@@ -1440,7 +1494,29 @@ struct FacetPartitionMarkSpec<'a> {
     kind: FacetPartitionKind,
     dimension: PartitionDimensionSpec,
     subplot: &'a CompiledPlot,
-    columns_expr: Option<Expr>,
+    column_mode: FacetWrapColumnModeExpr,
+}
+
+#[derive(Clone, Debug)]
+enum FacetWrapColumnModeExpr {
+    Auto,
+    Fixed(Expr),
+    ResponsiveWidth(Expr),
+}
+
+impl FacetWrapColumnModeExpr {
+    fn from_mode(
+        mode: FacetWrapColumnMode,
+        ctx: &SessionContext,
+    ) -> Result<Self, AvengerChartError> {
+        match mode {
+            FacetWrapColumnMode::Auto => Ok(Self::Auto),
+            FacetWrapColumnMode::Fixed(expr) => Ok(Self::Fixed(expr.to_expr(ctx)?)),
+            FacetWrapColumnMode::ResponsiveWidth(expr) => {
+                Ok(Self::ResponsiveWidth(expr.to_expr(ctx)?))
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1462,7 +1538,7 @@ impl<'a> FacetPartitionMarkSpec<'a> {
             slot_sharing,
             order_expr_node,
             order_descending,
-            columns_expr,
+            column_mode,
             kind,
         ) = match facet_mark {
             FacetSubplotRef::Row(facet_row) => (
@@ -1473,7 +1549,7 @@ impl<'a> FacetPartitionMarkSpec<'a> {
                 facet_row.facet_slot_sharing(),
                 facet_row.facet_order_expr(),
                 facet_row.facet_order_descending(),
-                None,
+                FacetWrapColumnMode::Auto,
                 FacetPartitionKind::Band,
             ),
             FacetSubplotRef::Col(facet_col) => (
@@ -1484,7 +1560,7 @@ impl<'a> FacetPartitionMarkSpec<'a> {
                 facet_col.facet_slot_sharing(),
                 facet_col.facet_order_expr(),
                 facet_col.facet_order_descending(),
-                None,
+                FacetWrapColumnMode::Auto,
                 FacetPartitionKind::Band,
             ),
             FacetSubplotRef::Wrap(facet_wrap) => (
@@ -1495,10 +1571,7 @@ impl<'a> FacetPartitionMarkSpec<'a> {
                 facet_wrap.facet_slot_sharing(),
                 facet_wrap.facet_order_expr(),
                 facet_wrap.facet_order_descending(),
-                facet_wrap
-                    .facet_columns_expr()
-                    .map(|expr| expr.to_expr(ctx))
-                    .transpose()?,
+                facet_wrap.facet_column_mode(),
                 FacetPartitionKind::Wrap,
             ),
         };
@@ -1520,7 +1593,7 @@ impl<'a> FacetPartitionMarkSpec<'a> {
             dimension: PartitionDimensionSpec::new(direction, sharing, field_expr)
                 .with_ordering(order_expr, order_descending),
             subplot,
-            columns_expr,
+            column_mode: FacetWrapColumnModeExpr::from_mode(column_mode, ctx)?,
         }))
     }
 }
@@ -1544,6 +1617,7 @@ async fn build_partition_tree(
     ancestor_filters: &[Expr],
     current_depth: u8,
     slot_cache: &mut PartitionSlotCache,
+    wrap_layout_context: FacetWrapLayoutContext,
 ) -> Result<Option<PartitionNode>, AvengerChartError> {
     for mark in marks {
         if let Some(facet_mark) = facet_subplot_ref(mark.as_ref()) {
@@ -1561,6 +1635,7 @@ async fn build_partition_tree(
                         ancestor_filters,
                         current_depth,
                         slot_cache,
+                        wrap_layout_context,
                     ))
                     .await
                 }
@@ -1574,6 +1649,7 @@ async fn build_partition_tree(
                         ancestor_filters,
                         current_depth,
                         slot_cache,
+                        wrap_layout_context,
                     ))
                     .await
                 }
@@ -1595,6 +1671,7 @@ async fn build_partition_node(
     ancestor_filters: &[Expr],
     current_depth: u8,
     slot_cache: &mut PartitionSlotCache,
+    wrap_layout_context: FacetWrapLayoutContext,
 ) -> Result<Option<PartitionNode>, AvengerChartError> {
     let dimension = &spec.dimension;
     let parent_filter = combine_filters(ancestor_filters);
@@ -1613,6 +1690,10 @@ async fn build_partition_node(
     if contains_facet_mark(&spec.subplot.marks) {
         // Build branch node with children for each value
         let mut children = IndexMap::new();
+        let child_wrap_layout_context = match dimension.direction {
+            FacetDirection::Column => wrap_layout_context.with_column_slots(values.len()),
+            FacetDirection::Row => wrap_layout_context,
+        };
 
         for value in &values {
             // Build filter for this value to pass to child
@@ -1632,6 +1713,7 @@ async fn build_partition_node(
                 &child_filters,
                 current_depth + 1,
                 slot_cache,
+                child_wrap_layout_context,
             ))
             .await?
             {
@@ -1723,7 +1805,7 @@ fn wrap_row_values(row_count: usize) -> Vec<ScalarValue> {
         .collect()
 }
 
-fn scalar_to_columns(value: ScalarValue) -> Result<usize, AvengerChartError> {
+fn scalar_to_columns(value: ScalarValue, label: &str) -> Result<usize, AvengerChartError> {
     let columns = match value {
         ScalarValue::Int8(Some(v)) => v as i64,
         ScalarValue::Int16(Some(v)) => v as i64,
@@ -1737,30 +1819,51 @@ fn scalar_to_columns(value: ScalarValue) -> Result<usize, AvengerChartError> {
         ScalarValue::Float64(Some(v)) => v.round() as i64,
         other => {
             return Err(AvengerChartError::InvalidArgument(format!(
-                "FacetWrap columns expression must evaluate to a positive number, got {other:?}"
+                "{label} must evaluate to a positive number, got {other:?}"
             )));
         }
     };
     if columns < 1 {
         return Err(AvengerChartError::InvalidArgument(format!(
-            "FacetWrap columns expression must evaluate to a positive number, got {columns}"
+            "{label} must evaluate to a positive number, got {columns}"
         )));
     }
     Ok(columns as usize)
 }
 
-async fn resolve_wrap_columns(
+fn scalar_to_positive_f32(value: ScalarValue, label: &str) -> Result<f32, AvengerChartError> {
+    let value = match value {
+        ScalarValue::Int8(Some(v)) => v as f32,
+        ScalarValue::Int16(Some(v)) => v as f32,
+        ScalarValue::Int32(Some(v)) => v as f32,
+        ScalarValue::Int64(Some(v)) => v as f32,
+        ScalarValue::UInt8(Some(v)) => v as f32,
+        ScalarValue::UInt16(Some(v)) => v as f32,
+        ScalarValue::UInt32(Some(v)) => v as f32,
+        ScalarValue::UInt64(Some(v)) => v as f32,
+        ScalarValue::Float32(Some(v)) => v,
+        ScalarValue::Float64(Some(v)) => v as f32,
+        other => {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "{label} must evaluate to a positive number, got {other:?}"
+            )));
+        }
+    };
+    if !value.is_finite() || value <= 0.0 {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "{label} must evaluate to a positive number, got {value}"
+        )));
+    }
+    Ok(value)
+}
+
+async fn resolve_fixed_wrap_columns(
     df: &DataFrame,
     ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
     domain_filter: Option<Expr>,
-    columns_expr: Option<&Expr>,
-    slot_count: usize,
+    columns_expr: &Expr,
 ) -> Result<usize, AvengerChartError> {
-    let Some(columns_expr) = columns_expr else {
-        return Ok((slot_count as f64).sqrt().ceil().max(1.0) as usize);
-    };
-
     if contains_aggregate(columns_expr) {
         let scoped_df = if let Some(domain_filter) = domain_filter {
             df.clone().filter(domain_filter)?
@@ -1790,7 +1893,10 @@ async fn resolve_wrap_columns(
                 "FacetWrap aggregate columns expression returned no rows".to_string(),
             ));
         }
-        return scalar_to_columns(ScalarValue::try_from_array(batch.column(0), 0)?);
+        return scalar_to_columns(
+            ScalarValue::try_from_array(batch.column(0), 0)?,
+            "FacetWrap columns expression",
+        );
     }
 
     if columns_expr.any_column_refs() {
@@ -1805,7 +1911,84 @@ async fn resolve_wrap_columns(
         .eval_to_scalar(Some(ctx), datafusion_params.as_ref())
         .await
         .map_err(AvengerChartError::DataFusionError)?;
-    scalar_to_columns(scalar)
+    scalar_to_columns(scalar, "FacetWrap columns expression")
+}
+
+async fn resolve_responsive_wrap_columns(
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+    target_width_expr: &Expr,
+    slot_count: usize,
+    layout_context: FacetWrapLayoutContext,
+) -> Result<usize, AvengerChartError> {
+    if !layout_context.width_is_canvas_constrained {
+        return Err(AvengerChartError::InvalidArgument(
+            "FacetWrap responsive_columns requires a canvas-constrained width; use canvas_constraint(width) with plot_constraint(height), or use columns(...) for an exact count".to_string(),
+        ));
+    }
+    if !layout_context.height_is_leaf_plot_area_sized {
+        return Err(AvengerChartError::InvalidArgument(
+            "FacetWrap responsive_columns requires a leaf plot-area-sized height; height canvas-constrained wrapping is under-specified without an aspect target".to_string(),
+        ));
+    }
+    if contains_aggregate(target_width_expr) || target_width_expr.any_column_refs() {
+        return Err(AvengerChartError::InvalidArgument(
+            "FacetWrap responsive_columns target width must be a constant or parameter expression"
+                .to_string(),
+        ));
+    }
+
+    let available_width = layout_context.current_available_width.ok_or_else(|| {
+        AvengerChartError::InvalidArgument(
+            "FacetWrap responsive_columns requires an estimated available width".to_string(),
+        )
+    })?;
+    if !available_width.is_finite() || available_width <= 0.0 {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "FacetWrap responsive_columns available width must be positive, got {available_width}"
+        )));
+    }
+
+    let datafusion_params = params_to_datafusion(params);
+    let target_width = scalar_to_positive_f32(
+        target_width_expr
+            .eval_to_scalar(Some(ctx), datafusion_params.as_ref())
+            .await
+            .map_err(AvengerChartError::DataFusionError)?,
+        "FacetWrap responsive_columns target width",
+    )?;
+
+    let mut best_columns = 1;
+    let mut best_delta = f32::INFINITY;
+    for columns in 1..=slot_count.max(1) {
+        let estimated_width = available_width / columns as f32;
+        let delta = (estimated_width - target_width).abs();
+        if delta < best_delta {
+            best_columns = columns;
+            best_delta = delta;
+        }
+    }
+    Ok(best_columns)
+}
+
+async fn resolve_wrap_columns(
+    df: &DataFrame,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+    domain_filter: Option<Expr>,
+    column_mode: &FacetWrapColumnModeExpr,
+    slot_count: usize,
+    layout_context: FacetWrapLayoutContext,
+) -> Result<usize, AvengerChartError> {
+    match column_mode {
+        FacetWrapColumnModeExpr::Auto => Ok((slot_count as f64).sqrt().ceil().max(1.0) as usize),
+        FacetWrapColumnModeExpr::Fixed(expr) => {
+            resolve_fixed_wrap_columns(df, ctx, params, domain_filter, expr).await
+        }
+        FacetWrapColumnModeExpr::ResponsiveWidth(expr) => {
+            resolve_responsive_wrap_columns(ctx, params, expr, slot_count, layout_context).await
+        }
+    }
 }
 
 async fn build_wrap_partition_node(
@@ -1817,6 +2000,7 @@ async fn build_wrap_partition_node(
     ancestor_filters: &[Expr],
     current_depth: u8,
     slot_cache: &mut PartitionSlotCache,
+    wrap_layout_context: FacetWrapLayoutContext,
 ) -> Result<Option<PartitionNode>, AvengerChartError> {
     let dimension = &spec.dimension;
     let parent_filter = combine_filters(ancestor_filters);
@@ -1836,8 +2020,9 @@ async fn build_wrap_partition_node(
         ctx,
         params,
         domain_filter,
-        spec.columns_expr.as_ref(),
+        &spec.column_mode,
         values.len(),
+        wrap_layout_context,
     )
     .await?;
     let row_count = values.len().div_ceil(columns);
@@ -1856,6 +2041,7 @@ async fn build_wrap_partition_node(
 
     let mut row_children = IndexMap::new();
     let has_nested_facets = contains_facet_mark(&spec.subplot.marks);
+    let child_wrap_layout_context = wrap_layout_context.with_column_slots(columns);
     for (row_index, row_value) in row_values.iter().enumerate() {
         let start = row_index * columns;
         let end = (start + columns).min(values.len());
@@ -1881,6 +2067,7 @@ async fn build_wrap_partition_node(
                     &child_filters,
                     current_depth + 1,
                     slot_cache,
+                    child_wrap_layout_context,
                 ))
                 .await?
                 {
@@ -1946,9 +2133,238 @@ fn contains_facet_mark(marks: &[Arc<dyn CompiledMark>]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prelude::*;
 
     fn scalar(s: &str) -> ScalarValue {
         ScalarValue::Utf8(Some(s.to_string()))
+    }
+
+    async fn responsive_wrap_data(ctx: &SessionContext) -> DataFrame {
+        ctx.sql(
+            "SELECT * FROM (VALUES
+                ('A', 0.0, 0.1),
+                ('B', 1.0, 0.2),
+                ('C', 2.0, 0.3),
+                ('D', 3.0, 0.4),
+                ('E', 4.0, 0.5),
+                ('F', 5.0, 0.6)
+            ) AS t(facet, x, y)",
+        )
+        .await
+        .expect("responsive wrap data")
+    }
+
+    fn responsive_layout_context(width: f32) -> FacetWrapLayoutContext {
+        FacetWrapLayoutContext {
+            current_available_width: Some(width),
+            width_is_canvas_constrained: true,
+            height_is_leaf_plot_area_sized: true,
+        }
+    }
+
+    async fn responsive_wrap_tree(
+        ctx: &SessionContext,
+        target_width: Expr,
+        available_width: f32,
+    ) -> Result<EvaluatedFacetTree, AvengerChartError> {
+        let plot = Plot::<FacetWrap>::new()
+            .data(responsive_wrap_data(ctx).await)
+            .mark(
+                Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))))
+                    .wrap_with(col("facet"), move |c| c.responsive_columns(target_width)),
+            );
+        let compiled = plot.compile(ctx).await?;
+        EvaluatedFacetTree::from_compiled_plot_with_params_and_wrap_layout_context(
+            &compiled,
+            ctx,
+            compiled.get_default_params(),
+            responsive_layout_context(available_width),
+        )
+        .await
+    }
+
+    fn top_level_wrap_column_count(tree: &EvaluatedFacetTree) -> usize {
+        let root = tree.root().expect("wrap root");
+        let first_row = root.values().next().expect("first wrap row").clone();
+        root.child(&first_row)
+            .expect("wrap row child")
+            .values()
+            .count()
+    }
+
+    fn nested_column_wrap_column_count(tree: &EvaluatedFacetTree) -> usize {
+        let root = tree.root().expect("outer column root");
+        let first_column = root.values().next().expect("first outer column").clone();
+        let wrap_root = root.child(&first_column).expect("nested wrap root");
+        let first_row = wrap_root
+            .values()
+            .next()
+            .expect("first nested wrap row")
+            .clone();
+        wrap_root
+            .child(&first_row)
+            .expect("nested wrap row child")
+            .values()
+            .count()
+    }
+
+    #[tokio::test]
+    async fn responsive_wrap_columns_choose_from_available_width() -> Result<(), AvengerChartError>
+    {
+        let ctx = SessionContext::new();
+        let narrow = responsive_wrap_tree(&ctx, lit(180.0), 300.0).await?;
+        let wide = responsive_wrap_tree(&ctx, lit(180.0), 900.0).await?;
+
+        assert_eq!(top_level_wrap_column_count(&narrow), 2);
+        assert_eq!(top_level_wrap_column_count(&wide), 5);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn responsive_wrap_columns_accept_params() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let target = Param::new("target_width", ScalarValue::Float32(Some(160.0)));
+        let plot = Plot::<FacetWrap>::new()
+            .data(responsive_wrap_data(&ctx).await)
+            .add_param(target.clone())
+            .mark(
+                Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))))
+                    .wrap_with(col("facet"), move |c| c.responsive_columns(target.expr())),
+            );
+        let compiled = plot.compile(&ctx).await?;
+        let tree = EvaluatedFacetTree::from_compiled_plot_with_params_and_wrap_layout_context(
+            &compiled,
+            &ctx,
+            compiled.get_default_params(),
+            responsive_layout_context(480.0),
+        )
+        .await?;
+
+        assert_eq!(top_level_wrap_column_count(&tree), 3);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn responsive_wrap_columns_reject_invalid_targets() -> Result<(), AvengerChartError> {
+        use datafusion::functions_aggregate::min_max::max;
+
+        let ctx = SessionContext::new();
+        let zero = responsive_wrap_tree(&ctx, lit(0.0), 400.0)
+            .await
+            .expect_err("zero target width should fail");
+        assert!(zero.to_string().contains("positive number"), "{zero}");
+
+        let column_ref = responsive_wrap_tree(&ctx, col("x"), 400.0)
+            .await
+            .expect_err("column target width should fail");
+        assert!(
+            column_ref.to_string().contains("constant or parameter"),
+            "{column_ref}"
+        );
+
+        let aggregate = responsive_wrap_tree(&ctx, max(col("x")), 400.0)
+            .await
+            .expect_err("aggregate target width should fail");
+        assert!(
+            aggregate.to_string().contains("constant or parameter"),
+            "{aggregate}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn responsive_wrap_columns_reject_unsupported_sizing() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let plot = Plot::<FacetWrap>::new()
+            .data(responsive_wrap_data(&ctx).await)
+            .mark(
+                Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))))
+                    .wrap_with(col("facet"), |c| c.responsive_columns(180.0)),
+            );
+        let compiled = plot.compile(&ctx).await?;
+
+        let plot_width_sized =
+            EvaluatedFacetTree::from_compiled_plot_with_params_and_wrap_layout_context(
+                &compiled,
+                &ctx,
+                compiled.get_default_params(),
+                FacetWrapLayoutContext {
+                    current_available_width: None,
+                    width_is_canvas_constrained: false,
+                    height_is_leaf_plot_area_sized: true,
+                },
+            )
+            .await
+            .expect_err("plot-width-sized responsive wrap should fail");
+        assert!(
+            plot_width_sized
+                .to_string()
+                .contains("canvas-constrained width"),
+            "{plot_width_sized}"
+        );
+
+        let canvas_height_sized =
+            EvaluatedFacetTree::from_compiled_plot_with_params_and_wrap_layout_context(
+                &compiled,
+                &ctx,
+                compiled.get_default_params(),
+                FacetWrapLayoutContext {
+                    current_available_width: Some(480.0),
+                    width_is_canvas_constrained: true,
+                    height_is_leaf_plot_area_sized: false,
+                },
+            )
+            .await
+            .expect_err("canvas-height-sized responsive wrap should fail");
+        assert!(
+            canvas_height_sized
+                .to_string()
+                .contains("leaf plot-area-sized height"),
+            "{canvas_height_sized}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn responsive_nested_column_wrap_uses_local_width() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('North', 'A', 0.0, 0.1),
+                    ('North', 'B', 1.0, 0.2),
+                    ('North', 'C', 2.0, 0.3),
+                    ('North', 'D', 3.0, 0.4),
+                    ('North', 'E', 4.0, 0.5),
+                    ('North', 'F', 5.0, 0.6),
+                    ('South', 'A', 10.0, 0.1),
+                    ('South', 'B', 11.0, 0.2),
+                    ('South', 'C', 12.0, 0.3),
+                    ('South', 'D', 13.0, 0.4),
+                    ('South', 'E', 14.0, 0.5),
+                    ('South', 'F', 15.0, 0.6)
+                ) AS t(region, facet, x, y)",
+            )
+            .await
+            .expect("nested responsive wrap data");
+        let wrap = Plot::<FacetWrap>::new().mark(
+            Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))))
+                .wrap_with(col("facet"), |c| c.responsive_columns(180.0)),
+        );
+        let plot = Plot::<FacetColumn>::new()
+            .data(df)
+            .mark(Subplot::new(wrap).column(col("region")));
+        let compiled = plot.compile(&ctx).await?;
+        let tree = EvaluatedFacetTree::from_compiled_plot_with_params_and_wrap_layout_context(
+            &compiled,
+            &ctx,
+            compiled.get_default_params(),
+            responsive_layout_context(720.0),
+        )
+        .await?;
+
+        assert_eq!(nested_column_wrap_column_count(&tree), 2);
+        Ok(())
     }
 
     fn scalar_view(s: &str) -> ScalarValue {

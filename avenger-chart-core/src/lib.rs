@@ -116,7 +116,8 @@ pub use expr_eval::{
 pub use facet_axis::FacetAxis;
 pub use facet_data_scope::FacetDataScope;
 pub use facet_dimension::{
-    ColumnDimensionConfig, FacetDimensionConfig, RowDimensionConfig, WrapDimensionConfig,
+    ColumnDimensionConfig, FacetDimensionConfig, FacetWrapColumnMode, RowDimensionConfig,
+    WrapDimensionConfig,
 };
 pub use facet_empty_cell_policy::FacetEmptyCellPolicy;
 pub use geometry::{

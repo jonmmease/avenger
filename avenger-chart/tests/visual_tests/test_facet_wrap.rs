@@ -181,6 +181,18 @@ fn facet_wrap_plot(
         )
 }
 
+fn responsive_facet_wrap_plot(df: DataFrame, canvas_width: f32) -> Plot<FacetWrap> {
+    Plot::<FacetWrap>::new()
+        .data(df)
+        .canvas_constraint(CanvasConstraint::width(canvas_width))
+        .plot_constraint(PlotConstraint::height(135.0))
+        .mark(
+            Subplot::new(wrap_leaf_plot(1, 1, 1)).wrap_with(col("facet"), |c| {
+                c.responsive_columns(220.0).guide(|g| g.title("Facet"))
+            }),
+        )
+}
+
 async fn assert_facet_wrap_baseline(
     name: &str,
     columns: Option<usize>,
@@ -251,6 +263,13 @@ async fn facet_row_wrap_nested_level_1_sharing() {
     .await;
 }
 
+async fn assert_responsive_facet_wrap_baseline(name: &str, canvas_width: f32) {
+    let ctx = SessionContext::new();
+    let plot = responsive_facet_wrap_plot(facet_wrap_data(&ctx).await, canvas_width);
+    let compiled = plot.compile(&ctx).await.expect("compile");
+    assert_visual_match_default(&compiled, &ctx, None, BASELINE_CATEGORY, name).await;
+}
+
 #[tokio::test]
 async fn facet_column_wrap_nested_independent_ordering() {
     let ctx = SessionContext::new();
@@ -318,4 +337,14 @@ async fn facet_wrap_fill_level_1_hoisted_legend() {
         1,
     )
     .await;
+}
+
+#[tokio::test]
+async fn facet_wrap_responsive_columns_narrow() {
+    assert_responsive_facet_wrap_baseline("facet_wrap_responsive_columns_narrow", 640.0).await;
+}
+
+#[tokio::test]
+async fn facet_wrap_responsive_columns_wide() {
+    assert_responsive_facet_wrap_baseline("facet_wrap_responsive_columns_wide", 1180.0).await;
 }

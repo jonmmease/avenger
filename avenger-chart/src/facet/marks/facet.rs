@@ -16,8 +16,8 @@ use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, ChannelValue, ColumnDimensionConfig, CompiledDataContext,
     CompiledMark, CompiledMarkCore, CompiledMarkState, CompiledSubplotPayload, CoordinateGuide,
     CoordinateSystemTransformCore, DefaultLogicalExprNodeExt, FacetAxis, FacetDimensionConfig,
-    FacetEmptyCellPolicy, MarkRuntimeContext, RowDimensionConfig, ScaleSharing,
-    ScaleTypePreference, SerializableExpr, Size2D, SubplotContainerCoordinateSystem,
+    FacetEmptyCellPolicy, FacetWrapColumnMode, MarkRuntimeContext, RowDimensionConfig,
+    ScaleSharing, ScaleTypePreference, SerializableExpr, Size2D, SubplotContainerCoordinateSystem,
     SubplotDataSource, SubplotMarkCore, WrapDimensionConfig, channel_value::expr_to_string,
     default_scale_type_for_data_type,
 };
@@ -395,7 +395,7 @@ impl FacetWrapSubplotChannels for Subplot<FacetWrap> {
             cfg.empty_cell_policy,
             cfg.order_expr,
             cfg.order_descending,
-            cfg.columns_expr,
+            cfg.column_mode,
         );
         s
     }
@@ -773,8 +773,8 @@ pub struct CompiledFacetWrapSubplot {
     pub(crate) facet_order_expr: Option<LogicalExprNode>,
     #[serde(default)]
     pub(crate) facet_order_descending: bool,
-    #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
-    pub(crate) facet_columns_expr: Option<LogicalExprNode>,
+    #[serde(default)]
+    pub(crate) facet_column_mode: FacetWrapColumnMode,
 }
 
 impl CompiledFacetWrapSubplot {
@@ -822,8 +822,8 @@ impl CompiledFacetWrapSubplot {
         self.facet_order_descending
     }
 
-    pub fn facet_columns_expr(&self) -> Option<&LogicalExprNode> {
-        self.facet_columns_expr.as_ref()
+    pub fn facet_column_mode(&self) -> FacetWrapColumnMode {
+        self.facet_column_mode.clone()
     }
 
     pub(crate) fn render_with_context<'a>(
@@ -969,7 +969,7 @@ impl SubplotContainerCoordinateSystem for FacetWrap {
             facet_empty_cell_policy,
             facet_order_expr: subplot.facet_wrap_order_expr_config().cloned(),
             facet_order_descending: subplot.facet_wrap_order_descending_config(),
-            facet_columns_expr: subplot.facet_wrap_columns_expr_config().cloned(),
+            facet_column_mode: subplot.facet_wrap_column_mode_config(),
         }))
     }
 }
@@ -1085,16 +1085,10 @@ impl<'a> FacetSubplotRef<'a> {
         }
     }
 
-    pub fn facet_columns_expr(
-        self,
-        ctx: &SessionContext,
-    ) -> Result<Option<datafusion::logical_expr::Expr>, AvengerChartError> {
+    pub fn facet_column_mode(self) -> FacetWrapColumnMode {
         match self {
-            Self::Wrap(mark) => mark
-                .facet_columns_expr()
-                .map(|expr| expr.to_expr(ctx))
-                .transpose(),
-            Self::Row(_) | Self::Col(_) => Ok(None),
+            Self::Wrap(mark) => mark.facet_column_mode(),
+            Self::Row(_) | Self::Col(_) => FacetWrapColumnMode::Auto,
         }
     }
 
