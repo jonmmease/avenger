@@ -19,7 +19,7 @@ use crate::{
     error::AvengerChartError,
     guide::OverflowSpaceRequirement,
     plot::{PlotSubtitle, PlotTitle},
-    render::{LayoutSolution, LegendMeasurements},
+    render::{EvaluationContext, LayoutSolution, LegendMeasurements},
     serialization::LogicalExprNodeExt,
     theme::{Theme, ThemeContext},
 };
@@ -154,6 +154,7 @@ impl ChartLayout {
         legend_measurements: &LegendMeasurements,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
+        eval_ctx: Option<&EvaluationContext>,
     ) -> Result<Self, AvengerChartError> {
         let mut builder = GridBuilder::new();
 
@@ -220,6 +221,7 @@ impl ChartLayout {
                 &legend_sizes,
                 ctx,
                 params,
+                eval_ctx,
             )
             .await?;
 

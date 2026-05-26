@@ -88,7 +88,7 @@ use super::{
     session::{
         FacetScalePrecomputeCacheHandle, FacetSemanticCacheHandle, GuideOverflowCacheHandle,
         LegendMeasurementCacheHandle, ScaleDomainCacheHandle, ScaleDomainCacheScope,
-        scale_domain_cache_key_for_parts_with_scope,
+        TextMeasurementCacheHandle, scale_domain_cache_key_for_parts_with_scope,
     },
 };
 
@@ -1595,6 +1595,7 @@ impl CompiledPlot {
             legend_measurements: &legend_plan.measurements,
             ctx,
             params,
+            eval_ctx: Some(eval_ctx),
         }))
         .await?;
 
@@ -4264,7 +4265,7 @@ impl CompiledPlot {
         options: EvaluationOptions,
     ) -> Result<EvaluatedPlot, AvengerChartError> {
         Box::pin(self.evaluate_with_options_internal(
-            ctx, params, options, None, None, None, None, None, None,
+            ctx, params, options, None, None, None, None, None, None, None,
         ))
         .await
     }
@@ -4283,6 +4284,7 @@ impl CompiledPlot {
             params,
             options,
             Some(metrics.clone()),
+            None,
             None,
             None,
             None,
@@ -4307,6 +4309,7 @@ impl CompiledPlot {
         facet_scale_precompute_cache: FacetScalePrecomputeCacheHandle,
         guide_overflow_cache: GuideOverflowCacheHandle,
         legend_measurement_cache: LegendMeasurementCacheHandle,
+        text_measurement_cache: TextMeasurementCacheHandle,
     ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
         let metrics = Arc::new(Mutex::new(EvaluationMetrics::default()));
         let evaluated = Box::pin(self.evaluate_with_options_internal(
@@ -4319,6 +4322,7 @@ impl CompiledPlot {
             Some(facet_scale_precompute_cache),
             Some(guide_overflow_cache),
             Some(legend_measurement_cache),
+            Some(text_measurement_cache),
         ))
         .await?;
         let metrics = metrics
@@ -4339,6 +4343,7 @@ impl CompiledPlot {
         facet_scale_precompute_cache: Option<FacetScalePrecomputeCacheHandle>,
         guide_overflow_cache: Option<GuideOverflowCacheHandle>,
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
+        text_measurement_cache: Option<TextMeasurementCacheHandle>,
     ) -> Result<EvaluatedPlot, AvengerChartError> {
         // Merge provided params with defaults
         let merged_params = if let Some(provided) = params {
@@ -4531,6 +4536,9 @@ impl CompiledPlot {
         }
         if let Some(cache) = &legend_measurement_cache {
             eval_ctx = eval_ctx.with_legend_measurement_cache(cache.clone());
+        }
+        if let Some(cache) = &text_measurement_cache {
+            eval_ctx = eval_ctx.with_text_measurement_cache(cache.clone());
         }
         if let Some(store) = facet_scale_precompute_store {
             eval_ctx = eval_ctx.with_facet_scale_precompute_store(store);

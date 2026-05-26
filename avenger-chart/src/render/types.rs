@@ -256,6 +256,14 @@ impl EvaluationMetrics {
         self.pipeline.legend_measurement_cache_misses += 1;
     }
 
+    pub(crate) fn record_text_measurement_cache_hit(&mut self) {
+        self.pipeline.text_measurement_cache_hits += 1;
+    }
+
+    pub(crate) fn record_text_measurement_cache_miss(&mut self) {
+        self.pipeline.text_measurement_cache_misses += 1;
+    }
+
     pub(crate) fn record_mark_data_full_collect(&mut self) {
         self.pipeline.mark_data_collects += 1;
         self.pipeline.mark_data_full_collects += 1;
@@ -340,6 +348,10 @@ pub struct EvaluationPipelineMetrics {
     pub legend_measurement_cache_hits: usize,
     /// Number of legend measurement-profile cache misses.
     pub legend_measurement_cache_misses: usize,
+    /// Number of text layout measurement cache hits.
+    pub text_measurement_cache_hits: usize,
+    /// Number of text layout measurement cache misses.
+    pub text_measurement_cache_misses: usize,
     /// Number of DataFusion collect calls made while preparing mark render data.
     pub mark_data_collects: usize,
     /// Mark data collect calls for marks requesting full data batches.

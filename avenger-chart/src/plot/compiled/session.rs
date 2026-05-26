@@ -11,6 +11,10 @@ use avenger_chart_core::{
 };
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
 use avenger_scales::scales::ConfiguredScale;
+use avenger_text::{
+    measurement::TextBounds,
+    types::{FontStyle, FontWeight},
+};
 use datafusion::{
     common::ScalarValue,
     dataframe::DataFrame,
@@ -47,6 +51,7 @@ pub(crate) type FacetSemanticCacheHandle = Arc<Mutex<PartitionSlotCache>>;
 pub(crate) type FacetScalePrecomputeCacheHandle = Arc<Mutex<FacetScalePrecomputeSessionCache>>;
 pub(crate) type GuideOverflowCacheHandle = Arc<Mutex<GuideOverflowCache>>;
 pub(crate) type LegendMeasurementCacheHandle = Arc<Mutex<LegendMeasurementCache>>;
+pub(crate) type TextMeasurementCacheHandle = Arc<Mutex<TextMeasurementCache>>;
 
 /// Session-owned cache for scale-domain inference artifacts.
 #[derive(Default)]
@@ -183,6 +188,49 @@ pub(crate) struct LegendMeasurementCacheKey {
     params: Vec<(String, String)>,
 }
 
+/// Session-owned cache for exact text layout measurements.
+#[derive(Default)]
+pub(crate) struct TextMeasurementCache {
+    measurements: HashMap<TextMeasurementCacheKey, TextBounds>,
+}
+
+impl TextMeasurementCache {
+    pub(crate) fn get(&self, key: &TextMeasurementCacheKey) -> Option<TextBounds> {
+        self.measurements.get(key).cloned()
+    }
+
+    pub(crate) fn insert(&mut self, key: TextMeasurementCacheKey, measurement: TextBounds) {
+        self.measurements.insert(key, measurement);
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub(crate) struct TextMeasurementCacheKey {
+    text: String,
+    font: String,
+    font_size: u32,
+    font_weight: String,
+    font_style: String,
+}
+
+impl TextMeasurementCacheKey {
+    pub(crate) fn new(
+        text: &str,
+        font: &str,
+        font_size: f32,
+        font_weight: &FontWeight,
+        font_style: &FontStyle,
+    ) -> Self {
+        Self {
+            text: text.to_string(),
+            font: font.to_string(),
+            font_size: font_size.to_bits(),
+            font_weight: format!("{font_weight:?}"),
+            font_style: format!("{font_style:?}"),
+        }
+    }
+}
+
 /// Request object for evaluating a `PlotSession`.
 #[derive(Clone, Debug)]
 pub struct EvaluationRequest {
@@ -260,6 +308,7 @@ pub struct PlotSession {
     facet_scale_precompute_cache: FacetScalePrecomputeCacheHandle,
     guide_overflow_cache: GuideOverflowCacheHandle,
     legend_measurement_cache: LegendMeasurementCacheHandle,
+    text_measurement_cache: TextMeasurementCacheHandle,
 }
 
 impl PlotSession {
@@ -279,6 +328,7 @@ impl PlotSession {
             )),
             guide_overflow_cache: Arc::new(Mutex::new(GuideOverflowCache::default())),
             legend_measurement_cache: Arc::new(Mutex::new(LegendMeasurementCache::default())),
+            text_measurement_cache: Arc::new(Mutex::new(TextMeasurementCache::default())),
         }
     }
 
@@ -329,6 +379,7 @@ impl PlotSession {
                 self.facet_scale_precompute_cache.clone(),
                 self.guide_overflow_cache.clone(),
                 self.legend_measurement_cache.clone(),
+                self.text_measurement_cache.clone(),
             )
             .await?;
         metrics.mode = mode;
@@ -966,6 +1017,20 @@ mod tests {
             .await
     }
 
+    async fn compile_text_measurement_cache_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0, 2.0), (2.0, 3.0), (3.0, 5.0)) AS t(x, y)")
+            .await?;
+        Plot::<Cartesian>::new()
+            .title("Cached Session Title")
+            .data(df)
+            .mark(Symbol::new().x(col("x")).y(col("y")).size(20.0))
+            .compile(ctx)
+            .await
+    }
+
     async fn compile_facet_width_param_scale_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
@@ -1269,6 +1334,33 @@ mod tests {
             second.pipeline.legend_measurements, 0,
             "warm exact evaluation should avoid uncached legend measurements"
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn text_measurement_cache_reuses_title_measurements_for_repeated_exact_evaluation()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_text_measurement_cache_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let (_evaluated, first) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            first.pipeline.text_measurement_cache_misses > 0,
+            "initial evaluation should populate the text measurement cache"
+        );
+
+        let (_evaluated, second) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            second.pipeline.text_measurement_cache_hits > 0,
+            "warm exact evaluation should reuse cached title measurements"
+        );
+        assert_eq!(second.pipeline.text_measurement_cache_misses, 0);
 
         Ok(())
     }

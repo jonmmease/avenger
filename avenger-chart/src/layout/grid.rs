@@ -19,7 +19,9 @@ use avenger_chart_core::{
 use crate::{
     error::AvengerChartError,
     guide::OverflowSpaceRequirement,
+    plot::compiled::TextMeasurementCacheKey,
     plot::{PlotSubtitle, PlotTitle},
+    render::EvaluationContext,
     serialization::LogicalExprNodeExt,
     theme::{Theme, ThemeContext},
 };
@@ -196,6 +198,7 @@ async fn measure_text_bounds(
     default_font_size: f32,
     ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
+    eval_ctx: Option<&EvaluationContext>,
 ) -> Result<TextBounds, AvengerChartError> {
     // Evaluate font_size
     let font_size = match font_size_field {
@@ -230,7 +233,39 @@ async fn measure_text_bounds(
         font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
         font_style: &FontStyle::Normal,
     };
-    let bounds = measurer.measure_text_bounds(&config);
+    let bounds = if let Some(cache) = eval_ctx.and_then(EvaluationContext::text_measurement_cache) {
+        let key = TextMeasurementCacheKey::new(
+            config.text,
+            config.font,
+            config.font_size,
+            config.font_weight,
+            config.font_style,
+        );
+        let cached = {
+            cache
+                .lock()
+                .expect("text measurement cache lock poisoned")
+                .get(&key)
+        };
+        if let Some(bounds) = cached {
+            if let Some(eval_ctx) = eval_ctx {
+                eval_ctx.record_text_measurement_cache_hit();
+            }
+            bounds
+        } else {
+            if let Some(eval_ctx) = eval_ctx {
+                eval_ctx.record_text_measurement_cache_miss();
+            }
+            let bounds = measurer.measure_text_bounds(&config);
+            cache
+                .lock()
+                .expect("text measurement cache lock poisoned")
+                .insert(key, bounds.clone());
+            bounds
+        }
+    } else {
+        measurer.measure_text_bounds(&config)
+    };
 
     Ok(bounds)
 }
@@ -309,6 +344,7 @@ impl GridBuilder {
         legend_sizes: &HashMap<String, Size2D>,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
+        eval_ctx: Option<&EvaluationContext>,
     ) -> Result<GridLayout, AvengerChartError> {
         // Use margins from layout spec
         let margins = &layout_spec.margins;
@@ -334,6 +370,7 @@ impl GridBuilder {
                     DEFAULT_TITLE_FONT_SIZE,
                     ctx,
                     params,
+                    eval_ctx,
                 )
                 .await?;
 
@@ -362,6 +399,7 @@ impl GridBuilder {
                     DEFAULT_SUBTITLE_FONT_SIZE,
                     ctx,
                     params,
+                    eval_ctx,
                 )
                 .await?;
 

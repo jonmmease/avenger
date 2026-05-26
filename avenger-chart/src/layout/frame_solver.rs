@@ -15,7 +15,7 @@ use crate::{
     error::AvengerChartError,
     guide::OverflowSpaceRequirement,
     plot::{PlotSubtitle, PlotTitle},
-    render::{LayoutSolution, LegendMeasurements},
+    render::{EvaluationContext, LayoutSolution, LegendMeasurements},
     theme::Theme,
 };
 
@@ -31,6 +31,7 @@ pub(crate) struct FrameLayoutInput<'a> {
     pub(crate) legend_measurements: &'a LegendMeasurements,
     pub(crate) ctx: &'a SessionContext,
     pub(crate) params: &'a IndexMap<String, ScalarValue>,
+    pub(crate) eval_ctx: Option<&'a EvaluationContext>,
 }
 
 /// Taffy-backed frame layout solver.
@@ -49,6 +50,7 @@ impl TaffyFrameLayoutSolver {
             input.legend_measurements,
             input.ctx,
             input.params,
+            input.eval_ctx,
         )
         .await?;
         layout.compute(input.layout_spec)
