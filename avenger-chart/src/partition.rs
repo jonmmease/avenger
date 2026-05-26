@@ -639,7 +639,7 @@ mod tests {
             datatypes::{DataType, Field, Schema},
             record_batch::RecordBatch,
         },
-        functions_aggregate::expr_fn::sum,
+        functions_aggregate::min_max::max,
         prelude::SessionContext,
     };
 
@@ -673,7 +673,7 @@ mod tests {
             schema,
             vec![
                 Arc::new(StringArray::from(vec!["B", "A", "C", "B", "A", "C"])),
-                Arc::new(Float64Array::from(vec![3.0, 1.0, 2.0, 4.0, 4.0, 4.0])),
+                Arc::new(Float64Array::from(vec![8.0, 2.0, 5.0, 9.0, 3.0, 6.0])),
                 Arc::new(StringArray::from(vec!["x", "y", "z", "x", "y", "z"])),
             ],
         )
@@ -704,7 +704,7 @@ mod tests {
         let ascending = PartitionKeyExtractor::extract_ordered_keys(
             &df,
             &col("category"),
-            Some(&sum(col("value"))),
+            Some(&max(col("value"))),
             false,
         )
         .await
@@ -717,7 +717,7 @@ mod tests {
         let descending = PartitionKeyExtractor::extract_ordered_keys(
             &df,
             &col("category"),
-            Some(&sum(col("value"))),
+            Some(&max(col("value"))),
             true,
         )
         .await
@@ -739,7 +739,7 @@ mod tests {
             schema,
             vec![
                 Arc::new(StringArray::from(vec!["B", "A", "C", "B", "A", "C"])),
-                Arc::new(Float64Array::from(vec![2.0, 2.0, 1.0, 3.0, 3.0, 4.0])),
+                Arc::new(Float64Array::from(vec![2.0, 2.0, 2.0, 5.0, 5.0, 5.0])),
             ],
         )
         .expect("test batch");
@@ -748,7 +748,7 @@ mod tests {
         let values = PartitionKeyExtractor::extract_ordered_keys(
             &df,
             &col("category"),
-            Some(&sum(col("value"))),
+            Some(&max(col("value"))),
             true,
         )
         .await

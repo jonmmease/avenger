@@ -6,7 +6,7 @@ use datafusion::{
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
-    functions_aggregate::expr_fn::sum,
+    functions_aggregate::min_max::max,
     prelude::*,
 };
 use std::sync::Arc;
@@ -16,7 +16,6 @@ const BASELINE_CATEGORY: &str = "facet_ordering";
 fn single_facet_ordering_data(ctx: &SessionContext) -> DataFrame {
     let schema = Arc::new(Schema::new(vec![
         Field::new("category", DataType::Utf8, false),
-        Field::new("score", DataType::Float64, false),
         Field::new("x", DataType::Float64, false),
         Field::new("y", DataType::Float64, false),
     ]));
@@ -24,11 +23,10 @@ fn single_facet_ordering_data(ctx: &SessionContext) -> DataFrame {
         schema,
         vec![
             Arc::new(StringArray::from(vec![
-                "Large", "Large", "Medium", "Medium", "Tiny", "Tiny",
+                "East", "East", "North", "North", "West", "West",
             ])),
-            Arc::new(Float64Array::from(vec![1.0, 3.0, 4.0, 5.0, 7.0, 8.0])),
             Arc::new(Float64Array::from(vec![0.2, 0.8, 0.2, 0.8, 0.2, 0.8])),
-            Arc::new(Float64Array::from(vec![0.25, 0.75, 0.30, 0.70, 0.35, 0.65])),
+            Arc::new(Float64Array::from(vec![0.25, 0.55, 0.35, 0.85, 0.30, 0.70])),
         ],
     )
     .expect("facet ordering batch");
@@ -39,7 +37,6 @@ fn nested_facet_ordering_data(ctx: &SessionContext) -> DataFrame {
     let schema = Arc::new(Schema::new(vec![
         Field::new("region", DataType::Utf8, false),
         Field::new("species", DataType::Utf8, false),
-        Field::new("score", DataType::Float64, false),
         Field::new("x", DataType::Float64, false),
         Field::new("y", DataType::Float64, false),
     ]));
@@ -60,13 +57,10 @@ fn nested_facet_ordering_data(ctx: &SessionContext) -> DataFrame {
                 "Virginica",
             ])),
             Arc::new(Float64Array::from(vec![
-                1.0, 1.0, 3.0, 4.0, 4.0, 5.0, 7.0, 8.0,
-            ])),
-            Arc::new(Float64Array::from(vec![
                 0.25, 0.75, 0.25, 0.75, 0.25, 0.75, 0.25, 0.75,
             ])),
             Arc::new(Float64Array::from(vec![
-                0.30, 0.70, 0.35, 0.65, 0.35, 0.65, 0.40, 0.60,
+                0.30, 0.55, 0.35, 0.85, 0.35, 0.65, 0.40, 0.90,
             ])),
         ],
     )
@@ -86,7 +80,7 @@ fn leaf_plot() -> Plot<Cartesian> {
 }
 
 #[tokio::test]
-async fn facet_row_order_by_sum_desc() {
+async fn facet_row_order_by_max_desc() {
     let ctx = SessionContext::new();
     let df = single_facet_ordering_data(&ctx);
 
@@ -94,7 +88,7 @@ async fn facet_row_order_by_sum_desc() {
         .data(df)
         .canvas_size(520.0, 620.0)
         .mark(Subplot::new(leaf_plot()).row_with(col("category"), |c| {
-            c.order_by(sum(col("score")))
+            c.order_by(max(col("y")))
                 .order_desc()
                 .facet(|f| f.title("Aggregate desc"))
         }));
@@ -105,13 +99,13 @@ async fn facet_row_order_by_sum_desc() {
         &ctx,
         None,
         BASELINE_CATEGORY,
-        "facet_row_order_by_sum_desc",
+        "facet_row_order_by_max_desc",
     )
     .await;
 }
 
 #[tokio::test]
-async fn facet_col_order_by_sum_asc() {
+async fn facet_col_order_by_max_asc() {
     let ctx = SessionContext::new();
     let df = single_facet_ordering_data(&ctx);
 
@@ -119,7 +113,7 @@ async fn facet_col_order_by_sum_asc() {
         .data(df)
         .canvas_size(760.0, 300.0)
         .mark(Subplot::new(leaf_plot()).col_with(col("category"), |c| {
-            c.order_by(sum(col("score")))
+            c.order_by(max(col("y")))
                 .order_asc()
                 .facet(|f| f.title("Aggregate asc"))
         }));
@@ -130,7 +124,7 @@ async fn facet_col_order_by_sum_asc() {
         &ctx,
         None,
         BASELINE_CATEGORY,
-        "facet_col_order_by_sum_asc",
+        "facet_col_order_by_max_asc",
     )
     .await;
 }
@@ -147,7 +141,7 @@ async fn run_nested_ordering_baseline(name: &str, sharing: Option<ScaleSharing>)
                 Plot::<FacetColumn>::new().mark(Subplot::new(leaf_plot()).col_with(
                     col("species"),
                     |c| {
-                        let c = c.order_by(sum(col("score"))).order_desc();
+                        let c = c.order_by(max(col("y"))).order_desc();
                         match sharing {
                             Some(mode) => c.facet(|f| {
                                 f.title("Species")
@@ -167,14 +161,14 @@ async fn run_nested_ordering_baseline(name: &str, sharing: Option<ScaleSharing>)
 }
 
 #[tokio::test]
-async fn nested_facet_free_order_by_sum_desc() {
-    run_nested_ordering_baseline("nested_facet_free_order_by_sum_desc", None).await;
+async fn nested_facet_free_order_by_max_desc() {
+    run_nested_ordering_baseline("nested_facet_free_order_by_max_desc", None).await;
 }
 
 #[tokio::test]
-async fn nested_facet_shared_order_by_sum_desc() {
+async fn nested_facet_shared_order_by_max_desc() {
     run_nested_ordering_baseline(
-        "nested_facet_shared_order_by_sum_desc",
+        "nested_facet_shared_order_by_max_desc",
         Some(ScaleSharing::Shared),
     )
     .await;

@@ -5,7 +5,7 @@ use avenger_chart::facet::FacetDirection;
 use avenger_chart::facet::evaluated_facet_tree::EvaluatedFacetTree;
 use avenger_chart::prelude::*;
 use datafusion::common::ScalarValue;
-use datafusion::functions_aggregate::expr_fn::sum;
+use datafusion::functions_aggregate::min_max::max;
 use datafusion::prelude::*;
 
 /// Helper to create a simple test DataFrame with species and region columns
@@ -385,7 +385,7 @@ async fn test_row_facet_order_by_aggregate_descending() {
     let plot = Plot::<FacetRow>::new().data(df).mark(
         Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))))
             .row_with(col("species"), |c| {
-                c.order_by(sum(col("value"))).order_desc()
+                c.order_by(max(col("value"))).order_desc()
             }),
     );
 
@@ -436,7 +436,7 @@ async fn test_free_nested_facet_ordering_is_parent_scoped() {
                     Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))),
                 )
                 .row_with(col("species"), |c| {
-                    c.order_by(sum(col("value"))).order_desc()
+                    c.order_by(max(col("value"))).order_desc()
                 }),
             ),
         )
@@ -474,7 +474,7 @@ async fn test_shared_nested_facet_ordering_uses_global_scope() {
                     Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))),
                 )
                 .row_with(col("species"), |c| {
-                    c.order_by(sum(col("value")))
+                    c.order_by(max(col("value")))
                         .order_desc()
                         .facet(|f| f.share_slots())
                 }),
@@ -491,7 +491,7 @@ async fn test_shared_nested_facet_ordering_uses_global_scope() {
     let root = spec.root().expect("should have root");
     let east_child = root.child(&scalar("east")).expect("east child");
     let west_child = root.child(&scalar("west")).expect("west child");
-    let expected = vec![scalar("versicolor"), scalar("virginica"), scalar("setosa")];
+    let expected = vec![scalar("virginica"), scalar("versicolor"), scalar("setosa")];
 
     assert_eq!(east_child.values().cloned().collect::<Vec<_>>(), expected);
     assert_eq!(west_child.values().cloned().collect::<Vec<_>>(), expected);
@@ -547,7 +547,7 @@ async fn test_level1_nested_facet_ordering_uses_ancestor_scope() {
                                 .mark(Symbol::new().x(col("value")).y(col("value"))),
                         )
                         .row_with(col("team"), |c| {
-                            c.order_by(sum(col("value")))
+                            c.order_by(max(col("value")))
                                 .order_desc()
                                 .facet(|f| f.with_slot_sharing(ScaleSharing::Level(1)))
                         }),
