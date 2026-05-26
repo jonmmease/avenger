@@ -14,7 +14,6 @@ use datafusion::prelude::*;
 #[test]
 fn test_nested_facet_shared_categorical_x() {
     std::thread::Builder::new()
-        .stack_size(64 * 1024 * 1024)
         .spawn(|| {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -74,7 +73,6 @@ fn test_nested_facet_shared_categorical_x() {
 #[test]
 fn test_nested_facet_shared_categorical_y() {
     std::thread::Builder::new()
-        .stack_size(64 * 1024 * 1024)
         .spawn(|| {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -134,7 +132,6 @@ fn test_nested_facet_shared_categorical_y() {
 #[test]
 fn test_deeply_nested_categorical_scale_sharing() {
     std::thread::Builder::new()
-        .stack_size(64 * 1024 * 1024)
         .spawn(|| {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -255,7 +252,6 @@ fn test_deeply_nested_categorical_scale_sharing() {
 #[test]
 fn test_numeric_coded_categorical_sharing() {
     std::thread::Builder::new()
-        .stack_size(64 * 1024 * 1024)
         .spawn(|| {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -351,7 +347,6 @@ fn test_numeric_coded_categorical_sharing() {
 #[test]
 fn test_nested_facet_level1_categorical() {
     std::thread::Builder::new()
-        .stack_size(64 * 1024 * 1024)
         .spawn(|| {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()

@@ -115,7 +115,7 @@ impl ScaleChannelValue for ChannelValue {
 }
 
 fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> ChannelValue {
-    let scale_config = scale_config.into_config();
+    let scale_config = Box::new(scale_config.into_config());
     match value {
         ChannelValue::Scaled {
             expr,

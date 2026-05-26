@@ -404,7 +404,7 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
     }) {
         resolved.overflow.total
     } else {
-        compute_subplot_overflow_common::<O>(
+        Box::pin(compute_subplot_overflow_common::<O>(
             state,
             scales,
             plot_width,
@@ -414,7 +414,7 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
             data_override,
             ctx,
             sharing_context,
-        )
+        ))
         .await?
     };
     let (_band_positions, labels) = band_positions_and_labels::<O>(scales, coord_measurement)?;
@@ -448,7 +448,7 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
         measurement_phase,
     );
     if !has_visible_anchor(guide_anchor) && !O::is_rotated() && !place_at_end {
-        let measured_subplot_overflow = compute_subplot_overflow_common::<O>(
+        let measured_subplot_overflow = Box::pin(compute_subplot_overflow_common::<O>(
             state,
             scales,
             plot_width,
@@ -458,7 +458,7 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
             data_override,
             ctx,
             sharing_context,
-        )
+        ))
         .await?;
         let measured_anchor = O::side_overflow_anchor(place_at_end, &measured_subplot_overflow);
         if has_visible_anchor(measured_anchor) {
@@ -544,7 +544,7 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
             subplot_overflow_anchor = reserved_anchor;
             anchor_source = GuideAnchorSource::ReservedLayout;
         } else {
-            let measured_subplot_overflow = compute_subplot_overflow_common::<O>(
+            let measured_subplot_overflow = Box::pin(compute_subplot_overflow_common::<O>(
                 state,
                 scales,
                 plot_width,
@@ -554,7 +554,7 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
                 data_override,
                 ctx,
                 sharing_context,
-            )
+            ))
             .await?;
             let measured_anchor = O::side_overflow_anchor(place_at_end, &measured_subplot_overflow);
             let can_place_in_reserved_top_slab =
@@ -651,9 +651,14 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
         .map_err(|e| AvengerChartError::InternalError(format!("Failed to get bandwidth: {e}")))?;
     let (subplot_width, subplot_height) = O::subplot_dimensions(plot_width, plot_height, band_size);
 
-    let subplot_scales = subplot
-        .build_scales_for_dataframe(data, subplot_width, subplot_height, ctx, params)
-        .await?;
+    let subplot_scales = Box::pin(subplot.build_scales_for_dataframe(
+        data,
+        subplot_width,
+        subplot_height,
+        ctx,
+        params,
+    ))
+    .await?;
     let configured_scales: HashMap<String, ConfiguredScale> = subplot_scales
         .iter()
         .map(|(k, v)| (k.clone(), v.configured().clone()))
@@ -663,19 +668,18 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
         let band_positions: Vec<_> =
             BandPositionIterator::from_configured_scale(band_scale)?.collect();
         if band_positions.is_empty() {
-            return guide
-                .measure_overflow(
-                    &configured_scales,
-                    subplot_width,
-                    subplot_height,
-                    theme,
-                    params,
-                    Some(data),
-                    ctx,
-                    sharing_context,
-                    None,
-                )
-                .await;
+            return Box::pin(guide.measure_overflow(
+                &configured_scales,
+                subplot_width,
+                subplot_height,
+                theme,
+                params,
+                Some(data),
+                ctx,
+                sharing_context,
+                None,
+            ))
+            .await;
         }
 
         let cell_values: Vec<_> = band_positions
@@ -692,19 +696,18 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
             path
         };
         let first_context = sharing_context.with_facet_path(&first_path);
-        let first_overflow = guide
-            .measure_overflow(
-                &configured_scales,
-                subplot_width,
-                subplot_height,
-                theme,
-                params,
-                Some(data),
-                ctx,
-                first_context,
-                None,
-            )
-            .await?;
+        let first_overflow = Box::pin(guide.measure_overflow(
+            &configured_scales,
+            subplot_width,
+            subplot_height,
+            theme,
+            params,
+            Some(data),
+            ctx,
+            first_context,
+            None,
+        ))
+        .await?;
         if first_idx == last_idx {
             return Ok(first_overflow);
         }
@@ -715,19 +718,18 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
             path
         };
         let last_context = sharing_context.with_facet_path(&last_path);
-        let last_overflow = guide
-            .measure_overflow(
-                &configured_scales,
-                subplot_width,
-                subplot_height,
-                theme,
-                params,
-                Some(data),
-                ctx,
-                last_context,
-                None,
-            )
-            .await?;
+        let last_overflow = Box::pin(guide.measure_overflow(
+            &configured_scales,
+            subplot_width,
+            subplot_height,
+            theme,
+            params,
+            Some(data),
+            ctx,
+            last_context,
+            None,
+        ))
+        .await?;
 
         Ok(O::merge_first_last_edge_overflow(
             first_overflow,

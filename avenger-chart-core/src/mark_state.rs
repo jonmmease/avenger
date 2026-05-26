@@ -49,7 +49,7 @@ impl CompiledMarkState {
         Self {
             data: CompiledDataContext::new(transformed_df, state.data.channels().clone()),
             mark_index: 0,
-            facet_data_scope: state.facet_data_scope.clone(),
+            facet_data_scope: state.facet_data_scope,
             details: state.details.clone(),
             zindex: state.zindex,
             axis_configs: state.axis_configs.clone(),

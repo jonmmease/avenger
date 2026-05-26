@@ -8,13 +8,12 @@ use avenger_chart::scales::Linear;
 use datafusion::prelude::*;
 use std::future::Future;
 
-fn run_with_large_stack<F, Fut>(f: F)
+fn run_async_test<F, Fut>(f: F)
 where
     F: FnOnce() -> Fut + Send + 'static,
     Fut: Future<Output = ()> + 'static,
 {
     std::thread::Builder::new()
-        .stack_size(64 * 1024 * 1024)
         .spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -40,7 +39,7 @@ fn make_fill_legend_symbol(sharing: ScaleSharing, position: LegendPosition) -> S
 
 #[test]
 fn facet_plot_size_nested_col_col_col_legend_level2_right() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = legend_sharing_hierarchy_df(&ctx).await;
 
@@ -81,7 +80,7 @@ fn facet_plot_size_nested_col_col_col_legend_level2_right() {
 
 #[test]
 fn facet_plot_size_nested_row_col_row_mixed_sharing() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = legend_sharing_hierarchy_df(&ctx).await;
 
@@ -131,7 +130,7 @@ fn facet_plot_size_nested_row_col_row_mixed_sharing() {
 
 #[test]
 fn facet_plot_size_nested_col_row_col_empty_subplot_policy() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = sparse_hierarchy_df(&ctx).await;
 
@@ -183,7 +182,7 @@ fn facet_plot_size_nested_col_row_col_empty_subplot_policy() {
 
 #[test]
 fn facet_plot_size_nested_col_col_row_numeric_domain_order() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = numeric_hierarchy_df(&ctx).await;
 
@@ -231,7 +230,7 @@ fn facet_plot_size_nested_col_col_row_numeric_domain_order() {
 
 #[test]
 fn facet_plot_size_nested_row_row_row_sparse_hierarchy() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = sparse_hierarchy_df(&ctx).await;
 
@@ -281,7 +280,7 @@ fn facet_plot_size_nested_row_row_row_sparse_hierarchy() {
 
 #[test]
 fn facet_plot_size_nested_col_row_col_continuous_legend() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = legend_sharing_hierarchy_df(&ctx).await;
 

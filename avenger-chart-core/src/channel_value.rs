@@ -164,9 +164,9 @@ pub enum ChannelValue {
         /// Band parameter for band scales (0.0 = start of band, 1.0 = end of band)
         band: Option<f64>,
         /// Optional scale configuration
-        scale_config: Option<ScaleConfigSpec>,
+        scale_config: Option<Box<ScaleConfigSpec>>,
         /// Optional legend configuration
-        legend_config: Option<Legend>,
+        legend_config: Option<Box<Legend>>,
         /// Share this channel's scale across facets using ScaleSharing enum
         #[serde(default)]
         share_mode: Option<ScaleSharing>,
@@ -184,9 +184,9 @@ pub enum ChannelValue {
         /// Default value when no conditions match
         otherwise: ConditionalValue,
         /// Optional scale configuration (applies to all Field branches)
-        scale_config: Option<ScaleConfigSpec>,
+        scale_config: Option<Box<ScaleConfigSpec>>,
         /// Optional legend configuration (applies to all Field branches)
-        legend_config: Option<Legend>,
+        legend_config: Option<Box<Legend>>,
         /// Share this channel's scale across facets using ScaleSharing enum
         #[serde(default)]
         share_mode: Option<ScaleSharing>,
@@ -248,7 +248,7 @@ impl ChannelValue {
     pub fn get_scale_config(&self) -> Option<&ScaleConfigSpec> {
         match self {
             ChannelValue::Scaled { scale_config, .. }
-            | ChannelValue::Conditional { scale_config, .. } => scale_config.as_ref(),
+            | ChannelValue::Conditional { scale_config, .. } => scale_config.as_deref(),
             _ => None,
         }
     }
@@ -257,7 +257,7 @@ impl ChannelValue {
     pub fn get_legend_config(&self) -> Option<&Legend> {
         match self {
             ChannelValue::Scaled { legend_config, .. }
-            | ChannelValue::Conditional { legend_config, .. } => legend_config.as_ref(),
+            | ChannelValue::Conditional { legend_config, .. } => legend_config.as_deref(),
             _ => None,
         }
     }

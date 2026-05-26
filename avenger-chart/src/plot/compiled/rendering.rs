@@ -937,7 +937,7 @@ impl CompiledPlot {
             Arc::new(ctx.clone()),
             merged_params.clone(),
         );
-        let scale_builder = build_scale_builder_from_marks(
+        let scale_builder = Box::pin(build_scale_builder_from_marks(
             &self.marks,
             &self.scale_specs,
             &self.coord_transform,
@@ -945,7 +945,7 @@ impl CompiledPlot {
             None,
             &scale_eval_ctx,
             self.get_theme().as_ref(),
-        )
+        ))
         .await?;
 
         let provider = DynamicScaleProvider {
@@ -1362,7 +1362,7 @@ impl CompiledPlot {
             height: estimate_height,
         };
         let scope = Self::legend_scope_for_context(facet_path, child_frame_sharing_path);
-        self.compute_layout_with_precomputed_overflow(
+        Box::pin(self.compute_layout_with_precomputed_overflow(
             &overflow,
             layout_spec,
             scales,
@@ -1373,7 +1373,7 @@ impl CompiledPlot {
             facet_path,
             child_frame_sharing_path,
             scope,
-        )
+        ))
         .await
     }
 
@@ -1390,7 +1390,7 @@ impl CompiledPlot {
         child_frame_sharing_path: &ChildFrameSharingPath,
         scope: LegendPlanScope,
     ) -> Result<(LayoutSolution, PreparedLegendPlan), AvengerChartError> {
-        self.compute_layout_with_precomputed_overflow_and_coord(
+        Box::pin(self.compute_layout_with_precomputed_overflow_and_coord(
             overflow,
             layout_spec,
             scales,
@@ -1402,7 +1402,7 @@ impl CompiledPlot {
             child_frame_sharing_path,
             scope,
             None,
-        )
+        ))
         .await
     }
 
@@ -1421,20 +1421,19 @@ impl CompiledPlot {
         scope: LegendPlanScope,
         coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<(LayoutSolution, PreparedLegendPlan), AvengerChartError> {
-        let legend_plan = self
-            .prepare_legend_plan(
-                scales,
-                available_size,
-                ctx,
-                params,
-                facet_tree,
-                facet_path,
-                child_frame_sharing_path,
-                scope,
-            )
-            .await?;
+        let legend_plan = Box::pin(self.prepare_legend_plan(
+            scales,
+            available_size,
+            ctx,
+            params,
+            facet_tree,
+            facet_path,
+            child_frame_sharing_path,
+            scope,
+        ))
+        .await?;
 
-        self.compute_layout_from_legend_plan(
+        Box::pin(self.compute_layout_from_legend_plan(
             overflow,
             layout_spec,
             available_size,
@@ -1444,7 +1443,7 @@ impl CompiledPlot {
             child_frame_sharing_path,
             coord_measurement,
             legend_plan,
-        )
+        ))
         .await
     }
 
@@ -1462,7 +1461,7 @@ impl CompiledPlot {
         mut legend_plan: PreparedLegendPlan,
     ) -> Result<(LayoutSolution, PreparedLegendPlan), AvengerChartError> {
         if let Some(coord_measurement) = coord_measurement {
-            self.consume_anchored_hoisted_legends(
+            Box::pin(self.consume_anchored_hoisted_legends(
                 &mut legend_plan,
                 coord_measurement,
                 facet_path,
@@ -1470,11 +1469,11 @@ impl CompiledPlot {
                 available_size,
                 ctx,
                 params,
-            )
+            ))
             .await?;
         }
 
-        let mut result = TaffyFrameLayoutSolver::solve(FrameLayoutInput {
+        let mut result = Box::pin(TaffyFrameLayoutSolver::solve(FrameLayoutInput {
             overflow,
             layout_spec,
             title: self.get_title(),
@@ -1483,7 +1482,7 @@ impl CompiledPlot {
             legend_measurements: &legend_plan.measurements,
             ctx,
             params,
-        })
+        }))
         .await?;
 
         // The frame solver sets total_overflow to guide-only; add legend dimensions.
@@ -1603,26 +1602,22 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         let params_with_dims = eval_ctx.with_dimension_params(plot_area_width, plot_area_height);
-        let (layout, _) = self
-            .compute_layout_with_precomputed_overflow(
-                guide_overflow,
-                layout_spec,
-                scales,
-                Size2D {
-                    width: plot_area_width,
-                    height: plot_area_height,
-                },
-                params_with_dims.session_context.as_ref(),
-                &params_with_dims.params,
-                params_with_dims.facet_tree.as_ref(),
-                facet_path,
-                params_with_dims.child_frame_sharing_path(),
-                Self::legend_scope_for_context(
-                    facet_path,
-                    params_with_dims.child_frame_sharing_path(),
-                ),
-            )
-            .await?;
+        let (layout, _) = Box::pin(self.compute_layout_with_precomputed_overflow(
+            guide_overflow,
+            layout_spec,
+            scales,
+            Size2D {
+                width: plot_area_width,
+                height: plot_area_height,
+            },
+            params_with_dims.session_context.as_ref(),
+            &params_with_dims.params,
+            params_with_dims.facet_tree.as_ref(),
+            facet_path,
+            params_with_dims.child_frame_sharing_path(),
+            Self::legend_scope_for_context(facet_path, params_with_dims.child_frame_sharing_path()),
+        ))
+        .await?;
         Ok(layout.total_overflow)
     }
 
@@ -1715,8 +1710,8 @@ impl CompiledPlot {
             )
             .await?;
 
-        let (layout, legend_plan) = self
-            .compute_layout_with_precomputed_overflow_and_coord(
+        let (layout, legend_plan) =
+            Box::pin(self.compute_layout_with_precomputed_overflow_and_coord(
                 &overflow,
                 layout_spec,
                 scales,
@@ -1731,7 +1726,7 @@ impl CompiledPlot {
                 child_frame_sharing_path,
                 Self::legend_scope_for_context(facet_path, child_frame_sharing_path),
                 coord_measurement,
-            )
+            ))
             .await?;
 
         Ok((overflow, layout, legend_plan))
@@ -1994,13 +1989,13 @@ impl CompiledPlot {
         };
 
         if iteration > 0 {
-            self.remeasure_canvas_coord_at_current_plot_area(
+            Box::pin(self.remeasure_canvas_coord_at_current_plot_area(
                 measurement,
                 active_eval_ctx,
                 scale_provider,
                 data_override,
                 facet_path,
-            )
+            ))
             .await?;
             coordinate_overflow_for_guides(measurement, active_eval_ctx).await?;
 
@@ -2013,8 +2008,8 @@ impl CompiledPlot {
             }
         }
 
-        let candidate_bounds = self
-            .measure_canvas_candidate_layout_from_current_measurement(
+        let candidate_bounds = Box::pin(
+            self.measure_canvas_candidate_layout_from_current_measurement(
                 measurement,
                 active_eval_ctx,
                 layout_spec,
@@ -2022,8 +2017,9 @@ impl CompiledPlot {
                 facet_path,
                 iteration,
                 trace_label,
-            )
-            .await?;
+            ),
+        )
+        .await?;
 
         if target_checkpoint == Some(RefinementCheckpoint::CandidateLayoutMeasured) {
             return Ok(RefinementIterationOutcome {
@@ -2089,7 +2085,7 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
         max_refinement_passes: usize,
     ) -> Result<(), AvengerChartError> {
-        self.refine_measurement_after_coordination(
+        Box::pin(self.refine_measurement_after_coordination(
             FacetRefinementMode::Canvas {
                 layout_spec,
                 scale_provider,
@@ -2100,7 +2096,7 @@ impl CompiledPlot {
             facet_path,
             max_refinement_passes,
             "canvas layout",
-        )
+        ))
         .await
     }
 
@@ -2117,7 +2113,7 @@ impl CompiledPlot {
         target_iteration: usize,
         target_checkpoint: RefinementCheckpoint,
     ) -> Result<(), AvengerChartError> {
-        self.refine_measurement_after_coordination_until(
+        Box::pin(self.refine_measurement_after_coordination_until(
             FacetRefinementMode::Canvas {
                 layout_spec,
                 scale_provider,
@@ -2130,7 +2126,7 @@ impl CompiledPlot {
             target_iteration,
             target_checkpoint,
             "canvas layout",
-        )
+        ))
         .await
     }
 
@@ -2270,7 +2266,7 @@ impl CompiledPlot {
         let params_with_current_dims = eval_ctx
             .with_params(measurement.params.clone())
             .with_facet_probe_size_overrides(Arc::new(probe_size_overrides));
-        let scale_builder = build_scale_builder_from_marks(
+        let scale_builder = Box::pin(build_scale_builder_from_marks(
             &self.marks,
             &self.scale_specs,
             &self.coord_transform,
@@ -2278,7 +2274,7 @@ impl CompiledPlot {
             data_override.cloned(),
             &params_with_current_dims,
             eval_ctx.theme.as_ref(),
-        )
+        ))
         .await?;
         let scale_provider = DynamicScaleProvider {
             builder: &scale_builder,
@@ -2291,15 +2287,14 @@ impl CompiledPlot {
             .downcast_ref::<FacetBandCoordMeasurement>()
             .is_none()
         {
-            *measurement = self
-                .measure_plot_components(
-                    &params_with_current_dims,
-                    &realized_layout_spec,
-                    &scale_provider,
-                    data_override,
-                    facet_path,
-                )
-                .await?;
+            *measurement = Box::pin(self.measure_plot_components(
+                &params_with_current_dims,
+                &realized_layout_spec,
+                &scale_provider,
+                data_override,
+                facet_path,
+            ))
+            .await?;
             return Ok(());
         }
 
@@ -2311,17 +2306,16 @@ impl CompiledPlot {
                 &params_with_current_dims.params,
             )
             .await?;
-        let coord_measurement = self
-            .measure_coord_system(
-                &final_scales,
-                plot_area_width,
-                plot_area_height,
-                &params_with_current_dims,
-                data_override,
-                facet_path,
-                ctx,
-            )
-            .await?;
+        let coord_measurement = Box::pin(self.measure_coord_system(
+            &final_scales,
+            plot_area_width,
+            plot_area_height,
+            &params_with_current_dims,
+            data_override,
+            facet_path,
+            ctx,
+        ))
+        .await?;
         crate::coords::apply_coord_measurement_scale_adjustments(
             coord_measurement.as_ref(),
             &mut final_scales,
@@ -2330,8 +2324,8 @@ impl CompiledPlot {
         measurement.coord_measurement = coord_measurement;
 
         let facet_tree = eval_ctx.facet_tree.as_ref();
-        let (_, realized_layout, realized_legend_plan) = self
-            .rebuild_layout_with_coord_overflow(
+        let (_, realized_layout, realized_legend_plan) =
+            Box::pin(self.rebuild_layout_with_coord_overflow(
                 &realized_layout_spec,
                 &measurement.scales,
                 plot_area_width,
@@ -2344,7 +2338,7 @@ impl CompiledPlot {
                 eval_ctx.child_frame_sharing_path(),
                 Some(measurement.coord_measurement.as_ref()),
                 GuideOverflowPhase::Final,
-            )
+            ))
             .await?;
 
         measurement.layout = realized_layout;
@@ -2439,8 +2433,8 @@ impl CompiledPlot {
         };
         let ctx = &*eval_ctx.session_context;
         let facet_tree = eval_ctx.facet_tree.as_ref();
-        let (_, realized_layout, realized_legend_plan) = self
-            .rebuild_layout_with_coord_overflow(
+        let (_, realized_layout, realized_legend_plan) =
+            Box::pin(self.rebuild_layout_with_coord_overflow(
                 &realized_layout_spec,
                 &measurement.scales,
                 plot_area_width,
@@ -2453,7 +2447,7 @@ impl CompiledPlot {
                 eval_ctx.child_frame_sharing_path(),
                 Some(measurement.coord_measurement.as_ref()),
                 GuideOverflowPhase::Final,
-            )
+            ))
             .await?;
 
         let plot_bounds = *realized_layout.plot_area_bounds();
@@ -2525,13 +2519,13 @@ impl CompiledPlot {
         };
 
         if iteration > 0 {
-            self.remeasure_policy_coord_at_current_plot_area(
+            Box::pin(self.remeasure_policy_coord_at_current_plot_area(
                 measurement,
                 active_eval_ctx,
                 evaluated_layout_spec,
                 data_override,
                 facet_path,
-            )
+            ))
             .await?;
             coordinate_overflow_for_guides(measurement, active_eval_ctx).await?;
 
@@ -2544,13 +2538,13 @@ impl CompiledPlot {
             }
         }
 
-        self.realize_policy_extents_no_remeasure(
+        Box::pin(self.realize_policy_extents_no_remeasure(
             measurement,
             active_eval_ctx,
             evaluated_layout_spec,
             data_override,
             facet_path,
-        )
+        ))
         .await?;
 
         if matches!(
@@ -2621,7 +2615,7 @@ impl CompiledPlot {
                 layout_spec,
                 scale_provider,
             } => {
-                self.run_canvas_refinement_iteration(
+                Box::pin(self.run_canvas_refinement_iteration(
                     measurement,
                     eval_ctx,
                     layout_spec,
@@ -2632,11 +2626,11 @@ impl CompiledPlot {
                     iteration,
                     target_checkpoint,
                     trace_label,
-                )
+                ))
                 .await
             }
             FacetRefinementMode::Policy { layout_spec } => {
-                self.run_policy_refinement_iteration(
+                Box::pin(self.run_policy_refinement_iteration(
                     measurement,
                     eval_ctx,
                     layout_spec,
@@ -2646,7 +2640,7 @@ impl CompiledPlot {
                     iteration,
                     target_checkpoint,
                     trace_label,
-                )
+                ))
                 .await
             }
         }
@@ -2663,20 +2657,19 @@ impl CompiledPlot {
         max_refinement_passes: usize,
         trace_prefix: &'static str,
     ) -> Result<(), AvengerChartError> {
-        let mut padding_feedback = self
-            .run_refinement_iteration(
-                mode,
-                measurement,
-                eval_ctx,
-                data_override,
-                facet_path,
-                None,
-                0,
-                None,
-                "mandatory realization",
-            )
-            .await?
-            .realized_padding_feedback;
+        let mut padding_feedback = Box::pin(self.run_refinement_iteration(
+            mode,
+            measurement,
+            eval_ctx,
+            data_override,
+            facet_path,
+            None,
+            0,
+            None,
+            "mandatory realization",
+        ))
+        .await?
+        .realized_padding_feedback;
 
         if max_refinement_passes == 0 {
             eval_ctx.record_facet_refinement_converged();
@@ -2688,19 +2681,18 @@ impl CompiledPlot {
         }
 
         for pass in 1..=max_refinement_passes {
-            let outcome = self
-                .run_refinement_iteration(
-                    mode,
-                    measurement,
-                    eval_ctx,
-                    data_override,
-                    facet_path,
-                    Some(padding_feedback.clone()),
-                    pass,
-                    None,
-                    "refinement realization",
-                )
-                .await?;
+            let outcome = Box::pin(self.run_refinement_iteration(
+                mode,
+                measurement,
+                eval_ctx,
+                data_override,
+                facet_path,
+                Some(padding_feedback.clone()),
+                pass,
+                None,
+                "refinement realization",
+            ))
+            .await?;
 
             eval_ctx.record_facet_refinement_pass();
             let overflow_grew = outcome.overflow_grew.unwrap_or(false);
@@ -2741,19 +2733,18 @@ impl CompiledPlot {
         }
 
         let target = (target_iteration == 0).then_some(target_checkpoint);
-        let outcome = self
-            .run_refinement_iteration(
-                mode,
-                measurement,
-                eval_ctx,
-                data_override,
-                facet_path,
-                None,
-                0,
-                target,
-                "refinement snapshot",
-            )
-            .await?;
+        let outcome = Box::pin(self.run_refinement_iteration(
+            mode,
+            measurement,
+            eval_ctx,
+            data_override,
+            facet_path,
+            None,
+            0,
+            target,
+            "refinement snapshot",
+        ))
+        .await?;
 
         if outcome.reached_snapshot_checkpoint {
             return Ok(());
@@ -2769,19 +2760,18 @@ impl CompiledPlot {
         let mut padding_feedback = outcome.realized_padding_feedback;
         for pass in 1..=max_refinement_passes {
             let target = (pass == target_iteration).then_some(target_checkpoint);
-            let outcome = self
-                .run_refinement_iteration(
-                    mode,
-                    measurement,
-                    eval_ctx,
-                    data_override,
-                    facet_path,
-                    Some(padding_feedback.clone()),
-                    pass,
-                    target,
-                    "refinement snapshot",
-                )
-                .await?;
+            let outcome = Box::pin(self.run_refinement_iteration(
+                mode,
+                measurement,
+                eval_ctx,
+                data_override,
+                facet_path,
+                Some(padding_feedback.clone()),
+                pass,
+                target,
+                "refinement snapshot",
+            ))
+            .await?;
             if outcome.reached_snapshot_checkpoint {
                 return Ok(());
             }
@@ -2806,7 +2796,7 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
         max_refinement_passes: usize,
     ) -> Result<(), AvengerChartError> {
-        self.refine_measurement_after_coordination(
+        Box::pin(self.refine_measurement_after_coordination(
             FacetRefinementMode::Policy {
                 layout_spec: evaluated_layout_spec,
             },
@@ -2816,7 +2806,7 @@ impl CompiledPlot {
             facet_path,
             max_refinement_passes,
             "policy",
-        )
+        ))
         .await
     }
 
@@ -2835,7 +2825,7 @@ impl CompiledPlot {
         if target_iteration == 0 && target_checkpoint == RefinementCheckpoint::Recoordinated {
             return Ok(());
         }
-        self.refine_measurement_after_coordination_until(
+        Box::pin(self.refine_measurement_after_coordination_until(
             FacetRefinementMode::Policy {
                 layout_spec: evaluated_layout_spec,
             },
@@ -2847,7 +2837,7 @@ impl CompiledPlot {
             target_iteration,
             target_checkpoint,
             "policy",
-        )
+        ))
         .await
     }
 
@@ -2860,14 +2850,14 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
         max_refinement_passes: usize,
     ) -> Result<(), AvengerChartError> {
-        self.refine_policy_measurement_after_coordination(
+        Box::pin(self.refine_policy_measurement_after_coordination(
             measurement,
             eval_ctx,
             layout_spec,
             data_override,
             facet_path,
             max_refinement_passes,
-        )
+        ))
         .await?;
 
         debug_assert!(
@@ -3050,18 +3040,17 @@ impl CompiledPlot {
                 .build_scales(plot_area_width, plot_area_height, ctx, merged_params)
                 .await?;
 
-            let (layout, legend_plan) = self
-                .compute_layout_with_spec(
-                    layout_spec,
-                    &initial_scales,
-                    ctx,
-                    merged_params,
-                    data_override,
-                    facet_tree,
-                    facet_path,
-                    child_frame_sharing_path,
-                )
-                .await?;
+            let (layout, legend_plan) = Box::pin(self.compute_layout_with_spec(
+                layout_spec,
+                &initial_scales,
+                ctx,
+                merged_params,
+                data_override,
+                facet_tree,
+                facet_path,
+                child_frame_sharing_path,
+            ))
+            .await?;
 
             Ok((
                 plot_area_width,
@@ -3088,18 +3077,17 @@ impl CompiledPlot {
                 .build_scales(initial_plot_width, initial_plot_height, ctx, merged_params)
                 .await?;
 
-            let (layout, legend_plan) = self
-                .compute_layout_with_spec(
-                    layout_spec,
-                    &initial_scales,
-                    ctx,
-                    merged_params,
-                    data_override,
-                    facet_tree,
-                    facet_path,
-                    child_frame_sharing_path,
-                )
-                .await?;
+            let (layout, legend_plan) = Box::pin(self.compute_layout_with_spec(
+                layout_spec,
+                &initial_scales,
+                ctx,
+                merged_params,
+                data_override,
+                facet_tree,
+                facet_path,
+                child_frame_sharing_path,
+            ))
+            .await?;
 
             let plot_bounds = layout.plot_area_bounds();
             Ok((
@@ -3150,7 +3138,7 @@ impl CompiledPlot {
         };
         let coord_data = data_override.or(plot_data.as_ref());
 
-        measure_coordinate_system_transform(
+        Box::pin(measure_coordinate_system_transform(
             self.coord_transform.as_ref(),
             CoordMeasureRequest::new(
                 scales,
@@ -3161,7 +3149,7 @@ impl CompiledPlot {
                 &self.marks,
                 facet_path,
             ),
-        )
+        ))
         .await
     }
 
@@ -3239,17 +3227,16 @@ impl CompiledPlot {
             .await?;
 
         // Phase 4: Coordinate system measurement
-        let coord_measurement = self
-            .measure_coord_system(
-                &final_scales,
-                plot_area_width,
-                plot_area_height,
-                &params_with_dims,
-                data_override,
-                facet_path,
-                ctx,
-            )
-            .await?;
+        let coord_measurement = Box::pin(self.measure_coord_system(
+            &final_scales,
+            plot_area_width,
+            plot_area_height,
+            &params_with_dims,
+            data_override,
+            facet_path,
+            ctx,
+        ))
+        .await?;
 
         // Apply scale adjustments from coordinate-system measurement (stays in main function
         // because it mutates final_scales which is used by later phases)
@@ -3262,8 +3249,8 @@ impl CompiledPlot {
             let initial_plot_bounds = *layout.plot_area_bounds();
             let initial_overflow = layout.overflow;
             let initial_total_overflow = layout.total_overflow;
-            let (_, refined_layout, refined_legend_plan) = self
-                .rebuild_layout_with_coord_overflow(
+            let (_, refined_layout, refined_legend_plan) =
+                Box::pin(self.rebuild_layout_with_coord_overflow(
                     layout_spec,
                     &final_scales,
                     plot_area_width,
@@ -3276,7 +3263,7 @@ impl CompiledPlot {
                     eval_ctx.child_frame_sharing_path(),
                     Some(coord_measurement.as_ref()),
                     GuideOverflowPhase::Measurement,
-                )
+                ))
                 .await?;
             let refined_plot_bounds = refined_layout.plot_area_bounds();
             trace!(
@@ -3868,13 +3855,13 @@ impl CompiledPlot {
     ) -> Result<(), AvengerChartError> {
         match snapshot {
             LayoutSnapshot::Final => {
-                self.apply_final_layout_snapshot(
+                Box::pin(self.apply_final_layout_snapshot(
                     measurement,
                     eval_ctx,
                     evaluated_layout_spec,
                     provider,
                     resolved_chart_sizing,
-                )
+                ))
                 .await
             }
             LayoutSnapshot::Whole(WholeChartSnapshot::LocalMeasured) => Ok(()),
@@ -3897,7 +3884,7 @@ impl CompiledPlot {
                     )
                     .await?;
                 }
-                self.apply_refinement_snapshot(
+                Box::pin(self.apply_refinement_snapshot(
                     measurement,
                     eval_ctx,
                     evaluated_layout_spec,
@@ -3905,7 +3892,7 @@ impl CompiledPlot {
                     resolved_chart_sizing,
                     *iteration,
                     *checkpoint,
-                )
+                ))
                 .await
             }
             LayoutSnapshot::FacetSubtree(_) => Ok(()),
@@ -3952,7 +3939,7 @@ impl CompiledPlot {
                 let dimensions = Self::resolve_dimensions_from_spec(evaluated_layout_spec);
                 if !dimensions.dimensions_are_plot_area() {
                     let refinement = eval_ctx.facet_layout_refinement();
-                    self.refine_canvas_measurement_after_coordination(
+                    Box::pin(self.refine_canvas_measurement_after_coordination(
                         measurement,
                         eval_ctx,
                         evaluated_layout_spec,
@@ -3960,7 +3947,7 @@ impl CompiledPlot {
                         None,
                         &[],
                         refinement.max_refinement_passes,
-                    )
+                    ))
                     .await?;
                 }
                 Self::validate_root_content_layout(measurement)?;
@@ -3970,14 +3957,14 @@ impl CompiledPlot {
                 // initial requirements -> retarget -> retargeted requirements -> final propagation.
                 coordinate_overflow_for_guides(measurement, eval_ctx).await?;
                 let refinement = eval_ctx.facet_layout_refinement();
-                self.realize_policy_layout_after_coordination(
+                Box::pin(self.realize_policy_layout_after_coordination(
                     measurement,
                     eval_ctx,
                     evaluated_layout_spec,
                     None,
                     &[],
                     refinement.max_refinement_passes,
-                )
+                ))
                 .await?;
             }
         }
@@ -4006,7 +3993,7 @@ impl CompiledPlot {
                             .to_string(),
                     ));
                 }
-                self.refine_canvas_measurement_after_coordination_until(
+                Box::pin(self.refine_canvas_measurement_after_coordination_until(
                     measurement,
                     eval_ctx,
                     evaluated_layout_spec,
@@ -4016,11 +4003,11 @@ impl CompiledPlot {
                     refinement.max_refinement_passes,
                     iteration,
                     checkpoint,
-                )
+                ))
                 .await
             }
             ResolvedChartSizing::FacetBand(_) => {
-                self.refine_policy_measurement_after_coordination_until(
+                Box::pin(self.refine_policy_measurement_after_coordination_until(
                     measurement,
                     eval_ctx,
                     evaluated_layout_spec,
@@ -4029,7 +4016,7 @@ impl CompiledPlot {
                     refinement.max_refinement_passes,
                     iteration,
                     checkpoint,
-                )
+                ))
                 .await
             }
         }
@@ -4041,8 +4028,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: Option<IndexMap<String, ScalarValue>>,
     ) -> Result<EvaluatedPlot, AvengerChartError> {
-        self.evaluate_with_options(ctx, params, EvaluationOptions::default())
-            .await
+        Box::pin(self.evaluate_with_options(ctx, params, EvaluationOptions::default())).await
     }
 
     /// Evaluate the plot to a scene graph with explicit layout snapshot and debug options.
@@ -4052,8 +4038,7 @@ impl CompiledPlot {
         params: Option<IndexMap<String, ScalarValue>>,
         options: EvaluationOptions,
     ) -> Result<EvaluatedPlot, AvengerChartError> {
-        self.evaluate_with_options_internal(ctx, params, options, None)
-            .await
+        Box::pin(self.evaluate_with_options_internal(ctx, params, options, None)).await
     }
 
     /// Evaluate the plot while collecting focused performance diagnostics.
@@ -4065,9 +4050,13 @@ impl CompiledPlot {
         options: EvaluationOptions,
     ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
         let metrics = Arc::new(Mutex::new(EvaluationMetrics::default()));
-        let evaluated = self
-            .evaluate_with_options_internal(ctx, params, options, Some(metrics.clone()))
-            .await?;
+        let evaluated = Box::pin(self.evaluate_with_options_internal(
+            ctx,
+            params,
+            options,
+            Some(metrics.clone()),
+        ))
+        .await?;
         let metrics = metrics
             .lock()
             .expect("evaluation metrics lock poisoned")
@@ -4123,7 +4112,7 @@ impl CompiledPlot {
             merged_params.clone(),
         );
         // Build scale provider
-        let scale_builder = build_scale_builder_from_marks(
+        let scale_builder = Box::pin(build_scale_builder_from_marks(
             &self.marks,
             &self.scale_specs,
             &self.coord_transform,
@@ -4131,7 +4120,7 @@ impl CompiledPlot {
             None,
             &scale_eval_ctx,
             self.get_theme().as_ref(),
-        )
+        ))
         .await?;
 
         let provider = DynamicScaleProvider {
@@ -4171,15 +4160,14 @@ impl CompiledPlot {
         }
 
         // Measure plot components
-        let measurement = self
-            .measure_plot_components(
-                &eval_ctx,
-                &measured_layout_spec,
-                &provider,
-                None, // No data override for top-level plots
-                &[],  // Empty facet path for top-level plots
-            )
-            .await?;
+        let measurement = Box::pin(self.measure_plot_components(
+            &eval_ctx,
+            &measured_layout_spec,
+            &provider,
+            None, // No data override for top-level plots
+            &[],  // Empty facet path for top-level plots
+        ))
+        .await?;
 
         let mut measurement = measurement;
         if let LayoutSnapshot::FacetSubtree(snapshot) = &options.layout_snapshot {
@@ -4195,7 +4183,7 @@ impl CompiledPlot {
                 }
                 FacetSubtreeCheckpoint::LocalRetargetedLayout => {}
                 FacetSubtreeCheckpoint::CoordinatedLayout => {
-                    self.apply_layout_snapshot(
+                    Box::pin(self.apply_layout_snapshot(
                         &LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
                             CoordinationCheckpoint::FinalPropagationComplete,
                         )),
@@ -4204,18 +4192,18 @@ impl CompiledPlot {
                         &measured_layout_spec,
                         &provider,
                         resolved_chart_sizing,
-                    )
+                    ))
                     .await?;
                 }
                 FacetSubtreeCheckpoint::FinalLayout => {
-                    self.apply_layout_snapshot(
+                    Box::pin(self.apply_layout_snapshot(
                         &LayoutSnapshot::Final,
                         &mut measurement,
                         &eval_ctx,
                         &measured_layout_spec,
                         &provider,
                         resolved_chart_sizing,
-                    )
+                    ))
                     .await?;
                 }
             }
@@ -4224,14 +4212,14 @@ impl CompiledPlot {
                 .await;
         }
 
-        self.apply_layout_snapshot(
+        Box::pin(self.apply_layout_snapshot(
             &options.layout_snapshot,
             &mut measurement,
             &eval_ctx,
             &measured_layout_spec,
             &provider,
             resolved_chart_sizing,
-        )
+        ))
         .await?;
 
         let content_layout = measurement.content_layout()?;
@@ -4246,15 +4234,14 @@ impl CompiledPlot {
         );
 
         // Build plot components using measurement
-        let components = self
-            .build_plot_components(
-                &eval_ctx,
-                &measurement,
-                None,  // No data override for top-level plots
-                false, // Canvas mode: dimensions are canvas size
-                &[],   // Empty path for top-level plots (not in a facet cell)
-            )
-            .await?;
+        let components = Box::pin(self.build_plot_components(
+            &eval_ctx,
+            &measurement,
+            None,  // No data override for top-level plots
+            false, // Canvas mode: dimensions are canvas size
+            &[],   // Empty path for top-level plots (not in a facet cell)
+        ))
+        .await?;
 
         Ok(self.components_to_evaluated_plot(&eval_ctx, components))
     }
@@ -4301,26 +4288,25 @@ mod tests {
         ))
     }
 
-    fn run_with_large_stack<F, Fut>(f: F)
+    fn run_async_test<F, Fut>(f: F)
     where
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = Result<(), AvengerChartError>> + Send + 'static,
     {
         std::thread::Builder::new()
-            .name("rendering-test-large-stack".to_string())
-            .stack_size(64 * 1024 * 1024)
+            .name("rendering-test-default-stack".to_string())
             .spawn(move || {
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
-                    .expect("build tokio runtime for large-stack rendering test");
+                    .expect("build tokio runtime for default-stack rendering test");
                 runtime
                     .block_on(f())
-                    .expect("large-stack rendering test future should succeed");
+                    .expect("default-stack rendering test future should succeed");
             })
-            .expect("spawn large-stack rendering test thread")
+            .expect("spawn default-stack rendering test thread")
             .join()
-            .expect("join large-stack rendering test thread");
+            .expect("join default-stack rendering test thread");
     }
 
     #[test]
@@ -6058,7 +6044,7 @@ mod tests {
 
     #[test]
     fn evaluate_default_matches_with_options_final() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled = compile_deeply_nested_plot(&ctx).await?;
 
@@ -6102,7 +6088,7 @@ mod tests {
 
     #[test]
     fn evaluate_with_options_initial_and_coordinated_execute_for_nested_facets() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled = compile_deeply_nested_plot(&ctx).await?;
 
@@ -6156,7 +6142,7 @@ mod tests {
 
     #[test]
     fn facet_subtree_snapshots_render_probe_and_local_layout() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled = compile_deeply_nested_plot(&ctx).await?;
             let selector = FacetSubtreeSelector::ByFacetPath(vec![
@@ -6248,7 +6234,7 @@ mod tests {
 
     #[test]
     fn evaluation_metrics_capture_facet_recursive_counts() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled =
                 compile_three_level_col_legend_sharing_plot(&ctx, LegendPosition::Right).await?;
@@ -6307,7 +6293,7 @@ mod tests {
 
     #[test]
     fn final_snapshot_fast_measure_once_has_no_refinement_passes() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled =
                 compile_three_level_col_legend_sharing_plot(&ctx, LegendPosition::Right).await?;
@@ -6338,7 +6324,7 @@ mod tests {
 
     #[test]
     fn canvas_refinement_remeasures_after_plot_area_retarget() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled = compile_two_level_col_col_refinement_plot(&ctx).await?;
             let selector = FacetSubtreeSelector::ByFacetPath(vec![
@@ -6407,7 +6393,7 @@ mod tests {
 
     #[test]
     fn plot_area_sized_refinement_remeasures_after_domain_coordination() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled = compile_nested_row_col_row_mixed_sharing_plot_area_sized(&ctx).await?;
             let selector = FacetSubtreeSelector::ByFacetPath(vec![
@@ -6469,7 +6455,7 @@ mod tests {
 
     #[test]
     fn canvas_refinement_snapshot_reuses_iteration_remeasure_path() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled = compile_two_level_col_col_refinement_plot(&ctx).await?;
             let (_evaluated, metrics) = compiled
@@ -6501,7 +6487,7 @@ mod tests {
 
     #[test]
     fn initial_snapshot_ignores_facet_refinement_budget() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled =
                 compile_three_level_col_legend_sharing_plot(&ctx, LegendPosition::Right).await?;
@@ -6531,7 +6517,7 @@ mod tests {
 
     #[test]
     fn evaluate_with_options_coordinated_vs_final_canvas_mode() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled = compile_deeply_nested_plot(&ctx).await?;
             let coordinated_eval = compiled
@@ -6719,7 +6705,7 @@ mod tests {
 
     #[test]
     fn facet_mixed_canvas_width_leaf_plot_height_preserves_policy() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let df = deeply_nested_dataframe(&ctx);
             let compiled = build_deeply_nested_plot(df)
@@ -6798,7 +6784,7 @@ mod tests {
     #[test]
     fn plot_area_sized_mode_leaf_plot_area_uniform_for_three_level_col_col_col_with_level2_right_legend()
      {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled =
                 compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Top)
@@ -6843,7 +6829,7 @@ mod tests {
 
     #[test]
     fn fixed_level2_right_hoists_legend_without_team_node_slab() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled =
                 compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
@@ -6877,7 +6863,7 @@ mod tests {
 
     #[test]
     fn legend_disposition_polar_positioned_child_requests_are_collected() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled = build_polar_positioned_legend_sharing_plot(
                 positioned_legend_sharing_dataframe(&ctx).await,
@@ -6902,7 +6888,7 @@ mod tests {
 
     #[test]
     fn plot_area_sized_mode_collection_only_applies_layout_patches_without_resizing_leaves() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled =
                 compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
@@ -6949,7 +6935,7 @@ mod tests {
 
     #[test]
     fn plot_area_sized_retarget_actions_preserve_plot_area_for_legend_slabs() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled =
                 compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
@@ -7014,7 +7000,7 @@ mod tests {
 
     #[test]
     fn plot_area_sized_retarget_actions_are_geometry_only_after_precoordination() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled =
                 compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
@@ -7053,7 +7039,7 @@ mod tests {
 
     #[test]
     fn plot_area_sized_mode_final_realization_applies_layout_patches_without_resizing_leaves() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled =
                 compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
@@ -7099,7 +7085,7 @@ mod tests {
     #[test]
     fn plot_area_sized_mode_has_no_main_axis_overlap_for_three_level_col_col_col_with_level2_right_legend()
      {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled =
                 compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
@@ -7113,7 +7099,7 @@ mod tests {
 
     #[test]
     fn fixed_level2_right_legends_within_canvas() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled =
                 compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
@@ -7127,7 +7113,7 @@ mod tests {
 
     #[test]
     fn plot_area_sized_retarget_trace_recomputes_positions_after_refinement() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled =
                 compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
@@ -7141,7 +7127,7 @@ mod tests {
 
     #[test]
     fn plot_area_sized_mode_realizes_plot_area_from_computed_placement() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled =
                 compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
@@ -7155,7 +7141,7 @@ mod tests {
 
     #[test]
     fn plot_area_sized_mode_preserves_empty_nested_slot_extent() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled = compile_sparse_fixed_column_hole_plot(&ctx).await?;
             let (_, _, measurement) =
@@ -7185,7 +7171,7 @@ mod tests {
 
     #[test]
     fn plot_area_sized_mode_continuous_legend_is_visible_with_uniform_leaf_sizes() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled =
                 compile_nested_col_row_col_continuous_legend_plot_area_sized(&ctx).await?;
@@ -7224,7 +7210,7 @@ mod tests {
 
     #[test]
     fn debug_layout_overlay_option_enables_components_without_env() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             if crate::facet::debug::env_layout_overlay_enabled() {
                 return Ok(());
             }
@@ -7279,7 +7265,7 @@ mod tests {
 
     #[test]
     fn canvas_mode_measurement_matches_final_layout_bounds() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled = compile_deeply_nested_plot(&ctx).await?;
             let (_, _, measurement) =
@@ -7307,7 +7293,7 @@ mod tests {
 
     #[test]
     fn level1_left_legend_slab_contributes_to_rendered_subtree() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled =
                 compile_two_level_col_legend_sharing_plot(&ctx, LegendPosition::Left).await?;
@@ -7351,7 +7337,7 @@ mod tests {
 
     #[test]
     fn level1_right_legend_slab_contributes_to_rendered_subtree() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled =
                 compile_two_level_col_legend_sharing_plot(&ctx, LegendPosition::Right).await?;
@@ -7395,7 +7381,7 @@ mod tests {
 
     #[test]
     fn level0_right_free_legends_stay_inside_canvas() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled =
                 compile_two_level_col_free_legend_plot(&ctx, LegendPosition::Right).await?;
@@ -7410,7 +7396,7 @@ mod tests {
 
     #[test]
     fn level1_bottom_legend_slab_contributes_to_rendered_subtree() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled =
                 compile_two_level_col_legend_sharing_plot(&ctx, LegendPosition::Bottom).await?;
@@ -7454,7 +7440,7 @@ mod tests {
 
     #[test]
     fn level1_top_legend_slab_contributes_to_rendered_subtree() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled =
                 compile_two_level_col_legend_sharing_plot(&ctx, LegendPosition::Top).await?;
@@ -7501,7 +7487,7 @@ mod tests {
 
     #[test]
     fn row_facet_group_origins_include_main_axis_legend_start_slab() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled = compile_single_level_row_legend_plot(&ctx, LegendPosition::Left).await?;
             let (_, _, measurement) =
@@ -7555,7 +7541,7 @@ mod tests {
 
     #[test]
     fn col_facet_group_origins_include_main_axis_legend_start_slab() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled = compile_single_level_col_legend_plot(&ctx, LegendPosition::Top).await?;
             let (_, _, measurement) =
@@ -7609,7 +7595,7 @@ mod tests {
 
     #[test]
     fn level0_right_outer_labels_align_with_child_department_titles() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled =
                 compile_two_level_col_legend_sharing_plot(&ctx, LegendPosition::Right).await?;
@@ -7650,7 +7636,7 @@ mod tests {
 
     #[test]
     fn level2_right_outer_labels_align_with_child_department_titles() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled =
                 compile_three_level_col_legend_sharing_plot(&ctx, LegendPosition::Right).await?;
@@ -7691,7 +7677,7 @@ mod tests {
 
     #[test]
     fn shared_row_basic_right_owner_renders_each_row_label_once_globally() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled = compile_nested_shared_row_basic_plot(&ctx).await?;
             let evaluated = compiled.evaluate(&ctx, None).await?;
@@ -7712,7 +7698,7 @@ mod tests {
 
     #[test]
     fn empty_cell_policy_controls_whether_empty_slots_render_subplots() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let hole_plot = compile_nested_shared_row_shared_both_plot_with_empty_policy(
                 &ctx,
@@ -7763,7 +7749,7 @@ mod tests {
 
     #[test]
     fn empty_subplot_policy_renders_structural_subplot_groups_for_empty_slots() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let hole_plot = compile_nested_shared_row_shared_both_plot_with_empty_policy(
                 &ctx,
@@ -7813,7 +7799,7 @@ mod tests {
 
     #[test]
     fn data_empty_shared_cells_receive_coordinated_domain_extents() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled = compile_nested_shared_row_shared_both_plot(&ctx).await?;
             let (_, _, measurement) =
@@ -7857,7 +7843,7 @@ mod tests {
 
     #[test]
     fn jagged_group_local_shared_row_keeps_one_owner_column_per_group() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled = compile_jagged_group_local_shared_row_plot(&ctx).await?;
             let evaluated = compiled.evaluate(&ctx, None).await?;
@@ -7910,7 +7896,7 @@ mod tests {
 
     #[test]
     fn nested_sparse_col_title_centers_over_coordinated_slot_span() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled = compile_nested_sparse_row_plot(&ctx).await?;
             let evaluated = compiled.evaluate(&ctx, None).await?;
@@ -7957,7 +7943,7 @@ mod tests {
 
     #[test]
     fn nested_plot_area_measurements_use_coord_aware_overflow() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled = compile_deeply_nested_plot(&ctx).await?;
             let (eval_ctx, _, measurement) =
@@ -8062,7 +8048,7 @@ mod tests {
 
     #[test]
     fn deeply_nested_outer_padding_inner_not_pathological() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled = compile_deeply_nested_plot(&ctx).await?;
             let (_, _, measurement) =

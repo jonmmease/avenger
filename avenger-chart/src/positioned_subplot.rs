@@ -542,7 +542,7 @@ async fn prepare_partitioned_positioned_subplot<'a>(
         })?
         .to_expr(ctx)?;
 
-    let prepared_mark = prepare_mark_data_runtime(MarkDataRequest {
+    let prepared_mark = Box::pin(prepare_mark_data_runtime(MarkDataRequest {
         mark: subplot.as_compiled_mark(),
         plot_data: None,
         provided_plot_df: data,
@@ -556,7 +556,7 @@ async fn prepare_partitioned_positioned_subplot<'a>(
         scales,
         plot_width,
         plot_height,
-    })
+    }))
     .await?;
     let Some(prepared_mark) = prepared_mark else {
         return Ok(None);
@@ -624,14 +624,13 @@ async fn prepare_partitioned_positioned_subplot<'a>(
             .clone()
             .filter(partition_expr.clone().eq(lit(value.clone())))?;
         child_plots.push(
-            runtime
-                .prepare_plot(
-                    positioned_subplot_child_plot(subplot),
-                    ChildFrameDataSelection::InheritParent,
-                    Some(&filtered_data),
-                    eval_ctx,
-                )
-                .await?,
+            Box::pin(runtime.prepare_plot(
+                positioned_subplot_child_plot(subplot),
+                ChildFrameDataSelection::InheritParent,
+                Some(&filtered_data),
+                eval_ctx,
+            ))
+            .await?,
         );
     }
 
@@ -655,7 +654,7 @@ async fn prepare_positioned_subplot<'a>(
     next_child_index: &mut usize,
 ) -> Result<Option<PreparedPositionedSubplot<'a>>, AvengerChartError> {
     if subplot.is_partitioned() {
-        return prepare_partitioned_positioned_subplot(
+        return Box::pin(prepare_partitioned_positioned_subplot(
             subplot,
             scales,
             coord_transform,
@@ -665,11 +664,11 @@ async fn prepare_positioned_subplot<'a>(
             data,
             facet_path,
             next_child_index,
-        )
+        ))
         .await;
     }
 
-    let prepared_mark = prepare_mark_data_runtime(MarkDataRequest {
+    let prepared_mark = Box::pin(prepare_mark_data_runtime(MarkDataRequest {
         mark: subplot.as_compiled_mark(),
         plot_data: None,
         provided_plot_df: data,
@@ -683,7 +682,7 @@ async fn prepare_positioned_subplot<'a>(
         scales,
         plot_width,
         plot_height,
-    })
+    }))
     .await?;
     let Some(prepared_mark) = prepared_mark else {
         return Ok(None);
@@ -747,14 +746,13 @@ async fn prepare_positioned_subplot<'a>(
         ChildFrameDataSelection::ExplicitChild
     };
     let runtime = ChildFrameRuntime::new();
-    let child_plot = runtime
-        .prepare_plot(
-            positioned_subplot_child_plot(subplot),
-            data_selection,
-            inherited_data.as_ref(),
-            eval_ctx,
-        )
-        .await?;
+    let child_plot = Box::pin(runtime.prepare_plot(
+        positioned_subplot_child_plot(subplot),
+        data_selection,
+        inherited_data.as_ref(),
+        eval_ctx,
+    ))
+    .await?;
 
     Ok(Some(PreparedPositionedSubplot {
         subplot,
@@ -798,14 +796,13 @@ async fn measure_positioned_child(
     );
     let child_eval_ctx = runtime.eval_context(eval_ctx, sharing_level);
     let child_plot = prepared.child_plot(spec_index)?;
-    let measurement = child_plot
-        .measure(
-            &child_eval_ctx,
-            &child_layout_spec,
-            facet_path,
-            &[domain_extents, facet_scoped_domain_extents],
-        )
-        .await?;
+    let measurement = Box::pin(child_plot.measure(
+        &child_eval_ctx,
+        &child_layout_spec,
+        facet_path,
+        &[domain_extents, facet_scoped_domain_extents],
+    ))
+    .await?;
 
     Ok(PositionedChildMeasurement {
         child_index: spec.child_index,
@@ -837,7 +834,7 @@ pub(crate) async fn measure_positioned_subplots(
         .iter()
         .filter_map(|mark| mark.as_positioned_subplot())
     {
-        if let Some(prepared) = prepare_positioned_subplot(
+        if let Some(prepared) = Box::pin(prepare_positioned_subplot(
             subplot,
             scales,
             coord_transform,
@@ -847,7 +844,7 @@ pub(crate) async fn measure_positioned_subplots(
             data,
             facet_path,
             &mut next_child_index,
-        )
+        ))
         .await?
         {
             prepared_subplots.push(prepared);
@@ -901,7 +898,7 @@ pub(crate) async fn measure_positioned_subplots(
                 .facet_scale_precompute_store()
                 .coordinated_child_frame_domain_extents(&relative_child_frame_path, facet_path);
             children.push(
-                measure_positioned_child(
+                Box::pin(measure_positioned_child(
                     prepared,
                     spec_index,
                     spec,
@@ -910,7 +907,7 @@ pub(crate) async fn measure_positioned_subplots(
                     facet_path,
                     &coordinated_domain_extents[domain_index],
                     &facet_scoped_domain_extents,
-                )
+                ))
                 .await?,
             );
             render_placements.push(ChildFrameRenderPlacement {

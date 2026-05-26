@@ -88,6 +88,7 @@ pub(crate) fn extract_channel_configs<C: CoordinateSystem>(
 
         // Extract scale config if present
         if let Some(config) = scale_config {
+            let config = *config;
             match scale_specs.entry(scale_key.clone()) {
                 Entry::Occupied(mut occupied) => {
                     let existing_spec = occupied.get().clone();
@@ -109,6 +110,7 @@ pub(crate) fn extract_channel_configs<C: CoordinateSystem>(
 
         // Extract legend config if present
         if let Some(config) = legend_config {
+            let config = *config;
             // Compose legend configurations - apply all configs in order
             let existing_legend = legends.shift_remove(channel_name.as_str());
             let configured = if let Some(existing) = existing_legend {

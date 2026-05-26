@@ -28,13 +28,13 @@ pub(crate) async fn build_scale_builder_from_marks(
 ) -> Result<ScaleBuilder, AvengerChartError> {
     let mut prepared_marks = Vec::with_capacity(compiled_marks.len());
     for mark in compiled_marks {
-        let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
+        let prepared = Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {
             mark: mark.as_ref(),
             plot_data: data.as_ref(),
             provided_plot_df: df_override.as_ref(),
             facet_data_scope: None,
             eval_ctx,
-        })
+        }))
         .await?;
         prepared_marks.push(PreparedScaleMark::new(
             mark.clone(),
@@ -43,12 +43,14 @@ pub(crate) async fn build_scale_builder_from_marks(
         ));
     }
 
-    avenger_chart_scales::build_scale_builder_from_prepared_marks(
-        &prepared_marks,
-        scale_specs,
-        coord_transform.as_ref(),
-        eval_ctx,
-        theme,
+    Box::pin(
+        avenger_chart_scales::build_scale_builder_from_prepared_marks(
+            &prepared_marks,
+            scale_specs,
+            coord_transform.as_ref(),
+            eval_ctx,
+            theme,
+        ),
     )
     .await
 }
@@ -65,7 +67,7 @@ pub(crate) async fn build_scale_builder_from_marks_with_facet_scope(
 ) -> Result<ScaleBuilder, AvengerChartError> {
     let mut prepared_marks = Vec::with_capacity(compiled_marks.len());
     for mark in compiled_marks {
-        let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
+        let prepared = Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {
             mark: mark.as_ref(),
             plot_data: data.as_ref(),
             provided_plot_df: df_override.as_ref(),
@@ -75,7 +77,7 @@ pub(crate) async fn build_scale_builder_from_marks_with_facet_scope(
                 facet_path,
             )),
             eval_ctx,
-        })
+        }))
         .await?;
         prepared_marks.push(PreparedScaleMark::new(
             mark.clone(),
@@ -84,12 +86,14 @@ pub(crate) async fn build_scale_builder_from_marks_with_facet_scope(
         ));
     }
 
-    avenger_chart_scales::build_scale_builder_from_prepared_marks(
-        &prepared_marks,
-        scale_specs,
-        coord_transform.as_ref(),
-        eval_ctx,
-        theme,
+    Box::pin(
+        avenger_chart_scales::build_scale_builder_from_prepared_marks(
+            &prepared_marks,
+            scale_specs,
+            coord_transform.as_ref(),
+            eval_ctx,
+            theme,
+        ),
     )
     .await
 }

@@ -609,7 +609,7 @@ impl ScaleBuilder {
                     }
 
                     // Normalize domain (apply zero, nice, padding)
-                    scale = scale.normalize_domain(width, height, ctx, params).await?;
+                    scale = Box::pin(scale.normalize_domain(width, height, ctx, params)).await?;
 
                     scale = self.apply_default_range_if_needed(
                         scale,
@@ -620,10 +620,12 @@ impl ScaleBuilder {
                     );
 
                     // Create configured scale
-                    let configured = scale
-                        .clone()
-                        .create_configured_scale(width, height, ctx, params)
-                        .await?;
+                    let configured = Box::pin(
+                        scale
+                            .clone()
+                            .create_configured_scale(width, height, ctx, params),
+                    )
+                    .await?;
 
                     result.insert(
                         channel_name.clone(),
@@ -694,14 +696,16 @@ impl ScaleBuilder {
                     scale = scale.range_interval(lit(range_min), lit(range_max));
 
                     // Normalize domain (apply zero, nice, padding)
-                    scale = scale.normalize_domain(width, height, ctx, params).await?;
+                    scale = Box::pin(scale.normalize_domain(width, height, ctx, params)).await?;
 
                     if channel_name == "y"
-                        && let Ok((norm_min, norm_max)) = scale
-                            .clone()
-                            .create_configured_scale(width, height, ctx, params)
-                            .await
-                            .and_then(|c| Ok(c.numeric_interval_domain()?))
+                        && let Ok((norm_min, norm_max)) = Box::pin(
+                            scale
+                                .clone()
+                                .create_configured_scale(width, height, ctx, params),
+                        )
+                        .await
+                        .and_then(|c| Ok(c.numeric_interval_domain()?))
                     {
                         trace!(
                             channel = channel_name,
@@ -718,10 +722,12 @@ impl ScaleBuilder {
                     );
 
                     // Create configured scale
-                    let configured = scale
-                        .clone()
-                        .create_configured_scale(width, height, ctx, params)
-                        .await?;
+                    let configured = Box::pin(
+                        scale
+                            .clone()
+                            .create_configured_scale(width, height, ctx, params),
+                    )
+                    .await?;
 
                     result.insert(
                         channel_name.clone(),
@@ -771,7 +777,7 @@ impl ScaleBuilder {
                     }
 
                     // Normalize domain (apply zero, nice, padding)
-                    scale = scale.normalize_domain(width, height, ctx, params).await?;
+                    scale = Box::pin(scale.normalize_domain(width, height, ctx, params)).await?;
 
                     scale = self.apply_default_range_if_needed(
                         scale,
@@ -782,10 +788,12 @@ impl ScaleBuilder {
                     );
 
                     // Create configured scale
-                    let configured = scale
-                        .clone()
-                        .create_configured_scale(width, height, ctx, params)
-                        .await?;
+                    let configured = Box::pin(
+                        scale
+                            .clone()
+                            .create_configured_scale(width, height, ctx, params),
+                    )
+                    .await?;
 
                     result.insert(
                         channel_name.clone(),

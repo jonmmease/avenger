@@ -442,7 +442,7 @@ async fn build_ancestor_group_scale_builders(
             data_df.clone()
         };
 
-        let scale_builder = build_scale_builder_from_marks_with_facet_scope(
+        let scale_builder = Box::pin(build_scale_builder_from_marks_with_facet_scope(
             &compiled_subplot.marks,
             &compiled_subplot.scale_specs,
             &compiled_subplot.coord_transform,
@@ -451,7 +451,7 @@ async fn build_ancestor_group_scale_builders(
             eval_ctx,
             &ancestor_key,
             compiled_subplot.get_theme().as_ref(),
-        )
+        ))
         .await?;
 
         cache.insert(canonicalize_path(&ancestor_key), scale_builder);
@@ -488,7 +488,7 @@ async fn build_per_cell_scale_builders(
             data_df.clone()
         };
 
-        let scale_builder = build_scale_builder_from_marks_with_facet_scope(
+        let scale_builder = Box::pin(build_scale_builder_from_marks_with_facet_scope(
             &compiled_subplot.marks,
             &compiled_subplot.scale_specs,
             &compiled_subplot.coord_transform,
@@ -497,7 +497,7 @@ async fn build_per_cell_scale_builders(
             eval_ctx,
             &full_path,
             compiled_subplot.get_theme().as_ref(),
-        )
+        ))
         .await?;
 
         cache.insert(canonicalize_path(&full_path), scale_builder);
@@ -514,7 +514,7 @@ pub(crate) async fn build_node_artifacts(
     facet_tree: &EvaluatedFacetTree,
     eval_ctx: &EvaluationContext,
 ) -> Result<FacetScaleNodeArtifacts, AvengerChartError> {
-    let shared_scale_builder = build_scale_builder_from_marks_with_facet_scope(
+    let shared_scale_builder = Box::pin(build_scale_builder_from_marks_with_facet_scope(
         &compiled_subplot.marks,
         &compiled_subplot.scale_specs,
         &compiled_subplot.coord_transform,
@@ -523,7 +523,7 @@ pub(crate) async fn build_node_artifacts(
         eval_ctx,
         facet_path,
         compiled_subplot.get_theme().as_ref(),
-    )
+    ))
     .await?;
 
     let child_facet_depth = (facet_path.len() + 2) as u8;
@@ -531,7 +531,7 @@ pub(crate) async fn build_node_artifacts(
 
     let ancestor_scale_builder_cache = if let Some(sharing_level) = child_facet_slot_sharing {
         if sharing_level > 0 && sharing_level < child_facet_depth {
-            build_ancestor_group_scale_builders(
+            Box::pin(build_ancestor_group_scale_builders(
                 cell_values,
                 sharing_level,
                 facet_path,
@@ -539,7 +539,7 @@ pub(crate) async fn build_node_artifacts(
                 inherited_data_df,
                 compiled_subplot,
                 eval_ctx,
-            )
+            ))
             .await?
         } else {
             HashMap::new()
@@ -550,14 +550,14 @@ pub(crate) async fn build_node_artifacts(
 
     let per_cell_scale_builder_cache = if matches!(child_facet_slot_sharing, Some(level) if level.is_free())
     {
-        build_per_cell_scale_builders(
+        Box::pin(build_per_cell_scale_builders(
             cell_values,
             facet_path,
             facet_tree,
             inherited_data_df,
             compiled_subplot,
             eval_ctx,
-        )
+        ))
         .await?
     } else {
         HashMap::new()
@@ -610,7 +610,7 @@ async fn collect_node_domain_infos(
                 inherited_data_df.clone()
             };
 
-            scale_builder = build_scale_builder_from_marks_with_facet_scope(
+            scale_builder = Box::pin(build_scale_builder_from_marks_with_facet_scope(
                 &compiled_subplot.marks,
                 &compiled_subplot.scale_specs,
                 &compiled_subplot.coord_transform,
@@ -619,7 +619,7 @@ async fn collect_node_domain_infos(
                 eval_ctx,
                 &full_path,
                 compiled_subplot.get_theme().as_ref(),
-            )
+            ))
             .await?;
             &scale_builder
         };
@@ -721,8 +721,11 @@ async fn collect_positioned_child_frame_domain_infos_for_mark(
             )
         })?
         .to_expr(ctx)?;
-    let partition_values =
-        PartitionKeyExtractor::extract_keys(parent_data, &partition_expr).await?;
+    let partition_values = Box::pin(PartitionKeyExtractor::extract_keys(
+        parent_data,
+        &partition_expr,
+    ))
+    .await?;
     let child_plot = compiled_subplot_payload_child_plot(subplot.payload());
     let explicit_sharing = child_frame_domain_sharing_levels_for_plot(child_plot);
 
@@ -738,7 +741,7 @@ async fn collect_positioned_child_frame_domain_infos_for_mark(
             subplot.key(),
         ));
 
-        let scale_builder = build_scale_builder_from_marks_with_facet_scope(
+        let scale_builder = Box::pin(build_scale_builder_from_marks_with_facet_scope(
             &child_plot.marks,
             &child_plot.scale_specs,
             &child_plot.coord_transform,
@@ -747,7 +750,7 @@ async fn collect_positioned_child_frame_domain_infos_for_mark(
             eval_ctx,
             full_cell_path,
             child_plot.get_theme().as_ref(),
-        )
+        ))
         .await?;
 
         let channels = scale_builder
@@ -803,14 +806,14 @@ async fn collect_child_frame_domain_infos_for_marks(
     for mark in compiled_marks {
         if let Some(subplot) = mark.as_positioned_subplot() {
             infos.extend(
-                collect_positioned_child_frame_domain_infos_for_mark(
+                Box::pin(collect_positioned_child_frame_domain_infos_for_mark(
                     subplot,
                     relative_child_frame_path,
                     full_cell_path,
                     inherited_data_df,
                     facet_tree,
                     eval_ctx,
-                )
+                ))
                 .await?,
             );
         }
@@ -828,7 +831,7 @@ async fn collect_child_frame_domain_infos_for_marks(
         } else {
             None
         };
-        let scale_builder = build_scale_builder_from_marks_with_facet_scope(
+        let scale_builder = Box::pin(build_scale_builder_from_marks_with_facet_scope(
             &child_plot.marks,
             &child_plot.scale_specs,
             &child_plot.coord_transform,
@@ -837,7 +840,7 @@ async fn collect_child_frame_domain_infos_for_marks(
             eval_ctx,
             full_cell_path,
             child_plot.get_theme().as_ref(),
-        )
+        ))
         .await?;
 
         let mut child_relative_path = relative_child_frame_path.to_vec();
@@ -918,14 +921,14 @@ async fn ensure_subtree_precomputed_internal(
     let artifacts = if let Some(artifacts) = store.get_node_artifacts(&node_key) {
         artifacts
     } else {
-        let artifacts = build_node_artifacts(
+        let artifacts = Box::pin(build_node_artifacts(
             &cell_values,
             facet_path,
             inherited_data_df,
             &compiled_subplot,
             facet_tree,
             eval_ctx,
-        )
+        ))
         .await?;
         let artifacts = Arc::new(artifacts);
         store.insert_node_artifacts(node_key.clone(), artifacts.clone());
@@ -933,7 +936,7 @@ async fn ensure_subtree_precomputed_internal(
         artifacts
     };
 
-    let domain_infos = collect_node_domain_infos(
+    let domain_infos = Box::pin(collect_node_domain_infos(
         &cell_values,
         facet_path,
         inherited_data_df,
@@ -941,7 +944,7 @@ async fn ensure_subtree_precomputed_internal(
         facet_tree,
         eval_ctx,
         &artifacts,
-    )
+    ))
     .await?;
     store.insert_domain_infos(&compiled_subplot, domain_infos);
 
@@ -965,14 +968,14 @@ async fn ensure_subtree_precomputed_internal(
 
         let relative_child_frame_path =
             container_path_without_facet_segments(eval_ctx.child_frame_container_path());
-        let child_frame_domain_infos = collect_child_frame_domain_infos_for_marks(
+        let child_frame_domain_infos = Box::pin(collect_child_frame_domain_infos_for_marks(
             &compiled_subplot.marks,
             &relative_child_frame_path,
             &full_path,
             Some(&child_data_df),
             facet_tree,
             eval_ctx,
-        )
+        ))
         .await?;
         store.insert_child_frame_domain_infos(child_frame_domain_infos);
 
@@ -1002,13 +1005,13 @@ pub(crate) async fn ensure_subtree_precomputed(
         return Ok(());
     }
 
-    ensure_subtree_precomputed_internal(
+    Box::pin(ensure_subtree_precomputed_internal(
         compiled_marks,
         facet_path,
         inherited_data_df,
         facet_tree,
         eval_ctx,
-    )
+    ))
     .await?;
     store.mark_subtree_precomputed(subtree_key);
     debug!(

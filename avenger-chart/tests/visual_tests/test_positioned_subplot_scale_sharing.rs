@@ -7,14 +7,13 @@ use std::future::Future;
 
 const BASELINE_CATEGORY: &str = "positioned_subplot_sharing";
 
-fn run_with_large_stack<F, Fut>(f: F)
+fn run_async_test<F, Fut>(f: F)
 where
     F: FnOnce() -> Fut + Send + 'static,
     Fut: Future<Output = ()> + 'static,
 {
     std::thread::Builder::new()
-        .name("positioned-subplot-sharing-visual-large-stack".to_string())
-        .stack_size(64 * 1024 * 1024)
+        .name("positioned-subplot-sharing-visual-default-stack".to_string())
         .spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -22,9 +21,9 @@ where
                 .expect("build tokio runtime for positioned subplot sharing visual test");
             rt.block_on(f());
         })
-        .expect("spawn large-stack positioned subplot sharing visual test thread")
+        .expect("spawn default-stack positioned subplot sharing visual test thread")
         .join()
-        .expect("large-stack positioned subplot sharing visual test panicked");
+        .expect("default-stack positioned subplot sharing visual test panicked");
 }
 
 async fn positioned_subplot_sharing_data(ctx: &SessionContext) -> DataFrame {
@@ -261,7 +260,7 @@ fn assert_xy_sharing_baseline(
     subplot_x_sharing_level: u8,
     subplot_y_sharing_level: u8,
 ) {
-    run_with_large_stack(move || async move {
+    run_async_test(move || async move {
         let ctx = SessionContext::new();
         let plot = row_col_positioned_subplot_plot(
             positioned_subplot_sharing_data(&ctx).await,
@@ -277,7 +276,7 @@ fn assert_xy_sharing_baseline(
 }
 
 fn assert_fill_sharing_baseline(name: &'static str, fill_sharing_level: u8) {
-    run_with_large_stack(move || async move {
+    run_async_test(move || async move {
         let ctx = SessionContext::new();
         let plot = row_col_positioned_subplot_fill_plot(
             positioned_subplot_fill_sharing_data(&ctx).await,

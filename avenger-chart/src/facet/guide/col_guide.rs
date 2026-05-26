@@ -187,18 +187,20 @@ impl CompiledGuide for FacetColGuide {
             GuideOverflowPhase::Measurement => FacetOverflowResolutionPhase::Measurement,
             GuideOverflowPhase::Final => FacetOverflowResolutionPhase::Final,
         };
-        band_guide_engine::measure_overflow_common::<ColGuideAxisOps>(
-            &self.as_engine_state(),
-            scales,
-            plot_width,
-            plot_height,
-            theme,
-            params,
-            data_override,
-            ctx,
-            sharing_context,
-            coord_measurement,
-            phase,
+        Box::pin(
+            band_guide_engine::measure_overflow_common::<ColGuideAxisOps>(
+                &self.as_engine_state(),
+                scales,
+                plot_width,
+                plot_height,
+                theme,
+                params,
+                data_override,
+                ctx,
+                sharing_context,
+                coord_measurement,
+                phase,
+            ),
         )
         .await
     }
@@ -232,7 +234,7 @@ impl CompiledGuide for FacetColGuide {
         sharing_context: GuideSharingContext<'_>,
         coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        band_guide_engine::evaluate_common::<ColGuideAxisOps>(
+        Box::pin(band_guide_engine::evaluate_common::<ColGuideAxisOps>(
             &self.as_engine_state(),
             scales,
             plot_width,
@@ -245,7 +247,7 @@ impl CompiledGuide for FacetColGuide {
             ctx,
             sharing_context,
             coord_measurement,
-        )
+        ))
         .await
     }
 

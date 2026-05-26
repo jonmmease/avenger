@@ -121,11 +121,12 @@ mod tests {
         sharing: u8,
         max: f64,
     ) -> CellDomainInfo {
+        let facet_depth = path.len() as u8;
         CellDomainInfo {
             full_cell_path: path,
             channel: channel.to_string(),
             domain_sharing_level: sharing,
-            facet_depth: 2,
+            facet_depth,
             extent: DomainExtent::numeric(0.0, max),
         }
     }

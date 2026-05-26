@@ -497,9 +497,9 @@ async fn prepare_concat_child<'a>(
         ChildFrameDataSelection::ExplicitChild
     };
     let runtime = ChildFrameRuntime::new();
-    let child_plot = runtime
-        .prepare_plot(child_plot, data_selection, inherited_data, eval_ctx)
-        .await?;
+    let child_plot =
+        Box::pin(runtime.prepare_plot(child_plot, data_selection, inherited_data, eval_ctx))
+            .await?;
     let mut relative_facet_child_frame_path =
         container_path_without_facet_segments(eval_ctx.child_frame_container_path());
     relative_facet_child_frame_path.push(ContainerPathSegment::concat_child(
@@ -530,15 +530,13 @@ async fn measure_prepared_concat_child(
         runtime.fixed_plot_area_layout_spec(child_plot_area.width, child_plot_area.height);
     let child_eval_ctx =
         runtime.eval_context(eval_ctx, prepared.sharing_level(direction, child_count));
-    let measurement = prepared
-        .child_plot
-        .measure(
-            &child_eval_ctx,
-            &child_layout_spec,
-            facet_path,
-            &[coordinated_domain_extents, facet_scoped_domain_extents],
-        )
-        .await?;
+    let measurement = Box::pin(prepared.child_plot.measure(
+        &child_eval_ctx,
+        &child_layout_spec,
+        facet_path,
+        &[coordinated_domain_extents, facet_scoped_domain_extents],
+    ))
+    .await?;
 
     Ok(ConcatChildMeasurement {
         child_index: prepared.child_index(),
@@ -566,7 +564,7 @@ pub(crate) async fn measure_concat_coord_system(
 
     let mut prepared_children = Vec::with_capacity(subplots.len());
     for subplot in subplots {
-        prepared_children.push(prepare_concat_child(subplot, eval_ctx, data).await?);
+        prepared_children.push(Box::pin(prepare_concat_child(subplot, eval_ctx, data)).await?);
     }
 
     let coordinated_domain_extents =
@@ -681,14 +679,13 @@ mod tests {
     };
     use avenger_chart_core::{CoordinationAxis, ScaleSharing};
 
-    fn run_with_large_stack<F, Fut>(f: F)
+    fn run_async_test<F, Fut>(f: F)
     where
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = Result<(), AvengerChartError>> + Send + 'static,
     {
         std::thread::Builder::new()
-            .name("concat-test-large-stack".to_string())
-            .stack_size(32 * 1024 * 1024)
+            .name("concat-test-default-stack".to_string())
             .spawn(move || {
                 tokio::runtime::Builder::new_current_thread()
                     .enable_all()
@@ -696,10 +693,10 @@ mod tests {
                     .expect("create tokio runtime")
                     .block_on(f())
             })
-            .expect("spawn large-stack concat test thread")
+            .expect("spawn default-stack concat test thread")
             .join()
-            .expect("large-stack concat test panicked")
-            .expect("large-stack concat test failed");
+            .expect("default-stack concat test panicked")
+            .expect("default-stack concat test failed");
     }
 
     async fn measurement_for_plot(
@@ -1249,7 +1246,7 @@ mod tests {
 
     #[test]
     fn hconcat_renders_child_subplot_groups() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled = Plot::<HConcat>::new()
                 .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("left"))
@@ -1446,7 +1443,7 @@ mod tests {
 
     #[test]
     fn vconcat_renders_child_subplot_groups() {
-        run_with_large_stack(|| async {
+        run_async_test(|| async {
             let ctx = SessionContext::new();
             let compiled = Plot::<VConcat>::new()
                 .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("top"))

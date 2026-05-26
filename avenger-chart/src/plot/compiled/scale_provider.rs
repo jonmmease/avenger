@@ -50,8 +50,13 @@ impl<'a> ScaleProvider for DynamicScaleProvider<'a> {
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
     ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
-        self.plot
-            .build_scales_from_builder(self.builder, plot_area_width, plot_area_height, ctx, params)
-            .await
+        Box::pin(self.plot.build_scales_from_builder(
+            self.builder,
+            plot_area_width,
+            plot_area_height,
+            ctx,
+            params,
+        ))
+        .await
     }
 }

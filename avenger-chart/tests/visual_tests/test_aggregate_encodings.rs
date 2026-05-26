@@ -12,14 +12,13 @@ use datafusion::prelude::*;
 use std::future::Future;
 use std::sync::Arc;
 
-fn run_with_large_stack<F, Fut>(f: F)
+fn run_async_test<F, Fut>(f: F)
 where
     F: FnOnce() -> Fut + Send + 'static,
     Fut: Future<Output = ()> + 'static,
 {
     std::thread::Builder::new()
-        .name("aggregate-visual-large-stack".to_string())
-        .stack_size(64 * 1024 * 1024)
+        .name("aggregate-visual-default-stack".to_string())
         .spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -27,9 +26,9 @@ where
                 .expect("build tokio runtime for aggregate visual test");
             rt.block_on(f());
         })
-        .expect("spawn large-stack aggregate visual test thread")
+        .expect("spawn default-stack aggregate visual test thread")
         .join()
-        .expect("large-stack aggregate visual test panicked");
+        .expect("default-stack aggregate visual test panicked");
 }
 
 /// Create a dataset for testing aggregation
@@ -71,7 +70,7 @@ fn create_sales_data() -> DataFrame {
 
 #[test]
 fn test_aggregate_sum_by_category() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = create_sales_data();
 
@@ -97,7 +96,7 @@ fn test_aggregate_sum_by_category() {
 
 #[test]
 fn test_aggregate_mean_by_category() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = create_sales_data();
 
@@ -122,7 +121,7 @@ fn test_aggregate_mean_by_category() {
 
 #[test]
 fn test_aggregate_multiple_aggregates() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = create_sales_data();
 
@@ -152,7 +151,7 @@ fn test_aggregate_multiple_aggregates() {
 
 #[test]
 fn test_aggregate_count() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = create_sales_data();
 
@@ -177,7 +176,7 @@ fn test_aggregate_count() {
 
 #[test]
 fn test_aggregate_no_grouping() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = create_sales_data();
 
@@ -206,7 +205,7 @@ fn test_aggregate_no_grouping() {
 
 #[test]
 fn test_aggregate_movies_by_mpaa_rating() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = test_data::movies(&ctx)
             .await
@@ -241,7 +240,7 @@ fn test_aggregate_movies_by_mpaa_rating() {
 
 #[test]
 fn test_aggregate_movies_symbol_plot() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = test_data::movies(&ctx)
             .await

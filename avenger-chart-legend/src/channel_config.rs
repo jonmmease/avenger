@@ -35,6 +35,7 @@ pub trait LegendableChannel: ChannelConfig {
 }
 
 fn apply_legend_config(value: ChannelValue, legend_config: Legend) -> ChannelValue {
+    let legend_config = Box::new(legend_config);
     match value {
         ChannelValue::Scaled {
             expr,

@@ -7,13 +7,12 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 use std::future::Future;
 
-fn run_with_large_stack<F, Fut>(f: F)
+fn run_async_test<F, Fut>(f: F)
 where
     F: FnOnce() -> Fut + Send + 'static,
     Fut: Future<Output = ()> + 'static,
 {
     std::thread::Builder::new()
-        .stack_size(64 * 1024 * 1024)
         .spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -203,7 +202,7 @@ async fn compile_plot_size_numeric_facet_debug_snapshot_plot(
 
 #[test]
 fn facet_layout_snapshot_initial_with_debug_overlay() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let compiled = compile_facet_debug_snapshot_plot(&ctx)
             .await
@@ -227,7 +226,7 @@ fn facet_layout_snapshot_initial_with_debug_overlay() {
 
 #[test]
 fn nested_mixed_facet_layout_snapshot_final_with_debug_overlay() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let compiled = compile_nested_mixed_facet_debug_snapshot_plot(&ctx)
             .await
@@ -251,7 +250,7 @@ fn nested_mixed_facet_layout_snapshot_final_with_debug_overlay() {
 
 #[test]
 fn nested_column_facet_layout_snapshot_final_with_debug_overlay() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let compiled = compile_nested_column_facet_debug_snapshot_plot(&ctx)
             .await
@@ -275,7 +274,7 @@ fn nested_column_facet_layout_snapshot_final_with_debug_overlay() {
 
 #[test]
 fn plot_size_numeric_facet_layout_snapshot_final_with_debug_overlay() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let compiled = compile_plot_size_numeric_facet_debug_snapshot_plot(&ctx)
             .await
@@ -299,7 +298,7 @@ fn plot_size_numeric_facet_layout_snapshot_final_with_debug_overlay() {
 
 #[test]
 fn facet_layout_snapshot_coordinated_with_debug_overlay() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let compiled = compile_facet_debug_snapshot_plot(&ctx)
             .await
@@ -325,7 +324,7 @@ fn facet_layout_snapshot_coordinated_with_debug_overlay() {
 
 #[test]
 fn facet_layout_snapshot_final_with_debug_overlay() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let compiled = compile_facet_debug_snapshot_plot(&ctx)
             .await
@@ -349,7 +348,7 @@ fn facet_layout_snapshot_final_with_debug_overlay() {
 
 #[test]
 fn facet_layout_snapshot_initial_with_allocation_debug_overlay() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let compiled = compile_facet_debug_snapshot_plot(&ctx)
             .await
@@ -373,7 +372,7 @@ fn facet_layout_snapshot_initial_with_allocation_debug_overlay() {
 
 #[test]
 fn facet_layout_snapshot_coordinated_with_allocation_debug_overlay() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let compiled = compile_facet_debug_snapshot_plot(&ctx)
             .await
@@ -399,7 +398,7 @@ fn facet_layout_snapshot_coordinated_with_allocation_debug_overlay() {
 
 #[test]
 fn facet_layout_snapshot_final_with_allocation_debug_overlay() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let compiled = compile_facet_debug_snapshot_plot(&ctx)
             .await
@@ -423,7 +422,7 @@ fn facet_layout_snapshot_final_with_allocation_debug_overlay() {
 
 #[test]
 fn nested_mixed_facet_layout_snapshot_final_with_allocation_debug_overlay() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let compiled = compile_nested_mixed_facet_debug_snapshot_plot(&ctx)
             .await
@@ -447,7 +446,7 @@ fn nested_mixed_facet_layout_snapshot_final_with_allocation_debug_overlay() {
 
 #[test]
 fn nested_column_facet_layout_snapshot_final_with_allocation_debug_overlay() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let compiled = compile_nested_column_facet_debug_snapshot_plot(&ctx)
             .await
@@ -471,7 +470,7 @@ fn nested_column_facet_layout_snapshot_final_with_allocation_debug_overlay() {
 
 #[test]
 fn plot_size_numeric_facet_layout_snapshot_final_with_allocation_debug_overlay() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let compiled = compile_plot_size_numeric_facet_debug_snapshot_plot(&ctx)
             .await

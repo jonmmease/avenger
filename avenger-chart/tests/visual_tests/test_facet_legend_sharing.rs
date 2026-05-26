@@ -135,13 +135,12 @@ fn make_two_level_col_plot_merged_group(df: DataFrame) -> Plot<FacetColumn> {
         )
 }
 
-fn run_with_large_stack<F, Fut>(f: F)
+fn run_async_test<F, Fut>(f: F)
 where
     F: FnOnce() -> Fut + Send + 'static,
     Fut: Future<Output = ()> + 'static,
 {
     std::thread::Builder::new()
-        .stack_size(64 * 1024 * 1024)
         .spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -156,7 +155,7 @@ where
 
 #[test]
 fn test_facet_col_legend_sharing_level0_right() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = make_legend_sharing_df(&ctx).await;
 
@@ -175,7 +174,7 @@ fn test_facet_col_legend_sharing_level0_right() {
 
 #[test]
 fn test_facet_col_legend_sharing_level1_right() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = make_legend_sharing_df(&ctx).await;
 
@@ -194,7 +193,7 @@ fn test_facet_col_legend_sharing_level1_right() {
 
 #[test]
 fn test_facet_col_legend_sharing_level1_left() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = make_legend_sharing_df(&ctx).await;
 
@@ -213,7 +212,7 @@ fn test_facet_col_legend_sharing_level1_left() {
 
 #[test]
 fn test_facet_col_legend_sharing_level1_top() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = make_legend_sharing_df(&ctx).await;
 
@@ -232,7 +231,7 @@ fn test_facet_col_legend_sharing_level1_top() {
 
 #[test]
 fn test_facet_col_legend_sharing_level1_bottom() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = make_legend_sharing_df(&ctx).await;
 
@@ -254,7 +253,7 @@ fn test_facet_col_legend_sharing_level1_bottom() {
 
 #[test]
 fn test_facet_col_legend_sharing_level2_right_three_levels() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = make_legend_sharing_df(&ctx).await;
 
@@ -276,7 +275,7 @@ fn test_facet_col_legend_sharing_level2_right_three_levels() {
 
 #[test]
 fn test_facet_col_legend_sharing_shared255_right_phase1() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = make_legend_sharing_df(&ctx).await;
 
@@ -298,7 +297,7 @@ fn test_facet_col_legend_sharing_shared255_right_phase1() {
 
 #[test]
 fn test_facet_col_legend_sharing_merged_group_min_level() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = make_legend_sharing_df(&ctx).await;
 

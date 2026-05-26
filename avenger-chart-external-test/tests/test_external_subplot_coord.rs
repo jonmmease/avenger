@@ -30,14 +30,13 @@ use datafusion::{
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-fn run_with_large_stack<F, Fut>(f: F)
+fn run_async_test<F, Fut>(f: F)
 where
     F: FnOnce() -> Fut + Send + 'static,
     Fut: Future<Output = ()> + 'static,
 {
     std::thread::Builder::new()
-        .name("external-subplot-coord-large-stack".to_string())
-        .stack_size(16 * 1024 * 1024)
+        .name("external-subplot-coord-default-stack".to_string())
         .spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -45,9 +44,9 @@ where
                 .expect("build tokio runtime for external subplot coord test");
             rt.block_on(f());
         })
-        .expect("spawn large-stack external subplot coord test thread")
+        .expect("spawn default-stack external subplot coord test thread")
         .join()
-        .expect("large-stack external subplot coord test panicked");
+        .expect("default-stack external subplot coord test panicked");
 }
 
 fn external_position_data(ctx: &SessionContext) -> DataFrame {
@@ -101,7 +100,7 @@ async fn external_coordinate_can_compile_subplot_mark() {
 
 #[test]
 fn external_coordinate_subplot_can_be_added_to_plot() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let plot = Plot::<ExternalSubplotCoord>::new()
             .data(external_position_data(&ctx))

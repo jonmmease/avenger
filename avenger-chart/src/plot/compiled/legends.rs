@@ -56,7 +56,7 @@ pub(crate) struct PreparedLegendGroup {
     pub layout_key: String,
     pub primary_channel: String,
     pub channels: Vec<LegendChannel>,
-    pub legend: Legend,
+    pub legend: Arc<Legend>,
     pub renderer: Arc<dyn LegendRenderer>,
 }
 
@@ -870,7 +870,7 @@ impl CompiledPlot {
                     layout_key: layout_key.clone(),
                     primary_channel: primary_channel.name.clone(),
                     channels: channels.clone(),
-                    legend: legend.clone(),
+                    legend: Arc::new(legend.clone()),
                     renderer,
                 };
 
@@ -893,7 +893,7 @@ impl CompiledPlot {
                 let theme = self.get_theme();
                 let (size, flexible) = measure_legend_size_with_channels(
                     &channels,
-                    legend,
+                    group.legend.as_ref(),
                     group.renderer.clone(),
                     available_space,
                     theme.as_ref(),
@@ -950,7 +950,7 @@ impl CompiledPlot {
                 .renderer
                 .evaluate(
                     &group.channels,
-                    &group.legend,
+                    group.legend.as_ref(),
                     bounds.x,
                     bounds.y,
                     bounds.width,
@@ -985,7 +985,7 @@ impl CompiledPlot {
 
             let (size, flexible) = measure_legend_size_with_channels(
                 &request.group.channels,
-                &request.group.legend,
+                request.group.legend.as_ref(),
                 request.group.renderer.clone(),
                 available_space,
                 theme.as_ref(),

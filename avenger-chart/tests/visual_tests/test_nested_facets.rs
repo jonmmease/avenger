@@ -14,11 +14,10 @@ use datafusion::prelude::*;
 /// filtering at each nesting level.
 #[test]
 fn test_col_with_nested_row() {
-    // Build a runtime with a larger worker stack to avoid stack overflow in nested renders.
+    // Build a runtime with a default worker stack to avoid stack overflow in nested renders.
     // The current_thread runtime runs everything on its own thread, which we create
-    // with a large stack using std::thread::Builder.
+    // with a default stack using std::thread::Builder.
     std::thread::Builder::new()
-        .stack_size(64 * 1024 * 1024) // 64 MB
         .spawn(|| {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()

@@ -248,7 +248,7 @@ where
     // We build non‑positional scales first so their configured scales can be used to construct radius‑aware positional expressions
     for channel in &non_positional_channels {
         if let Some((spec, dt, options, _has_explicit_domain, domain_opt)) =
-            build_scale_for_channel(
+            Box::pin(build_scale_for_channel(
                 channel,
                 prepared_marks,
                 ctx,
@@ -257,13 +257,13 @@ where
                 &HashMap::new(), // no phase1 scales yet
                 scale_specs,
                 coord_transform,
-            )
+            ))
             .await?
         {
             // Cache the domain data under the BASE name (strip trailing numbers)
             // This ensures y2 channel's scale is stored under "y", matching lookup semantics
             let base_name = strip_trailing_numbers(channel);
-            cache_domain_data(
+            Box::pin(cache_domain_data(
                 base_name,
                 &spec,
                 &dt,
@@ -276,7 +276,7 @@ where
                 &mut builder,
                 None, // no radius expression
                 theme,
-            )
+            ))
             .await?;
         }
     }
@@ -286,7 +286,7 @@ where
 
     // Extract non‑positional channel builders from the main builder
     for (channel_name, channel_builder) in builder.channel_builders() {
-        if let Some(configured) = build_temp_configured_scale(
+        if let Some(configured) = Box::pin(build_temp_configured_scale(
             channel_builder,
             channel_name,
             400.0, // dummy width
@@ -294,7 +294,7 @@ where
             ctx,
             params,
             theme,
-        )
+        ))
         .await?
         {
             phase1_configured.insert(channel_name.to_string(), configured);
@@ -303,17 +303,18 @@ where
 
     // PHASE 2: Build positional scales with scale-aware radius expressions
     for channel in &positional_channels {
-        if let Some((spec, dt, options, has_explicit_domain, domain_opt)) = build_scale_for_channel(
-            channel,
-            prepared_marks,
-            ctx,
-            params,
-            true, // check radius for positional
-            &phase1_configured,
-            scale_specs,
-            coord_transform,
-        )
-        .await?
+        if let Some((spec, dt, options, has_explicit_domain, domain_opt)) =
+            Box::pin(build_scale_for_channel(
+                channel,
+                prepared_marks,
+                ctx,
+                params,
+                true, // check radius for positional
+                &phase1_configured,
+                scale_specs,
+                coord_transform,
+            ))
+            .await?
         {
             // Only apply radius expression if domain is NOT explicitly set by user
             // When user sets explicit domain, they want exact control over the range
@@ -333,7 +334,7 @@ where
             // Cache the domain data under the BASE name (strip trailing numbers)
             // This ensures y2 channel's scale is stored under "y", matching lookup semantics
             let base_name = strip_trailing_numbers(channel);
-            cache_domain_data(
+            Box::pin(cache_domain_data(
                 base_name,
                 &spec,
                 &dt,
@@ -346,7 +347,7 @@ where
                 &mut builder,
                 radius_expr_opt,
                 theme,
-            )
+            ))
             .await?;
         }
     }
@@ -910,7 +911,7 @@ async fn cache_domain_data(
     // Cache domain data based on scale domain kind and radius requirement
     if has_any_radius {
         // Radius-aware scale - cache raw vectors
-        cache_radius_aware_data(
+        Box::pin(cache_radius_aware_data(
             channel,
             spec,
             options,
@@ -920,10 +921,10 @@ async fn cache_domain_data(
             params,
             builder,
             dt,
-        )
+        ))
         .await?;
     } else if target_domain_kind == DomainKind::Categorical {
-        cache_categorical_data(
+        Box::pin(cache_categorical_data(
             channel,
             spec,
             options,
@@ -932,10 +933,10 @@ async fn cache_domain_data(
             params,
             builder,
             dt,
-        )
+        ))
         .await?;
     } else if target_domain_kind == DomainKind::Temporal {
-        cache_temporal_data(
+        Box::pin(cache_temporal_data(
             channel,
             spec,
             options,
@@ -944,10 +945,10 @@ async fn cache_domain_data(
             params,
             builder,
             dt,
-        )
+        ))
         .await?;
     } else {
-        cache_numeric_data(
+        Box::pin(cache_numeric_data(
             channel,
             spec,
             options,
@@ -956,7 +957,7 @@ async fn cache_domain_data(
             params,
             builder,
             dt,
-        )
+        ))
         .await?;
     }
 
@@ -1006,10 +1007,9 @@ async fn build_temp_configured_scale(
             scale = scale.range(range);
 
             // Normalize and create configured scale
-            scale = scale.normalize_domain(width, height, ctx, params).await?;
-            let configured = scale
-                .create_configured_scale(width, height, ctx, params)
-                .await?;
+            scale = Box::pin(scale.normalize_domain(width, height, ctx, params)).await?;
+            let configured =
+                Box::pin(scale.create_configured_scale(width, height, ctx, params)).await?;
 
             // Wrap in ConfiguredScaleWithSpec
             Ok(Some(ConfiguredScaleWithSpec::new(scale, configured)))
@@ -1047,10 +1047,9 @@ async fn build_temp_configured_scale(
             scale = scale.range(range);
 
             // Normalize and create configured scale
-            scale = scale.normalize_domain(width, height, ctx, params).await?;
-            let configured = scale
-                .create_configured_scale(width, height, ctx, params)
-                .await?;
+            scale = Box::pin(scale.normalize_domain(width, height, ctx, params)).await?;
+            let configured =
+                Box::pin(scale.create_configured_scale(width, height, ctx, params)).await?;
 
             Ok(Some(ConfiguredScaleWithSpec::new(scale, configured)))
         }

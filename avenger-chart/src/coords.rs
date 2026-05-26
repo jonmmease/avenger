@@ -155,7 +155,7 @@ pub(crate) async fn measure_coordinate_system_transform(
     transform: &dyn CoordinateSystemTransform,
     request: CoordMeasureRequest<'_>,
 ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
-    if let Some(measurement) = crate::positioned_subplot::measure_positioned_subplots(
+    if let Some(measurement) = Box::pin(crate::positioned_subplot::measure_positioned_subplots(
         transform,
         request.scales(),
         request.plot_width(),
@@ -164,7 +164,7 @@ pub(crate) async fn measure_coordinate_system_transform(
         request.data(),
         request.compiled_marks(),
         request.facet_path(),
-    )
+    ))
     .await?
     {
         return Ok(measurement);
@@ -173,7 +173,7 @@ pub(crate) async fn measure_coordinate_system_transform(
     let any = transform.as_any();
 
     if any.is::<crate::concat::HConcat>() {
-        return crate::concat::measure_concat_coord_system(
+        return Box::pin(crate::concat::measure_concat_coord_system(
             crate::layout::BandDirection::Horizontal,
             request.plot_width(),
             request.plot_height(),
@@ -181,12 +181,12 @@ pub(crate) async fn measure_coordinate_system_transform(
             request.data(),
             request.compiled_marks(),
             request.facet_path(),
-        )
+        ))
         .await;
     }
 
     if any.is::<crate::concat::VConcat>() {
-        return crate::concat::measure_concat_coord_system(
+        return Box::pin(crate::concat::measure_concat_coord_system(
             crate::layout::BandDirection::Vertical,
             request.plot_width(),
             request.plot_height(),
@@ -194,31 +194,31 @@ pub(crate) async fn measure_coordinate_system_transform(
             request.data(),
             request.compiled_marks(),
             request.facet_path(),
-        )
+        ))
         .await;
     }
 
     if any.is::<crate::facet::coord::FacetRow>() {
-        return crate::facet::coord::measure_facet_row(
+        return Box::pin(crate::facet::coord::measure_facet_row(
             request.scales(),
             request.plot_width(),
             request.eval_ctx(),
             request.data(),
             request.compiled_marks(),
             request.facet_path(),
-        )
+        ))
         .await;
     }
 
     if any.is::<crate::facet::coord::FacetColumn>() {
-        return crate::facet::coord::measure_facet_column(
+        return Box::pin(crate::facet::coord::measure_facet_column(
             request.scales(),
             request.plot_height(),
             request.eval_ctx(),
             request.data(),
             request.compiled_marks(),
             request.facet_path(),
-        )
+        ))
         .await;
     }
 

@@ -6,14 +6,13 @@ use std::future::Future;
 
 const BASELINE_CATEGORY: &str = "facet_data_scope";
 
-fn run_with_large_stack<F, Fut>(f: F)
+fn run_async_test<F, Fut>(f: F)
 where
     F: FnOnce() -> Fut + Send + 'static,
     Fut: Future<Output = ()> + 'static,
 {
     std::thread::Builder::new()
-        .name("facet-data-scope-visual-large-stack".to_string())
-        .stack_size(64 * 1024 * 1024)
+        .name("facet-data-scope-visual-default-stack".to_string())
         .spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -21,9 +20,9 @@ where
                 .expect("build tokio runtime for facet data scope test");
             rt.block_on(f());
         })
-        .expect("spawn large-stack facet data scope test thread")
+        .expect("spawn default-stack facet data scope test thread")
         .join()
-        .expect("large-stack facet data scope test panicked");
+        .expect("default-stack facet data scope test panicked");
 }
 
 async fn facet_scope_data(ctx: &SessionContext) -> DataFrame {
@@ -113,7 +112,7 @@ fn assert_facet_data_scope_baseline(
     name: &'static str,
     make_plot: impl FnOnce(DataFrame) -> Plot<FacetRow> + Send + 'static,
 ) {
-    run_with_large_stack(move || async move {
+    run_async_test(move || async move {
         let ctx = SessionContext::new();
         let plot = make_plot(facet_scope_data(&ctx).await);
         let compiled = plot

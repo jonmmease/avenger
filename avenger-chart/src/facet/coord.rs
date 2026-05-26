@@ -2121,7 +2121,7 @@ async fn execute_measurement_from_plan(
     coordinated_domain_extents: &HashMap<String, DomainExtent>,
 ) -> Result<MeasuredFacetCell, AvengerChartError> {
     match plan {
-        NestedScalePlan::EmptySharedNoData => measure_child_frame_plot_with_builder(
+        NestedScalePlan::EmptySharedNoData => Box::pin(measure_child_frame_plot_with_builder(
             compiled_subplot,
             subplot_eval_ctx,
             subplot_layout_spec,
@@ -2129,11 +2129,11 @@ async fn execute_measurement_from_plan(
             None,
             &cell.full_path,
             &[coordinated_domain_extents],
-        )
+        ))
         .await
         .map(|measurement| MeasuredFacetCell { measurement }),
         NestedScalePlan::PerCellCachedBuilder { cached_builder } => {
-            measure_child_frame_plot_with_builder(
+            Box::pin(measure_child_frame_plot_with_builder(
                 compiled_subplot,
                 subplot_eval_ctx,
                 subplot_layout_spec,
@@ -2141,12 +2141,12 @@ async fn execute_measurement_from_plan(
                 Some(data_override),
                 &cell.full_path,
                 &[coordinated_domain_extents],
-            )
+            ))
             .await
             .map(|measurement| MeasuredFacetCell { measurement })
         }
         NestedScalePlan::PerCellBuilderFallback => {
-            let cell_scale_builder = build_scale_builder_from_marks_with_facet_scope(
+            let cell_scale_builder = Box::pin(build_scale_builder_from_marks_with_facet_scope(
                 &compiled_subplot.marks,
                 &compiled_subplot.scale_specs,
                 &compiled_subplot.coord_transform,
@@ -2155,9 +2155,9 @@ async fn execute_measurement_from_plan(
                 eval_ctx,
                 &cell.full_path,
                 compiled_subplot.get_theme().as_ref(),
-            )
+            ))
             .await?;
-            let measurement = measure_child_frame_plot_with_builder(
+            let measurement = Box::pin(measure_child_frame_plot_with_builder(
                 compiled_subplot,
                 subplot_eval_ctx,
                 subplot_layout_spec,
@@ -2165,7 +2165,7 @@ async fn execute_measurement_from_plan(
                 Some(data_override),
                 &cell.full_path,
                 &[coordinated_domain_extents],
-            )
+            ))
             .await?;
 
             Ok(MeasuredFacetCell { measurement })
@@ -2173,7 +2173,7 @@ async fn execute_measurement_from_plan(
         NestedScalePlan::AncestorCachedBuilder {
             cached_builder,
             ancestor_filtered_df,
-        } => measure_child_frame_plot_with_builder(
+        } => Box::pin(measure_child_frame_plot_with_builder(
             compiled_subplot,
             subplot_eval_ctx,
             subplot_layout_spec,
@@ -2181,10 +2181,10 @@ async fn execute_measurement_from_plan(
             Some(&ancestor_filtered_df),
             &cell.full_path,
             &[coordinated_domain_extents],
-        )
+        ))
         .await
         .map(|measurement| MeasuredFacetCell { measurement }),
-        NestedScalePlan::Shared => measure_child_frame_plot_with_builder(
+        NestedScalePlan::Shared => Box::pin(measure_child_frame_plot_with_builder(
             compiled_subplot,
             subplot_eval_ctx,
             subplot_layout_spec,
@@ -2192,7 +2192,7 @@ async fn execute_measurement_from_plan(
             Some(data_override),
             &cell.full_path,
             &[coordinated_domain_extents],
-        )
+        ))
         .await
         .map(|measurement| MeasuredFacetCell { measurement }),
     }
@@ -2231,7 +2231,7 @@ async fn measure_facet_cell(
                 facet_tree,
                 data_df,
             )?;
-            execute_measurement_from_plan(
+            Box::pin(execute_measurement_from_plan(
                 plan,
                 cell,
                 data_override,
@@ -2241,7 +2241,7 @@ async fn measure_facet_cell(
                 shared_scale_builder,
                 eval_ctx,
                 coordinated_domain_extents,
-            )
+            ))
             .await
         }
     }
@@ -2303,14 +2303,14 @@ async fn build_facet_band_measure_plan(
             "Facet scale node artifacts missing from precompute store; building fallback artifacts on demand"
         );
         let artifacts = Arc::new(
-            build_node_artifacts(
+            Box::pin(build_node_artifacts(
                 &cell_values,
                 facet_path,
                 data_df,
                 compiled_subplot,
                 facet_tree,
                 eval_ctx,
-            )
+            ))
             .await?,
         );
         eval_ctx
@@ -2375,14 +2375,14 @@ async fn prepare_measurement_inputs(
     empty_cell_policy: FacetEmptyCellPolicy,
     eval_ctx: &EvaluationContext,
 ) -> Result<FacetPreparedRuntimeInputs, AvengerChartError> {
-    let plan = build_facet_band_measure_plan(
+    let plan = Box::pin(build_facet_band_measure_plan(
         cell_plans,
         facet_path,
         data_df,
         compiled_subplot,
         &eval_ctx.facet_tree,
         eval_ctx,
-    )
+    ))
     .await?;
 
     let policy = resolve_facet_ownership_policy(
@@ -2449,14 +2449,14 @@ async fn prepare_band_inputs_and_runtime(
         .iter()
         .map(FacetCellPlan::from)
         .collect();
-    let measurement_inputs = prepare_measurement_inputs(
+    let measurement_inputs = Box::pin(prepare_measurement_inputs(
         cell_plans,
         &cell_semantics.node_id.facet_path,
         data_df,
         compiled_subplot,
         cell_semantics.empty_cell_policy,
         eval_ctx,
-    )
+    ))
     .await?;
 
     let renderable_mask = renderable_mask_for_cells(
@@ -2513,12 +2513,12 @@ async fn build_overflow_probe(
     );
 
     let mut cells = prepared_cells_as_drafts(prepared_inputs, runtime_state);
-    coordinate_cell_domains_before_measurement(
+    Box::pin(coordinate_cell_domains_before_measurement(
         &mut cells,
         prepared_inputs.cell_semantics.facet_depth,
         &runtime_state.compiled_subplot,
         &runtime_state.nested_measure_ctx,
-    )
+    ))
     .await?;
     let overflow_probe_summary = measure_overflow_probe(
         prepared_inputs.cell_semantics.node_id.axis,
@@ -2565,7 +2565,7 @@ async fn build_extent_builder_for_cell(
         return Ok(cached_builder.clone());
     }
 
-    build_scale_builder_from_marks_with_facet_scope(
+    Box::pin(build_scale_builder_from_marks_with_facet_scope(
         &compiled_subplot.marks,
         &compiled_subplot.scale_specs,
         &compiled_subplot.coord_transform,
@@ -2574,7 +2574,7 @@ async fn build_extent_builder_for_cell(
         &nested_ctx.eval_ctx,
         &cell.plan.full_path,
         compiled_subplot.get_theme().as_ref(),
-    )
+    ))
     .await
 }
 
@@ -2586,12 +2586,12 @@ async fn coordinate_cell_domains_before_measurement(
 ) -> Result<HashMap<String, SharingLevel>, AvengerChartError> {
     for cell in cells.iter_mut() {
         let local_extents = if cell.plan.has_data_rows {
-            let extent_builder = build_extent_builder_for_cell(
+            let extent_builder = Box::pin(build_extent_builder_for_cell(
                 cell,
                 &cell.data_override,
                 compiled_subplot,
                 nested_ctx,
-            )
+            ))
             .await?;
             let domain_channels = nested_ctx.facet_tree.domain_extent_channels();
             let domain_channel_refs = domain_channels
@@ -2675,9 +2675,14 @@ async fn capture_estimated_overflow_probe_if_requested(
         return Ok(());
     }
 
-    let components = compiled_subplot
-        .build_plot_components(eval_ctx, measurement, Some(data_override), true, full_path)
-        .await?;
+    let components = Box::pin(compiled_subplot.build_plot_components(
+        eval_ctx,
+        measurement,
+        Some(data_override),
+        true,
+        full_path,
+    ))
+    .await?;
     let evaluated = compiled_subplot.components_to_evaluated_plot(eval_ctx, components);
     let _ = eval_ctx.capture_facet_subtree_snapshot(&request, evaluated);
     Ok(())
@@ -2764,13 +2769,13 @@ async fn measure_cells_overflow_probe(
                 &cell.coordinated_domain_extents,
             ))
             .await?;
-            capture_estimated_overflow_probe_if_requested(
+            Box::pin(capture_estimated_overflow_probe_if_requested(
                 &cell_eval_ctx,
                 compiled_subplot,
                 &measured.measurement,
                 &cell.data_override,
                 &cell.plan.full_path,
-            )
+            ))
             .await?;
             let cell_probe_summary = parent_cell_overflow_summary(&measured.measurement);
             cell.measurement = Some(measured.measurement);
@@ -2789,13 +2794,13 @@ async fn measure_cells_overflow_probe(
                 &cell.coordinated_domain_extents,
             ))
             .await?;
-            capture_estimated_overflow_probe_if_requested(
+            Box::pin(capture_estimated_overflow_probe_if_requested(
                 &cell_eval_ctx,
                 compiled_subplot,
                 &measured.measurement,
                 &cell.data_override,
                 &cell.plan.full_path,
-            )
+            ))
             .await?;
             let cell_probe_summary = parent_cell_overflow_summary(&measured.measurement);
             cell.measurement = Some(measured.measurement);
@@ -2853,7 +2858,7 @@ async fn measure_overflow_probe(
     is_leaf_node: bool,
     perf_counters: &mut FacetPipelinePerfCounters,
 ) -> Result<OverflowProbeSummary, AvengerChartError> {
-    let overflow_probe_summary = measure_cells_overflow_probe(
+    let overflow_probe_summary = Box::pin(measure_cells_overflow_probe(
         axis,
         facet_depth,
         cells,
@@ -2865,7 +2870,7 @@ async fn measure_overflow_probe(
         empty_cell_policy,
         is_leaf_node,
         perf_counters,
-    )
+    ))
     .await?;
 
     Ok(overflow_probe_summary)
@@ -3117,27 +3122,27 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         })?;
 
         // Step 2: Precompute -- precompute subtree scale builders used by child facet slot sharing.
-        ensure_subtree_precomputed(
+        Box::pin(ensure_subtree_precomputed(
             self.compiled_marks,
             self.facet_path,
             data_df,
             &self.eval_ctx.facet_tree,
             self.eval_ctx,
-        )
+        ))
         .await?;
 
         // Step 3: Build cell semantics -- build geometry-independent per-cell semantics.
         let cell_semantics = self.build_cell_semantics(&resolved, &cell_values)?;
 
         // Step 4: Prepare layout inputs and runtime state.
-        let (prepared_inputs, prepared_runtime) = prepare_band_inputs_and_runtime(
+        let (prepared_inputs, prepared_runtime) = Box::pin(prepare_band_inputs_and_runtime(
             cell_semantics.clone(),
             data_df,
             &resolved.compiled_subplot,
             resolved.band_scale,
             subplot_band_size,
             self.eval_ctx,
-        )
+        ))
         .await?;
 
         let (subplot_plot_width, subplot_plot_height) = self
@@ -3146,19 +3151,19 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         let mut perf_counters = FacetPipelinePerfCounters::default();
 
         // Step 5: Build overflow probe -- non-mutating probe at estimated slot size.
-        let (overflow_probe, overflow_runtime) = build_overflow_probe(
+        let (overflow_probe, overflow_runtime) = Box::pin(build_overflow_probe(
             &prepared_inputs,
             &prepared_runtime,
             subplot_plot_width,
             subplot_plot_height,
             &mut perf_counters,
-        )
+        ))
         .await?;
 
         // Step 6: Build local layout -- finalize band layout and retarget cells.
-        let (local_layout, measured_runtime) = self
-            .build_local_layout(&overflow_probe, overflow_runtime, &prepared_runtime)
-            .await?;
+        let (local_layout, measured_runtime) =
+            Box::pin(self.build_local_layout(&overflow_probe, overflow_runtime, &prepared_runtime))
+                .await?;
 
         let coord_measurement =
             self.assemble_coord_measurement(local_layout, measured_runtime, &prepared_runtime)?;
@@ -3827,8 +3832,8 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             cells: overflow_runtime.cells,
             scale_artifacts: prepared_runtime.scale_artifacts.clone(),
         };
-        let local_layout_outcome = self
-            .build_local_layout_from_probe(
+        let local_layout_outcome = Box::pin(
+            self.build_local_layout_from_probe(
                 plan,
                 &overflow_probe.overflow_probe_summary,
                 prepared_runtime.initial_subplot_band_size,
@@ -3840,8 +3845,9 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                     .prepared_inputs
                     .cell_semantics
                     .empty_cell_policy,
-            )
-            .await?;
+            ),
+        )
+        .await?;
 
         let mut measurements = Vec::with_capacity(local_layout_outcome.cells.len());
         let mut local_domain_extents = Vec::with_capacity(local_layout_outcome.cells.len());
@@ -4012,16 +4018,18 @@ pub(crate) async fn measure_facet_row(
     compiled_marks: &[Arc<dyn CompiledMark>],
     facet_path: &[ScalarValue],
 ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
-    FacetBandMeasurePipeline::new(
-        FacetAxisOps::for_axis(FacetAxis::Row),
-        scales,
-        plot_width,
-        eval_ctx,
-        data,
-        compiled_marks,
-        facet_path,
+    Box::pin(
+        FacetBandMeasurePipeline::new(
+            FacetAxisOps::for_axis(FacetAxis::Row),
+            scales,
+            plot_width,
+            eval_ctx,
+            data,
+            compiled_marks,
+            facet_path,
+        )
+        .run(),
     )
-    .run()
     .await
 }
 
@@ -4033,16 +4041,18 @@ pub(crate) async fn measure_facet_column(
     compiled_marks: &[Arc<dyn CompiledMark>],
     facet_path: &[ScalarValue],
 ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
-    FacetBandMeasurePipeline::new(
-        FacetAxisOps::for_axis(FacetAxis::Column),
-        scales,
-        plot_height,
-        eval_ctx,
-        data,
-        compiled_marks,
-        facet_path,
+    Box::pin(
+        FacetBandMeasurePipeline::new(
+            FacetAxisOps::for_axis(FacetAxis::Column),
+            scales,
+            plot_height,
+            eval_ctx,
+            data,
+            compiled_marks,
+            facet_path,
+        )
+        .run(),
     )
-    .run()
     .await
 }
 

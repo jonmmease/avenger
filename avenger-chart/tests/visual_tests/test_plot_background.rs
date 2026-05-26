@@ -9,14 +9,13 @@ use datafusion::prelude::*;
 use std::future::Future;
 use std::sync::Arc;
 
-fn run_with_large_stack<F, Fut>(f: F)
+fn run_async_test<F, Fut>(f: F)
 where
     F: FnOnce() -> Fut + Send + 'static,
     Fut: Future<Output = ()> + 'static,
 {
     std::thread::Builder::new()
-        .name("plot-background-visual-large-stack".to_string())
-        .stack_size(16 * 1024 * 1024)
+        .name("plot-background-visual-default-stack".to_string())
         .spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -24,9 +23,9 @@ where
                 .expect("build tokio runtime for plot background visual test");
             rt.block_on(f());
         })
-        .expect("spawn large-stack plot background visual test thread")
+        .expect("spawn default-stack plot background visual test thread")
         .join()
-        .expect("large-stack plot background visual test panicked");
+        .expect("default-stack plot background visual test panicked");
 }
 
 /// Create test data for scatter plot
@@ -47,7 +46,7 @@ fn create_test_data() -> DataFrame {
 
 #[test]
 fn test_cartesian_plot_background() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = create_test_data();
 
@@ -77,7 +76,7 @@ fn test_cartesian_plot_background() {
 
 #[test]
 fn test_cartesian_background_with_grid() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let df = create_test_data();
 
@@ -109,7 +108,7 @@ fn test_cartesian_background_with_grid() {
 
 #[test]
 fn test_polar_plot_background() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         use datafusion::arrow::array::StringArray;
 
         // Create polar data
@@ -158,7 +157,7 @@ fn test_polar_plot_background() {
 
 #[test]
 fn test_polar_background_with_grid() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         // Create more data points for a fuller polar plot
         let mut radius_vals = Vec::new();
         let mut theta_vals = Vec::new();

@@ -10,14 +10,13 @@ use std::future::Future;
 
 const BASELINE_CATEGORY: &str = "positioned_subplot_legend_sharing";
 
-fn run_with_large_stack<F, Fut>(f: F)
+fn run_async_test<F, Fut>(f: F)
 where
     F: FnOnce() -> Fut + Send + 'static,
     Fut: Future<Output = ()> + 'static,
 {
     std::thread::Builder::new()
-        .name("positioned-subplot-legend-sharing-visual-large-stack".to_string())
-        .stack_size(32 * 1024 * 1024)
+        .name("positioned-subplot-legend-sharing-visual-default-stack".to_string())
         .spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -25,9 +24,9 @@ where
                 .expect("build tokio runtime for positioned subplot legend sharing test");
             rt.block_on(f());
         })
-        .expect("spawn large-stack positioned subplot legend sharing test thread")
+        .expect("spawn default-stack positioned subplot legend sharing test thread")
         .join()
-        .expect("large-stack positioned subplot legend sharing test panicked");
+        .expect("default-stack positioned subplot legend sharing test panicked");
 }
 
 async fn positioned_legend_data(ctx: &SessionContext) -> DataFrame {
@@ -137,7 +136,7 @@ fn assert_positioned_subplot_legend_baseline<C>(
 ) where
     C: CoordinateSystem + 'static,
 {
-    run_with_large_stack(move || async move {
+    run_async_test(move || async move {
         let ctx = SessionContext::new();
         let plot = make_plot(positioned_legend_data(&ctx).await);
         let compiled = plot

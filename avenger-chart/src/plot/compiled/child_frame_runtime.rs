@@ -84,7 +84,7 @@ impl ChildFrameRuntime {
             ChildFrameDataSelection::ExplicitChild => None,
             ChildFrameDataSelection::InheritParent => inherited_data.cloned(),
         };
-        let scale_builder = build_scale_builder_from_marks(
+        let scale_builder = Box::pin(build_scale_builder_from_marks(
             &plot.marks,
             &plot.scale_specs,
             &plot.coord_transform,
@@ -92,7 +92,7 @@ impl ChildFrameRuntime {
             data_override.clone(),
             eval_ctx,
             plot.get_theme().as_ref(),
-        )
+        ))
         .await?;
 
         let channel_domain_sharing_levels = child_frame_domain_sharing_levels_for_plot(plot);
@@ -208,17 +208,16 @@ pub(crate) async fn measure_child_frame_plot_with_builder(
     facet_path: &[ScalarValue],
     domain_extents: &[&HashMap<String, DomainExtent>],
 ) -> Result<ComponentsMeasurement, AvengerChartError> {
-    ChildFrameRuntime::new()
-        .measure_with_builder(
-            plot,
-            eval_ctx,
-            layout_spec,
-            scale_builder,
-            data_override,
-            facet_path,
-            domain_extents,
-        )
-        .await
+    Box::pin(ChildFrameRuntime::new().measure_with_builder(
+        plot,
+        eval_ctx,
+        layout_spec,
+        scale_builder,
+        data_override,
+        facet_path,
+        domain_extents,
+    ))
+    .await
 }
 
 #[cfg(test)]

@@ -9,14 +9,13 @@ use datafusion::functions_aggregate::average::avg;
 use datafusion::prelude::*;
 use std::future::Future;
 
-fn run_with_large_stack<F, Fut>(f: F)
+fn run_async_test<F, Fut>(f: F)
 where
     F: FnOnce() -> Fut + Send + 'static,
     Fut: Future<Output = ()> + 'static,
 {
     std::thread::Builder::new()
-        .name("positioned-subplot-visual-large-stack".to_string())
-        .stack_size(16 * 1024 * 1024)
+        .name("positioned-subplot-visual-default-stack".to_string())
         .spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -24,9 +23,9 @@ where
                 .expect("build tokio runtime for positioned subplot visual test");
             rt.block_on(f());
         })
-        .expect("spawn large-stack positioned subplot visual test thread")
+        .expect("spawn default-stack positioned subplot visual test thread")
         .join()
-        .expect("large-stack positioned subplot visual test panicked");
+        .expect("default-stack positioned subplot visual test panicked");
 }
 
 async fn positioned_data(ctx: &SessionContext) -> DataFrame {
@@ -236,7 +235,7 @@ async fn polar_child(ctx: &SessionContext) -> Plot<Polar> {
 
 #[test]
 fn cartesian_partitioned_subplot_scatter() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let plot = Plot::<Cartesian>::new()
             .plot_size(620.0, 400.0)
@@ -279,7 +278,7 @@ fn cartesian_partitioned_subplot_scatter() {
 
 #[test]
 fn cartesian_partitioned_subplot_polar_children() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let plot = Plot::<Cartesian>::new()
             .plot_size(620.0, 400.0)
@@ -322,7 +321,7 @@ fn cartesian_partitioned_subplot_polar_children() {
 
 #[test]
 fn polar_partitioned_subplot_cartesian_children() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let plot = Plot::<Polar>::new()
             .plot_size(520.0, 440.0)
@@ -367,7 +366,7 @@ fn polar_partitioned_subplot_cartesian_children() {
 
 #[test]
 fn polar_partitioned_subplot_polar_children() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let plot = Plot::<Polar>::new()
             .plot_size(520.0, 440.0)
@@ -412,7 +411,7 @@ fn polar_partitioned_subplot_polar_children() {
 
 #[test]
 fn cartesian_positioned_cartesian_subplots() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let plot = Plot::<Cartesian>::new()
             .plot_size(430.0, 300.0)
@@ -446,7 +445,7 @@ fn cartesian_positioned_cartesian_subplots() {
 
 #[test]
 fn cartesian_positioned_mixed_subplots() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let plot = Plot::<Cartesian>::new()
             .plot_size(430.0, 300.0)
@@ -486,7 +485,7 @@ fn cartesian_positioned_mixed_subplots() {
 
 #[test]
 fn cartesian_positioned_components_debug() {
-    run_with_large_stack(|| async {
+    run_async_test(|| async {
         let ctx = SessionContext::new();
         let plot = Plot::<Cartesian>::new()
             .plot_size(430.0, 300.0)
