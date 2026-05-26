@@ -577,8 +577,9 @@ mod tests {
 
     #[test]
     fn compare_images_saves_actual_on_dimension_mismatch() {
-        let baseline_dir = Path::new("target/visual_helper_test/baselines/dimension_mismatch");
-        fs::create_dir_all(baseline_dir).expect("failed to create test baseline dir");
+        let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
+        let baseline_dir = temp_dir.path().join("baselines/dimension_mismatch");
+        fs::create_dir_all(&baseline_dir).expect("failed to create test baseline dir");
         let baseline_path = baseline_dir.join("size_case.png");
         let failure_path = Path::new("tests/failures/dimension_mismatch/size_case.png");
 

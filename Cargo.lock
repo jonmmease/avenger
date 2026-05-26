@@ -552,6 +552,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "taffy",
+ "tempfile",
  "thiserror 2.0.12",
  "tokio",
  "tracing",
