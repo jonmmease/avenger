@@ -677,6 +677,14 @@ impl CompiledPlot {
                             &facet_col.compiled_subplot().marks,
                         )
                     }
+                    FacetSubplotRef::Wrap(facet_wrap) => {
+                        matches!(
+                            facet_wrap.facet_empty_cell_policy(),
+                            FacetEmptyCellPolicy::Auto
+                        ) || Self::marks_use_auto_empty_cell_policy(
+                            &facet_wrap.compiled_subplot().marks,
+                        )
+                    }
                 };
             }
             false
@@ -907,7 +915,9 @@ impl CompiledPlot {
             self.default_params.clone()
         };
 
-        let facet_tree = Arc::new(EvaluatedFacetTree::from_compiled_plot(self, ctx).await?);
+        let facet_tree = Arc::new(
+            EvaluatedFacetTree::from_compiled_plot_with_params(self, ctx, &merged_params).await?,
+        );
         let evaluated_layout_spec = evaluate_layout_spec(
             &self.layout_spec,
             ctx,
@@ -4084,7 +4094,9 @@ impl CompiledPlot {
         // This queries distinct values for each facet level, respecting facet slot sharing.
         // Used for efficient facet slot and predicate lookups during nested coordination.
         let facet_tree_start = Instant::now();
-        let facet_tree = Arc::new(EvaluatedFacetTree::from_compiled_plot(self, ctx).await?);
+        let facet_tree = Arc::new(
+            EvaluatedFacetTree::from_compiled_plot_with_params(self, ctx, &merged_params).await?,
+        );
         debug!(
             elapsed_ms = facet_tree_start.elapsed().as_secs_f64() * 1000.0,
             depth = facet_tree.depth(),

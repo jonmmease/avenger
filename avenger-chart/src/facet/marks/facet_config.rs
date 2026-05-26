@@ -206,6 +206,100 @@ impl FacetColChannelConfig {
     }
 }
 
+#[derive(Clone, Default)]
+pub struct FacetWrapChannelConfig {
+    pub(crate) title: Option<String>,
+    pub(crate) slot_sharing: Option<ScaleSharing>,
+    pub(crate) position: Option<String>,
+    pub(crate) visible: Option<bool>,
+    pub(crate) empty_cell_policy: Option<FacetEmptyCellPolicy>,
+    pub(crate) order_expr: Option<LogicalExprNode>,
+    pub(crate) order_descending: bool,
+    pub(crate) columns_expr: Option<LogicalExprNode>,
+}
+
+impl FacetWrapChannelConfig {
+    /// Configure the number of physical columns used by the wrap layout.
+    ///
+    /// The expression may be a constant, a parameter, or an aggregate over the
+    /// data in the wrap's current sharing scope. When omitted, wrap uses
+    /// `ceil(sqrt(slot_count))`.
+    pub fn columns(mut self, expr: impl IntoExpr) -> Self {
+        self.columns_expr = Some(
+            LogicalExprNode::from_default_expr(expr.into_expr())
+                .expect("Failed to serialize facet wrap columns expression"),
+        );
+        self
+    }
+
+    /// Configure slot sharing mode for this wrapped facet variable.
+    pub fn with_slot_sharing(mut self, mode: ScaleSharing) -> Self {
+        self.slot_sharing = Some(mode.to_normalized());
+        self
+    }
+
+    /// Share wrapped slots across all facets in the relevant ancestor scope.
+    pub fn share_slots(self) -> Self {
+        self.with_slot_sharing(ScaleSharing::Shared)
+    }
+
+    /// Make wrapped slots independent per facet.
+    pub fn free_slots(self) -> Self {
+        self.with_slot_sharing(ScaleSharing::Free)
+    }
+
+    /// Configure how trailing empty wrap cells are rendered.
+    pub fn empty_cell_policy(mut self, policy: FacetEmptyCellPolicy) -> Self {
+        self.empty_cell_policy = Some(policy);
+        self
+    }
+
+    /// Render empty wrap cells as holes.
+    pub fn empty_cells_as_holes(self) -> Self {
+        self.empty_cell_policy(FacetEmptyCellPolicy::Hole)
+    }
+
+    /// Render empty wrap cells as empty subplots.
+    pub fn empty_cells_as_subplots(self) -> Self {
+        self.empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
+    }
+
+    /// Resolve empty wrap cells automatically.
+    pub fn empty_cells_auto(self) -> Self {
+        self.empty_cell_policy(FacetEmptyCellPolicy::Auto)
+    }
+
+    /// Order wrap slots by an aggregate, constant, or the wrapped value itself.
+    pub fn order_by(mut self, expr: impl IntoExpr) -> Self {
+        self.order_expr = Some(
+            LogicalExprNode::from_default_expr(expr.into_expr())
+                .expect("Failed to serialize facet wrap order expression"),
+        );
+        self
+    }
+
+    pub fn order_asc(mut self) -> Self {
+        self.order_descending = false;
+        self
+    }
+
+    pub fn order_desc(mut self) -> Self {
+        self.order_descending = true;
+        self
+    }
+
+    pub fn guide<F>(mut self, f: F) -> Self
+    where
+        F: FnOnce(FacetGuideOptions) -> FacetGuideOptions,
+    {
+        let opts = f(FacetGuideOptions::default());
+        self.title = opts.title;
+        self.position = opts.position;
+        self.visible = opts.visible;
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,5 +323,11 @@ mod tests {
     fn guide_visible_false_sets_visible_false() {
         let options = FacetGuideOptions::default().visible(false);
         assert_eq!(options.visible, Some(false));
+    }
+
+    #[test]
+    fn wrap_columns_serializes_expression() {
+        let config = FacetWrapChannelConfig::default().columns(datafusion::prelude::lit(4));
+        assert!(config.columns_expr.is_some());
     }
 }

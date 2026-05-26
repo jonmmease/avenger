@@ -3,6 +3,7 @@
 use avenger_chart::channel::config_traits::ScaleSharing;
 use avenger_chart::facet::FacetDirection;
 use avenger_chart::facet::evaluated_facet_tree::EvaluatedFacetTree;
+use avenger_chart::param::Param;
 use avenger_chart::prelude::*;
 use datafusion::common::ScalarValue;
 use datafusion::functions_aggregate::min_max::max;
@@ -244,6 +245,164 @@ async fn create_varying_domain_data(ctx: &SessionContext) -> datafusion::datafra
 
 fn scalar(s: &str) -> ScalarValue {
     ScalarValue::Utf8(Some(s.to_string()))
+}
+
+fn int_scalar(v: i64) -> ScalarValue {
+    ScalarValue::Int64(Some(v))
+}
+
+#[tokio::test]
+async fn test_facet_wrap_default_columns_and_predicate_skip_structural_row() {
+    let ctx = SessionContext::new();
+    let df = create_test_data(&ctx).await;
+
+    let plot = Plot::<FacetWrap>::new().data(df.clone()).mark(
+        Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))))
+            .wrap(col("species")),
+    );
+
+    let compiled = plot.compile(&ctx).await.expect("compile");
+    let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
+        .await
+        .expect("build spec");
+
+    let root = spec.root().expect("wrap root");
+    assert_eq!(root.direction, FacetDirection::Row);
+    assert_eq!(
+        root.values().cloned().collect::<Vec<_>>(),
+        vec![int_scalar(0), int_scalar(1)]
+    );
+
+    let first_row = root.child(&int_scalar(0)).expect("first wrap row");
+    assert_eq!(first_row.direction, FacetDirection::Column);
+    assert_eq!(
+        first_row.values().cloned().collect::<Vec<_>>(),
+        vec![scalar("setosa"), scalar("versicolor")]
+    );
+
+    let path = vec![int_scalar(0), scalar("setosa")];
+    let predicate = spec.cell_predicate(&path, 0).expect("wrap value predicate");
+    let filtered = df
+        .filter(predicate)
+        .expect("filter wrap value")
+        .collect()
+        .await
+        .unwrap();
+    let row_count: usize = filtered.iter().map(|batch| batch.num_rows()).sum();
+    assert_eq!(row_count, 2);
+
+    assert!(
+        spec.cell_predicate(&path, 1).is_none(),
+        "Level(1) sharing should own the whole wrap, not one synthetic row"
+    );
+}
+
+#[tokio::test]
+async fn test_facet_wrap_columns_and_order_by_aggregate() {
+    let ctx = SessionContext::new();
+    let df = create_test_data(&ctx).await;
+
+    let plot = Plot::<FacetWrap>::new().data(df).mark(
+        Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))))
+            .wrap_with(col("species"), |c| {
+                c.columns(1).order_by(max(col("value"))).order_desc()
+            }),
+    );
+
+    let compiled = plot.compile(&ctx).await.expect("compile");
+    let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
+        .await
+        .expect("build spec");
+
+    let root = spec.root().expect("wrap root");
+    assert_eq!(
+        root.values().cloned().collect::<Vec<_>>(),
+        vec![int_scalar(0), int_scalar(1), int_scalar(2)]
+    );
+    let ordered_values = root
+        .values()
+        .flat_map(|row| root.child(row).expect("wrap row").values().cloned())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ordered_values,
+        vec![scalar("virginica"), scalar("versicolor"), scalar("setosa")]
+    );
+}
+
+#[tokio::test]
+async fn test_facet_wrap_columns_accepts_param() {
+    let ctx = SessionContext::new();
+    let df = create_test_data(&ctx).await;
+    let columns = Param::new("wrap_columns", ScalarValue::Int64(Some(2)));
+
+    let plot = Plot::<FacetWrap>::new()
+        .data(df)
+        .add_param(columns.clone())
+        .mark(
+            Subplot::new(
+                Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))),
+            )
+            .wrap_with(col("species"), |c| c.columns(columns.expr())),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("compile");
+    let spec = EvaluatedFacetTree::from_compiled_plot_with_params(
+        &compiled,
+        &ctx,
+        compiled.get_default_params(),
+    )
+    .await
+    .expect("build spec");
+
+    let root = spec.root().expect("wrap root");
+    assert_eq!(
+        root.values().cloned().collect::<Vec<_>>(),
+        vec![int_scalar(0), int_scalar(1)]
+    );
+}
+
+#[tokio::test]
+async fn test_facet_wrap_columns_accepts_aggregate() {
+    let ctx = SessionContext::new();
+    let df = create_test_data(&ctx).await;
+
+    let plot = Plot::<FacetWrap>::new().data(df).mark(
+        Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))))
+            .wrap_with(col("species"), |c| c.columns(max(col("value")))),
+    );
+
+    let compiled = plot.compile(&ctx).await.expect("compile");
+    let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
+        .await
+        .expect("build spec");
+
+    let root = spec.root().expect("wrap root");
+    assert_eq!(
+        root.values().cloned().collect::<Vec<_>>(),
+        vec![int_scalar(0)]
+    );
+}
+
+#[tokio::test]
+async fn test_facet_wrap_columns_rejects_non_aggregate_column_expr() {
+    let ctx = SessionContext::new();
+    let df = create_test_data(&ctx).await;
+
+    let plot = Plot::<FacetWrap>::new().data(df).mark(
+        Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))))
+            .wrap_with(col("species"), |c| c.columns(col("value"))),
+    );
+
+    let compiled = plot.compile(&ctx).await.expect("compile");
+    let error = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
+        .await
+        .expect_err("non-aggregate column expression should fail");
+    assert!(
+        error
+            .to_string()
+            .contains("constant, parameter, or aggregate expression"),
+        "{error}"
+    );
 }
 
 #[tokio::test]

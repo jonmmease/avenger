@@ -70,8 +70,8 @@ pub(crate) use self::container_labels::ContainerLabelPlacement;
 pub(crate) use self::container_labels::container_label_items_from_child_frame_container;
 pub(crate) use self::container_sharing::{
     ContainerEdgeLevelProjection, EdgeOwnershipRequest, EdgeOwnershipScope, SharingGroupEdge,
-    edge_ownership_scope_for_request, enumeration_ancestor_path, owner_for_scope,
-    project_container_edge_levels, shared_path_key,
+    edge_ownership_scope_for_request, owner_for_scope, project_container_edge_levels,
+    shared_path_key,
 };
 pub(crate) use self::coordination_scope::{CoordinationKind, CoordinationScopeKey};
 pub(crate) use self::domain_coordination::{ChildFrameDomainRequest, aggregate_domain_requests};

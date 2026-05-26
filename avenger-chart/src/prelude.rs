@@ -20,7 +20,7 @@
 
 // Re-export coordinate systems
 pub use crate::concat::{ConcatGuide, HConcat, VConcat};
-pub use crate::facet::coord::{FacetColumn, FacetRow};
+pub use crate::facet::coord::{FacetColumn, FacetRow, FacetWrap};
 pub use avenger_chart_cartesian::Cartesian;
 pub use avenger_chart_core::{FacetEmptyCellPolicy, ScaleSharing, ZeroDCoord};
 pub use avenger_chart_polar::Polar;
@@ -33,7 +33,9 @@ pub use crate::plot::{Plot, PlotSubtitle, PlotTitle, TitleAlign, TitleSpan};
 pub use avenger_chart_core::Theme;
 
 // Re-export marks
-pub use crate::facet::marks::{FacetColumnSubplotChannels, FacetRowSubplotChannels};
+pub use crate::facet::marks::{
+    FacetColumnSubplotChannels, FacetRowSubplotChannels, FacetWrapSubplotChannels,
+};
 pub use avenger_chart_cartesian::{
     CartesianLinePositionChannels, CartesianRectPositionChannels, CartesianSubplotPositionChannels,
     CartesianSymbolPositionChannels,

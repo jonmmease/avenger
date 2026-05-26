@@ -7,7 +7,7 @@
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 use avenger_common::value::ScalarOrArray;
-use avenger_scales::scales::{ConfiguredScale, ScaleImpl, band::bandwidth};
+use avenger_scales::scales::{ConfiguredScale, ScaleImpl, band::BandScale, band::bandwidth};
 #[cfg(test)]
 use datafusion::logical_expr::lit;
 use datafusion::{common::ScalarValue, dataframe::DataFrame, scalar::ScalarValue as DfScalarValue};
@@ -17,8 +17,8 @@ use tracing::{debug, trace};
 use avenger_chart_core::{
     AvengerChartError, AxisPosition, CoordMeasurement, CoordinateSystem, CoordinateSystemCore,
     CoordinateSystemTransform, CoordinateSystemTransformCore, CoordinatedLayout,
-    CoordinatedOverflow, FacetAxis, FacetEmptyCellPolicy, PlotGeometry, SharingLevel,
-    SubplotGeometry, SubplotRect,
+    CoordinatedOverflow, FacetAxis, FacetDimensionConfig, FacetEmptyCellPolicy, NoGuide,
+    PlotGeometry, RowDimensionConfig, SharingLevel, SubplotGeometry, SubplotRect,
 };
 #[cfg(test)]
 use avenger_chart_core::{GuideSharingContext, OverflowSpaceRequirement};
@@ -40,7 +40,8 @@ use crate::{
             RetargetNodeRequirements,
         },
         domain_coordination::{
-            aggregate_domain_extents, coordinated_extents_for_cell, domain_infos_for_cell,
+            aggregate_domain_extents, coordinated_extents_for_cell_with_owner_paths,
+            domain_infos_for_cell_with_owner_paths,
         },
         guide::FacetColGuideConfig,
         layout_plan::{
@@ -54,7 +55,7 @@ use crate::{
             compute_padding_from_boundary_profiles, resolve_facet_overflow,
         },
         ownership_policy::{has_holes_from_cells, resolve_facet_ownership_policy},
-        padding_policy, path_math,
+        padding_policy,
         placement::{
             FacetBandExplicitPlacement, FacetBandPlacement, FacetBandPlacementModel,
             compute_explicit_facet_band_placement, resolve_scale_backed_facet_band_placement,
@@ -64,7 +65,6 @@ use crate::{
             FacetScaleNodeArtifacts, FacetScaleNodeKey, build_node_artifacts, canonicalize_path,
             ensure_subtree_precomputed,
         },
-        sharing_policy,
         subtree_plot_area::{LeafPlotAreaSize, estimate_path_plot_area_from_leaf_size},
     },
     layout::{
@@ -79,8 +79,8 @@ use crate::{
     },
     render::{EvaluationContext, FacetSubtreeCheckpoint, FacetSubtreeSelector},
     scales::{
-        ConfiguredScaleWithSpec, PlotAreaRangeEndpoint, ScaleBuilder, ScaleRangeBinding,
-        domain_extent::DomainExtent,
+        Band, ConfiguredScaleWithSpec, PlotAreaRangeEndpoint, Scale, ScaleBuilder,
+        ScaleRangeBinding, domain_extent::DomainExtent,
     },
 };
 
@@ -728,6 +728,7 @@ impl FacetBandCoordMeasurement {
         if policy
             .facet_band_dimension(self.axis)
             .is_canvas_constrained()
+            && !self.uses_explicit_placement()
         {
             let parent_main_size = match self.axis {
                 FacetAxis::Column => new_plot_area_width,
@@ -744,6 +745,7 @@ impl FacetBandCoordMeasurement {
         if policy
             .facet_band_dimension(self.axis)
             .is_canvas_constrained()
+            && !self.uses_explicit_placement()
         {
             let band_scale = scales.get(self.axis.scale_name()).ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
@@ -2069,11 +2071,7 @@ fn resolve_nested_scale_plan<'a>(
             per_cell_scale_builder_cache,
         )),
         Some(sharing_level) if sharing_level < child_facet_depth => {
-            let ancestor_key = path_math::child_facet_slot_ancestor_key(
-                &cell.full_path,
-                sharing_level,
-                child_facet_depth,
-            );
+            let ancestor_key = facet_tree.sharing_owner_path(&cell.full_path, sharing_level.raw());
             let canonical_ancestor_key = canonicalize_path(&ancestor_key);
             let cached_builder = ancestor_scale_builder_cache
                 .get(&canonical_ancestor_key)
@@ -2627,11 +2625,9 @@ async fn coordinate_cell_domains_before_measurement(
             if !annotated.extent.ordered_discrete || annotated.domain_sharing_level.is_free() {
                 continue;
             }
-            let owner_path = sharing_policy::domain_group_key(
-                &cell.plan.full_path,
-                annotated.domain_sharing_level,
-                facet_depth,
-            );
+            let owner_path = nested_ctx
+                .facet_tree
+                .sharing_owner_path(&cell.plan.full_path, annotated.domain_sharing_level.raw());
             let cache_key = (canonicalize_path(&owner_path), channel.clone());
             if let Some(cached_extent) = ordered_owner_extent_cache.get(&cache_key) {
                 annotated.extent = cached_extent.clone();
@@ -2674,10 +2670,15 @@ async fn coordinate_cell_domains_before_measurement(
     let current_domain_infos = cells
         .iter()
         .flat_map(|cell| {
-            domain_infos_for_cell(
+            domain_infos_for_cell_with_owner_paths(
                 &cell.plan.full_path,
                 &cell.local_domain_extents,
                 facet_depth,
+                &|sharing_level| {
+                    nested_ctx
+                        .facet_tree
+                        .sharing_owner_path(&cell.plan.full_path, sharing_level.raw())
+                },
             )
         })
         .collect::<Vec<_>>();
@@ -2695,12 +2696,17 @@ async fn coordinate_cell_domains_before_measurement(
     let unified = aggregate_domain_extents(&domain_infos);
 
     for cell in cells.iter_mut() {
-        cell.coordinated_domain_extents = coordinated_extents_for_cell(
+        cell.coordinated_domain_extents = coordinated_extents_for_cell_with_owner_paths(
             &cell.plan.full_path,
             &cell.local_domain_extents,
             &channel_domain_sharing_levels,
             facet_depth,
             &unified,
+            &|sharing_level| {
+                nested_ctx
+                    .facet_tree
+                    .sharing_owner_path(&cell.plan.full_path, sharing_level.raw())
+            },
         );
         if cell.local_domain_extents.is_empty() && !cell.coordinated_domain_extents.is_empty() {
             trace!(
@@ -3013,6 +3019,14 @@ fn retarget_cells_to_final_plot_area(
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct FacetColumn;
 
+/// Wrapped faceting coordinate system.
+///
+/// Wrap is measured as hidden row bands containing visible column facets, but
+/// the evaluated facet tree treats the row/value pair as one logical facet
+/// level for sharing semantics.
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct FacetWrap;
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct FacetAxisOps {
     axis: FacetAxis,
@@ -3047,6 +3061,7 @@ impl FacetAxisOps {
             (self.axis, facet_mark),
             (FacetAxis::Column, FacetSubplotRef::Col(_))
                 | (FacetAxis::Row, FacetSubplotRef::Row(_))
+                | (FacetAxis::Row, FacetSubplotRef::Wrap(_))
         )
     }
 
@@ -3496,6 +3511,11 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 mark.facet_slot_sharing()
                     .map(SharingLevel::from)
                     .unwrap_or(SharingLevel::FREE),
+                mark.facet_empty_cell_policy(),
+            ),
+            FacetSubplotRef::Wrap(mark) => (
+                mark.physical_subplot_arc(),
+                SharingLevel::FREE,
                 mark.facet_empty_cell_policy(),
             ),
         };
@@ -4117,6 +4137,132 @@ pub(crate) async fn measure_facet_column(
         .run(),
     )
     .await
+}
+
+fn synthetic_wrap_row_scale(
+    eval_ctx: &EvaluationContext,
+    facet_path: &[ScalarValue],
+    plot_height: f32,
+) -> Result<ConfiguredScaleWithSpec, AvengerChartError> {
+    let values = if facet_path.is_empty() {
+        eval_ctx
+            .facet_tree
+            .root()
+            .map(|node| node.values().cloned().collect::<Vec<_>>())
+            .unwrap_or_default()
+    } else {
+        eval_ctx
+            .facet_tree
+            .node_at_path(facet_path)
+            .map(|node| node.values().cloned().collect::<Vec<_>>())
+            .unwrap_or_default()
+    };
+    let domain_values = if values.is_empty() {
+        vec![ScalarValue::Int64(Some(0))]
+    } else {
+        values
+    };
+    let domain = ScalarValue::iter_to_array(domain_values.into_iter()).map_err(|e| {
+        AvengerChartError::InternalError(format!(
+            "Failed to build synthetic FacetWrap row domain: {e}"
+        ))
+    })?;
+    let configured = BandScale::configured(domain, (0.0, plot_height.max(1.0)))
+        .with_option("padding_inner", 0.1)
+        .with_option("padding_outer", 0.0)
+        .with_option("align", 0.0)
+        .with_option("round", false);
+    Ok(ConfiguredScaleWithSpec::with_range_binding(
+        Scale::<Band>::new().into_auto(),
+        configured,
+        ScaleRangeBinding::plot_area(PlotAreaRangeEndpoint::ZERO, PlotAreaRangeEndpoint::HEIGHT),
+    ))
+}
+
+pub(crate) async fn measure_facet_wrap(
+    scales: &HashMap<String, ConfiguredScaleWithSpec>,
+    plot_width: f32,
+    plot_height: f32,
+    eval_ctx: &EvaluationContext,
+    data: Option<&DataFrame>,
+    compiled_marks: &[Arc<dyn CompiledMark>],
+    facet_path: &[ScalarValue],
+) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
+    let mut wrap_scales = scales.clone();
+    wrap_scales.insert(
+        RowDimensionConfig::channel_name().to_string(),
+        synthetic_wrap_row_scale(eval_ctx, facet_path, plot_height)?,
+    );
+    Box::pin(
+        FacetBandMeasurePipeline::new(
+            FacetAxisOps::for_axis(FacetAxis::Row),
+            &wrap_scales,
+            plot_width,
+            eval_ctx,
+            data,
+            compiled_marks,
+            facet_path,
+        )
+        .run(),
+    )
+    .await
+    .map(|mut measurement| {
+        if let Some(facet_band) = facet_band_mut(measurement.as_mut()) {
+            facet_band.placement_model =
+                FacetBandPlacementModel::Explicit(FacetBandExplicitPlacement::default());
+            facet_band.recompute_explicit_placement();
+        }
+        measurement
+    })
+}
+
+impl CoordinateSystemCore for FacetWrap {
+    fn required_channels(&self) -> &'static [&'static str] {
+        &[]
+    }
+}
+
+impl CoordinateSystem for FacetWrap {
+    type Guide = NoGuide;
+
+    fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
+    }
+}
+
+impl CoordinateSystemTransformCore for FacetWrap {
+    fn required_channels(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    fn transform(
+        &self,
+        _position_channels: &HashMap<&str, ScalarOrArray<f32>>,
+        _position_values: Option<&HashMap<&str, Vec<ScalarValue>>>,
+        _plot_width: f32,
+        _plot_height: f32,
+    ) -> Result<Box<dyn PlotGeometry>, AvengerChartError> {
+        Ok(Box::new(SubplotGeometry::default()))
+    }
+
+    fn default_scale_options(
+        &self,
+        _channel: &str,
+        _scale_impl: &dyn ScaleImpl,
+    ) -> HashMap<String, DfScalarValue> {
+        HashMap::new()
+    }
+}
+
+#[typetag::serde]
+impl CoordinateSystemTransform for FacetWrap {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
+    }
 }
 
 impl CoordinateSystemCore for FacetColumn {

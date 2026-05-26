@@ -204,13 +204,16 @@ impl CompiledPlot {
             return LegendDisposition::RenderHere;
         }
 
+        let anchor_path = facet_tree.sharing_owner_path(facet_path, sharing_level.raw());
+        let physical_sharing_level =
+            SharingLevel::from_raw(facet_path.len().saturating_sub(anchor_path.len()) as u8);
         let ownership_scope = sharing_policy::legend_ownership_scope(
             primary_channel,
             facet_path,
             &resolved.indices,
             &resolved.local_level_counts,
             resolved.indices.len() as u8,
-            sharing_level,
+            physical_sharing_level,
             legend_position,
         );
 
@@ -218,7 +221,6 @@ impl CompiledPlot {
             return LegendDisposition::Suppress;
         }
 
-        let anchor_path = ownership_scope.anchor_path;
         if anchor_path == facet_path {
             LegendDisposition::RenderHere
         } else {

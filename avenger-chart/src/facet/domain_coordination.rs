@@ -20,16 +20,18 @@ pub(crate) fn aggregate_domain_extents(
 
 fn domain_request_for_info(info: &CellDomainInfo) -> ChildFrameDomainRequest {
     ChildFrameDomainRequest::new(
-        domain_coordination_scope_key(
+        domain_coordination_scope_key_with_owner(
             &info.channel,
             &info.full_cell_path,
             SharingLevel::from_raw(info.domain_sharing_level),
             info.facet_depth,
+            info.owner_path.as_deref(),
         ),
         info.extent.clone(),
     )
 }
 
+#[cfg(test)]
 pub(crate) fn domain_infos_for_cell(
     full_cell_path: &[ScalarValue],
     local_domain_extents: &HashMap<String, ChannelDomainExtent>,
@@ -42,11 +44,32 @@ pub(crate) fn domain_infos_for_cell(
             channel: channel.clone(),
             domain_sharing_level: annotated.domain_sharing_level.raw(),
             facet_depth,
+            owner_path: None,
             extent: annotated.extent.clone(),
         })
         .collect()
 }
 
+pub(crate) fn domain_infos_for_cell_with_owner_paths(
+    full_cell_path: &[ScalarValue],
+    local_domain_extents: &HashMap<String, ChannelDomainExtent>,
+    facet_depth: u8,
+    owner_path_for: &dyn Fn(SharingLevel) -> Vec<ScalarValue>,
+) -> Vec<CellDomainInfo> {
+    local_domain_extents
+        .iter()
+        .map(|(channel, annotated)| CellDomainInfo {
+            full_cell_path: full_cell_path.to_vec(),
+            channel: channel.clone(),
+            domain_sharing_level: annotated.domain_sharing_level.raw(),
+            facet_depth,
+            owner_path: Some(owner_path_for(annotated.domain_sharing_level)),
+            extent: annotated.extent.clone(),
+        })
+        .collect()
+}
+
+#[cfg(test)]
 pub(crate) fn coordinated_extents_for_cell(
     full_cell_path: &[ScalarValue],
     local_domain_extents: &HashMap<String, ChannelDomainExtent>,
@@ -93,13 +116,83 @@ pub(crate) fn coordinated_extents_for_cell(
     coordinated
 }
 
+pub(crate) fn coordinated_extents_for_cell_with_owner_paths(
+    full_cell_path: &[ScalarValue],
+    local_domain_extents: &HashMap<String, ChannelDomainExtent>,
+    channel_domain_sharing_levels: &HashMap<String, SharingLevel>,
+    facet_depth: u8,
+    unified: &HashMap<CoordinationScopeKey, DomainExtent>,
+    owner_path_for: &dyn Fn(SharingLevel) -> Vec<ScalarValue>,
+) -> HashMap<String, DomainExtent> {
+    let mut coordinated = HashMap::new();
+
+    for (channel, annotated) in local_domain_extents {
+        if annotated.domain_sharing_level == 0 {
+            continue;
+        }
+
+        let owner_path = owner_path_for(annotated.domain_sharing_level);
+        let key = domain_coordination_scope_key_with_owner(
+            channel,
+            full_cell_path,
+            annotated.domain_sharing_level,
+            facet_depth,
+            Some(&owner_path),
+        );
+
+        if let Some(unified_extent) = unified.get(&key) {
+            coordinated.insert(channel.clone(), unified_extent.clone());
+        }
+    }
+
+    for (channel, sharing_level) in channel_domain_sharing_levels {
+        if *sharing_level == 0 || coordinated.contains_key(channel) {
+            continue;
+        }
+
+        let owner_path = owner_path_for(*sharing_level);
+        let key = domain_coordination_scope_key_with_owner(
+            channel,
+            full_cell_path,
+            *sharing_level,
+            facet_depth,
+            Some(&owner_path),
+        );
+
+        if let Some(unified_extent) = unified.get(&key) {
+            coordinated.insert(channel.clone(), unified_extent.clone());
+        }
+    }
+
+    coordinated
+}
+
+#[cfg(test)]
 pub(crate) fn domain_coordination_scope_key(
     channel: &str,
     full_cell_path: &[ScalarValue],
     sharing_level: SharingLevel,
     facet_depth: u8,
 ) -> CoordinationScopeKey {
-    let ancestor_key = sharing_policy::domain_group_key(full_cell_path, sharing_level, facet_depth);
+    domain_coordination_scope_key_with_owner(
+        channel,
+        full_cell_path,
+        sharing_level,
+        facet_depth,
+        None,
+    )
+}
+
+pub(crate) fn domain_coordination_scope_key_with_owner(
+    channel: &str,
+    full_cell_path: &[ScalarValue],
+    sharing_level: SharingLevel,
+    facet_depth: u8,
+    owner_path: Option<&[ScalarValue]>,
+) -> CoordinationScopeKey {
+    let ancestor_key = owner_path.map(ToOwned::to_owned).unwrap_or_else(|| {
+        sharing_policy::domain_group_key(full_cell_path, sharing_level, facet_depth)
+    });
     CoordinationScopeKey::partition_path(CoordinationKind::ScaleDomain, ancestor_key)
         .with_channel(channel)
 }
@@ -127,6 +220,7 @@ mod tests {
             channel: channel.to_string(),
             domain_sharing_level: sharing,
             facet_depth,
+            owner_path: None,
             extent: DomainExtent::numeric(0.0, max),
         }
     }
@@ -138,6 +232,7 @@ mod tests {
             channel: "x".to_string(),
             domain_sharing_level: 1,
             facet_depth: 3,
+            owner_path: None,
             extent: DomainExtent::numeric(0.0, 1.0),
         };
         let info_b = CellDomainInfo {
@@ -145,6 +240,7 @@ mod tests {
             channel: "x".to_string(),
             domain_sharing_level: 1,
             facet_depth: 3,
+            owner_path: None,
             extent: DomainExtent::numeric(0.0, 2.0),
         };
         let info_c = CellDomainInfo {
@@ -152,6 +248,7 @@ mod tests {
             channel: "x".to_string(),
             domain_sharing_level: 1,
             facet_depth: 3,
+            owner_path: None,
             extent: DomainExtent::numeric(5.0, 7.0),
         };
 
@@ -255,6 +352,7 @@ mod tests {
             channel: "x".to_string(),
             domain_sharing_level: 255,
             facet_depth: 1,
+            owner_path: None,
             extent: DomainExtent::discrete(vec![
                 SerializableDomainValue::String("A".to_string()),
                 SerializableDomainValue::String("D".to_string()),
@@ -265,6 +363,7 @@ mod tests {
             channel: "x".to_string(),
             domain_sharing_level: 255,
             facet_depth: 1,
+            owner_path: None,
             extent: DomainExtent::discrete(vec![
                 SerializableDomainValue::String("B".to_string()),
                 SerializableDomainValue::String("C".to_string()),

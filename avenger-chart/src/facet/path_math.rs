@@ -5,10 +5,13 @@
 //! translation that maps child facet slot-sharing semantics onto the current
 //! cell path.
 
+#[cfg(test)]
 use datafusion::common::ScalarValue;
 
+#[cfg(test)]
 use avenger_chart_core::SharingLevel;
 
+#[cfg(test)]
 use crate::plot::compiled::shared_path_key;
 
 /// Compute the current-cell ancestor key implied by a child facet's slot sharing.
@@ -17,6 +20,7 @@ use crate::plot::compiled::shared_path_key;
 /// path. For a current path at depth `D`, child facet depth is `D + 1`, and
 /// `Level(N)` at child depth translates to removing `N - 1` components from the
 /// current path.
+#[cfg(test)]
 pub(crate) fn child_facet_slot_ancestor_key(
     current_cell_path: &[ScalarValue],
     child_facet_slot_sharing: SharingLevel,

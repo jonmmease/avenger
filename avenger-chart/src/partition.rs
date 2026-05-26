@@ -589,12 +589,13 @@ impl PartitionNode {
         let mut result: Option<Expr> = None;
 
         for (level_idx, value) in path.iter().enumerate() {
-            let field_expr = current_node.field_expr.clone()?;
-            let eq_expr = field_expr.eq(lit(value.clone()));
-            result = Some(match result {
-                Some(existing) => existing.and(eq_expr),
-                None => eq_expr,
-            });
+            if let Some(field_expr) = current_node.field_expr.clone() {
+                let eq_expr = field_expr.eq(lit(value.clone()));
+                result = Some(match result {
+                    Some(existing) => existing.and(eq_expr),
+                    None => eq_expr,
+                });
+            }
 
             if level_idx + 1 < path.len() {
                 current_node = current_node.child(value)?;

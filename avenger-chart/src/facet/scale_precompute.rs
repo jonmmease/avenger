@@ -16,7 +16,7 @@ use crate::{
     facet::{
         evaluated_facet_tree::EvaluatedFacetTree,
         marks::facet::{FacetSubplotRef, facet_subplot_ref},
-        path_math, sharing_policy,
+        sharing_policy,
     },
     marks::CompiledMark,
     partition::PartitionKeyExtractor,
@@ -364,6 +364,9 @@ fn resolve_current_facet_node(
                             .unwrap_or(SharingLevel::FREE),
                     ));
                 }
+                FacetSubplotRef::Wrap(facet_wrap) => {
+                    return Some((facet_wrap.physical_subplot_arc(), SharingLevel::FREE));
+                }
             }
         }
     }
@@ -379,6 +382,9 @@ fn resolve_child_facet_slot_sharing(compiled_subplot: &Arc<CompiledPlot>) -> Opt
             }
             FacetSubplotRef::Col(facet_col) => {
                 facet_col.facet_slot_sharing().map(SharingLevel::from)
+            }
+            FacetSubplotRef::Wrap(facet_wrap) => {
+                facet_wrap.facet_slot_sharing().map(SharingLevel::from)
             }
         })
     })
@@ -421,11 +427,7 @@ async fn build_ancestor_group_scale_builders(
     for value in cell_values {
         let mut full_path = parent_path.to_vec();
         full_path.push(value.clone());
-        let ancestor_key = path_math::child_facet_slot_ancestor_key(
-            &full_path,
-            sharing_level,
-            full_path.len() as u8 + 1,
-        );
+        let ancestor_key = facet_tree.sharing_owner_path(&full_path, sharing_level.raw());
         groups.entry(ancestor_key).or_default().push(value.clone());
     }
 
@@ -526,7 +528,7 @@ pub(crate) async fn build_node_artifacts(
     ))
     .await?;
 
-    let child_facet_depth = (facet_path.len() + 2) as u8;
+    let child_facet_depth = (facet_tree.logical_depth_for_path(facet_path) + 2) as u8;
     let child_facet_slot_sharing = resolve_child_facet_slot_sharing(compiled_subplot);
 
     let ancestor_scale_builder_cache = if let Some(sharing_level) = child_facet_slot_sharing {
@@ -628,7 +630,7 @@ async fn collect_node_domain_infos(
             &scale_builder
         };
 
-        let facet_depth = full_path.len() as u8;
+        let facet_depth = facet_tree.logical_depth_for_path(&full_path) as u8;
         let domain_channels = facet_tree.domain_extent_channels();
         let domain_channel_refs = domain_channels
             .iter()
@@ -638,8 +640,7 @@ async fn collect_node_domain_infos(
             let domain_sharing_level = facet_tree.channel_domain_sharing_level(&channel);
             let sharing_level = SharingLevel::from_raw(domain_sharing_level);
             if extent.ordered_discrete && !sharing_level.is_free() {
-                let owner_path =
-                    sharing_policy::domain_group_key(&full_path, sharing_level, facet_depth);
+                let owner_path = facet_tree.sharing_owner_path(&full_path, sharing_level.raw());
                 let cache_key = (canonicalize_path(&owner_path), channel.clone());
                 if let Some(cached_extent) = ordered_owner_extent_cache.get(&cache_key) {
                     extent = cached_extent.clone();
@@ -680,6 +681,10 @@ async fn collect_node_domain_infos(
                 channel,
                 domain_sharing_level,
                 facet_depth,
+                owner_path: Some(facet_tree.sharing_owner_path(
+                    &full_path,
+                    SharingLevel::from_raw(domain_sharing_level).raw(),
+                )),
                 extent,
             });
         }

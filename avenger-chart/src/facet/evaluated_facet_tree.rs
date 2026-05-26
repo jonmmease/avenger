@@ -32,15 +32,13 @@ use crate::{
         sharing_policy,
     },
     partition::{PartitionDimensionSpec, PartitionSlotCache, scalar_values_equivalent},
-    plot::{
-        CompiledPlot,
-        compiled::{SharingGroupEdge, enumeration_ancestor_path},
-    },
+    plot::{CompiledPlot, compiled::SharingGroupEdge},
 };
 pub(crate) use avenger_chart_core::AxisOwnershipMode;
 pub use avenger_chart_core::AxisVisibility;
 use avenger_chart_core::{
-    AxisPosition, CompiledMark, DefaultLogicalExprNodeExt, LogicalPlanNodeExt, SharingLevel,
+    AxisPosition, CompiledMark, DefaultLogicalExprNodeExt, ExprHelpers, LogicalPlanNodeExt,
+    SharingLevel, contains_aggregate, params_to_datafusion,
 };
 
 /// Evaluated facet structure - built once from data at evaluate() time, queried throughout.
@@ -206,6 +204,14 @@ impl EvaluatedFacetTree {
         plot: &CompiledPlot,
         ctx: &SessionContext,
     ) -> Result<Self, AvengerChartError> {
+        Self::from_compiled_plot_with_params(plot, ctx, &IndexMap::new()).await
+    }
+
+    pub async fn from_compiled_plot_with_params(
+        plot: &CompiledPlot,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<Self, AvengerChartError> {
         // Get the DataFrame from plot-level data or first mark with data
         let df = get_dataframe_from_plot(plot, ctx);
 
@@ -224,7 +230,8 @@ impl EvaluatedFacetTree {
         // Build partition tree by walking marks
         // Start at depth 1 (outermost facet level)
         let root =
-            build_partition_tree(&plot.marks, &df, ctx, &[], &[], 1, &mut slot_cache).await?;
+            build_partition_tree(&plot.marks, &df, ctx, params, &[], &[], 1, &mut slot_cache)
+                .await?;
 
         // Extract channel-domain sharing levels from the innermost marks.
         let channel_domain_sharing_levels = extract_channel_domain_sharing_levels(&plot.marks);
@@ -418,8 +425,7 @@ impl EvaluatedFacetTree {
             return Some(current_node.values().cloned().collect());
         }
 
-        let facet_depth = facet_path.len() as u8 + 1;
-        let enumeration_path = enumeration_ancestor_path(facet_path, sharing_level, facet_depth);
+        let enumeration_path = self.sharing_owner_path(facet_path, sharing_level.raw());
 
         let ancestor_node = if enumeration_path.is_empty() {
             self.root.as_ref()
@@ -433,6 +439,74 @@ impl EvaluatedFacetTree {
         } else {
             Some(current_node.values().cloned().collect())
         }
+    }
+
+    fn path_component_logical_weights(&self, path: &[ScalarValue]) -> Option<Vec<usize>> {
+        if path.is_empty() {
+            return Some(Vec::new());
+        }
+
+        let mut weights = Vec::with_capacity(path.len());
+        let mut current = self.root.as_ref()?;
+        for (idx, value) in path.iter().enumerate() {
+            let weight = if is_wrap_row_field(&current.field) {
+                0
+            } else {
+                1
+            };
+            weights.push(weight);
+            if idx + 1 < path.len() {
+                current = current.child(value)?;
+            }
+        }
+        Some(weights)
+    }
+
+    pub(crate) fn logical_depth_for_path(&self, path: &[ScalarValue]) -> usize {
+        self.path_component_logical_weights(path)
+            .map(|weights| weights.into_iter().sum())
+            .unwrap_or(path.len())
+    }
+
+    pub(crate) fn sharing_owner_path(
+        &self,
+        full_path: &[ScalarValue],
+        sharing_level: u8,
+    ) -> Vec<ScalarValue> {
+        let sharing_level = SharingLevel::from_raw(sharing_level);
+        if full_path.is_empty() || sharing_level.is_global() {
+            return Vec::new();
+        }
+        if sharing_level.is_free() {
+            return full_path.to_vec();
+        }
+
+        let Some(weights) = self.path_component_logical_weights(full_path) else {
+            let keep = full_path.len().saturating_sub(sharing_level.raw() as usize);
+            return full_path.iter().take(keep).cloned().collect();
+        };
+        let total_logical_depth: usize = weights.iter().sum();
+        if sharing_level.raw() as usize >= total_logical_depth {
+            return Vec::new();
+        }
+        let target_logical_depth = total_logical_depth.saturating_sub(sharing_level.raw() as usize);
+        let mut logical_depth = 0usize;
+        let mut keep_physical = 0usize;
+        let mut pending_zero_count = 0usize;
+        for weight in weights {
+            if weight == 0 {
+                pending_zero_count += 1;
+                continue;
+            }
+            if logical_depth + weight <= target_logical_depth {
+                keep_physical += pending_zero_count + 1;
+                pending_zero_count = 0;
+                logical_depth += weight;
+            } else {
+                break;
+            }
+        }
+        full_path.iter().take(keep_physical).cloned().collect()
     }
 
     fn is_jagged_for_axis_uncached(&self, axis_position: AxisPosition) -> bool {
@@ -506,13 +580,12 @@ impl EvaluatedFacetTree {
             return None;
         }
 
-        // Compute how many levels to include
-        let levels_to_include = path.len().saturating_sub(sharing_level.raw() as usize);
-        if levels_to_include == 0 {
+        let owner_path = self.sharing_owner_path(path, sharing_level.raw());
+        if owner_path.is_empty() {
             return None;
         }
 
-        self.path_predicate(&path[..levels_to_include])
+        self.path_predicate(&owner_path)
     }
 
     /// Navigate to a partition node at a given path.
@@ -998,13 +1071,17 @@ impl EvaluatedFacetTree {
             return AxisVisibility::visible();
         }
 
+        let owner_path = self.sharing_owner_path(path, sharing_level.raw());
+        let physical_sharing_level =
+            SharingLevel::from_raw(path.len().saturating_sub(owner_path.len()) as u8);
+
         if matches!(ownership_mode, AxisOwnershipMode::DomainSlots) {
             return self.channel_axis_visibility_from_resolved(
                 &resolved.indices,
                 &resolved.local_level_counts,
                 &resolved.level_directions,
                 axis_position,
-                sharing_level,
+                physical_sharing_level,
             );
         }
 
@@ -1019,7 +1096,7 @@ impl EvaluatedFacetTree {
             return AxisVisibility::visible();
         }
 
-        let labels_sharing = sharing_level.clamp_to_depth(relevant_depth as u8);
+        let labels_sharing = physical_sharing_level.clamp_to_depth(relevant_depth as u8);
         let labels_fallback = sharing_policy::show_cartesian_axis_labels(
             &resolved.indices,
             &resolved.local_level_counts,
@@ -1360,8 +1437,16 @@ fn is_empty_relation(df: &DataFrame) -> bool {
 
 /// Resolved metadata for building a partition node from a facet subplot mark.
 struct FacetPartitionMarkSpec<'a> {
+    kind: FacetPartitionKind,
     dimension: PartitionDimensionSpec,
     subplot: &'a CompiledPlot,
+    columns_expr: Option<Expr>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FacetPartitionKind {
+    Band,
+    Wrap,
 }
 
 impl<'a> FacetPartitionMarkSpec<'a> {
@@ -1377,6 +1462,8 @@ impl<'a> FacetPartitionMarkSpec<'a> {
             slot_sharing,
             order_expr_node,
             order_descending,
+            columns_expr,
+            kind,
         ) = match facet_mark {
             FacetSubplotRef::Row(facet_row) => (
                 facet_row.compiled_state().data.channels(),
@@ -1386,6 +1473,8 @@ impl<'a> FacetPartitionMarkSpec<'a> {
                 facet_row.facet_slot_sharing(),
                 facet_row.facet_order_expr(),
                 facet_row.facet_order_descending(),
+                None,
+                FacetPartitionKind::Band,
             ),
             FacetSubplotRef::Col(facet_col) => (
                 facet_col.compiled_state().data.channels(),
@@ -1395,6 +1484,22 @@ impl<'a> FacetPartitionMarkSpec<'a> {
                 facet_col.facet_slot_sharing(),
                 facet_col.facet_order_expr(),
                 facet_col.facet_order_descending(),
+                None,
+                FacetPartitionKind::Band,
+            ),
+            FacetSubplotRef::Wrap(facet_wrap) => (
+                facet_wrap.compiled_state().data.channels(),
+                "wrap",
+                FacetDirection::Column,
+                facet_wrap.compiled_subplot(),
+                facet_wrap.facet_slot_sharing(),
+                facet_wrap.facet_order_expr(),
+                facet_wrap.facet_order_descending(),
+                facet_wrap
+                    .facet_columns_expr()
+                    .map(|expr| expr.to_expr(ctx))
+                    .transpose()?,
+                FacetPartitionKind::Wrap,
             ),
         };
 
@@ -1411,9 +1516,11 @@ impl<'a> FacetPartitionMarkSpec<'a> {
             .unwrap_or(0);
 
         Ok(Some(Self {
+            kind,
             dimension: PartitionDimensionSpec::new(direction, sharing, field_expr)
                 .with_ordering(order_expr, order_descending),
             subplot,
+            columns_expr,
         }))
     }
 }
@@ -1432,6 +1539,7 @@ async fn build_partition_tree(
     marks: &[Arc<dyn CompiledMark>],
     df: &DataFrame,
     ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
     parent_path: &[ScalarValue],
     ancestor_filters: &[Expr],
     current_depth: u8,
@@ -1442,16 +1550,34 @@ async fn build_partition_tree(
             let Some(spec) = FacetPartitionMarkSpec::from_facet_mark(facet_mark, ctx)? else {
                 return Ok(None);
             };
-            return Box::pin(build_partition_node(
-                &spec,
-                df,
-                ctx,
-                parent_path,
-                ancestor_filters,
-                current_depth,
-                slot_cache,
-            ))
-            .await;
+            return match spec.kind {
+                FacetPartitionKind::Band => {
+                    Box::pin(build_partition_node(
+                        &spec,
+                        df,
+                        ctx,
+                        params,
+                        parent_path,
+                        ancestor_filters,
+                        current_depth,
+                        slot_cache,
+                    ))
+                    .await
+                }
+                FacetPartitionKind::Wrap => {
+                    Box::pin(build_wrap_partition_node(
+                        &spec,
+                        df,
+                        ctx,
+                        params,
+                        parent_path,
+                        ancestor_filters,
+                        current_depth,
+                        slot_cache,
+                    ))
+                    .await
+                }
+            };
         }
     }
 
@@ -1464,6 +1590,7 @@ async fn build_partition_node(
     spec: &FacetPartitionMarkSpec<'_>,
     df: &DataFrame,
     ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
     parent_path: &[ScalarValue],
     ancestor_filters: &[Expr],
     current_depth: u8,
@@ -1472,8 +1599,7 @@ async fn build_partition_node(
     let dimension = &spec.dimension;
     let parent_filter = combine_filters(ancestor_filters);
     let sharing_level = SharingLevel::from_raw(dimension.sharing);
-    let domain_scope_path = enumeration_ancestor_path(parent_path, sharing_level, current_depth);
-    let domain_filter = combine_filters(&ancestor_filters[..domain_scope_path.len()]);
+    let domain_filter = domain_filter_for_sharing(ancestor_filters, sharing_level, current_depth);
     let observed_values = dimension.observed_values(df, parent_filter.clone()).await?;
     let values = dimension
         .domain_values(df, domain_filter, slot_cache)
@@ -1501,6 +1627,7 @@ async fn build_partition_node(
                 &spec.subplot.marks,
                 df,
                 ctx,
+                params,
                 &child_path,
                 &child_filters,
                 current_depth + 1,
@@ -1543,6 +1670,264 @@ async fn build_partition_node(
             observed_values,
         )))
     }
+}
+
+fn domain_filter_for_sharing(
+    ancestor_filters: &[Expr],
+    sharing_level: SharingLevel,
+    current_depth: u8,
+) -> Option<Expr> {
+    if sharing_level.is_free() {
+        return combine_filters(ancestor_filters);
+    }
+
+    let parent_logical_depth = (current_depth as usize).saturating_sub(1);
+    let keep_count = if sharing_level.raw() as usize >= parent_logical_depth {
+        0
+    } else {
+        parent_logical_depth.saturating_sub(sharing_level.raw() as usize)
+    };
+    combine_filters(&ancestor_filters[..keep_count.min(ancestor_filters.len())])
+}
+
+fn wrap_row_field_name(field: &str) -> String {
+    format!("__avenger_wrap_row:{field}")
+}
+
+fn wrap_value_field_name(field: &str) -> String {
+    format!("__avenger_wrap_value:{field}")
+}
+
+pub(crate) fn is_wrap_row_field(field: &str) -> bool {
+    field.starts_with("__avenger_wrap_row:")
+}
+
+fn observed_values_for_slice(
+    values: &[ScalarValue],
+    observed_values: &[ScalarValue],
+) -> Vec<ScalarValue> {
+    values
+        .iter()
+        .filter(|value| {
+            observed_values
+                .iter()
+                .any(|observed| scalar_values_equivalent(value, observed))
+        })
+        .cloned()
+        .collect()
+}
+
+fn wrap_row_values(row_count: usize) -> Vec<ScalarValue> {
+    (0..row_count)
+        .map(|row| ScalarValue::Int64(Some(row as i64)))
+        .collect()
+}
+
+fn scalar_to_columns(value: ScalarValue) -> Result<usize, AvengerChartError> {
+    let columns = match value {
+        ScalarValue::Int8(Some(v)) => v as i64,
+        ScalarValue::Int16(Some(v)) => v as i64,
+        ScalarValue::Int32(Some(v)) => v as i64,
+        ScalarValue::Int64(Some(v)) => v,
+        ScalarValue::UInt8(Some(v)) => v as i64,
+        ScalarValue::UInt16(Some(v)) => v as i64,
+        ScalarValue::UInt32(Some(v)) => v as i64,
+        ScalarValue::UInt64(Some(v)) => i64::try_from(v).unwrap_or(i64::MAX),
+        ScalarValue::Float32(Some(v)) => v.round() as i64,
+        ScalarValue::Float64(Some(v)) => v.round() as i64,
+        other => {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "FacetWrap columns expression must evaluate to a positive number, got {other:?}"
+            )));
+        }
+    };
+    if columns < 1 {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "FacetWrap columns expression must evaluate to a positive number, got {columns}"
+        )));
+    }
+    Ok(columns as usize)
+}
+
+async fn resolve_wrap_columns(
+    df: &DataFrame,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+    domain_filter: Option<Expr>,
+    columns_expr: Option<&Expr>,
+    slot_count: usize,
+) -> Result<usize, AvengerChartError> {
+    let Some(columns_expr) = columns_expr else {
+        return Ok((slot_count as f64).sqrt().ceil().max(1.0) as usize);
+    };
+
+    if contains_aggregate(columns_expr) {
+        let scoped_df = if let Some(domain_filter) = domain_filter {
+            df.clone().filter(domain_filter)?
+        } else {
+            df.clone()
+        };
+        let aggregate_df = scoped_df.aggregate(
+            vec![],
+            vec![columns_expr.clone().alias("__facet_wrap_columns")],
+        )?;
+        let datafusion_params = params_to_datafusion(params);
+        let batches = if let Some(param_values) = datafusion_params {
+            aggregate_df
+                .with_param_values(param_values)?
+                .collect()
+                .await?
+        } else {
+            aggregate_df.collect().await?
+        };
+        let batch = batches.first().ok_or_else(|| {
+            AvengerChartError::InvalidArgument(
+                "FacetWrap aggregate columns expression returned no rows".to_string(),
+            )
+        })?;
+        if batch.num_rows() == 0 {
+            return Err(AvengerChartError::InvalidArgument(
+                "FacetWrap aggregate columns expression returned no rows".to_string(),
+            ));
+        }
+        return scalar_to_columns(ScalarValue::try_from_array(batch.column(0), 0)?);
+    }
+
+    if columns_expr.any_column_refs() {
+        return Err(AvengerChartError::InvalidArgument(
+            "FacetWrap columns expression must be a constant, parameter, or aggregate expression"
+                .to_string(),
+        ));
+    }
+
+    let datafusion_params = params_to_datafusion(params);
+    let scalar = columns_expr
+        .eval_to_scalar(Some(ctx), datafusion_params.as_ref())
+        .await
+        .map_err(AvengerChartError::DataFusionError)?;
+    scalar_to_columns(scalar)
+}
+
+async fn build_wrap_partition_node(
+    spec: &FacetPartitionMarkSpec<'_>,
+    df: &DataFrame,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+    parent_path: &[ScalarValue],
+    ancestor_filters: &[Expr],
+    current_depth: u8,
+    slot_cache: &mut PartitionSlotCache,
+) -> Result<Option<PartitionNode>, AvengerChartError> {
+    let dimension = &spec.dimension;
+    let parent_filter = combine_filters(ancestor_filters);
+    let sharing_level = SharingLevel::from_raw(dimension.sharing);
+    let domain_filter = domain_filter_for_sharing(ancestor_filters, sharing_level, current_depth);
+    let observed_values = dimension.observed_values(df, parent_filter).await?;
+    let values = dimension
+        .domain_values(df, domain_filter.clone(), slot_cache)
+        .await?;
+
+    if values.is_empty() {
+        return Ok(None);
+    }
+
+    let columns = resolve_wrap_columns(
+        df,
+        ctx,
+        params,
+        domain_filter,
+        spec.columns_expr.as_ref(),
+        values.len(),
+    )
+    .await?;
+    let row_count = values.len().div_ceil(columns);
+    let row_values = wrap_row_values(row_count);
+    let observed_rows = row_values
+        .iter()
+        .enumerate()
+        .filter_map(|(row_index, row_value)| {
+            let start = row_index * columns;
+            let end = (start + columns).min(values.len());
+            let row_slice = &values[start..end];
+            (!observed_values_for_slice(row_slice, &observed_values).is_empty())
+                .then_some(row_value.clone())
+        })
+        .collect::<Vec<_>>();
+
+    let mut row_children = IndexMap::new();
+    let has_nested_facets = contains_facet_mark(&spec.subplot.marks);
+    for (row_index, row_value) in row_values.iter().enumerate() {
+        let start = row_index * columns;
+        let end = (start + columns).min(values.len());
+        let row_slice = values[start..end].to_vec();
+        let row_observed = observed_values_for_slice(&row_slice, &observed_values);
+
+        let column_node = if has_nested_facets {
+            let mut value_children = IndexMap::new();
+            for value in &row_slice {
+                let value_filter = dimension.value_filter(value);
+                let mut child_path = parent_path.to_vec();
+                child_path.push(row_value.clone());
+                child_path.push(value.clone());
+                let mut child_filters = ancestor_filters.to_vec();
+                child_filters.push(value_filter);
+
+                if let Some(child) = Box::pin(build_partition_tree(
+                    &spec.subplot.marks,
+                    df,
+                    ctx,
+                    params,
+                    &child_path,
+                    &child_filters,
+                    current_depth + 1,
+                    slot_cache,
+                ))
+                .await?
+                {
+                    value_children.insert(value.clone(), Box::new(child));
+                }
+            }
+
+            if value_children.is_empty() {
+                PartitionNode::leaf_with_observed(
+                    FacetDirection::Column,
+                    0,
+                    wrap_value_field_name(&dimension.field),
+                    Some(dimension.field_expr.clone()),
+                    row_slice,
+                    row_observed,
+                )
+            } else {
+                PartitionNode::branch_with_observed(
+                    FacetDirection::Column,
+                    0,
+                    wrap_value_field_name(&dimension.field),
+                    Some(dimension.field_expr.clone()),
+                    row_observed,
+                    value_children,
+                )
+            }
+        } else {
+            PartitionNode::leaf_with_observed(
+                FacetDirection::Column,
+                0,
+                wrap_value_field_name(&dimension.field),
+                Some(dimension.field_expr.clone()),
+                row_slice,
+                row_observed,
+            )
+        };
+        row_children.insert(row_value.clone(), Box::new(column_node));
+    }
+
+    Ok(Some(PartitionNode::branch_with_observed(
+        FacetDirection::Row,
+        dimension.sharing,
+        wrap_row_field_name(&dimension.field),
+        None,
+        observed_rows,
+        row_children,
+    )))
 }
 
 fn combine_filters(filters: &[Expr]) -> Option<Expr> {

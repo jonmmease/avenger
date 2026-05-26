@@ -1,5 +1,7 @@
-use crate::facet::coord::{FacetBandCoordMeasurement, FacetColumn, FacetRow};
-use crate::facet::marks::facet_config::{FacetColChannelConfig, FacetRowChannelConfig};
+use crate::facet::coord::{FacetBandCoordMeasurement, FacetColumn, FacetRow, FacetWrap};
+use crate::facet::marks::facet_config::{
+    FacetColChannelConfig, FacetRowChannelConfig, FacetWrapChannelConfig,
+};
 use crate::facet::ownership_policy::{
     cell_requires_invalid_path_axis_fallback_hidden, has_holes_from_cells,
     resolve_facet_ownership_policy,
@@ -12,11 +14,11 @@ use crate::plot::compiled::{
 use crate::render::{EvaluationContext, RenderContext};
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, ChannelValue, ColumnDimensionConfig, CompiledDataContext,
-    CompiledMark, CompiledMarkCore, CompiledMarkState, CompiledSubplotPayload,
+    CompiledMark, CompiledMarkCore, CompiledMarkState, CompiledSubplotPayload, CoordinateGuide,
     CoordinateSystemTransformCore, DefaultLogicalExprNodeExt, FacetAxis, FacetDimensionConfig,
     FacetEmptyCellPolicy, MarkRuntimeContext, RowDimensionConfig, ScaleSharing,
     ScaleTypePreference, SerializableExpr, Size2D, SubplotContainerCoordinateSystem,
-    SubplotDataSource, SubplotMarkCore, channel_value::expr_to_string,
+    SubplotDataSource, SubplotMarkCore, WrapDimensionConfig, channel_value::expr_to_string,
     default_scale_type_for_data_type,
 };
 use avenger_chart_marks::Subplot;
@@ -357,6 +359,45 @@ impl FacetColumnSubplotChannels for Subplot<FacetColumn> {
         F: FnOnce(FacetColChannelConfig) -> FacetColChannelConfig,
     {
         self.col_with(value, f)
+    }
+}
+
+/// Facet wrap channel builder methods for `Subplot<FacetWrap>`.
+pub trait FacetWrapSubplotChannels: Sized {
+    /// Set the wrapped facet channel.
+    fn wrap<V: Into<ChannelValue>>(self, value: V) -> Self;
+
+    /// Configure wrapped faceting, including physical columns, ordering, slot
+    /// sharing, and guide options.
+    fn wrap_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(FacetWrapChannelConfig) -> FacetWrapChannelConfig;
+}
+
+impl FacetWrapSubplotChannels for Subplot<FacetWrap> {
+    fn wrap<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value(WrapDimensionConfig::channel_name(), value.into().no_scale())
+    }
+
+    fn wrap_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(FacetWrapChannelConfig) -> FacetWrapChannelConfig,
+    {
+        let mut s = self.wrap(value);
+        let cfg = f(FacetWrapChannelConfig::default());
+        s.set_facet_wrap_options(
+            cfg.title,
+            cfg.slot_sharing,
+            cfg.position,
+            cfg.visible,
+            cfg.empty_cell_policy,
+            cfg.order_expr,
+            cfg.order_descending,
+            cfg.columns_expr,
+        );
+        s
     }
 }
 
@@ -706,10 +747,289 @@ impl SubplotContainerCoordinateSystem for FacetColumn {
     }
 }
 
+// ============================================================================
+// FacetWrap Implementation
+// ============================================================================
+
+/// Compiled subplot mark specialized for the FacetWrap outer coordinate system.
+///
+/// The public mark owns the authored wrapped value, while `physical_subplot`
+/// is an internal `FacetColumn` child nested inside synthetic row bands. This
+/// keeps rendering/guide code shared with row and column facets without making
+/// the synthetic row a user-visible facet level.
+#[serde_as]
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CompiledFacetWrapSubplot {
+    pub(crate) payload: CompiledSubplotPayload,
+    pub(crate) physical_subplot: Arc<CompiledPlot>,
+    pub(crate) facet_title: Option<String>,
+    pub(crate) facet_slot_sharing: Option<ScaleSharing>,
+    pub(crate) facet_position: Option<String>,
+    #[serde(default = "default_true")]
+    pub(crate) facet_guide_visible: bool,
+    #[serde(default)]
+    pub(crate) facet_empty_cell_policy: FacetEmptyCellPolicy,
+    #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
+    pub(crate) facet_order_expr: Option<LogicalExprNode>,
+    #[serde(default)]
+    pub(crate) facet_order_descending: bool,
+    #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
+    pub(crate) facet_columns_expr: Option<LogicalExprNode>,
+}
+
+impl CompiledFacetWrapSubplot {
+    pub fn compiled_subplot(&self) -> &CompiledPlot {
+        compiled_subplot_payload_child_plot(&self.payload)
+    }
+
+    pub(crate) fn physical_subplot(&self) -> &CompiledPlot {
+        &self.physical_subplot
+    }
+
+    pub(crate) fn physical_subplot_arc(&self) -> Arc<CompiledPlot> {
+        self.physical_subplot.clone()
+    }
+
+    pub fn compiled_state(&self) -> &CompiledMarkState {
+        self.payload.compiled_state()
+    }
+
+    pub fn facet_title(&self) -> Option<&str> {
+        self.facet_title.as_deref()
+    }
+
+    pub fn facet_slot_sharing(&self) -> Option<ScaleSharing> {
+        self.facet_slot_sharing
+    }
+
+    pub fn facet_position(&self) -> Option<&str> {
+        self.facet_position.as_deref()
+    }
+
+    pub fn facet_guide_visible(&self) -> bool {
+        self.facet_guide_visible
+    }
+
+    pub fn facet_empty_cell_policy(&self) -> FacetEmptyCellPolicy {
+        self.facet_empty_cell_policy
+    }
+
+    pub fn facet_order_expr(&self) -> Option<&LogicalExprNode> {
+        self.facet_order_expr.as_ref()
+    }
+
+    pub fn facet_order_descending(&self) -> bool {
+        self.facet_order_descending
+    }
+
+    pub fn facet_columns_expr(&self) -> Option<&LogicalExprNode> {
+        self.facet_columns_expr.as_ref()
+    }
+
+    pub(crate) fn render_with_context<'a>(
+        &'a self,
+        context: &'a RenderContext<'a>,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<SceneMark>, AvengerChartError>> + Send + 'a>> {
+        Box::pin(render_facet_band_common(
+            FacetBandRenderOps::row(),
+            self.physical_subplot(),
+            self.facet_empty_cell_policy,
+            context,
+        ))
+    }
+}
+
+fn synthetic_column_state_for_wrap(
+    compiled_state: &CompiledMarkState,
+    session_context: &SessionContext,
+) -> Result<CompiledMarkState, AvengerChartError> {
+    let wrap_channel = compiled_state
+        .data
+        .channels()
+        .get(WrapDimensionConfig::channel_name())
+        .ok_or_else(|| {
+            AvengerChartError::InvalidArgument(
+                "FacetWrap requires a `wrap` channel. Use `.wrap(...)` or `.wrap_with(...)`."
+                    .to_string(),
+            )
+        })?;
+    let wrap_expr = wrap_channel.expr(session_context).ok_or_else(|| {
+        AvengerChartError::InvalidArgument(
+            "FacetWrap `wrap` channel must be a single expression".to_string(),
+        )
+    })?;
+    let mut channels = compiled_state.data.channels().clone();
+    channels.swap_remove(WrapDimensionConfig::channel_name());
+    channels.insert(
+        ColumnDimensionConfig::channel_name().to_string(),
+        ChannelValue::from(wrap_expr),
+    );
+
+    let mut state = compiled_state.clone();
+    state.data = CompiledDataContext::from_logical_plan_node(
+        compiled_state.data.logical_plan_node().cloned(),
+        channels,
+    );
+    Ok(state)
+}
+
+fn build_physical_wrap_subplot(
+    compiled_state: &CompiledMarkState,
+    compiled_subplot: Arc<CompiledPlot>,
+    facet_title: Option<String>,
+    facet_position: Option<String>,
+    facet_guide_visible: bool,
+    facet_empty_cell_policy: FacetEmptyCellPolicy,
+    session_context: &SessionContext,
+) -> Result<Arc<CompiledPlot>, AvengerChartError> {
+    let synthetic_state = synthetic_column_state_for_wrap(compiled_state, session_context)?;
+    let synthetic_column_mark: Arc<dyn CompiledMark> = Arc::new(CompiledFacetColumnSubplot {
+        payload: CompiledSubplotPayload::new(
+            synthetic_state,
+            compiled_subplot.clone(),
+            None,
+            None,
+            SubplotDataSource::InheritParent,
+        ),
+        facet_title,
+        facet_slot_sharing: Some(ScaleSharing::Free),
+        facet_position,
+        facet_guide_visible,
+        facet_empty_cell_policy,
+        facet_order_expr: None,
+        facet_order_descending: false,
+    });
+    let synthetic_marks = vec![synthetic_column_mark];
+    let mut guide = crate::facet::guide::FacetColGuideConfig::default();
+    guide.set_compiled_marks(&synthetic_marks, session_context);
+    let compiled_guide = Arc::from(guide.build());
+
+    Ok(Arc::new(CompiledPlot {
+        coord_transform: Box::new(FacetColumn),
+        compiled_guide: Some(compiled_guide),
+        marks: synthetic_marks,
+        axis_specs: Default::default(),
+        legends: Default::default(),
+        layout_spec: Default::default(),
+        title: None,
+        subtitle: None,
+        theme: compiled_subplot.theme.clone(),
+        scale_to_coord_channel: Default::default(),
+        scale_specs: Default::default(),
+        data: None,
+        default_params: compiled_subplot.default_params.clone(),
+    }))
+}
+
+#[async_trait::async_trait]
+impl SubplotContainerCoordinateSystem for FacetWrap {
+    async fn compile_subplot_mark(
+        subplot: &dyn SubplotMarkCore,
+        compiled_state: CompiledMarkState,
+        session_context: &SessionContext,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        subplot.validate_no_channel(RowDimensionConfig::channel_name(), "FacetWrap")?;
+        subplot.validate_no_channel(ColumnDimensionConfig::channel_name(), "FacetWrap")?;
+        let compiled_subplot = compile_facet_subplot_child(subplot, session_context).await?;
+        let channel_name = WrapDimensionConfig::channel_name();
+        let facet_title = facet_title_for_channel(
+            subplot.facet_wrap_title_config(),
+            channel_name,
+            &compiled_state,
+            session_context,
+        );
+        let facet_position = subplot.facet_wrap_position_config().map(ToOwned::to_owned);
+        let facet_guide_visible = subplot.facet_wrap_guide_visible_config().unwrap_or(true);
+        let facet_empty_cell_policy = subplot
+            .facet_wrap_empty_cell_policy_config()
+            .unwrap_or_default();
+        let physical_subplot = build_physical_wrap_subplot(
+            &compiled_state,
+            compiled_subplot.clone(),
+            facet_title.clone(),
+            facet_position.clone(),
+            facet_guide_visible,
+            facet_empty_cell_policy,
+            session_context,
+        )?;
+
+        Ok(Arc::new(CompiledFacetWrapSubplot {
+            payload: CompiledSubplotPayload::new(
+                compiled_state,
+                compiled_subplot,
+                subplot.label_config().map(ToOwned::to_owned),
+                subplot.key_config().map(ToOwned::to_owned),
+                SubplotDataSource::InheritParent,
+            ),
+            physical_subplot,
+            facet_title,
+            facet_slot_sharing: subplot.facet_wrap_slot_sharing_config(),
+            facet_position,
+            facet_guide_visible,
+            facet_empty_cell_policy,
+            facet_order_expr: subplot.facet_wrap_order_expr_config().cloned(),
+            facet_order_descending: subplot.facet_wrap_order_descending_config(),
+            facet_columns_expr: subplot.facet_wrap_columns_expr_config().cloned(),
+        }))
+    }
+}
+
+impl CompiledMarkCore for CompiledFacetWrapSubplot {
+    fn state(&self) -> &CompiledMarkState {
+        self.payload.compiled_state()
+    }
+
+    fn state_mut(&mut self) -> &mut CompiledMarkState {
+        self.payload.compiled_state_mut()
+    }
+
+    fn data_context(&self) -> &CompiledDataContext {
+        &self.payload.compiled_state().data
+    }
+
+    fn mark_type(&self) -> &str {
+        "facet_wrap"
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn supported_channels(&self) -> Vec<ChannelDescriptor> {
+        vec![ChannelDescriptor {
+            name: WrapDimensionConfig::channel_name(),
+            required: true,
+            default_value: None,
+            allow_column_ref: true,
+        }]
+    }
+
+    fn wants_full_data_batch(&self) -> bool {
+        true
+    }
+}
+
+#[typetag::serde]
+#[async_trait::async_trait]
+impl CompiledMark for CompiledFacetWrapSubplot {
+    async fn render_from_data(
+        &self,
+        _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
+        _scalars: &datafusion::arrow::record_batch::RecordBatch,
+        _context: &dyn MarkRuntimeContext,
+        _coord: &dyn CoordinateSystemTransformCore,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        Err(AvengerChartError::InternalError(
+            "Facet wrap subplot marks require the top-level layout render dispatcher".to_string(),
+        ))
+    }
+}
+
 /// Typed view over compiled facet subplot marks.
 pub enum FacetSubplotRef<'a> {
     Row(&'a CompiledFacetRowSubplot),
     Col(&'a CompiledFacetColumnSubplot),
+    Wrap(&'a CompiledFacetWrapSubplot),
 }
 
 impl<'a> FacetSubplotRef<'a> {
@@ -717,6 +1037,15 @@ impl<'a> FacetSubplotRef<'a> {
         match self {
             Self::Row(mark) => mark.compiled_subplot(),
             Self::Col(mark) => mark.compiled_subplot(),
+            Self::Wrap(mark) => mark.compiled_subplot(),
+        }
+    }
+
+    pub fn physical_compiled_subplot(self) -> &'a CompiledPlot {
+        match self {
+            Self::Row(mark) => mark.compiled_subplot(),
+            Self::Col(mark) => mark.compiled_subplot(),
+            Self::Wrap(mark) => mark.physical_subplot(),
         }
     }
 
@@ -724,6 +1053,7 @@ impl<'a> FacetSubplotRef<'a> {
         match self {
             Self::Row(mark) => mark.facet_slot_sharing(),
             Self::Col(mark) => mark.facet_slot_sharing(),
+            Self::Wrap(mark) => mark.facet_slot_sharing(),
         }
     }
 
@@ -740,6 +1070,10 @@ impl<'a> FacetSubplotRef<'a> {
                 .facet_order_expr()
                 .map(|expr| expr.to_expr(ctx))
                 .transpose(),
+            Self::Wrap(mark) => mark
+                .facet_order_expr()
+                .map(|expr| expr.to_expr(ctx))
+                .transpose(),
         }
     }
 
@@ -747,6 +1081,20 @@ impl<'a> FacetSubplotRef<'a> {
         match self {
             Self::Row(mark) => mark.facet_order_descending(),
             Self::Col(mark) => mark.facet_order_descending(),
+            Self::Wrap(mark) => mark.facet_order_descending(),
+        }
+    }
+
+    pub fn facet_columns_expr(
+        self,
+        ctx: &SessionContext,
+    ) -> Result<Option<datafusion::logical_expr::Expr>, AvengerChartError> {
+        match self {
+            Self::Wrap(mark) => mark
+                .facet_columns_expr()
+                .map(|expr| expr.to_expr(ctx))
+                .transpose(),
+            Self::Row(_) | Self::Col(_) => Ok(None),
         }
     }
 
@@ -754,6 +1102,7 @@ impl<'a> FacetSubplotRef<'a> {
         match self {
             Self::Row(mark) => mark.facet_empty_cell_policy(),
             Self::Col(mark) => mark.facet_empty_cell_policy(),
+            Self::Wrap(mark) => mark.facet_empty_cell_policy(),
         }
     }
 
@@ -767,6 +1116,7 @@ impl<'a> FacetSubplotRef<'a> {
         match self {
             Self::Row(mark) => mark.render_with_context(context),
             Self::Col(mark) => mark.render_with_context(context),
+            Self::Wrap(mark) => mark.render_with_context(context),
         }
     }
 }
@@ -782,6 +1132,10 @@ pub fn facet_subplot_ref(mark: &dyn CompiledMark) -> Option<FacetSubplotRef<'_>>
             .as_any()
             .downcast_ref::<CompiledFacetRowSubplot>()
             .map(FacetSubplotRef::Row),
+        "facet_wrap" => mark
+            .as_any()
+            .downcast_ref::<CompiledFacetWrapSubplot>()
+            .map(FacetSubplotRef::Wrap),
         _ => None,
     }
 }

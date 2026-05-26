@@ -31,6 +31,8 @@ pub struct CellDomainInfo {
     pub domain_sharing_level: u8,
     /// Facet depth (1-based) for sharing comparison
     pub facet_depth: u8,
+    /// Optional already-projected owner path for logical facet sharing.
+    pub owner_path: Option<Vec<ScalarValue>>,
     /// The domain extent
     pub extent: DomainExtent,
 }
@@ -213,6 +215,19 @@ pub(crate) async fn measure_coordinate_system_transform(
     if any.is::<crate::facet::coord::FacetColumn>() {
         return Box::pin(crate::facet::coord::measure_facet_column(
             request.scales(),
+            request.plot_height(),
+            request.eval_ctx(),
+            request.data(),
+            request.compiled_marks(),
+            request.facet_path(),
+        ))
+        .await;
+    }
+
+    if any.is::<crate::facet::coord::FacetWrap>() {
+        return Box::pin(crate::facet::coord::measure_facet_wrap(
+            request.scales(),
+            request.plot_width(),
             request.plot_height(),
             request.eval_ctx(),
             request.data(),

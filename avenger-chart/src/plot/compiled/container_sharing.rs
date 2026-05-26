@@ -5,9 +5,11 @@
 //! coordination scope wrappers that still depend on `CompiledPlot` container
 //! identity.
 
+#[cfg(test)]
+use avenger_chart_core::enumeration_ancestor_path;
 pub(crate) use avenger_chart_core::{
-    ContainerEdgeLevelProjection, SharingGroupEdge, SharingLevel, enumeration_ancestor_path,
-    owner_for_edge, project_container_edge_levels, shared_path_key, sharing_group_boundary,
+    ContainerEdgeLevelProjection, SharingGroupEdge, SharingLevel, owner_for_edge,
+    project_container_edge_levels, shared_path_key, sharing_group_boundary,
 };
 
 use super::{CoordinationKind, CoordinationScopeKey};

@@ -139,6 +139,38 @@ pub trait SubplotMarkCore: Send + Sync {
         false
     }
 
+    fn facet_wrap_title_config(&self) -> Option<&str> {
+        None
+    }
+
+    fn facet_wrap_slot_sharing_config(&self) -> Option<ScaleSharing> {
+        None
+    }
+
+    fn facet_wrap_position_config(&self) -> Option<&str> {
+        None
+    }
+
+    fn facet_wrap_guide_visible_config(&self) -> Option<bool> {
+        None
+    }
+
+    fn facet_wrap_empty_cell_policy_config(&self) -> Option<FacetEmptyCellPolicy> {
+        None
+    }
+
+    fn facet_wrap_order_expr_config(&self) -> Option<&LogicalExprNode> {
+        None
+    }
+
+    fn facet_wrap_order_descending_config(&self) -> bool {
+        false
+    }
+
+    fn facet_wrap_columns_expr_config(&self) -> Option<&LogicalExprNode> {
+        None
+    }
+
     fn has_plot_level_data(&self) -> bool;
 
     async fn compile_child_plot(

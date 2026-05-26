@@ -30,6 +30,14 @@ pub(crate) struct SubplotConfig {
     pub(crate) facet_col_order_expr: Option<LogicalExprNode>,
     pub(crate) facet_row_order_descending: bool,
     pub(crate) facet_col_order_descending: bool,
+    pub(crate) facet_wrap_title: Option<String>,
+    pub(crate) facet_wrap_slot_sharing: Option<ScaleSharing>,
+    pub(crate) facet_wrap_position: Option<String>,
+    pub(crate) facet_wrap_guide_visible: Option<bool>,
+    pub(crate) facet_wrap_empty_cell_policy: Option<FacetEmptyCellPolicy>,
+    pub(crate) facet_wrap_order_expr: Option<LogicalExprNode>,
+    pub(crate) facet_wrap_order_descending: bool,
+    pub(crate) facet_wrap_columns_expr: Option<LogicalExprNode>,
 }
 
 /// Mark that owns one child plot inside an outer coordinate system.
@@ -123,6 +131,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     }
 
     #[doc(hidden)]
+    #[allow(clippy::too_many_arguments)]
     pub fn set_facet_row_options(
         &mut self,
         title: Option<String>,
@@ -178,6 +187,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     }
 
     #[doc(hidden)]
+    #[allow(clippy::too_many_arguments)]
     pub fn set_facet_col_options(
         &mut self,
         title: Option<String>,
@@ -230,6 +240,69 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     #[doc(hidden)]
     pub fn facet_col_order_descending_config(&self) -> bool {
         self.config.facet_col_order_descending
+    }
+
+    #[doc(hidden)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_facet_wrap_options(
+        &mut self,
+        title: Option<String>,
+        slot_sharing: Option<ScaleSharing>,
+        position: Option<String>,
+        guide_visible: Option<bool>,
+        empty_cell_policy: Option<FacetEmptyCellPolicy>,
+        order_expr: Option<LogicalExprNode>,
+        order_descending: bool,
+        columns_expr: Option<LogicalExprNode>,
+    ) {
+        self.config.facet_wrap_title = title;
+        self.config.facet_wrap_slot_sharing = slot_sharing;
+        self.config.facet_wrap_position = position;
+        self.config.facet_wrap_guide_visible = guide_visible;
+        self.config.facet_wrap_empty_cell_policy = empty_cell_policy;
+        self.config.facet_wrap_order_expr = order_expr;
+        self.config.facet_wrap_order_descending = order_descending;
+        self.config.facet_wrap_columns_expr = columns_expr;
+    }
+
+    #[doc(hidden)]
+    pub fn facet_wrap_title_config(&self) -> Option<&str> {
+        self.config.facet_wrap_title.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn facet_wrap_slot_sharing_config(&self) -> Option<ScaleSharing> {
+        self.config.facet_wrap_slot_sharing
+    }
+
+    #[doc(hidden)]
+    pub fn facet_wrap_position_config(&self) -> Option<&str> {
+        self.config.facet_wrap_position.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn facet_wrap_guide_visible_config(&self) -> Option<bool> {
+        self.config.facet_wrap_guide_visible
+    }
+
+    #[doc(hidden)]
+    pub fn facet_wrap_empty_cell_policy_config(&self) -> Option<FacetEmptyCellPolicy> {
+        self.config.facet_wrap_empty_cell_policy
+    }
+
+    #[doc(hidden)]
+    pub fn facet_wrap_order_expr_config(&self) -> Option<&LogicalExprNode> {
+        self.config.facet_wrap_order_expr.as_ref()
+    }
+
+    #[doc(hidden)]
+    pub fn facet_wrap_order_descending_config(&self) -> bool {
+        self.config.facet_wrap_order_descending
+    }
+
+    #[doc(hidden)]
+    pub fn facet_wrap_columns_expr_config(&self) -> Option<&LogicalExprNode> {
+        self.config.facet_wrap_columns_expr.as_ref()
     }
 
     pub fn has_plot_level_data(&self) -> bool {
@@ -342,6 +415,38 @@ impl<OuterC: CoordinateSystemCore> SubplotMarkCore for Subplot<OuterC> {
 
     fn facet_col_order_descending_config(&self) -> bool {
         self.config.facet_col_order_descending
+    }
+
+    fn facet_wrap_title_config(&self) -> Option<&str> {
+        self.config.facet_wrap_title.as_deref()
+    }
+
+    fn facet_wrap_slot_sharing_config(&self) -> Option<ScaleSharing> {
+        self.config.facet_wrap_slot_sharing
+    }
+
+    fn facet_wrap_position_config(&self) -> Option<&str> {
+        self.config.facet_wrap_position.as_deref()
+    }
+
+    fn facet_wrap_guide_visible_config(&self) -> Option<bool> {
+        self.config.facet_wrap_guide_visible
+    }
+
+    fn facet_wrap_empty_cell_policy_config(&self) -> Option<FacetEmptyCellPolicy> {
+        self.config.facet_wrap_empty_cell_policy
+    }
+
+    fn facet_wrap_order_expr_config(&self) -> Option<&LogicalExprNode> {
+        self.config.facet_wrap_order_expr.as_ref()
+    }
+
+    fn facet_wrap_order_descending_config(&self) -> bool {
+        self.config.facet_wrap_order_descending
+    }
+
+    fn facet_wrap_columns_expr_config(&self) -> Option<&LogicalExprNode> {
+        self.config.facet_wrap_columns_expr.as_ref()
     }
 
     fn has_plot_level_data(&self) -> bool {

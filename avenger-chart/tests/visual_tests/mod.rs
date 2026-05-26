@@ -46,6 +46,7 @@ pub mod test_facet_row_polar;
 pub mod test_facet_row_shared;
 pub mod test_facet_row_x_top;
 pub mod test_facet_row_y_right;
+pub mod test_facet_wrap;
 pub mod test_fixed_canvas_and_plot;
 pub mod test_fixed_plot_area;
 pub mod test_formatting;

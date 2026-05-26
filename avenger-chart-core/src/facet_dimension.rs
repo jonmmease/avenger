@@ -1,8 +1,8 @@
-//! Shared row/column channel identifiers for facet subplot configuration.
+//! Shared facet channel identifiers for subplot configuration.
 
 /// Dimension configuration trait used by facet subplot marks.
 pub trait FacetDimensionConfig: Clone + Send + Sync + 'static {
-    /// Channel name used for this facet dimension ("row" or "column").
+    /// Channel name used for this facet dimension.
     fn channel_name() -> &'static str;
 }
 
@@ -23,5 +23,15 @@ pub struct ColumnDimensionConfig;
 impl FacetDimensionConfig for ColumnDimensionConfig {
     fn channel_name() -> &'static str {
         "column"
+    }
+}
+
+/// Wrapped faceting dimension configuration.
+#[derive(Clone, Debug)]
+pub struct WrapDimensionConfig;
+
+impl FacetDimensionConfig for WrapDimensionConfig {
+    fn channel_name() -> &'static str {
+        "wrap"
     }
 }
