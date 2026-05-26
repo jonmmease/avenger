@@ -32,8 +32,9 @@ use avenger_chart_core::{
 use crate::{
     concat::compiled_subplot as compiled_concat_subplot,
     coords::{
-        CoordMeasureRequest, CoordMeasurement, FacetAxis, coordinate_overflow_for_guides,
-        coordinate_overflow_for_guides_until, measure_coordinate_system_transform,
+        CoordMeasureRequest, CoordMeasurement, CoordinatedOverflow, FacetAxis,
+        coordinate_overflow_for_guides, coordinate_overflow_for_guides_until,
+        measure_coordinate_system_transform,
     },
     error::AvengerChartError,
     facet::{
@@ -47,7 +48,9 @@ use crate::{
         layout_plan::{FacetBandPaddingFeedback, FacetBandPaddingFeedbackMap},
         marks::facet::{FacetSubplotRef, facet_subplot_ref},
         overflow_projection::{
+            FacetOverflowPurpose, FacetOverflowResolutionPhase, FacetOverflowSource,
             boundary_profiles_for_measurement, compute_padding_from_boundary_profiles,
+            rendered_subtree_overflow_from_coord_measurement, resolve_facet_overflow,
         },
         subtree_plot_area::{LeafPlotAreaSize, estimate_root_plot_area_from_leaf_size},
     },
@@ -1686,8 +1689,10 @@ impl CompiledPlot {
         coord_measurement: Option<&dyn CoordMeasurement>,
         phase: GuideOverflowPhase,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
+        let coord_subtree_overflow =
+            Self::coord_rendered_subtree_total_overflow(coord_measurement, phase);
         let Some(compiled_guide) = &self.compiled_guide else {
-            return Ok(OverflowSpaceRequirement::default());
+            return Ok(coord_subtree_overflow.unwrap_or_default());
         };
 
         let configured_scales: HashMap<String, ConfiguredScale> = scales
@@ -1697,7 +1702,7 @@ impl CompiledPlot {
 
         let sharing_context =
             GuideSharingContext::new(facet_tree, facet_path, child_frame_sharing_path);
-        compiled_guide
+        let guide_overflow = compiled_guide
             .measure_overflow_for_phase(
                 &configured_scales,
                 plot_width,
@@ -1710,7 +1715,44 @@ impl CompiledPlot {
                 coord_measurement,
                 phase,
             )
-            .await
+            .await?;
+
+        Ok(coord_subtree_overflow
+            .map(|coord_overflow| guide_overflow.max_components(&coord_overflow))
+            .unwrap_or(guide_overflow))
+    }
+
+    fn coord_rendered_subtree_total_overflow(
+        coord_measurement: Option<&dyn CoordMeasurement>,
+        phase: GuideOverflowPhase,
+    ) -> Option<OverflowSpaceRequirement> {
+        let measurement = coord_measurement?;
+        let phase = match phase {
+            GuideOverflowPhase::Measurement => FacetOverflowResolutionPhase::Measurement,
+            GuideOverflowPhase::Final => FacetOverflowResolutionPhase::Final,
+        };
+        let resolved_overflow =
+            resolve_facet_overflow(measurement, phase, FacetOverflowPurpose::RenderedSubtree)
+                .map(|resolved| resolved.overflow);
+        let measured_overflow = if matches!(phase, FacetOverflowResolutionPhase::Final) {
+            rendered_subtree_overflow_from_coord_measurement(
+                measurement,
+                FacetOverflowSource::MeasuredLocal,
+            )
+        } else {
+            None
+        };
+
+        let overflow = match (resolved_overflow, measured_overflow) {
+            (Some(resolved), Some(measured)) => CoordinatedOverflow {
+                guide: resolved.guide.max_components(&measured.guide),
+                total: resolved.total.max_components(&measured.total),
+            },
+            (Some(resolved), None) => resolved,
+            (None, Some(measured)) => measured,
+            (None, None) => return None,
+        };
+        Some(overflow.total)
     }
 
     async fn rebuild_layout_with_coord_overflow(
@@ -4539,6 +4581,27 @@ mod tests {
         )
     }
 
+    fn build_simple_facet_wrap_plot(df: DataFrame) -> Plot<FacetWrap> {
+        Plot::<FacetWrap>::new()
+            .data(df)
+            .canvas_constraint(CanvasConstraint::width(360.0))
+            .plot_constraint(PlotConstraint::height(90.0))
+            .mark(
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(
+                        Symbol::new()
+                            .x(col("value"))
+                            .y(col("value"))
+                            .size(24.0)
+                            .fill("#4682b4"),
+                    ),
+                )
+                .wrap_with(col("category"), |c| {
+                    c.columns(2).guide(|g| g.title("Category"))
+                }),
+            )
+    }
+
     async fn legend_sharing_dataframe(ctx: &SessionContext) -> DataFrame {
         ctx.sql(
             "CREATE TABLE legend_sharing AS VALUES
@@ -5330,6 +5393,13 @@ mod tests {
             .plot_size(120.0, 90.0)
             .compile(ctx)
             .await
+    }
+
+    async fn compile_simple_facet_wrap_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = deeply_nested_dataframe(ctx);
+        build_simple_facet_wrap_plot(df).compile(ctx).await
     }
 
     async fn compile_simple_regular_plot(
@@ -6708,6 +6778,38 @@ mod tests {
             evaluated.scene_graph.width > 200.0,
             "canvas should include leaf plot width plus guide overflow"
         );
+    }
+
+    #[tokio::test]
+    async fn facet_wrap_without_public_guide_reserves_child_overflow()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = compile_simple_facet_wrap_plot(&ctx).await?;
+        let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+        let wrap_measurement =
+            facet_band_ref(&measurement).expect("FacetWrap should measure as a facet band");
+        let measured_subtree_overflow = wrap_measurement
+            .measured_overflow_value()
+            .expect("FacetWrap should carry measured subtree overflow");
+
+        assert!(
+            measured_subtree_overflow.total.top > 20.0,
+            "test setup should measure visible child facet guide overflow: {:?}",
+            measured_subtree_overflow
+        );
+        assert!(
+            measurement.layout.total_overflow.top > 20.0,
+            "FacetWrap has no public guide, but its measured child facet guide overflow must still reserve root canvas space: {:?}",
+            measurement.layout.total_overflow
+        );
+        assert!(
+            measurement.layout.frame_layout.plot_area.y
+                >= measurement.layout.total_overflow.top - 1.0,
+            "root plot area should be shifted below propagated FacetWrap child overflow: plot_y={} overflow_top={}",
+            measurement.layout.frame_layout.plot_area.y,
+            measurement.layout.total_overflow.top
+        );
+        Ok(())
     }
 
     #[tokio::test]
