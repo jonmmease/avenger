@@ -22,6 +22,8 @@ pub(crate) struct SubplotConfig {
     pub(crate) facet_col_slot_sharing: Option<ScaleSharing>,
     pub(crate) facet_row_position: Option<String>,
     pub(crate) facet_col_position: Option<String>,
+    pub(crate) facet_row_guide_visible: Option<bool>,
+    pub(crate) facet_col_guide_visible: Option<bool>,
     pub(crate) facet_row_empty_cell_policy: Option<FacetEmptyCellPolicy>,
     pub(crate) facet_col_empty_cell_policy: Option<FacetEmptyCellPolicy>,
     pub(crate) facet_row_order_expr: Option<LogicalExprNode>,
@@ -126,6 +128,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         title: Option<String>,
         slot_sharing: Option<ScaleSharing>,
         position: Option<String>,
+        guide_visible: Option<bool>,
         empty_cell_policy: Option<FacetEmptyCellPolicy>,
         order_expr: Option<LogicalExprNode>,
         order_descending: bool,
@@ -133,6 +136,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         self.config.facet_row_title = title;
         self.config.facet_row_slot_sharing = slot_sharing;
         self.config.facet_row_position = position;
+        self.config.facet_row_guide_visible = guide_visible;
         self.config.facet_row_empty_cell_policy = empty_cell_policy;
         self.config.facet_row_order_expr = order_expr;
         self.config.facet_row_order_descending = order_descending;
@@ -151,6 +155,11 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     #[doc(hidden)]
     pub fn facet_row_position_config(&self) -> Option<&str> {
         self.config.facet_row_position.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn facet_row_guide_visible_config(&self) -> Option<bool> {
+        self.config.facet_row_guide_visible
     }
 
     #[doc(hidden)]
@@ -174,6 +183,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         title: Option<String>,
         slot_sharing: Option<ScaleSharing>,
         position: Option<String>,
+        guide_visible: Option<bool>,
         empty_cell_policy: Option<FacetEmptyCellPolicy>,
         order_expr: Option<LogicalExprNode>,
         order_descending: bool,
@@ -181,6 +191,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         self.config.facet_col_title = title;
         self.config.facet_col_slot_sharing = slot_sharing;
         self.config.facet_col_position = position;
+        self.config.facet_col_guide_visible = guide_visible;
         self.config.facet_col_empty_cell_policy = empty_cell_policy;
         self.config.facet_col_order_expr = order_expr;
         self.config.facet_col_order_descending = order_descending;
@@ -199,6 +210,11 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     #[doc(hidden)]
     pub fn facet_col_position_config(&self) -> Option<&str> {
         self.config.facet_col_position.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn facet_col_guide_visible_config(&self) -> Option<bool> {
+        self.config.facet_col_guide_visible
     }
 
     #[doc(hidden)]
@@ -284,6 +300,10 @@ impl<OuterC: CoordinateSystemCore> SubplotMarkCore for Subplot<OuterC> {
         self.config.facet_row_position.as_deref()
     }
 
+    fn facet_row_guide_visible_config(&self) -> Option<bool> {
+        self.config.facet_row_guide_visible
+    }
+
     fn facet_row_empty_cell_policy_config(&self) -> Option<FacetEmptyCellPolicy> {
         self.config.facet_row_empty_cell_policy
     }
@@ -306,6 +326,10 @@ impl<OuterC: CoordinateSystemCore> SubplotMarkCore for Subplot<OuterC> {
 
     fn facet_col_position_config(&self) -> Option<&str> {
         self.config.facet_col_position.as_deref()
+    }
+
+    fn facet_col_guide_visible_config(&self) -> Option<bool> {
+        self.config.facet_col_guide_visible
     }
 
     fn facet_col_empty_cell_policy_config(&self) -> Option<FacetEmptyCellPolicy> {

@@ -95,10 +95,10 @@ async fn mixed_width_canvas_height_plot_nested_col_row_shared() {
                                 .size(48.0),
                         ),
                     )
-                    .row_with(col("team"), |c| c.facet(|f| f.title("team"))),
+                    .row_with(col("team"), |c| c.guide(|f| f.title("team"))),
                 ),
             )
-            .col_with(col("division"), |c| c.facet(|f| f.title("division"))),
+            .col_with(col("division"), |c| c.guide(|f| f.title("division"))),
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");

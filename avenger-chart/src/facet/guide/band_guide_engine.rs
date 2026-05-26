@@ -52,13 +52,27 @@ fn has_visible_anchor(anchor: f32) -> bool {
 }
 
 /// Shared guide state carried by row/column guide wrappers.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct FacetGuideState {
     pub(crate) facet_title: Option<String>,
     pub(crate) compiled_subplot: Option<Arc<CompiledPlot>>,
     pub(crate) facet_data_plan: Option<LogicalPlanNode>,
     pub(crate) position: Option<String>,
+    pub(crate) visible: bool,
     pub(crate) sharing_level: SharingLevel,
+}
+
+impl Default for FacetGuideState {
+    fn default() -> Self {
+        Self {
+            facet_title: None,
+            compiled_subplot: None,
+            facet_data_plan: None,
+            position: None,
+            visible: true,
+            sharing_level: SharingLevel::FREE,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -420,6 +434,10 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
     let (_band_positions, labels) = band_positions_and_labels::<O>(scales, coord_measurement)?;
     let place_at_end = O::place_at_end(state.position.as_deref());
     let axis_position = O::axis_position(place_at_end);
+    if !state.visible {
+        return Ok(subplot_overflow);
+    }
+
     let guide_visible =
         sharing_context.facet_guide_labels_visible(axis_position, state.sharing_level.raw());
     if !guide_visible {
@@ -510,6 +528,10 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
 ) -> Result<Vec<avenger_scenegraph::marks::mark::SceneMark>, AvengerChartError> {
     let place_at_end = O::place_at_end(state.position.as_deref());
     let axis_position = O::axis_position(place_at_end);
+    if !state.visible {
+        return Ok(vec![]);
+    }
+
     let guide_visible =
         sharing_context.facet_guide_labels_visible(axis_position, state.sharing_level.raw());
     if !guide_visible {

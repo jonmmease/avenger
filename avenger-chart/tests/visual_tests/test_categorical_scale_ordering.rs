@@ -139,7 +139,7 @@ async fn facet_free_categorical_band_order_by_max_desc() {
             Subplot::new(
                 Plot::<Cartesian>::new().mark(ordered_rect_mark(Some(ScaleSharing::Free))),
             )
-            .col_with(col("group"), |c| c.facet(|f| f.title("Group"))),
+            .col_with(col("group"), |c| c.guide(|f| f.title("Group"))),
         );
 
     let compiled = plot
@@ -166,7 +166,7 @@ async fn facet_free_categorical_ordinal_fill_order_by_max_desc() {
             Subplot::new(
                 Plot::<Cartesian>::new().mark(color_ordered_rect_mark(Some(ScaleSharing::Free))),
             )
-            .col_with(col("group"), |c| c.facet(|f| f.title("Group"))),
+            .col_with(col("group"), |c| c.guide(|f| f.title("Group"))),
         );
 
     let compiled = plot
@@ -193,7 +193,7 @@ async fn facet_shared_categorical_band_order_by_max_desc() {
             Subplot::new(
                 Plot::<Cartesian>::new().mark(ordered_rect_mark(Some(ScaleSharing::Shared))),
             )
-            .col_with(col("group"), |c| c.facet(|f| f.title("Group"))),
+            .col_with(col("group"), |c| c.guide(|f| f.title("Group"))),
         );
 
     let compiled = plot
@@ -220,7 +220,7 @@ async fn facet_shared_categorical_ordinal_fill_order_by_max_desc() {
             Subplot::new(
                 Plot::<Cartesian>::new().mark(color_ordered_rect_mark(Some(ScaleSharing::Shared))),
             )
-            .col_with(col("group"), |c| c.facet(|f| f.title("Group"))),
+            .col_with(col("group"), |c| c.guide(|f| f.title("Group"))),
         );
 
     let compiled = plot

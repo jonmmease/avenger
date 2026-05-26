@@ -307,7 +307,7 @@ async fn test_shared_sharing_nested_row_row() {
                     Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))),
                 )
                 .row_with(col("species"), |c| {
-                    c.facet(|f| f.with_slot_sharing(ScaleSharing::Shared))
+                    c.with_slot_sharing(ScaleSharing::Shared)
                 }),
             ),
         )
@@ -355,7 +355,7 @@ async fn test_sharing_level_stored_in_node() {
                     Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))),
                 )
                 .row_with(col("species"), |c| {
-                    c.facet(|f| f.with_slot_sharing(ScaleSharing::Level(2)))
+                    c.with_slot_sharing(ScaleSharing::Level(2))
                 }),
             ),
         )
@@ -474,9 +474,7 @@ async fn test_shared_nested_facet_ordering_uses_global_scope() {
                     Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))),
                 )
                 .row_with(col("species"), |c| {
-                    c.order_by(max(col("value")))
-                        .order_desc()
-                        .facet(|f| f.share_slots())
+                    c.order_by(max(col("value"))).order_desc().share_slots()
                 }),
             ),
         )
@@ -549,14 +547,14 @@ async fn test_level1_nested_facet_ordering_uses_ancestor_scope() {
                         .row_with(col("team"), |c| {
                             c.order_by(max(col("value")))
                                 .order_desc()
-                                .facet(|f| f.with_slot_sharing(ScaleSharing::Level(1)))
+                                .with_slot_sharing(ScaleSharing::Level(1))
                         }),
                     ),
                 )
-                .col_with(col("department"), |c| c.facet(|f| f.free_slots())),
+                .col_with(col("department"), |c| c.free_slots()),
             ),
         )
-        .col_with(col("division"), |c| c.facet(|f| f.free_slots())),
+        .col_with(col("division"), |c| c.free_slots()),
     );
 
     let compiled = plot.compile(&ctx).await.expect("compile");

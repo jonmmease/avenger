@@ -832,10 +832,10 @@ mod tests {
                                     .size(42.0),
                             ),
                         )
-                        .row_with(col("inner_group"), |c| c.facet(|f| f.title("Inner Group"))),
+                        .row_with(col("inner_group"), |c| c.guide(|f| f.title("Inner Group"))),
                     ),
                 )
-                .col_with(col("outer_group"), |c| c.facet(|f| f.title("Outer Group"))),
+                .col_with(col("outer_group"), |c| c.guide(|f| f.title("Outer Group"))),
             )
     }
 
@@ -855,10 +855,10 @@ mod tests {
                                     .size(42.0),
                             ),
                         )
-                        .col_with(col("inner_group"), |c| c.facet(|f| f.title("Inner Group"))),
+                        .col_with(col("inner_group"), |c| c.guide(|f| f.title("Inner Group"))),
                     ),
                 )
-                .col_with(col("outer_group"), |c| c.facet(|f| f.title("Outer Group"))),
+                .col_with(col("outer_group"), |c| c.guide(|f| f.title("Outer Group"))),
             )
     }
 

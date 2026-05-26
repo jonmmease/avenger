@@ -79,13 +79,13 @@ fn scoped_facet_plot(
 ) -> Plot<FacetRow> {
     let leaf = scoped_leaf(background_scope, aggregate_scope);
     let col_plot = Plot::<FacetColumn>::new()
-        .mark(Subplot::new(leaf).col_with(col("facet_col"), |c| c.facet(|f| f.title("Column"))));
+        .mark(Subplot::new(leaf).col_with(col("facet_col"), |c| c.guide(|f| f.title("Column"))));
 
     Plot::<FacetRow>::new()
         .data(df)
         .canvas_size(980, 680)
         .title(title)
-        .mark(Subplot::new(col_plot).row_with(col("facet_row"), |c| c.facet(|f| f.title("Row"))))
+        .mark(Subplot::new(col_plot).row_with(col("facet_row"), |c| c.guide(|f| f.title("Row"))))
 }
 
 async fn assert_facet_data_scope_baseline(

@@ -111,7 +111,7 @@ async fn facet_column_with_title() {
                     .fill("#4682b4"),
             ),
         )
-        .col_with(col("species"), |c| c.facet(|f| f.title("Iris Species"))),
+        .col_with(col("species"), |c| c.guide(|f| f.title("Iris Species"))),
     );
 
     let compiled = outer.compile(&ctx).await.expect("compile outer");
@@ -223,7 +223,7 @@ async fn facet_column_bottom_x_bottom() {
                     .fill("#4682b4"),
             ),
         )
-        .col_with(col("species"), |c| c.facet(|f| f.position("bottom"))),
+        .col_with(col("species"), |c| c.guide(|f| f.position("bottom"))),
     );
 
     let compiled = outer.compile(&ctx).await.expect("compile outer");
@@ -250,7 +250,7 @@ async fn facet_column_bottom_x_top() {
                     .fill("#4682b4"),
             ),
         )
-        .col_with(col("species"), |c| c.facet(|f| f.position("bottom"))),
+        .col_with(col("species"), |c| c.guide(|f| f.position("bottom"))),
     );
 
     let compiled = outer.compile(&ctx).await.expect("compile outer");

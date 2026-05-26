@@ -29,7 +29,7 @@ use crate::facet::guide::band_guide_engine::GuideAnchorSource;
 use avenger_chart_core::CoordinatedOverflow;
 
 /// Guide configuration for FacetCol coordinate system
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct FacetColGuideConfig {
     /// Optional facet title
     pub facet_title: Option<String>,
@@ -39,8 +39,23 @@ pub struct FacetColGuideConfig {
     facet_data_plan: Option<LogicalPlanNode>,
     /// Position of facet labels ("top" or "bottom")
     position: Option<String>,
+    /// Whether to render the facet guide.
+    visible: bool,
     /// Slot-sharing level for the column facet variable (0=Free, N=Level(N), 255=Shared)
     sharing_level: u8,
+}
+
+impl Default for FacetColGuideConfig {
+    fn default() -> Self {
+        Self {
+            facet_title: None,
+            compiled_subplot: None,
+            facet_data_plan: None,
+            position: None,
+            visible: true,
+            sharing_level: 0,
+        }
+    }
 }
 
 impl FacetColGuideConfig {
@@ -76,6 +91,7 @@ impl CoordinateGuide for FacetColGuideConfig {
                 self.facet_data_plan = mark.data_context().logical_plan_node().cloned();
                 self.facet_title = facet_col.facet_title().map(|s| s.to_string());
                 self.position = facet_col.facet_position().map(|s| s.to_string());
+                self.visible = facet_col.facet_guide_visible();
                 self.sharing_level = facet_col
                     .facet_slot_sharing()
                     .map(|sharing| sharing.to_level())
@@ -95,6 +111,7 @@ impl CoordinateGuide for FacetColGuideConfig {
             compiled_subplot: self.compiled_subplot,
             facet_data_plan: self.facet_data_plan,
             position: self.position,
+            visible: self.visible,
             sharing_level: self.sharing_level,
         })
     }
@@ -102,7 +119,7 @@ impl CoordinateGuide for FacetColGuideConfig {
 
 /// Compiled guide for FacetCol coordinate system
 #[serde_as]
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct FacetColGuide {
     /// Optional facet title
     pub facet_title: Option<String>,
@@ -113,9 +130,29 @@ pub struct FacetColGuide {
     facet_data_plan: Option<LogicalPlanNode>,
     /// Position of facet labels ("top" or "bottom")
     position: Option<String>,
+    /// Whether to render the facet guide.
+    #[serde(default = "default_true")]
+    visible: bool,
     /// Slot-sharing level for the column facet variable (0=Free, N=Level(N), 255=Shared)
     #[serde(default)]
     sharing_level: u8,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for FacetColGuide {
+    fn default() -> Self {
+        Self {
+            facet_title: None,
+            compiled_subplot: None,
+            facet_data_plan: None,
+            position: None,
+            visible: true,
+            sharing_level: 0,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -272,6 +309,7 @@ impl FacetColGuide {
             compiled_subplot: self.compiled_subplot.clone(),
             facet_data_plan: self.facet_data_plan.clone(),
             position: self.position.clone(),
+            visible: self.visible,
             sharing_level: SharingLevel::from_raw(self.sharing_level),
         }
     }

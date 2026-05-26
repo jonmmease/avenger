@@ -6,4 +6,4 @@ pub use facet::{
     CompiledFacetColumnSubplot, CompiledFacetRowSubplot, FacetColumnSubplotChannels,
     FacetRowSubplotChannels,
 };
-pub use facet_config::{FacetColChannelConfig, FacetRowChannelConfig};
+pub use facet_config::{FacetColChannelConfig, FacetGuideOptions, FacetRowChannelConfig};

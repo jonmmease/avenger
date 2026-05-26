@@ -349,11 +349,11 @@ async fn test_nested_free_row_with_titles() {
                                 .fill("#4682b4"),
                         ),
                     )
-                    .row_with(col("species"), |c| c.facet(|f| f.title("Species"))),
+                    .row_with(col("species"), |c| c.guide(|f| f.title("Species"))),
                 ),
             )
             .col_with(col("petal_width_bin"), |c| {
-                c.facet(|f| f.title("Petal Width"))
+                c.guide(|f| f.title("Petal Width"))
             }),
         );
 
@@ -400,11 +400,11 @@ async fn test_nested_free_row_with_unified_titles() {
                                 .fill("#4682b4"),
                         ),
                     )
-                    .row_with(col("species"), |c| c.facet(|f| f.title("Species"))),
+                    .row_with(col("species"), |c| c.guide(|f| f.title("Species"))),
                 ),
             )
             .col_with(col("petal_width_bin"), |c| {
-                c.facet(|f| f.title("Petal Width"))
+                c.guide(|f| f.title("Petal Width"))
             }),
         );
 
@@ -1022,7 +1022,7 @@ async fn test_nested_shared_row_basic() {
                         ),
                     )
                     // KEY: share_slots() causes domain to be computed from full dataset
-                    .row_with(col("species"), |c| c.facet(|f| f.share_slots())),
+                    .row_with(col("species"), |c| c.share_slots()),
                 ),
             )
             .column(col("length_bin")),
@@ -1064,12 +1064,12 @@ async fn test_nested_shared_row_with_titles() {
                         ),
                     )
                     .row_with(col("species"), |c| {
-                        c.facet(|f| f.title("Species").share_slots())
+                        c.share_slots().guide(|f| f.title("Species"))
                     }),
                 ),
             )
             .col_with(col("petal_width_bin"), |c| {
-                c.facet(|f| f.title("Petal Width"))
+                c.guide(|f| f.title("Petal Width"))
             }),
         );
 
@@ -1112,7 +1112,7 @@ async fn test_nested_shared_row_shared_both() {
                                 .fill("#4682b4"),
                         ),
                     )
-                    .row_with(col("species"), |c| c.facet(|f| f.share_slots())),
+                    .row_with(col("species"), |c| c.share_slots()),
                 ),
             )
             .column(col("petal_width_bin")),
@@ -1158,10 +1158,8 @@ async fn test_nested_shared_row_shared_both_empty_subplot() {
                         ),
                     )
                     .row_with(col("species"), |c| {
-                        c.facet(|f| {
-                            f.share_slots()
-                                .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
-                        })
+                        c.share_slots()
+                            .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
                     }),
                 ),
             )
@@ -1207,7 +1205,7 @@ async fn test_nested_shared_row_free_scales() {
                                 .fill("#4682b4"),
                         ),
                     )
-                    .row_with(col("species"), |c| c.facet(|f| f.share_slots())),
+                    .row_with(col("species"), |c| c.share_slots()),
                 ),
             )
             .column(col("petal_width_bin")),
@@ -1252,7 +1250,7 @@ async fn test_nested_shared_row_shared_x() {
                                 .fill("#4682b4"),
                         ),
                     )
-                    .row_with(col("species"), |c| c.facet(|f| f.share_slots())),
+                    .row_with(col("species"), |c| c.share_slots()),
                 ),
             )
             .column(col("petal_width_bin")),
@@ -1297,7 +1295,7 @@ async fn test_nested_shared_row_shared_y() {
                                 .fill("#4682b4"),
                         ),
                     )
-                    .row_with(col("species"), |c| c.facet(|f| f.share_slots())),
+                    .row_with(col("species"), |c| c.share_slots()),
                 ),
             )
             .column(col("petal_width_bin")),
@@ -1345,12 +1343,12 @@ async fn test_nested_shared_row_with_unified_titles() {
                         ),
                     )
                     .row_with(col("species"), |c| {
-                        c.facet(|f| f.title("Species").share_slots())
+                        c.share_slots().guide(|f| f.title("Species"))
                     }),
                 ),
             )
             .col_with(col("petal_width_bin"), |c| {
-                c.facet(|f| f.title("Petal Width"))
+                c.guide(|f| f.title("Petal Width"))
             }),
         );
 
@@ -1389,7 +1387,7 @@ async fn test_nested_shared_row_x_axis_top() {
                                 .fill("#4682b4"),
                         ),
                     )
-                    .row_with(col("species"), |c| c.facet(|f| f.share_slots())),
+                    .row_with(col("species"), |c| c.share_slots()),
                 ),
             )
             .column(col("petal_width_bin")),
@@ -1431,10 +1429,8 @@ async fn test_nested_shared_row_x_axis_top_empty_subplot() {
                         ),
                     )
                     .row_with(col("species"), |c| {
-                        c.facet(|f| {
-                            f.share_slots()
-                                .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
-                        })
+                        c.share_slots()
+                            .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
                     }),
                 ),
             )
@@ -1476,7 +1472,7 @@ async fn test_nested_shared_row_y_axis_right() {
                                 .fill("#4682b4"),
                         ),
                     )
-                    .row_with(col("species"), |c| c.facet(|f| f.share_slots())),
+                    .row_with(col("species"), |c| c.share_slots()),
                 ),
             )
             .column(col("petal_width_bin")),
@@ -1518,10 +1514,8 @@ async fn test_nested_shared_row_y_axis_right_empty_subplot() {
                         ),
                     )
                     .row_with(col("species"), |c| {
-                        c.facet(|f| {
-                            f.share_slots()
-                                .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
-                        })
+                        c.share_slots()
+                            .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
                     }),
                 ),
             )
@@ -1563,7 +1557,7 @@ async fn test_nested_shared_row_with_line_mark() {
                                 .stroke_width(2.0),
                         ),
                     )
-                    .row_with(col("species"), |c| c.facet(|f| f.share_slots())),
+                    .row_with(col("species"), |c| c.share_slots()),
                 ),
             )
             .column(col("petal_width_bin")),
@@ -1608,7 +1602,7 @@ async fn test_nested_shared_row_hybrid_sharing() {
                                 .fill("#4682b4"),
                         ),
                     )
-                    .row_with(col("species"), |c| c.facet(|f| f.share_slots())),
+                    .row_with(col("species"), |c| c.share_slots()),
                 ),
             )
             .column(col("petal_width_bin")),
@@ -1654,10 +1648,8 @@ async fn test_nested_shared_row_hybrid_sharing_empty_subplot() {
                         ),
                     )
                     .row_with(col("species"), |c| {
-                        c.facet(|f| {
-                            f.share_slots()
-                                .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
-                        })
+                        c.share_slots()
+                            .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
                     }),
                 ),
             )
@@ -1718,7 +1710,7 @@ async fn test_nested_shared_col_shared_both() {
                     ),
                 )
                 // KEY: share_slots() causes domain to be computed from full dataset
-                .col_with(col("petal_width_bin"), |c| c.facet(|f| f.share_slots())),
+                .col_with(col("petal_width_bin"), |c| c.share_slots()),
             ),
         )
         .row(col("species")),
@@ -1761,10 +1753,8 @@ async fn test_nested_shared_col_shared_both_empty_subplot() {
                     ),
                 )
                 .col_with(col("petal_width_bin"), |c| {
-                    c.facet(|f| {
-                        f.share_slots()
-                            .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
-                    })
+                    c.share_slots()
+                        .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
                 }),
             ),
         )
@@ -2204,10 +2194,10 @@ async fn test_three_level_level2_y_right_axis() {
                                 .fill("#2ecc71"),
                         ),
                     )
-                    .row_with(col("country"), |c| c.facet(|f| f.title("Country"))),
+                    .row_with(col("country"), |c| c.guide(|f| f.title("Country"))),
                 ),
             )
-            .col_with(col("region"), |c| c.facet(|f| f.title("Region"))),
+            .col_with(col("region"), |c| c.guide(|f| f.title("Region"))),
         );
 
     let compiled = outer
@@ -2255,10 +2245,10 @@ async fn test_three_level_level2_x_top_axis() {
                                 .fill("#9b59b6"),
                         ),
                     )
-                    .row_with(col("country"), |c| c.facet(|f| f.title("Country"))),
+                    .row_with(col("country"), |c| c.guide(|f| f.title("Country"))),
                 ),
             )
-            .col_with(col("region"), |c| c.facet(|f| f.title("Region"))),
+            .col_with(col("region"), |c| c.guide(|f| f.title("Region"))),
         );
 
     let compiled = outer
@@ -2315,11 +2305,11 @@ async fn test_three_level_nesting_level1_y() {
                                 .fill("#4682b4"),
                         ),
                     )
-                    .row_with(col("species"), |c| c.facet(|f| f.title("Species"))),
+                    .row_with(col("species"), |c| c.guide(|f| f.title("Species"))),
                 ),
             )
             .col_with(col("petal_width_bin"), |c| {
-                c.facet(|f| f.title("Petal Width"))
+                c.guide(|f| f.title("Petal Width"))
             }),
         );
 
@@ -2366,11 +2356,11 @@ async fn test_three_level_nesting_shared_y() {
                                 .fill("#4682b4"),
                         ),
                     )
-                    .row_with(col("species"), |c| c.facet(|f| f.title("Species"))),
+                    .row_with(col("species"), |c| c.guide(|f| f.title("Species"))),
                 ),
             )
             .col_with(col("petal_width_bin"), |c| {
-                c.facet(|f| f.title("Petal Width"))
+                c.guide(|f| f.title("Petal Width"))
             }),
         );
 
@@ -2486,10 +2476,10 @@ async fn test_three_level_level2_y() {
                                 .fill("#e74c3c"),
                         ),
                     )
-                    .row_with(col("country"), |c| c.facet(|f| f.title("Country"))),
+                    .row_with(col("country"), |c| c.guide(|f| f.title("Country"))),
                 ),
             )
-            .col_with(col("region"), |c| c.facet(|f| f.title("Region"))),
+            .col_with(col("region"), |c| c.guide(|f| f.title("Region"))),
         );
 
     let compiled = outer
@@ -2529,10 +2519,10 @@ async fn test_three_level_level1_y() {
                                 .fill("#3498db"),
                         ),
                     )
-                    .row_with(col("country"), |c| c.facet(|f| f.title("Country"))),
+                    .row_with(col("country"), |c| c.guide(|f| f.title("Country"))),
                 ),
             )
-            .col_with(col("region"), |c| c.facet(|f| f.title("Region"))),
+            .col_with(col("region"), |c| c.guide(|f| f.title("Region"))),
         );
 
     let compiled = outer
@@ -2575,10 +2565,10 @@ async fn test_three_level_level2_x() {
                                 .fill("#27ae60"),
                         ),
                     )
-                    .row_with(col("country"), |c| c.facet(|f| f.title("Country"))),
+                    .row_with(col("country"), |c| c.guide(|f| f.title("Country"))),
                 ),
             )
-            .col_with(col("region"), |c| c.facet(|f| f.title("Region"))),
+            .col_with(col("region"), |c| c.guide(|f| f.title("Region"))),
         );
 
     let compiled = outer
@@ -2619,10 +2609,10 @@ async fn test_three_level_level1_x() {
                                 .fill("#9b59b6"),
                         ),
                     )
-                    .row_with(col("country"), |c| c.facet(|f| f.title("Country"))),
+                    .row_with(col("country"), |c| c.guide(|f| f.title("Country"))),
                 ),
             )
-            .col_with(col("region"), |c| c.facet(|f| f.title("Region"))),
+            .col_with(col("region"), |c| c.guide(|f| f.title("Region"))),
         );
 
     let compiled = outer
@@ -2665,10 +2655,10 @@ async fn test_three_level_mixed_x_shared_y_level2() {
                                 .fill("#f39c12"),
                         ),
                     )
-                    .row_with(col("country"), |c| c.facet(|f| f.title("Country"))),
+                    .row_with(col("country"), |c| c.guide(|f| f.title("Country"))),
                 ),
             )
-            .col_with(col("region"), |c| c.facet(|f| f.title("Region"))),
+            .col_with(col("region"), |c| c.guide(|f| f.title("Region"))),
         );
 
     let compiled = outer
@@ -2718,10 +2708,10 @@ async fn test_three_level_mixed_x_level2_y_shared() {
                                 .fill("#1abc9c"),
                         ),
                     )
-                    .row_with(col("country"), |c| c.facet(|f| f.title("Country"))),
+                    .row_with(col("country"), |c| c.guide(|f| f.title("Country"))),
                 ),
             )
-            .col_with(col("region"), |c| c.facet(|f| f.title("Region"))),
+            .col_with(col("region"), |c| c.guide(|f| f.title("Region"))),
         );
 
     let compiled = outer
@@ -2993,13 +2983,13 @@ async fn test_four_level_level2_y() {
                                         .fill("#3498db"),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
                         ),
                     )
-                    .row_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
+                    .row_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
                 ),
             )
-            .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
         );
 
     let compiled = outer
@@ -3041,13 +3031,13 @@ async fn test_four_level_level3_y() {
                                         .fill("#9b59b6"),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
                         ),
                     )
-                    .row_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
+                    .row_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
                 ),
             )
-            .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
         );
 
     let compiled = outer
@@ -3284,10 +3274,10 @@ async fn test_explicit_domain_with_level2() {
                                 .fill("#1abc9c"),
                         ),
                     )
-                    .row_with(col("country"), |c| c.facet(|f| f.title("Country"))),
+                    .row_with(col("country"), |c| c.guide(|f| f.title("Country"))),
                 ),
             )
-            .col_with(col("region"), |c| c.facet(|f| f.title("Region"))),
+            .col_with(col("region"), |c| c.guide(|f| f.title("Region"))),
         );
 
     let compiled = outer
@@ -3330,7 +3320,7 @@ async fn test_level_exceeds_nesting_depth() {
                         .fill("#c0392b"),
                 ),
             )
-            .col_with(col("region"), |c| c.facet(|f| f.title("Region"))),
+            .col_with(col("region"), |c| c.guide(|f| f.title("Region"))),
         );
 
     let compiled = outer
@@ -3568,13 +3558,13 @@ async fn test_four_level_row_col_row_col() {
                                         .fill("#e74c3c"),
                                 ),
                             )
-                            .row_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            .row_with(col("team"), |c| c.guide(|f| f.title("Team"))),
                         ),
                     )
-                    .col_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
+                    .col_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
                 ),
             )
-            .row_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+            .row_with(col("division"), |c| c.guide(|f| f.title("Division"))),
         );
 
     let compiled = outer
@@ -3621,13 +3611,13 @@ async fn test_four_level_col_col_row_row() {
                                         .fill("#27ae60"),
                                 ),
                             )
-                            .row_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            .row_with(col("team"), |c| c.guide(|f| f.title("Team"))),
                         ),
                     )
-                    .col_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
+                    .col_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
                 ),
             )
-            .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
         );
 
     let compiled = outer
@@ -3674,13 +3664,13 @@ async fn test_four_level_row_row_col_col() {
                                         .fill("#f39c12"),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
                         ),
                     )
-                    .row_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
+                    .row_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
                 ),
             )
-            .row_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+            .row_with(col("division"), |c| c.guide(|f| f.title("Division"))),
         );
 
     let compiled = outer
@@ -3727,16 +3717,16 @@ async fn test_four_level_row_row_row_row() {
                                                 .fill("#e74c3c"),
                                         ),
                                     )
-                                    .row_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
+                                    .row_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
                                 ),
                             )
-                            .row_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            .row_with(col("team"), |c| c.guide(|f| f.title("Team"))),
                         ),
                     )
-                    .row_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
+                    .row_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
                 ),
             )
-            .row_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+            .row_with(col("division"), |c| c.guide(|f| f.title("Division"))),
         );
 
     let compiled = outer
@@ -3783,16 +3773,16 @@ async fn test_four_level_col_col_col_col() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
                         ),
                     )
-                    .col_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
+                    .col_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
                 ),
             )
-            .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
         );
 
     let compiled = outer
@@ -3840,18 +3830,18 @@ async fn test_four_level_col_col_col_col_dept_free() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
                         ),
                     )
                     .col_with(col("department"), |c| {
-                        c.facet(|f| f.title("Dept").free_slots())
+                        c.free_slots().guide(|f| f.title("Dept"))
                     }),
                 ),
             )
-            .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
         );
 
     let compiled = outer
@@ -3898,16 +3888,16 @@ async fn test_four_level_col_col_col_col_y_level2() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
                         ),
                     )
-                    .col_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
+                    .col_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
                 ),
             )
-            .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
         );
 
     let compiled = outer
@@ -3950,10 +3940,10 @@ async fn test_two_level_col_col() {
                                 .fill("#9b59b6"),
                         ),
                     )
-                    .col_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
+                    .col_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
                 ),
             )
-            .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
         );
 
     let compiled = outer.compile(&ctx).await.expect("compile col>col nesting");
@@ -3991,16 +3981,16 @@ async fn test_four_level_col_col_col_col_y_level2_right() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
                         ),
                     )
-                    .col_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
+                    .col_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
                 ),
             )
-            .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
         );
 
     let compiled = outer
@@ -4048,16 +4038,16 @@ async fn test_four_level_col_col_col_col_y_free() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
                         ),
                     )
-                    .col_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
+                    .col_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
                 ),
             )
-            .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
         );
 
     let compiled = outer
@@ -4105,16 +4095,16 @@ async fn test_four_level_col_col_col_col_y_level1() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
                         ),
                     )
-                    .col_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
+                    .col_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
                 ),
             )
-            .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
         );
 
     let compiled = outer
@@ -4162,18 +4152,18 @@ async fn test_four_level_col_col_col_col_y_level2_dept_free() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
                         ),
                     )
                     .col_with(col("department"), |c| {
-                        c.facet(|f| f.title("Dept").free_slots())
+                        c.free_slots().guide(|f| f.title("Dept"))
                     }),
                 ),
             )
-            .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
         );
 
     let compiled = outer
@@ -4222,18 +4212,18 @@ async fn test_four_level_col_col_col_col_y_level2_right_dept_free() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
                         ),
                     )
                     .col_with(col("department"), |c| {
-                        c.facet(|f| f.title("Dept").free_slots())
+                        c.free_slots().guide(|f| f.title("Dept"))
                     }),
                 ),
             )
-            .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
         );
 
     let compiled = outer
@@ -4282,18 +4272,18 @@ async fn test_four_level_col_col_col_col_y_free_dept_free() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
                         ),
                     )
                     .col_with(col("department"), |c| {
-                        c.facet(|f| f.title("Dept").free_slots())
+                        c.free_slots().guide(|f| f.title("Dept"))
                     }),
                 ),
             )
-            .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
         );
 
     let compiled = outer
@@ -4341,18 +4331,18 @@ async fn test_four_level_col_col_col_col_y_level1_dept_free() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            .col_with(col("team"), |c| c.guide(|f| f.title("Team"))),
                         ),
                     )
                     .col_with(col("department"), |c| {
-                        c.facet(|f| f.title("Dept").free_slots())
+                        c.free_slots().guide(|f| f.title("Dept"))
                     }),
                 ),
             )
-            .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
         );
 
     let compiled = outer
@@ -4397,15 +4387,15 @@ async fn test_four_level_col_col_row_row_dept_free() {
                                         .fill("#27ae60"),
                                 ),
                             )
-                            .row_with(col("team"), |c| c.facet(|f| f.title("Team"))),
+                            .row_with(col("team"), |c| c.guide(|f| f.title("Team"))),
                         ),
                     )
                     .col_with(col("department"), |c| {
-                        c.facet(|f| f.title("Dept").free_slots())
+                        c.free_slots().guide(|f| f.title("Dept"))
                     }),
                 ),
             )
-            .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
         );
 
     let compiled = outer
@@ -4457,16 +4447,16 @@ async fn test_four_level_col_col_col_col_team_free_asymmetric() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
                                 ),
                             )
-                            .col_with(col("team"), |c| c.facet(|f| f.title("Team").free_slots())),
+                            .col_with(col("team"), |c| c.free_slots().guide(|f| f.title("Team"))),
                         ),
                     )
-                    .col_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
+                    .col_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
                 ),
             )
-            .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
         );
 
     let compiled = outer
@@ -4518,22 +4508,21 @@ async fn test_four_level_col_col_col_col_dept_free_team_level2() {
                                                 .fill("#9b59b6"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
                                 ),
                             )
                             .col_with(col("team"), |c| {
-                                c.facet(|f| {
-                                    f.title("Team").with_slot_sharing(ScaleSharing::Level(2))
-                                })
+                                c.with_slot_sharing(ScaleSharing::Level(2))
+                                    .guide(|f| f.title("Team"))
                             }),
                         ),
                     )
                     .col_with(col("department"), |c| {
-                        c.facet(|f| f.title("Dept").free_slots())
+                        c.free_slots().guide(|f| f.title("Dept"))
                     }),
                 ),
             )
-            .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
         );
 
     let compiled = outer
@@ -4586,22 +4575,21 @@ async fn test_four_level_col_col_col_col_dept_free_team_level1() {
                                                 .fill("#3498db"),
                                         ),
                                     )
-                                    .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
+                                    .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
                                 ),
                             )
                             .col_with(col("team"), |c| {
-                                c.facet(|f| {
-                                    f.title("Team").with_slot_sharing(ScaleSharing::Level(1))
-                                })
+                                c.with_slot_sharing(ScaleSharing::Level(1))
+                                    .guide(|f| f.title("Team"))
                             }),
                         ),
                     )
                     .col_with(col("department"), |c| {
-                        c.facet(|f| f.title("Dept").free_slots())
+                        c.free_slots().guide(|f| f.title("Dept"))
                     }),
                 ),
             )
-            .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+            .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
         );
 
     let compiled = outer

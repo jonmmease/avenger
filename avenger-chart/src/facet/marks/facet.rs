@@ -28,6 +28,10 @@ use serde_with::{FromInto, serde_as};
 use std::{future::Future, pin::Pin, sync::Arc};
 use tracing::trace;
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Clone, Copy, Debug)]
 struct FacetBandRenderOps {
     axis: FacetAxis,
@@ -273,7 +277,7 @@ pub trait FacetRowSubplotChannels: Sized {
     /// Set the faceting channel for rows.
     fn row<V: Into<ChannelValue>>(self, value: V) -> Self;
 
-    /// Configure row with facet options (e.g., title, slot sharing).
+    /// Configure row faceting, including ordering, slot sharing, and guide options.
     fn row_with<V, F>(self, value: V, f: F) -> Self
     where
         V: Into<ChannelValue>,
@@ -296,6 +300,7 @@ impl FacetRowSubplotChannels for Subplot<FacetRow> {
             cfg.title,
             cfg.slot_sharing,
             cfg.position,
+            cfg.visible,
             cfg.empty_cell_policy,
             cfg.order_expr,
             cfg.order_descending,
@@ -309,13 +314,13 @@ pub trait FacetColumnSubplotChannels: Sized {
     /// Set the faceting channel for columns.
     fn column<V: Into<ChannelValue>>(self, value: V) -> Self;
 
-    /// Configure column with facet options (e.g., title, slot sharing, position).
+    /// Configure column faceting, including ordering, slot sharing, and guide options.
     fn col_with<V, F>(self, value: V, f: F) -> Self
     where
         V: Into<ChannelValue>,
         F: FnOnce(FacetColChannelConfig) -> FacetColChannelConfig;
 
-    /// Configure column with facet options.
+    /// Configure column faceting, including ordering, slot sharing, and guide options.
     fn column_with<V, F>(self, value: V, f: F) -> Self
     where
         V: Into<ChannelValue>,
@@ -338,6 +343,7 @@ impl FacetColumnSubplotChannels for Subplot<FacetColumn> {
             cfg.title,
             cfg.slot_sharing,
             cfg.position,
+            cfg.visible,
             cfg.empty_cell_policy,
             cfg.order_expr,
             cfg.order_descending,
@@ -406,6 +412,8 @@ pub struct CompiledFacetRowSubplot {
     pub(crate) facet_title: Option<String>,
     pub(crate) facet_slot_sharing: Option<ScaleSharing>,
     pub(crate) facet_position: Option<String>,
+    #[serde(default = "default_true")]
+    pub(crate) facet_guide_visible: bool,
     #[serde(default)]
     pub(crate) facet_empty_cell_policy: FacetEmptyCellPolicy,
     #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
@@ -433,6 +441,9 @@ impl CompiledFacetRowSubplot {
     }
     pub fn facet_position(&self) -> Option<&str> {
         self.facet_position.as_deref()
+    }
+    pub fn facet_guide_visible(&self) -> bool {
+        self.facet_guide_visible
     }
     pub fn facet_empty_cell_policy(&self) -> FacetEmptyCellPolicy {
         self.facet_empty_cell_policy
@@ -485,6 +496,7 @@ impl SubplotContainerCoordinateSystem for FacetRow {
             facet_title,
             facet_slot_sharing: subplot.facet_row_slot_sharing_config(),
             facet_position: subplot.facet_row_position_config().map(ToOwned::to_owned),
+            facet_guide_visible: subplot.facet_row_guide_visible_config().unwrap_or(true),
             facet_empty_cell_policy: subplot
                 .facet_row_empty_cell_policy_config()
                 .unwrap_or_default(),
@@ -600,6 +612,8 @@ pub struct CompiledFacetColumnSubplot {
     pub(crate) facet_title: Option<String>,
     pub(crate) facet_slot_sharing: Option<ScaleSharing>,
     pub(crate) facet_position: Option<String>,
+    #[serde(default = "default_true")]
+    pub(crate) facet_guide_visible: bool,
     #[serde(default)]
     pub(crate) facet_empty_cell_policy: FacetEmptyCellPolicy,
     #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
@@ -627,6 +641,9 @@ impl CompiledFacetColumnSubplot {
     }
     pub fn facet_position(&self) -> Option<&str> {
         self.facet_position.as_deref()
+    }
+    pub fn facet_guide_visible(&self) -> bool {
+        self.facet_guide_visible
     }
     pub fn facet_empty_cell_policy(&self) -> FacetEmptyCellPolicy {
         self.facet_empty_cell_policy
@@ -679,6 +696,7 @@ impl SubplotContainerCoordinateSystem for FacetColumn {
             facet_title,
             facet_slot_sharing: subplot.facet_col_slot_sharing_config(),
             facet_position: subplot.facet_col_position_config().map(ToOwned::to_owned),
+            facet_guide_visible: subplot.facet_col_guide_visible_config().unwrap_or(true),
             facet_empty_cell_policy: subplot
                 .facet_col_empty_cell_policy_config()
                 .unwrap_or_default(),

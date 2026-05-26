@@ -4429,10 +4429,10 @@ mod tests {
                                     .fill("#4682b4"),
                             ),
                         )
-                        .row_with(col("sub_group"), |c| c.facet(|f| f.title("Sub Group"))),
+                        .row_with(col("sub_group"), |c| c.guide(|f| f.title("Sub Group"))),
                     ),
                 )
-                .col_with(col("outer_group"), |c| c.facet(|f| f.title("Outer Group"))),
+                .col_with(col("outer_group"), |c| c.guide(|f| f.title("Outer Group"))),
             )
     }
 
@@ -4460,22 +4460,21 @@ mod tests {
                                                     .fill("#3498db"),
                                             ),
                                         )
-                                        .col_with(col("subteam"), |c| c.facet(|f| f.title("Sub"))),
+                                        .col_with(col("subteam"), |c| c.guide(|f| f.title("Sub"))),
                                     ),
                                 )
                                 .col_with(col("team"), |c| {
-                                    c.facet(|f| {
-                                        f.title("Team").with_slot_sharing(ScaleSharing::Level(1))
-                                    })
+                                    c.with_slot_sharing(ScaleSharing::Level(1))
+                                        .guide(|f| f.title("Team"))
                                 }),
                             ),
                         )
                         .col_with(col("department"), |c| {
-                            c.facet(|f| f.title("Dept").free_slots())
+                            c.free_slots().guide(|f| f.title("Dept"))
                         }),
                     ),
                 )
-                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+                .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
             )
     }
 
@@ -4950,7 +4949,8 @@ mod tests {
                                 .mark(Symbol::new().x(col("x_val")).y(col("y_val")).size(35.0)),
                         )
                         .row_with(col("row_group"), |c| {
-                            c.facet(|f| f.with_slot_sharing(ScaleSharing::Shared).position("right"))
+                            c.with_slot_sharing(ScaleSharing::Shared)
+                                .guide(|f| f.position("right"))
                         }),
                     ),
                 )
@@ -4978,7 +4978,7 @@ mod tests {
                             ),
                         )
                         .row_with(col("row_group"), |c| {
-                            c.facet(|f| f.with_slot_sharing(ScaleSharing::Shared))
+                            c.with_slot_sharing(ScaleSharing::Shared)
                         }),
                     ),
                 )
@@ -5009,10 +5009,8 @@ mod tests {
                             ),
                         )
                         .row_with(col("row_group"), move |c| {
-                            c.facet(|f| {
-                                f.with_slot_sharing(ScaleSharing::Shared)
-                                    .empty_cell_policy(policy)
-                            })
+                            c.with_slot_sharing(ScaleSharing::Shared)
+                                .empty_cell_policy(policy)
                         }),
                     ),
                 )
@@ -5039,10 +5037,8 @@ mod tests {
                                     ),
                                 )
                                 .row_with(col("row_group"), |c| {
-                                    c.facet(|f| {
-                                        f.with_slot_sharing(ScaleSharing::Level(1))
-                                            .position("right")
-                                    })
+                                    c.with_slot_sharing(ScaleSharing::Level(1))
+                                        .guide(|f| f.position("right"))
                                 }),
                             ),
                         )
@@ -5146,10 +5142,10 @@ mod tests {
                                     .fill("#9b59b6"),
                             ),
                         )
-                        .col_with(col("department"), |c| c.facet(|f| f.title("Dept"))),
+                        .col_with(col("department"), |c| c.guide(|f| f.title("Dept"))),
                     ),
                 )
-                .col_with(col("division"), |c| c.facet(|f| f.title("Division"))),
+                .col_with(col("division"), |c| c.guide(|f| f.title("Division"))),
             )
             .compile(ctx)
             .await

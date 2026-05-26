@@ -210,10 +210,10 @@ fn row_col_positioned_subplot_plot(
                         subplot_x_sharing_level,
                         subplot_y_sharing_level,
                     ))
-                        .col_with(col("facet_col"), |c| c.facet(|f| f.title("Column"))),
+                        .col_with(col("facet_col"), |c| c.guide(|f| f.title("Column"))),
                 ),
             )
-            .row_with(col("facet_row"), |c| c.facet(|f| f.title("Row"))),
+            .row_with(col("facet_row"), |c| c.guide(|f| f.title("Row"))),
         )
 }
 
@@ -228,10 +228,10 @@ fn row_col_positioned_subplot_fill_plot(df: DataFrame, fill_sharing_level: u8) -
             Subplot::new(
                 Plot::<FacetColumn>::new().mark(
                     Subplot::new(positioned_fill_parent_plot(fill_sharing_level))
-                        .col_with(col("facet_col"), |c| c.facet(|f| f.title("Column"))),
+                        .col_with(col("facet_col"), |c| c.guide(|f| f.title("Column"))),
                 ),
             )
-            .row_with(col("facet_row"), |c| c.facet(|f| f.title("Row"))),
+            .row_with(col("facet_row"), |c| c.guide(|f| f.title("Row"))),
         )
 }
 

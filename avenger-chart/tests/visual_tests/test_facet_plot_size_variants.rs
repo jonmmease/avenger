@@ -135,7 +135,7 @@ async fn facet_plot_size_nested_col_row_col_empty_subplot_policy() {
                         ),
                     )
                     .row_with(col("dept"), |c| {
-                        c.facet(|f| f.empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot))
+                        c.empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
                     }),
                 ),
             )

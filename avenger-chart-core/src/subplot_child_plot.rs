@@ -95,6 +95,10 @@ pub trait SubplotMarkCore: Send + Sync {
         None
     }
 
+    fn facet_row_guide_visible_config(&self) -> Option<bool> {
+        None
+    }
+
     fn facet_row_empty_cell_policy_config(&self) -> Option<FacetEmptyCellPolicy> {
         None
     }
@@ -116,6 +120,10 @@ pub trait SubplotMarkCore: Send + Sync {
     }
 
     fn facet_col_position_config(&self) -> Option<&str> {
+        None
+    }
+
+    fn facet_col_guide_visible_config(&self) -> Option<bool> {
         None
     }
 

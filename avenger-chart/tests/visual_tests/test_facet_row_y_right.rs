@@ -30,7 +30,7 @@ async fn facet_row_iris_y_axis_right() {
                         .fill("#2e8b57"),
                 ),
             )
-            .row_with(col("species"), |c| c.facet(|f| f.title("Species"))),
+            .row_with(col("species"), |c| c.guide(|f| f.title("Species"))),
         )
         .canvas_size(600.0, 500.0);
 
