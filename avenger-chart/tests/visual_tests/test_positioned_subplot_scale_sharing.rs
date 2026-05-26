@@ -121,12 +121,14 @@ fn positioned_child_plot() -> Plot<Cartesian> {
             Symbol::<Cartesian>::new()
                 .x_with(col("child_x"), |c| {
                     c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                        .with_scale_sharing(ScaleSharing::Free)
                         .axis(|a| a.tick_count(3).title("child_x"))
                 })
                 .y_with(col("child_y"), |c| {
                     c.scale_with::<Linear>(|s| {
                         s.domain((lit(0.0), lit(1.0))).nice(false).zero(false)
                     })
+                    .with_scale_sharing(ScaleSharing::Free)
                     .axis(|a| a.tick_count(3).title("child_y"))
                 })
                 .fill("#0072b2")

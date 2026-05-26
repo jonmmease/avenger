@@ -14,12 +14,13 @@ use datafusion::{
         compute::cast,
         datatypes::{DataType as ArrowDataType, Float64Type},
     },
-    common::ScalarValue,
+    common::{DFSchema, ScalarValue, tree_node::Transformed},
     dataframe::DataFrame,
     functions_aggregate::min_max::{max, min},
-    logical_expr::{Expr, LogicalPlan, lit},
-    prelude::SessionContext,
+    logical_expr::{Expr, ExprSchemable, LogicalPlan, lit},
+    prelude::{SessionContext, col},
 };
+use datafusion_common::tree_node::{TransformedResult, TreeNode};
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 use tracing::trace;
@@ -46,6 +47,63 @@ pub struct PreparedScaleMark {
     pub mark: Arc<dyn CompiledMark>,
     pub dataframe: Option<DataFrame>,
     pub channels: IndexMap<String, ChannelValue>,
+}
+
+#[derive(Clone)]
+enum PreparedRadiusExpression {
+    Symmetric(Expr),
+    Asymmetric { lower: Expr, upper: Expr },
+}
+
+const RADIUS_CHANNEL_PLACEHOLDER_PREFIX: &str = "__avenger_radius_channel__";
+
+fn prepared_radius_from_serialized(
+    radius: &RadiusExpression,
+    ctx: &SessionContext,
+) -> Result<PreparedRadiusExpression, AvengerChartError> {
+    match radius {
+        RadiusExpression::Symmetric(node) => {
+            Ok(PreparedRadiusExpression::Symmetric(node.to_expr(ctx)?))
+        }
+        RadiusExpression::Asymmetric { lower, upper } => Ok(PreparedRadiusExpression::Asymmetric {
+            lower: lower.to_expr(ctx)?,
+            upper: upper.to_expr(ctx)?,
+        }),
+    }
+}
+
+fn substitute_radius_channel_placeholders(
+    expr: Expr,
+    resolve_channel: &dyn Fn(&str) -> Expr,
+) -> Result<Expr, AvengerChartError> {
+    expr.transform(&|candidate| {
+        if let Expr::Column(column) = &candidate
+            && let Some(channel_name) = column.name.strip_prefix(RADIUS_CHANNEL_PLACEHOLDER_PREFIX)
+        {
+            return Ok(Transformed::yes(resolve_channel(channel_name)));
+        }
+
+        Ok(Transformed::no(candidate))
+    })
+    .data()
+    .map_err(AvengerChartError::DataFusionError)
+}
+
+fn substitute_radius_expression_placeholders(
+    radius: PreparedRadiusExpression,
+    resolve_channel: &dyn Fn(&str) -> Expr,
+) -> Result<PreparedRadiusExpression, AvengerChartError> {
+    match radius {
+        PreparedRadiusExpression::Symmetric(expr) => Ok(PreparedRadiusExpression::Symmetric(
+            substitute_radius_channel_placeholders(expr, resolve_channel)?,
+        )),
+        PreparedRadiusExpression::Asymmetric { lower, upper } => {
+            Ok(PreparedRadiusExpression::Asymmetric {
+                lower: substitute_radius_channel_placeholders(lower, resolve_channel)?,
+                upper: substitute_radius_channel_placeholders(upper, resolve_channel)?,
+            })
+        }
+    }
 }
 
 impl PreparedScaleMark {
@@ -269,7 +327,7 @@ where
                     ctx,
                     &phase1_configured,
                     theme,
-                )
+                )?
             };
 
             // Cache the domain data under the BASE name (strip trailing numbers)
@@ -382,6 +440,8 @@ where
                                 }
                             }
                         }
+                    } else if expr.column_refs().is_empty() {
+                        expr.get_type(&DFSchema::empty()).ok()
                     } else {
                         None
                     }
@@ -543,7 +603,7 @@ fn get_radius_expression(
     ctx: &SessionContext,
     phase1_configured: &HashMap<String, ConfiguredScaleWithSpec>,
     theme: &Theme,
-) -> Option<RadiusExpression> {
+) -> Result<Option<PreparedRadiusExpression>, AvengerChartError> {
     // Check if scale supports radius expansion
     let scale_for_check = Scale::<Auto>::from_spec(spec.clone_box());
     let supports_radius = if let Ok(scale_impl) = scale_for_check.to_scale_impl() {
@@ -553,7 +613,7 @@ fn get_radius_expression(
     };
 
     if !supports_radius {
-        return None;
+        return Ok(None);
     }
 
     // Find a mark that uses this channel
@@ -619,14 +679,25 @@ fn get_radius_expression(
                         lit(0.0)
                     };
 
-                    // Get radius expression from mark
-                    return mark.radius_expression(channel, &resolve_channel);
+                    // Get the mark's radius formula using harmless placeholder
+                    // columns, then substitute the actual channel expressions.
+                    // This avoids serializing scale UDFs through mark crates
+                    // that only know about the core/default expression codec.
+                    let placeholder_channel = |ch_name: &str| -> Expr {
+                        col(format!("{RADIUS_CHANNEL_PLACEHOLDER_PREFIX}{ch_name}"))
+                    };
+                    let Some(radius) = mark.radius_expression(channel, &placeholder_channel) else {
+                        return Ok(None);
+                    };
+                    let prepared = prepared_radius_from_serialized(&radius, ctx)?;
+                    return substitute_radius_expression_placeholders(prepared, &resolve_channel)
+                        .map(Some);
                 }
             }
         }
     }
 
-    None
+    Ok(None)
 }
 
 /// Cache domain data for a channel in the ScaleBuilder
@@ -642,7 +713,7 @@ async fn cache_domain_data(
     params: &IndexMap<String, ScalarValue>,
     phase1_configured: &HashMap<String, ConfiguredScaleWithSpec>,
     builder: &mut ScaleBuilder,
-    radius_expr_opt: Option<RadiusExpression>,
+    radius_expr_opt: Option<PreparedRadiusExpression>,
     theme: &Theme,
 ) -> Result<(), AvengerChartError> {
     // Build a scale with domain and options to inspect domain (including any DomainExprs)
@@ -682,7 +753,7 @@ async fn cache_domain_data(
     }
 
     // Collect data expressions (and per-mark/per-override radius) for this scale
-    let mut entries: Vec<(Arc<DataFrame>, Expr, Option<RadiusExpression>)> = Vec::new();
+    let mut entries: Vec<(Arc<DataFrame>, Expr, Option<PreparedRadiusExpression>)> = Vec::new();
 
     // First, if the scale domain is DomainExprs from overrides, use those directly
     if let Some(domain) = scale.get_domain()
@@ -697,7 +768,11 @@ async fn cache_domain_data(
             let logical_plan = dataframe.to_logical_plan(ctx)?;
             let df = Arc::new(DataFrame::new(ctx.state().clone(), logical_plan));
             let expr_df = expr.to_expr(ctx)?;
-            entries.push((df, expr_df, radius.clone()));
+            let prepared_radius = radius
+                .as_ref()
+                .map(|radius| prepared_radius_from_serialized(radius, ctx))
+                .transpose()?;
+            entries.push((df, expr_df, prepared_radius));
         }
     }
 
@@ -728,7 +803,7 @@ async fn cache_domain_data(
                     && channel_scale_name == channel
                 {
                     // Helper to push (df, expr_df, per_mark_radius)
-                    let mut push_entry = |expr_df: Expr| {
+                    let mut push_entry = |expr_df: Expr| -> Result<(), AvengerChartError> {
                         // Compute per-mark radius (if supported by this scale)
                         let per_mark_radius = if let Ok(scale_impl) =
                             Scale::<Auto>::from_spec(spec.clone_box()).to_scale_impl()
@@ -781,7 +856,19 @@ async fn cache_domain_data(
                                         }
                                     }
                                 };
-                                mark.radius_expression(channel, &resolve_channel)
+                                let placeholder_channel = |ch_name: &str| -> Expr {
+                                    col(format!("{RADIUS_CHANNEL_PLACEHOLDER_PREFIX}{ch_name}"))
+                                };
+                                mark.radius_expression(channel, &placeholder_channel)
+                                    .map(|radius| {
+                                        let prepared =
+                                            prepared_radius_from_serialized(&radius, ctx)?;
+                                        substitute_radius_expression_placeholders(
+                                            prepared,
+                                            &resolve_channel,
+                                        )
+                                    })
+                                    .transpose()?
                             } else {
                                 None
                             }
@@ -789,6 +876,7 @@ async fn cache_domain_data(
                             None
                         };
                         entries.push((df.clone(), expr_df, per_mark_radius));
+                        Ok(())
                     };
 
                     // Use scale_input_expr to get an expression for domain collection.
@@ -796,7 +884,7 @@ async fn cache_domain_data(
                     // literal Value branches (they bypass the scale and shouldn't
                     // affect domain computation like min/max or distinct values).
                     if let Some(expr_df) = channel_value.scale_input_expr(ctx) {
-                        push_entry(expr_df);
+                        push_entry(expr_df)?;
                     }
                 }
             }
@@ -822,7 +910,18 @@ async fn cache_domain_data(
     // Cache domain data based on scale domain kind and radius requirement
     if has_any_radius {
         // Radius-aware scale - cache raw vectors
-        cache_radius_aware_data(channel, spec, options, &entries, ctx, params, builder, dt).await?;
+        cache_radius_aware_data(
+            channel,
+            spec,
+            options,
+            &entries,
+            radius_expr_opt.as_ref(),
+            ctx,
+            params,
+            builder,
+            dt,
+        )
+        .await?;
     } else if target_domain_kind == DomainKind::Categorical {
         cache_categorical_data(
             channel,
@@ -967,8 +1066,9 @@ async fn cache_radius_aware_data(
     channel: &str,
     spec: &Box<dyn ScaleSpec>,
     options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
-    entries: &[(Arc<DataFrame>, Expr, Option<RadiusExpression>)],
-    ctx: &SessionContext,
+    entries: &[(Arc<DataFrame>, Expr, Option<PreparedRadiusExpression>)],
+    global_radius_opt: Option<&PreparedRadiusExpression>,
+    _ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
     builder: &mut ScaleBuilder,
     dt: &ArrowDataType,
@@ -978,23 +1078,21 @@ async fn cache_radius_aware_data(
     let mut all_radius_upper = Vec::new();
 
     for (df, expr, mark_radius_opt) in entries {
-        let select_exprs = if let Some(mark_radius) = mark_radius_opt {
+        let select_exprs = if let Some(mark_radius) = mark_radius_opt.as_ref().or(global_radius_opt)
+        {
             match mark_radius {
-                RadiusExpression::Symmetric(radius_node) => {
-                    let radius_expr_df = radius_node.to_expr(ctx)?;
+                PreparedRadiusExpression::Symmetric(radius_expr_df) => {
                     vec![
                         expr.clone().alias("__position__"),
                         radius_expr_df.clone().alias("__radius_lower__"),
-                        radius_expr_df.alias("__radius_upper__"),
+                        radius_expr_df.clone().alias("__radius_upper__"),
                     ]
                 }
-                RadiusExpression::Asymmetric { lower, upper } => {
-                    let lower_expr_df = lower.to_expr(ctx)?;
-                    let upper_expr_df = upper.to_expr(ctx)?;
+                PreparedRadiusExpression::Asymmetric { lower, upper } => {
                     vec![
                         expr.clone().alias("__position__"),
-                        lower_expr_df.alias("__radius_lower__"),
-                        upper_expr_df.alias("__radius_upper__"),
+                        lower.clone().alias("__radius_lower__"),
+                        upper.clone().alias("__radius_upper__"),
                     ]
                 }
             }

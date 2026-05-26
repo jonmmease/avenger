@@ -16,7 +16,7 @@ use crate::{
     facet::{
         evaluated_facet_tree::EvaluatedFacetTree,
         marks::facet::{FacetSubplotRef, facet_subplot_ref},
-        path_math,
+        path_math, sharing_policy,
     },
     marks::CompiledMark,
     partition::PartitionKeyExtractor,
@@ -88,6 +88,7 @@ struct FacetChildFrameDomainInfoKey {
     canonical_full_cell_path: Vec<ScalarValue>,
     channel: String,
     facet_depth: u8,
+    preserve_child_frame_path: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -97,6 +98,7 @@ pub(crate) struct FacetChildFrameDomainInfo {
     pub(crate) channel: String,
     pub(crate) domain_sharing_level: SharingLevel,
     pub(crate) facet_depth: u8,
+    pub(crate) preserve_child_frame_path: bool,
     pub(crate) extent: DomainExtent,
 }
 
@@ -196,6 +198,7 @@ impl FacetScalePrecomputeStore {
                 canonical_full_cell_path: canonicalize_path(&info.full_cell_path),
                 channel: info.channel.clone(),
                 facet_depth: info.facet_depth,
+                preserve_child_frame_path: info.preserve_child_frame_path,
             };
             state.child_frame_domain_infos.insert(key, info);
         }
@@ -233,22 +236,25 @@ impl FacetScalePrecomputeStore {
             }
             sharing_levels
                 .entry(info.channel.clone())
-                .and_modify(|existing: &mut SharingLevel| {
-                    *existing = (*existing).max(info.domain_sharing_level)
+                .and_modify(|existing: &mut (SharingLevel, bool)| {
+                    if info.domain_sharing_level > existing.0 {
+                        *existing = (info.domain_sharing_level, info.preserve_child_frame_path);
+                    }
                 })
-                .or_insert(info.domain_sharing_level);
+                .or_insert((info.domain_sharing_level, info.preserve_child_frame_path));
         }
 
         let facet_depth = full_cell_path.len() as u8;
         sharing_levels
             .into_iter()
-            .filter_map(|(channel, sharing_level)| {
+            .filter_map(|(channel, (sharing_level, preserve_child_frame_path))| {
                 let key = child_frame_domain_coordination_scope_key(
                     relative_child_frame_path,
                     &channel,
                     full_cell_path,
                     sharing_level,
                     facet_depth,
+                    preserve_child_frame_path,
                 );
                 unified.get(&key).cloned().map(|extent| (channel, extent))
             })
@@ -278,7 +284,19 @@ pub(crate) fn child_frame_domain_coordination_scope_key(
     full_cell_path: &[ScalarValue],
     sharing_level: SharingLevel,
     facet_depth: u8,
+    preserve_child_frame_path: bool,
 ) -> CoordinationScopeKey {
+    if preserve_child_frame_path {
+        let ancestor_key =
+            sharing_policy::domain_group_key(full_cell_path, sharing_level, facet_depth);
+        return CoordinationScopeKey::partition_path_in_container(
+            CoordinationKind::ScaleDomain,
+            relative_child_frame_path.to_vec(),
+            ancestor_key,
+        )
+        .with_channel(channel);
+    }
+
     let facet_depth = facet_depth as usize;
     let total_depth = facet_depth.saturating_add(relative_child_frame_path.len());
     let keep_count = if sharing_level.raw() as usize >= total_depth {
@@ -315,6 +333,7 @@ fn child_frame_domain_request_for_info(
                 &info.full_cell_path,
                 info.domain_sharing_level,
                 info.facet_depth,
+                info.preserve_child_frame_path,
             ),
             info.extent.clone(),
         )
@@ -650,6 +669,30 @@ fn explicit_dataframe_for_plot(
     })
 }
 
+#[derive(Debug, Clone, Copy)]
+struct EffectiveChildFrameDomainSharing {
+    level: SharingLevel,
+    preserve_child_frame_path: bool,
+}
+
+fn effective_child_frame_domain_sharing(
+    channel: &str,
+    explicit_sharing: &HashMap<String, SharingLevel>,
+    facet_tree: &EvaluatedFacetTree,
+) -> EffectiveChildFrameDomainSharing {
+    if let Some(level) = explicit_sharing.get(channel).copied() {
+        EffectiveChildFrameDomainSharing {
+            level,
+            preserve_child_frame_path: false,
+        }
+    } else {
+        EffectiveChildFrameDomainSharing {
+            level: facet_tree.channel_domain_sharing_level_typed(channel),
+            preserve_child_frame_path: true,
+        }
+    }
+}
+
 async fn collect_positioned_child_frame_domain_infos_for_mark(
     subplot: &dyn PositionedSubplotMarkCore,
     relative_child_frame_path: &[ContainerPathSegment],
@@ -695,45 +738,40 @@ async fn collect_positioned_child_frame_domain_infos_for_mark(
             subplot.key(),
         ));
 
-        if explicit_sharing
-            .values()
-            .any(|sharing_level| !sharing_level.is_free())
-        {
-            let scale_builder = build_scale_builder_from_marks_with_facet_scope(
-                &child_plot.marks,
-                &child_plot.scale_specs,
-                &child_plot.coord_transform,
-                &child_plot.data,
-                Some(filtered_data.clone()),
-                eval_ctx,
-                full_cell_path,
-                child_plot.get_theme().as_ref(),
-            )
-            .await?;
+        let scale_builder = build_scale_builder_from_marks_with_facet_scope(
+            &child_plot.marks,
+            &child_plot.scale_specs,
+            &child_plot.coord_transform,
+            &child_plot.data,
+            Some(filtered_data.clone()),
+            eval_ctx,
+            full_cell_path,
+            child_plot.get_theme().as_ref(),
+        )
+        .await?;
 
-            let channels = scale_builder
-                .channel_builders()
-                .keys()
-                .map(String::as_str)
-                .collect::<Vec<_>>();
-            let facet_depth = full_cell_path.len() as u8;
-            for (channel, extent) in scale_builder.extract_domain_extents(&channels) {
-                let Some(domain_sharing_level) = explicit_sharing.get(&channel).copied() else {
-                    continue;
-                };
-                if domain_sharing_level.is_free() {
-                    continue;
-                }
-
-                infos.push(FacetChildFrameDomainInfo {
-                    relative_child_frame_path: child_relative_path.clone(),
-                    full_cell_path: full_cell_path.to_vec(),
-                    channel,
-                    domain_sharing_level,
-                    facet_depth,
-                    extent,
-                });
+        let channels = scale_builder
+            .channel_builders()
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        let facet_depth = full_cell_path.len() as u8;
+        for (channel, extent) in scale_builder.extract_domain_extents(&channels) {
+            let sharing =
+                effective_child_frame_domain_sharing(&channel, &explicit_sharing, facet_tree);
+            if sharing.level.is_free() {
+                continue;
             }
+
+            infos.push(FacetChildFrameDomainInfo {
+                relative_child_frame_path: child_relative_path.clone(),
+                full_cell_path: full_cell_path.to_vec(),
+                channel,
+                domain_sharing_level: sharing.level,
+                facet_depth,
+                preserve_child_frame_path: sharing.preserve_child_frame_path,
+                extent,
+            });
         }
 
         infos.extend(
@@ -816,10 +854,9 @@ async fn collect_child_frame_domain_infos_for_marks(
         let explicit_sharing = child_frame_domain_sharing_levels_for_plot(child_plot);
         let facet_depth = full_cell_path.len() as u8;
         for (channel, extent) in scale_builder.extract_domain_extents(&channels) {
-            let Some(domain_sharing_level) = explicit_sharing.get(&channel).copied() else {
-                continue;
-            };
-            if domain_sharing_level.is_free() {
+            let sharing =
+                effective_child_frame_domain_sharing(&channel, &explicit_sharing, facet_tree);
+            if sharing.level.is_free() {
                 continue;
             }
 
@@ -827,8 +864,9 @@ async fn collect_child_frame_domain_infos_for_marks(
                 relative_child_frame_path: child_relative_path.clone(),
                 full_cell_path: full_cell_path.to_vec(),
                 channel,
-                domain_sharing_level,
+                domain_sharing_level: sharing.level,
                 facet_depth,
+                preserve_child_frame_path: sharing.preserve_child_frame_path,
                 extent,
             });
         }
@@ -1047,6 +1085,7 @@ mod tests {
                 channel: "fill".to_string(),
                 domain_sharing_level: SharingLevel::GLOBAL,
                 facet_depth: 1,
+                preserve_child_frame_path: false,
                 extent: DomainExtent::discrete(vec![SerializableDomainValue::String(
                     "setosa".to_string(),
                 )]),
@@ -1057,6 +1096,7 @@ mod tests {
                 channel: "fill".to_string(),
                 domain_sharing_level: SharingLevel::GLOBAL,
                 facet_depth: 1,
+                preserve_child_frame_path: false,
                 extent: DomainExtent::discrete(vec![SerializableDomainValue::String(
                     "virginica".to_string(),
                 )]),
@@ -1067,6 +1107,7 @@ mod tests {
                 channel: "fill".to_string(),
                 domain_sharing_level: SharingLevel::GLOBAL,
                 facet_depth: 1,
+                preserve_child_frame_path: false,
                 extent: DomainExtent::discrete(vec![SerializableDomainValue::String(
                     "narrow".to_string(),
                 )]),
@@ -1091,6 +1132,68 @@ mod tests {
                 .and_then(DomainExtent::discrete_values)
                 .map(|values| values.len()),
             Some(3)
+        );
+    }
+
+    #[test]
+    fn default_facet_scoped_child_frame_domains_preserve_child_path() {
+        let store = FacetScalePrecomputeStore::default();
+        let sepal = vec![ContainerPathSegment::concat_child(0, Some("sepal"))];
+        let petal = vec![ContainerPathSegment::concat_child(1, Some("petal"))];
+        store.insert_child_frame_domain_infos(vec![
+            FacetChildFrameDomainInfo {
+                relative_child_frame_path: sepal.clone(),
+                full_cell_path: vec![s_utf8("setosa")],
+                channel: "fill".to_string(),
+                domain_sharing_level: SharingLevel::GLOBAL,
+                facet_depth: 1,
+                preserve_child_frame_path: true,
+                extent: DomainExtent::discrete(vec![SerializableDomainValue::String(
+                    "setosa".to_string(),
+                )]),
+            },
+            FacetChildFrameDomainInfo {
+                relative_child_frame_path: sepal.clone(),
+                full_cell_path: vec![s_utf8("virginica")],
+                channel: "fill".to_string(),
+                domain_sharing_level: SharingLevel::GLOBAL,
+                facet_depth: 1,
+                preserve_child_frame_path: true,
+                extent: DomainExtent::discrete(vec![SerializableDomainValue::String(
+                    "virginica".to_string(),
+                )]),
+            },
+            FacetChildFrameDomainInfo {
+                relative_child_frame_path: petal.clone(),
+                full_cell_path: vec![s_utf8("setosa")],
+                channel: "fill".to_string(),
+                domain_sharing_level: SharingLevel::GLOBAL,
+                facet_depth: 1,
+                preserve_child_frame_path: true,
+                extent: DomainExtent::discrete(vec![SerializableDomainValue::String(
+                    "narrow".to_string(),
+                )]),
+            },
+        ]);
+
+        let sepal_extents =
+            store.coordinated_child_frame_domain_extents(&sepal, &[s_utf8("setosa")]);
+        let petal_extents =
+            store.coordinated_child_frame_domain_extents(&petal, &[s_utf8("setosa")]);
+
+        assert_eq!(
+            sepal_extents
+                .get("fill")
+                .and_then(DomainExtent::discrete_values)
+                .map(|values| values.len()),
+            Some(2)
+        );
+        assert_eq!(
+            petal_extents
+                .get("fill")
+                .and_then(DomainExtent::discrete_values)
+                .map(|values| values.len()),
+            Some(1)
         );
     }
 }
