@@ -86,8 +86,8 @@ use super::{
     scale_provider::{DynamicScaleProvider, ScaleProvider},
     scales::build_scale_builder_from_marks,
     session::{
-        FacetScalePrecomputeCacheHandle, FacetSemanticCacheHandle, ScaleDomainCacheHandle,
-        ScaleDomainCacheScope, scale_domain_cache_key_for_parts_with_scope,
+        FacetScalePrecomputeCacheHandle, FacetSemanticCacheHandle, GuideOverflowCacheHandle,
+        ScaleDomainCacheHandle, ScaleDomainCacheScope, scale_domain_cache_key_for_parts_with_scope,
     },
 };
 
@@ -1393,20 +1393,69 @@ impl CompiledPlot {
                 .collect();
             let sharing_context =
                 GuideSharingContext::new(facet_tree, facet_path, child_frame_sharing_path);
-            eval_ctx.record_guide_overflow_measure_call();
-            compiled_guide
-                .measure_overflow(
-                    &configured_scales,
+            let cache_lookup = eval_ctx.guide_overflow_cache().map(|cache| {
+                let guide_ptr = Arc::as_ptr(compiled_guide) as *const () as usize;
+                let key = self.guide_overflow_cache_key(
+                    guide_ptr,
+                    scales,
                     estimate_width,
                     estimate_height,
-                    theme.as_ref(),
                     params,
+                    facet_tree,
+                    facet_path,
+                    child_frame_sharing_path,
                     data_override,
-                    ctx,
-                    sharing_context,
-                    None, // No coordinate-system measurement is available during initial guide probing.
-                )
-                .await?
+                );
+                (cache.clone(), key)
+            });
+            if let Some((cache, key)) = cache_lookup {
+                let cached_overflow = {
+                    cache
+                        .lock()
+                        .expect("guide-overflow cache lock poisoned")
+                        .get(&key)
+                };
+                if let Some(overflow) = cached_overflow {
+                    eval_ctx.record_guide_overflow_cache_hit();
+                    overflow
+                } else {
+                    eval_ctx.record_guide_overflow_cache_miss();
+                    eval_ctx.record_guide_overflow_measure_call();
+                    let overflow = compiled_guide
+                        .measure_overflow(
+                            &configured_scales,
+                            estimate_width,
+                            estimate_height,
+                            theme.as_ref(),
+                            params,
+                            data_override,
+                            ctx,
+                            sharing_context,
+                            None, // No coordinate-system measurement is available during initial guide probing.
+                        )
+                        .await?;
+                    cache
+                        .lock()
+                        .expect("guide-overflow cache lock poisoned")
+                        .insert(key, overflow.clone());
+                    overflow
+                }
+            } else {
+                eval_ctx.record_guide_overflow_measure_call();
+                compiled_guide
+                    .measure_overflow(
+                        &configured_scales,
+                        estimate_width,
+                        estimate_height,
+                        theme.as_ref(),
+                        params,
+                        data_override,
+                        ctx,
+                        sharing_context,
+                        None, // No coordinate-system measurement is available during initial guide probing.
+                    )
+                    .await?
+            }
         } else {
             OverflowSpaceRequirement::default()
         };
@@ -4210,8 +4259,10 @@ impl CompiledPlot {
         params: Option<IndexMap<String, ScalarValue>>,
         options: EvaluationOptions,
     ) -> Result<EvaluatedPlot, AvengerChartError> {
-        Box::pin(self.evaluate_with_options_internal(ctx, params, options, None, None, None, None))
-            .await
+        Box::pin(
+            self.evaluate_with_options_internal(ctx, params, options, None, None, None, None, None),
+        )
+        .await
     }
 
     /// Evaluate the plot while collecting focused performance diagnostics.
@@ -4228,6 +4279,7 @@ impl CompiledPlot {
             params,
             options,
             Some(metrics.clone()),
+            None,
             None,
             None,
             None,
@@ -4248,6 +4300,7 @@ impl CompiledPlot {
         scale_domain_cache: ScaleDomainCacheHandle,
         facet_semantic_cache: FacetSemanticCacheHandle,
         facet_scale_precompute_cache: FacetScalePrecomputeCacheHandle,
+        guide_overflow_cache: GuideOverflowCacheHandle,
     ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
         let metrics = Arc::new(Mutex::new(EvaluationMetrics::default()));
         let evaluated = Box::pin(self.evaluate_with_options_internal(
@@ -4258,6 +4311,7 @@ impl CompiledPlot {
             Some(scale_domain_cache),
             Some(facet_semantic_cache),
             Some(facet_scale_precompute_cache),
+            Some(guide_overflow_cache),
         ))
         .await?;
         let metrics = metrics
@@ -4276,6 +4330,7 @@ impl CompiledPlot {
         scale_domain_cache: Option<ScaleDomainCacheHandle>,
         facet_semantic_cache: Option<FacetSemanticCacheHandle>,
         facet_scale_precompute_cache: Option<FacetScalePrecomputeCacheHandle>,
+        guide_overflow_cache: Option<GuideOverflowCacheHandle>,
     ) -> Result<EvaluatedPlot, AvengerChartError> {
         // Merge provided params with defaults
         let merged_params = if let Some(provided) = params {
@@ -4462,6 +4517,9 @@ impl CompiledPlot {
         }
         if let Some(cache) = &scale_domain_cache {
             eval_ctx = eval_ctx.with_scale_domain_cache(cache.clone());
+        }
+        if let Some(cache) = &guide_overflow_cache {
+            eval_ctx = eval_ctx.with_guide_overflow_cache(cache.clone());
         }
         if let Some(store) = facet_scale_precompute_store {
             eval_ctx = eval_ctx.with_facet_scale_precompute_store(store);

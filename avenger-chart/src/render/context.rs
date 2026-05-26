@@ -28,7 +28,7 @@ use crate::{
         layout_plan::{FacetBandPaddingFeedback, FacetBandPaddingFeedbackMap},
         scale_precompute::FacetScalePrecomputeStore,
     },
-    plot::compiled::ScaleDomainCacheHandle,
+    plot::compiled::{GuideOverflowCacheHandle, ScaleDomainCacheHandle},
     render::types::{
         EvaluatedPlot, EvaluationMetrics, FacetLayoutRefinement, FacetSubtreeSnapshot,
         LayoutDebugOverlayMode,
@@ -251,6 +251,8 @@ pub struct EvaluationContext {
     pub(crate) evaluation_metrics: Option<Arc<Mutex<EvaluationMetrics>>>,
     /// Optional durable scale-domain cache owned by a reusable `PlotSession`.
     pub(crate) scale_domain_cache: Option<ScaleDomainCacheHandle>,
+    /// Optional durable guide-overflow profile cache owned by a reusable `PlotSession`.
+    pub(crate) guide_overflow_cache: Option<GuideOverflowCacheHandle>,
     /// Optional one-shot facet-subtree snapshot capture for non-renderable intermediate states.
     pub(crate) facet_subtree_snapshot_capture: Option<Arc<Mutex<FacetSubtreeSnapshotCapture>>>,
 }
@@ -278,6 +280,7 @@ impl EvaluationContext {
             child_frame_sharing_path: ChildFrameSharingPath::root(),
             evaluation_metrics: None,
             scale_domain_cache: None,
+            guide_overflow_cache: None,
             facet_subtree_snapshot_capture: None,
         }
     }
@@ -300,6 +303,7 @@ impl EvaluationContext {
             child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             scale_domain_cache: self.scale_domain_cache.clone(),
+            guide_overflow_cache: self.guide_overflow_cache.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -322,6 +326,7 @@ impl EvaluationContext {
             child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             scale_domain_cache: self.scale_domain_cache.clone(),
+            guide_overflow_cache: self.guide_overflow_cache.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -349,6 +354,7 @@ impl EvaluationContext {
             child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             scale_domain_cache: self.scale_domain_cache.clone(),
+            guide_overflow_cache: self.guide_overflow_cache.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -376,6 +382,7 @@ impl EvaluationContext {
             child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             scale_domain_cache: self.scale_domain_cache.clone(),
+            guide_overflow_cache: self.guide_overflow_cache.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -397,6 +404,7 @@ impl EvaluationContext {
             child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             scale_domain_cache: self.scale_domain_cache.clone(),
+            guide_overflow_cache: self.guide_overflow_cache.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -422,6 +430,7 @@ impl EvaluationContext {
             child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             scale_domain_cache: self.scale_domain_cache.clone(),
+            guide_overflow_cache: self.guide_overflow_cache.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -447,6 +456,7 @@ impl EvaluationContext {
             child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             scale_domain_cache: self.scale_domain_cache.clone(),
+            guide_overflow_cache: self.guide_overflow_cache.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -468,6 +478,7 @@ impl EvaluationContext {
             child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             scale_domain_cache: self.scale_domain_cache.clone(),
+            guide_overflow_cache: self.guide_overflow_cache.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -496,6 +507,7 @@ impl EvaluationContext {
             child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             scale_domain_cache: self.scale_domain_cache.clone(),
+            guide_overflow_cache: self.guide_overflow_cache.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -529,6 +541,7 @@ impl EvaluationContext {
             child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             scale_domain_cache: self.scale_domain_cache.clone(),
+            guide_overflow_cache: self.guide_overflow_cache.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -570,6 +583,7 @@ impl EvaluationContext {
             child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             scale_domain_cache: self.scale_domain_cache.clone(),
+            guide_overflow_cache: self.guide_overflow_cache.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -593,6 +607,7 @@ impl EvaluationContext {
             child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: Some(metrics),
             scale_domain_cache: self.scale_domain_cache.clone(),
+            guide_overflow_cache: self.guide_overflow_cache.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -614,12 +629,39 @@ impl EvaluationContext {
             child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             scale_domain_cache: Some(cache),
+            guide_overflow_cache: self.guide_overflow_cache.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
 
     pub(crate) fn scale_domain_cache(&self) -> Option<&ScaleDomainCacheHandle> {
         self.scale_domain_cache.as_ref()
+    }
+
+    pub(crate) fn with_guide_overflow_cache(&self, cache: GuideOverflowCacheHandle) -> Self {
+        Self {
+            core: self.core.clone(),
+            facet_tree: self.facet_tree.clone(),
+            facet_data_root: self.facet_data_root.clone(),
+            hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
+            facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
+            debug_layout_overlay: self.debug_layout_overlay,
+            facet_layout_refinement: self.facet_layout_refinement,
+            facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_padding_feedback: self.facet_padding_feedback.clone(),
+            facet_coord_node_path: self.facet_coord_node_path.clone(),
+            child_frame_container_path: self.child_frame_container_path.clone(),
+            child_frame_sharing_path: self.child_frame_sharing_path.clone(),
+            evaluation_metrics: self.evaluation_metrics.clone(),
+            scale_domain_cache: self.scale_domain_cache.clone(),
+            guide_overflow_cache: Some(cache),
+            facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+        }
+    }
+
+    pub(crate) fn guide_overflow_cache(&self) -> Option<&GuideOverflowCacheHandle> {
+        self.guide_overflow_cache.as_ref()
     }
 
     pub(crate) fn with_facet_subtree_snapshot_capture(
@@ -642,6 +684,7 @@ impl EvaluationContext {
             child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             scale_domain_cache: self.scale_domain_cache.clone(),
+            guide_overflow_cache: self.guide_overflow_cache.clone(),
             facet_subtree_snapshot_capture: Some(capture),
         }
     }
@@ -665,6 +708,7 @@ impl EvaluationContext {
             child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             scale_domain_cache: self.scale_domain_cache.clone(),
+            guide_overflow_cache: self.guide_overflow_cache.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -703,6 +747,7 @@ impl EvaluationContext {
             child_frame_sharing_path: self.child_frame_sharing_path.clone(),
             evaluation_metrics: self.evaluation_metrics.clone(),
             scale_domain_cache: self.scale_domain_cache.clone(),
+            guide_overflow_cache: self.guide_overflow_cache.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -729,6 +774,7 @@ impl EvaluationContext {
             child_frame_sharing_path: self.child_frame_sharing_path.appended(level),
             evaluation_metrics: self.evaluation_metrics.clone(),
             scale_domain_cache: self.scale_domain_cache.clone(),
+            guide_overflow_cache: self.guide_overflow_cache.clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -816,6 +862,24 @@ impl EvaluationContext {
                 .lock()
                 .expect("evaluation metrics lock poisoned")
                 .record_guide_overflow_measure_call();
+        }
+    }
+
+    pub(crate) fn record_guide_overflow_cache_hit(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_guide_overflow_cache_hit();
+        }
+    }
+
+    pub(crate) fn record_guide_overflow_cache_miss(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_guide_overflow_cache_miss();
         }
     }
 

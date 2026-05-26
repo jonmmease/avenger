@@ -232,6 +232,14 @@ impl EvaluationMetrics {
         self.pipeline.guide_overflow_measure_calls += 1;
     }
 
+    pub(crate) fn record_guide_overflow_cache_hit(&mut self) {
+        self.pipeline.guide_overflow_cache_hits += 1;
+    }
+
+    pub(crate) fn record_guide_overflow_cache_miss(&mut self) {
+        self.pipeline.guide_overflow_cache_misses += 1;
+    }
+
     pub(crate) fn record_legend_plan_build(&mut self) {
         self.pipeline.legend_plan_builds += 1;
     }
@@ -310,6 +318,10 @@ pub struct EvaluationPipelineMetrics {
     pub scale_domain_cache_misses: usize,
     /// Number of DataFusion collect calls made while inferring scale domains.
     pub scale_domain_collects: usize,
+    /// Number of exact guide-overflow profile cache hits.
+    pub guide_overflow_cache_hits: usize,
+    /// Number of exact guide-overflow profile cache misses.
+    pub guide_overflow_cache_misses: usize,
     /// Number of coordinate-guide overflow measurements.
     pub guide_overflow_measure_calls: usize,
     /// Number of legend plan builds.

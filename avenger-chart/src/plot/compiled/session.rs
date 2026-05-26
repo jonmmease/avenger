@@ -28,8 +28,11 @@ use crate::{
         marks::facet::{FacetSubplotRef, facet_subplot_ref},
         scale_precompute::FacetScalePrecomputeStore,
     },
+    guide::OverflowSpaceRequirement,
     partition::PartitionSlotCache,
+    plot::compiled::ChildFrameSharingPath,
     render::{EvaluatedPlot, EvaluationMetrics, EvaluationMode, EvaluationOptions},
+    scales::ConfiguredScaleWithSpec,
 };
 
 use super::{CompiledPlot, compiled_subplot_payload_child_plot};
@@ -37,6 +40,7 @@ use super::{CompiledPlot, compiled_subplot_payload_child_plot};
 pub(crate) type ScaleDomainCacheHandle = Arc<Mutex<ScaleDomainCache>>;
 pub(crate) type FacetSemanticCacheHandle = Arc<Mutex<PartitionSlotCache>>;
 pub(crate) type FacetScalePrecomputeCacheHandle = Arc<Mutex<FacetScalePrecomputeSessionCache>>;
+pub(crate) type GuideOverflowCacheHandle = Arc<Mutex<GuideOverflowCache>>;
 
 /// Session-owned cache for scale-domain inference artifacts.
 #[derive(Default)]
@@ -104,6 +108,40 @@ struct FacetScalePrecomputeCacheKey {
     program_ptr: usize,
     facet_tree_structure: Vec<String>,
     params: Vec<(String, String)>,
+}
+
+/// Session-owned cache for exact guide-overflow measurement profiles.
+#[derive(Default)]
+pub(crate) struct GuideOverflowCache {
+    overflows: HashMap<GuideOverflowCacheKey, OverflowSpaceRequirement>,
+}
+
+impl GuideOverflowCache {
+    pub(crate) fn get(&self, key: &GuideOverflowCacheKey) -> Option<OverflowSpaceRequirement> {
+        self.overflows.get(key).cloned()
+    }
+
+    pub(crate) fn insert(
+        &mut self,
+        key: GuideOverflowCacheKey,
+        overflow: OverflowSpaceRequirement,
+    ) {
+        self.overflows.insert(key, overflow);
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub(crate) struct GuideOverflowCacheKey {
+    program_ptr: usize,
+    guide_ptr: usize,
+    estimate_width: u32,
+    estimate_height: u32,
+    scales: Vec<(String, String)>,
+    params: Vec<(String, String)>,
+    facet_path: Vec<String>,
+    facet_tree_structure: Vec<String>,
+    child_frame_sharing_path: String,
+    data_override_plan: Option<String>,
 }
 
 /// Request object for evaluating a `PlotSession`.
@@ -181,6 +219,7 @@ pub struct PlotSession {
     scale_domain_cache: ScaleDomainCacheHandle,
     facet_semantic_cache: FacetSemanticCacheHandle,
     facet_scale_precompute_cache: FacetScalePrecomputeCacheHandle,
+    guide_overflow_cache: GuideOverflowCacheHandle,
 }
 
 impl PlotSession {
@@ -198,6 +237,7 @@ impl PlotSession {
             facet_scale_precompute_cache: Arc::new(Mutex::new(
                 FacetScalePrecomputeSessionCache::default(),
             )),
+            guide_overflow_cache: Arc::new(Mutex::new(GuideOverflowCache::default())),
         }
     }
 
@@ -246,6 +286,7 @@ impl PlotSession {
                 self.scale_domain_cache.clone(),
                 self.facet_semantic_cache.clone(),
                 self.facet_scale_precompute_cache.clone(),
+                self.guide_overflow_cache.clone(),
             )
             .await?;
         metrics.mode = mode;
@@ -335,6 +376,45 @@ impl CompiledPlot {
             .expect("facet scale precompute cache lock poisoned")
             .store_for_key(key)
     }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn guide_overflow_cache_key(
+        &self,
+        guide_ptr: usize,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        estimate_width: f32,
+        estimate_height: f32,
+        params: &IndexMap<String, ScalarValue>,
+        facet_tree: &EvaluatedFacetTree,
+        facet_path: &[ScalarValue],
+        child_frame_sharing_path: &ChildFrameSharingPath,
+        data_override: Option<&DataFrame>,
+    ) -> GuideOverflowCacheKey {
+        let mut scale_signatures = scales
+            .iter()
+            .map(|(name, scale)| (name.clone(), configured_scale_signature(scale)))
+            .collect::<Vec<_>>();
+        scale_signatures.sort_by(|a, b| a.0.cmp(&b.0));
+
+        GuideOverflowCacheKey {
+            program_ptr: self as *const _ as usize,
+            guide_ptr,
+            estimate_width: estimate_width.to_bits(),
+            estimate_height: estimate_height.to_bits(),
+            scales: scale_signatures,
+            params: params
+                .iter()
+                .map(|(name, value)| (name.clone(), format!("{value:?}")))
+                .collect(),
+            facet_path: facet_path
+                .iter()
+                .map(|value| format!("{value:?}"))
+                .collect(),
+            facet_tree_structure: facet_tree.structure_cache_key(),
+            child_frame_sharing_path: format!("{child_frame_sharing_path:?}"),
+            data_override_plan: data_override.map(|df| format!("{:?}", df.logical_plan())),
+        }
+    }
 }
 
 pub(crate) fn scale_domain_cache_key_for_parts_with_scope(
@@ -416,6 +496,24 @@ fn facet_scale_precompute_dependency_params(
     let mut names = BTreeSet::new();
     collect_plot_dependency_placeholders(plot, ctx, &mut names, &all_param_names);
     names
+}
+
+fn configured_scale_signature(scale: &ConfiguredScaleWithSpec) -> String {
+    let configured = scale.configured();
+    let mut options = configured
+        .config
+        .options
+        .iter()
+        .map(|(name, value)| (name.clone(), format!("{value:?}")))
+        .collect::<Vec<_>>();
+    options.sort_by(|a, b| a.0.cmp(&b.0));
+    format!(
+        "type={};domain={:?};range={:?};options={:?}",
+        configured.scale_impl.scale_type(),
+        configured.domain(),
+        configured.range(),
+        options
+    )
 }
 
 fn collect_plot_dependency_placeholders(
@@ -976,6 +1074,37 @@ mod tests {
         assert_eq!(second.pipeline.scale_domain_cache_misses, 0);
         assert_eq!(second.pipeline.scale_builder_builds, 0);
         assert_eq!(second.pipeline.scale_domain_collects, 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn guide_overflow_cache_reuses_profile_for_repeated_exact_evaluation()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_session_test_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let (_evaluated, first) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert_eq!(first.pipeline.guide_overflow_cache_hits, 0);
+        assert_eq!(first.pipeline.guide_overflow_cache_misses, 1);
+        assert!(
+            first.pipeline.guide_overflow_measure_calls > 0,
+            "initial evaluation should measure guide overflow"
+        );
+
+        let (_evaluated, second) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert_eq!(second.pipeline.guide_overflow_cache_hits, 1);
+        assert_eq!(second.pipeline.guide_overflow_cache_misses, 0);
+        assert!(
+            second.pipeline.guide_overflow_measure_calls
+                < first.pipeline.guide_overflow_measure_calls,
+            "warm exact evaluation should skip the cached initial guide-overflow probe"
+        );
 
         Ok(())
     }
