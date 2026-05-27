@@ -44,7 +44,10 @@ use crate::{
     scales::ConfiguredScaleWithSpec,
 };
 
-use super::{CompiledPlot, compiled_subplot_payload_child_plot, legends::PreparedLegendGroup};
+use super::{
+    CompiledPlot, ComponentsMeasurement, compiled_subplot_payload_child_plot,
+    legends::PreparedLegendGroup,
+};
 
 pub(crate) type ScaleDomainCacheHandle = Arc<Mutex<ScaleDomainCache>>;
 pub(crate) type FacetSemanticCacheHandle = Arc<Mutex<PartitionSlotCache>>;
@@ -301,7 +304,8 @@ pub struct PlotSession {
     ctx: Arc<SessionContext>,
     current_params: IndexMap<String, ScalarValue>,
     last_request: Option<EvaluationRequestSummary>,
-    last_measurement: Option<()>,
+    last_measurement: Option<ComponentsMeasurement>,
+    last_facet_tree_structure: Option<Vec<String>>,
     last_metrics: Option<EvaluationMetrics>,
     scale_domain_cache: ScaleDomainCacheHandle,
     facet_semantic_cache: FacetSemanticCacheHandle,
@@ -320,6 +324,7 @@ impl PlotSession {
             current_params,
             last_request: None,
             last_measurement: None,
+            last_facet_tree_structure: None,
             last_metrics: None,
             scale_domain_cache: Arc::new(Mutex::new(ScaleDomainCache::default())),
             facet_semantic_cache: Arc::new(Mutex::new(PartitionSlotCache::new())),
@@ -369,7 +374,65 @@ impl PlotSession {
         let mode = request.mode;
         let next_params = self.params_for_request(&request);
         let use_measurement_profile_caches = mode != EvaluationMode::ForceRemeasure;
-        let (evaluated, mut metrics) = self
+
+        if mode == EvaluationMode::Preview {
+            if let (Some(measurement), Some(facet_tree_structure)) = (
+                self.last_measurement.as_ref(),
+                self.last_facet_tree_structure.as_deref(),
+            ) {
+                if let Some((evaluated, mut metrics)) = self
+                    .program
+                    .evaluate_preview_with_cached_measurement_and_metrics(
+                        self.ctx.as_ref(),
+                        Some(next_params.clone()),
+                        request.options.clone(),
+                        measurement,
+                        Some(facet_tree_structure),
+                        self.scale_domain_cache.clone(),
+                        self.facet_semantic_cache.clone(),
+                    )
+                    .await?
+                {
+                    metrics.mode = mode;
+                    self.current_params = next_params.clone();
+                    self.last_request = Some(EvaluationRequestSummary {
+                        mode,
+                        params: next_params,
+                    });
+                    self.last_metrics = Some(metrics.clone());
+                    return Ok((evaluated, metrics));
+                }
+            }
+
+            let (evaluated, mut metrics, measurement, facet_tree_structure) = self
+                .program
+                .evaluate_with_options_and_metrics_with_scale_domain_cache(
+                    self.ctx.as_ref(),
+                    Some(next_params.clone()),
+                    request.options,
+                    self.scale_domain_cache.clone(),
+                    self.facet_semantic_cache.clone(),
+                    self.facet_scale_precompute_cache.clone(),
+                    use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
+                    use_measurement_profile_caches.then(|| self.legend_measurement_cache.clone()),
+                    use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
+                )
+                .await?;
+            metrics.mode = mode;
+            metrics.record_preview_profile_miss();
+            metrics.record_preview_fallback();
+            self.current_params = next_params.clone();
+            self.last_request = Some(EvaluationRequestSummary {
+                mode,
+                params: next_params,
+            });
+            self.last_measurement = measurement;
+            self.last_facet_tree_structure = facet_tree_structure;
+            self.last_metrics = Some(metrics.clone());
+            return Ok((evaluated, metrics));
+        }
+
+        let (evaluated, mut metrics, measurement, facet_tree_structure) = self
             .program
             .evaluate_with_options_and_metrics_with_scale_domain_cache(
                 self.ctx.as_ref(),
@@ -389,7 +452,8 @@ impl PlotSession {
             mode,
             params: next_params,
         });
-        self.last_measurement = Some(());
+        self.last_measurement = measurement;
+        self.last_facet_tree_structure = facet_tree_structure;
         self.last_metrics = Some(metrics.clone());
         Ok((evaluated, metrics))
     }
@@ -993,6 +1057,37 @@ mod tests {
             .await
     }
 
+    async fn compile_pan_zoom_param_preview_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let x_min = Param::new("x_min", ScalarValue::Float64(Some(0.0)));
+        let x_max = Param::new("x_max", ScalarValue::Float64(Some(10.0)));
+        let domain_min = x_min.clone();
+        let domain_max = x_max.clone();
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
+            .await?;
+        Plot::<Cartesian>::new()
+            .add_param(x_min.clone())
+            .add_param(x_max.clone())
+            .canvas_size(420.0, 320.0)
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x_with(col("x"), move |c| {
+                        c.scale_with::<Linear>(move |s| {
+                            s.domain((domain_min.expr(), domain_max.expr()))
+                                .nice(false)
+                                .zero(false)
+                        })
+                    })
+                    .y(col("y"))
+                    .size(20.0),
+            )
+            .compile(ctx)
+            .await
+    }
+
     async fn compile_legend_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
@@ -1187,6 +1282,10 @@ mod tests {
         assert_eq!(
             session.last_metrics().map(|metrics| metrics.mode),
             Some(EvaluationMode::Exact)
+        );
+        assert!(
+            session.last_measurement.is_some(),
+            "exact session evaluation should retain the final component measurement"
         );
 
         Ok(())
@@ -1401,6 +1500,211 @@ mod tests {
         assert!(
             force.pipeline.legend_measurements > 0,
             "force remeasure should still run legend measurement"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_preview_reuses_last_measurement_for_width_change()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_width_param_scale_cache_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let (_evaluated, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            exact.facet_layout.plot_component_measure_calls > 0,
+            "warm exact evaluation should build the initial measurement profile"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(640.0)));
+        let (evaluated, preview) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(preview.pipeline.preview_profile_reuses, 1);
+        assert_eq!(preview.pipeline.preview_profile_misses, 0);
+        assert_eq!(preview.pipeline.preview_fallbacks, 0);
+        assert_eq!(preview.facet_layout.plot_component_measure_calls, 0);
+        assert!(
+            preview.pipeline.skipped_component_measure_calls > 0,
+            "preview should report the skipped recursive measurement profile"
+        );
+        assert_eq!(evaluated.scene_graph.width, 640.0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_preview_reuses_last_measurement_for_domain_param_change()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_pan_zoom_param_preview_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let (_evaluated, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            exact.facet_layout.plot_component_measure_calls > 0,
+            "warm exact evaluation should build the initial pan/zoom measurement profile"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert("x_min".to_string(), ScalarValue::Float64(Some(2.0)));
+        patch.insert("x_max".to_string(), ScalarValue::Float64(Some(6.0)));
+        let (_evaluated, preview) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(preview.pipeline.preview_profile_reuses, 1);
+        assert_eq!(preview.pipeline.preview_profile_misses, 0);
+        assert_eq!(preview.pipeline.preview_fallbacks, 0);
+        assert_eq!(preview.facet_layout.plot_component_measure_calls, 0);
+        assert!(
+            preview.pipeline.scale_domain_cache_misses > 0,
+            "domain-param preview should rebuild scale metadata while keeping measurement padding locked"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_preview_without_prior_measurement_falls_back_to_exact()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_width_param_scale_cache_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let mut patch = IndexMap::new();
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(640.0)));
+        let (evaluated, preview) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(preview.pipeline.preview_profile_reuses, 0);
+        assert_eq!(preview.pipeline.preview_profile_misses, 1);
+        assert_eq!(preview.pipeline.preview_fallbacks, 1);
+        assert!(
+            preview.facet_layout.plot_component_measure_calls > 0,
+            "preview without a warm measurement should fall back to exact measurement"
+        );
+        assert_eq!(evaluated.scene_graph.width, 640.0);
+        assert!(
+            session.last_measurement.is_some(),
+            "fallback exact measurement should warm future preview requests"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_preview_falls_back_when_responsive_wrap_structure_changes()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_responsive_wrap_width_param_cache_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let (_evaluated, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            exact.facet_layout.plot_component_measure_calls > 0,
+            "warm exact evaluation should build the initial responsive-wrap measurement"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(900.0)));
+        let (_evaluated, preview) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(preview.pipeline.preview_profile_reuses, 0);
+        assert_eq!(preview.pipeline.preview_profile_misses, 1);
+        assert_eq!(preview.pipeline.preview_fallbacks, 1);
+        assert!(
+            preview.facet_layout.plot_component_measure_calls > 0,
+            "changed wrap structure should use the safe exact fallback"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_exact_settle_after_preview_uses_current_params_and_remeasures()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_width_param_scale_cache_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let (_evaluated, _exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+
+        let mut patch = IndexMap::new();
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(640.0)));
+        let (_evaluated, preview) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+        assert_eq!(preview.pipeline.preview_profile_reuses, 1);
+
+        let (settled, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+
+        assert_eq!(exact.mode, EvaluationMode::Exact);
+        assert_eq!(exact.pipeline.preview_profile_reuses, 0);
+        assert_eq!(exact.pipeline.preview_profile_misses, 0);
+        assert_eq!(exact.pipeline.preview_fallbacks, 0);
+        assert!(
+            exact.facet_layout.plot_component_measure_calls > 0,
+            "exact settle should rebuild an exact measurement profile"
+        );
+        assert_eq!(settled.scene_graph.width, 640.0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn force_remeasure_ignores_last_measurement_preview_cache()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_width_param_scale_cache_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let (_evaluated, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            exact.facet_layout.plot_component_measure_calls > 0,
+            "warm exact evaluation should build the initial measurement profile"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(640.0)));
+        let (_evaluated, force) = session
+            .evaluate_with_metrics(
+                EvaluationRequest::new()
+                    .force_remeasure()
+                    .param_patch(patch),
+            )
+            .await?;
+
+        assert_eq!(force.mode, EvaluationMode::ForceRemeasure);
+        assert_eq!(force.pipeline.preview_profile_reuses, 0);
+        assert_eq!(force.pipeline.preview_profile_misses, 0);
+        assert_eq!(force.pipeline.preview_fallbacks, 0);
+        assert!(
+            force.facet_layout.plot_component_measure_calls > 0,
+            "force remeasure should not retarget the cached preview measurement"
         );
 
         Ok(())

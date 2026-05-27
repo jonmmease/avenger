@@ -115,7 +115,7 @@ pub(crate) async fn render_positioned_subplot_with_context(
     Ok(marks)
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct PositionedCoordMeasurement {
     pub(crate) children: Vec<PositionedChildMeasurement>,
     pub(crate) placement: ChildFramePlacementResult,
@@ -152,6 +152,10 @@ impl PositionedCoordMeasurement {
 }
 
 impl CoordMeasurement for PositionedCoordMeasurement {
+    fn clone_box(&self) -> Box<dyn CoordMeasurement> {
+        Box::new(self.clone())
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -170,7 +174,7 @@ impl CoordMeasurement for PositionedCoordMeasurement {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct PositionedChildMeasurement {
     pub(crate) child_index: usize,
     pub(crate) mark_index: usize,

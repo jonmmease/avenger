@@ -306,6 +306,7 @@ impl CompiledSubplotChildPlot for CompiledPlot {
 ///
 /// Overflow info is available via `layout.overflow` (guide only) and
 /// `layout.total_overflow` (guide + legends).
+#[derive(Clone)]
 pub struct ComponentsMeasurement {
     /// Coordinate-system-specific measurement data (e.g., facet cell layout)
     ///

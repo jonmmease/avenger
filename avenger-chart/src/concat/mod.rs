@@ -278,7 +278,7 @@ impl CoordinateSystemTransform for VConcat {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ConcatCoordMeasurement {
     pub(crate) children: Vec<ConcatChildMeasurement>,
     pub(crate) child_band_layout: BandChildFramePlacement,
@@ -308,6 +308,10 @@ impl ConcatCoordMeasurement {
 }
 
 impl CoordMeasurement for ConcatCoordMeasurement {
+    fn clone_box(&self) -> Box<dyn CoordMeasurement> {
+        Box::new(self.clone())
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -317,7 +321,7 @@ impl CoordMeasurement for ConcatCoordMeasurement {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct ConcatChildMeasurement {
     pub(crate) child_index: usize,
     pub(crate) key: Option<String>,

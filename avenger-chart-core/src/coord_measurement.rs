@@ -9,6 +9,9 @@ use crate::{AvengerChartError, CoordinatedOverflow, OverflowSpaceRequirement};
 /// containers may downcast this trait to their own concrete measurement types
 /// for core-owned facet/concat behavior.
 pub trait CoordMeasurement: Send + Sync + 'static {
+    /// Clone this coordinate measurement as a boxed trait object.
+    fn clone_box(&self) -> Box<dyn CoordMeasurement>;
+
     /// Downcast support for accessing concrete measurement types.
     fn as_any(&self) -> &dyn Any;
 
@@ -37,11 +40,21 @@ pub trait CoordMeasurement: Send + Sync + 'static {
     }
 }
 
+impl Clone for Box<dyn CoordMeasurement> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
+}
+
 /// Empty measurement for coordinate systems that don't need measurement data.
 #[derive(Debug, Clone, Default)]
 pub struct EmptyCoordMeasurement;
 
 impl CoordMeasurement for EmptyCoordMeasurement {
+    fn clone_box(&self) -> Box<dyn CoordMeasurement> {
+        Box::new(self.clone())
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }

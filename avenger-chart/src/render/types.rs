@@ -264,6 +264,22 @@ impl EvaluationMetrics {
         self.pipeline.text_measurement_cache_misses += 1;
     }
 
+    pub(crate) fn record_preview_profile_reuse(&mut self) {
+        self.pipeline.preview_profile_reuses += 1;
+    }
+
+    pub(crate) fn record_preview_profile_miss(&mut self) {
+        self.pipeline.preview_profile_misses += 1;
+    }
+
+    pub(crate) fn record_preview_fallback(&mut self) {
+        self.pipeline.preview_fallbacks += 1;
+    }
+
+    pub(crate) fn record_skipped_component_measure_calls(&mut self, count: usize) {
+        self.pipeline.skipped_component_measure_calls += count;
+    }
+
     pub(crate) fn record_mark_data_full_collect(&mut self) {
         self.pipeline.mark_data_collects += 1;
         self.pipeline.mark_data_full_collects += 1;
@@ -352,6 +368,14 @@ pub struct EvaluationPipelineMetrics {
     pub text_measurement_cache_hits: usize,
     /// Number of text layout measurement cache misses.
     pub text_measurement_cache_misses: usize,
+    /// Number of preview evaluations that reused a previous measurement profile.
+    pub preview_profile_reuses: usize,
+    /// Number of preview evaluations that could not reuse a previous measurement profile.
+    pub preview_profile_misses: usize,
+    /// Number of preview evaluations that fell back to exact measurement.
+    pub preview_fallbacks: usize,
+    /// Number of component measurement calls skipped by preview reuse.
+    pub skipped_component_measure_calls: usize,
     /// Number of DataFusion collect calls made while preparing mark render data.
     pub mark_data_collects: usize,
     /// Mark data collect calls for marks requesting full data batches.

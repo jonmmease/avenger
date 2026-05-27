@@ -109,7 +109,7 @@ pub(crate) struct ChannelDomainExtent {
 }
 
 /// Runtime state for a single enumerated facet cell.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct FacetCellRuntime {
     /// Canonical plan metadata (value, path, emptiness, filter intent).
     pub(crate) plan: FacetCellPlan,
@@ -230,6 +230,7 @@ impl FacetBandAllocationOwnership {
 ///
 /// This captures the computed padding from overflow measurement and precomputed
 /// subplot measurements. Marks use the stored measurements directly without re-measuring.
+#[derive(Clone)]
 pub struct FacetBandCoordMeasurement {
     /// Facet axis orientation for this measurement.
     pub axis: FacetAxis,
@@ -898,6 +899,10 @@ fn apply_facet_band_scale_adjustment(
 }
 
 impl CoordMeasurement for FacetBandCoordMeasurement {
+    fn clone_box(&self) -> Box<dyn CoordMeasurement> {
+        Box::new(self.clone())
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -949,6 +954,10 @@ impl FacetBandCoordMeasurement {
 }
 
 impl CoordMeasurement for FacetBandProbeMeasurement {
+    fn clone_box(&self) -> Box<dyn CoordMeasurement> {
+        Box::new(self.clone())
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -1743,11 +1752,6 @@ pub(crate) fn retarget_measurement_plot_area_no_remeasure(
 ) -> Result<(), AvengerChartError> {
     let old_plot_area_width = measurement.plot_area_width;
     let old_plot_area_height = measurement.plot_area_height;
-    if (old_plot_area_width - new_plot_area_width).abs() <= 0.01
-        && (old_plot_area_height - new_plot_area_height).abs() <= 0.01
-    {
-        return Ok(());
-    }
 
     retarget_scale_ranges_for_plot_area(
         &mut measurement.scales,
@@ -1797,11 +1801,6 @@ pub(crate) fn retarget_measurement_plot_area_policy_no_remeasure(
 ) -> Result<(), AvengerChartError> {
     let old_plot_area_width = measurement.plot_area_width;
     let old_plot_area_height = measurement.plot_area_height;
-    if (old_plot_area_width - new_plot_area_width).abs() <= 0.01
-        && (old_plot_area_height - new_plot_area_height).abs() <= 0.01
-    {
-        return Ok(());
-    }
 
     retarget_scale_ranges_for_plot_area(
         &mut measurement.scales,

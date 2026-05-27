@@ -40,6 +40,7 @@ use crate::{
     facet::{
         coord::{
             FacetBandCoordMeasurement, FacetCellRuntime, renderable_for_empty_policy,
+            retarget_measurement_plot_area_no_remeasure,
             retarget_measurement_plot_area_policy_no_remeasure,
             retarget_scale_ranges_for_plot_area,
         },
@@ -108,6 +109,12 @@ enum ResolvedContentKind {
 enum ResolvedChartSizing {
     SinglePlot,
     FacetBand(FacetRuntimeSizingPolicy),
+}
+
+struct EvaluationOutcome {
+    evaluated: EvaluatedPlot,
+    measurement: Option<ComponentsMeasurement>,
+    facet_tree_structure: Option<Vec<String>>,
 }
 
 impl ResolvedChartSizing {
@@ -4264,10 +4271,11 @@ impl CompiledPlot {
         params: Option<IndexMap<String, ScalarValue>>,
         options: EvaluationOptions,
     ) -> Result<EvaluatedPlot, AvengerChartError> {
-        Box::pin(self.evaluate_with_options_internal(
+        let outcome = Box::pin(self.evaluate_with_options_internal(
             ctx, params, options, None, None, None, None, None, None, None,
         ))
-        .await
+        .await?;
+        Ok(outcome.evaluated)
     }
 
     /// Evaluate the plot while collecting focused performance diagnostics.
@@ -4279,7 +4287,7 @@ impl CompiledPlot {
         options: EvaluationOptions,
     ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
         let metrics = Arc::new(Mutex::new(EvaluationMetrics::default()));
-        let evaluated = Box::pin(self.evaluate_with_options_internal(
+        let outcome = Box::pin(self.evaluate_with_options_internal(
             ctx,
             params,
             options,
@@ -4296,7 +4304,7 @@ impl CompiledPlot {
             .lock()
             .expect("evaluation metrics lock poisoned")
             .clone();
-        Ok((evaluated, metrics))
+        Ok((outcome.evaluated, metrics))
     }
 
     pub(crate) async fn evaluate_with_options_and_metrics_with_scale_domain_cache(
@@ -4310,9 +4318,17 @@ impl CompiledPlot {
         guide_overflow_cache: Option<GuideOverflowCacheHandle>,
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
-    ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
+    ) -> Result<
+        (
+            EvaluatedPlot,
+            EvaluationMetrics,
+            Option<ComponentsMeasurement>,
+            Option<Vec<String>>,
+        ),
+        AvengerChartError,
+    > {
         let metrics = Arc::new(Mutex::new(EvaluationMetrics::default()));
-        let evaluated = Box::pin(self.evaluate_with_options_internal(
+        let outcome = Box::pin(self.evaluate_with_options_internal(
             ctx,
             params,
             options,
@@ -4329,7 +4345,12 @@ impl CompiledPlot {
             .lock()
             .expect("evaluation metrics lock poisoned")
             .clone();
-        Ok((evaluated, metrics))
+        Ok((
+            outcome.evaluated,
+            metrics,
+            outcome.measurement,
+            outcome.facet_tree_structure,
+        ))
     }
 
     async fn evaluate_with_options_internal(
@@ -4344,7 +4365,7 @@ impl CompiledPlot {
         guide_overflow_cache: Option<GuideOverflowCacheHandle>,
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
-    ) -> Result<EvaluatedPlot, AvengerChartError> {
+    ) -> Result<EvaluationOutcome, AvengerChartError> {
         // Merge provided params with defaults
         let merged_params = if let Some(provided) = params {
             let mut merged = self.default_params.clone();
@@ -4415,6 +4436,7 @@ impl CompiledPlot {
             depth = facet_tree.depth(),
             "evaluated facet tree construction completed"
         );
+        let facet_tree_structure = facet_tree.structure_cache_key();
         let facet_scale_precompute_store = facet_scale_precompute_cache
             .as_ref()
             .filter(|_| facet_tree.depth() > 0)
@@ -4571,7 +4593,11 @@ impl CompiledPlot {
                             snapshot
                         ))
                     })?;
-                    return Ok(Self::pad_facet_subtree_snapshot(evaluated));
+                    return Ok(EvaluationOutcome {
+                        evaluated: Self::pad_facet_subtree_snapshot(evaluated),
+                        measurement: None,
+                        facet_tree_structure: None,
+                    });
                 }
                 FacetSubtreeCheckpoint::LocalRetargetedLayout => {}
                 FacetSubtreeCheckpoint::CoordinatedLayout => {
@@ -4599,9 +4625,14 @@ impl CompiledPlot {
                     .await?;
                 }
             }
-            return self
+            let evaluated = self
                 .render_facet_subtree_snapshot(&eval_ctx, &measurement, snapshot)
-                .await;
+                .await?;
+            return Ok(EvaluationOutcome {
+                evaluated,
+                measurement: None,
+                facet_tree_structure: None,
+            });
         }
 
         Box::pin(self.apply_layout_snapshot(
@@ -4635,7 +4666,217 @@ impl CompiledPlot {
         ))
         .await?;
 
-        Ok(self.components_to_evaluated_plot(&eval_ctx, components))
+        let evaluated = self.components_to_evaluated_plot(&eval_ctx, components);
+        Ok(EvaluationOutcome {
+            evaluated,
+            measurement: Some(measurement),
+            facet_tree_structure: Some(facet_tree_structure),
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn evaluate_preview_with_cached_measurement_and_metrics(
+        &self,
+        ctx: &SessionContext,
+        params: Option<IndexMap<String, ScalarValue>>,
+        options: EvaluationOptions,
+        cached_measurement: &ComponentsMeasurement,
+        expected_facet_tree_structure: Option<&[String]>,
+        scale_domain_cache: ScaleDomainCacheHandle,
+        facet_semantic_cache: FacetSemanticCacheHandle,
+    ) -> Result<Option<(EvaluatedPlot, EvaluationMetrics)>, AvengerChartError> {
+        if options.layout_snapshot != LayoutSnapshot::Final {
+            return Ok(None);
+        }
+
+        let metrics = Arc::new(Mutex::new(EvaluationMetrics::default()));
+        let merged_params = if let Some(provided) = params {
+            let mut merged = self.default_params.clone();
+            merged.extend(provided);
+            merged
+        } else {
+            self.default_params.clone()
+        };
+
+        let evaluated_layout_spec = evaluate_layout_spec(
+            &self.layout_spec,
+            ctx,
+            &merged_params,
+            self.get_theme().as_ref(),
+        )
+        .await?;
+        let resolved_chart_sizing = self.resolve_chart_sizing(&evaluated_layout_spec)?;
+
+        Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+            metrics.record_facet_tree_build();
+        });
+        let wrap_layout_context =
+            Self::facet_wrap_layout_context(&evaluated_layout_spec, resolved_chart_sizing);
+        let mut slot_cache = facet_semantic_cache
+            .lock()
+            .expect("facet semantic cache lock poisoned")
+            .clone();
+        let before = slot_cache.stats();
+        let facet_tree =
+            EvaluatedFacetTree::from_compiled_plot_with_params_wrap_layout_context_and_slot_cache(
+                self,
+                ctx,
+                &merged_params,
+                wrap_layout_context,
+                &mut slot_cache,
+            )
+            .await?;
+        let after = slot_cache.stats();
+        Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+            metrics.record_facet_semantic_cache_hits(after.hits.saturating_sub(before.hits));
+            metrics.record_facet_semantic_cache_misses(after.misses.saturating_sub(before.misses));
+        });
+        facet_semantic_cache
+            .lock()
+            .expect("facet semantic cache lock poisoned")
+            .merge_from(slot_cache);
+
+        let facet_tree_structure = facet_tree.structure_cache_key();
+        if expected_facet_tree_structure != Some(facet_tree_structure.as_slice()) {
+            return Ok(None);
+        }
+
+        let measured_layout_spec = Self::layout_spec_for_resolved_chart_sizing(
+            &evaluated_layout_spec,
+            &facet_tree,
+            resolved_chart_sizing,
+        );
+        let dimensions = Self::resolve_dimensions_from_spec(&measured_layout_spec);
+        let scale_domain_params = merged_params.clone();
+        let mut eval_ctx = EvaluationContext::new(
+            self.get_theme(),
+            Arc::new(ctx.clone()),
+            merged_params,
+            Arc::new(facet_tree),
+        )
+        .with_facet_data_root(dataframe_from_compiled_plot_data(&self.data, ctx)?)
+        .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode())
+        .with_facet_layout_refinement(options.facet_layout_refinement)
+        .with_debug_layout_overlay(facet_debug::resolve_layout_overlay_mode(
+            options.debug_layout_overlay,
+        ))
+        .with_scale_domain_cache(scale_domain_cache.clone())
+        .with_evaluation_metrics(metrics.clone());
+
+        let mut measurement = cached_measurement.clone();
+        let old_canvas_size = measurement.canvas_size;
+        let target_plot_area_width = if dimensions.width.is_plot_area() {
+            dimensions.width_value()
+        } else {
+            measurement.plot_area_width + dimensions.width_value() - old_canvas_size.0
+        }
+        .max(1.0);
+        let target_plot_area_height = if dimensions.height.is_plot_area() {
+            dimensions.height_value()
+        } else {
+            measurement.plot_area_height + dimensions.height_value() - old_canvas_size.1
+        }
+        .max(1.0);
+
+        eval_ctx =
+            eval_ctx.with_dimension_params(dimensions.width_value(), dimensions.height_value());
+        measurement.params = eval_ctx.params.clone();
+
+        let mut scale_eval_ctx = avenger_chart_core::EvaluationContext::new(
+            self.get_theme(),
+            Arc::new(ctx.clone()),
+            scale_domain_params.clone(),
+        )
+        .with_diagnostics(Arc::new(EvaluationMetricsDiagnostics::new(metrics.clone())));
+        let cache_key = self.top_level_scale_domain_cache_key(ctx, &scale_domain_params);
+        let cached_builder = {
+            scale_domain_cache
+                .lock()
+                .expect("scale-domain cache lock poisoned")
+                .get(&cache_key)
+        };
+        let scale_builder = if let Some(builder) = cached_builder {
+            Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                metrics.record_scale_domain_cache_hit();
+            });
+            builder
+        } else {
+            Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                metrics.record_scale_domain_cache_miss();
+                metrics.record_scale_builder_build();
+            });
+            let builder = Box::pin(build_scale_builder_from_marks(
+                &self.marks,
+                &self.scale_specs,
+                &self.coord_transform,
+                &self.data,
+                None,
+                &scale_eval_ctx,
+                self.get_theme().as_ref(),
+            ))
+            .await?;
+            scale_domain_cache
+                .lock()
+                .expect("scale-domain cache lock poisoned")
+                .insert(cache_key, builder.clone());
+            builder
+        };
+        scale_eval_ctx = scale_eval_ctx.with_params(eval_ctx.params.clone());
+        let scale_provider = DynamicScaleProvider {
+            builder: &scale_builder,
+            plot: self,
+        };
+        let mut refreshed_scales = scale_provider
+            .build_scales(
+                target_plot_area_width,
+                target_plot_area_height,
+                ctx,
+                &scale_eval_ctx.params,
+            )
+            .await?;
+        crate::coords::apply_coord_measurement_scale_adjustments(
+            measurement.coord_measurement.as_ref(),
+            &mut refreshed_scales,
+        );
+        measurement.scales = refreshed_scales;
+
+        match resolved_chart_sizing {
+            ResolvedChartSizing::SinglePlot => {
+                retarget_measurement_plot_area_no_remeasure(
+                    &mut measurement,
+                    self,
+                    &eval_ctx,
+                    &[],
+                    target_plot_area_width,
+                    target_plot_area_height,
+                )?;
+            }
+            ResolvedChartSizing::FacetBand(_) => {
+                retarget_measurement_plot_area_policy_no_remeasure(
+                    &mut measurement,
+                    self,
+                    &eval_ctx,
+                    &[],
+                    target_plot_area_width,
+                    target_plot_area_height,
+                )?;
+            }
+        }
+        measurement.params = eval_ctx.params.clone();
+
+        Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+            metrics.record_preview_profile_reuse();
+            metrics.record_skipped_component_measure_calls(1);
+        });
+
+        let components =
+            Box::pin(self.build_plot_components(&eval_ctx, &measurement, None, false, &[])).await?;
+        let evaluated = self.components_to_evaluated_plot(&eval_ctx, components);
+        let metrics = metrics
+            .lock()
+            .expect("evaluation metrics lock poisoned")
+            .clone();
+        Ok(Some((evaluated, metrics)))
     }
 }
 
