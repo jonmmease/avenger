@@ -37,9 +37,9 @@ use avenger_chart_core::{
 use avenger_chart_scales::{ConfiguredScaleWithSpec, PlotScaleSpec as ScaleSpec, ScaleBuilder};
 
 use crate::layout::{
-    ChildFrameContentMeasurement, ChildFrameContentSolver, ContentAllocation, ContentLayout,
-    ContentLayoutSolver, FrameAllocation, FrameDemand, LayoutSpec, SinglePlotContentMeasurement,
-    SinglePlotContentSolver,
+    ChartResizePolicy, ChildFrameContentMeasurement, ChildFrameContentSolver, ContentAllocation,
+    ContentLayout, ContentLayoutSolver, FrameAllocation, FrameDemand, LayoutSpec,
+    SinglePlotContentMeasurement, SinglePlotContentSolver,
 };
 
 pub use self::child_frame_container::ChildFrameContainerView;
@@ -160,6 +160,11 @@ impl CompiledPlot {
     /// Get layout spec
     pub fn get_layout_spec(&self) -> &LayoutSpec {
         &self.layout_spec
+    }
+
+    /// Get the app-facing resize policy for the compiled layout.
+    pub fn resize_policy(&self) -> ChartResizePolicy {
+        self.layout_spec.resize_policy()
     }
 
     /// Get default parameter values

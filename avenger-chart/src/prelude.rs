@@ -26,7 +26,9 @@ pub use avenger_chart_core::{FacetEmptyCellPolicy, ScaleSharing, ZeroDCoord};
 pub use avenger_chart_polar::Polar;
 
 // Re-export the Plot type
-pub use crate::layout::{CanvasConstraint, PlotConstraint};
+pub use crate::layout::{
+    CanvasConstraint, ChartResizeAxisPolicy, ChartResizePolicy, PlotConstraint,
+};
 pub use crate::plot::{
     EvaluationRequest, Plot, PlotSession, PlotSubtitle, PlotTitle, TitleAlign, TitleSpan,
 };

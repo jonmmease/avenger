@@ -162,6 +162,63 @@ pub(crate) enum SizeMode {
     Auto,
 }
 
+/// Which part of a chart layout owns a dimension for interactive resizing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChartResizeAxisPolicy {
+    /// The canvas expression owns this dimension, so an app may drive it from
+    /// window size when a resize parameter binding is configured.
+    CanvasConstrained,
+    /// The plot-area expression owns this dimension, so the chart computes the
+    /// canvas extent from content and the app should not drive it from window size.
+    PlotConstrained,
+    /// Neither canvas nor plot area explicitly owns this dimension.
+    Auto,
+    /// Both canvas and plot area constrain this dimension.
+    Conflict,
+}
+
+impl ChartResizeAxisPolicy {
+    /// Returns true when this axis can consume window resize input.
+    pub fn is_canvas_constrained(self) -> bool {
+        matches!(self, Self::CanvasConstrained)
+    }
+
+    /// Returns true when this axis is controlled by plot/content sizing.
+    pub fn is_plot_constrained(self) -> bool {
+        matches!(self, Self::PlotConstrained)
+    }
+
+    /// Returns true when the axis has incompatible canvas and plot constraints.
+    pub fn is_conflict(self) -> bool {
+        matches!(self, Self::Conflict)
+    }
+}
+
+/// App-facing resize policy for the two chart dimensions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChartResizePolicy {
+    pub width: ChartResizeAxisPolicy,
+    pub height: ChartResizeAxisPolicy,
+}
+
+impl ChartResizePolicy {
+    /// Returns true when either axis can consume window resize input.
+    pub fn has_canvas_constrained_axis(self) -> bool {
+        self.width.is_canvas_constrained() || self.height.is_canvas_constrained()
+    }
+
+    /// Returns true when either axis has incompatible constraints.
+    pub fn has_conflict(self) -> bool {
+        self.width.is_conflict() || self.height.is_conflict()
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Axis {
+    Width,
+    Height,
+}
+
 // Evaluated version of SizeMode with concrete f32 values for layout computation
 #[derive(Clone, Debug)]
 pub(crate) enum EvaluatedSizeMode {
@@ -422,6 +479,39 @@ impl LayoutSpec {
             },
             margins,
         }
+    }
+
+    /// Determine which layout layer owns each dimension for app resizing.
+    pub fn resize_policy(&self) -> ChartResizePolicy {
+        ChartResizePolicy {
+            width: resize_axis_policy(&self.canvas, &self.plot_area, Axis::Width),
+            height: resize_axis_policy(&self.canvas, &self.plot_area, Axis::Height),
+        }
+    }
+}
+
+fn resize_axis_policy(
+    canvas: &SizeMode,
+    plot_area: &SizeMode,
+    axis: Axis,
+) -> ChartResizeAxisPolicy {
+    match (
+        size_mode_constrains_axis(canvas, axis),
+        size_mode_constrains_axis(plot_area, axis),
+    ) {
+        (true, true) => ChartResizeAxisPolicy::Conflict,
+        (true, false) => ChartResizeAxisPolicy::CanvasConstrained,
+        (false, true) => ChartResizeAxisPolicy::PlotConstrained,
+        (false, false) => ChartResizeAxisPolicy::Auto,
+    }
+}
+
+fn size_mode_constrains_axis(mode: &SizeMode, axis: Axis) -> bool {
+    match (mode, axis) {
+        (SizeMode::Fixed { .. }, _) => true,
+        (SizeMode::Width(_), Axis::Width) | (SizeMode::Height(_), Axis::Height) => true,
+        (SizeMode::Width(_), Axis::Height) | (SizeMode::Height(_), Axis::Width) => false,
+        (SizeMode::Auto, _) => false,
     }
 }
 

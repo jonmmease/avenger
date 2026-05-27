@@ -1,0 +1,44 @@
+[package]
+name = "avenger-chart-app"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+winit-wgpu = [
+    "dep:avenger-winit-wgpu",
+    "dep:cfg-if",
+    "dep:winit",
+]
+
+[dependencies]
+avenger-app = { path = "../avenger-app" }
+avenger-chart = { path = "../avenger-chart" }
+avenger-eventstream = { path = "../avenger-eventstream" }
+avenger-geometry = { path = "../avenger-geometry" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-winit-wgpu = { path = "../avenger-winit-wgpu", optional = true }
+
+async-trait = { workspace = true }
+cfg-if = { workspace = true, optional = true }
+datafusion = { workspace = true }
+indexmap = { workspace = true }
+log = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync"] }
+winit = { workspace = true, optional = true }
+
+[dev-dependencies]
+env_logger = "0.10"
+tokio = { workspace = true, features = ["macros", "rt", "sync"] }
+
+[[example]]
+name = "canvas_width_scatter"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "responsive_wrap_resize"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "canvas_width_height_scatter"
+required-features = ["winit-wgpu"]

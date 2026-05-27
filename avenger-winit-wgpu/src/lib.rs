@@ -7,6 +7,7 @@ use avenger_wgpu::{
 };
 use winit::{
     application::ApplicationHandler,
+    dpi::{PhysicalSize, Size},
     event::{ElementState, KeyEvent, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop},
     keyboard::{self, NamedKey},
@@ -24,12 +25,62 @@ pub use file_watcher::FileWatcher;
 #[cfg(target_arch = "wasm32")]
 pub struct FileWatcher;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WindowSceneSizing {
+    #[default]
+    SurfaceFollowsWindow,
+    MatchSceneGraph,
+    MatchSceneGraphAxes {
+        width: bool,
+        height: bool,
+    },
+}
+
+impl WindowSceneSizing {
+    fn matching_axes(self) -> (bool, bool) {
+        match self {
+            Self::SurfaceFollowsWindow => (false, false),
+            Self::MatchSceneGraph => (true, true),
+            Self::MatchSceneGraphAxes { width, height } => (width, height),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct WinitWgpuAvengerAppOptions {
+    pub scale: f32,
+    pub window_attributes: WindowAttributes,
+    pub window_scene_sizing: WindowSceneSizing,
+}
+
+impl WinitWgpuAvengerAppOptions {
+    pub fn new(scale: f32) -> Self {
+        Self {
+            scale,
+            window_attributes: WindowAttributes::default().with_resizable(false),
+            window_scene_sizing: WindowSceneSizing::SurfaceFollowsWindow,
+        }
+    }
+
+    pub fn window_attributes(mut self, window_attributes: WindowAttributes) -> Self {
+        self.window_attributes = window_attributes;
+        self
+    }
+
+    pub fn window_scene_sizing(mut self, window_scene_sizing: WindowSceneSizing) -> Self {
+        self.window_scene_sizing = window_scene_sizing;
+        self
+    }
+}
+
 pub struct WinitWgpuAvengerApp<State>
 where
     State: Clone + Send + Sync + 'static,
 {
     canvas: std::rc::Rc<std::cell::RefCell<Option<WindowCanvas<'static>>>>,
     scale: f32,
+    window_attributes: WindowAttributes,
+    window_scene_sizing: WindowSceneSizing,
     pub avenger_app: std::rc::Rc<std::cell::RefCell<AvengerApp<State>>>,
     render_pending: bool,
     pub file_watcher: Option<FileWatcher>,
@@ -46,6 +97,19 @@ where
     pub fn new_and_event_loop(
         avenger_app: AvengerApp<State>,
         scale: f32,
+        #[cfg(not(target_arch = "wasm32"))] tokio_runtime: tokio::runtime::Runtime,
+    ) -> (Self, EventLoop<AvengerWindowEvent>) {
+        Self::new_and_event_loop_with_options(
+            avenger_app,
+            WinitWgpuAvengerAppOptions::new(scale),
+            #[cfg(not(target_arch = "wasm32"))]
+            tokio_runtime,
+        )
+    }
+
+    pub fn new_and_event_loop_with_options(
+        avenger_app: AvengerApp<State>,
+        options: WinitWgpuAvengerAppOptions,
         #[cfg(not(target_arch = "wasm32"))] tokio_runtime: tokio::runtime::Runtime,
     ) -> (Self, EventLoop<AvengerWindowEvent>) {
         // Create event loop with AvengerWindowEvent as custom event type
@@ -71,7 +135,9 @@ where
 
         let winit_app = Self {
             canvas: std::rc::Rc::new(std::cell::RefCell::new(None)),
-            scale,
+            scale: options.scale,
+            window_attributes: options.window_attributes,
+            window_scene_sizing: options.window_scene_sizing,
             avenger_app: std::rc::Rc::new(std::cell::RefCell::new(avenger_app)),
             render_pending: false,
             file_watcher,
@@ -81,6 +147,75 @@ where
         };
 
         (winit_app, event_loop)
+    }
+
+    fn dispatch_avenger_event(&mut self, event: AvengerWindowEvent, force: bool) {
+        if !force && self.render_pending && event.skip_if_render_pending() {
+            return;
+        }
+
+        let window_scene_sizing = self.window_scene_sizing;
+        let scale = self.scale;
+
+        cfg_if::cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                let app_clone = self.avenger_app.clone();
+                let event_clone = event.clone();
+                let canvas_shared = self.canvas.clone();
+
+                #[allow(clippy::await_holding_refcell_ref)]
+                let update_future = async move {
+                    let update_result = app_clone
+                        .borrow_mut()
+                        .update(&event_clone, Instant::now())
+                        .await;
+
+                    match update_result {
+                        Ok(Some(scene_graph)) => {
+                            let mut canvas_borrowed = canvas_shared.borrow_mut();
+                            if let Some(canvas) = canvas_borrowed.as_mut() {
+                                if let Err(e) = install_scene_graph(
+                                    canvas,
+                                    &scene_graph,
+                                    window_scene_sizing,
+                                    scale,
+                                ) {
+                                    log::error!("Failed to set scene: {:?}", e);
+                                }
+                            }
+                        }
+                        Ok(None) => {
+                            // No update needed
+                        }
+                        Err(e) => {
+                            log::error!("Failed to update app: {:?}", e);
+                        }
+                    }
+                };
+                spawn_local(update_future);
+            } else {
+                // For non-WASM, maintain the original precise render_pending logic
+                let scene_graph_opt = {
+                    let mut app = self.avenger_app.borrow_mut();
+                    self.tokio_runtime
+                        .block_on(app.update(&event, Instant::now()))
+                        .expect("Failed to update app")
+                };
+
+                if let Some(scene_graph) = scene_graph_opt {
+                    if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
+                        install_scene_graph(
+                            canvas,
+                            &scene_graph,
+                            window_scene_sizing,
+                            scale,
+                        )
+                        .unwrap();
+                        self.render_pending = true;
+                    }
+                }
+            }
+        }
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -105,7 +240,7 @@ where
 {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = event_loop
-            .create_window(WindowAttributes::default().with_resizable(false))
+            .create_window(self.window_attributes.clone())
             .expect("Failed to create window");
 
         #[cfg(target_arch = "wasm32")]
@@ -133,8 +268,13 @@ where
         let setup_future = async move {
             match canvas_future.await {
                 Ok(mut canvas) => {
-                    canvas.set_scene(&scene_graph).unwrap();
-                    canvas.window().request_redraw();
+                    install_scene_graph(
+                        &mut canvas,
+                        &scene_graph,
+                        WindowSceneSizing::SurfaceFollowsWindow,
+                        dimensions.scale,
+                    )
+                    .unwrap();
                     *canvas_shared.borrow_mut() = Some(canvas);
                 }
                 Err(e) => {
@@ -154,41 +294,7 @@ where
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AvengerWindowEvent) {
         // Process file change events and other custom events
-        if !self.render_pending || !event.skip_if_render_pending() {
-            let app_clone = self.avenger_app.clone();
-            let canvas_shared = self.canvas.clone();
-            let event_clone = event.clone();
-            #[allow(clippy::await_holding_refcell_ref)]
-            let update_future = async move {
-                let update_result = app_clone
-                    .borrow_mut()
-                    .update(&event_clone, Instant::now())
-                    .await;
-
-                match update_result {
-                    Ok(Some(scene_graph)) => {
-                        if let Some(canvas) = canvas_shared.borrow_mut().as_mut() {
-                            canvas.set_scene(&scene_graph).unwrap();
-                            canvas.window().request_redraw();
-                        }
-                    }
-                    Ok(None) => {
-                        // No update needed
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to update app with user event: {e:?}");
-                    }
-                }
-            };
-
-            cfg_if::cfg_if! {
-                if #[cfg(target_arch = "wasm32")] {
-                    spawn_local(update_future);
-                } else {
-                    self.tokio_runtime.block_on(update_future);
-                }
-            }
-        }
+        self.dispatch_avenger_event(event, false);
     }
 
     fn window_event(
@@ -230,6 +336,17 @@ where
                     if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
                         canvas.resize(physical_size);
                     }
+                    self.dispatch_avenger_event(
+                        AvengerWindowEvent::WindowResize(
+                            avenger_eventstream::window::WindowResizeEvent {
+                                size: [
+                                    physical_size.width as f32 / self.scale,
+                                    physical_size.height as f32 / self.scale,
+                                ],
+                            },
+                        ),
+                        true,
+                    );
                 }
                 WindowEvent::RedrawRequested => {
                     if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
@@ -261,64 +378,61 @@ where
                 }
                 event => {
                     if let Some(event) = AvengerWindowEvent::from_winit_event(event, self.scale) {
-                        if !self.render_pending || !event.skip_if_render_pending() {
-                            cfg_if::cfg_if! {
-                                if #[cfg(target_arch = "wasm32")] {
-                                    let app_clone = self.avenger_app.clone();
-                                    let event_clone = event.clone();
-                                    let canvas_shared = self.canvas.clone();
-
-                                    #[allow(clippy::await_holding_refcell_ref)]
-                                    let update_future = async move {
-                                        let update_result = app_clone
-                                            .borrow_mut()
-                                            .update(&event_clone, Instant::now())
-                                            .await;
-
-                                        match update_result {
-                                            Ok(Some(scene_graph)) => {
-                                                let mut canvas_borrowed = canvas_shared.borrow_mut();
-                                                if let Some(canvas) = canvas_borrowed.as_mut() {
-                                                    if let Err(e) = canvas.set_scene(&scene_graph) {
-                                                        log::error!("Failed to set scene: {:?}", e);
-                                                    } else {
-                                                        canvas.window().request_redraw();
-                                                    }
-                                                }
-                                            }
-                                            Ok(None) => {
-                                                // No update needed
-                                            }
-                                            Err(e) => {
-                                                log::error!("Failed to update app: {:?}", e);
-                                            }
-                                        }
-                                    };
-                                    spawn_local(update_future);
-                                } else {
-                                    // For non-WASM, maintain the original precise render_pending logic
-                                    let scene_graph_opt = {
-                                        let mut app = self.avenger_app.borrow_mut();
-                                        self.tokio_runtime
-                                            .block_on(app.update(&event, Instant::now()))
-                                            .expect("Failed to update app")
-                                    };
-
-                                    if let Some(scene_graph) = scene_graph_opt {
-                                        if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
-                                            canvas.set_scene(&scene_graph).unwrap();
-                                            self.render_pending = true;
-                                            canvas.window().request_redraw();
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            // println!("skip update scene graph");
-                        }
+                        self.dispatch_avenger_event(event, false);
                     }
                 }
             }
         }
     }
+}
+
+fn install_scene_graph(
+    canvas: &mut WindowCanvas<'static>,
+    scene_graph: &avenger_scenegraph::scene_graph::SceneGraph,
+    window_scene_sizing: WindowSceneSizing,
+    scale: f32,
+) -> Result<(), AvengerWgpuError> {
+    sync_canvas_size_to_scene_graph(canvas, scene_graph, window_scene_sizing, scale);
+    canvas.set_scene(scene_graph)?;
+    canvas.window().request_redraw();
+    Ok(())
+}
+
+fn sync_canvas_size_to_scene_graph(
+    canvas: &mut WindowCanvas<'static>,
+    scene_graph: &avenger_scenegraph::scene_graph::SceneGraph,
+    window_scene_sizing: WindowSceneSizing,
+    scale: f32,
+) {
+    let (match_width, match_height) = window_scene_sizing.matching_axes();
+    if !match_width && !match_height {
+        return;
+    }
+
+    let current = canvas.get_size();
+    let target = PhysicalSize {
+        width: if match_width {
+            logical_to_physical(scene_graph.width, scale)
+        } else {
+            current.width
+        },
+        height: if match_height {
+            logical_to_physical(scene_graph.height, scale)
+        } else {
+            current.height
+        },
+    };
+
+    let width_changed = current.width.abs_diff(target.width) > 1;
+    let height_changed = current.height.abs_diff(target.height) > 1;
+    if !width_changed && !height_changed {
+        return;
+    }
+
+    let _ = canvas.window().request_inner_size(Size::Physical(target));
+    canvas.resize(target);
+}
+
+fn logical_to_physical(value: f32, scale: f32) -> u32 {
+    ((value * scale).round().max(1.0)) as u32
 }

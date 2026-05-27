@@ -1091,6 +1091,72 @@ mod tests {
             .await
     }
 
+    #[tokio::test]
+    async fn compiled_plot_resize_policy_classifies_layout_axes() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+
+        let canvas = Plot::<Cartesian>::new()
+            .canvas_size(640.0, 420.0)
+            .compile(&ctx)
+            .await?;
+        assert_eq!(
+            canvas.resize_policy(),
+            ChartResizePolicy {
+                width: ChartResizeAxisPolicy::CanvasConstrained,
+                height: ChartResizeAxisPolicy::CanvasConstrained,
+            }
+        );
+
+        let plot_area = Plot::<Cartesian>::new()
+            .plot_size(320.0, 180.0)
+            .compile(&ctx)
+            .await?;
+        assert_eq!(
+            plot_area.resize_policy(),
+            ChartResizePolicy {
+                width: ChartResizeAxisPolicy::PlotConstrained,
+                height: ChartResizeAxisPolicy::PlotConstrained,
+            }
+        );
+
+        let mixed = Plot::<Cartesian>::new()
+            .canvas_constraint(CanvasConstraint::width(700.0))
+            .plot_constraint(PlotConstraint::height(160.0))
+            .compile(&ctx)
+            .await?;
+        assert_eq!(
+            mixed.resize_policy(),
+            ChartResizePolicy {
+                width: ChartResizeAxisPolicy::CanvasConstrained,
+                height: ChartResizeAxisPolicy::PlotConstrained,
+            }
+        );
+
+        let auto = Plot::<Cartesian>::new().compile(&ctx).await?;
+        assert_eq!(
+            auto.resize_policy(),
+            ChartResizePolicy {
+                width: ChartResizeAxisPolicy::Auto,
+                height: ChartResizeAxisPolicy::Auto,
+            }
+        );
+
+        let conflict = Plot::<Cartesian>::new()
+            .canvas_constraint(CanvasConstraint::width(700.0))
+            .plot_constraint(PlotConstraint::width(320.0))
+            .compile(&ctx)
+            .await?;
+        assert_eq!(
+            conflict.resize_policy(),
+            ChartResizePolicy {
+                width: ChartResizeAxisPolicy::Conflict,
+                height: ChartResizeAxisPolicy::Auto,
+            }
+        );
+
+        Ok(())
+    }
+
     async fn compile_scale_param_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {

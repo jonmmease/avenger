@@ -34,7 +34,9 @@ pub(crate) use frame_solver::{
 };
 pub(crate) use grid::{ComponentType, MIN_GUIDE_OVERFLOW_SIZE};
 pub use info::LegendLayoutInfo;
-pub use sizing::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint};
+pub use sizing::{
+    CanvasConstraint, ChartResizeAxisPolicy, ChartResizePolicy, LayoutSpec, Margins, PlotConstraint,
+};
 pub(crate) use sizing::{
     EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, ResolvedLayoutDimensions, SizeMode,
 };
