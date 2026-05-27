@@ -56,6 +56,24 @@ pub(crate) type GuideOverflowCacheHandle = Arc<Mutex<GuideOverflowCache>>;
 pub(crate) type LegendMeasurementCacheHandle = Arc<Mutex<LegendMeasurementCache>>;
 pub(crate) type TextMeasurementCacheHandle = Arc<Mutex<TextMeasurementCache>>;
 
+pub(crate) fn new_plot_session_cache_handles() -> (
+    ScaleDomainCacheHandle,
+    FacetSemanticCacheHandle,
+    FacetScalePrecomputeCacheHandle,
+    GuideOverflowCacheHandle,
+    LegendMeasurementCacheHandle,
+    TextMeasurementCacheHandle,
+) {
+    (
+        Arc::new(Mutex::new(ScaleDomainCache::default())),
+        Arc::new(Mutex::new(PartitionSlotCache::new())),
+        Arc::new(Mutex::new(FacetScalePrecomputeSessionCache::default())),
+        Arc::new(Mutex::new(GuideOverflowCache::default())),
+        Arc::new(Mutex::new(LegendMeasurementCache::default())),
+        Arc::new(Mutex::new(TextMeasurementCache::default())),
+    )
+}
+
 /// Session-owned cache for scale-domain inference artifacts.
 #[derive(Default)]
 pub(crate) struct ScaleDomainCache {
@@ -318,6 +336,14 @@ pub struct PlotSession {
 impl PlotSession {
     pub(crate) fn new(program: Arc<CompiledPlot>, ctx: Arc<SessionContext>) -> Self {
         let current_params = program.get_default_params().clone();
+        let (
+            scale_domain_cache,
+            facet_semantic_cache,
+            facet_scale_precompute_cache,
+            guide_overflow_cache,
+            legend_measurement_cache,
+            text_measurement_cache,
+        ) = new_plot_session_cache_handles();
         Self {
             program,
             ctx,
@@ -326,14 +352,12 @@ impl PlotSession {
             last_measurement: None,
             last_facet_tree_structure: None,
             last_metrics: None,
-            scale_domain_cache: Arc::new(Mutex::new(ScaleDomainCache::default())),
-            facet_semantic_cache: Arc::new(Mutex::new(PartitionSlotCache::new())),
-            facet_scale_precompute_cache: Arc::new(Mutex::new(
-                FacetScalePrecomputeSessionCache::default(),
-            )),
-            guide_overflow_cache: Arc::new(Mutex::new(GuideOverflowCache::default())),
-            legend_measurement_cache: Arc::new(Mutex::new(LegendMeasurementCache::default())),
-            text_measurement_cache: Arc::new(Mutex::new(TextMeasurementCache::default())),
+            scale_domain_cache,
+            facet_semantic_cache,
+            facet_scale_precompute_cache,
+            guide_overflow_cache,
+            legend_measurement_cache,
+            text_measurement_cache,
         }
     }
 
@@ -1286,6 +1310,37 @@ mod tests {
         assert!(
             session.last_measurement.is_some(),
             "exact session evaluation should retain the final component measurement"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn one_shot_evaluation_uses_temporary_session_caches_without_persisting()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = compile_width_param_scale_cache_plot(&ctx).await?;
+
+        let (_first, first) = compiled
+            .evaluate_with_options_and_metrics(&ctx, None, EvaluationOptions::default())
+            .await?;
+        let (_second, second) = compiled
+            .evaluate_with_options_and_metrics(&ctx, None, EvaluationOptions::default())
+            .await?;
+
+        assert_eq!(first.pipeline.scale_domain_cache_hits, 0);
+        assert_eq!(first.pipeline.scale_domain_cache_misses, 1);
+        assert_eq!(second.pipeline.scale_domain_cache_hits, 0);
+        assert_eq!(second.pipeline.scale_domain_cache_misses, 1);
+        assert!(
+            first.pipeline.guide_overflow_cache_misses > 0
+                || first.pipeline.text_measurement_cache_misses > 0,
+            "one-shot evaluation should use temporary measurement-profile caches"
+        );
+        assert!(
+            second.pipeline.guide_overflow_cache_misses > 0
+                || second.pipeline.text_measurement_cache_misses > 0,
+            "a second one-shot call should start with fresh temporary caches"
         );
 
         Ok(())

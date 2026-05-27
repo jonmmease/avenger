@@ -89,7 +89,8 @@ use super::{
     session::{
         FacetScalePrecomputeCacheHandle, FacetSemanticCacheHandle, GuideOverflowCacheHandle,
         LegendMeasurementCacheHandle, ScaleDomainCacheHandle, ScaleDomainCacheScope,
-        TextMeasurementCacheHandle, scale_domain_cache_key_for_parts_with_scope,
+        TextMeasurementCacheHandle, new_plot_session_cache_handles,
+        scale_domain_cache_key_for_parts_with_scope,
     },
 };
 
@@ -4271,11 +4272,9 @@ impl CompiledPlot {
         params: Option<IndexMap<String, ScalarValue>>,
         options: EvaluationOptions,
     ) -> Result<EvaluatedPlot, AvengerChartError> {
-        let outcome = Box::pin(self.evaluate_with_options_internal(
-            ctx, params, options, None, None, None, None, None, None, None,
-        ))
-        .await?;
-        Ok(outcome.evaluated)
+        let (evaluated, _) =
+            Box::pin(self.evaluate_with_options_and_metrics(ctx, params, options)).await?;
+        Ok(evaluated)
     }
 
     /// Evaluate the plot while collecting focused performance diagnostics.
@@ -4286,25 +4285,29 @@ impl CompiledPlot {
         params: Option<IndexMap<String, ScalarValue>>,
         options: EvaluationOptions,
     ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
-        let metrics = Arc::new(Mutex::new(EvaluationMetrics::default()));
-        let outcome = Box::pin(self.evaluate_with_options_internal(
-            ctx,
-            params,
-            options,
-            Some(metrics.clone()),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ))
+        let (
+            scale_domain_cache,
+            facet_semantic_cache,
+            facet_scale_precompute_cache,
+            guide_overflow_cache,
+            legend_measurement_cache,
+            text_measurement_cache,
+        ) = new_plot_session_cache_handles();
+        let (evaluated, metrics, _, _) = Box::pin(
+            self.evaluate_with_options_and_metrics_with_scale_domain_cache(
+                ctx,
+                params,
+                options,
+                scale_domain_cache,
+                facet_semantic_cache,
+                facet_scale_precompute_cache,
+                Some(guide_overflow_cache),
+                Some(legend_measurement_cache),
+                Some(text_measurement_cache),
+            ),
+        )
         .await?;
-        let metrics = metrics
-            .lock()
-            .expect("evaluation metrics lock poisoned")
-            .clone();
-        Ok((outcome.evaluated, metrics))
+        Ok((evaluated, metrics))
     }
 
     pub(crate) async fn evaluate_with_options_and_metrics_with_scale_domain_cache(
