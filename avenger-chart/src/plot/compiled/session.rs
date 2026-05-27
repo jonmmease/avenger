@@ -2264,6 +2264,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn plot_session_preview_mixed_canvas_width_preserves_leaf_height_without_wrap_reflow()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_responsive_wrap_width_param_cache_plot(&ctx).await?);
+        let mut session = compiled.clone().instantiate(ctx.clone());
+
+        let mut initial = IndexMap::new();
+        initial.insert("width".to_string(), ScalarValue::Float64(Some(700.0)));
+        let (_evaluated, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(initial))
+            .await?;
+        assert!(
+            exact.facet_layout.plot_component_measure_calls > 0,
+            "warm exact evaluation should populate the mixed-sizing layout profile"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(693.0)));
+        let (preview_plot, preview) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(preview.pipeline.preview_profile_reuses, 1);
+        assert_eq!(preview.pipeline.preview_fallbacks, 0);
+        assert_eq!(
+            preview.pipeline.preview_structure_reflow_reuses, 0,
+            "nearby widths should keep the same responsive-wrap physical structure"
+        );
+
+        let mut exact_params = IndexMap::new();
+        exact_params.insert("width".to_string(), ScalarValue::Float64(Some(693.0)));
+        let one_shot = compiled.evaluate(ctx.as_ref(), Some(exact_params)).await?;
+        assert_eq!(preview_plot.scene_graph.width, one_shot.scene_graph.width);
+        assert_eq!(
+            preview_plot.scene_graph.height, one_shot.scene_graph.height,
+            "preview must preserve the measured leaf-height-owned extent instead of retargeting to the nominal estimate"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn plot_session_preview_responsive_wrap_replay_populates_timing_diagnostics()
     -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());

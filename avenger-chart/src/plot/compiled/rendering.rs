@@ -61,8 +61,9 @@ use crate::{
     guide::{GuideOverflowPhase, GuideSharingContext, OverflowSpaceRequirement},
     layout::{
         EdgeSlabs, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, FrameAllocation,
-        FrameLayout, FrameLayoutInput, LayoutBounds, LayoutSpec, Margins, ResolvedLayoutDimensions,
-        Size2D, SizeMode, TaffyFrameLayoutSolver, project_child_frame_bounds,
+        FrameDimensionSizing, FrameLayout, FrameLayoutInput, LayoutBounds, LayoutSpec, Margins,
+        ResolvedLayoutDimensions, Size2D, SizeMode, TaffyFrameLayoutSolver,
+        project_child_frame_bounds,
     },
     marks::CompiledMark,
     positioned_subplot::{PositionedCoordMeasurement, render_positioned_subplot_with_context},
@@ -5389,14 +5390,32 @@ impl CompiledPlot {
 
         let mut measurement = layout_profile.measurement.clone();
         let old_canvas_size = measurement.canvas_size;
+        // Plot-area-owned dimensions in a faceted layout spec are nominal
+        // content-size constraints. If the constraint itself is unchanged,
+        // preserve the measured profile extent because coordination/refinement
+        // can make it differ from the nominal estimate.
         let target_plot_area_width = if dimensions.width.is_plot_area() {
-            dimensions.width_value()
+            match measurement.frame_allocation.sizing.width {
+                FrameDimensionSizing::ContentSized { content_size }
+                    if (content_size - dimensions.width_value()).abs() <= 0.01 =>
+                {
+                    measurement.plot_area_width
+                }
+                _ => dimensions.width_value(),
+            }
         } else {
             measurement.plot_area_width + dimensions.width_value() - old_canvas_size.0
         }
         .max(1.0);
         let target_plot_area_height = if dimensions.height.is_plot_area() {
-            dimensions.height_value()
+            match measurement.frame_allocation.sizing.height {
+                FrameDimensionSizing::ContentSized { content_size }
+                    if (content_size - dimensions.height_value()).abs() <= 0.01 =>
+                {
+                    measurement.plot_area_height
+                }
+                _ => dimensions.height_value(),
+            }
         } else {
             measurement.plot_area_height + dimensions.height_value() - old_canvas_size.1
         }
@@ -5404,6 +5423,16 @@ impl CompiledPlot {
 
         eval_ctx =
             eval_ctx.with_dimension_params(dimensions.width_value(), dimensions.height_value());
+        if matches!(resolved_chart_sizing, ResolvedChartSizing::FacetBand(_)) {
+            if !dimensions.width.is_plot_area() {
+                measurement.canvas_size.0 = dimensions.width_value().max(1.0);
+            }
+            if !dimensions.height.is_plot_area() {
+                measurement.canvas_size.1 = dimensions.height_value().max(1.0);
+            }
+            measurement.layout.canvas_size = measurement.canvas_size;
+            measurement.refresh_frame_allocation_rect();
+        }
         measurement.params = eval_ctx.params.clone();
 
         let mut scale_eval_ctx = avenger_chart_core::EvaluationContext::new(

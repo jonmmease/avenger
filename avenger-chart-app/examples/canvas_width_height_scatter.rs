@@ -64,7 +64,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         ctx,
         ChartAppOptions {
             resize_binding: ChartResizeBinding::width_height("width", "height"),
-            resize_throttle_ms: Some(8),
+            resize_throttle_ms: None,
             exact_on_resize_settle: true,
             log_metrics: true,
         },

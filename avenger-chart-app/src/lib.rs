@@ -86,7 +86,7 @@ impl Default for ChartAppOptions {
     fn default() -> Self {
         Self {
             resize_binding: ChartResizeBinding::none(),
-            resize_throttle_ms: Some(8),
+            resize_throttle_ms: None,
             exact_on_resize_settle: true,
             log_metrics: false,
         }
