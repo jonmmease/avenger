@@ -11,6 +11,7 @@ agents. User-facing chart documentation lives in `avenger-chart/book/src`.
   [extension-contracts.md](extension-contracts.md).
 - To debug authoring, compilation, evaluation, or rendering, read
   [compile-evaluate-render-pipeline.md](compile-evaluate-render-pipeline.md),
+  [plot-sessions-and-fast-evaluation.md](plot-sessions-and-fast-evaluation.md),
   [marks-and-channels.md](marks-and-channels.md), and
   [rendering-and-scenegraph.md](rendering-and-scenegraph.md).
 - To work on nested layout, read
@@ -29,6 +30,7 @@ agents. User-facing chart documentation lives in `avenger-chart/book/src`.
 flowchart TD
     Author["Authoring APIs\nPlot, marks, channel configs"]
     Compile["Compile\nCompiledPlot, CompiledMark, CompiledGuide"]
+    Session["Session evaluation\nPlotSession, EvaluationRequest"]
     ScaleLegend["Scale and legend planning\nScaleBuilder, PreparedLegendPlan"]
     Layout["Layout and measurement\nComponentsMeasurement, child frames"]
     Coord["Coordinate measurement\nfacet, concat, positioned subplots"]
@@ -36,7 +38,8 @@ flowchart TD
     Wgpu["Raster output\nWgpuRenderer, CanvasExt"]
 
     Author --> Compile
-    Compile --> ScaleLegend
+    Compile --> Session
+    Session --> ScaleLegend
     ScaleLegend --> Layout
     Layout --> Coord
     Coord --> Layout
@@ -58,6 +61,8 @@ flowchart TD
   legend renderers, coordinate systems, and positioned subplot support.
 - [compile-evaluate-render-pipeline.md](compile-evaluate-render-pipeline.md):
   the runtime path from `Plot` to `EvaluatedPlot`.
+- [plot-sessions-and-fast-evaluation.md](plot-sessions-and-fast-evaluation.md):
+  reusable `PlotSession` evaluation, cache families, preview mode, and metrics.
 - [marks-and-channels.md](marks-and-channels.md): mark traits, mark state,
   channel values, channel configs, and channel extraction.
 - [scales-domains-and-sharing.md](scales-domains-and-sharing.md): scale

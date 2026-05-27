@@ -1288,6 +1288,32 @@ mod tests {
             .await
     }
 
+    async fn compile_concat_session_equivalence_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let left = ctx
+            .sql("SELECT * FROM (VALUES (1.0, 2.0), (2.0, 3.0)) AS t(x, y)")
+            .await?;
+        let right = ctx
+            .sql("SELECT * FROM (VALUES (10.0, 1.0), (12.0, 4.0)) AS t(x, y)")
+            .await?;
+        let child = |df| {
+            Plot::<Cartesian>::new().data(df).mark(
+                Symbol::new()
+                    .x(col("x"))
+                    .y(col("y"))
+                    .size(18.0)
+                    .fill("#4682b4"),
+            )
+        };
+        Plot::<HConcat>::new()
+            .canvas_size(620.0, 280.0)
+            .mark(Subplot::new(child(left)).key("left"))
+            .mark(Subplot::new(child(right)).key("right"))
+            .compile(ctx)
+            .await
+    }
+
     #[tokio::test]
     async fn plot_session_exact_matches_one_shot() -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
@@ -1311,6 +1337,54 @@ mod tests {
             session.last_measurement.is_some(),
             "exact session evaluation should retain the final component measurement"
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn one_shot_and_session_exact_match_representative_chart_families()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled_plots = vec![
+            ("regular", compile_session_test_plot(ctx.as_ref()).await?),
+            (
+                "facet",
+                compile_facet_width_param_scale_cache_plot(ctx.as_ref()).await?,
+            ),
+            (
+                "wrap",
+                compile_responsive_wrap_width_param_cache_plot(ctx.as_ref()).await?,
+            ),
+            (
+                "concat",
+                compile_concat_session_equivalence_plot(ctx.as_ref()).await?,
+            ),
+            (
+                "positioned_subplot",
+                compile_positioned_child_width_param_scale_cache_plot(ctx.as_ref()).await?,
+            ),
+        ];
+
+        for (label, compiled) in compiled_plots {
+            let compiled = Arc::new(compiled);
+            let one_shot = compiled.evaluate(ctx.as_ref(), None).await?;
+            let mut session = compiled.clone().instantiate(ctx.clone());
+            let session_eval = session.evaluate(EvaluationRequest::new().exact()).await?;
+
+            assert_eq!(
+                session_eval.scene_graph.width, one_shot.scene_graph.width,
+                "{label} width should match"
+            );
+            assert_eq!(
+                session_eval.scene_graph.height, one_shot.scene_graph.height,
+                "{label} height should match"
+            );
+            assert_eq!(
+                session_eval.scene_graph.marks.len(),
+                one_shot.scene_graph.marks.len(),
+                "{label} scenegraph mark count should match"
+            );
+        }
 
         Ok(())
     }

@@ -5,6 +5,8 @@ The chart runtime has two public stages:
 - `Plot<C>::compile` consumes the authoring plot and returns `CompiledPlot`.
 - `CompiledPlot::evaluate` or `CompiledPlot::evaluate_with_options` returns an
   `EvaluatedPlot` with a scenegraph and spatial index.
+- `Arc<CompiledPlot>::instantiate` creates a reusable `PlotSession` for apps
+  that evaluate the same compiled program repeatedly.
 
 Rendering helpers such as `WgpuRenderer` and `CanvasExt` evaluate a compiled
 plot and hand the scenegraph to the lower-level renderer.
@@ -16,6 +18,7 @@ sequenceDiagram
     participant User as User code
     participant Plot as Plot<C>
     participant Compiled as CompiledPlot
+    participant Session as PlotSession
     participant Scales as ScaleBuilder
     participant Layout as Layout/runtime
     participant Render as Scenegraph renderer
@@ -27,9 +30,12 @@ sequenceDiagram
     Plot->>Plot: build coordinate guide and transform
     Plot-->>User: CompiledPlot
     User->>Compiled: evaluate(SessionContext, params)
+    Compiled->>Session: temporary session caches
+    User->>Session: evaluate(EvaluationRequest)
+    Session->>Compiled: shared evaluator
     Compiled->>Compiled: build EvaluatedFacetTree
-    Compiled->>Scales: build_scale_builder_from_marks
-    Compiled->>Layout: measure_plot_components
+    Compiled->>Scales: build or reuse ScaleBuilder
+    Compiled->>Layout: measure or retarget plot components
     Layout->>Layout: measure coordinate system and child frames
     Layout->>Layout: solve layout, guides, legends, titles
     Compiled->>Render: build_plot_components
@@ -52,14 +58,17 @@ configs, layout spec, title/subtitle, theme, guide config, and params.
 - stores the coordinate transform returned by `CoordinateSystem::create_transform`,
 - serializes plot-level data and params into `CompiledPlot`.
 
-`CompiledPlot` does not store a persistent `ScaleBuilder`; scales are rebuilt
-per evaluation so runtime params and layout dimensions are applied consistently.
+`CompiledPlot` does not store a persistent `ScaleBuilder`; it remains the
+serializable program. Reusable runtime artifacts are owned by `PlotSession` or
+by temporary one-shot session cache handles.
 
 ## Evaluation Stage
 
-`CompiledPlot::evaluate_with_options` merges provided params with default
-params, builds an `EvaluatedFacetTree`, evaluates the layout spec, and creates
-the facade `render::EvaluationContext`.
+`CompiledPlot::evaluate_with_options` evaluates through temporary session cache
+handles. `PlotSession::evaluate` uses durable session caches and a current
+param map. Both paths merge provided params with defaults, build an
+`EvaluatedFacetTree`, evaluate the layout spec, and create the facade
+`render::EvaluationContext`.
 
 `measure_plot_components` then:
 
@@ -90,3 +99,7 @@ adds guide, legend, title, subtitle, and debug marks, then constructs the root
 
 See [rendering-and-scenegraph.md](rendering-and-scenegraph.md) for the final
 scenegraph and WGPU/canvas handoff.
+
+See [plot-sessions-and-fast-evaluation.md](plot-sessions-and-fast-evaluation.md)
+for `PlotSession`, `EvaluationRequest`, `EvaluationMode::Preview`, and cache
+metrics.
