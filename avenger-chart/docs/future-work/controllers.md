@@ -40,6 +40,14 @@ Create a small controller layer that composes existing event streams with chart
 params. A first built-in controller should be pan/zoom for Cartesian plots
 because the manual example already proves most of the event math.
 
+Preview-mode mark retargeting belongs in this controller work. Generic
+`EvaluationMode::Preview` should not infer that arbitrary parameter changes are
+safe for rendered data-mark reuse. A pan/zoom controller can make the semantics
+explicit by declaring the affine x/y scale-domain update it owns, validating that
+the affected scales can be adjusted without rebuilding mark data, and requesting
+that optimization only for the active drag gesture. Exact evaluation should then
+settle from the current params when the interaction completes.
+
 Possible shape:
 
 ```rust

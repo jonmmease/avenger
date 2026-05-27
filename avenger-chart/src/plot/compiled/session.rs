@@ -1,7 +1,7 @@
 //! Reusable evaluation session for a compiled plot.
 
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -9,6 +9,7 @@ use std::{
 use avenger_chart_core::{
     ChannelInfo, DefaultLogicalExprNodeExt, FacetWrapColumnMode, LegendChannel, LegendPosition,
     LogicalPlanNodeExt, Maybe, RadiusExpression, ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain,
+    SerializableExpr,
 };
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
 use avenger_scales::scales::ConfiguredScale;
@@ -35,7 +36,7 @@ use crate::{
         scale_precompute::FacetScalePrecomputeStore,
     },
     guide::OverflowSpaceRequirement,
-    layout::Size2D,
+    layout::{LayoutSpec, Size2D, SizeMode},
     partition::PartitionSlotCache,
     plot::compiled::ChildFrameSharingPath,
     render::{
@@ -760,6 +761,92 @@ fn scale_domain_dependency_params(
     names
 }
 
+pub(crate) fn changed_param_names(
+    previous: &IndexMap<String, ScalarValue>,
+    next: &IndexMap<String, ScalarValue>,
+) -> BTreeSet<String> {
+    let previous = normalized_param_values(previous);
+    let next = normalized_param_values(next);
+    previous
+        .keys()
+        .chain(next.keys())
+        .filter(|name| previous.get(*name) != next.get(*name))
+        .cloned()
+        .collect()
+}
+
+fn normalized_param_values(params: &IndexMap<String, ScalarValue>) -> BTreeMap<String, String> {
+    params
+        .iter()
+        .map(|(name, value)| {
+            (
+                name.trim_start_matches('$').to_string(),
+                format!("{value:?}"),
+            )
+        })
+        .collect()
+}
+
+pub(crate) fn layout_size_dependency_params(
+    plot: &CompiledPlot,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+) -> BTreeSet<String> {
+    let all_param_names = normalized_param_values(params)
+        .keys()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let mut names = BTreeSet::new();
+    collect_layout_size_placeholders(&plot.layout_spec, ctx, &mut names, &all_param_names);
+    // EvaluationContext injects resolved dimensions under these reserved names.
+    // They may change during a resize even when the authored size param has a
+    // different name, and they are safe for rendered data-mark retargeting.
+    names.insert("width".to_string());
+    names.insert("height".to_string());
+    names
+}
+
+fn collect_layout_size_placeholders(
+    layout_spec: &LayoutSpec,
+    ctx: &SessionContext,
+    names: &mut BTreeSet<String>,
+    all_param_names: &BTreeSet<String>,
+) {
+    collect_size_mode_placeholders(&layout_spec.canvas, ctx, names, all_param_names);
+    collect_size_mode_placeholders(&layout_spec.plot_area, ctx, names, all_param_names);
+}
+
+fn collect_size_mode_placeholders(
+    mode: &SizeMode,
+    ctx: &SessionContext,
+    names: &mut BTreeSet<String>,
+    all_param_names: &BTreeSet<String>,
+) {
+    match mode {
+        SizeMode::Fixed { width, height } => {
+            collect_serializable_expr_placeholders(width, ctx, names, all_param_names);
+            collect_serializable_expr_placeholders(height, ctx, names, all_param_names);
+        }
+        SizeMode::Width(width) => {
+            collect_serializable_expr_placeholders(width, ctx, names, all_param_names);
+        }
+        SizeMode::Height(height) => {
+            collect_serializable_expr_placeholders(height, ctx, names, all_param_names);
+        }
+        SizeMode::Auto => {}
+    }
+}
+
+fn collect_serializable_expr_placeholders(
+    expr: &SerializableExpr,
+    ctx: &SessionContext,
+    names: &mut BTreeSet<String>,
+    all_param_names: &BTreeSet<String>,
+) {
+    let node: LogicalExprNode = expr.clone().into();
+    collect_expr_node_placeholders(Some(&node), ctx, names, all_param_names);
+}
+
 fn facet_scale_precompute_dependency_params(
     plot: &CompiledPlot,
     ctx: &SessionContext,
@@ -1145,7 +1232,38 @@ mod tests {
         positions
     }
 
+    fn collect_symbol_sizes(scene: &SceneGraph) -> Vec<f32> {
+        fn collect_from_mark(mark: &SceneMark, sizes: &mut Vec<f32>) {
+            match mark {
+                SceneMark::Group(group) => {
+                    for child in &group.marks {
+                        collect_from_mark(child, sizes);
+                    }
+                }
+                SceneMark::Symbol(symbol) => {
+                    sizes.extend(symbol.size_vec());
+                }
+                _ => {}
+            }
+        }
+
+        let mut sizes = Vec::new();
+        for mark in &scene.marks {
+            collect_from_mark(mark, &mut sizes);
+        }
+        sizes.sort_by(|left, right| left.total_cmp(right));
+        sizes
+    }
+
     fn assert_symbol_positions_close(actual: &SceneGraph, expected: &SceneGraph) {
+        assert_symbol_positions_close_with_tolerance(actual, expected, 1.5);
+    }
+
+    fn assert_symbol_positions_close_with_tolerance(
+        actual: &SceneGraph,
+        expected: &SceneGraph,
+        tolerance: f32,
+    ) {
         let actual_positions = collect_symbol_positions(actual);
         let expected_positions = collect_symbol_positions(expected);
         assert_eq!(
@@ -1159,8 +1277,27 @@ mod tests {
             .enumerate()
         {
             assert!(
-                (actual_x - expected_x).abs() <= 1.5 && (actual_y - expected_y).abs() <= 1.5,
-                "symbol position mismatch at {idx}: actual=({actual_x:.3}, {actual_y:.3}) expected=({expected_x:.3}, {expected_y:.3})"
+                (actual_x - expected_x).abs() <= tolerance
+                    && (actual_y - expected_y).abs() <= tolerance,
+                "symbol position mismatch at {idx}: actual=({actual_x:.3}, {actual_y:.3}) expected=({expected_x:.3}, {expected_y:.3}) tolerance={tolerance:.3}"
+            );
+        }
+    }
+
+    fn assert_symbol_sizes_close(actual: &SceneGraph, expected: &SceneGraph) {
+        let actual_sizes = collect_symbol_sizes(actual);
+        let expected_sizes = collect_symbol_sizes(expected);
+        assert_eq!(
+            actual_sizes.len(),
+            expected_sizes.len(),
+            "symbol count mismatch"
+        );
+        for (idx, (actual_size, expected_size)) in
+            actual_sizes.iter().zip(expected_sizes.iter()).enumerate()
+        {
+            assert!(
+                (actual_size - expected_size).abs() <= 0.01,
+                "symbol size mismatch at {idx}: actual={actual_size:.3} expected={expected_size:.3}"
             );
         }
     }
@@ -1190,6 +1327,29 @@ mod tests {
             .canvas_size(width.expr(), 300.0)
             .data(df)
             .mark(Symbol::new().x(col("x")).y(col("y")).size(20.0))
+            .compile(ctx)
+            .await
+    }
+
+    async fn compile_symbol_size_param_preview_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let width = Param::new("width", ScalarValue::Float64(Some(360.0)));
+        let symbol_size = Param::new("symbol_size", ScalarValue::Float64(Some(20.0)));
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0, 2.0), (2.0, 3.0), (3.0, 5.0)) AS t(x, y)")
+            .await?;
+        Plot::<Cartesian>::new()
+            .add_param(width.clone())
+            .add_param(symbol_size.clone())
+            .canvas_size(width.expr(), 300.0)
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x(col("x"))
+                    .y(col("y"))
+                    .size_with(symbol_size.expr(), |c| c.no_legend()),
+            )
             .compile(ctx)
             .await
     }
@@ -1805,7 +1965,7 @@ mod tests {
     async fn plot_session_metrics_record_requested_modes() -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(compile_session_test_plot(&ctx).await?);
-        let mut session = compiled.instantiate(ctx);
+        let mut session = compiled.clone().instantiate(ctx.clone());
 
         for mode in [
             EvaluationMode::Exact,
@@ -1830,7 +1990,7 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(compile_width_param_scale_cache_plot(&ctx).await?);
-        let mut session = compiled.instantiate(ctx);
+        let mut session = compiled.clone().instantiate(ctx.clone());
 
         let (_evaluated, first) = session
             .evaluate_with_metrics(EvaluationRequest::new().exact())
@@ -1861,7 +2021,7 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(compile_session_test_plot(&ctx).await?);
-        let mut session = compiled.instantiate(ctx);
+        let mut session = compiled.clone().instantiate(ctx.clone());
 
         let (_evaluated, first) = session
             .evaluate_with_metrics(EvaluationRequest::new().exact())
@@ -1892,7 +2052,7 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(compile_legend_cache_plot(&ctx).await?);
-        let mut session = compiled.instantiate(ctx);
+        let mut session = compiled.clone().instantiate(ctx.clone());
 
         let (_evaluated, first) = session
             .evaluate_with_metrics(EvaluationRequest::new().exact())
@@ -2013,6 +2173,8 @@ mod tests {
         assert_eq!(preview.pipeline.preview_profile_reuses, 1);
         assert_eq!(preview.pipeline.preview_profile_misses, 0);
         assert_eq!(preview.pipeline.preview_fallbacks, 0);
+        assert_eq!(preview.pipeline.preview_data_mark_reuses, 1);
+        assert_eq!(preview.pipeline.preview_data_mark_reuse_misses, 0);
         assert_eq!(preview.facet_layout.plot_component_measure_calls, 0);
         assert!(
             preview.pipeline.skipped_component_measure_calls > 0,
@@ -2024,11 +2186,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn plot_session_preview_reuses_layout_profile_for_domain_param_change()
+    async fn plot_session_preview_rebuilds_data_marks_for_domain_param_change()
     -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(compile_pan_zoom_param_preview_plot(&ctx).await?);
-        let mut session = compiled.instantiate(ctx);
+        let mut session = compiled.clone().instantiate(ctx.clone());
 
         let (_evaluated, exact) = session
             .evaluate_with_metrics(EvaluationRequest::new().exact())
@@ -2041,19 +2203,76 @@ mod tests {
         let mut patch = IndexMap::new();
         patch.insert("x_min".to_string(), ScalarValue::Float64(Some(2.0)));
         patch.insert("x_max".to_string(), ScalarValue::Float64(Some(6.0)));
-        let (_evaluated, preview) = session
-            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+        let (evaluated, preview) = session
+            .evaluate_with_metrics(
+                EvaluationRequest::new()
+                    .preview()
+                    .param_patch(patch.clone()),
+            )
             .await?;
 
         assert_eq!(preview.mode, EvaluationMode::Preview);
         assert_eq!(preview.pipeline.preview_profile_reuses, 1);
         assert_eq!(preview.pipeline.preview_profile_misses, 0);
         assert_eq!(preview.pipeline.preview_fallbacks, 0);
+        assert_eq!(preview.pipeline.preview_data_mark_reuses, 0);
+        assert_eq!(preview.pipeline.preview_data_mark_reuse_misses, 1);
         assert_eq!(preview.facet_layout.plot_component_measure_calls, 0);
         assert!(
             preview.pipeline.scale_domain_cache_misses > 0,
             "domain-param preview should rebuild scale metadata while keeping measurement padding locked"
         );
+
+        let one_shot = compiled.evaluate(ctx.as_ref(), Some(patch)).await?;
+        assert_symbol_positions_close_with_tolerance(
+            &evaluated.scene_graph,
+            &one_shot.scene_graph,
+            6.0,
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_preview_rebuilds_data_marks_for_style_param_change()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_symbol_size_param_preview_plot(&ctx).await?);
+        let mut session = compiled.clone().instantiate(ctx.clone());
+
+        let (_evaluated, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            exact.facet_layout.plot_component_measure_calls > 0,
+            "warm exact evaluation should build the initial measurement profile"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert("symbol_size".to_string(), ScalarValue::Float64(Some(80.0)));
+        let (evaluated, preview) = session
+            .evaluate_with_metrics(
+                EvaluationRequest::new()
+                    .preview()
+                    .param_patch(patch.clone()),
+            )
+            .await?;
+
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(preview.pipeline.preview_profile_reuses, 1);
+        assert_eq!(preview.pipeline.preview_profile_misses, 0);
+        assert_eq!(preview.pipeline.preview_fallbacks, 0);
+        assert_eq!(preview.pipeline.preview_data_mark_reuses, 0);
+        assert_eq!(preview.pipeline.preview_data_mark_reuse_misses, 1);
+        assert_eq!(preview.facet_layout.plot_component_measure_calls, 0);
+
+        let one_shot = compiled.evaluate(ctx.as_ref(), Some(patch)).await?;
+        assert_symbol_positions_close_with_tolerance(
+            &evaluated.scene_graph,
+            &one_shot.scene_graph,
+            6.0,
+        );
+        assert_symbol_sizes_close(&evaluated.scene_graph, &one_shot.scene_graph);
 
         Ok(())
     }
@@ -2366,7 +2585,7 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(compile_responsive_wrap_width_param_cache_plot(&ctx).await?);
-        let mut session = compiled.instantiate(ctx);
+        let mut session = compiled.clone().instantiate(ctx.clone());
 
         let mut warm_params = IndexMap::new();
         warm_params.insert("width".to_string(), ScalarValue::Float64(Some(700.0)));
@@ -2379,11 +2598,16 @@ mod tests {
         );
 
         let mut saw_reflow = false;
-        for width in [650.0, 560.0, 520.0, 440.0, 900.0, 1100.0] {
+        let widths = [650.0, 560.0, 520.0, 440.0, 900.0, 1100.0];
+        for width in widths {
             let mut patch = IndexMap::new();
             patch.insert("width".to_string(), ScalarValue::Float64(Some(width)));
-            let (_evaluated, preview) = session
-                .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            let (evaluated, preview) = session
+                .evaluate_with_metrics(
+                    EvaluationRequest::new()
+                        .preview()
+                        .param_patch(patch.clone()),
+                )
                 .await?;
 
             assert_eq!(preview.mode, EvaluationMode::Preview);
@@ -2419,12 +2643,39 @@ mod tests {
                     "reflow preview width {width} should record guide measurement timing"
                 );
             }
+
+            let one_shot = compiled.evaluate(ctx.as_ref(), Some(patch)).await?;
+            assert_eq!(evaluated.scene_graph.width, one_shot.scene_graph.width);
+            assert_eq!(evaluated.scene_graph.height, one_shot.scene_graph.height);
+            assert_eq!(
+                evaluated.scene_graph.marks.len(),
+                one_shot.scene_graph.marks.len()
+            );
+            assert_symbol_positions_close(&evaluated.scene_graph, &one_shot.scene_graph);
         }
 
         assert!(
             saw_reflow,
             "replay widths should include at least one responsive-wrap structure reflow"
         );
+
+        let (settled, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        let mut final_params = IndexMap::new();
+        final_params.insert(
+            "width".to_string(),
+            ScalarValue::Float64(Some(*widths.last().expect("final width"))),
+        );
+        let one_shot = compiled.evaluate(ctx.as_ref(), Some(final_params)).await?;
+        assert_eq!(exact.mode, EvaluationMode::Exact);
+        assert_eq!(settled.scene_graph.width, one_shot.scene_graph.width);
+        assert_eq!(settled.scene_graph.height, one_shot.scene_graph.height);
+        assert_eq!(
+            settled.scene_graph.marks.len(),
+            one_shot.scene_graph.marks.len()
+        );
+        assert_symbol_positions_close(&settled.scene_graph, &one_shot.scene_graph);
 
         Ok(())
     }
@@ -2435,7 +2686,7 @@ mod tests {
         let ctx = Arc::new(SessionContext::new());
         let compiled =
             Arc::new(compile_responsive_wrap_width_and_child_scale_param_cache_plot(&ctx).await?);
-        let mut session = compiled.instantiate(ctx);
+        let mut session = compiled.clone().instantiate(ctx.clone());
 
         let (_evaluated, exact) = session
             .evaluate_with_metrics(EvaluationRequest::new().exact())
@@ -2448,8 +2699,12 @@ mod tests {
         let mut patch = IndexMap::new();
         patch.insert("width".to_string(), ScalarValue::Float64(Some(900.0)));
         patch.insert("scale_factor".to_string(), ScalarValue::Float64(Some(2.0)));
-        let (_evaluated, preview) = session
-            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+        let (evaluated, preview) = session
+            .evaluate_with_metrics(
+                EvaluationRequest::new()
+                    .preview()
+                    .param_patch(patch.clone()),
+            )
             .await?;
 
         assert_eq!(preview.mode, EvaluationMode::Preview);
@@ -2461,6 +2716,15 @@ mod tests {
             "cell profile keys should miss when child data/scale dependencies change"
         );
         assert_eq!(preview.pipeline.skipped_component_measure_calls, 0);
+
+        let one_shot = compiled.evaluate(ctx.as_ref(), Some(patch)).await?;
+        assert_eq!(evaluated.scene_graph.width, one_shot.scene_graph.width);
+        assert_eq!(evaluated.scene_graph.height, one_shot.scene_graph.height);
+        assert_symbol_positions_close_with_tolerance(
+            &evaluated.scene_graph,
+            &one_shot.scene_graph,
+            3.0,
+        );
 
         Ok(())
     }
@@ -2483,8 +2747,12 @@ mod tests {
 
         let mut patch = IndexMap::new();
         patch.insert("width".to_string(), ScalarValue::Float64(Some(900.0)));
-        let (_evaluated, preview) = session
-            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+        let (evaluated, preview) = session
+            .evaluate_with_metrics(
+                EvaluationRequest::new()
+                    .preview()
+                    .param_patch(patch.clone()),
+            )
             .await?;
 
         assert_eq!(preview.mode, EvaluationMode::Preview);
@@ -2507,13 +2775,21 @@ mod tests {
             "row-nested reflow should rebuild physical container layout for holes/edges"
         );
 
+        let one_shot = compiled.evaluate(ctx.as_ref(), Some(patch.clone())).await?;
+        assert_eq!(evaluated.scene_graph.width, one_shot.scene_graph.width);
+        assert_eq!(evaluated.scene_graph.height, one_shot.scene_graph.height);
+        assert_eq!(
+            evaluated.scene_graph.marks.len(),
+            one_shot.scene_graph.marks.len()
+        );
+        assert_symbol_positions_close_with_tolerance(
+            &evaluated.scene_graph,
+            &one_shot.scene_graph,
+            3.0,
+        );
+
         let (settled, exact) = session
             .evaluate_with_metrics(EvaluationRequest::new().exact())
-            .await?;
-        let mut one_shot_params = IndexMap::new();
-        one_shot_params.insert("width".to_string(), ScalarValue::Float64(Some(900.0)));
-        let one_shot = compiled
-            .evaluate(ctx.as_ref(), Some(one_shot_params))
             .await?;
         assert_eq!(exact.mode, EvaluationMode::Exact);
         assert_eq!(settled.scene_graph.width, one_shot.scene_graph.width);
@@ -2532,7 +2808,7 @@ mod tests {
         let ctx = Arc::new(SessionContext::new());
         let compiled =
             Arc::new(compile_column_nested_responsive_wrap_width_param_cache_plot(&ctx).await?);
-        let mut session = compiled.instantiate(ctx);
+        let mut session = compiled.clone().instantiate(ctx.clone());
 
         let (_evaluated, exact) = session
             .evaluate_with_metrics(EvaluationRequest::new().exact())
@@ -2553,8 +2829,12 @@ mod tests {
 
         let mut patch = IndexMap::new();
         patch.insert("width".to_string(), ScalarValue::Float64(Some(900.0)));
-        let (_evaluated, preview) = session
-            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+        let (evaluated, preview) = session
+            .evaluate_with_metrics(
+                EvaluationRequest::new()
+                    .preview()
+                    .param_patch(patch.clone()),
+            )
             .await?;
 
         assert_eq!(preview.mode, EvaluationMode::Preview);
@@ -2571,6 +2851,19 @@ mod tests {
                 .pipeline
                 .facet_cell_measurement_profile_chrome_refreshes,
             preview.pipeline.facet_cell_measurement_profile_reuses
+        );
+
+        let one_shot = compiled.evaluate(ctx.as_ref(), Some(patch)).await?;
+        assert_eq!(evaluated.scene_graph.width, one_shot.scene_graph.width);
+        assert_eq!(evaluated.scene_graph.height, one_shot.scene_graph.height);
+        assert_eq!(
+            evaluated.scene_graph.marks.len(),
+            one_shot.scene_graph.marks.len()
+        );
+        assert_symbol_positions_close_with_tolerance(
+            &evaluated.scene_graph,
+            &one_shot.scene_graph,
+            6.0,
         );
 
         Ok(())

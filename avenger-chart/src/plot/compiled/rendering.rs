@@ -94,8 +94,8 @@ use super::{
     session::{
         FacetScalePrecomputeCacheHandle, FacetSemanticCacheHandle, GuideOverflowCacheHandle,
         LegendMeasurementCacheHandle, ScaleDomainCacheHandle, ScaleDomainCacheScope,
-        TextMeasurementCacheHandle, new_plot_session_cache_handles,
-        scale_domain_cache_key_for_parts_with_scope,
+        TextMeasurementCacheHandle, changed_param_names, layout_size_dependency_params,
+        new_plot_session_cache_handles, scale_domain_cache_key_for_parts_with_scope,
     },
 };
 
@@ -5532,7 +5532,14 @@ impl CompiledPlot {
             metrics.record_skipped_component_measure_calls(1);
         });
 
-        let can_reuse_top_level_data_marks = measurement.child_frame_container_view()?.is_none();
+        let changed_params =
+            changed_param_names(&layout_profile.measurement.params, &eval_ctx.params);
+        let layout_size_params = layout_size_dependency_params(self, ctx, &eval_ctx.params);
+        let changed_params_are_layout_size_only = changed_params
+            .iter()
+            .all(|name| layout_size_params.contains(name));
+        let can_reuse_top_level_data_marks = measurement.child_frame_container_view()?.is_none()
+            && changed_params_are_layout_size_only;
         let components = if can_reuse_top_level_data_marks {
             if let Some(cached_components) = &layout_profile.rendered_components {
                 match Box::pin(self.build_plot_components_reusing_data_marks(
@@ -5574,6 +5581,11 @@ impl CompiledPlot {
                     .await?
             }
         } else {
+            debug!(
+                ?changed_params,
+                ?layout_size_params,
+                "preview data-mark reuse skipped because changed params are not layout-size-only or the plot has child frames"
+            );
             Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
                 metrics.record_preview_data_mark_reuse_miss();
             });
