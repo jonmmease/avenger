@@ -464,8 +464,11 @@ fn sync_canvas_size_to_scene_graph(
         return;
     }
 
-    let _ = canvas.window().request_inner_size(Size::Physical(target));
-    canvas.resize(target);
+    let accepted = canvas
+        .window()
+        .request_inner_size(Size::Physical(target))
+        .unwrap_or_else(|| canvas.window().inner_size());
+    canvas.resize(accepted);
 }
 
 fn logical_to_physical(value: f32, scale: f32) -> u32 {
