@@ -85,8 +85,8 @@ use crate::{
 
 use super::{
     ChildFrameContainerView, ChildFrameSharingPath, CompiledPlot, ComponentsMeasurement,
-    FacetCellRenderedComponentsProfileIndex, LayoutProfileSnapshot, MarkDataRequest,
-    PlotComponents, PreparedMarkData,
+    FacetCellProfileIndex, LayoutProfileSnapshot, MarkDataRequest, PlotComponents,
+    PreparedMarkData,
     legends::{HoistedLegendAnchor, HoistedLegendRequest, LegendPlanScope, PreparedLegendPlan},
     prepare_mark_data_runtime,
     scale_provider::{DynamicScaleProvider, ScaleProvider},
@@ -5050,12 +5050,11 @@ impl CompiledPlot {
             plot: self,
         };
 
-        let inherited_facet_cell_rendered_components = layout_profile
+        let inherited_facet_cell_profiles = layout_profile
             .as_ref()
-            .map(|profile| profile.facet_cell_rendered_components.clone());
-        let facet_cell_rendered_components_capture = Some(Arc::new(Mutex::new(
-            FacetCellRenderedComponentsProfileIndex::default(),
-        )));
+            .map(|profile| profile.facet_cell_profiles.clone());
+        let facet_cell_rendered_components_capture =
+            Some(Arc::new(Mutex::new(FacetCellProfileIndex::default())));
 
         // Create EvaluationContext for the entire evaluation
         let mut eval_ctx = EvaluationContext::new(
@@ -5200,9 +5199,13 @@ impl CompiledPlot {
         ))
         .await?;
 
-        let layout_profile_components = components.clone();
+        let rendered_components = if measurement.child_frame_container_view()?.is_none() {
+            Some(components.clone())
+        } else {
+            None
+        };
         let evaluated = self.components_to_evaluated_plot(&eval_ctx, components);
-        let captured_facet_cell_rendered_components = facet_cell_rendered_components_capture
+        let captured_facet_cell_profiles = facet_cell_rendered_components_capture
             .as_ref()
             .map(|capture| {
                 capture
@@ -5211,18 +5214,18 @@ impl CompiledPlot {
                     .clone()
             })
             .unwrap_or_default();
-        let facet_cell_rendered_components = if captured_facet_cell_rendered_components.is_empty() {
-            inherited_facet_cell_rendered_components.unwrap_or_default()
+        let facet_cell_profiles = if captured_facet_cell_profiles.is_empty() {
+            inherited_facet_cell_profiles.unwrap_or_default()
         } else {
-            captured_facet_cell_rendered_components
+            captured_facet_cell_profiles
         };
         let layout_profile = LayoutProfileSnapshot::new_with_components(
             measurement,
             Some(facet_tree.as_ref()),
             ctx,
             &eval_ctx.params,
-            Some(layout_profile_components),
-            facet_cell_rendered_components,
+            rendered_components,
+            facet_cell_profiles,
         );
         Ok(EvaluationOutcome {
             evaluated,
@@ -5387,9 +5390,8 @@ impl CompiledPlot {
         ))
         .with_scale_domain_cache(scale_domain_cache.clone())
         .with_evaluation_metrics(metrics.clone());
-        let facet_cell_rendered_components_capture = Arc::new(Mutex::new(
-            FacetCellRenderedComponentsProfileIndex::default(),
-        ));
+        let facet_cell_rendered_components_capture =
+            Arc::new(Mutex::new(FacetCellProfileIndex::default()));
         eval_ctx = eval_ctx
             .with_layout_profile(Arc::new(layout_profile.clone()))
             .with_facet_cell_rendered_components_capture(
@@ -5577,25 +5579,29 @@ impl CompiledPlot {
             });
             Box::pin(self.build_plot_components(&eval_ctx, &measurement, None, false, &[])).await?
         };
-        let facet_cell_rendered_components = {
+        let facet_cell_profiles = {
             let captured = facet_cell_rendered_components_capture
                 .lock()
                 .expect("facet cell rendered components profile lock poisoned")
                 .clone();
             if captured.is_empty() {
-                layout_profile.facet_cell_rendered_components.clone()
+                layout_profile.facet_cell_profiles.clone()
             } else {
                 captured
             }
         };
-        let layout_profile_components = components.clone();
+        let rendered_components = if measurement.child_frame_container_view()?.is_none() {
+            Some(components.clone())
+        } else {
+            None
+        };
         let preview_layout_profile = LayoutProfileSnapshot::new_with_components(
             measurement.clone(),
             Some(eval_ctx.facet_tree.as_ref()),
             ctx,
             &eval_ctx.params,
-            Some(layout_profile_components),
-            facet_cell_rendered_components,
+            rendered_components,
+            facet_cell_profiles,
         );
         let evaluated = self.components_to_evaluated_plot(&eval_ctx, components);
         let metrics = metrics
