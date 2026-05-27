@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::Instant as StdInstant};
 
 use async_trait::async_trait;
 use avenger_common::time::Instant;
@@ -78,13 +78,25 @@ where
         event: &WindowEvent,
         instant: Instant,
     ) -> Result<Option<Arc<SceneGraph>>, AvengerAppError> {
+        tracing::debug!(target: "avenger_app::resize", "app.update start");
+        let update_start = StdInstant::now();
+        let dispatch_start = StdInstant::now();
         let update_status = self
             .event_stream_manager
             .dispatch_event(event, &self.rtree, instant)
             .await;
+        let dispatch_elapsed = dispatch_start.elapsed();
+        tracing::debug!(
+            target: "avenger_app::resize",
+            dispatch_ms = dispatch_elapsed.as_secs_f64() * 1000.0,
+            rerender = update_status.rerender,
+            rebuild_geometry = update_status.rebuild_geometry,
+            "app.update dispatch"
+        );
 
         // Reconstruct the scene graph if the need to rerender or rebuild geometry
         if update_status.rerender || update_status.rebuild_geometry {
+            let scene_build_start = StdInstant::now();
             let scene_graph = match self
                 .scene_graph_builder
                 .build(self.event_stream_manager.state_mut())
@@ -100,17 +112,41 @@ where
             };
 
             self.scene_graph = Arc::new(scene_graph);
+            tracing::debug!(
+                target: "avenger_app::resize",
+                scene_build_ms = scene_build_start.elapsed().as_secs_f64() * 1000.0,
+                "app.update scene build"
+            );
         }
 
         // Rebuild the rtree if the need to rebuild geometry
         if update_status.rebuild_geometry {
+            let rtree_start = StdInstant::now();
             self.rtree = SceneGraphRTree::from_scene_graph(&self.scene_graph);
+            tracing::debug!(
+                target: "avenger_app::resize",
+                rtree_ms = rtree_start.elapsed().as_secs_f64() * 1000.0,
+                "app.update rtree rebuild"
+            );
         }
 
         // Return the scene graph if the need to rerender
         if update_status.rerender {
+            let total_elapsed = update_start.elapsed();
+            tracing::debug!(
+                target: "avenger_app::resize",
+                app_update_ms = total_elapsed.as_secs_f64() * 1000.0,
+                rerender = true,
+                "app.update complete"
+            );
             Ok(Some(self.scene_graph.clone()))
         } else {
+            tracing::debug!(
+                target: "avenger_app::resize",
+                app_update_ms = update_start.elapsed().as_secs_f64() * 1000.0,
+                rerender = false,
+                "app.update complete"
+            );
             Ok(None)
         }
     }

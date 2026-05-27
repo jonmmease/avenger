@@ -1,17 +1,20 @@
 use avenger_app::app::AvengerApp;
 use avenger_common::{canvas::CanvasDimensions, time::Instant};
-use avenger_eventstream::window::WindowEvent as AvengerWindowEvent;
+use avenger_eventstream::window::{
+    CanvasResizeEvent, WindowEvent as AvengerWindowEvent, WindowResizeEvent,
+};
 use avenger_wgpu::{
-    canvas::{Canvas, WindowCanvas},
+    canvas::{Canvas, CanvasFrameOverlay, WindowCanvas},
     error::AvengerWgpuError,
 };
+use std::time::Instant as StdInstant;
 use winit::{
     application::ApplicationHandler,
     dpi::{PhysicalSize, Size},
-    event::{ElementState, KeyEvent, WindowEvent},
+    event::{ElementState, KeyEvent, MouseButton, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     keyboard::{self, NamedKey},
-    window::{WindowAttributes, WindowId},
+    window::{CursorIcon, WindowAttributes, WindowId},
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -46,12 +49,258 @@ impl WindowSceneSizing {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CanvasFrameOptions {
+    pub resize_width: bool,
+    pub resize_height: bool,
+    pub min_size: [f32; 2],
+    pub extra_window_size: [f32; 2],
+    pub handle_thickness: f32,
+}
+
+impl Default for CanvasFrameOptions {
+    fn default() -> Self {
+        Self {
+            resize_width: false,
+            resize_height: false,
+            min_size: [120.0, 120.0],
+            extra_window_size: [320.0, 240.0],
+            handle_thickness: 8.0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CanvasFrameHandle {
+    Right,
+    Bottom,
+    Corner,
+}
+
+impl CanvasFrameHandle {
+    fn resizes_width(self) -> bool {
+        matches!(self, Self::Right | Self::Corner)
+    }
+
+    fn resizes_height(self) -> bool {
+        matches!(self, Self::Bottom | Self::Corner)
+    }
+
+    fn cursor(self) -> CursorIcon {
+        match self {
+            Self::Right => CursorIcon::EResize,
+            Self::Bottom => CursorIcon::SResize,
+            Self::Corner => CursorIcon::SeResize,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CanvasFrameDrag {
+    handle: CanvasFrameHandle,
+    start_pointer: [f32; 2],
+    start_canvas_size: [f32; 2],
+}
+
+#[derive(Clone, Debug)]
+struct CanvasFrameState {
+    options: CanvasFrameOptions,
+    canvas_size: [f32; 2],
+    hover_handle: Option<CanvasFrameHandle>,
+    active_drag: Option<CanvasFrameDrag>,
+    last_cursor_position: Option<[f32; 2]>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct CanvasFrameEventOutcome {
+    consumed: bool,
+    cursor: Option<CursorIcon>,
+    redraw_overlay: bool,
+    resize: Option<[f32; 2]>,
+    resize_settled: Option<[f32; 2]>,
+}
+
+impl CanvasFrameState {
+    fn new(options: CanvasFrameOptions) -> Self {
+        Self {
+            options,
+            canvas_size: [0.0, 0.0],
+            hover_handle: None,
+            active_drag: None,
+            last_cursor_position: None,
+        }
+    }
+
+    fn update_scene_size(&mut self, size: [f32; 2]) {
+        if let Some(drag) = self.active_drag {
+            if !drag.handle.resizes_width() {
+                self.canvas_size[0] = size[0];
+            }
+            if !drag.handle.resizes_height() {
+                self.canvas_size[1] = size[1];
+            }
+        } else {
+            self.canvas_size = size;
+        }
+    }
+
+    fn initial_window_size(&self) -> [f32; 2] {
+        [
+            self.canvas_size[0] + self.options.extra_window_size[0],
+            self.canvas_size[1] + self.options.extra_window_size[1],
+        ]
+    }
+
+    fn overlay(&self) -> CanvasFrameOverlay {
+        CanvasFrameOverlay {
+            size: self.canvas_size,
+            resize_width: self.options.resize_width,
+            resize_height: self.options.resize_height,
+            handle_thickness: self.options.handle_thickness,
+        }
+    }
+
+    fn hit_test(&self, position: [f32; 2]) -> Option<CanvasFrameHandle> {
+        let [x, y] = position;
+        let [width, height] = self.canvas_size;
+        let thickness = self.options.handle_thickness.max(1.0);
+        let near_right = self.options.resize_width
+            && x >= width - thickness
+            && x <= width + thickness
+            && y >= 0.0
+            && y <= height + thickness;
+        let near_bottom = self.options.resize_height
+            && y >= height - thickness
+            && y <= height + thickness
+            && x >= 0.0
+            && x <= width + thickness;
+
+        match (near_right, near_bottom) {
+            (true, true) if self.options.resize_width && self.options.resize_height => {
+                Some(CanvasFrameHandle::Corner)
+            }
+            (true, _) => Some(CanvasFrameHandle::Right),
+            (_, true) => Some(CanvasFrameHandle::Bottom),
+            _ => None,
+        }
+    }
+
+    fn handle_cursor_moved(&mut self, position: [f32; 2]) -> CanvasFrameEventOutcome {
+        self.last_cursor_position = Some(position);
+
+        if let Some(drag) = self.active_drag {
+            let size = self.drag_size(drag, position);
+            let changed = self.canvas_size != size;
+            self.canvas_size = size;
+            return CanvasFrameEventOutcome {
+                consumed: true,
+                cursor: Some(drag.handle.cursor()),
+                redraw_overlay: changed,
+                resize: changed.then_some(size),
+                resize_settled: None,
+            };
+        }
+
+        let hover_handle = self.hit_test(position);
+        let changed = self.hover_handle != hover_handle;
+        self.hover_handle = hover_handle;
+        CanvasFrameEventOutcome {
+            consumed: hover_handle.is_some(),
+            cursor: Some(hover_handle.map_or(CursorIcon::Default, CanvasFrameHandle::cursor)),
+            redraw_overlay: changed,
+            resize: None,
+            resize_settled: None,
+        }
+    }
+
+    fn handle_cursor_left(&mut self) -> CanvasFrameEventOutcome {
+        if self.active_drag.is_some() {
+            return CanvasFrameEventOutcome::default();
+        }
+        self.last_cursor_position = None;
+        let changed = self.hover_handle.take().is_some();
+        CanvasFrameEventOutcome {
+            consumed: false,
+            cursor: Some(CursorIcon::Default),
+            redraw_overlay: changed,
+            resize: None,
+            resize_settled: None,
+        }
+    }
+
+    fn handle_mouse_input(
+        &mut self,
+        state: ElementState,
+        button: MouseButton,
+    ) -> CanvasFrameEventOutcome {
+        if button != MouseButton::Left {
+            return CanvasFrameEventOutcome::default();
+        }
+
+        match state {
+            ElementState::Pressed => {
+                let Some(position) = self.last_cursor_position else {
+                    return CanvasFrameEventOutcome::default();
+                };
+                let handle = self.hover_handle.or_else(|| self.hit_test(position));
+                if let Some(handle) = handle {
+                    self.active_drag = Some(CanvasFrameDrag {
+                        handle,
+                        start_pointer: position,
+                        start_canvas_size: self.canvas_size,
+                    });
+                    return CanvasFrameEventOutcome {
+                        consumed: true,
+                        cursor: Some(handle.cursor()),
+                        redraw_overlay: true,
+                        resize: None,
+                        resize_settled: None,
+                    };
+                }
+                CanvasFrameEventOutcome::default()
+            }
+            ElementState::Released => {
+                let Some(_drag) = self.active_drag.take() else {
+                    return CanvasFrameEventOutcome::default();
+                };
+                self.hover_handle = self
+                    .last_cursor_position
+                    .and_then(|position| self.hit_test(position));
+                CanvasFrameEventOutcome {
+                    consumed: true,
+                    cursor: Some(
+                        self.hover_handle
+                            .map_or(CursorIcon::Default, CanvasFrameHandle::cursor),
+                    ),
+                    redraw_overlay: true,
+                    resize: Some(self.canvas_size),
+                    resize_settled: Some(self.canvas_size),
+                }
+            }
+        }
+    }
+
+    fn drag_size(&self, drag: CanvasFrameDrag, position: [f32; 2]) -> [f32; 2] {
+        let mut size = self.canvas_size;
+        if drag.handle.resizes_width() {
+            size[0] = (drag.start_canvas_size[0] + position[0] - drag.start_pointer[0])
+                .max(self.options.min_size[0]);
+        }
+        if drag.handle.resizes_height() {
+            size[1] = (drag.start_canvas_size[1] + position[1] - drag.start_pointer[1])
+                .max(self.options.min_size[1]);
+        }
+        size
+    }
+}
+
 #[derive(Clone)]
 pub struct WinitWgpuAvengerAppOptions {
     pub scale: f32,
     pub window_attributes: WindowAttributes,
     pub window_scene_sizing: WindowSceneSizing,
     pub resize_settle_delay_ms: Option<u64>,
+    pub canvas_frame: Option<CanvasFrameOptions>,
 }
 
 impl WinitWgpuAvengerAppOptions {
@@ -61,6 +310,7 @@ impl WinitWgpuAvengerAppOptions {
             window_attributes: WindowAttributes::default().with_resizable(false),
             window_scene_sizing: WindowSceneSizing::SurfaceFollowsWindow,
             resize_settle_delay_ms: None,
+            canvas_frame: None,
         }
     }
 
@@ -78,6 +328,11 @@ impl WinitWgpuAvengerAppOptions {
         self.resize_settle_delay_ms = resize_settle_delay_ms;
         self
     }
+
+    pub fn canvas_frame(mut self, canvas_frame: Option<CanvasFrameOptions>) -> Self {
+        self.canvas_frame = canvas_frame;
+        self
+    }
 }
 
 pub struct WinitWgpuAvengerApp<State>
@@ -89,11 +344,14 @@ where
     window_attributes: WindowAttributes,
     window_scene_sizing: WindowSceneSizing,
     resize_settle_delay_ms: Option<u64>,
+    canvas_frame: Option<CanvasFrameState>,
     event_proxy: EventLoopProxy<AvengerWindowEvent>,
     pub avenger_app: std::rc::Rc<std::cell::RefCell<AvengerApp<State>>>,
     render_pending: bool,
     pub file_watcher: Option<FileWatcher>,
     window_id: Option<winit::window::WindowId>,
+    coalesced_event_count: usize,
+    stale_canvas_resize_count: usize,
 
     #[cfg(not(target_arch = "wasm32"))]
     tokio_runtime: tokio::runtime::Runtime,
@@ -149,11 +407,14 @@ where
             window_attributes: options.window_attributes,
             window_scene_sizing: options.window_scene_sizing,
             resize_settle_delay_ms: options.resize_settle_delay_ms,
+            canvas_frame: options.canvas_frame.map(CanvasFrameState::new),
             event_proxy,
             avenger_app: std::rc::Rc::new(std::cell::RefCell::new(avenger_app)),
             render_pending: false,
             file_watcher,
             window_id: None,
+            coalesced_event_count: 0,
+            stale_canvas_resize_count: 0,
             #[cfg(not(target_arch = "wasm32"))]
             tokio_runtime,
         };
@@ -163,9 +424,23 @@ where
 
     fn dispatch_avenger_event(&mut self, event: AvengerWindowEvent, force: bool) {
         if !force && self.render_pending && event.skip_if_render_pending() {
+            self.coalesced_event_count += 1;
+            tracing::debug!(
+                target: "avenger_winit_wgpu::resize",
+                event_kind = event_kind_label(&event),
+                coalesced_events = self.coalesced_event_count,
+                "winit.dispatch coalesced render-pending event"
+            );
             return;
         }
 
+        let _span = tracing::debug_span!(
+            "winit.dispatch",
+            event_kind = event_kind_label(&event),
+            force
+        )
+        .entered();
+        let dispatch_start = StdInstant::now();
         let window_scene_sizing = self.window_scene_sizing;
         let scale = self.scale;
 
@@ -191,6 +466,7 @@ where
                                     &scene_graph,
                                     window_scene_sizing,
                                     scale,
+                                    None,
                                 ) {
                                     log::error!("Failed to set scene: {:?}", e);
                                 }
@@ -207,25 +483,42 @@ where
                 spawn_local(update_future);
             } else {
                 // For non-WASM, maintain the original precise render_pending logic
+                let app_update_start = StdInstant::now();
                 let scene_graph_opt = {
                     let mut app = self.avenger_app.borrow_mut();
                     self.tokio_runtime
                         .block_on(app.update(&event, Instant::now()))
                         .expect("Failed to update app")
                 };
+                let app_update_elapsed = app_update_start.elapsed();
+                let rerender = scene_graph_opt.is_some();
 
                 if let Some(scene_graph) = scene_graph_opt {
                     if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
+                        let install_start = StdInstant::now();
                         install_scene_graph(
                             canvas,
                             &scene_graph,
                             window_scene_sizing,
                             scale,
+                            self.canvas_frame.as_mut(),
                         )
                         .unwrap();
+                        tracing::debug!(
+                            target: "avenger_winit_wgpu::resize",
+                            set_scene_ms = install_start.elapsed().as_secs_f64() * 1000.0,
+                            "winit.dispatch install_scene_graph"
+                        );
                         self.render_pending = true;
                     }
                 }
+                tracing::debug!(
+                    target: "avenger_winit_wgpu::resize",
+                    app_update_ms = app_update_elapsed.as_secs_f64() * 1000.0,
+                    queue_ms = dispatch_start.elapsed().as_secs_f64() * 1000.0,
+                    rerender,
+                    "winit.dispatch complete"
+                );
             }
         }
     }
@@ -241,7 +534,7 @@ where
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(delay_ms));
                 let _ = event_proxy.send_event(AvengerWindowEvent::WindowResizeSettled(
-                    avenger_eventstream::window::WindowResizeEvent { size },
+                    WindowResizeEvent { size },
                 ));
             });
         }
@@ -250,6 +543,139 @@ where
         {
             let _ = delay_ms;
             let _ = size;
+        }
+    }
+
+    fn user_event_force(&mut self, event: &AvengerWindowEvent) -> Option<bool> {
+        match event {
+            AvengerWindowEvent::CanvasResize(event) => {
+                if !self.canvas_resize_size_is_current(event.size) {
+                    self.stale_canvas_resize_count += 1;
+                    tracing::debug!(
+                        target: "avenger_winit_wgpu::resize",
+                        event_kind = "CanvasResize",
+                        width = event.size[0],
+                        height = event.size[1],
+                        stale_canvas_resizes = self.stale_canvas_resize_count,
+                        "winit.dispatch stale canvas resize drop"
+                    );
+                    return None;
+                }
+                Some(
+                    self.canvas_frame
+                        .as_ref()
+                        .is_some_and(|frame| frame.active_drag.is_none()),
+                )
+            }
+            AvengerWindowEvent::CanvasResizeSettled(event) => self
+                .canvas_resize_size_is_current(event.size)
+                .then_some(true)
+                .or_else(|| {
+                    self.stale_canvas_resize_count += 1;
+                    tracing::debug!(
+                        target: "avenger_winit_wgpu::resize",
+                        event_kind = "CanvasResizeSettled",
+                        width = event.size[0],
+                        height = event.size[1],
+                        stale_canvas_resizes = self.stale_canvas_resize_count,
+                        "winit.dispatch stale canvas resize settled drop"
+                    );
+                    None
+                }),
+            _ => Some(false),
+        }
+    }
+
+    fn canvas_resize_size_is_current(&self, size: [f32; 2]) -> bool {
+        let Some(frame) = self.canvas_frame.as_ref() else {
+            return true;
+        };
+        let width_matches =
+            !frame.options.resize_width || (frame.canvas_size[0] - size[0]).abs() < 0.5;
+        let height_matches =
+            !frame.options.resize_height || (frame.canvas_size[1] - size[1]).abs() < 0.5;
+        width_matches && height_matches
+    }
+
+    fn handle_canvas_frame_event(&mut self, event: &WindowEvent) -> bool {
+        let Some(frame) = self.canvas_frame.as_mut() else {
+            return false;
+        };
+
+        let _span = tracing::trace_span!(
+            "canvas_frame.pointer",
+            event_kind = winit_event_kind_label(event)
+        )
+        .entered();
+        let pointer_start = StdInstant::now();
+        let outcome = match event {
+            WindowEvent::CursorMoved { position, .. } => frame.handle_cursor_moved([
+                position.x as f32 / self.scale,
+                position.y as f32 / self.scale,
+            ]),
+            WindowEvent::CursorLeft { .. } => frame.handle_cursor_left(),
+            WindowEvent::MouseInput { state, button, .. } => {
+                frame.handle_mouse_input(*state, *button)
+            }
+            _ => CanvasFrameEventOutcome::default(),
+        };
+
+        if let Some(cursor) = outcome.cursor {
+            self.set_cursor(cursor);
+        }
+        if outcome.redraw_overlay {
+            self.refresh_canvas_frame_overlay();
+        }
+        if let Some(size) = outcome.resize {
+            let _ = self
+                .event_proxy
+                .send_event(AvengerWindowEvent::CanvasResize(CanvasResizeEvent { size }));
+            tracing::trace!(
+                target: "avenger_winit_wgpu::resize",
+                width = size[0],
+                height = size[1],
+                pointer_ms = pointer_start.elapsed().as_secs_f64() * 1000.0,
+                "canvas_frame.pointer queued CanvasResize"
+            );
+        }
+        if let Some(size) = outcome.resize_settled {
+            let _ = self
+                .event_proxy
+                .send_event(AvengerWindowEvent::CanvasResizeSettled(CanvasResizeEvent {
+                    size,
+                }));
+            tracing::debug!(
+                target: "avenger_winit_wgpu::resize",
+                width = size[0],
+                height = size[1],
+                pointer_ms = pointer_start.elapsed().as_secs_f64() * 1000.0,
+                "canvas_frame.pointer queued CanvasResizeSettled"
+            );
+        }
+
+        if outcome.consumed || outcome.redraw_overlay {
+            tracing::trace!(
+                target: "avenger_winit_wgpu::resize",
+                pointer_ms = pointer_start.elapsed().as_secs_f64() * 1000.0,
+                consumed = outcome.consumed,
+                redraw_overlay = outcome.redraw_overlay,
+                "canvas_frame.pointer complete"
+            );
+        }
+        outcome.consumed
+    }
+
+    fn set_cursor(&self, cursor: CursorIcon) {
+        if let Some(canvas) = self.canvas.borrow().as_ref() {
+            canvas.window().set_cursor(cursor);
+        }
+    }
+
+    fn refresh_canvas_frame_overlay(&mut self) {
+        let overlay = self.canvas_frame.as_ref().map(CanvasFrameState::overlay);
+        if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
+            canvas.set_frame_overlay(overlay);
+            canvas.window().request_redraw();
         }
     }
 
@@ -288,11 +714,15 @@ where
         let (scene_graph, dimensions) = {
             let app_borrowed = self.avenger_app.borrow();
             let scene_graph = app_borrowed.scene_graph().clone();
+            let scene_size = [scene_graph.width, scene_graph.height];
+            let initial_size = if let Some(frame) = self.canvas_frame.as_mut() {
+                frame.update_scene_size(scene_size);
+                frame.initial_window_size()
+            } else {
+                scene_size
+            };
             let dimensions = CanvasDimensions {
-                size: [
-                    app_borrowed.scene_graph().width,
-                    app_borrowed.scene_graph().height,
-                ],
+                size: initial_size,
                 scale: self.scale,
             };
             (scene_graph, dimensions)
@@ -300,36 +730,54 @@ where
 
         let canvas_future = WindowCanvas::new(window, dimensions, Default::default());
 
-        let setup_future = async move {
-            match canvas_future.await {
-                Ok(mut canvas) => {
-                    install_scene_graph(
-                        &mut canvas,
-                        &scene_graph,
-                        WindowSceneSizing::SurfaceFollowsWindow,
-                        dimensions.scale,
-                    )
-                    .unwrap();
-                    *canvas_shared.borrow_mut() = Some(canvas);
-                }
-                Err(e) => {
-                    log::error!("Failed to create canvas: {e:?}");
-                }
-            }
-        };
-
         cfg_if::cfg_if! {
             if #[cfg(target_arch = "wasm32")] {
+                let setup_future = async move {
+                    match canvas_future.await {
+                        Ok(mut canvas) => {
+                            install_scene_graph(
+                                &mut canvas,
+                                &scene_graph,
+                                WindowSceneSizing::SurfaceFollowsWindow,
+                                dimensions.scale,
+                                None,
+                            )
+                            .unwrap();
+                            *canvas_shared.borrow_mut() = Some(canvas);
+                        }
+                        Err(e) => {
+                            log::error!("Failed to create canvas: {e:?}");
+                        }
+                    }
+                };
                 spawn_local(setup_future);
             } else {
-                self.tokio_runtime.block_on(setup_future);
+                match self.tokio_runtime.block_on(canvas_future) {
+                    Ok(mut canvas) => {
+                        install_scene_graph(
+                            &mut canvas,
+                            &scene_graph,
+                            WindowSceneSizing::SurfaceFollowsWindow,
+                            dimensions.scale,
+                            self.canvas_frame.as_mut(),
+                        )
+                        .unwrap();
+                        *canvas_shared.borrow_mut() = Some(canvas);
+                    }
+                    Err(e) => {
+                        log::error!("Failed to create canvas: {e:?}");
+                    }
+                }
             }
         }
     }
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AvengerWindowEvent) {
         // Process file change events and other custom events
-        self.dispatch_avenger_event(event, false);
+        let Some(force) = self.user_event_force(&event) else {
+            return;
+        };
+        self.dispatch_avenger_event(event, force);
     }
 
     fn window_event(
@@ -340,6 +788,10 @@ where
     ) {
         // Check if this is the correct window
         if Some(window_id) != self.window_id {
+            return;
+        }
+
+        if self.handle_canvas_frame_event(&event) {
             return;
         }
 
@@ -376,9 +828,7 @@ where
                         physical_size.height as f32 / self.scale,
                     ];
                     self.dispatch_avenger_event(
-                        AvengerWindowEvent::WindowResize(
-                            avenger_eventstream::window::WindowResizeEvent { size: logical_size },
-                        ),
+                        AvengerWindowEvent::WindowResize(WindowResizeEvent { size: logical_size }),
                         true,
                     );
                     self.schedule_resize_settle(logical_size);
@@ -426,8 +876,15 @@ fn install_scene_graph(
     scene_graph: &avenger_scenegraph::scene_graph::SceneGraph,
     window_scene_sizing: WindowSceneSizing,
     scale: f32,
+    canvas_frame: Option<&mut CanvasFrameState>,
 ) -> Result<(), AvengerWgpuError> {
-    sync_canvas_size_to_scene_graph(canvas, scene_graph, window_scene_sizing, scale);
+    if let Some(frame) = canvas_frame {
+        frame.update_scene_size([scene_graph.width, scene_graph.height]);
+        canvas.set_frame_overlay(Some(frame.overlay()));
+    } else {
+        canvas.set_frame_overlay(None);
+        sync_canvas_size_to_scene_graph(canvas, scene_graph, window_scene_sizing, scale);
+    }
     canvas.set_scene(scene_graph)?;
     canvas.window().request_redraw();
     Ok(())
@@ -473,4 +930,94 @@ fn sync_canvas_size_to_scene_graph(
 
 fn logical_to_physical(value: f32, scale: f32) -> u32 {
     ((value * scale).round().max(1.0)) as u32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frame_state(resize_width: bool, resize_height: bool) -> CanvasFrameState {
+        let mut state = CanvasFrameState::new(CanvasFrameOptions {
+            resize_width,
+            resize_height,
+            min_size: [120.0, 100.0],
+            extra_window_size: [320.0, 240.0],
+            handle_thickness: 8.0,
+        });
+        state.update_scene_size([400.0, 300.0]);
+        state
+    }
+
+    #[test]
+    fn frame_hit_testing_selects_enabled_handles() {
+        let width_only = frame_state(true, false);
+        assert_eq!(
+            width_only.hit_test([398.0, 150.0]),
+            Some(CanvasFrameHandle::Right)
+        );
+        assert_eq!(width_only.hit_test([200.0, 298.0]), None);
+
+        let height_only = frame_state(false, true);
+        assert_eq!(
+            height_only.hit_test([200.0, 298.0]),
+            Some(CanvasFrameHandle::Bottom)
+        );
+        assert_eq!(height_only.hit_test([398.0, 150.0]), None);
+
+        let both = frame_state(true, true);
+        assert_eq!(
+            both.hit_test([399.0, 299.0]),
+            Some(CanvasFrameHandle::Corner)
+        );
+        assert_eq!(both.hit_test([200.0, 200.0]), None);
+    }
+
+    #[test]
+    fn frame_drag_clamps_to_min_size() {
+        let mut state = frame_state(true, true);
+        state.handle_cursor_moved([400.0, 300.0]);
+        let press = state.handle_mouse_input(ElementState::Pressed, MouseButton::Left);
+        assert!(press.consumed);
+
+        let drag = state.handle_cursor_moved([20.0, 20.0]);
+        assert!(drag.consumed);
+        assert_eq!(drag.resize, Some([120.0, 100.0]));
+        assert_eq!(state.canvas_size, [120.0, 100.0]);
+
+        let release = state.handle_mouse_input(ElementState::Released, MouseButton::Left);
+        assert_eq!(release.resize_settled, Some([120.0, 100.0]));
+    }
+}
+
+fn event_kind_label(event: &AvengerWindowEvent) -> &'static str {
+    match event {
+        AvengerWindowEvent::MouseInput(_) => "MouseInput",
+        AvengerWindowEvent::CursorMoved(_) => "CursorMoved",
+        AvengerWindowEvent::CursorEntered => "CursorEntered",
+        AvengerWindowEvent::CursorLeft => "CursorLeft",
+        AvengerWindowEvent::MouseWheel(_) => "MouseWheel",
+        AvengerWindowEvent::KeyboardInput(_) => "KeyboardInput",
+        AvengerWindowEvent::Touch(_) => "Touch",
+        AvengerWindowEvent::WindowResize(_) => "WindowResize",
+        AvengerWindowEvent::WindowResizeSettled(_) => "WindowResizeSettled",
+        AvengerWindowEvent::CanvasResize(_) => "CanvasResize",
+        AvengerWindowEvent::CanvasResizeSettled(_) => "CanvasResizeSettled",
+        AvengerWindowEvent::WindowMoved(_) => "WindowMoved",
+        AvengerWindowEvent::WindowFocused(_) => "WindowFocused",
+        AvengerWindowEvent::WindowCloseRequested => "WindowCloseRequested",
+        AvengerWindowEvent::FileChanged(_) => "FileChanged",
+    }
+}
+
+fn winit_event_kind_label(event: &WindowEvent) -> &'static str {
+    match event {
+        WindowEvent::CursorMoved { .. } => "CursorMoved",
+        WindowEvent::CursorLeft { .. } => "CursorLeft",
+        WindowEvent::MouseInput { .. } => "MouseInput",
+        WindowEvent::Resized(_) => "Resized",
+        WindowEvent::RedrawRequested => "RedrawRequested",
+        WindowEvent::CloseRequested => "CloseRequested",
+        WindowEvent::KeyboardInput { .. } => "KeyboardInput",
+        _ => "Other",
+    }
 }

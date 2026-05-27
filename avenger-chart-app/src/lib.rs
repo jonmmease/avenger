@@ -27,9 +27,11 @@ use indexmap::IndexMap;
 use tokio::sync::Mutex;
 
 #[cfg(feature = "winit-wgpu")]
-pub use avenger_winit_wgpu::{WindowSceneSizing, WinitWgpuAvengerApp, WinitWgpuAvengerAppOptions};
+pub use avenger_winit_wgpu::{
+    CanvasFrameOptions, WindowSceneSizing, WinitWgpuAvengerApp, WinitWgpuAvengerAppOptions,
+};
 
-/// Parameter names that receive accepted window resize dimensions.
+/// Parameter names that receive accepted virtual canvas resize dimensions.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ChartResizeBinding {
     pub width_param: Option<String>,
@@ -104,6 +106,7 @@ struct ChartAppRuntime {
     exact_on_resize_settle: bool,
     next_evaluation_mode: EvaluationMode,
     log_metrics: bool,
+    trace_resize: bool,
     last_metrics: Option<EvaluationMetrics>,
     last_evaluation_elapsed: Option<Duration>,
     last_scene_size: Option<[f32; 2]>,
@@ -125,6 +128,7 @@ impl ChartAppState {
                 exact_on_resize_settle: options.exact_on_resize_settle,
                 next_evaluation_mode: EvaluationMode::Exact,
                 log_metrics: options.log_metrics,
+                trace_resize: std::env::var_os("AVENGER_TRACE_RESIZE").is_some(),
                 last_metrics: None,
                 last_evaluation_elapsed: None,
                 last_scene_size: None,
@@ -169,6 +173,12 @@ impl SceneGraphBuilder<ChartAppState> for ChartSceneGraphBuilder {
         runtime.next_evaluation_mode = EvaluationMode::Exact;
 
         let start = Instant::now();
+        tracing::debug!(
+            target: "avenger_chart_app::resize",
+            mode = ?mode,
+            resize_seq = runtime.accepted_resize_count,
+            "chart_app.scene_build start"
+        );
         let (evaluated, metrics) = runtime
             .session
             .evaluate_with_metrics(EvaluationRequest::new().mode(mode))
@@ -179,7 +189,7 @@ impl SceneGraphBuilder<ChartAppState> for ChartSceneGraphBuilder {
 
         if runtime.log_metrics {
             eprintln!(
-                "chart eval mode={:?} elapsed={:?} scene={:.1}x{:.1} preview_reuse={} reflow_reuse={} cell_reuse={} chrome_refresh={} skipped_measures={} guide_measures={}",
+                "chart eval mode={:?} elapsed={:?} scene={:.1}x{:.1} preview_reuse={} reflow_reuse={} cell_reuse={} data_reuse={} data_miss={} chrome_refresh={} skipped_measures={} guide_measures={}",
                 metrics.mode,
                 elapsed,
                 scene_size[0],
@@ -187,11 +197,63 @@ impl SceneGraphBuilder<ChartAppState> for ChartSceneGraphBuilder {
                 metrics.pipeline.preview_profile_reuses,
                 metrics.pipeline.preview_structure_reflow_reuses,
                 metrics.pipeline.facet_cell_measurement_profile_reuses,
+                metrics.pipeline.preview_data_mark_reuses,
+                metrics.pipeline.preview_data_mark_reuse_misses,
                 metrics
                     .pipeline
                     .facet_cell_measurement_profile_chrome_refreshes,
                 metrics.pipeline.skipped_component_measure_calls,
                 metrics.pipeline.guide_overflow_measure_calls,
+            );
+        }
+        if runtime.trace_resize && runtime.accepted_resize_count > 0 {
+            let timing = &metrics.timings;
+            eprintln!(
+                "resize seq={} width={:.1} height={:.1} mode={:?} total={:.2}ms eval={:.2}ms reflow_reuse={} preview_reuse={} cell_reuse={} data_reuse={} data_miss={} chrome={} chrome_ms={:.2} guides={} guide_ms={:.2} reflow_ms={:.2} probe_ms={:.2} build_ms={:.2} scene_ms={:.2}",
+                runtime.accepted_resize_count,
+                scene_size[0],
+                scene_size[1],
+                metrics.mode,
+                elapsed.as_secs_f64() * 1000.0,
+                elapsed.as_secs_f64() * 1000.0,
+                metrics.pipeline.preview_structure_reflow_reuses,
+                metrics.pipeline.preview_profile_reuses,
+                metrics.pipeline.facet_cell_measurement_profile_reuses,
+                metrics.pipeline.preview_data_mark_reuses,
+                metrics.pipeline.preview_data_mark_reuse_misses,
+                metrics
+                    .pipeline
+                    .facet_cell_measurement_profile_chrome_refreshes,
+                us_to_ms(timing.refresh_reused_profile_layout_us),
+                metrics.pipeline.guide_overflow_measure_calls,
+                us_to_ms(timing.guide_overflow_measure_us),
+                us_to_ms(timing.preview_structure_reflow_us),
+                us_to_ms(timing.measure_cells_overflow_probe_us),
+                us_to_ms(timing.build_plot_components_us),
+                us_to_ms(timing.components_to_evaluated_plot_us),
+            );
+            tracing::info!(
+                target: "avenger_chart_app::resize",
+                seq = runtime.accepted_resize_count,
+                event_kind = "CanvasResize",
+                mode = ?metrics.mode,
+                scene_width = scene_size[0],
+                scene_height = scene_size[1],
+                chart_eval_ms = elapsed.as_secs_f64() * 1000.0,
+                preview_reuse = metrics.pipeline.preview_profile_reuses,
+                reflow_reuse = metrics.pipeline.preview_structure_reflow_reuses,
+                cell_reuse = metrics.pipeline.facet_cell_measurement_profile_reuses,
+                data_reuse = metrics.pipeline.preview_data_mark_reuses,
+                data_miss = metrics.pipeline.preview_data_mark_reuse_misses,
+                chrome_refresh = metrics.pipeline.facet_cell_measurement_profile_chrome_refreshes,
+                chrome_ms = us_to_ms(timing.refresh_reused_profile_layout_us),
+                guide_measures = metrics.pipeline.guide_overflow_measure_calls,
+                guide_ms = us_to_ms(timing.guide_overflow_measure_us),
+                reflow_ms = us_to_ms(timing.preview_structure_reflow_us),
+                probe_ms = us_to_ms(timing.measure_cells_overflow_probe_us),
+                build_plot_components_ms = us_to_ms(timing.build_plot_components_us),
+                components_to_evaluated_plot_ms = us_to_ms(timing.components_to_evaluated_plot_us),
+                "resize"
             );
         }
 
@@ -213,7 +275,7 @@ impl EventStreamHandler<ChartAppState> for ChartResizeHandler {
         state: &mut ChartAppState,
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
-        let SceneGraphEvent::WindowResize(event) = event else {
+        let SceneGraphEvent::CanvasResize(event) = event else {
             return UpdateStatus::default();
         };
 
@@ -241,11 +303,23 @@ impl EventStreamHandler<ChartAppState> for ChartResizeHandler {
         runtime.session.apply_param_patch(patch);
         runtime.next_evaluation_mode = EvaluationMode::Preview;
         runtime.accepted_resize_count += 1;
+        tracing::debug!(
+            target: "avenger_chart_app::resize",
+            seq = runtime.accepted_resize_count,
+            width = event.size[0],
+            height = event.size[1],
+            mode = ?runtime.next_evaluation_mode,
+            "canvas resize accepted"
+        );
         UpdateStatus {
             rerender: true,
             rebuild_geometry: true,
         }
     }
+}
+
+fn us_to_ms(us: u64) -> f64 {
+    us as f64 / 1000.0
 }
 
 /// Resize-settle handler that requests an exact evaluation after preview resize.
@@ -259,7 +333,7 @@ impl EventStreamHandler<ChartAppState> for ChartResizeSettleHandler {
         state: &mut ChartAppState,
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
-        let SceneGraphEvent::WindowResizeSettled(event) = event else {
+        let SceneGraphEvent::CanvasResizeSettled(event) = event else {
             return UpdateStatus::default();
         };
 
@@ -294,7 +368,7 @@ pub async fn chart_avenger_app(
     let state = ChartAppState::new(session, resize_policy, options);
     let mut streams = vec![(
         EventStreamConfig {
-            types: vec![SceneGraphEventType::WindowResize],
+            types: vec![SceneGraphEventType::CanvasResize],
             throttle: resize_throttle_ms,
             ..Default::default()
         },
@@ -302,7 +376,7 @@ pub async fn chart_avenger_app(
     )];
     streams.push((
         EventStreamConfig {
-            types: vec![SceneGraphEventType::WindowResizeSettled],
+            types: vec![SceneGraphEventType::CanvasResizeSettled],
             ..Default::default()
         },
         Arc::new(ChartResizeSettleHandler) as Arc<dyn EventStreamHandler<ChartAppState>>,
@@ -327,6 +401,21 @@ pub fn window_scene_sizing_for_resize_policy(policy: ChartResizePolicy) -> Windo
     } else {
         WindowSceneSizing::SurfaceFollowsWindow
     }
+}
+
+#[cfg(feature = "winit-wgpu")]
+pub fn canvas_frame_options_for_resize_policy(
+    policy: ChartResizePolicy,
+) -> Option<CanvasFrameOptions> {
+    if !policy.has_canvas_constrained_axis() {
+        return None;
+    }
+
+    Some(CanvasFrameOptions {
+        resize_width: policy.width.is_canvas_constrained(),
+        resize_height: policy.height.is_canvas_constrained(),
+        ..Default::default()
+    })
 }
 
 fn maybe_patch_axis(
@@ -402,7 +491,10 @@ fn warn_about_ignored_axis(axis: &str, policy: ChartResizeAxisPolicy, param: Opt
 #[cfg(test)]
 mod tests {
     use avenger_chart::prelude::*;
-    use avenger_eventstream::{scene::SceneGraphEvent, window::WindowResizeEvent};
+    use avenger_eventstream::{
+        scene::SceneGraphEvent,
+        window::{CanvasResizeEvent, WindowResizeEvent},
+    };
     use avenger_scenegraph::scene_graph::SceneGraph;
 
     use super::*;
@@ -448,7 +540,7 @@ mod tests {
         let rtree = empty_rtree();
         let status = handler
             .handle(
-                &SceneGraphEvent::WindowResize(WindowResizeEvent {
+                &SceneGraphEvent::CanvasResize(CanvasResizeEvent {
                     size: [800.0, 600.0],
                 }),
                 &mut state,
@@ -487,7 +579,7 @@ mod tests {
 
         let status = ChartResizeHandler
             .handle(
-                &SceneGraphEvent::WindowResize(WindowResizeEvent {
+                &SceneGraphEvent::CanvasResize(CanvasResizeEvent {
                     size: [800.0, 600.0],
                 }),
                 &mut state,
@@ -501,6 +593,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn resize_tracing_follows_env_flag() {
+        let state = resize_test_state().await;
+        assert_eq!(
+            state.runtime.lock().await.trace_resize,
+            std::env::var_os("AVENGER_TRACE_RESIZE").is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn native_window_resize_does_not_patch_chart_params() {
+        let mut state = resize_test_state().await;
+        let rtree = empty_rtree();
+
+        let status = ChartResizeHandler
+            .handle(
+                &SceneGraphEvent::WindowResize(WindowResizeEvent {
+                    size: [800.0, 600.0],
+                }),
+                &mut state,
+                &rtree,
+            )
+            .await;
+
+        assert!(!status.rerender);
+        assert!(!status.rebuild_geometry);
+        let params = state.params().await;
+        assert_eq!(
+            params.get("width"),
+            Some(&ScalarValue::Float64(Some(640.0)))
+        );
+        assert_eq!(state.accepted_resize_count().await, 0);
+    }
+
+    #[tokio::test]
     async fn resize_settle_handler_requests_exact_for_current_size() {
         use avenger_app::app::SceneGraphBuilder;
 
@@ -508,7 +634,7 @@ mod tests {
         let rtree = empty_rtree();
         ChartResizeHandler
             .handle(
-                &SceneGraphEvent::WindowResize(WindowResizeEvent {
+                &SceneGraphEvent::CanvasResize(CanvasResizeEvent {
                     size: [800.0, 600.0],
                 }),
                 &mut state,
@@ -527,7 +653,7 @@ mod tests {
 
         let status = ChartResizeSettleHandler
             .handle(
-                &SceneGraphEvent::WindowResizeSettled(WindowResizeEvent {
+                &SceneGraphEvent::CanvasResizeSettled(CanvasResizeEvent {
                     size: [800.0, 600.0],
                 }),
                 &mut state,
@@ -553,7 +679,7 @@ mod tests {
         let rtree = empty_rtree();
         ChartResizeHandler
             .handle(
-                &SceneGraphEvent::WindowResize(WindowResizeEvent {
+                &SceneGraphEvent::CanvasResize(CanvasResizeEvent {
                     size: [800.0, 600.0],
                 }),
                 &mut state,
@@ -563,7 +689,7 @@ mod tests {
 
         let status = ChartResizeSettleHandler
             .handle(
-                &SceneGraphEvent::WindowResizeSettled(WindowResizeEvent {
+                &SceneGraphEvent::CanvasResizeSettled(CanvasResizeEvent {
                     size: [720.0, 600.0],
                 }),
                 &mut state,
@@ -615,5 +741,23 @@ mod tests {
                 height: true,
             }
         );
+    }
+
+    #[cfg(feature = "winit-wgpu")]
+    #[test]
+    fn canvas_frame_options_enable_only_canvas_constrained_axes() {
+        let width_canvas = ChartResizePolicy {
+            width: ChartResizeAxisPolicy::CanvasConstrained,
+            height: ChartResizeAxisPolicy::PlotConstrained,
+        };
+        let options = canvas_frame_options_for_resize_policy(width_canvas).expect("frame options");
+        assert!(options.resize_width);
+        assert!(!options.resize_height);
+
+        let fixed_size = ChartResizePolicy {
+            width: ChartResizeAxisPolicy::PlotConstrained,
+            height: ChartResizeAxisPolicy::PlotConstrained,
+        };
+        assert!(canvas_frame_options_for_resize_policy(fixed_size).is_none());
     }
 }

@@ -606,7 +606,7 @@ impl ScaleImpl for LinearScale {
         // print("let offset =", factor(solution[adj_offset].simplify()))
         // ```
         let (from_domain_start, from_domain_end) = from_config.numeric_interval_domain()?;
-        let (from_range_start, from_range_end) = to_config.numeric_interval_range()?;
+        let (from_range_start, from_range_end) = from_config.numeric_interval_range()?;
         let (to_domain_start, to_domain_end) = to_config.numeric_interval_domain()?;
         let (to_range_start, to_range_end) = to_config.numeric_interval_range()?;
 
@@ -680,6 +680,19 @@ mod tests {
         assert_approx_eq!(f32, result[4], 75.0); // interpolated
         assert_approx_eq!(f32, result[5], 100.0); // domain end
         assert_approx_eq!(f32, result[6], 100.0); // clamped
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_adjust_uses_source_and_target_ranges() -> Result<(), AvengerScaleError> {
+        let source = LinearScale::configured((0.0, 10.0), (0.0, 100.0));
+        let target = LinearScale::configured((0.0, 10.0), (10.0, 210.0));
+
+        let adjustment = source.adjust(&target)?;
+
+        assert_approx_eq!(f32, adjustment.scale, 2.0);
+        assert_approx_eq!(f32, adjustment.offset, 10.0);
 
         Ok(())
     }

@@ -3,6 +3,7 @@
 use std::{
     collections::{BTreeSet, HashMap},
     sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 use avenger_chart_core::{
@@ -310,6 +311,16 @@ impl EvaluationRequest {
     }
 }
 
+fn options_for_evaluation_mode(
+    mode: EvaluationMode,
+    mut options: EvaluationOptions,
+) -> EvaluationOptions {
+    if mode == EvaluationMode::Preview {
+        options.facet_layout_refinement.max_refinement_passes = 0;
+    }
+    options
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct EvaluationRequestSummary {
     mode: EvaluationMode,
@@ -395,17 +406,20 @@ impl PlotSession {
     ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
         let mode = request.mode;
         let next_params = self.params_for_request(&request);
+        let options = options_for_evaluation_mode(mode, request.options);
         let use_measurement_profile_caches = mode != EvaluationMode::ForceRemeasure;
 
         if mode == EvaluationMode::Preview {
             let mut preview_fallback_reasons = Vec::new();
+            let mut preview_attempt_duration = Duration::default();
             if let Some(layout_profile) = self.layout_profile.as_ref() {
+                let preview_attempt_start = Instant::now();
                 let attempt = self
                     .program
                     .evaluate_preview_with_layout_profile_and_metrics(
                         self.ctx.as_ref(),
                         Some(next_params.clone()),
-                        request.options.clone(),
+                        options.clone(),
                         layout_profile,
                         self.scale_domain_cache.clone(),
                         self.facet_semantic_cache.clone(),
@@ -416,13 +430,18 @@ impl PlotSession {
                         use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
                     )
                     .await?;
-                if let Some((evaluated, mut metrics)) = attempt.reused {
+                preview_attempt_duration += preview_attempt_start.elapsed();
+                if let Some((evaluated, mut metrics, layout_profile)) = attempt.reused {
                     metrics.mode = mode;
+                    metrics.record_preview_attempt_duration(preview_attempt_duration);
                     self.current_params = next_params.clone();
                     self.last_request = Some(EvaluationRequestSummary {
                         mode,
                         params: next_params,
                     });
+                    if let Some(layout_profile) = layout_profile {
+                        self.layout_profile = Some(layout_profile);
+                    }
                     self.last_metrics = Some(metrics.clone());
                     return Ok((evaluated, metrics));
                 }
@@ -436,7 +455,7 @@ impl PlotSession {
                 .evaluate_with_options_and_metrics_with_scale_domain_cache(
                     self.ctx.as_ref(),
                     Some(next_params.clone()),
-                    request.options,
+                    options,
                     self.scale_domain_cache.clone(),
                     self.facet_semantic_cache.clone(),
                     self.facet_scale_precompute_cache.clone(),
@@ -446,6 +465,7 @@ impl PlotSession {
                 )
                 .await?;
             metrics.mode = mode;
+            metrics.record_preview_attempt_duration(preview_attempt_duration);
             metrics.record_preview_profile_miss();
             metrics.record_preview_fallback();
             if preview_fallback_reasons.iter().any(|reason| {
@@ -474,7 +494,7 @@ impl PlotSession {
             .evaluate_with_options_and_metrics_with_scale_domain_cache(
                 self.ctx.as_ref(),
                 Some(next_params.clone()),
-                request.options,
+                options,
                 self.scale_domain_cache.clone(),
                 self.facet_semantic_cache.clone(),
                 self.facet_scale_precompute_cache.clone(),
@@ -607,6 +627,38 @@ impl CompiledPlot {
             facet_tree_structure: facet_tree.structure_cache_key(),
             child_frame_sharing_path: format!("{child_frame_sharing_path:?}"),
             data_override_plan: data_override.map(|df| format!("{:?}", df.logical_plan())),
+        }
+    }
+
+    pub(crate) fn guide_overflow_cache_key_for_discriminator(
+        &self,
+        guide_ptr: usize,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        estimate_width: f32,
+        estimate_height: f32,
+        params: &IndexMap<String, ScalarValue>,
+        discriminator: String,
+    ) -> GuideOverflowCacheKey {
+        let mut scale_signatures = scales
+            .iter()
+            .map(|(name, scale)| (name.clone(), configured_scale_signature(scale)))
+            .collect::<Vec<_>>();
+        scale_signatures.sort_by(|a, b| a.0.cmp(&b.0));
+
+        GuideOverflowCacheKey {
+            program_ptr: self as *const _ as usize,
+            guide_ptr,
+            estimate_width: estimate_width.to_bits(),
+            estimate_height: estimate_height.to_bits(),
+            scales: scale_signatures,
+            params: params
+                .iter()
+                .map(|(name, value)| (name.clone(), format!("{value:?}")))
+                .collect(),
+            facet_path: Vec::new(),
+            facet_tree_structure: vec![discriminator],
+            child_frame_sharing_path: String::new(),
+            data_override_plan: None,
         }
     }
 
@@ -2169,6 +2221,34 @@ mod tests {
             preview.pipeline.guide_overflow_measure_calls > 0,
             "preview reflow should measure current guide ownership"
         );
+        assert!(
+            preview.timings.preview_attempt_us > 0,
+            "preview diagnostics should include attempt timing"
+        );
+        assert!(
+            preview.timings.preview_structure_reflow_us > 0,
+            "preview diagnostics should include responsive-wrap reflow timing"
+        );
+        assert!(
+            preview.timings.measure_cells_overflow_probe_us > 0,
+            "preview diagnostics should include facet overflow-probe timing"
+        );
+        assert!(
+            preview.timings.refresh_reused_profile_layout_us > 0,
+            "preview diagnostics should include reused-cell chrome refresh timing"
+        );
+        assert!(
+            preview.timings.guide_overflow_measure_us > 0,
+            "preview diagnostics should include guide measurement timing"
+        );
+        assert!(
+            preview.timings.build_plot_components_us > 0,
+            "preview diagnostics should include component build timing"
+        );
+        assert!(
+            preview.timings.components_to_evaluated_plot_us > 0,
+            "preview diagnostics should include scene assembly timing"
+        );
 
         let mut exact_params = IndexMap::new();
         exact_params.insert("width".to_string(), ScalarValue::Float64(Some(700.0)));
@@ -2178,6 +2258,74 @@ mod tests {
         assert_eq!(
             preview_plot.scene_graph.marks.len(),
             one_shot.scene_graph.marks.len()
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_preview_responsive_wrap_replay_populates_timing_diagnostics()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_responsive_wrap_width_param_cache_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let mut warm_params = IndexMap::new();
+        warm_params.insert("width".to_string(), ScalarValue::Float64(Some(700.0)));
+        let (_evaluated, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(warm_params))
+            .await?;
+        assert!(
+            exact.facet_layout.plot_component_measure_calls > 0,
+            "warm exact evaluation should populate the responsive-wrap profile"
+        );
+
+        let mut saw_reflow = false;
+        for width in [650.0, 560.0, 520.0, 440.0, 900.0, 1100.0] {
+            let mut patch = IndexMap::new();
+            patch.insert("width".to_string(), ScalarValue::Float64(Some(width)));
+            let (_evaluated, preview) = session
+                .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+                .await?;
+
+            assert_eq!(preview.mode, EvaluationMode::Preview);
+            assert!(
+                preview.timings.preview_attempt_us > 0,
+                "preview width {width} should record attempt timing"
+            );
+            assert!(
+                preview.timings.build_plot_components_us > 0,
+                "preview width {width} should record component build timing"
+            );
+            assert!(
+                preview.timings.components_to_evaluated_plot_us > 0,
+                "preview width {width} should record scene assembly timing"
+            );
+
+            if preview.pipeline.preview_structure_reflow_reuses > 0 {
+                saw_reflow = true;
+                assert!(
+                    preview.timings.preview_structure_reflow_us > 0,
+                    "reflow preview width {width} should record reflow timing"
+                );
+                assert!(
+                    preview.timings.measure_cells_overflow_probe_us > 0,
+                    "reflow preview width {width} should record facet overflow-probe timing"
+                );
+                assert!(
+                    preview.timings.refresh_reused_profile_layout_us > 0,
+                    "reflow preview width {width} should record chrome refresh timing"
+                );
+                assert!(
+                    preview.timings.guide_overflow_measure_us > 0,
+                    "reflow preview width {width} should record guide measurement timing"
+                );
+            }
+        }
+
+        assert!(
+            saw_reflow,
+            "replay widths should include at least one responsive-wrap structure reflow"
         );
 
         Ok(())

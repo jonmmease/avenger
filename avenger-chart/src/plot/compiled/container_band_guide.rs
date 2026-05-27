@@ -4,7 +4,10 @@
 //! generic: a set of band positions, labels, optional rule/ticks, and an
 //! optional title attached to one side of a container content rectangle.
 
-use std::sync::Arc as StdArc;
+use std::{
+    collections::HashMap,
+    sync::{Arc as StdArc, Mutex, OnceLock},
+};
 
 use avenger_common::types::ColorOrGradient;
 use avenger_scenegraph::marks::{mark::SceneMark, rule::SceneRuleMark, text::SceneTextMark};
@@ -77,20 +80,13 @@ pub(crate) struct ContainerBandGuideRenderConfig {
 pub(crate) fn measure_container_band_guide_slab(
     config: &ContainerBandGuideMeasurementConfig,
 ) -> f32 {
-    let measurer = default_text_measurer();
-
     let mut max_label_dimension = 0.0_f32;
     for label in &config.labels {
-        let text_config = TextMeasurementConfig {
-            text: label,
-            font: &config.font_family,
-            font_size: config.font_size_px,
-            font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
-            font_style: &FontStyle::Normal,
-        };
-        let bounds = measurer.measure_text_bounds(&text_config);
-
-        max_label_dimension = max_label_dimension.max(bounds.height);
+        max_label_dimension = max_label_dimension.max(measure_text_height_cached(
+            label,
+            &config.font_family,
+            config.font_size_px,
+        ));
     }
 
     let mut total_space = max_label_dimension;
@@ -105,15 +101,11 @@ pub(crate) fn measure_container_band_guide_slab(
     if config.render_title
         && let Some(title_text) = &config.title
     {
-        let title_config = TextMeasurementConfig {
-            text: title_text,
-            font: &config.title_font_family,
-            font_size: config.title_font_size_px,
-            font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
-            font_style: &FontStyle::Normal,
-        };
-        let title_bounds = measurer.measure_text_bounds(&title_config);
-        let title_dimension = title_bounds.height;
+        let title_dimension = measure_text_height_cached(
+            title_text,
+            &config.title_font_family,
+            config.title_font_size_px,
+        );
 
         let gap = 10.0_f32;
         total_space += gap + title_dimension + 1.0;
@@ -129,13 +121,17 @@ pub(crate) fn render_container_band_guide_slab(
     theme_params: &IndexMap<String, ScalarValue>,
 ) -> Vec<SceneMark> {
     let mut marks = Vec::new();
+    let label_dimensions =
+        measure_label_dimensions(&config.labels, &config.font_family, config.font_size_px);
+    let max_label_dimension = label_dimensions.iter().copied().fold(0.0_f32, f32::max);
 
     let label_ctx = ThemeContext::new("guide", theme_params.clone())
         .child(config.theme_component.as_str())
         .child("label");
+    let label_color = theme.text_color(&label_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]);
 
     let (x_positions, y_positions) = if config.labels_rotated {
-        calculate_rotated_label_positions(config)
+        calculate_rotated_label_positions(config, &label_dimensions)
     } else {
         calculate_horizontal_label_positions(config)
     };
@@ -148,51 +144,58 @@ pub(crate) fn render_container_band_guide_slab(
             config,
             x_positions[i],
             y_positions[i],
-            theme,
-            &label_ctx,
+            label_color,
         );
         marks.push(SceneMark::Text(StdArc::new(label_mark)));
     }
 
     if config.labels.len() > 1 {
-        marks.extend(render_rule_with_ticks(config, theme, theme_params));
+        marks.extend(render_rule_with_ticks(
+            config,
+            theme,
+            theme_params,
+            max_label_dimension,
+        ));
     }
 
     if config.render_title
         && let Some(title_text) = &config.title
     {
-        let title_mark = render_container_band_title(title_text, config, theme, theme_params);
+        let title_mark = render_container_band_title(
+            title_text,
+            config,
+            theme,
+            theme_params,
+            max_label_dimension,
+        );
         marks.push(SceneMark::Text(StdArc::new(title_mark)));
     }
 
     marks
 }
 
+fn measure_label_dimensions(labels: &[String], font_family: &str, font_size_px: f32) -> Vec<f32> {
+    labels
+        .iter()
+        .map(|label| measure_text_height_cached(label, font_family, font_size_px))
+        .collect()
+}
+
 fn calculate_rotated_label_positions(
     config: &ContainerBandGuideRenderConfig,
+    label_dimensions: &[f32],
 ) -> (Vec<f32>, Vec<f32>) {
-    let measurer = default_text_measurer();
-
     let mut x_positions = Vec::new();
     let mut y_positions = Vec::new();
 
-    for (i, label) in config.labels.iter().enumerate() {
+    for i in 0..config.labels.len() {
         let band_pos = &config.band_positions[i];
         let y_center = config.plot_bounds.y + band_pos.center();
 
-        let text_config = TextMeasurementConfig {
-            text: label,
-            font: &config.font_family,
-            font_size: config.font_size_px,
-            font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
-            font_style: &FontStyle::Normal,
-        };
-        let bounds = measurer.measure_text_bounds(&text_config);
-
         let x_center = if config.place_at_end {
-            config.plot_bounds.x + config.plot_bounds.width + 0.5 * bounds.height
+            config.plot_bounds.x + config.plot_bounds.width + 0.5 * label_dimensions[i]
         } else {
-            config.plot_bounds.x - 0.5 * bounds.height
+            config.plot_bounds.x - 0.5 * label_dimensions[i]
         };
 
         x_positions.push(x_center);
@@ -229,8 +232,7 @@ fn create_label_mark(
     config: &ContainerBandGuideRenderConfig,
     x: f32,
     y: f32,
-    theme: &Theme,
-    label_ctx: &ThemeContext,
+    label_color: [f32; 4],
 ) -> SceneTextMark {
     let angle = if config.labels_rotated {
         if config.place_at_end {
@@ -259,8 +261,7 @@ fn create_label_mark(
         angle: angle.into(),
         font: config.font_family.clone().into(),
         font_size: config.font_size_px.into(),
-        color: ColorOrGradient::Color(theme.text_color(label_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]))
-            .into(),
+        color: ColorOrGradient::Color(label_color).into(),
         zindex: Some(5),
         ..Default::default()
     }
@@ -270,26 +271,12 @@ fn render_rule_with_ticks(
     config: &ContainerBandGuideRenderConfig,
     theme: &Theme,
     theme_params: &IndexMap<String, ScalarValue>,
+    max_label_dimension: f32,
 ) -> Vec<SceneMark> {
     let mut marks = Vec::new();
 
     if config.labels.is_empty() || config.labels.len() <= 1 {
         return marks;
-    }
-
-    let measurer = default_text_measurer();
-
-    let mut max_label_dimension = 0.0_f32;
-    for label in &config.labels {
-        let text_config = TextMeasurementConfig {
-            text: label,
-            font: &config.font_family,
-            font_size: config.font_size_px,
-            font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
-            font_style: &FontStyle::Normal,
-        };
-        let bounds = measurer.measure_text_bounds(&text_config);
-        max_label_dimension = max_label_dimension.max(bounds.height);
     }
 
     let rule_ctx = ThemeContext::new("guide", theme_params.clone())
@@ -433,35 +420,19 @@ fn render_container_band_title(
     config: &ContainerBandGuideRenderConfig,
     theme: &Theme,
     theme_params: &IndexMap<String, ScalarValue>,
+    max_label_dimension: f32,
 ) -> SceneTextMark {
-    let measurer = default_text_measurer();
     let title_ctx = ThemeContext::new("guide", theme_params.clone())
         .child(config.theme_component.as_str())
         .child("title");
 
-    let title_config = TextMeasurementConfig {
-        text: title_text,
-        font: &config.title_font_family,
-        font_size: config.title_font_size_px,
-        font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
-        font_style: &FontStyle::Normal,
-    };
-    let title_bounds = measurer.measure_text_bounds(&title_config);
+    let title_height = measure_text_height_cached(
+        title_text,
+        &config.title_font_family,
+        config.title_font_size_px,
+    );
 
     let gap = 10.0_f32;
-
-    let mut max_label_dimension = 0.0_f32;
-    for label in &config.labels {
-        let text_config = TextMeasurementConfig {
-            text: label,
-            font: &config.font_family,
-            font_size: config.font_size_px,
-            font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
-            font_style: &FontStyle::Normal,
-        };
-        let bounds = measurer.measure_text_bounds(&text_config);
-        max_label_dimension = max_label_dimension.max(bounds.height);
-    }
 
     let (x, y, angle, baseline) = if config.labels_rotated {
         let x_center = if config.place_at_end {
@@ -469,9 +440,9 @@ fn render_container_band_title(
                 + config.plot_bounds.width
                 + max_label_dimension
                 + gap
-                + 0.5 * title_bounds.height
+                + 0.5 * title_height
         } else {
-            config.plot_bounds.x - (max_label_dimension + gap + 0.5 * title_bounds.height)
+            config.plot_bounds.x - (max_label_dimension + gap + 0.5 * title_height)
         };
         let y_center = config.plot_bounds.y + 0.5 * config.plot_bounds.height;
         let angle = if config.place_at_end {
@@ -519,6 +490,52 @@ fn render_container_band_title(
         zindex: Some(6),
         ..Default::default()
     }
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct BandGuideTextMeasureKey {
+    text: String,
+    font_family: String,
+    font_size_bits: u32,
+}
+
+static BAND_GUIDE_TEXT_HEIGHT_CACHE: OnceLock<Mutex<HashMap<BandGuideTextMeasureKey, f32>>> =
+    OnceLock::new();
+const MAX_BAND_GUIDE_TEXT_HEIGHT_CACHE_ENTRIES: usize = 4096;
+
+fn measure_text_height_cached(text: &str, font_family: &str, font_size_px: f32) -> f32 {
+    let key = BandGuideTextMeasureKey {
+        text: text.to_string(),
+        font_family: font_family.to_string(),
+        font_size_bits: font_size_px.to_bits(),
+    };
+    let cache = BAND_GUIDE_TEXT_HEIGHT_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(height) = cache
+        .lock()
+        .expect("band guide text height cache lock poisoned")
+        .get(&key)
+        .copied()
+    {
+        return height;
+    }
+
+    let measurer = default_text_measurer();
+    let text_config = TextMeasurementConfig {
+        text,
+        font: font_family,
+        font_size: font_size_px,
+        font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
+        font_style: &FontStyle::Normal,
+    };
+    let height = measurer.measure_text_bounds(&text_config).height;
+    let mut cache = cache
+        .lock()
+        .expect("band guide text height cache lock poisoned");
+    if cache.len() >= MAX_BAND_GUIDE_TEXT_HEIGHT_CACHE_ENTRIES {
+        cache.clear();
+    }
+    cache.insert(key, height);
+    height
 }
 
 #[cfg(test)]

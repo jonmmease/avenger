@@ -77,7 +77,10 @@ pub(crate) use self::container_sharing::{
 };
 pub(crate) use self::coordination_scope::{CoordinationKind, CoordinationScopeKey};
 pub(crate) use self::domain_coordination::{ChildFrameDomainRequest, aggregate_domain_requests};
-pub(crate) use self::layout_profile::LayoutProfileSnapshot;
+pub(crate) use self::layout_profile::{
+    FacetCellRenderedComponentsProfileCapture, FacetCellRenderedComponentsProfileIndex,
+    LayoutProfileSnapshot,
+};
 use self::legends::PreparedLegendPlan;
 pub(crate) use self::mark_data_runtime::{
     LogicalMarkDataRequest, MarkDataRequest, PreparedMarkData, prepare_logical_mark_data,
@@ -419,6 +422,7 @@ impl ComponentsMeasurement {
 ///
 /// This structure supports both measurement and rendering modes,
 /// and includes all plot components (data, guides, legends, titles).
+#[derive(Clone)]
 pub struct PlotComponents {
     /// Data mark scene graph elements
     pub data_marks: Vec<avenger_scenegraph::marks::mark::SceneMark>,

@@ -3,10 +3,11 @@ use std::{collections::HashMap, sync::Arc};
 
 use avenger_chart_core::{
     AvengerChartError, AxisPosition, CompiledGuide, CompiledMarkCore, CoordMeasurement,
-    CoordinateGuide, DefaultLogicalExprNodeExt, EmptyCoordMeasurement, GuideSharingContext,
-    GuideUpdate, IntoExpr, LayoutBounds, Maybe, MaybeOptionalExpr, OverflowSpaceRequirement,
-    SharingLevel, Theme, ThemeContext, color::parse_color_to_array_strict, evaluate_string_expr,
-    extract_channel_title_from_marks, strip_trailing_numbers,
+    CoordinateGuide, DefaultLogicalExprNodeExt, EmptyCoordMeasurement, GuideOverflowPhase,
+    GuideSharingContext, GuideUpdate, IntoExpr, LayoutBounds, Maybe, MaybeOptionalExpr,
+    OverflowSpaceRequirement, SharingLevel, Theme, ThemeContext,
+    color::parse_color_to_array_strict, evaluate_string_expr, extract_channel_title_from_marks,
+    strip_trailing_numbers,
 };
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use avenger_geometry::marks::MarkGeometryUtils;
@@ -484,6 +485,36 @@ impl CompiledGuide for CartesianGuide {
                 _ => None,
             }
         }
+    }
+
+    fn overflow_cache_discriminator(
+        &self,
+        sharing_context: GuideSharingContext<'_>,
+        phase: GuideOverflowPhase,
+    ) -> Option<String> {
+        if phase != GuideOverflowPhase::Final
+            || !sharing_context.child_frame_position_indices().is_empty()
+        {
+            return None;
+        }
+
+        let mut parts = Vec::new();
+        for channel in ["x", "y"] {
+            let position = self.axis_position(channel)?;
+            let sharing_level = sharing_context.channel_domain_sharing_level(channel);
+            let visibility = sharing_context
+                .channel_axis_visibility_for_path_checked(position, sharing_level.raw())
+                .unwrap_or_else(avenger_chart_core::AxisVisibility::visible);
+            let jagged = sharing_context.facet_is_jagged_for_axis(position);
+            parts.push(format!(
+                "{channel}:{position:?}:{}:{}:{}:{}",
+                sharing_level.raw(),
+                visibility.show_labels,
+                visibility.show_title,
+                jagged
+            ));
+        }
+        Some(format!("cartesian:v1:{}", parts.join("|")))
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

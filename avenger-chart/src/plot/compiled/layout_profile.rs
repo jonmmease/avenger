@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use datafusion::common::ScalarValue;
 use datafusion::prelude::SessionContext;
@@ -10,7 +13,8 @@ use crate::{
         evaluated_facet_tree::EvaluatedFacetTree,
     },
     plot::compiled::{
-        CompiledPlot, ComponentsMeasurement, session::plot_dependency_param_fingerprint,
+        CompiledPlot, ComponentsMeasurement, PlotComponents,
+        session::plot_dependency_param_fingerprint,
     },
 };
 
@@ -20,14 +24,18 @@ pub(crate) struct LayoutProfileSnapshot {
     pub(crate) physical_facet_tree_structure: Option<Vec<String>>,
     pub(crate) logical_facet_tree_structure: Option<Vec<String>>,
     pub(crate) facet_cell_measurements: FacetCellMeasurementProfileIndex,
+    pub(crate) facet_cell_rendered_components: FacetCellRenderedComponentsProfileIndex,
+    pub(crate) rendered_components: Option<PlotComponents>,
 }
 
 impl LayoutProfileSnapshot {
-    pub(crate) fn new(
+    pub(crate) fn new_with_components(
         measurement: ComponentsMeasurement,
         facet_tree: Option<&EvaluatedFacetTree>,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
+        rendered_components: Option<PlotComponents>,
+        facet_cell_rendered_components: FacetCellRenderedComponentsProfileIndex,
     ) -> Self {
         let facet_cell_measurements = facet_tree
             .map(|tree| {
@@ -40,6 +48,8 @@ impl LayoutProfileSnapshot {
             logical_facet_tree_structure: facet_tree
                 .map(EvaluatedFacetTree::logical_structure_cache_key),
             facet_cell_measurements,
+            facet_cell_rendered_components,
+            rendered_components,
         }
     }
 
@@ -76,7 +86,22 @@ impl LayoutProfileSnapshot {
     pub(crate) fn facet_cell_profile_count(&self) -> usize {
         self.facet_cell_measurements.len()
     }
+
+    pub(crate) fn facet_cell_rendered_components(
+        &self,
+        facet_tree: &EvaluatedFacetTree,
+        full_path: &[ScalarValue],
+        compiled_subplot: &CompiledPlot,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Option<PlotComponents> {
+        let key = facet_cell_profile_key(facet_tree, full_path, compiled_subplot, ctx, params)?;
+        self.facet_cell_rendered_components.get(&key)
+    }
 }
+
+pub(crate) type FacetCellRenderedComponentsProfileCapture =
+    Arc<Mutex<FacetCellRenderedComponentsProfileIndex>>;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub(crate) struct FacetCellMeasurementProfileKey {
@@ -97,6 +122,22 @@ impl FacetCellMeasurementProfileKey {
             dependency_params,
         }
     }
+}
+
+fn facet_cell_profile_key(
+    facet_tree: &EvaluatedFacetTree,
+    full_path: &[ScalarValue],
+    compiled_subplot: &CompiledPlot,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+) -> Option<FacetCellMeasurementProfileKey> {
+    let logical_cell_path = facet_tree.logical_cell_key_for_path(full_path)?;
+    let dependency_params = plot_dependency_param_fingerprint(compiled_subplot, ctx, params);
+    Some(FacetCellMeasurementProfileKey::new(
+        logical_cell_path,
+        compiled_subplot as *const _ as usize,
+        dependency_params,
+    ))
 }
 
 #[derive(Clone, Default)]
@@ -166,6 +207,33 @@ impl FacetCellMeasurementProfileIndex {
                 dependency_params.clone(),
             );
             index.measurements.insert(key, cell.measurement.clone());
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct FacetCellRenderedComponentsProfileIndex {
+    components: HashMap<FacetCellMeasurementProfileKey, PlotComponents>,
+}
+
+impl FacetCellRenderedComponentsProfileIndex {
+    pub(crate) fn get(&self, key: &FacetCellMeasurementProfileKey) -> Option<PlotComponents> {
+        self.components.get(key).cloned()
+    }
+
+    pub(crate) fn insert_for_cell(
+        &mut self,
+        facet_tree: &EvaluatedFacetTree,
+        full_path: &[ScalarValue],
+        compiled_subplot: &CompiledPlot,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+        components: PlotComponents,
+    ) {
+        if let Some(key) =
+            facet_cell_profile_key(facet_tree, full_path, compiled_subplot, ctx, params)
+        {
+            self.components.insert(key, components);
         }
     }
 }

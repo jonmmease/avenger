@@ -9,6 +9,7 @@ use std::{
     collections::HashMap,
     ops::Deref,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
@@ -29,8 +30,8 @@ use crate::{
         scale_precompute::FacetScalePrecomputeStore,
     },
     plot::compiled::{
-        GuideOverflowCacheHandle, LayoutProfileSnapshot, LegendMeasurementCacheHandle,
-        ScaleDomainCacheHandle, TextMeasurementCacheHandle,
+        FacetCellRenderedComponentsProfileCapture, GuideOverflowCacheHandle, LayoutProfileSnapshot,
+        LegendMeasurementCacheHandle, ScaleDomainCacheHandle, TextMeasurementCacheHandle,
     },
     render::types::{
         EvaluatedPlot, EvaluationMetrics, FacetLayoutRefinement, FacetSubtreeSnapshot,
@@ -262,6 +263,9 @@ pub struct EvaluationContext {
     pub(crate) text_measurement_cache: Option<TextMeasurementCacheHandle>,
     /// Optional layout profile used by Preview to reuse measured child frames.
     pub(crate) layout_profile: Option<Arc<LayoutProfileSnapshot>>,
+    /// Optional exact-evaluation capture for terminal facet cell rendered components.
+    pub(crate) facet_cell_rendered_components_capture:
+        Option<FacetCellRenderedComponentsProfileCapture>,
     /// Optional one-shot facet-subtree snapshot capture for non-renderable intermediate states.
     pub(crate) facet_subtree_snapshot_capture: Option<Arc<Mutex<FacetSubtreeSnapshotCapture>>>,
 }
@@ -293,6 +297,7 @@ impl EvaluationContext {
             legend_measurement_cache: None,
             text_measurement_cache: None,
             layout_profile: None,
+            facet_cell_rendered_components_capture: None,
             facet_subtree_snapshot_capture: None,
         }
     }
@@ -319,6 +324,9 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             layout_profile: self.layout_profile.clone(),
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -345,6 +353,9 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             layout_profile: self.layout_profile.clone(),
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -376,6 +387,9 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             layout_profile: self.layout_profile.clone(),
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -414,6 +428,9 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             layout_profile: self.layout_profile.clone(),
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -439,6 +456,9 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             layout_profile: self.layout_profile.clone(),
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -468,6 +488,9 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             layout_profile: self.layout_profile.clone(),
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -497,6 +520,9 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             layout_profile: self.layout_profile.clone(),
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -522,6 +548,9 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             layout_profile: self.layout_profile.clone(),
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -554,6 +583,9 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             layout_profile: self.layout_profile.clone(),
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -591,6 +623,9 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             layout_profile: self.layout_profile.clone(),
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -636,6 +671,9 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             layout_profile: self.layout_profile.clone(),
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -663,6 +701,9 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             layout_profile: self.layout_profile.clone(),
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -688,6 +729,9 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             layout_profile: self.layout_profile.clone(),
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -717,6 +761,9 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             layout_profile: self.layout_profile.clone(),
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -749,6 +796,9 @@ impl EvaluationContext {
             legend_measurement_cache: Some(cache),
             text_measurement_cache: self.text_measurement_cache.clone(),
             layout_profile: self.layout_profile.clone(),
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -778,6 +828,9 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: Some(cache),
             layout_profile: self.layout_profile.clone(),
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -807,12 +860,50 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             layout_profile: Some(layout_profile),
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
 
     pub(crate) fn layout_profile(&self) -> Option<&Arc<LayoutProfileSnapshot>> {
         self.layout_profile.as_ref()
+    }
+
+    pub(crate) fn with_facet_cell_rendered_components_capture(
+        &self,
+        capture: FacetCellRenderedComponentsProfileCapture,
+    ) -> Self {
+        Self {
+            core: self.core.clone(),
+            facet_tree: self.facet_tree.clone(),
+            facet_data_root: self.facet_data_root.clone(),
+            hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
+            facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
+            debug_layout_overlay: self.debug_layout_overlay,
+            facet_layout_refinement: self.facet_layout_refinement,
+            facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_padding_feedback: self.facet_padding_feedback.clone(),
+            facet_coord_node_path: self.facet_coord_node_path.clone(),
+            child_frame_container_path: self.child_frame_container_path.clone(),
+            child_frame_sharing_path: self.child_frame_sharing_path.clone(),
+            evaluation_metrics: self.evaluation_metrics.clone(),
+            scale_domain_cache: self.scale_domain_cache.clone(),
+            guide_overflow_cache: self.guide_overflow_cache.clone(),
+            legend_measurement_cache: self.legend_measurement_cache.clone(),
+            text_measurement_cache: self.text_measurement_cache.clone(),
+            layout_profile: self.layout_profile.clone(),
+            facet_cell_rendered_components_capture: Some(capture),
+            facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+        }
+    }
+
+    pub(crate) fn facet_cell_rendered_components_capture(
+        &self,
+    ) -> Option<&FacetCellRenderedComponentsProfileCapture> {
+        self.facet_cell_rendered_components_capture.as_ref()
     }
 
     pub(crate) fn with_facet_subtree_snapshot_capture(
@@ -839,6 +930,9 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             layout_profile: self.layout_profile.clone(),
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
             facet_subtree_snapshot_capture: Some(capture),
         }
     }
@@ -866,6 +960,9 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             layout_profile: self.layout_profile.clone(),
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -908,6 +1005,9 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             layout_profile: self.layout_profile.clone(),
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -938,6 +1038,9 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             layout_profile: self.layout_profile.clone(),
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
         }
     }
@@ -989,6 +1092,51 @@ impl EvaluationContext {
                 .lock()
                 .expect("evaluation metrics lock poisoned")
                 .record_plot_component_measure_call(facet_depth);
+        }
+    }
+
+    pub(crate) fn record_measure_cells_overflow_probe_duration(&self, duration: Duration) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_measure_cells_overflow_probe_duration(duration);
+        }
+    }
+
+    pub(crate) fn record_refresh_reused_profile_layout_duration(&self, duration: Duration) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_refresh_reused_profile_layout_duration(duration);
+        }
+    }
+
+    pub(crate) fn record_guide_overflow_measure_duration(&self, duration: Duration) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_guide_overflow_measure_duration(duration);
+        }
+    }
+
+    pub(crate) fn record_build_plot_components_duration(&self, duration: Duration) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_build_plot_components_duration(duration);
+        }
+    }
+
+    pub(crate) fn record_components_to_evaluated_plot_duration(&self, duration: Duration) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_components_to_evaluated_plot_duration(duration);
         }
     }
 
@@ -1124,6 +1272,24 @@ impl EvaluationContext {
                 .lock()
                 .expect("evaluation metrics lock poisoned")
                 .record_facet_cell_measurement_profile_chrome_refresh();
+        }
+    }
+
+    pub(crate) fn record_preview_data_mark_reuse(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_preview_data_mark_reuse();
+        }
+    }
+
+    pub(crate) fn record_preview_data_mark_reuse_miss(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_preview_data_mark_reuse_miss();
         }
     }
 

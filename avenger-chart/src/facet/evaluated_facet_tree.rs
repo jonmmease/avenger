@@ -2156,6 +2156,15 @@ async fn resolve_responsive_wrap_columns(
             best_delta = delta;
         }
     }
+    tracing::debug!(
+        target: "avenger_chart::resize",
+        slot_count,
+        available_width,
+        target_width,
+        columns = best_columns,
+        best_delta,
+        "facet_wrap.responsive_columns"
+    );
     Ok(best_columns)
 }
 

@@ -4,7 +4,7 @@
 //! local facet band layout, and retargets child measurements before global
 //! coordination aligns matching facet requirements.
 //!
-use std::{any::Any, collections::HashMap, sync::Arc};
+use std::{any::Any, collections::HashMap, sync::Arc, time::Instant};
 
 use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl, band::BandScale, band::bandwidth};
@@ -2807,6 +2807,15 @@ async fn measure_cells_overflow_probe(
     is_leaf_node: bool,
     perf_counters: &mut FacetPipelinePerfCounters,
 ) -> Result<OverflowProbeSummary, AvengerChartError> {
+    tracing::debug!(
+        target: "avenger_chart::resize",
+        axis = ?axis,
+        facet_depth,
+        cell_count = cells.len(),
+        is_leaf_node,
+        "measure_cells_overflow_probe start"
+    );
+    let probe_start = Instant::now();
     let mut summary = OverflowProbeSummary::default();
     summary.cell_overflows.reserve(cells.len());
     summary.cell_probe_summaries.reserve(cells.len());
@@ -2958,6 +2967,18 @@ async fn measure_cells_overflow_probe(
             debug_assert!(cell.measurement.is_some());
         }
     }
+
+    let probe_elapsed = probe_start.elapsed();
+    subplot_eval_ctx.record_measure_cells_overflow_probe_duration(probe_elapsed);
+    tracing::debug!(
+        target: "avenger_chart::resize",
+        probe_ms = probe_elapsed.as_secs_f64() * 1000.0,
+        axis = ?axis,
+        facet_depth,
+        cell_count = cells.len(),
+        is_leaf_node,
+        "measure_cells_overflow_probe"
+    );
 
     Ok(summary)
 }
@@ -3207,12 +3228,15 @@ impl<'a> FacetBandMeasurePipeline<'a> {
     }
 
     pub(crate) async fn run(&self) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
+        let pipeline_start = Instant::now();
         // Step 1: Resolve -- resolve this facet node and enumerate cell values for the current path.
+        let resolve_start = Instant::now();
         let resolved = match self.resolve_node_or_empty()? {
             ResolveBandNodeOutcome::Empty(measurement) => return Ok(measurement),
             ResolveBandNodeOutcome::Ready(resolved) => resolved,
         };
         let cell_values = self.enumerate_cell_values(&resolved);
+        let resolve_elapsed = resolve_start.elapsed();
 
         debug!(
             axis = ?self.axis_ops.axis,
@@ -3248,6 +3272,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         })?;
 
         // Step 2: Precompute -- precompute subtree scale builders used by child facet slot sharing.
+        let precompute_start = Instant::now();
         Box::pin(ensure_subtree_precomputed(
             self.compiled_marks,
             self.facet_path,
@@ -3256,11 +3281,15 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             self.eval_ctx,
         ))
         .await?;
+        let precompute_elapsed = precompute_start.elapsed();
 
         // Step 3: Build cell semantics -- build geometry-independent per-cell semantics.
+        let semantics_start = Instant::now();
         let cell_semantics = self.build_cell_semantics(&resolved, &cell_values)?;
+        let semantics_elapsed = semantics_start.elapsed();
 
         // Step 4: Prepare layout inputs and runtime state.
+        let prepare_start = Instant::now();
         let (prepared_inputs, prepared_runtime) = Box::pin(prepare_band_inputs_and_runtime(
             cell_semantics.clone(),
             data_df,
@@ -3270,6 +3299,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             self.eval_ctx,
         ))
         .await?;
+        let prepare_elapsed = prepare_start.elapsed();
 
         let (subplot_plot_width, subplot_plot_height) = self
             .axis_ops
@@ -3277,6 +3307,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         let mut perf_counters = FacetPipelinePerfCounters::default();
 
         // Step 5: Build overflow probe -- non-mutating probe at estimated slot size.
+        let probe_start = Instant::now();
         let (overflow_probe, overflow_runtime) = Box::pin(build_overflow_probe(
             &prepared_inputs,
             &prepared_runtime,
@@ -3285,14 +3316,32 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             &mut perf_counters,
         ))
         .await?;
+        let probe_elapsed = probe_start.elapsed();
 
         // Step 6: Build local layout -- finalize band layout and retarget cells.
+        let layout_start = Instant::now();
         let (local_layout, measured_runtime) =
             Box::pin(self.build_local_layout(&overflow_probe, overflow_runtime, &prepared_runtime))
                 .await?;
+        let layout_elapsed = layout_start.elapsed();
 
         let coord_measurement =
             self.assemble_coord_measurement(local_layout, measured_runtime, &prepared_runtime)?;
+        let total_elapsed = pipeline_start.elapsed();
+        tracing::debug!(
+            target: "avenger_chart::resize",
+            axis = ?self.axis_ops.axis,
+            facet_depth = self.facet_path.len(),
+            cell_count = cell_values.len(),
+            resolve_ms = resolve_elapsed.as_secs_f64() * 1000.0,
+            precompute_ms = precompute_elapsed.as_secs_f64() * 1000.0,
+            semantics_ms = semantics_elapsed.as_secs_f64() * 1000.0,
+            prepare_ms = prepare_elapsed.as_secs_f64() * 1000.0,
+            probe_ms = probe_elapsed.as_secs_f64() * 1000.0,
+            layout_ms = layout_elapsed.as_secs_f64() * 1000.0,
+            total_ms = total_elapsed.as_secs_f64() * 1000.0,
+            "facet_band.pipeline"
+        );
 
         debug!(
             axis = ?self.axis_ops.axis,

@@ -7,6 +7,8 @@ mod winit;
 pub enum WindowEvent {
     WindowResize(WindowResizeEvent),
     WindowResizeSettled(WindowResizeEvent),
+    CanvasResize(CanvasResizeEvent),
+    CanvasResizeSettled(CanvasResizeEvent),
     WindowMoved(WindowMovedEvent),
     WindowFocused(bool),
     WindowCloseRequested,
@@ -36,12 +38,18 @@ impl WindowEvent {
                 | Self::KeyboardInput(_)
                 | Self::FileChanged(_)
                 | Self::WindowResizeSettled(_)
+                | Self::CanvasResizeSettled(_)
         )
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WindowResizeEvent {
+    pub size: [f32; 2],
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CanvasResizeEvent {
     pub size: [f32; 2],
 }
 

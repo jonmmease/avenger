@@ -17,6 +17,53 @@ lazy_static! {
     pub static ref FONT_SYSTEM: Mutex<FontSystem> = Mutex::new(build_font_system());
     pub static ref SWASH_CACHE: Mutex<SwashCache> = Mutex::new(SwashCache::new());
     pub static ref GENERIC_FAMILIES: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
+    static ref TEXT_BOUNDS_CACHE: Mutex<HashMap<TextBoundsCacheKey, TextBounds>> =
+        Mutex::new(HashMap::new());
+    static ref FONT_METRICS_CACHE: Mutex<HashMap<FontMetricsCacheKey, FontMetrics>> =
+        Mutex::new(HashMap::new());
+}
+
+const MAX_TEXT_BOUNDS_CACHE_ENTRIES: usize = 8192;
+const MAX_FONT_METRICS_CACHE_ENTRIES: usize = 1024;
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct TextBoundsCacheKey {
+    text: String,
+    font: String,
+    font_size: u32,
+    font_weight: String,
+    font_style: String,
+}
+
+impl TextBoundsCacheKey {
+    fn new(config: &TextMeasurementConfig<'_>) -> Self {
+        Self {
+            text: config.text.to_string(),
+            font: config.font.to_string(),
+            font_size: config.font_size.to_bits(),
+            font_weight: format!("{:?}", config.font_weight),
+            font_style: format!("{:?}", config.font_style),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct FontMetricsCacheKey {
+    font: String,
+    font_size: u32,
+    font_weight: String,
+    font_style: String,
+}
+
+impl FontMetricsCacheKey {
+    fn new(config: &FontMetricsConfig<'_>) -> Self {
+        Self {
+            font: config.font.to_string(),
+            font_size: config.font_size.to_bits(),
+            font_weight: format!("{:?}", config.font_weight),
+            font_style: format!("{:?}", config.font_style),
+        }
+    }
 }
 
 fn build_font_system() -> FontSystem {
@@ -98,21 +145,57 @@ impl CosmicTextMeasurer {
 
 impl TextMeasurer for CosmicTextMeasurer {
     fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
+        let cache_key = TextBoundsCacheKey::new(config);
+        if let Some(bounds) = TEXT_BOUNDS_CACHE
+            .lock()
+            .expect("Failed to acquire lock on TEXT_BOUNDS_CACHE")
+            .get(&cache_key)
+            .cloned()
+        {
+            return bounds;
+        }
+
         let mut font_system = FONT_SYSTEM
             .lock()
             .expect("Failed to acquire lock on FONT_SYSTEM");
 
         let buffer = make_cosmic_text_buffer(config, &mut font_system);
-        measure_text_buffer(&buffer)
+        let bounds = measure_text_buffer(&buffer);
+        let mut cache = TEXT_BOUNDS_CACHE
+            .lock()
+            .expect("Failed to acquire lock on TEXT_BOUNDS_CACHE");
+        if cache.len() >= MAX_TEXT_BOUNDS_CACHE_ENTRIES {
+            cache.clear();
+        }
+        cache.insert(cache_key, bounds.clone());
+        bounds
     }
 
     fn measure_font_metrics(&self, config: &FontMetricsConfig) -> FontMetrics {
+        let cache_key = FontMetricsCacheKey::new(config);
+        if let Some(metrics) = FONT_METRICS_CACHE
+            .lock()
+            .expect("Failed to acquire lock on FONT_METRICS_CACHE")
+            .get(&cache_key)
+            .cloned()
+        {
+            return metrics;
+        }
+
         let font_system = FONT_SYSTEM
             .lock()
             .expect("Failed to acquire lock on FONT_SYSTEM");
 
-        measure_font_metrics_with_cosmic(config, &font_system)
-            .unwrap_or_else(|| FontMetrics::fallback(config.font_size))
+        let metrics = measure_font_metrics_with_cosmic(config, &font_system)
+            .unwrap_or_else(|| FontMetrics::fallback(config.font_size));
+        let mut cache = FONT_METRICS_CACHE
+            .lock()
+            .expect("Failed to acquire lock on FONT_METRICS_CACHE");
+        if cache.len() >= MAX_FONT_METRICS_CACHE_ENTRIES {
+            cache.clear();
+        }
+        cache.insert(cache_key, metrics.clone());
+        metrics
     }
 }
 

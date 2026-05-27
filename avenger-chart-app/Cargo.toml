@@ -25,11 +25,13 @@ datafusion = { workspace = true }
 indexmap = { workspace = true }
 log = { workspace = true }
 tokio = { workspace = true, features = ["rt", "sync"] }
+tracing = { workspace = true }
 winit = { workspace = true, optional = true }
 
 [dev-dependencies]
 env_logger = "0.10"
 tokio = { workspace = true, features = ["macros", "rt", "sync"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [[example]]
 name = "canvas_width_scatter"

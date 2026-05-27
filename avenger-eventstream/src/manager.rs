@@ -241,6 +241,10 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             WindowEvent::WindowResizeSettled(e) => {
                 Some(SceneGraphEvent::WindowResizeSettled(e.clone()))
             }
+            WindowEvent::CanvasResize(e) => Some(SceneGraphEvent::CanvasResize(e.clone())),
+            WindowEvent::CanvasResizeSettled(e) => {
+                Some(SceneGraphEvent::CanvasResizeSettled(e.clone()))
+            }
             WindowEvent::WindowMoved(e) => Some(SceneGraphEvent::WindowMoved(e.clone())),
             WindowEvent::WindowFocused(focused) => Some(SceneGraphEvent::WindowFocused(*focused)),
             WindowEvent::WindowCloseRequested => Some(SceneGraphEvent::WindowCloseRequested),
@@ -468,5 +472,82 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
 
     pub fn modifiers(&self) -> ModifiersState {
         self.modifiers
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use avenger_scenegraph::scene_graph::SceneGraph;
+
+    use super::*;
+    use crate::{
+        stream::EventStreamConfig,
+        window::{CanvasResizeEvent, WindowEvent},
+    };
+
+    #[derive(Clone, Default)]
+    struct TestState {
+        events: Arc<Mutex<Vec<SceneGraphEvent>>>,
+    }
+
+    struct RecordingHandler;
+
+    #[async_trait]
+    impl EventStreamHandler<TestState> for RecordingHandler {
+        async fn handle(
+            &self,
+            event: &SceneGraphEvent,
+            state: &mut TestState,
+            _rtree: &SceneGraphRTree,
+        ) -> UpdateStatus {
+            state.events.lock().unwrap().push(event.clone());
+            UpdateStatus {
+                rerender: true,
+                rebuild_geometry: false,
+            }
+        }
+    }
+
+    fn empty_rtree() -> SceneGraphRTree {
+        SceneGraphRTree::from_scene_graph(&SceneGraph {
+            marks: Vec::new(),
+            width: 1.0,
+            height: 1.0,
+            origin: [0.0, 0.0],
+        })
+    }
+
+    #[tokio::test]
+    async fn canvas_resize_maps_to_scene_graph_event() {
+        let state = TestState::default();
+        let events = state.events.clone();
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::CanvasResize],
+                ..Default::default()
+            },
+            Arc::new(RecordingHandler),
+        );
+
+        let status = manager
+            .dispatch_event(
+                &WindowEvent::CanvasResize(CanvasResizeEvent {
+                    size: [720.0, 420.0],
+                }),
+                &empty_rtree(),
+                Instant::now(),
+            )
+            .await;
+
+        assert!(status.rerender);
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            &[SceneGraphEvent::CanvasResize(CanvasResizeEvent {
+                size: [720.0, 420.0],
+            })]
+        );
     }
 }

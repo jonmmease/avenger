@@ -211,6 +211,11 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
         if let Some(throttle) = self.config.throttle {
             if let Some(last_time) = self.last_handled_time {
                 if now.duration_since(last_time) < Duration::from_millis(throttle) {
+                    tracing::trace!(
+                        target: "avenger_eventstream::resize",
+                        throttle_ms = throttle,
+                        "eventstream throttle drop"
+                    );
                     return false;
                 }
             }

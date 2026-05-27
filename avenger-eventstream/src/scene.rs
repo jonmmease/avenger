@@ -2,7 +2,9 @@ use std::path::PathBuf;
 
 use avenger_scenegraph::marks::mark::MarkInstance;
 
-use crate::window::{Key, MouseButton, MouseScrollDelta, WindowMovedEvent, WindowResizeEvent};
+use crate::window::{
+    CanvasResizeEvent, Key, MouseButton, MouseScrollDelta, WindowMovedEvent, WindowResizeEvent,
+};
 
 /// Events that can be handled by event streams
 #[derive(Debug, Clone, PartialEq)]
@@ -19,6 +21,8 @@ pub enum SceneGraphEvent {
     MouseLeave(SceneMouseLeaveEvent),
     WindowResize(WindowResizeEvent),
     WindowResizeSettled(WindowResizeEvent),
+    CanvasResize(CanvasResizeEvent),
+    CanvasResizeSettled(CanvasResizeEvent),
     WindowMoved(WindowMovedEvent),
     WindowFocused(bool),
     WindowCloseRequested,
@@ -72,6 +76,8 @@ impl SceneGraphEvent {
             Self::MouseLeave(..) => SceneGraphEventType::MarkMouseLeave,
             Self::WindowResize(..) => SceneGraphEventType::WindowResize,
             Self::WindowResizeSettled(..) => SceneGraphEventType::WindowResizeSettled,
+            Self::CanvasResize(..) => SceneGraphEventType::CanvasResize,
+            Self::CanvasResizeSettled(..) => SceneGraphEventType::CanvasResizeSettled,
             Self::WindowMoved(..) => SceneGraphEventType::WindowMoved,
             Self::WindowFocused(..) => SceneGraphEventType::WindowFocused,
             Self::WindowCloseRequested => SceneGraphEventType::WindowCloseRequested,
@@ -96,6 +102,8 @@ pub enum SceneGraphEventType {
     MarkMouseLeave,
     WindowResize,
     WindowResizeSettled,
+    CanvasResize,
+    CanvasResizeSettled,
     WindowMoved,
     WindowFocused,
     WindowCloseRequested,

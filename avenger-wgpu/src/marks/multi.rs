@@ -1,4 +1,7 @@
-use std::ops::{Mul, Range};
+use std::{
+    ops::{Mul, Range},
+    time::Instant,
+};
 
 use avenger_common::{
     canvas::CanvasDimensions,
@@ -27,7 +30,7 @@ use lyon::{
 };
 use wgpu::{
     util::DeviceExt, BindGroup, BindGroupLayout, CommandBuffer, Device, Extent3d, Queue,
-    TextureFormat, TextureView, VertexBufferLayout,
+    RenderPipeline, ShaderModule, TextureFormat, TextureView, VertexBufferLayout,
 };
 
 use crate::{
@@ -115,6 +118,240 @@ pub struct MultiMarkRenderer {
     dimensions: CanvasDimensions,
 }
 
+#[derive(Clone)]
+pub struct MultiMarkRenderResources {
+    uniform_layout: BindGroupLayout,
+    texture_layout: BindGroupLayout,
+    text_layout: BindGroupLayout,
+    render_pipeline: RenderPipeline,
+    stencil_render_pipeline: RenderPipeline,
+    stencil_pipeline: RenderPipeline,
+    sample_count: u32,
+}
+
+impl MultiMarkRenderResources {
+    pub fn new(device: &Device, texture_format: TextureFormat, sample_count: u32) -> Self {
+        let uniform_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: Some("chart_uniform_layout"),
+        });
+        let texture_layout = Self::make_texture_bind_group_layout(device);
+        let text_layout = Self::make_text_bind_group_layout(device);
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("multi.wgsl").into()),
+        });
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    &uniform_layout,
+                    &texture_layout,
+                    &texture_layout,
+                    &text_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+        let render_pipeline = Self::make_render_pipeline(
+            device,
+            texture_format,
+            sample_count,
+            &render_pipeline_layout,
+            &shader,
+            None,
+            Some(wgpu::BlendState::ALPHA_BLENDING),
+            wgpu::ColorWrites::ALL,
+            wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+        );
+        let stencil_render_pipeline = Self::make_render_pipeline(
+            device,
+            texture_format,
+            sample_count,
+            &render_pipeline_layout,
+            &shader,
+            Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Stencil8,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::Always,
+                stencil: wgpu::StencilState {
+                    front: wgpu::StencilFaceState {
+                        compare: wgpu::CompareFunction::LessEqual,
+                        ..Default::default()
+                    },
+                    back: wgpu::StencilFaceState::IGNORE,
+                    read_mask: !0,
+                    write_mask: !0,
+                },
+                bias: Default::default(),
+            }),
+            Some(wgpu::BlendState::ALPHA_BLENDING),
+            wgpu::ColorWrites::ALL,
+            wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+        );
+        let stencil_pipeline = Self::make_render_pipeline(
+            device,
+            texture_format,
+            sample_count,
+            &render_pipeline_layout,
+            &shader,
+            Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Stencil8,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::Always,
+                stencil: wgpu::StencilState {
+                    front: wgpu::StencilFaceState {
+                        compare: wgpu::CompareFunction::Always,
+                        pass_op: wgpu::StencilOperation::Replace,
+                        ..Default::default()
+                    },
+                    back: wgpu::StencilFaceState::IGNORE,
+                    read_mask: !0,
+                    write_mask: !0,
+                },
+                bias: Default::default(),
+            }),
+            None,
+            wgpu::ColorWrites::empty(),
+            Default::default(),
+        );
+
+        Self {
+            uniform_layout,
+            texture_layout,
+            text_layout,
+            render_pipeline,
+            stencil_render_pipeline,
+            stencil_pipeline,
+            sample_count,
+        }
+    }
+
+    fn sample_count(&self) -> u32 {
+        self.sample_count
+    }
+
+    fn make_render_pipeline(
+        device: &Device,
+        texture_format: TextureFormat,
+        sample_count: u32,
+        render_pipeline_layout: &wgpu::PipelineLayout,
+        shader: &ShaderModule,
+        depth_stencil: Option<wgpu::DepthStencilState>,
+        blend: Option<wgpu::BlendState>,
+        write_mask: wgpu::ColorWrites,
+        primitive: wgpu::PrimitiveState,
+    ) -> RenderPipeline {
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[MultiVertex::desc()],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: texture_format,
+                    blend,
+                    write_mask,
+                })],
+            }),
+            primitive,
+            depth_stencil,
+            multisample: wgpu::MultisampleState {
+                count: sample_count,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        })
+    }
+
+    fn make_texture_bind_group_layout(device: &Device) -> BindGroupLayout {
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+            label: Some("texture_bind_group_layout"),
+        })
+    }
+
+    fn make_text_bind_group_layout(device: &Device) -> BindGroupLayout {
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+            label: Some("text_dual_sampler_bind_group_layout"),
+        })
+    }
+}
+
 impl MultiMarkRenderer {
     pub fn new(
         dimensions: CanvasDimensions,
@@ -164,6 +401,22 @@ impl MultiMarkRenderer {
         self.verts_inds.clear();
         self.clip_verts_inds.clear();
         self.batches.clear();
+        self.gradient_atlas_builder = GradientAtlasBuilder::new();
+        self.image_atlas_builder = ImageAtlasBuilder::new();
+    }
+
+    pub fn reset_for_frame(&mut self, dimensions: CanvasDimensions) {
+        self.clear();
+        self.dimensions = dimensions;
+        self.uniform = MultiUniform {
+            size: dimensions.size,
+            scale: dimensions.scale,
+            _pad: [0.0],
+        };
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.verts_inds.is_empty() && self.clip_verts_inds.is_empty() && self.batches.is_empty()
     }
 
     fn add_clip_path(
@@ -1185,6 +1438,32 @@ impl MultiMarkRenderer {
         texture_view: &TextureView,
         resolve_target: Option<&TextureView>,
     ) -> CommandBuffer {
+        let resources = MultiMarkRenderResources::new(device, texture_format, sample_count);
+        self.render_with_resources(
+            device,
+            queue,
+            render_target_extent,
+            texture_view,
+            resolve_target,
+            &resources,
+        )
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub fn render_with_resources(
+        &self,
+        device: &Device,
+        queue: &Queue,
+        render_target_extent: Extent3d,
+        texture_view: &TextureView,
+        resolve_target: Option<&TextureView>,
+        resources: &MultiMarkRenderResources,
+    ) -> CommandBuffer {
+        let timing_enabled =
+            tracing::enabled!(target: "avenger_wgpu::render_breakdown", tracing::Level::DEBUG);
+        let total_start = timing_enabled.then(Instant::now);
+        let mut checkpoint = total_start;
+
         // Uniforms
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Multi Uniform Buffer"),
@@ -1192,185 +1471,54 @@ impl MultiMarkRenderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let uniform_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some("chart_uniform_layout"),
-        });
-
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &uniform_layout,
+            layout: &resources.uniform_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: uniform_buffer.as_entire_binding(),
             }],
             label: Some("uniform_bind_group"),
         });
+        let uniform_setup_us = checkpoint_us(&mut checkpoint);
 
         // Gradient Textures
         let (grad_texture_size, grad_images) = self.gradient_atlas_builder.build();
-        let (gradient_layout, gradient_texture_bind_groups) = Self::make_texture_bind_groups(
+        let gradient_texture_bind_groups = Self::make_texture_bind_groups(
             device,
             queue,
+            &resources.texture_layout,
             grad_texture_size,
             &grad_images,
             wgpu::FilterMode::Nearest,
             wgpu::FilterMode::Nearest,
         );
+        let gradient_setup_us = checkpoint_us(&mut checkpoint);
 
         // Image Textures
         let (image_texture_size, image_images) = self.image_atlas_builder.build();
-        let (image_layout, image_texture_bind_groups) = Self::make_texture_bind_groups(
+        let image_texture_bind_groups = Self::make_texture_bind_groups(
             device,
             queue,
+            &resources.texture_layout,
             image_texture_size,
             &image_images,
             wgpu::FilterMode::Linear,
             wgpu::FilterMode::Linear,
         );
+        let image_setup_us = checkpoint_us(&mut checkpoint);
 
         // Text Textures with dual samplers (Linear and Nearest)
         let (text_texture_size, text_images) = self.text_atlas_builder.build();
-        let (text_layout, text_bind_groups) = Self::make_text_bind_groups_dual_sampler(
+        let text_bind_groups = Self::make_text_bind_groups_dual_sampler(
             device,
             queue,
+            &resources.text_layout,
             text_texture_size,
             &text_images,
         );
-
-        // Shaders
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("multi.wgsl").into()),
-        });
-
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    &uniform_layout,
-                    &gradient_layout,
-                    &image_layout,
-                    &text_layout,
-                ],
-                push_constant_ranges: &[],
-            });
+        let text_setup_us = checkpoint_us(&mut checkpoint);
 
         let uses_stencil = self.num_clip_indices() > 0;
-        let render_depth_stencil = if uses_stencil {
-            Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Stencil8,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::Always,
-                stencil: wgpu::StencilState {
-                    front: wgpu::StencilFaceState {
-                        // Draw pixel if stencil reference value is less than or equal to stencil value
-                        compare: wgpu::CompareFunction::LessEqual,
-                        ..Default::default()
-                    },
-                    back: wgpu::StencilFaceState::IGNORE,
-                    read_mask: !0,
-                    write_mask: !0,
-                },
-                bias: Default::default(),
-            })
-        } else {
-            None
-        };
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[MultiVertex::desc()],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: texture_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: render_depth_stencil,
-            multisample: wgpu::MultisampleState {
-                count: sample_count,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-            cache: None,
-        });
-
-        let stencil_pipeline = uses_stencil.then(|| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: None,
-                layout: Some(&render_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some("vs_main"),
-                    compilation_options: Default::default(),
-                    buffers: &[MultiVertex::desc()],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some("fs_main"),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: texture_format,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::empty(),
-                    })],
-                }),
-                primitive: Default::default(),
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: wgpu::TextureFormat::Stencil8,
-                    depth_write_enabled: false,
-                    depth_compare: wgpu::CompareFunction::Always,
-                    stencil: wgpu::StencilState {
-                        front: wgpu::StencilFaceState {
-                            compare: wgpu::CompareFunction::Always,
-                            pass_op: wgpu::StencilOperation::Replace,
-                            ..Default::default()
-                        },
-                        back: wgpu::StencilFaceState::IGNORE,
-                        read_mask: !0,
-                        write_mask: !0,
-                    },
-                    bias: Default::default(),
-                }),
-                multisample: wgpu::MultisampleState {
-                    count: sample_count,
-                    mask: !0,
-                    alpha_to_coverage_enabled: false,
-                },
-                multiview: None,
-                cache: None,
-            })
-        });
-
         let stencil_buffer = uses_stencil.then(|| {
             device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("Stencil buffer"),
@@ -1380,13 +1528,14 @@ impl MultiMarkRenderer {
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
-                sample_count,
+                sample_count: resources.sample_count(),
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Stencil8,
                 view_formats: &[],
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             })
         });
+        let pipeline_setup_us = checkpoint_us(&mut checkpoint);
 
         // flatten verts and inds
         let num_verts: usize = self.verts_inds.iter().map(|(v, _)| v.len()).sum();
@@ -1414,6 +1563,7 @@ impl MultiMarkRenderer {
             clip_indices.extend(inds.iter().map(|i| *i + offset));
             clip_verticies.extend(vs);
         }
+        let flatten_us = checkpoint_us(&mut checkpoint);
 
         // Create vertex and index buffers
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -1439,6 +1589,7 @@ impl MultiMarkRenderer {
             contents: bytemuck::cast_slice(clip_indices.as_slice()),
             usage: wgpu::BufferUsages::INDEX,
         });
+        let buffer_upload_us = checkpoint_us(&mut checkpoint);
 
         // Create command encoder for marks
         let mut mark_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -1469,6 +1620,11 @@ impl MultiMarkRenderer {
                         store: wgpu::StoreOp::Store,
                     }),
                 });
+        let render_pipeline = if uses_stencil {
+            &resources.stencil_render_pipeline
+        } else {
+            &resources.render_pipeline
+        };
 
         if vertex_buffer.size() > 0 {
             for batch in &self.batches {
@@ -1487,7 +1643,7 @@ impl MultiMarkRenderer {
                     timestamp_writes: None,
                 });
 
-                render_pass.set_pipeline(&render_pipeline);
+                render_pass.set_pipeline(render_pipeline);
                 render_pass.set_bind_group(0, &uniform_bind_group, &[]);
                 render_pass.set_bind_group(
                     1,
@@ -1509,14 +1665,14 @@ impl MultiMarkRenderer {
 
                 if let Some(clip_inds_range) = &batch.clip_indices_range {
                     render_pass.set_stencil_reference(1);
-                    render_pass.set_pipeline(stencil_pipeline.as_ref().unwrap());
+                    render_pass.set_pipeline(&resources.stencil_pipeline);
                     render_pass.set_vertex_buffer(0, clip_vertex_buffer.slice(..));
                     render_pass
                         .set_index_buffer(clip_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                     render_pass.draw_indexed(clip_inds_range.clone(), 0, 0..1);
 
                     // Restore buffers
-                    render_pass.set_pipeline(&render_pipeline);
+                    render_pass.set_pipeline(render_pipeline);
                     render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
                     render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 } else if uses_stencil {
@@ -1561,6 +1717,35 @@ impl MultiMarkRenderer {
                 render_pass.draw_indexed(batch.indices_range.clone(), 0, 0..1);
             }
         }
+        let encode_us = checkpoint_us(&mut checkpoint);
+
+        if let Some(start) = total_start {
+            tracing::debug!(
+                target: "avenger_wgpu::render_breakdown",
+                renderer = "multi",
+                total_ms = start.elapsed().as_secs_f64() * 1000.0,
+                uniform_ms = us_to_ms(uniform_setup_us),
+                gradient_ms = us_to_ms(gradient_setup_us),
+                image_ms = us_to_ms(image_setup_us),
+                text_ms = us_to_ms(text_setup_us),
+                pipeline_ms = us_to_ms(pipeline_setup_us),
+                flatten_ms = us_to_ms(flatten_us),
+                buffer_upload_ms = us_to_ms(buffer_upload_us),
+                encode_ms = us_to_ms(encode_us),
+                vertex_chunks = self.verts_inds.len(),
+                clip_chunks = self.clip_verts_inds.len(),
+                batch_count = self.batches.len(),
+                vertex_count = num_verts,
+                index_count = num_inds,
+                clip_vertex_count = num_clip_verts,
+                clip_index_count = num_clip_inds,
+                gradient_atlas_count = grad_images.len(),
+                image_atlas_count = image_images.len(),
+                text_atlas_count = text_images.len(),
+                uses_stencil,
+                "wgpu.render.renderer"
+            );
+        }
 
         mark_encoder.finish()
     }
@@ -1568,41 +1753,12 @@ impl MultiMarkRenderer {
     fn make_text_bind_groups_dual_sampler(
         device: &Device,
         queue: &Queue,
+        texture_bind_group_layout: &BindGroupLayout,
         size: Extent3d,
         images: &[DynamicImage],
-    ) -> (BindGroupLayout, Vec<BindGroup>) {
+    ) -> Vec<BindGroup> {
         // Create texture for each image
         let mut texture_bind_groups: Vec<BindGroup> = Vec::new();
-
-        // Create texture/sampler bind group layout with two samplers
-        let texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-                label: Some("text_dual_sampler_bind_group_layout"),
-            });
 
         for image in images {
             // Create Texture
@@ -1641,7 +1797,7 @@ impl MultiMarkRenderer {
             });
 
             let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &texture_bind_group_layout,
+                layout: texture_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -1681,45 +1837,20 @@ impl MultiMarkRenderer {
             texture_bind_groups.push(texture_bind_group);
         }
 
-        (texture_bind_group_layout, texture_bind_groups)
+        texture_bind_groups
     }
 
     fn make_texture_bind_groups(
         device: &Device,
         queue: &Queue,
+        texture_bind_group_layout: &BindGroupLayout,
         size: Extent3d,
         images: &[DynamicImage],
         mag_filter: wgpu::FilterMode,
         min_filter: wgpu::FilterMode,
-    ) -> (BindGroupLayout, Vec<BindGroup>) {
+    ) -> Vec<BindGroup> {
         // Create texture for each image
         let mut texture_bind_groups: Vec<BindGroup> = Vec::new();
-
-        // Create texture/sampler bind grous
-        let texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        // This should match the filterable field of the
-                        // corresponding Texture entry above.
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-                label: Some("texture_bind_group_layout"),
-            });
 
         for image in images {
             // Create Texture
@@ -1747,7 +1878,7 @@ impl MultiMarkRenderer {
             });
 
             let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &texture_bind_group_layout,
+                layout: texture_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -1783,8 +1914,23 @@ impl MultiMarkRenderer {
             texture_bind_groups.push(texture_bind_group);
         }
 
-        (texture_bind_group_layout, texture_bind_groups)
+        texture_bind_groups
     }
+}
+
+fn checkpoint_us(checkpoint: &mut Option<Instant>) -> u64 {
+    if let Some(previous) = checkpoint {
+        let now = Instant::now();
+        let elapsed_us = now.duration_since(*previous).as_micros() as u64;
+        *previous = now;
+        elapsed_us
+    } else {
+        0
+    }
+}
+
+fn us_to_ms(us: u64) -> f64 {
+    us as f64 / 1000.0
 }
 
 pub struct VertexPositions {

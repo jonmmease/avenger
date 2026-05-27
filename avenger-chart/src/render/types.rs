@@ -1,5 +1,7 @@
 //! Core types for rendering pipeline
 
+use std::time::Duration;
+
 use datafusion::common::ScalarValue;
 
 pub use avenger_chart_legend::{LegendMeasurement, LegendMeasurements};
@@ -124,7 +126,10 @@ pub enum EvaluationMode {
     /// Canonical evaluation semantics. Valid caches may be reused.
     #[default]
     Exact,
-    /// Low-latency interaction mode. Phase 1 falls back to exact evaluation.
+    /// Low-latency interaction mode for transient updates.
+    ///
+    /// `PlotSession` disables optional facet refinement passes in this mode so
+    /// the settled `Exact` evaluation can perform the slower convergence work.
     Preview,
     /// Canonical evaluation while bypassing measurement-profile caches.
     ///
@@ -214,9 +219,39 @@ pub struct EvaluationMetrics {
     /// Metrics for top-level evaluation pipeline work that future sessions
     /// should cache, reuse, or bypass.
     pub pipeline: EvaluationPipelineMetrics,
+    /// Wall-clock timings for the most important evaluation phases.
+    pub timings: EvaluationTimingMetrics,
 }
 
 impl EvaluationMetrics {
+    pub(crate) fn record_preview_attempt_duration(&mut self, duration: Duration) {
+        self.timings.preview_attempt_us += duration_micros_u64(duration);
+    }
+
+    pub(crate) fn record_preview_structure_reflow_duration(&mut self, duration: Duration) {
+        self.timings.preview_structure_reflow_us += duration_micros_u64(duration);
+    }
+
+    pub(crate) fn record_measure_cells_overflow_probe_duration(&mut self, duration: Duration) {
+        self.timings.measure_cells_overflow_probe_us += duration_micros_u64(duration);
+    }
+
+    pub(crate) fn record_refresh_reused_profile_layout_duration(&mut self, duration: Duration) {
+        self.timings.refresh_reused_profile_layout_us += duration_micros_u64(duration);
+    }
+
+    pub(crate) fn record_guide_overflow_measure_duration(&mut self, duration: Duration) {
+        self.timings.guide_overflow_measure_us += duration_micros_u64(duration);
+    }
+
+    pub(crate) fn record_build_plot_components_duration(&mut self, duration: Duration) {
+        self.timings.build_plot_components_us += duration_micros_u64(duration);
+    }
+
+    pub(crate) fn record_components_to_evaluated_plot_duration(&mut self, duration: Duration) {
+        self.timings.components_to_evaluated_plot_us += duration_micros_u64(duration);
+    }
+
     pub(crate) fn record_facet_tree_build(&mut self) {
         self.pipeline.facet_tree_builds += 1;
     }
@@ -318,6 +353,14 @@ impl EvaluationMetrics {
         self.pipeline.preview_structure_reflow_misses += 1;
     }
 
+    pub(crate) fn record_preview_data_mark_reuse(&mut self) {
+        self.pipeline.preview_data_mark_reuses += 1;
+    }
+
+    pub(crate) fn record_preview_data_mark_reuse_miss(&mut self) {
+        self.pipeline.preview_data_mark_reuse_misses += 1;
+    }
+
     pub(crate) fn record_facet_cell_measurement_profile_reuse(&mut self) {
         self.pipeline.facet_cell_measurement_profile_reuses += 1;
     }
@@ -381,6 +424,32 @@ impl EvaluationMetrics {
     }
 }
 
+/// Opt-in wall-clock timings for evaluation pipeline diagnostics.
+#[doc(hidden)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct EvaluationTimingMetrics {
+    /// Total time spent attempting Preview reuse before returning reused output
+    /// or falling back to Exact evaluation.
+    pub preview_attempt_us: u64,
+    /// Time spent in logical structure reflow when a responsive facet wrap
+    /// changes physical row/column layout but keeps the same logical cells.
+    pub preview_structure_reflow_us: u64,
+    /// Time spent probing facet cell overflow during facet-band measurement.
+    pub measure_cells_overflow_probe_us: u64,
+    /// Time spent refreshing guide/layout chrome on reused profile cells.
+    pub refresh_reused_profile_layout_us: u64,
+    /// Time spent measuring guide overflow.
+    pub guide_overflow_measure_us: u64,
+    /// Time spent rendering plot components from measurements.
+    pub build_plot_components_us: u64,
+    /// Time spent assembling final scene graph and R-tree from plot components.
+    pub components_to_evaluated_plot_us: u64,
+}
+
+pub(crate) fn duration_micros_u64(duration: Duration) -> u64 {
+    duration.as_micros().min(u128::from(u64::MAX)) as u64
+}
+
 /// Opt-in counters for evaluation pipeline diagnostics.
 #[doc(hidden)]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -435,6 +504,10 @@ pub struct EvaluationPipelineMetrics {
     pub preview_structure_reflow_reuses: usize,
     /// Number of preview evaluations that considered structure reflow but could not use it.
     pub preview_structure_reflow_misses: usize,
+    /// Number of preview evaluations that reused rendered data/facet subtree marks.
+    pub preview_data_mark_reuses: usize,
+    /// Number of preview evaluations that could not reuse rendered data/facet subtree marks.
+    pub preview_data_mark_reuse_misses: usize,
     /// Number of facet cell measurements reused from a layout profile.
     pub facet_cell_measurement_profile_reuses: usize,
     /// Number of facet cell profile lookups that missed during layout-profile preview.

@@ -58,3 +58,7 @@ tempfile = "3.14"
 [[example]]
 name = "simple_bar_chart"
 required-features = []
+
+[[example]]
+name = "responsive_wrap_png_replay"
+required-features = []

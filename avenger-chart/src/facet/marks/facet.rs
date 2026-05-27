@@ -1,4 +1,6 @@
-use crate::facet::coord::{FacetBandCoordMeasurement, FacetColumn, FacetRow, FacetWrap};
+use crate::facet::coord::{
+    FacetBandCoordMeasurement, FacetColumn, FacetRow, FacetWrap, facet_band_ref,
+};
 use crate::facet::marks::facet_config::{
     FacetColChannelConfig, FacetRowChannelConfig, FacetWrapChannelConfig,
 };
@@ -200,14 +202,86 @@ async fn render_facet_band_with_placement(
             ),
         );
 
-        let components = Box::pin(compiled_subplot.build_plot_components(
-            &cell_eval_ctx,
-            &cell.measurement,
-            Some(&cell.data_override),
-            true,
-            &cell.plan.full_path,
-        ))
-        .await?;
+        let is_terminal_cell =
+            facet_band_ref(cell.measurement.coord_measurement.as_ref()).is_none();
+        let cached_profile = if is_terminal_cell {
+            cell_eval_ctx.layout_profile().and_then(|profile| {
+                let source_measurement = profile.facet_cell_measurement(
+                    cell_eval_ctx.facet_tree.as_ref(),
+                    &cell.plan.full_path,
+                    compiled_subplot,
+                    cell_eval_ctx.session_context().as_ref(),
+                    cell_eval_ctx.params(),
+                )?;
+                let components = profile.facet_cell_rendered_components(
+                    cell_eval_ctx.facet_tree.as_ref(),
+                    &cell.plan.full_path,
+                    compiled_subplot,
+                    cell_eval_ctx.session_context().as_ref(),
+                    cell_eval_ctx.params(),
+                )?;
+                Some((source_measurement, components))
+            })
+        } else {
+            None
+        };
+        let components = if let Some((source_measurement, cached_components)) = cached_profile {
+            match Box::pin(compiled_subplot.build_plot_components_reusing_data_marks(
+                &cell_eval_ctx,
+                &source_measurement,
+                &cell.measurement,
+                Some(&cell.data_override),
+                true,
+                &cell.plan.full_path,
+                &cached_components,
+            ))
+            .await?
+            {
+                Some(components) => {
+                    cell_eval_ctx.record_preview_data_mark_reuse();
+                    components
+                }
+                None => {
+                    cell_eval_ctx.record_preview_data_mark_reuse_miss();
+                    Box::pin(compiled_subplot.build_plot_components(
+                        &cell_eval_ctx,
+                        &cell.measurement,
+                        Some(&cell.data_override),
+                        true,
+                        &cell.plan.full_path,
+                    ))
+                    .await?
+                }
+            }
+        } else {
+            if is_terminal_cell && cell_eval_ctx.layout_profile().is_some() {
+                cell_eval_ctx.record_preview_data_mark_reuse_miss();
+            }
+            Box::pin(compiled_subplot.build_plot_components(
+                &cell_eval_ctx,
+                &cell.measurement,
+                Some(&cell.data_override),
+                true,
+                &cell.plan.full_path,
+            ))
+            .await?
+        };
+
+        if is_terminal_cell
+            && let Some(capture) = cell_eval_ctx.facet_cell_rendered_components_capture()
+        {
+            capture
+                .lock()
+                .expect("facet cell rendered components profile lock poisoned")
+                .insert_for_cell(
+                    cell_eval_ctx.facet_tree.as_ref(),
+                    &cell.plan.full_path,
+                    compiled_subplot,
+                    cell_eval_ctx.session_context().as_ref(),
+                    cell_eval_ctx.params(),
+                    components.clone(),
+                );
+        }
 
         let data_marks_group = SceneGroup {
             origin: [0.0, 0.0],

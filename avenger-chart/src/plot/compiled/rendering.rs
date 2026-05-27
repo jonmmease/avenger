@@ -7,7 +7,10 @@ use std::{
 };
 
 use arrow::array::{Float32Array, Float64Array};
-use avenger_common::types::ColorOrGradient;
+use avenger_common::{
+    types::{ColorOrGradient, LinearScaleAdjustment},
+    value::ScalarOrArray,
+};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::{
@@ -81,7 +84,8 @@ use crate::{
 
 use super::{
     ChildFrameContainerView, ChildFrameSharingPath, CompiledPlot, ComponentsMeasurement,
-    LayoutProfileSnapshot, MarkDataRequest, PlotComponents, PreparedMarkData,
+    FacetCellRenderedComponentsProfileIndex, LayoutProfileSnapshot, MarkDataRequest,
+    PlotComponents, PreparedMarkData,
     legends::{HoistedLegendAnchor, HoistedLegendRequest, LegendPlanScope, PreparedLegendPlan},
     prepare_mark_data_runtime,
     scale_provider::{DynamicScaleProvider, ScaleProvider},
@@ -118,14 +122,22 @@ struct EvaluationOutcome {
 }
 
 pub(crate) struct PreviewLayoutProfileAttempt {
-    pub(crate) reused: Option<(EvaluatedPlot, EvaluationMetrics)>,
+    pub(crate) reused: Option<(
+        EvaluatedPlot,
+        EvaluationMetrics,
+        Option<LayoutProfileSnapshot>,
+    )>,
     pub(crate) fallback_reasons: Vec<PreviewProfileFallbackReason>,
 }
 
 impl PreviewLayoutProfileAttempt {
-    fn reused(evaluated: EvaluatedPlot, metrics: EvaluationMetrics) -> Self {
+    fn reused(
+        evaluated: EvaluatedPlot,
+        metrics: EvaluationMetrics,
+        layout_profile: Option<LayoutProfileSnapshot>,
+    ) -> Self {
         Self {
-            reused: Some((evaluated, metrics)),
+            reused: Some((evaluated, metrics, layout_profile)),
             fallback_reasons: Vec::new(),
         }
     }
@@ -238,6 +250,257 @@ fn translate_scene_mark(mark: SceneMark, dx: f32, dy: f32) -> SceneMark {
         }
         other => other,
     }
+}
+
+fn scale_f32_values(values: &ScalarOrArray<f32>, scale: f32) -> ScalarOrArray<f32> {
+    values.map(|value| value * scale)
+}
+
+fn adjust_f32_values(
+    values: &ScalarOrArray<f32>,
+    adjustment: LinearScaleAdjustment,
+) -> ScalarOrArray<f32> {
+    values.map(|value| adjustment.scale * *value + adjustment.offset)
+}
+
+fn retarget_f32_values(
+    values: &ScalarOrArray<f32>,
+    adjustment: Option<LinearScaleAdjustment>,
+    fallback_scale: f32,
+) -> ScalarOrArray<f32> {
+    if let Some(adjustment) = adjustment {
+        adjust_f32_values(values, adjustment)
+    } else {
+        scale_f32_values(values, fallback_scale)
+    }
+}
+
+fn scale_optional_f32_values(
+    values: &Option<ScalarOrArray<f32>>,
+    scale: f32,
+) -> Option<ScalarOrArray<f32>> {
+    values
+        .as_ref()
+        .map(|values| scale_f32_values(values, scale))
+}
+
+fn retarget_optional_f32_values(
+    values: &Option<ScalarOrArray<f32>>,
+    adjustment: Option<LinearScaleAdjustment>,
+    fallback_scale: f32,
+) -> Option<ScalarOrArray<f32>> {
+    values
+        .as_ref()
+        .map(|values| retarget_f32_values(values, adjustment, fallback_scale))
+}
+
+fn adjustment_scale(adjustment: Option<LinearScaleAdjustment>, fallback_scale: f32) -> f32 {
+    adjustment
+        .map(|adjustment| adjustment.scale)
+        .unwrap_or(fallback_scale)
+}
+
+fn retarget_linear_adjustment(
+    existing: &mut Option<LinearScaleAdjustment>,
+    adjustment: Option<LinearScaleAdjustment>,
+    fallback_scale: f32,
+) {
+    if let Some(existing) = existing {
+        if let Some(adjustment) = adjustment {
+            existing.offset = adjustment.scale * existing.offset + adjustment.offset;
+            existing.scale *= adjustment.scale;
+        } else {
+            existing.offset *= fallback_scale;
+            existing.scale *= fallback_scale;
+        }
+    }
+}
+
+fn retarget_clip_for_plot_area(
+    clip: &Clip,
+    scale_x: f32,
+    scale_y: f32,
+    x_adjustment: Option<LinearScaleAdjustment>,
+    y_adjustment: Option<LinearScaleAdjustment>,
+) -> Option<Clip> {
+    match clip {
+        Clip::None => Some(Clip::None),
+        Clip::Rect {
+            x,
+            y,
+            width,
+            height,
+        } => Some(Clip::Rect {
+            x: x_adjustment
+                .map(|adjustment| adjustment.scale * *x + adjustment.offset)
+                .unwrap_or(*x * scale_x),
+            y: y_adjustment
+                .map(|adjustment| adjustment.scale * *y + adjustment.offset)
+                .unwrap_or(*y * scale_y),
+            width: width * adjustment_scale(x_adjustment, scale_x),
+            height: height * adjustment_scale(y_adjustment, scale_y),
+        }),
+        Clip::Path(_) => None,
+    }
+}
+
+fn scale_scene_mark_for_plot_area(
+    mark: &SceneMark,
+    scale_x: f32,
+    scale_y: f32,
+    x_adjustment: Option<LinearScaleAdjustment>,
+    y_adjustment: Option<LinearScaleAdjustment>,
+) -> Option<SceneMark> {
+    match mark {
+        SceneMark::Group(group) => {
+            let marks = group
+                .marks
+                .iter()
+                .map(|mark| {
+                    scale_scene_mark_for_plot_area(
+                        mark,
+                        scale_x,
+                        scale_y,
+                        x_adjustment,
+                        y_adjustment,
+                    )
+                })
+                .collect::<Option<Vec<_>>>()?;
+            let mut group = group.clone();
+            group.origin = [
+                x_adjustment
+                    .map(|adjustment| adjustment.scale * group.origin[0] + adjustment.offset)
+                    .unwrap_or(group.origin[0] * scale_x),
+                y_adjustment
+                    .map(|adjustment| adjustment.scale * group.origin[1] + adjustment.offset)
+                    .unwrap_or(group.origin[1] * scale_y),
+            ];
+            group.clip = retarget_clip_for_plot_area(
+                &group.clip,
+                scale_x,
+                scale_y,
+                x_adjustment,
+                y_adjustment,
+            )?;
+            group.marks = marks;
+            Some(SceneMark::Group(group))
+        }
+        SceneMark::Symbol(mark) => {
+            let mut mark = mark.clone();
+            if mark.x_adjustment.is_some() {
+                retarget_linear_adjustment(&mut mark.x_adjustment, x_adjustment, scale_x);
+            } else {
+                mark.x = retarget_f32_values(&mark.x, x_adjustment, scale_x);
+            }
+            if mark.y_adjustment.is_some() {
+                retarget_linear_adjustment(&mut mark.y_adjustment, y_adjustment, scale_y);
+            } else {
+                mark.y = retarget_f32_values(&mark.y, y_adjustment, scale_y);
+            }
+            Some(SceneMark::Symbol(mark))
+        }
+        SceneMark::Rect(mark) => {
+            let mut mark = mark.clone();
+            mark.x = retarget_f32_values(&mark.x, x_adjustment, scale_x);
+            mark.y = retarget_f32_values(&mark.y, y_adjustment, scale_y);
+            mark.width =
+                scale_optional_f32_values(&mark.width, adjustment_scale(x_adjustment, scale_x));
+            mark.height =
+                scale_optional_f32_values(&mark.height, adjustment_scale(y_adjustment, scale_y));
+            mark.x2 = retarget_optional_f32_values(&mark.x2, x_adjustment, scale_x);
+            mark.y2 = retarget_optional_f32_values(&mark.y2, y_adjustment, scale_y);
+            Some(SceneMark::Rect(mark))
+        }
+        SceneMark::Rule(mark) => {
+            let mut mark = mark.clone();
+            mark.x = retarget_f32_values(&mark.x, x_adjustment, scale_x);
+            mark.y = retarget_f32_values(&mark.y, y_adjustment, scale_y);
+            mark.x2 = retarget_f32_values(&mark.x2, x_adjustment, scale_x);
+            mark.y2 = retarget_f32_values(&mark.y2, y_adjustment, scale_y);
+            Some(SceneMark::Rule(mark))
+        }
+        SceneMark::Line(mark) => {
+            let mut mark = mark.clone();
+            mark.x = retarget_f32_values(&mark.x, x_adjustment, scale_x);
+            mark.y = retarget_f32_values(&mark.y, y_adjustment, scale_y);
+            Some(SceneMark::Line(mark))
+        }
+        SceneMark::Area(mark) => {
+            let mut mark = mark.clone();
+            mark.x = retarget_f32_values(&mark.x, x_adjustment, scale_x);
+            mark.y = retarget_f32_values(&mark.y, y_adjustment, scale_y);
+            mark.x2 = retarget_f32_values(&mark.x2, x_adjustment, scale_x);
+            mark.y2 = retarget_f32_values(&mark.y2, y_adjustment, scale_y);
+            Some(SceneMark::Area(mark))
+        }
+        SceneMark::Trail(mark) => {
+            let mut mark = mark.clone();
+            mark.x = retarget_f32_values(&mark.x, x_adjustment, scale_x);
+            mark.y = retarget_f32_values(&mark.y, y_adjustment, scale_y);
+            Some(SceneMark::Trail(mark))
+        }
+        SceneMark::Text(mark) => {
+            let mut mark = (**mark).clone();
+            mark.x = retarget_f32_values(&mark.x, x_adjustment, scale_x);
+            mark.y = retarget_f32_values(&mark.y, y_adjustment, scale_y);
+            Some(SceneMark::Text(Arc::new(mark)))
+        }
+        SceneMark::Image(mark) => {
+            let mut mark = (**mark).clone();
+            mark.x = retarget_f32_values(&mark.x, x_adjustment, scale_x);
+            mark.y = retarget_f32_values(&mark.y, y_adjustment, scale_y);
+            mark.width = scale_f32_values(&mark.width, adjustment_scale(x_adjustment, scale_x));
+            mark.height = scale_f32_values(&mark.height, adjustment_scale(y_adjustment, scale_y));
+            Some(SceneMark::Image(Arc::new(mark)))
+        }
+        SceneMark::Arc(mark) => {
+            let mut mark = mark.clone();
+            let radius_scale = adjustment_scale(x_adjustment, scale_x)
+                .min(adjustment_scale(y_adjustment, scale_y));
+            mark.x = retarget_f32_values(&mark.x, x_adjustment, scale_x);
+            mark.y = retarget_f32_values(&mark.y, y_adjustment, scale_y);
+            mark.outer_radius = scale_f32_values(&mark.outer_radius, radius_scale);
+            mark.inner_radius = scale_f32_values(&mark.inner_radius, radius_scale);
+            mark.corner_radius = scale_f32_values(&mark.corner_radius, radius_scale);
+            Some(SceneMark::Arc(mark))
+        }
+        SceneMark::Path(_) => None,
+    }
+}
+
+fn retarget_cached_data_marks_for_plot_area(
+    cached_components: &PlotComponents,
+    source_measurement: &ComponentsMeasurement,
+    target_measurement: &ComponentsMeasurement,
+) -> Option<Vec<SceneMark>> {
+    let source_plot_area_width = cached_components.plot_bounds.width;
+    let source_plot_area_height = cached_components.plot_bounds.height;
+    if source_plot_area_width <= 0.01 || source_plot_area_height <= 0.01 {
+        return None;
+    }
+    let scale_x = target_measurement.plot_area_width / source_plot_area_width;
+    let scale_y = target_measurement.plot_area_height / source_plot_area_height;
+    let x_adjustment =
+        scale_adjustment_between_measurements(source_measurement, target_measurement, "x");
+    let y_adjustment =
+        scale_adjustment_between_measurements(source_measurement, target_measurement, "y");
+    cached_components
+        .data_marks
+        .iter()
+        .map(|mark| {
+            scale_scene_mark_for_plot_area(mark, scale_x, scale_y, x_adjustment, y_adjustment)
+        })
+        .collect()
+}
+
+fn scale_adjustment_between_measurements(
+    source_measurement: &ComponentsMeasurement,
+    target_measurement: &ComponentsMeasurement,
+    channel: &str,
+) -> Option<LinearScaleAdjustment> {
+    let from_scale = source_measurement.scales.get(channel)?.configured();
+    let to_scale = target_measurement.scales.get(channel)?.configured();
+    from_scale.adjust(to_scale).ok()
 }
 
 fn set_debug_side_overflow(layout: &mut FrameLayout, side: AxisPosition, total: f32) {
@@ -1450,6 +1713,7 @@ impl CompiledPlot {
                 } else {
                     eval_ctx.record_guide_overflow_cache_miss();
                     eval_ctx.record_guide_overflow_measure_call();
+                    let guide_start = Instant::now();
                     let overflow = compiled_guide
                         .measure_overflow(
                             &configured_scales,
@@ -1463,6 +1727,14 @@ impl CompiledPlot {
                             None, // No coordinate-system measurement is available during initial guide probing.
                         )
                         .await?;
+                    let guide_elapsed = guide_start.elapsed();
+                    eval_ctx.record_guide_overflow_measure_duration(guide_elapsed);
+                    tracing::debug!(
+                        target: "avenger_chart::resize",
+                        guide_ms = guide_elapsed.as_secs_f64() * 1000.0,
+                        phase = "initial",
+                        "guide_overflow.measure"
+                    );
                     cache
                         .lock()
                         .expect("guide-overflow cache lock poisoned")
@@ -1471,7 +1743,8 @@ impl CompiledPlot {
                 }
             } else {
                 eval_ctx.record_guide_overflow_measure_call();
-                compiled_guide
+                let guide_start = Instant::now();
+                let overflow = compiled_guide
                     .measure_overflow(
                         &configured_scales,
                         estimate_width,
@@ -1483,7 +1756,16 @@ impl CompiledPlot {
                         sharing_context,
                         None, // No coordinate-system measurement is available during initial guide probing.
                     )
-                    .await?
+                    .await?;
+                let guide_elapsed = guide_start.elapsed();
+                eval_ctx.record_guide_overflow_measure_duration(guide_elapsed);
+                tracing::debug!(
+                    target: "avenger_chart::resize",
+                    guide_ms = guide_elapsed.as_secs_f64() * 1000.0,
+                    phase = "initial",
+                    "guide_overflow.measure"
+                );
+                overflow
             }
         } else {
             OverflowSpaceRequirement::default()
@@ -1810,21 +2092,98 @@ impl CompiledPlot {
 
         let sharing_context =
             GuideSharingContext::new(facet_tree, facet_path, child_frame_sharing_path);
-        eval_ctx.record_guide_overflow_measure_call();
-        let guide_overflow = compiled_guide
-            .measure_overflow_for_phase(
-                &configured_scales,
-                plot_width,
-                plot_height,
-                self.get_theme().as_ref(),
-                params,
-                data_override,
-                ctx,
-                sharing_context,
-                coord_measurement,
-                phase,
-            )
-            .await?;
+        let cache_lookup = if phase == GuideOverflowPhase::Final && coord_subtree_overflow.is_none()
+        {
+            compiled_guide
+                .overflow_cache_discriminator(sharing_context, phase)
+                .and_then(|discriminator| {
+                    eval_ctx.guide_overflow_cache().map(|cache| {
+                        let guide_ptr = Arc::as_ptr(compiled_guide) as *const () as usize;
+                        let key = self.guide_overflow_cache_key_for_discriminator(
+                            guide_ptr,
+                            scales,
+                            plot_width,
+                            plot_height,
+                            params,
+                            discriminator,
+                        );
+                        (cache.clone(), key)
+                    })
+                })
+        } else {
+            None
+        };
+
+        let guide_overflow = if let Some((cache, key)) = cache_lookup {
+            let cached_overflow = {
+                cache
+                    .lock()
+                    .expect("guide-overflow cache lock poisoned")
+                    .get(&key)
+            };
+            if let Some(overflow) = cached_overflow {
+                eval_ctx.record_guide_overflow_cache_hit();
+                overflow
+            } else {
+                eval_ctx.record_guide_overflow_cache_miss();
+                eval_ctx.record_guide_overflow_measure_call();
+                let guide_start = Instant::now();
+                let overflow = compiled_guide
+                    .measure_overflow_for_phase(
+                        &configured_scales,
+                        plot_width,
+                        plot_height,
+                        self.get_theme().as_ref(),
+                        params,
+                        data_override,
+                        ctx,
+                        sharing_context,
+                        coord_measurement,
+                        phase,
+                    )
+                    .await?;
+                let guide_elapsed = guide_start.elapsed();
+                eval_ctx.record_guide_overflow_measure_duration(guide_elapsed);
+                tracing::debug!(
+                    target: "avenger_chart::resize",
+                    guide_ms = guide_elapsed.as_secs_f64() * 1000.0,
+                    ?phase,
+                    cache_scope = "discriminator",
+                    "guide_overflow.measure"
+                );
+                cache
+                    .lock()
+                    .expect("guide-overflow cache lock poisoned")
+                    .insert(key, overflow.clone());
+                overflow
+            }
+        } else {
+            eval_ctx.record_guide_overflow_measure_call();
+            let guide_start = Instant::now();
+            let guide_overflow = compiled_guide
+                .measure_overflow_for_phase(
+                    &configured_scales,
+                    plot_width,
+                    plot_height,
+                    self.get_theme().as_ref(),
+                    params,
+                    data_override,
+                    ctx,
+                    sharing_context,
+                    coord_measurement,
+                    phase,
+                )
+                .await?;
+            let guide_elapsed = guide_start.elapsed();
+            eval_ctx.record_guide_overflow_measure_duration(guide_elapsed);
+            tracing::debug!(
+                target: "avenger_chart::resize",
+                guide_ms = guide_elapsed.as_secs_f64() * 1000.0,
+                ?phase,
+                "guide_overflow.measure"
+            );
+            guide_overflow
+        };
 
         Ok(coord_subtree_overflow
             .map(|coord_overflow| guide_overflow.max_components(&coord_overflow))
@@ -2017,6 +2376,12 @@ impl CompiledPlot {
         data_override: Option<&DataFrame>,
         facet_path: &[ScalarValue],
     ) -> Result<(), AvengerChartError> {
+        tracing::debug!(
+            target: "avenger_chart::resize",
+            facet_depth = facet_path.len(),
+            "refresh_reused_profile_layout start"
+        );
+        let refresh_start = Instant::now();
         eval_ctx.record_facet_cell_measurement_profile_chrome_refresh();
         let layout_spec = Self::nested_fixed_plot_area_layout_spec(
             measurement.plot_area_width,
@@ -2031,6 +2396,14 @@ impl CompiledPlot {
         ))
         .await?;
         sync_measurement_owned_slabs_from_coord(measurement);
+        let refresh_elapsed = refresh_start.elapsed();
+        eval_ctx.record_refresh_reused_profile_layout_duration(refresh_elapsed);
+        tracing::debug!(
+            target: "avenger_chart::resize",
+            chrome_ms = refresh_elapsed.as_secs_f64() * 1000.0,
+            facet_depth = facet_path.len(),
+            "refresh_reused_profile_layout"
+        );
         Ok(())
     }
 
@@ -3643,6 +4016,62 @@ impl CompiledPlot {
         dimensions_are_plot_area: bool,
         facet_path: &[ScalarValue],
     ) -> Result<PlotComponents, AvengerChartError> {
+        self.build_plot_components_internal(
+            eval_ctx,
+            measurement,
+            data_override,
+            dimensions_are_plot_area,
+            facet_path,
+            None,
+        )
+        .await
+    }
+
+    pub(crate) async fn build_plot_components_reusing_data_marks(
+        &self,
+        eval_ctx: &EvaluationContext,
+        source_measurement: &ComponentsMeasurement,
+        measurement: &ComponentsMeasurement,
+        data_override: Option<&DataFrame>,
+        dimensions_are_plot_area: bool,
+        facet_path: &[ScalarValue],
+        cached_components: &PlotComponents,
+    ) -> Result<Option<PlotComponents>, AvengerChartError> {
+        let Some(data_marks) = retarget_cached_data_marks_for_plot_area(
+            cached_components,
+            source_measurement,
+            measurement,
+        ) else {
+            return Ok(None);
+        };
+        self.build_plot_components_internal(
+            eval_ctx,
+            measurement,
+            data_override,
+            dimensions_are_plot_area,
+            facet_path,
+            Some(data_marks),
+        )
+        .await
+        .map(Some)
+    }
+
+    async fn build_plot_components_internal(
+        &self,
+        eval_ctx: &EvaluationContext,
+        measurement: &ComponentsMeasurement,
+        data_override: Option<&DataFrame>,
+        dimensions_are_plot_area: bool,
+        facet_path: &[ScalarValue],
+        cached_data_marks: Option<Vec<SceneMark>>,
+    ) -> Result<PlotComponents, AvengerChartError> {
+        tracing::debug!(
+            target: "avenger_chart::resize",
+            facet_depth = facet_path.len(),
+            dimensions_are_plot_area,
+            "build_plot_components start"
+        );
+        let build_start = Instant::now();
         let ctx = &*eval_ctx.session_context;
 
         debug!(
@@ -3670,23 +4099,32 @@ impl CompiledPlot {
         // Render marks using pre-computed measurements from measurement
         let coord_measurement_ref: &dyn CoordMeasurement = measurement.coord_measurement.as_ref();
 
-        let mut data_marks = Vec::new();
-        for mark in &self.marks {
-            let marks = Box::pin(self.render_mark_with_plot_df(
-                mark.as_ref(),
-                &mark_eval_ctx,
-                &merged_scales,
-                plot_area_width,
-                plot_area_height,
-                data_override,
-                facet_path,
-                coord_measurement_ref,
-            ))
-            .await?;
-            data_marks.extend(marks);
-        }
+        let data_marks_start = Instant::now();
+        let data_marks_reused = cached_data_marks.is_some();
+        let data_marks = if let Some(data_marks) = cached_data_marks {
+            data_marks
+        } else {
+            let mut data_marks = Vec::new();
+            for mark in &self.marks {
+                let marks = Box::pin(self.render_mark_with_plot_df(
+                    mark.as_ref(),
+                    &mark_eval_ctx,
+                    &merged_scales,
+                    plot_area_width,
+                    plot_area_height,
+                    data_override,
+                    facet_path,
+                    coord_measurement_ref,
+                ))
+                .await?;
+                data_marks.extend(marks);
+            }
+            data_marks
+        };
+        let data_marks_elapsed = data_marks_start.elapsed();
 
         // Create guide marks and other components
+        let chrome_marks_start = Instant::now();
         let (
             plot_bounds_struct,
             guide_marks,
@@ -3873,11 +4311,18 @@ impl CompiledPlot {
                 )
             }
         };
+        let chrome_marks_elapsed = chrome_marks_start.elapsed();
 
         // Debug marks are kept separate - they're in absolute canvas coordinates
         // and should not be translated with the data marks group
+        let data_mark_count = data_marks.len();
+        let guide_mark_count = guide_marks.len();
+        let legend_mark_count = legend_marks.len();
+        let title_mark_count = title_marks.len();
+        let subtitle_mark_count = subtitle_marks.len();
+        let debug_mark_count = debug_marks.len();
 
-        Ok(PlotComponents {
+        let components = PlotComponents {
             data_marks,
             guide_marks,
             legend_marks,
@@ -3888,7 +4333,30 @@ impl CompiledPlot {
             size: canvas_size,
             size_is_canvas: !dimensions_are_plot_area,
             debug_marks,
-        })
+        };
+        let build_elapsed = build_start.elapsed();
+        eval_ctx.record_build_plot_components_duration(build_elapsed);
+        tracing::debug!(
+            target: "avenger_chart::resize",
+            build_plot_components_ms = build_elapsed.as_secs_f64() * 1000.0,
+            facet_depth = facet_path.len(),
+            "build_plot_components"
+        );
+        tracing::debug!(
+            target: "avenger_chart::resize",
+            facet_depth = facet_path.len(),
+            data_marks_ms = data_marks_elapsed.as_secs_f64() * 1000.0,
+            chrome_marks_ms = chrome_marks_elapsed.as_secs_f64() * 1000.0,
+            data_mark_count,
+            guide_mark_count,
+            legend_mark_count,
+            title_mark_count,
+            subtitle_mark_count,
+            debug_mark_count,
+            data_marks_reused,
+            "build_plot_components phases"
+        );
+        Ok(components)
     }
 
     pub(crate) fn components_to_evaluated_plot(
@@ -3896,6 +4364,8 @@ impl CompiledPlot {
         eval_ctx: &EvaluationContext,
         components: PlotComponents,
     ) -> EvaluatedPlot {
+        let _span = tracing::debug_span!("components_to_evaluated_plot").entered();
+        let convert_start = Instant::now();
         let plot_bounds = components.plot_bounds;
         let (final_width, final_height) = components.size;
 
@@ -3950,10 +4420,20 @@ impl CompiledPlot {
 
         let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
 
-        EvaluatedPlot {
+        let evaluated = EvaluatedPlot {
             scene_graph,
             rtree: Some(rtree),
-        }
+        };
+        let convert_elapsed = convert_start.elapsed();
+        eval_ctx.record_components_to_evaluated_plot_duration(convert_elapsed);
+        tracing::debug!(
+            target: "avenger_chart::resize",
+            components_to_evaluated_plot_ms = convert_elapsed.as_secs_f64() * 1000.0,
+            scene_width = final_width,
+            scene_height = final_height,
+            "components_to_evaluated_plot"
+        );
+        evaluated
     }
 
     fn select_facet_subtree_by_facet_path<'a>(
@@ -4569,6 +5049,17 @@ impl CompiledPlot {
             plot: self,
         };
 
+        let inherited_facet_cell_rendered_components = layout_profile
+            .as_ref()
+            .map(|profile| profile.facet_cell_rendered_components.clone());
+        let facet_cell_rendered_components_capture = if layout_profile.is_none() {
+            Some(Arc::new(Mutex::new(
+                FacetCellRenderedComponentsProfileIndex::default(),
+            )))
+        } else {
+            None
+        };
+
         // Create EvaluationContext for the entire evaluation
         let mut eval_ctx = EvaluationContext::new(
             self.get_theme(),
@@ -4582,6 +5073,9 @@ impl CompiledPlot {
         .with_debug_layout_overlay(facet_debug::resolve_layout_overlay_mode(
             options.debug_layout_overlay,
         ));
+        if let Some(capture) = &facet_cell_rendered_components_capture {
+            eval_ctx = eval_ctx.with_facet_cell_rendered_components_capture(capture.clone());
+        }
         if let LayoutSnapshot::FacetSubtree(snapshot) = &options.layout_snapshot
             && snapshot.checkpoint == FacetSubtreeCheckpoint::EstimatedOverflowProbe
         {
@@ -4709,12 +5203,25 @@ impl CompiledPlot {
         ))
         .await?;
 
+        let layout_profile_components = components.clone();
         let evaluated = self.components_to_evaluated_plot(&eval_ctx, components);
-        let layout_profile = LayoutProfileSnapshot::new(
+        let facet_cell_rendered_components = facet_cell_rendered_components_capture
+            .as_ref()
+            .map(|capture| {
+                capture
+                    .lock()
+                    .expect("facet cell rendered components profile lock poisoned")
+                    .clone()
+            })
+            .or(inherited_facet_cell_rendered_components)
+            .unwrap_or_default();
+        let layout_profile = LayoutProfileSnapshot::new_with_components(
             measurement,
             Some(facet_tree.as_ref()),
             ctx,
             &eval_ctx.params,
+            Some(layout_profile_components),
+            facet_cell_rendered_components,
         );
         Ok(EvaluationOutcome {
             evaluated,
@@ -4736,6 +5243,7 @@ impl CompiledPlot {
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
     ) -> Result<PreviewLayoutProfileAttempt, AvengerChartError> {
+        tracing::debug!(target: "avenger_chart::resize", "plot_session.preview_attempt start");
         if options.layout_snapshot != LayoutSnapshot::Final {
             return Ok(PreviewLayoutProfileAttempt::fallback(
                 PreviewProfileFallbackReason::NonFinalSnapshot,
@@ -4803,6 +5311,7 @@ impl CompiledPlot {
                 Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
                     metrics.record_preview_structure_reflow_reuse();
                 });
+                let reflow_start = Instant::now();
                 let outcome = Box::pin(self.evaluate_with_options_internal(
                     ctx,
                     Some(merged_params),
@@ -4817,6 +5326,15 @@ impl CompiledPlot {
                     Some(Arc::new(layout_profile.clone())),
                 ))
                 .await?;
+                let reflow_elapsed = reflow_start.elapsed();
+                Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                    metrics.record_preview_structure_reflow_duration(reflow_elapsed);
+                });
+                tracing::debug!(
+                    target: "avenger_chart::resize",
+                    reflow_ms = reflow_elapsed.as_secs_f64() * 1000.0,
+                    "facet_wrap.structure_reflow"
+                );
                 let skipped_cell_measurements = metrics
                     .lock()
                     .expect("evaluation metrics lock poisoned")
@@ -4833,6 +5351,7 @@ impl CompiledPlot {
                 return Ok(PreviewLayoutProfileAttempt::reused(
                     outcome.evaluated,
                     metrics,
+                    outcome.layout_profile,
                 ));
             }
             Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
@@ -4974,14 +5493,57 @@ impl CompiledPlot {
             metrics.record_skipped_component_measure_calls(1);
         });
 
-        let components =
-            Box::pin(self.build_plot_components(&eval_ctx, &measurement, None, false, &[])).await?;
+        let components = if let Some(cached_components) = &layout_profile.rendered_components {
+            match Box::pin(self.build_plot_components_reusing_data_marks(
+                &eval_ctx,
+                &layout_profile.measurement,
+                &measurement,
+                None,
+                false,
+                &[],
+                cached_components,
+            ))
+            .await?
+            {
+                Some(components) => {
+                    Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                        metrics.record_preview_data_mark_reuse();
+                    });
+                    components
+                }
+                None => {
+                    Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                        metrics.record_preview_data_mark_reuse_miss();
+                    });
+                    Box::pin(self.build_plot_components(&eval_ctx, &measurement, None, false, &[]))
+                        .await?
+                }
+            }
+        } else {
+            Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                metrics.record_preview_data_mark_reuse_miss();
+            });
+            Box::pin(self.build_plot_components(&eval_ctx, &measurement, None, false, &[])).await?
+        };
+        let layout_profile_components = components.clone();
+        let preview_layout_profile = LayoutProfileSnapshot::new_with_components(
+            measurement.clone(),
+            Some(eval_ctx.facet_tree.as_ref()),
+            ctx,
+            &eval_ctx.params,
+            Some(layout_profile_components),
+            layout_profile.facet_cell_rendered_components.clone(),
+        );
         let evaluated = self.components_to_evaluated_plot(&eval_ctx, components);
         let metrics = metrics
             .lock()
             .expect("evaluation metrics lock poisoned")
             .clone();
-        Ok(PreviewLayoutProfileAttempt::reused(evaluated, metrics))
+        Ok(PreviewLayoutProfileAttempt::reused(
+            evaluated,
+            metrics,
+            Some(preview_layout_profile),
+        ))
     }
 }
 

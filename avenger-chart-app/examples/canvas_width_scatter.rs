@@ -3,13 +3,14 @@ use std::sync::Arc;
 use avenger_chart::prelude::*;
 use avenger_chart_app::{
     ChartAppOptions, ChartResizeBinding, WinitWgpuAvengerApp, WinitWgpuAvengerAppOptions,
-    chart_avenger_app, window_scene_sizing_for_resize_policy,
+    canvas_frame_options_for_resize_policy, chart_avenger_app,
+    window_scene_sizing_for_resize_policy,
 };
 use datafusion::{prelude::SessionContext, scalar::ScalarValue};
 use winit::window::WindowAttributes;
 
 fn main() {
-    let _ = env_logger::try_init();
+    init_diagnostics();
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("build tokio runtime");
@@ -22,6 +23,7 @@ fn main() {
                 .with_resizable(true),
         )
         .window_scene_sizing(window_scene_sizing_for_resize_policy(resize_policy))
+        .canvas_frame(canvas_frame_options_for_resize_policy(resize_policy))
         .resize_settle_delay_ms(Some(160));
     let (mut app, event_loop) =
         WinitWgpuAvengerApp::new_and_event_loop_with_options(avenger_app, options, tokio_runtime);
@@ -73,4 +75,15 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     )
     .await
     .expect("build chart app")
+}
+
+fn init_diagnostics() {
+    if std::env::var_os("RUST_LOG").is_some() {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
+            .try_init();
+    } else {
+        let _ = env_logger::try_init();
+    }
 }

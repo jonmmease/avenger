@@ -93,6 +93,19 @@ impl<'a> GuideSharingContext<'a> {
     }
 
     #[doc(hidden)]
+    pub fn channel_axis_visibility_for_path_checked(
+        &self,
+        axis_position: AxisPosition,
+        sharing_level: u8,
+    ) -> Option<AxisVisibility> {
+        self.facet_view.channel_axis_visibility_for_path_checked(
+            self.facet_path,
+            axis_position,
+            sharing_level,
+        )
+    }
+
+    #[doc(hidden)]
     pub fn facet_is_jagged_for_axis(&self, axis_position: AxisPosition) -> bool {
         self.facet_view.is_jagged_for_axis(axis_position)
     }
@@ -210,6 +223,19 @@ pub trait CompiledGuide: Send + Sync + 'static {
             coord_measurement,
         )
         .await
+    }
+
+    /// Return a guide-defined sharing discriminator for overflow-cache reuse.
+    ///
+    /// The default keeps cache keys tied to the concrete facet path. Coordinate
+    /// guides may return a discriminator when multiple physical facet paths are
+    /// known to have equivalent guide visibility and overflow behavior.
+    fn overflow_cache_discriminator(
+        &self,
+        _sharing_context: GuideSharingContext<'_>,
+        _phase: GuideOverflowPhase,
+    ) -> Option<String> {
+        None
     }
 
     async fn measure_intrinsic_overflow(

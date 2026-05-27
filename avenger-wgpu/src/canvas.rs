@@ -1,6 +1,14 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+    time::Instant,
+};
 
-use avenger_common::{canvas::CanvasDimensions, types::LinearScaleAdjustment};
+use avenger_common::{
+    canvas::CanvasDimensions,
+    types::{ColorOrGradient, LinearScaleAdjustment},
+    value::ScalarOrArray,
+};
 use avenger_scenegraph::{
     marks::{
         arc::SceneArcMark, area::SceneAreaMark, group::Clip, group::SceneGroup,
@@ -26,7 +34,7 @@ use crate::{
     error::AvengerWgpuError,
     marks::{
         instanced_mark::{InstancedMarkFingerprint, InstancedMarkRenderer},
-        multi::MultiMarkRenderer,
+        multi::{MultiMarkRenderResources, MultiMarkRenderer},
         symbol::SymbolShader,
         text::TextAtlasBuilderTrait,
     },
@@ -46,6 +54,25 @@ pub enum MarkRenderer {
 pub struct ZIndexedMark {
     pub zindex: i32,
     pub renderer: MarkRenderer,
+}
+
+fn mark_renderer_counts(marks: &[ZIndexedMark]) -> (usize, usize) {
+    marks
+        .iter()
+        .fold((0, 0), |(instanced_count, multi_count), mark| {
+            match &mark.renderer {
+                MarkRenderer::Instanced { .. } => (instanced_count + 1, multi_count),
+                MarkRenderer::Multi(_) => (instanced_count, multi_count + 1),
+            }
+        })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CanvasFrameOverlay {
+    pub size: [f32; 2],
+    pub resize_width: bool,
+    pub resize_height: bool,
+    pub handle_thickness: f32,
 }
 
 pub type TextBuildCtor = Arc<fn() -> Box<dyn TextAtlasBuilderTrait>>;
@@ -322,15 +349,25 @@ pub trait Canvas {
 
     #[tracing::instrument(skip_all)]
     fn set_scene(&mut self, scene_graph: &SceneGraph) -> Result<(), AvengerWgpuError> {
+        let start = Instant::now();
         // Clear existing marks
         self.clear_mark_renderer();
 
         // Process groups in document order - z-index sorting will happen during rendering
         let groups = scene_graph.groups();
+        let group_count = groups.len();
         for group in groups {
             self.add_group_mark(group, scene_graph.origin, &Clip::None)?;
         }
 
+        tracing::debug!(
+            target: "avenger_wgpu::resize",
+            set_scene_ms = start.elapsed().as_secs_f64() * 1000.0,
+            group_count,
+            scene_width = scene_graph.width,
+            scene_height = scene_graph.height,
+            "wgpu.set_scene"
+        );
         Ok(())
     }
 }
@@ -471,10 +508,12 @@ pub struct WindowCanvas<'window> {
     surface_config: SurfaceConfiguration,
     dimensions: CanvasDimensions,
     marks: Vec<ZIndexedMark>,
-    multi_renderer: Option<MultiMarkRenderer>,
+    multi_renderers: BTreeMap<i32, MultiMarkRenderer>,
     current_zindex: i32,
     instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
+    multi_render_resources: MultiMarkRenderResources,
     config: CanvasConfig,
+    frame_overlay: Option<CanvasFrameOverlay>,
 
     // Order of properties determines drop order.
     // Device must be dropped after the buffers and textures associated with marks
@@ -542,6 +581,9 @@ impl WindowCanvas<'_> {
         // // Uncomment to capture GPU boundary
         // unsafe { device.start_graphics_debugger_capture() };
 
+        let multi_render_resources =
+            MultiMarkRenderResources::new(&device, surface_format, sample_count);
+
         Ok(Self {
             surface,
             device,
@@ -552,10 +594,12 @@ impl WindowCanvas<'_> {
             dimensions,
             window,
             marks: Vec::new(),
-            multi_renderer: None,
+            multi_renderers: BTreeMap::new(),
             current_zindex: 0,
             instanced_renderers: HashMap::new(),
+            multi_render_resources,
             config,
+            frame_overlay: None,
         })
     }
 
@@ -565,6 +609,22 @@ impl WindowCanvas<'_> {
 
     pub fn window(&self) -> &Window {
         &self.window
+    }
+
+    pub fn set_frame_overlay(&mut self, overlay: Option<CanvasFrameOverlay>) {
+        self.frame_overlay = overlay;
+    }
+
+    fn commit_all_multi_renderers(&mut self) {
+        for (zindex, multi_renderer) in std::mem::take(&mut self.multi_renderers) {
+            if multi_renderer.is_empty() {
+                continue;
+            }
+            self.marks.push(ZIndexedMark {
+                zindex,
+                renderer: MarkRenderer::Multi(Box::new(multi_renderer)),
+            });
+        }
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -615,7 +675,91 @@ impl WindowCanvas<'_> {
 
     pub fn update(&mut self) {}
 
+    fn make_frame_overlay_command(
+        &self,
+        _texture_format: TextureFormat,
+        render_target_extent: Extent3d,
+        texture_view: &TextureView,
+        resolve_target: Option<&TextureView>,
+    ) -> Result<Option<CommandBuffer>, AvengerWgpuError> {
+        let Some(overlay) = self.frame_overlay else {
+            return Ok(None);
+        };
+
+        let width = overlay.size[0].max(0.0);
+        let height = overlay.size[1].max(0.0);
+        if width <= 0.0 || height <= 0.0 {
+            return Ok(None);
+        }
+
+        let border = 1.0;
+        let handle = overlay.handle_thickness.max(border);
+        let outline = ColorOrGradient::Color([0.12, 0.15, 0.18, 0.95]);
+        let handle_fill = ColorOrGradient::Color([0.12, 0.15, 0.18, 0.16]);
+
+        let mut x = vec![0.0, 0.0, 0.0, (width - border).max(0.0)];
+        let mut y = vec![0.0, (height - border).max(0.0), 0.0, 0.0];
+        let mut rect_width = vec![width, width, border, border];
+        let mut rect_height = vec![border, border, height, height];
+        let mut fill = vec![
+            outline.clone(),
+            outline.clone(),
+            outline.clone(),
+            outline.clone(),
+        ];
+
+        if overlay.resize_width {
+            x.push((width - handle).max(0.0));
+            y.push(0.0);
+            rect_width.push(handle);
+            rect_height.push(height);
+            fill.push(handle_fill.clone());
+        }
+
+        if overlay.resize_height {
+            x.push(0.0);
+            y.push((height - handle).max(0.0));
+            rect_width.push(width);
+            rect_height.push(handle);
+            fill.push(handle_fill);
+        }
+
+        let mark = SceneRectMark {
+            name: "canvas_frame_overlay".to_string(),
+            clip: false,
+            len: x.len() as u32,
+            gradients: Vec::new(),
+            x: ScalarOrArray::new_array(x),
+            y: ScalarOrArray::new_array(y),
+            width: Some(ScalarOrArray::new_array(rect_width)),
+            height: Some(ScalarOrArray::new_array(rect_height)),
+            x2: None,
+            y2: None,
+            fill: ScalarOrArray::new_array(fill),
+            stroke: ScalarOrArray::new_scalar(ColorOrGradient::transparent()),
+            stroke_width: ScalarOrArray::new_scalar(0.0),
+            corner_radius: ScalarOrArray::new_scalar(0.0),
+            indices: None,
+            zindex: None,
+        };
+
+        let mut renderer =
+            MultiMarkRenderer::new(self.dimensions, self.config.text_builder_ctor.clone());
+        renderer.add_rect_mark(&mark, [0.0, 0.0], &Clip::None)?;
+
+        Ok(Some(renderer.render_with_resources(
+            &self.device,
+            &self.queue,
+            render_target_extent,
+            texture_view,
+            resolve_target,
+            &self.multi_render_resources,
+        )))
+    }
+
     pub fn render(&mut self) -> Result<(), AvengerWgpuError> {
+        let _span = tracing::debug_span!("wgpu.render").entered();
+        let render_start = Instant::now();
         let output = self.surface.get_current_texture()?;
         let output_extent = output.texture.size();
         self.sync_to_acquired_surface_texture(output_extent);
@@ -633,12 +777,7 @@ impl WindowCanvas<'_> {
         };
 
         // Commit open multi-renderer
-        if let Some(multi_renderer) = self.multi_renderer.take() {
-            self.marks.push(ZIndexedMark {
-                zindex: self.current_zindex,
-                renderer: MarkRenderer::Multi(Box::new(multi_renderer)),
-            });
-        }
+        self.commit_all_multi_renderers();
 
         // Collect z-indices and compute layers
         let zindices: Vec<i32> = self.marks.iter().map(|m| m.zindex).collect();
@@ -647,8 +786,11 @@ impl WindowCanvas<'_> {
         } else {
             compute_zindex_layers(zindices)
         };
+        let layer_count = layers.len();
+        let (instanced_renderer_count, multi_renderer_count) = mark_renderer_counts(&self.marks);
 
         // Render background first
+        let command_build_start = Instant::now();
         let background_command = if self.sample_count > 1 {
             make_background_command(self, &self.multisampled_framebuffer, Some(&view))
         } else {
@@ -657,6 +799,7 @@ impl WindowCanvas<'_> {
         let mut commands = vec![background_command];
 
         let texture_format = self.texture_format();
+        let multi_render_resources = self.multi_render_resources.clone();
 
         // Render marks by layer
         for (min_z, max_z) in layers {
@@ -688,24 +831,22 @@ impl WindowCanvas<'_> {
                         }
                         MarkRenderer::Multi(renderer) => {
                             if self.sample_count > 1 {
-                                renderer.render(
+                                renderer.render_with_resources(
                                     &self.device,
                                     &self.queue,
-                                    texture_format,
-                                    self.sample_count,
                                     render_target_extent,
                                     &self.multisampled_framebuffer,
                                     Some(&view),
+                                    &multi_render_resources,
                                 )
                             } else {
-                                renderer.render(
+                                renderer.render_with_resources(
                                     &self.device,
                                     &self.queue,
-                                    texture_format,
-                                    self.sample_count,
                                     render_target_extent,
                                     &view,
                                     None,
+                                    &multi_render_resources,
                                 )
                             }
                         }
@@ -715,8 +856,54 @@ impl WindowCanvas<'_> {
             }
         }
 
+        let frame_overlay_command = if self.sample_count > 1 {
+            let overlay_start = Instant::now();
+            let command = self.make_frame_overlay_command(
+                texture_format,
+                render_target_extent,
+                &self.multisampled_framebuffer,
+                Some(&view),
+            )?;
+            tracing::trace!(
+                target: "avenger_wgpu::resize",
+                overlay_command_ms = overlay_start.elapsed().as_secs_f64() * 1000.0,
+                "wgpu.render overlay command"
+            );
+            command
+        } else {
+            let overlay_start = Instant::now();
+            let command =
+                self.make_frame_overlay_command(texture_format, render_target_extent, &view, None)?;
+            tracing::trace!(
+                target: "avenger_wgpu::resize",
+                overlay_command_ms = overlay_start.elapsed().as_secs_f64() * 1000.0,
+                "wgpu.render overlay command"
+            );
+            command
+        };
+        if let Some(command) = frame_overlay_command {
+            commands.push(command);
+        }
+
+        let command_build_elapsed = command_build_start.elapsed();
+        let command_count = commands.len();
+        let submit_start = Instant::now();
         self.queue.submit(commands);
         output.present();
+        let submit_elapsed = submit_start.elapsed();
+
+        tracing::debug!(
+            target: "avenger_wgpu::resize",
+            render_ms = render_start.elapsed().as_secs_f64() * 1000.0,
+            command_build_ms = command_build_elapsed.as_secs_f64() * 1000.0,
+            submit_present_ms = submit_elapsed.as_secs_f64() * 1000.0,
+            command_count,
+            renderer_count = self.marks.len(),
+            instanced_renderer_count,
+            multi_renderer_count,
+            layer_count,
+            "wgpu.render"
+        );
 
         Ok(())
     }
@@ -724,20 +911,15 @@ impl WindowCanvas<'_> {
 
 impl Canvas for WindowCanvas<'_> {
     fn set_current_zindex(&mut self, zindex: i32) {
-        if zindex != self.current_zindex {
-            self.commit_multi_renderer_if_needed(zindex);
-        }
         self.current_zindex = zindex;
     }
 
-    fn commit_multi_renderer_if_needed(&mut self, new_zindex: i32) {
-        if self.current_zindex != new_zindex {
-            if let Some(multi_renderer) = self.multi_renderer.take() {
-                self.marks.push(ZIndexedMark {
-                    zindex: self.current_zindex,
-                    renderer: MarkRenderer::Multi(Box::new(multi_renderer)),
-                });
-            }
+    fn commit_multi_renderer_if_needed(&mut self, _new_zindex: i32) {
+        if let Some(multi_renderer) = self.multi_renderers.remove(&self.current_zindex) {
+            self.marks.push(ZIndexedMark {
+                zindex: self.current_zindex,
+                renderer: MarkRenderer::Multi(Box::new(multi_renderer)),
+            });
         }
     }
 
@@ -746,13 +928,11 @@ impl Canvas for WindowCanvas<'_> {
     }
 
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
-        if self.multi_renderer.is_none() {
-            self.multi_renderer = Some(MultiMarkRenderer::new(
-                self.dimensions,
-                self.config.text_builder_ctor.clone(),
-            ));
-        }
-        self.multi_renderer.as_mut().unwrap()
+        self.multi_renderers
+            .entry(self.current_zindex)
+            .or_insert_with(|| {
+                MultiMarkRenderer::new(self.dimensions, self.config.text_builder_ctor.clone())
+            })
     }
 
     fn get_instanced_renderer(&mut self, fingerprint: u64) -> Option<Arc<InstancedMarkRenderer>> {
@@ -766,7 +946,7 @@ impl Canvas for WindowCanvas<'_> {
         x_adjustment: Option<LinearScaleAdjustment>,
         y_adjustment: Option<LinearScaleAdjustment>,
     ) {
-        if let Some(multi_renderer) = self.multi_renderer.take() {
+        if let Some(multi_renderer) = self.multi_renderers.remove(&self.current_zindex) {
             self.marks.push(ZIndexedMark {
                 zindex: self.current_zindex,
                 renderer: MarkRenderer::Multi(Box::new(multi_renderer)),
@@ -785,8 +965,19 @@ impl Canvas for WindowCanvas<'_> {
     }
 
     fn clear_mark_renderer(&mut self) {
-        self.get_multi_renderer().clear();
-        self.marks.clear();
+        let mut recycled = BTreeMap::new();
+        for (zindex, mut renderer) in std::mem::take(&mut self.multi_renderers) {
+            renderer.reset_for_frame(self.dimensions);
+            recycled.entry(zindex).or_insert(renderer);
+        }
+        for mark in self.marks.drain(..) {
+            if let MarkRenderer::Multi(renderer) = mark.renderer {
+                let mut renderer = *renderer;
+                renderer.reset_for_frame(self.dimensions);
+                recycled.entry(mark.zindex).or_insert(renderer);
+            }
+        }
+        self.multi_renderers = recycled;
     }
 
     fn device(&self) -> &Device {
@@ -827,8 +1018,9 @@ pub struct PngCanvas {
     texture_size: Extent3d,
     padded_width: u32,
     padded_height: u32,
-    multi_renderer: Option<MultiMarkRenderer>,
+    multi_renderers: BTreeMap<i32, MultiMarkRenderer>,
     instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
+    multi_render_resources: MultiMarkRenderResources,
     config: CanvasConfig,
 
     // The order of properties in a struct is the order in which items are dropped.
@@ -897,6 +1089,9 @@ impl PngCanvas {
             sample_count,
         );
 
+        let multi_render_resources =
+            MultiMarkRenderResources::new(&device, texture_format, sample_count);
+
         Ok(Self {
             device,
             queue,
@@ -910,22 +1105,30 @@ impl PngCanvas {
             padded_width,
             padded_height,
             marks: Vec::new(),
-            multi_renderer: None,
+            multi_renderers: BTreeMap::new(),
             current_zindex: 0,
             instanced_renderers: HashMap::new(),
+            multi_render_resources,
             config,
         })
     }
 
-    #[tracing::instrument(skip_all)]
-    pub async fn render(&mut self) -> Result<image::RgbaImage, AvengerWgpuError> {
-        // Commit open multi mark renderer
-        if let Some(multi_renderer) = self.multi_renderer.take() {
+    fn commit_all_multi_renderers(&mut self) {
+        for (zindex, multi_renderer) in std::mem::take(&mut self.multi_renderers) {
+            if multi_renderer.is_empty() {
+                continue;
+            }
             self.marks.push(ZIndexedMark {
-                zindex: self.current_zindex,
+                zindex,
                 renderer: MarkRenderer::Multi(Box::new(multi_renderer)),
             });
         }
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub async fn render(&mut self) -> Result<image::RgbaImage, AvengerWgpuError> {
+        let render_start = Instant::now();
+        self.commit_all_multi_renderers();
 
         // Build encoder for chart background
         let background_command = if self.sample_count > 1 {
@@ -945,9 +1148,11 @@ impl PngCanvas {
         } else {
             compute_zindex_layers(zindices)
         };
+        let layer_count = layers.len();
+        let (instanced_renderer_count, multi_renderer_count) = mark_renderer_counts(&self.marks);
 
         let mut commands = vec![background_command];
-        let texture_format = self.texture_format();
+        let multi_render_resources = self.multi_render_resources.clone();
         let render_target_extent = Extent3d {
             width: self.dimensions.to_physical_width(),
             height: self.dimensions.to_physical_height(),
@@ -955,6 +1160,7 @@ impl PngCanvas {
         };
 
         // Render marks by layer
+        let command_build_start = Instant::now();
         for (min_z, max_z) in layers {
             for mark in &mut self.marks {
                 if mark.zindex >= min_z && mark.zindex <= max_z {
@@ -984,24 +1190,22 @@ impl PngCanvas {
                         }
                         MarkRenderer::Multi(renderer) => {
                             if self.sample_count > 1 {
-                                renderer.render(
+                                renderer.render_with_resources(
                                     &self.device,
                                     &self.queue,
-                                    texture_format,
-                                    self.sample_count,
                                     render_target_extent,
                                     &self.multisampled_framebuffer,
                                     Some(&self.texture_view),
+                                    &multi_render_resources,
                                 )
                             } else {
-                                renderer.render(
+                                renderer.render_with_resources(
                                     &self.device,
                                     &self.queue,
-                                    texture_format,
-                                    self.sample_count,
                                     render_target_extent,
                                     &self.texture_view,
                                     None,
+                                    &multi_render_resources,
                                 )
                             }
                         }
@@ -1010,10 +1214,15 @@ impl PngCanvas {
                 }
             }
         }
+        let command_build_elapsed = command_build_start.elapsed();
+        let command_count = commands.len();
 
+        let submit_start = Instant::now();
         self.queue.submit(commands);
+        let submit_elapsed = submit_start.elapsed();
 
         // Extract texture from GPU
+        let extract_start = Instant::now();
         let mut extract_encoder = self
             .device
             .create_command_encoder(&CommandEncoderDescriptor {
@@ -1041,8 +1250,10 @@ impl PngCanvas {
             self.texture_size,
         );
         self.queue.submit(Some(extract_encoder.finish()));
+        let extract_elapsed = extract_start.elapsed();
 
         // Output to png file
+        let map_read_start = Instant::now();
         let img = {
             let buffer_slice = self.output_buffer.slice(..);
 
@@ -1071,28 +1282,40 @@ impl PngCanvas {
             );
             cropped_img.to_image()
         };
+        let map_read_elapsed = map_read_start.elapsed();
 
         self.output_buffer.unmap();
+        tracing::debug!(
+            target: "avenger_wgpu::resize",
+            render_ms = render_start.elapsed().as_secs_f64() * 1000.0,
+            command_build_ms = command_build_elapsed.as_secs_f64() * 1000.0,
+            submit_ms = submit_elapsed.as_secs_f64() * 1000.0,
+            extract_ms = extract_elapsed.as_secs_f64() * 1000.0,
+            map_read_ms = map_read_elapsed.as_secs_f64() * 1000.0,
+            physical_width = self.dimensions.to_physical_width(),
+            physical_height = self.dimensions.to_physical_height(),
+            command_count,
+            renderer_count = self.marks.len(),
+            instanced_renderer_count,
+            multi_renderer_count,
+            layer_count,
+            "png.render"
+        );
         Ok(img)
     }
 }
 
 impl Canvas for PngCanvas {
     fn set_current_zindex(&mut self, zindex: i32) {
-        if zindex != self.current_zindex {
-            self.commit_multi_renderer_if_needed(zindex);
-        }
         self.current_zindex = zindex;
     }
 
-    fn commit_multi_renderer_if_needed(&mut self, new_zindex: i32) {
-        if self.current_zindex != new_zindex {
-            if let Some(multi_renderer) = self.multi_renderer.take() {
-                self.marks.push(ZIndexedMark {
-                    zindex: self.current_zindex,
-                    renderer: MarkRenderer::Multi(Box::new(multi_renderer)),
-                });
-            }
+    fn commit_multi_renderer_if_needed(&mut self, _new_zindex: i32) {
+        if let Some(multi_renderer) = self.multi_renderers.remove(&self.current_zindex) {
+            self.marks.push(ZIndexedMark {
+                zindex: self.current_zindex,
+                renderer: MarkRenderer::Multi(Box::new(multi_renderer)),
+            });
         }
     }
 
@@ -1101,13 +1324,11 @@ impl Canvas for PngCanvas {
     }
 
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
-        if self.multi_renderer.is_none() {
-            self.multi_renderer = Some(MultiMarkRenderer::new(
-                self.dimensions,
-                self.config.text_builder_ctor.clone(),
-            ));
-        }
-        self.multi_renderer.as_mut().unwrap()
+        self.multi_renderers
+            .entry(self.current_zindex)
+            .or_insert_with(|| {
+                MultiMarkRenderer::new(self.dimensions, self.config.text_builder_ctor.clone())
+            })
     }
 
     fn get_instanced_renderer(&mut self, fingerprint: u64) -> Option<Arc<InstancedMarkRenderer>> {
@@ -1121,7 +1342,7 @@ impl Canvas for PngCanvas {
         x_adjustment: Option<LinearScaleAdjustment>,
         y_adjustment: Option<LinearScaleAdjustment>,
     ) {
-        if let Some(multi_renderer) = self.multi_renderer.take() {
+        if let Some(multi_renderer) = self.multi_renderers.remove(&self.current_zindex) {
             self.marks.push(ZIndexedMark {
                 zindex: self.current_zindex,
                 renderer: MarkRenderer::Multi(Box::new(multi_renderer)),
@@ -1140,8 +1361,19 @@ impl Canvas for PngCanvas {
     }
 
     fn clear_mark_renderer(&mut self) {
-        self.get_multi_renderer().clear();
-        self.marks.clear();
+        let mut recycled = BTreeMap::new();
+        for (zindex, mut renderer) in std::mem::take(&mut self.multi_renderers) {
+            renderer.reset_for_frame(self.dimensions);
+            recycled.entry(zindex).or_insert(renderer);
+        }
+        for mark in self.marks.drain(..) {
+            if let MarkRenderer::Multi(renderer) = mark.renderer {
+                let mut renderer = *renderer;
+                renderer.reset_for_frame(self.dimensions);
+                recycled.entry(mark.zindex).or_insert(renderer);
+            }
+        }
+        self.multi_renderers = recycled;
     }
 
     fn device(&self) -> &Device {

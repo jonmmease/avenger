@@ -14,6 +14,8 @@ use crate::{
     marks::multi::{MultiVertex, TEXT_TEXTURE_CODE, TEXT_TEXTURE_NEAREST_CODE},
 };
 
+const DEFAULT_TEXT_ATLAS_EDGE: u32 = 1024;
+
 #[derive(Clone)]
 pub struct GlyphBBoxAndAtlasCoords {
     pub bbox: GlyphBBox,
@@ -117,8 +119,8 @@ where
 
             // Update extent
             self.extent = Extent3d {
-                width: limits.max_texture_dimension_1d.min(2048),
-                height: limits.max_texture_dimension_2d.min(2048),
+                width: limits.max_texture_dimension_1d.min(DEFAULT_TEXT_ATLAS_EDGE),
+                height: limits.max_texture_dimension_2d.min(DEFAULT_TEXT_ATLAS_EDGE),
                 depth_or_array_layers: 1,
             };
 
