@@ -1432,6 +1432,7 @@ enum FacetCellMeasurementMode<'a> {
     ChildFacetSlots {
         child_facet_slot_sharing: Option<SharingLevel>,
         child_facet_depth: u8,
+        requires_per_cell_channel_domain_sharing: bool,
         ancestor_scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
         per_cell_scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
         shared_scale_builder: &'a ScaleBuilder,
@@ -1752,6 +1753,11 @@ pub(crate) fn retarget_measurement_plot_area_no_remeasure(
 ) -> Result<(), AvengerChartError> {
     let old_plot_area_width = measurement.plot_area_width;
     let old_plot_area_height = measurement.plot_area_height;
+    if (old_plot_area_width - new_plot_area_width).abs() <= 0.01
+        && (old_plot_area_height - new_plot_area_height).abs() <= 0.01
+    {
+        return Ok(());
+    }
 
     retarget_scale_ranges_for_plot_area(
         &mut measurement.scales,
@@ -1801,6 +1807,11 @@ pub(crate) fn retarget_measurement_plot_area_policy_no_remeasure(
 ) -> Result<(), AvengerChartError> {
     let old_plot_area_width = measurement.plot_area_width;
     let old_plot_area_height = measurement.plot_area_height;
+    if (old_plot_area_width - new_plot_area_width).abs() <= 0.01
+        && (old_plot_area_height - new_plot_area_height).abs() <= 0.01
+    {
+        return Ok(());
+    }
 
     retarget_scale_ranges_for_plot_area(
         &mut measurement.scales,
@@ -2048,6 +2059,7 @@ fn resolve_nested_scale_plan<'a>(
     cell: &FacetCellPlan,
     child_facet_slot_sharing: Option<SharingLevel>,
     child_facet_depth: u8,
+    requires_per_cell_channel_domain_sharing: bool,
     ancestor_scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
     per_cell_scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
     facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
@@ -2057,7 +2069,7 @@ fn resolve_nested_scale_plan<'a>(
         return Ok(NestedScalePlan::EmptySharedNoData);
     }
 
-    if facet_tree.has_free_channel_domain_sharing() {
+    if requires_per_cell_channel_domain_sharing {
         return Ok(per_cell_nested_scale_plan(
             cell,
             per_cell_scale_builder_cache,
@@ -2228,6 +2240,7 @@ async fn measure_facet_cell(
         FacetCellMeasurementMode::ChildFacetSlots {
             child_facet_slot_sharing,
             child_facet_depth,
+            requires_per_cell_channel_domain_sharing,
             ancestor_scale_builder_cache,
             per_cell_scale_builder_cache,
             shared_scale_builder,
@@ -2239,6 +2252,7 @@ async fn measure_facet_cell(
                 cell,
                 child_facet_slot_sharing,
                 child_facet_depth,
+                requires_per_cell_channel_domain_sharing,
                 ancestor_scale_builder_cache,
                 per_cell_scale_builder_cache,
                 facet_tree,
@@ -2275,6 +2289,9 @@ async fn measure_nested_cell(
     let mode = FacetCellMeasurementMode::ChildFacetSlots {
         child_facet_slot_sharing: nested_ctx.scale_artifacts.child_facet_slot_sharing,
         child_facet_depth: nested_ctx.scale_artifacts.child_facet_depth,
+        requires_per_cell_channel_domain_sharing: nested_ctx
+            .scale_artifacts
+            .requires_per_cell_channel_domain_sharing,
         ancestor_scale_builder_cache: &nested_ctx.scale_artifacts.ancestor_scale_builder_cache,
         per_cell_scale_builder_cache: &nested_ctx.scale_artifacts.per_cell_scale_builder_cache,
         shared_scale_builder: &nested_ctx.scale_artifacts.shared_scale_builder,

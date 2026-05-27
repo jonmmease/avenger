@@ -108,7 +108,7 @@ pub(crate) struct PartitionDimensionSpec {
 
 /// A node in a nested data-partition tree.
 ///
-/// Each node represents one partition level. `content` stores the domain slots
+/// Each node represents one partition level. `values` stores the domain slots
 /// that the container should enumerate, while `observed_values` records the
 /// values observed under the concrete parent filter.
 #[derive(Debug, Clone)]
@@ -121,6 +121,8 @@ pub struct PartitionNode {
     pub field: String,
     /// Field expression for filtering.
     pub field_expr: Option<Expr>,
+    /// Domain slot values for this node.
+    pub values: Vec<ScalarValue>,
     /// Values observed under the concrete parent-path filter for this node.
     pub observed_values: Vec<ScalarValue>,
     /// Partition content: either leaf values or branches keyed by values.
@@ -488,6 +490,7 @@ impl PartitionNode {
             sharing,
             field,
             field_expr,
+            values: values.clone(),
             observed_values: values.clone(),
             content: PartitionContent::Leaf { values },
         }
@@ -507,6 +510,7 @@ impl PartitionNode {
             sharing,
             field,
             field_expr,
+            values: values.clone(),
             observed_values,
             content: PartitionContent::Leaf { values },
         }
@@ -520,12 +524,14 @@ impl PartitionNode {
         field_expr: Option<Expr>,
         children: IndexMap<ScalarValue, Box<PartitionNode>>,
     ) -> Self {
+        let values = children.keys().cloned().collect::<Vec<_>>();
         Self {
             direction,
             sharing,
             field,
             field_expr,
-            observed_values: children.keys().cloned().collect(),
+            values: values.clone(),
+            observed_values: values,
             content: PartitionContent::Branch { children },
         }
     }
@@ -539,11 +545,34 @@ impl PartitionNode {
         observed_values: Vec<ScalarValue>,
         children: IndexMap<ScalarValue, Box<PartitionNode>>,
     ) -> Self {
+        let values = children.keys().cloned().collect::<Vec<_>>();
         Self {
             direction,
             sharing,
             field,
             field_expr,
+            values,
+            observed_values,
+            content: PartitionContent::Branch { children },
+        }
+    }
+
+    /// Create a new branch partition node with explicit domain and observed values.
+    pub fn branch_with_values_and_observed(
+        direction: FacetDirection,
+        sharing: u8,
+        field: String,
+        field_expr: Option<Expr>,
+        values: Vec<ScalarValue>,
+        observed_values: Vec<ScalarValue>,
+        children: IndexMap<ScalarValue, Box<PartitionNode>>,
+    ) -> Self {
+        Self {
+            direction,
+            sharing,
+            field,
+            field_expr,
+            values,
             observed_values,
             content: PartitionContent::Branch { children },
         }
@@ -556,10 +585,7 @@ impl PartitionNode {
 
     /// Get the partition slot values at this level.
     pub fn values(&self) -> Box<dyn Iterator<Item = &ScalarValue> + '_> {
-        match &self.content {
-            PartitionContent::Leaf { values } => Box::new(values.iter()),
-            PartitionContent::Branch { children } => Box::new(children.keys()),
-        }
+        Box::new(self.values.iter())
     }
 
     pub fn observed_values(&self) -> impl Iterator<Item = &ScalarValue> {
@@ -568,10 +594,7 @@ impl PartitionNode {
 
     /// Get the number of partition slot values at this level.
     pub fn domain_count(&self) -> usize {
-        match &self.content {
-            PartitionContent::Leaf { values } => values.len(),
-            PartitionContent::Branch { children } => children.len(),
-        }
+        self.values.len()
     }
 
     /// Get child node for a specific value.
@@ -1030,6 +1053,53 @@ mod tests {
 
         assert!(node.cell_exists(&[ScalarValue::Utf8(Some("B".to_string()))]));
         assert!(!node.cell_has_data(&[ScalarValue::Utf8(Some("B".to_string()))]));
+    }
+
+    #[test]
+    fn branch_node_preserves_domain_values_separate_from_children() {
+        let shared_domain = vec![
+            string_scalar("Alpha"),
+            string_scalar("Beta"),
+            string_scalar("Delta"),
+            string_scalar("Gamma"),
+        ];
+
+        let backend_teams = PartitionNode::leaf_with_observed(
+            FacetDirection::Column,
+            1,
+            "team".to_string(),
+            None,
+            shared_domain.clone(),
+            vec![string_scalar("Delta"), string_scalar("Gamma")],
+        );
+        let frontend_teams = PartitionNode::leaf_with_observed(
+            FacetDirection::Column,
+            1,
+            "team".to_string(),
+            None,
+            shared_domain.clone(),
+            vec![string_scalar("Alpha"), string_scalar("Beta")],
+        );
+
+        let mut children = IndexMap::new();
+        children.insert(string_scalar("Backend"), Box::new(backend_teams));
+        children.insert(string_scalar("Frontend"), Box::new(frontend_teams));
+        let dept_node = PartitionNode::branch_with_values_and_observed(
+            FacetDirection::Column,
+            0,
+            "department".to_string(),
+            None,
+            vec![string_scalar("Backend"), string_scalar("Frontend")],
+            vec![string_scalar("Backend"), string_scalar("Frontend")],
+            children,
+        );
+
+        assert_eq!(dept_node.values_at_depth(1), shared_domain);
+        let backend = dept_node
+            .child(&string_scalar("Backend"))
+            .expect("backend team node");
+        assert!(backend.cell_exists(&[string_scalar("Alpha")]));
+        assert!(!backend.cell_has_data(&[string_scalar("Alpha")]));
     }
 
     #[test]

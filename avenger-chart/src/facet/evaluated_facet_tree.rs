@@ -488,18 +488,10 @@ impl EvaluatedFacetTree {
             local_level_counts.push(node.domain_count());
             level_directions.push(node.direction);
 
-            let idx = match &node.content {
-                PartitionContent::Leaf { values } => values
-                    .iter()
-                    .position(|v| scalar_values_equivalent(v, value))?,
-                PartitionContent::Branch { children } => {
-                    children.get_index_of(value).or_else(|| {
-                        children
-                            .keys()
-                            .position(|child_value| scalar_values_equivalent(child_value, value))
-                    })?
-                }
-            };
+            let idx = node
+                .values
+                .iter()
+                .position(|v| scalar_values_equivalent(v, value))?;
             indices.push(idx);
 
             if level + 1 < path.len() {
@@ -786,6 +778,12 @@ impl EvaluatedFacetTree {
         self.channel_domain_sharing_levels
             .values()
             .any(|sharing| sharing.is_free())
+    }
+
+    pub(crate) fn has_wrap_levels(&self) -> bool {
+        self.root
+            .as_ref()
+            .is_some_and(partition_node_has_wrap_level)
     }
 
     pub(crate) fn domain_extent_channels(&self) -> Vec<String> {
@@ -1429,12 +1427,14 @@ impl EvaluatedFacetTree {
             }
 
             node = match &node.content {
-                PartitionContent::Branch { children } => {
-                    if let Some((_, child)) = children.get_index(pos_idx) {
-                        child.as_ref()
-                    } else {
+                PartitionContent::Branch { .. } => {
+                    let Some(value) = node.values.get(pos_idx) else {
                         return AxisVisibility::visible();
-                    }
+                    };
+                    let Some(child) = node.child(value) else {
+                        return AxisVisibility::visible();
+                    };
+                    child
                 }
                 PartitionContent::Leaf { .. } => return AxisVisibility::visible(),
             };
@@ -1467,10 +1467,10 @@ impl EvaluatedFacetTree {
                         }
                         break;
                     }
-                    PartitionContent::Branch { children } => {
-                        if let Some((key, child)) = children.get_index(idx) {
-                            values.push(key.clone());
-                            current_node = Some(child.as_ref());
+                    PartitionContent::Branch { .. } => {
+                        if let Some(value) = node.values.get(idx) {
+                            values.push(value.clone());
+                            current_node = node.child(value);
                         } else {
                             break;
                         }
@@ -1785,11 +1785,12 @@ async fn build_partition_node(
                 observed_values,
             )))
         } else {
-            Ok(Some(PartitionNode::branch_with_observed(
+            Ok(Some(PartitionNode::branch_with_values_and_observed(
                 dimension.direction,
                 dimension.sharing,
                 dimension.field.clone(),
                 Some(dimension.field_expr.clone()),
+                values,
                 observed_values,
                 children,
             )))
@@ -1835,6 +1836,19 @@ fn wrap_value_field_name(field: &str) -> String {
 
 pub(crate) fn is_wrap_row_field(field: &str) -> bool {
     field.starts_with("__avenger_wrap_row:")
+}
+
+fn partition_node_has_wrap_level(node: &PartitionNode) -> bool {
+    if is_wrap_row_field(&node.field) {
+        return true;
+    }
+
+    match &node.content {
+        PartitionContent::Leaf { .. } => false,
+        PartitionContent::Branch { children } => children
+            .values()
+            .any(|child| partition_node_has_wrap_level(child.as_ref())),
+    }
 }
 
 fn observed_values_for_slice(
@@ -2140,11 +2154,12 @@ async fn build_wrap_partition_node(
                     row_observed,
                 )
             } else {
-                PartitionNode::branch_with_observed(
+                PartitionNode::branch_with_values_and_observed(
                     FacetDirection::Column,
                     0,
                     wrap_value_field_name(&dimension.field),
                     Some(dimension.field_expr.clone()),
+                    row_slice.clone(),
                     row_observed,
                     value_children,
                 )
@@ -2162,11 +2177,12 @@ async fn build_wrap_partition_node(
         row_children.insert(row_value.clone(), Box::new(column_node));
     }
 
-    Ok(Some(PartitionNode::branch_with_observed(
+    Ok(Some(PartitionNode::branch_with_values_and_observed(
         FacetDirection::Row,
         dimension.sharing,
         wrap_row_field_name(&dimension.field),
         None,
+        row_values,
         observed_rows,
         row_children,
     )))

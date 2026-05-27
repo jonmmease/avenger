@@ -377,9 +377,16 @@ impl EvaluationContext {
     /// Create a new context overriding whether axis ownership should ignore empty cells.
     pub fn with_axis_owner_ignore_empty_cells(&self, ignore_empty_cells: bool) -> Self {
         let mut params = self.params.clone();
+        let inherited_ignore_empty_cells = params
+            .get(AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM)
+            .and_then(|value| match value {
+                ScalarValue::Boolean(Some(value)) => Some(*value),
+                _ => None,
+            })
+            .unwrap_or(false);
         params.insert(
             AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM.to_string(),
-            ScalarValue::Boolean(Some(ignore_empty_cells)),
+            ScalarValue::Boolean(Some(inherited_ignore_empty_cells || ignore_empty_cells)),
         );
         Self {
             core: self.core.with_params(params),
@@ -1230,5 +1237,29 @@ impl MarkRuntimeContext for RenderContext<'_> {
 
     fn facet_path(&self) -> &[ScalarValue] {
         self.facet_path
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use avenger_chart_core::axis_owner_ignore_empty_cells_from_params;
+
+    #[test]
+    fn axis_owner_ignore_empty_cells_is_inherited() {
+        let ctx = EvaluationContext::new(
+            Arc::new(Theme::light()),
+            Arc::new(SessionContext::new()),
+            IndexMap::new(),
+            Arc::new(EvaluatedFacetTree::empty()),
+        );
+
+        let inherited = ctx
+            .with_axis_owner_ignore_empty_cells(true)
+            .with_axis_owner_ignore_empty_cells(false);
+
+        assert!(axis_owner_ignore_empty_cells_from_params(
+            inherited.params()
+        ));
     }
 }

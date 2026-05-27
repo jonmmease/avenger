@@ -28,7 +28,7 @@ use crate::{
         scales::build_scale_builder_from_marks_with_facet_scope,
     },
     render::EvaluationContext,
-    scales::{DomainExtent, ScaleBuilder},
+    scales::{DomainExtent, PlotScaleSpec, ScaleBuilder},
     serialization::LogicalPlanNodeExt,
 };
 
@@ -69,6 +69,7 @@ impl FacetScaleSubtreeKey {
 pub(crate) struct FacetScaleNodeArtifacts {
     pub(crate) child_facet_slot_sharing: Option<SharingLevel>,
     pub(crate) child_facet_depth: u8,
+    pub(crate) requires_per_cell_channel_domain_sharing: bool,
     pub(crate) shared_scale_builder: ScaleBuilder,
     pub(crate) ancestor_scale_builder_cache: HashMap<Vec<ScalarValue>, ScaleBuilder>,
     pub(crate) per_cell_scale_builder_cache: HashMap<Vec<ScalarValue>, ScaleBuilder>,
@@ -530,6 +531,10 @@ pub(crate) async fn build_node_artifacts(
 
     let child_facet_depth = (facet_tree.logical_depth_for_path(facet_path) + 2) as u8;
     let child_facet_slot_sharing = resolve_child_facet_slot_sharing(compiled_subplot);
+    let has_free_ordered_channel_domain_sharing =
+        plot_has_free_ordered_channel_domain_sharing(compiled_subplot);
+    let requires_per_cell_channel_domain_sharing = has_free_ordered_channel_domain_sharing
+        || (facet_tree.has_wrap_levels() && facet_tree.has_free_channel_domain_sharing());
 
     let ancestor_scale_builder_cache = if let Some(sharing_level) = child_facet_slot_sharing {
         if sharing_level > 0 && sharing_level < child_facet_depth {
@@ -551,7 +556,7 @@ pub(crate) async fn build_node_artifacts(
     };
 
     let needs_per_cell_scale_builder_cache = matches!(child_facet_slot_sharing, Some(level) if level.is_free())
-        || facet_tree.has_free_channel_domain_sharing();
+        || requires_per_cell_channel_domain_sharing;
 
     let per_cell_scale_builder_cache = if needs_per_cell_scale_builder_cache {
         Box::pin(build_per_cell_scale_builders(
@@ -570,9 +575,56 @@ pub(crate) async fn build_node_artifacts(
     Ok(FacetScaleNodeArtifacts {
         child_facet_slot_sharing,
         child_facet_depth,
+        requires_per_cell_channel_domain_sharing,
         shared_scale_builder,
         ancestor_scale_builder_cache,
         per_cell_scale_builder_cache,
+    })
+}
+
+fn plot_has_free_ordered_channel_domain_sharing(plot: &CompiledPlot) -> bool {
+    marks_have_free_ordered_channel_domain_sharing(&plot.marks, &plot.scale_specs)
+}
+
+fn marks_have_free_ordered_channel_domain_sharing(
+    marks: &[Arc<dyn CompiledMark>],
+    scale_specs: &HashMap<String, PlotScaleSpec>,
+) -> bool {
+    marks.iter().any(|mark| {
+        if let Some(facet_mark) = facet_subplot_ref(mark.as_ref()) {
+            return plot_has_free_ordered_channel_domain_sharing(facet_mark.compiled_subplot());
+        }
+
+        mark.data_context()
+            .channels()
+            .iter()
+            .any(|(channel_name, channel_value)| {
+                let Some(sharing) = channel_value.get_share_mode() else {
+                    return false;
+                };
+                if !SharingLevel::from(sharing).is_free() {
+                    return false;
+                }
+
+                if channel_value
+                    .get_scale_config()
+                    .and_then(|config| config.ordering.as_option())
+                    .is_some_and(|ordering| ordering.has_order_expr())
+                {
+                    return true;
+                }
+
+                let Some(scale_name) = channel_value.get_scale_name(channel_name) else {
+                    return false;
+                };
+                let Some(PlotScaleSpec::Local(config)) = scale_specs.get(&scale_name) else {
+                    return false;
+                };
+                config
+                    .ordering
+                    .as_option()
+                    .is_some_and(|ordering| ordering.has_order_expr())
+            })
     })
 }
 
