@@ -326,6 +326,11 @@ impl EvaluationMetrics {
         self.pipeline.facet_cell_measurement_profile_misses += 1;
     }
 
+    pub(crate) fn record_facet_cell_measurement_profile_chrome_refresh(&mut self) {
+        self.pipeline
+            .facet_cell_measurement_profile_chrome_refreshes += 1;
+    }
+
     pub(crate) fn record_skipped_component_measure_calls(&mut self, count: usize) {
         self.pipeline.skipped_component_measure_calls += count;
     }
@@ -434,6 +439,8 @@ pub struct EvaluationPipelineMetrics {
     pub facet_cell_measurement_profile_reuses: usize,
     /// Number of facet cell profile lookups that missed during layout-profile preview.
     pub facet_cell_measurement_profile_misses: usize,
+    /// Number of reused facet cell profiles whose guide/layout chrome was refreshed.
+    pub facet_cell_measurement_profile_chrome_refreshes: usize,
     /// Number of component measurement calls skipped by preview reuse.
     pub skipped_component_measure_calls: usize,
     /// Number of DataFusion collect calls made while preparing mark render data.

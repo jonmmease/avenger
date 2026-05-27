@@ -42,7 +42,7 @@ use crate::{
             FacetBandCoordMeasurement, FacetCellRuntime, renderable_for_empty_policy,
             retarget_measurement_plot_area_no_remeasure,
             retarget_measurement_plot_area_policy_no_remeasure,
-            retarget_scale_ranges_for_plot_area,
+            retarget_scale_ranges_for_plot_area, sync_measurement_owned_slabs_from_coord,
         },
         debug as facet_debug,
         evaluated_facet_tree::{EvaluatedFacetTree, FacetWrapLayoutContext},
@@ -2008,6 +2008,30 @@ impl CompiledPlot {
         measurement.legend_plan.retarget_scales(&measurement.scales);
 
         Ok(plot_bounds)
+    }
+
+    pub(crate) async fn refresh_reused_profile_layout(
+        &self,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+    ) -> Result<(), AvengerChartError> {
+        eval_ctx.record_facet_cell_measurement_profile_chrome_refresh();
+        let layout_spec = Self::nested_fixed_plot_area_layout_spec(
+            measurement.plot_area_width,
+            measurement.plot_area_height,
+        );
+        Box::pin(self.refresh_final_layout_bottom_up(
+            measurement,
+            eval_ctx,
+            &layout_spec,
+            data_override,
+            facet_path,
+        ))
+        .await?;
+        sync_measurement_owned_slabs_from_coord(measurement);
+        Ok(())
     }
 
     fn realize_canvas_plot_area_no_overflow_remeasure(

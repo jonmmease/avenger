@@ -1989,7 +1989,7 @@ mod tests {
 
         let mut patch = IndexMap::new();
         patch.insert("width".to_string(), ScalarValue::Float64(Some(900.0)));
-        let (_evaluated, preview) = session
+        let (preview_plot, preview) = session
             .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
             .await?;
 
@@ -2003,9 +2003,38 @@ mod tests {
             preview.pipeline.facet_cell_measurement_profile_reuses > 0,
             "changed wrap structure should reuse terminal cell measurement profiles"
         );
+        assert_eq!(
+            preview
+                .pipeline
+                .facet_cell_measurement_profile_chrome_refreshes,
+            preview.pipeline.facet_cell_measurement_profile_reuses,
+            "each reused cell profile should refresh guide/layout chrome for the new physical wrap grid"
+        );
+        assert!(
+            preview.pipeline.guide_overflow_measure_calls > 0,
+            "reused profile preview should recompute guide overflow instead of carrying stale chrome"
+        );
         assert!(
             preview.facet_layout.plot_component_measure_calls > 0,
             "changed wrap structure should rebuild container layout"
+        );
+
+        let mut preview_exact_params = IndexMap::new();
+        preview_exact_params.insert("width".to_string(), ScalarValue::Float64(Some(900.0)));
+        let preview_one_shot = compiled
+            .evaluate(ctx.as_ref(), Some(preview_exact_params))
+            .await?;
+        assert_eq!(
+            preview_plot.scene_graph.width,
+            preview_one_shot.scene_graph.width
+        );
+        assert_eq!(
+            preview_plot.scene_graph.height,
+            preview_one_shot.scene_graph.height
+        );
+        assert_eq!(
+            preview_plot.scene_graph.marks.len(),
+            preview_one_shot.scene_graph.marks.len()
         );
 
         let (settled, exact) = session
@@ -2021,6 +2050,67 @@ mod tests {
         assert_eq!(settled.scene_graph.height, one_shot.scene_graph.height);
         assert_eq!(
             settled.scene_graph.marks.len(),
+            one_shot.scene_graph.marks.len()
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_preview_reflow_refreshes_chrome_when_wrap_column_owner_changes()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_responsive_wrap_width_param_cache_plot(&ctx).await?);
+        let mut session = compiled.clone().instantiate(ctx.clone());
+
+        let mut initial = IndexMap::new();
+        initial.insert("width".to_string(), ScalarValue::Float64(Some(520.0)));
+        let (_evaluated, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(initial))
+            .await?;
+        assert!(
+            exact.facet_layout.plot_component_measure_calls > 0,
+            "warm exact evaluation should build the 2-column wrap profile"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(700.0)));
+        let (preview_plot, preview) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(preview.pipeline.preview_profile_reuses, 1);
+        assert_eq!(preview.pipeline.preview_fallbacks, 0);
+        assert_eq!(preview.pipeline.preview_structure_reflow_reuses, 1);
+        assert!(
+            preview.pipeline.facet_cell_measurement_profile_reuses > 0,
+            "2-column to 3-column wrap preview should reuse terminal child measurements"
+        );
+        assert_eq!(
+            preview
+                .pipeline
+                .facet_cell_measurement_profile_chrome_refreshes,
+            preview.pipeline.facet_cell_measurement_profile_reuses,
+            "reused cells must recompute guide/layout chrome after physical owner changes"
+        );
+        assert_eq!(
+            preview.pipeline.skipped_component_measure_calls,
+            preview.pipeline.facet_cell_measurement_profile_reuses,
+            "profile reuse should still avoid full terminal component measurements"
+        );
+        assert!(
+            preview.pipeline.guide_overflow_measure_calls > 0,
+            "preview reflow should measure current guide ownership"
+        );
+
+        let mut exact_params = IndexMap::new();
+        exact_params.insert("width".to_string(), ScalarValue::Float64(Some(700.0)));
+        let one_shot = compiled.evaluate(ctx.as_ref(), Some(exact_params)).await?;
+        assert_eq!(preview_plot.scene_graph.width, one_shot.scene_graph.width);
+        assert_eq!(preview_plot.scene_graph.height, one_shot.scene_graph.height);
+        assert_eq!(
+            preview_plot.scene_graph.marks.len(),
             one_shot.scene_graph.marks.len()
         );
 
@@ -2094,6 +2184,12 @@ mod tests {
             preview.pipeline.facet_cell_measurement_profile_reuses > 0,
             "row-nested responsive wrap should reuse row-local terminal profiles"
         );
+        assert_eq!(
+            preview
+                .pipeline
+                .facet_cell_measurement_profile_chrome_refreshes,
+            preview.pipeline.facet_cell_measurement_profile_reuses
+        );
         assert!(
             preview.facet_layout.plot_component_measure_calls > 0,
             "row-nested reflow should rebuild physical container layout for holes/edges"
@@ -2157,6 +2253,12 @@ mod tests {
         assert!(
             preview.pipeline.facet_cell_measurement_profile_reuses > 0,
             "nested responsive wrap should reuse terminal cell measurement profiles"
+        );
+        assert_eq!(
+            preview
+                .pipeline
+                .facet_cell_measurement_profile_chrome_refreshes,
+            preview.pipeline.facet_cell_measurement_profile_reuses
         );
 
         Ok(())

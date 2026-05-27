@@ -1118,6 +1118,15 @@ impl EvaluationContext {
         }
     }
 
+    pub(crate) fn record_facet_cell_measurement_profile_chrome_refresh(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_facet_cell_measurement_profile_chrome_refresh();
+        }
+    }
+
     pub(crate) fn record_facet_band_measure_run(
         &self,
         estimated_overflow_leaf_measure_count: usize,

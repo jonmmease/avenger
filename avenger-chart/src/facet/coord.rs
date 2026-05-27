@@ -1561,7 +1561,7 @@ fn refresh_measurement_frame_allocation_rect(measurement: &mut ComponentsMeasure
     measurement.refresh_frame_allocation_rect();
 }
 
-fn sync_measurement_owned_slabs_from_coord(measurement: &mut ComponentsMeasurement) {
+pub(crate) fn sync_measurement_owned_slabs_from_coord(measurement: &mut ComponentsMeasurement) {
     let owned_slabs = if let Some(facet_band) =
         facet_band_ref(measurement.coord_measurement.as_ref())
     {
@@ -2861,6 +2861,13 @@ async fn measure_cells_overflow_probe(
                     probe_plot_width,
                     probe_plot_height,
                 )?;
+                Box::pin(compiled_subplot.refresh_reused_profile_layout(
+                    &mut measurement,
+                    &cell_eval_ctx,
+                    Some(&cell.data_override),
+                    &cell.plan.full_path,
+                ))
+                .await?;
                 MeasuredFacetCell { measurement }
             } else {
                 if cell_eval_ctx.layout_profile().is_some() {
