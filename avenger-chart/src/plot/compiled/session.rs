@@ -1108,11 +1108,62 @@ fn collect_expr_placeholders(expr: &Expr, names: &mut BTreeSet<String>) {
 
 #[cfg(test)]
 mod tests {
+    use avenger_scenegraph::{marks::mark::SceneMark, scene_graph::SceneGraph};
     use datafusion::{prelude::SessionContext, scalar::ScalarValue};
 
     use crate::prelude::*;
 
     use super::*;
+
+    fn collect_symbol_positions(scene: &SceneGraph) -> Vec<(f32, f32)> {
+        fn collect_from_mark(mark: &SceneMark, origin: [f32; 2], positions: &mut Vec<(f32, f32)>) {
+            match mark {
+                SceneMark::Group(group) => {
+                    let group_origin = [origin[0] + group.origin[0], origin[1] + group.origin[1]];
+                    for child in &group.marks {
+                        collect_from_mark(child, group_origin, positions);
+                    }
+                }
+                SceneMark::Symbol(symbol) => {
+                    for (x, y) in symbol.x_iter().zip(symbol.y_iter()) {
+                        positions.push((origin[0] + x, origin[1] + y));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut positions = Vec::new();
+        for mark in &scene.marks {
+            collect_from_mark(mark, scene.origin, &mut positions);
+        }
+        positions.sort_by(|left, right| {
+            left.0
+                .total_cmp(&right.0)
+                .then_with(|| left.1.total_cmp(&right.1))
+        });
+        positions
+    }
+
+    fn assert_symbol_positions_close(actual: &SceneGraph, expected: &SceneGraph) {
+        let actual_positions = collect_symbol_positions(actual);
+        let expected_positions = collect_symbol_positions(expected);
+        assert_eq!(
+            actual_positions.len(),
+            expected_positions.len(),
+            "symbol count mismatch"
+        );
+        for (idx, ((actual_x, actual_y), (expected_x, expected_y))) in actual_positions
+            .iter()
+            .zip(expected_positions.iter())
+            .enumerate()
+        {
+            assert!(
+                (actual_x - expected_x).abs() <= 1.5 && (actual_y - expected_y).abs() <= 1.5,
+                "symbol position mismatch at {idx}: actual=({actual_x:.3}, {actual_y:.3}) expected=({expected_x:.3}, {expected_y:.3})"
+            );
+        }
+    }
 
     async fn compile_session_test_plot(
         ctx: &SessionContext,
@@ -2154,6 +2205,7 @@ mod tests {
             preview_plot.scene_graph.marks.len(),
             preview_one_shot.scene_graph.marks.len()
         );
+        assert_symbol_positions_close(&preview_plot.scene_graph, &preview_one_shot.scene_graph);
 
         let (settled, exact) = session
             .evaluate_with_metrics(EvaluationRequest::new().exact())
@@ -2170,6 +2222,7 @@ mod tests {
             settled.scene_graph.marks.len(),
             one_shot.scene_graph.marks.len()
         );
+        assert_symbol_positions_close(&settled.scene_graph, &one_shot.scene_graph);
 
         Ok(())
     }
@@ -2259,6 +2312,7 @@ mod tests {
             preview_plot.scene_graph.marks.len(),
             one_shot.scene_graph.marks.len()
         );
+        assert_symbol_positions_close(&preview_plot.scene_graph, &one_shot.scene_graph);
 
         Ok(())
     }
@@ -2302,6 +2356,7 @@ mod tests {
             preview_plot.scene_graph.height, one_shot.scene_graph.height,
             "preview must preserve the measured leaf-height-owned extent instead of retargeting to the nominal estimate"
         );
+        assert_symbol_positions_close(&preview_plot.scene_graph, &one_shot.scene_graph);
 
         Ok(())
     }

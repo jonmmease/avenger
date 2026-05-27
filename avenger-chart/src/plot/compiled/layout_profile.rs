@@ -221,6 +221,10 @@ impl FacetCellRenderedComponentsProfileIndex {
         self.components.get(key).cloned()
     }
 
+    pub(crate) fn is_empty(&self) -> bool {
+        self.components.is_empty()
+    }
+
     pub(crate) fn insert_for_cell(
         &mut self,
         facet_tree: &EvaluatedFacetTree,
