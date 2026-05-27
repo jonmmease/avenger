@@ -1181,6 +1181,7 @@ impl MultiMarkRenderer {
         queue: &Queue,
         texture_format: TextureFormat,
         sample_count: u32,
+        render_target_extent: Extent3d,
         texture_view: &TextureView,
         resolve_target: Option<&TextureView>,
     ) -> CommandBuffer {
@@ -1374,8 +1375,8 @@ impl MultiMarkRenderer {
             device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("Stencil buffer"),
                 size: Extent3d {
-                    width: self.dimensions.to_physical_width(),
-                    height: self.dimensions.to_physical_height(),
+                    width: render_target_extent.width,
+                    height: render_target_extent.height,
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
@@ -1444,154 +1445,120 @@ impl MultiMarkRenderer {
             label: Some("Multi Mark Render Encoder"),
         });
 
-        // Render batches
-        {
-            let depth_view = stencil_buffer
+        let depth_view = stencil_buffer
+            .as_ref()
+            .map(|buffer| buffer.create_view(&Default::default()));
+        let depth_stencil_attachment =
+            depth_view
                 .as_ref()
-                .map(|buffer| buffer.create_view(&Default::default()));
-            let depth_stencil_attachment =
-                depth_view
-                    .as_ref()
-                    .map(|view| wgpu::RenderPassDepthStencilAttachment {
-                        view,
-                        depth_ops: if cfg!(feature = "deno") {
-                            // depth_ops shouldn't be needed, but setting to None results in validation
-                            // error in Deno. However, setting it to the below causes a validation error
-                            // in Chrome.
-                            Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(0.0),
-                                store: wgpu::StoreOp::Discard,
-                            })
-                        } else {
-                            None
-                        },
-                        stencil_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(0),
-                            store: wgpu::StoreOp::Store,
-                        }),
-                    });
-            let mut render_pass = mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Multi Mark Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: texture_view,
-                    resolve_target,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
+                .map(|view| wgpu::RenderPassDepthStencilAttachment {
+                    view,
+                    depth_ops: if cfg!(feature = "deno") {
+                        // depth_ops shouldn't be needed, but setting to None results in validation
+                        // error in Deno. However, setting it to the below causes a validation error
+                        // in Chrome.
+                        Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(0.0),
+                            store: wgpu::StoreOp::Discard,
+                        })
+                    } else {
+                        None
                     },
-                })],
-                depth_stencil_attachment,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
+                    stencil_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                });
 
-            if vertex_buffer.size() > 0 {
+        if vertex_buffer.size() > 0 {
+            for batch in &self.batches {
+                let mut render_pass = mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Multi Mark Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: texture_view,
+                        resolve_target,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: depth_stencil_attachment.clone(),
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+
                 render_pass.set_pipeline(&render_pipeline);
                 render_pass.set_bind_group(0, &uniform_bind_group, &[]);
-                let mut last_grad_ind = 0;
-                let mut last_img_ind = 0;
-                let mut last_text_ind = 0;
-                let mut stencil_index: u32 = 1;
-                render_pass.set_bind_group(1, &gradient_texture_bind_groups[last_grad_ind], &[]);
-                render_pass.set_bind_group(2, &image_texture_bind_groups[last_img_ind], &[]);
-                render_pass.set_bind_group(3, &text_bind_groups[last_text_ind], &[]);
+                render_pass.set_bind_group(
+                    1,
+                    &gradient_texture_bind_groups[batch.gradient_atlas_index.unwrap_or(0)],
+                    &[],
+                );
+                render_pass.set_bind_group(
+                    2,
+                    &image_texture_bind_groups[batch.image_atlas_index.unwrap_or(0)],
+                    &[],
+                );
+                render_pass.set_bind_group(
+                    3,
+                    &text_bind_groups[batch.text_atlas_index.unwrap_or(0)],
+                    &[],
+                );
                 render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
                 render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
-                // Initialze textures with first entry
-                for batch in &self.batches {
-                    if let Some(clip_inds_range) = &batch.clip_indices_range {
-                        render_pass.set_stencil_reference(stencil_index);
-                        render_pass.set_pipeline(stencil_pipeline.as_ref().unwrap());
-                        render_pass.set_vertex_buffer(0, clip_vertex_buffer.slice(..));
-                        render_pass.set_index_buffer(
-                            clip_index_buffer.slice(..),
-                            wgpu::IndexFormat::Uint32,
-                        );
-                        render_pass.draw_indexed(clip_inds_range.clone(), 0, 0..1);
+                if let Some(clip_inds_range) = &batch.clip_indices_range {
+                    render_pass.set_stencil_reference(1);
+                    render_pass.set_pipeline(stencil_pipeline.as_ref().unwrap());
+                    render_pass.set_vertex_buffer(0, clip_vertex_buffer.slice(..));
+                    render_pass
+                        .set_index_buffer(clip_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    render_pass.draw_indexed(clip_inds_range.clone(), 0, 0..1);
 
-                        // Restore buffers
-                        render_pass.set_pipeline(&render_pipeline);
-                        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                        render_pass
-                            .set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-
-                        // increment stencil index for next draw
-                        stencil_index += 1;
-                    } else if uses_stencil {
-                        // Set stencil reference back to zero so that everything is drawn
-                        render_pass.set_stencil_reference(0);
-                    }
-
-                    // Update scissors
-                    if let Clip::Rect {
-                        x,
-                        y,
-                        width,
-                        height,
-                    } = batch.clip
-                    {
-                        // Convert to physical coordinates
-                        let physical_x = (x * self.uniform.scale) as u32;
-                        let physical_y = (y * self.uniform.scale) as u32;
-                        let physical_width = (width * self.uniform.scale) as u32;
-                        let physical_height = (height * self.uniform.scale) as u32;
-
-                        // Clamp to canvas dimensions
-                        let canvas_width = self.dimensions.to_physical_width();
-                        let canvas_height = self.dimensions.to_physical_height();
-
-                        let clamped_x = physical_x.min(canvas_width);
-                        let clamped_y = physical_y.min(canvas_height);
-                        let clamped_width = physical_width.min(canvas_width - clamped_x);
-                        let clamped_height = physical_height.min(canvas_height - clamped_y);
-
-                        // Set scissors rect with clamped values
-                        render_pass.set_scissor_rect(
-                            clamped_x,
-                            clamped_y,
-                            clamped_width,
-                            clamped_height,
-                        );
-                    } else {
-                        // Clear scissors rect
-                        render_pass.set_scissor_rect(
-                            0,
-                            0,
-                            self.dimensions.to_physical_width(),
-                            self.dimensions.to_physical_height(),
-                        );
-                    }
-
-                    // Update bind groups
-                    if let Some(grad_ind) = batch.gradient_atlas_index {
-                        if grad_ind != last_grad_ind {
-                            render_pass.set_bind_group(
-                                1,
-                                &gradient_texture_bind_groups[grad_ind],
-                                &[],
-                            );
-                            last_grad_ind = grad_ind;
-                        }
-                    }
-
-                    if let Some(img_ind) = batch.image_atlas_index {
-                        if img_ind != last_img_ind {
-                            render_pass.set_bind_group(2, &image_texture_bind_groups[img_ind], &[]);
-                        }
-                        last_img_ind = img_ind;
-                    }
-
-                    if let Some(text_ind) = batch.text_atlas_index {
-                        if text_ind != last_text_ind {
-                            render_pass.set_bind_group(3, &text_bind_groups[text_ind], &[]);
-                        }
-                        last_text_ind = text_ind;
-                    }
-
-                    // draw inds
-                    render_pass.draw_indexed(batch.indices_range.clone(), 0, 0..1);
+                    // Restore buffers
+                    render_pass.set_pipeline(&render_pipeline);
+                    render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                } else if uses_stencil {
+                    // Set stencil reference back to zero so that everything is drawn
+                    render_pass.set_stencil_reference(0);
                 }
+
+                // Update scissors
+                if let Clip::Rect {
+                    x,
+                    y,
+                    width,
+                    height,
+                } = batch.clip
+                {
+                    // Convert to physical coordinates
+                    let physical_x = (x * self.uniform.scale) as u32;
+                    let physical_y = (y * self.uniform.scale) as u32;
+                    let physical_width = (width * self.uniform.scale) as u32;
+                    let physical_height = (height * self.uniform.scale) as u32;
+
+                    // Clamp to the render target; live window surfaces can drift
+                    // by a few physical pixels during resize.
+                    let canvas_width = render_target_extent.width;
+                    let canvas_height = render_target_extent.height;
+
+                    let clamped_x = physical_x.min(canvas_width);
+                    let clamped_y = physical_y.min(canvas_height);
+                    let clamped_width = physical_width.min(canvas_width - clamped_x);
+                    let clamped_height = physical_height.min(canvas_height - clamped_y);
+
+                    // Set scissors rect with clamped values
+                    render_pass.set_scissor_rect(
+                        clamped_x,
+                        clamped_y,
+                        clamped_width,
+                        clamped_height,
+                    );
+                }
+
+                // draw inds
+                render_pass.draw_indexed(batch.indices_range.clone(), 0, 0..1);
             }
         }
 

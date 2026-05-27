@@ -617,10 +617,20 @@ impl WindowCanvas<'_> {
 
     pub fn render(&mut self) -> Result<(), AvengerWgpuError> {
         let output = self.surface.get_current_texture()?;
-        self.sync_to_acquired_surface_texture(output.texture.size());
+        let output_extent = output.texture.size();
+        self.sync_to_acquired_surface_texture(output_extent);
         let view = output
             .texture
             .create_view(&TextureViewDescriptor::default());
+        let render_target_extent = if self.sample_count > 1 {
+            Extent3d {
+                width: self.surface_config.width,
+                height: self.surface_config.height,
+                depth_or_array_layers: 1,
+            }
+        } else {
+            output_extent
+        };
 
         // Commit open multi-renderer
         if let Some(multi_renderer) = self.multi_renderer.take() {
@@ -683,6 +693,7 @@ impl WindowCanvas<'_> {
                                     &self.queue,
                                     texture_format,
                                     self.sample_count,
+                                    render_target_extent,
                                     &self.multisampled_framebuffer,
                                     Some(&view),
                                 )
@@ -692,6 +703,7 @@ impl WindowCanvas<'_> {
                                     &self.queue,
                                     texture_format,
                                     self.sample_count,
+                                    render_target_extent,
                                     &view,
                                     None,
                                 )
@@ -936,6 +948,11 @@ impl PngCanvas {
 
         let mut commands = vec![background_command];
         let texture_format = self.texture_format();
+        let render_target_extent = Extent3d {
+            width: self.dimensions.to_physical_width(),
+            height: self.dimensions.to_physical_height(),
+            depth_or_array_layers: 1,
+        };
 
         // Render marks by layer
         for (min_z, max_z) in layers {
@@ -972,6 +989,7 @@ impl PngCanvas {
                                     &self.queue,
                                     texture_format,
                                     self.sample_count,
+                                    render_target_extent,
                                     &self.multisampled_framebuffer,
                                     Some(&self.texture_view),
                                 )
@@ -981,6 +999,7 @@ impl PngCanvas {
                                     &self.queue,
                                     texture_format,
                                     self.sample_count,
+                                    render_target_extent,
                                     &self.texture_view,
                                     None,
                                 )

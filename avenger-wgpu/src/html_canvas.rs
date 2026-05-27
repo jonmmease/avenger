@@ -3,8 +3,8 @@ use std::{collections::HashMap, sync::Arc};
 use avenger_common::canvas::CanvasDimensions;
 use web_sys::HtmlCanvasElement;
 use wgpu::{
-    Device, Queue, Surface, SurfaceConfiguration, SurfaceTarget, TextureFormat, TextureUsages,
-    TextureView, TextureViewDescriptor,
+    Device, Extent3d, Queue, Surface, SurfaceConfiguration, SurfaceTarget, TextureFormat,
+    TextureUsages, TextureView, TextureViewDescriptor,
 };
 
 use crate::{
@@ -112,6 +112,7 @@ impl<'window> HtmlCanvasCanvas<'window> {
 
     pub fn render(&mut self) -> Result<(), AvengerWgpuError> {
         let output = self.surface.get_current_texture()?;
+        let output_extent = output.texture.size();
         let view = output
             .texture
             .create_view(&TextureViewDescriptor::default());
@@ -129,6 +130,15 @@ impl<'window> HtmlCanvasCanvas<'window> {
         };
         let mut commands = vec![background_command];
         let texture_format = self.texture_format();
+        let render_target_extent = if self.sample_count > 1 {
+            Extent3d {
+                width: self.surface_config.width,
+                height: self.surface_config.height,
+                depth_or_array_layers: 1,
+            }
+        } else {
+            output_extent
+        };
         for mark in &mut self.marks {
             let command = match mark {
                 MarkRenderer::Instanced {
@@ -155,6 +165,7 @@ impl<'window> HtmlCanvasCanvas<'window> {
                             &self.queue,
                             texture_format,
                             self.sample_count,
+                            render_target_extent,
                             &self.multisampled_framebuffer,
                             Some(&view),
                         )
@@ -164,6 +175,7 @@ impl<'window> HtmlCanvasCanvas<'window> {
                             &self.queue,
                             texture_format,
                             self.sample_count,
+                            render_target_extent,
                             &view,
                             None,
                         )
