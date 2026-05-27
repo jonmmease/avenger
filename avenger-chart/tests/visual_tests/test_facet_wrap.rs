@@ -1,9 +1,18 @@
-use super::helpers::assert_visual_match_default;
+use super::helpers::{
+    DEFAULT_SCALE, VisualTestConfig, assert_visual_match_default, compare_images, get_baseline_path,
+};
 use avenger_chart::cartesian::CartesianGuide;
+use avenger_chart::plot::EvaluationRequest;
 use avenger_chart::prelude::*;
+use avenger_chart::render::EvaluatedPlot;
 use avenger_chart_scales::{Linear, Ordinal};
+use avenger_common::canvas::CanvasDimensions;
+use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
+use datafusion::common::ScalarValue;
 use datafusion::functions_aggregate::min_max::max;
 use datafusion::prelude::*;
+use indexmap::IndexMap;
+use std::sync::Arc;
 
 const BASELINE_CATEGORY: &str = "facet_wrap";
 
@@ -193,6 +202,41 @@ fn responsive_facet_wrap_plot(df: DataFrame, canvas_width: f32) -> Plot<FacetWra
         )
 }
 
+fn responsive_facet_wrap_session_plot(df: DataFrame) -> Plot<FacetWrap> {
+    let width = Param::new("wrap_width", ScalarValue::Float64(Some(520.0)));
+    Plot::<FacetWrap>::new()
+        .add_param(width.clone())
+        .data(df)
+        .canvas_constraint(CanvasConstraint::width(width.expr()))
+        .plot_constraint(PlotConstraint::height(135.0))
+        .mark(
+            Subplot::new(wrap_leaf_plot(1, 1, 1)).wrap_with(col("facet"), |c| {
+                c.responsive_columns(220.0).guide(|g| g.title("Facet"))
+            }),
+        )
+}
+
+async fn assert_evaluated_plot_visual_match(evaluated: &EvaluatedPlot, baseline_name: &str) {
+    let dimensions = CanvasDimensions {
+        size: [evaluated.scene_graph.width, evaluated.scene_graph.height],
+        scale: DEFAULT_SCALE,
+    };
+    let mut canvas = PngCanvas::new(dimensions, CanvasConfig::default())
+        .await
+        .expect("create visual test canvas");
+    canvas
+        .set_scene(&evaluated.scene_graph)
+        .expect("set visual test scene");
+    let image = canvas.render().await.expect("render visual test scene");
+    let baseline_path = get_baseline_path(BASELINE_CATEGORY, baseline_name);
+    if let Err(msg) = compare_images(&baseline_path, image, &VisualTestConfig::default()) {
+        panic!(
+            "Visual test '{}' failed (session rendering): {}",
+            baseline_name, msg
+        );
+    }
+}
+
 async fn assert_facet_wrap_baseline(
     name: &str,
     columns: Option<usize>,
@@ -347,4 +391,50 @@ async fn facet_wrap_responsive_columns_narrow() {
 #[tokio::test]
 async fn facet_wrap_responsive_columns_wide() {
     assert_responsive_facet_wrap_baseline("facet_wrap_responsive_columns_wide", 1180.0).await;
+}
+
+#[tokio::test]
+async fn facet_wrap_preview_width_resize_flow() {
+    let ctx = Arc::new(SessionContext::new());
+    let plot = responsive_facet_wrap_session_plot(facet_wrap_data(ctx.as_ref()).await);
+    let compiled = Arc::new(
+        plot.compile(ctx.as_ref())
+            .await
+            .expect("compile preview flow"),
+    );
+    let mut session = compiled.instantiate(ctx);
+
+    let (initial, exact) = session
+        .evaluate_with_metrics(EvaluationRequest::new().exact())
+        .await
+        .expect("initial exact responsive wrap evaluation");
+    assert_eq!(exact.mode, EvaluationMode::Exact);
+    assert_evaluated_plot_visual_match(&initial, "facet_wrap_preview_flow_width_520_cols_2").await;
+
+    for (width, name) in [
+        (700.0, "facet_wrap_preview_flow_width_700_cols_3"),
+        (920.0, "facet_wrap_preview_flow_width_920_cols_4"),
+        (1180.0, "facet_wrap_preview_flow_width_1180_cols_5"),
+    ] {
+        let mut patch = IndexMap::new();
+        patch.insert("wrap_width".to_string(), ScalarValue::Float64(Some(width)));
+        let (evaluated, metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await
+            .expect("preview responsive wrap width evaluation");
+
+        assert_eq!(metrics.mode, EvaluationMode::Preview);
+        assert_eq!(metrics.pipeline.preview_profile_reuses, 0);
+        assert_eq!(metrics.pipeline.preview_profile_misses, 1);
+        assert_eq!(metrics.pipeline.preview_fallbacks, 1);
+        assert!(
+            metrics.facet_layout.plot_component_measure_calls > 0,
+            "responsive wrap structure changes should fall back to exact measurement"
+        );
+        assert!(
+            (evaluated.scene_graph.width - width as f32).abs() <= 0.01,
+            "preview width patch should update canvas width"
+        );
+        assert_evaluated_plot_visual_match(&evaluated, name).await;
+    }
 }
