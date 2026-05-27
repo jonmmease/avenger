@@ -313,6 +313,10 @@ pub async fn chart_avenger_app(
 
 #[cfg(feature = "winit-wgpu")]
 pub fn window_scene_sizing_for_resize_policy(policy: ChartResizePolicy) -> WindowSceneSizing {
+    if policy.has_canvas_constrained_axis() {
+        return WindowSceneSizing::SurfaceFollowsWindow;
+    }
+
     let match_width = !policy.width.is_canvas_constrained();
     let match_height = !policy.height.is_canvas_constrained();
     if match_width || match_height {
@@ -569,5 +573,47 @@ mod tests {
 
         assert!(!status.rerender);
         assert!(!status.rebuild_geometry);
+    }
+
+    #[cfg(feature = "winit-wgpu")]
+    #[test]
+    fn winit_sizing_follows_window_when_any_axis_is_canvas_constrained() {
+        use avenger_winit_wgpu::WindowSceneSizing;
+
+        let width_canvas = ChartResizePolicy {
+            width: ChartResizeAxisPolicy::CanvasConstrained,
+            height: ChartResizeAxisPolicy::PlotConstrained,
+        };
+        assert_eq!(
+            window_scene_sizing_for_resize_policy(width_canvas),
+            WindowSceneSizing::SurfaceFollowsWindow
+        );
+
+        let height_canvas = ChartResizePolicy {
+            width: ChartResizeAxisPolicy::PlotConstrained,
+            height: ChartResizeAxisPolicy::CanvasConstrained,
+        };
+        assert_eq!(
+            window_scene_sizing_for_resize_policy(height_canvas),
+            WindowSceneSizing::SurfaceFollowsWindow
+        );
+    }
+
+    #[cfg(feature = "winit-wgpu")]
+    #[test]
+    fn winit_sizing_matches_scene_when_no_axis_is_canvas_constrained() {
+        use avenger_winit_wgpu::WindowSceneSizing;
+
+        let fixed_size = ChartResizePolicy {
+            width: ChartResizeAxisPolicy::PlotConstrained,
+            height: ChartResizeAxisPolicy::PlotConstrained,
+        };
+        assert_eq!(
+            window_scene_sizing_for_resize_policy(fixed_size),
+            WindowSceneSizing::MatchSceneGraphAxes {
+                width: true,
+                height: true,
+            }
+        );
     }
 }
