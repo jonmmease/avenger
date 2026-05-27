@@ -352,6 +352,7 @@ where
     window_id: Option<winit::window::WindowId>,
     coalesced_event_count: usize,
     stale_canvas_resize_count: usize,
+    pending_canvas_resize: Option<CanvasResizeEvent>,
 
     #[cfg(not(target_arch = "wasm32"))]
     tokio_runtime: tokio::runtime::Runtime,
@@ -415,6 +416,7 @@ where
             window_id: None,
             coalesced_event_count: 0,
             stale_canvas_resize_count: 0,
+            pending_canvas_resize: None,
             #[cfg(not(target_arch = "wasm32"))]
             tokio_runtime,
         };
@@ -424,6 +426,9 @@ where
 
     fn dispatch_avenger_event(&mut self, event: AvengerWindowEvent, force: bool) {
         if !force && self.render_pending && event.skip_if_render_pending() {
+            if let AvengerWindowEvent::CanvasResize(event) = &event {
+                self.pending_canvas_resize = Some(event.clone());
+            }
             self.coalesced_event_count += 1;
             tracing::debug!(
                 target: "avenger_winit_wgpu::resize",
@@ -521,6 +526,31 @@ where
                 );
             }
         }
+    }
+
+    fn dispatch_pending_canvas_resize(&mut self) {
+        let Some(event) = self.pending_canvas_resize.take() else {
+            return;
+        };
+        if !self.canvas_resize_size_is_current(event.size) {
+            self.stale_canvas_resize_count += 1;
+            tracing::debug!(
+                target: "avenger_winit_wgpu::resize",
+                event_kind = "CanvasResize",
+                width = event.size[0],
+                height = event.size[1],
+                stale_canvas_resizes = self.stale_canvas_resize_count,
+                "winit.dispatch stale pending canvas resize drop"
+            );
+            return;
+        }
+        tracing::debug!(
+            target: "avenger_winit_wgpu::resize",
+            width = event.size[0],
+            height = event.size[1],
+            "winit.dispatch pending canvas resize"
+        );
+        self.dispatch_avenger_event(AvengerWindowEvent::CanvasResize(event), false);
     }
 
     fn schedule_resize_settle(&self, size: [f32; 2]) {
@@ -834,12 +864,14 @@ where
                     self.schedule_resize_settle(logical_size);
                 }
                 WindowEvent::RedrawRequested => {
+                    let mut rendered = false;
                     if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
                         canvas.update();
 
                         match canvas.render() {
                             Ok(_) => {
                                 self.render_pending = false;
+                                rendered = true;
                             }
                             Err(AvengerWgpuError::SurfaceError(err)) => match err {
                                 wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
@@ -859,6 +891,9 @@ where
                                 log::error!("{err:?}");
                             }
                         }
+                    }
+                    if rendered {
+                        self.dispatch_pending_canvas_resize();
                     }
                 }
                 event => {
