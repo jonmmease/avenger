@@ -203,7 +203,7 @@ fn responsive_facet_wrap_plot(df: DataFrame, canvas_width: f32) -> Plot<FacetWra
 }
 
 fn responsive_facet_wrap_session_plot(df: DataFrame) -> Plot<FacetWrap> {
-    let width = Param::new("wrap_width", ScalarValue::Float64(Some(520.0)));
+    let width = Param::new("width", ScalarValue::Float64(Some(520.0)));
     Plot::<FacetWrap>::new()
         .add_param(width.clone())
         .data(df)
@@ -417,7 +417,7 @@ async fn facet_wrap_preview_width_resize_flow() {
         (1180.0, "facet_wrap_preview_flow_width_1180_cols_5"),
     ] {
         let mut patch = IndexMap::new();
-        patch.insert("wrap_width".to_string(), ScalarValue::Float64(Some(width)));
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(width)));
         let (evaluated, metrics) = session
             .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
             .await
