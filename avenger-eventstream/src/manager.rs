@@ -238,6 +238,9 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                 }
             }
             WindowEvent::WindowResize(e) => Some(SceneGraphEvent::WindowResize(e.clone())),
+            WindowEvent::WindowResizeSettled(e) => {
+                Some(SceneGraphEvent::WindowResizeSettled(e.clone()))
+            }
             WindowEvent::WindowMoved(e) => Some(SceneGraphEvent::WindowMoved(e.clone())),
             WindowEvent::WindowFocused(focused) => Some(SceneGraphEvent::WindowFocused(*focused)),
             WindowEvent::WindowCloseRequested => Some(SceneGraphEvent::WindowCloseRequested),

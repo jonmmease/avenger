@@ -21,7 +21,8 @@ fn main() {
                 .with_title("avenger-chart canvas-width scatter")
                 .with_resizable(true),
         )
-        .window_scene_sizing(window_scene_sizing_for_resize_policy(resize_policy));
+        .window_scene_sizing(window_scene_sizing_for_resize_policy(resize_policy))
+        .resize_settle_delay_ms(Some(160));
     let (mut app, event_loop) =
         WinitWgpuAvengerApp::new_and_event_loop_with_options(avenger_app, options, tokio_runtime);
     event_loop.run_app(&mut app).expect("run app");
@@ -66,6 +67,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         ChartAppOptions {
             resize_binding: ChartResizeBinding::width("width"),
             resize_throttle_ms: Some(8),
+            exact_on_resize_settle: true,
             log_metrics: true,
         },
     )

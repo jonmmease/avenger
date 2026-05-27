@@ -76,6 +76,7 @@ impl ChartResizeBinding {
 pub struct ChartAppOptions {
     pub resize_binding: ChartResizeBinding,
     pub resize_throttle_ms: Option<u64>,
+    pub exact_on_resize_settle: bool,
     pub log_metrics: bool,
 }
 
@@ -84,6 +85,7 @@ impl Default for ChartAppOptions {
         Self {
             resize_binding: ChartResizeBinding::none(),
             resize_throttle_ms: Some(8),
+            exact_on_resize_settle: true,
             log_metrics: false,
         }
     }
@@ -99,6 +101,7 @@ struct ChartAppRuntime {
     session: PlotSession,
     resize_policy: ChartResizePolicy,
     resize_binding: ChartResizeBinding,
+    exact_on_resize_settle: bool,
     next_evaluation_mode: EvaluationMode,
     log_metrics: bool,
     last_metrics: Option<EvaluationMetrics>,
@@ -119,6 +122,7 @@ impl ChartAppState {
                 session,
                 resize_policy,
                 resize_binding: options.resize_binding,
+                exact_on_resize_settle: options.exact_on_resize_settle,
                 next_evaluation_mode: EvaluationMode::Exact,
                 log_metrics: options.log_metrics,
                 last_metrics: None,
@@ -244,6 +248,41 @@ impl EventStreamHandler<ChartAppState> for ChartResizeHandler {
     }
 }
 
+/// Resize-settle handler that requests an exact evaluation after preview resize.
+pub struct ChartResizeSettleHandler;
+
+#[async_trait]
+impl EventStreamHandler<ChartAppState> for ChartResizeSettleHandler {
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        state: &mut ChartAppState,
+        _rtree: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        let SceneGraphEvent::WindowResizeSettled(event) = event else {
+            return UpdateStatus::default();
+        };
+
+        let mut runtime = state.runtime.lock().await;
+        if !runtime.exact_on_resize_settle
+            || !settled_size_matches_current_params(
+                &runtime.resize_policy,
+                &runtime.resize_binding,
+                event.size,
+                runtime.session.params(),
+            )
+        {
+            return UpdateStatus::default();
+        }
+
+        runtime.next_evaluation_mode = EvaluationMode::Exact;
+        UpdateStatus {
+            rerender: true,
+            rebuild_geometry: true,
+        }
+    }
+}
+
 pub async fn chart_avenger_app(
     compiled_plot: CompiledPlot,
     ctx: Arc<SessionContext>,
@@ -253,7 +292,7 @@ pub async fn chart_avenger_app(
     let session = Arc::new(compiled_plot).instantiate(ctx);
     let resize_throttle_ms = options.resize_throttle_ms;
     let state = ChartAppState::new(session, resize_policy, options);
-    let streams = vec![(
+    let mut streams = vec![(
         EventStreamConfig {
             types: vec![SceneGraphEventType::WindowResize],
             throttle: resize_throttle_ms,
@@ -261,6 +300,13 @@ pub async fn chart_avenger_app(
         },
         Arc::new(ChartResizeHandler) as Arc<dyn EventStreamHandler<ChartAppState>>,
     )];
+    streams.push((
+        EventStreamConfig {
+            types: vec![SceneGraphEventType::WindowResizeSettled],
+            ..Default::default()
+        },
+        Arc::new(ChartResizeSettleHandler) as Arc<dyn EventStreamHandler<ChartAppState>>,
+    ));
 
     AvengerApp::try_new(state, Arc::new(ChartSceneGraphBuilder), streams).await
 }
@@ -298,6 +344,40 @@ fn maybe_patch_axis(
         return;
     }
     patch.insert(param.to_string(), value);
+}
+
+fn settled_size_matches_current_params(
+    policy: &ChartResizePolicy,
+    binding: &ChartResizeBinding,
+    size: [f32; 2],
+    current_params: &IndexMap<String, ScalarValue>,
+) -> bool {
+    axis_matches_current_param(
+        policy.width,
+        binding.width_param.as_deref(),
+        size[0],
+        current_params,
+    ) && axis_matches_current_param(
+        policy.height,
+        binding.height_param.as_deref(),
+        size[1],
+        current_params,
+    )
+}
+
+fn axis_matches_current_param(
+    policy: ChartResizeAxisPolicy,
+    param: Option<&str>,
+    size: f32,
+    current_params: &IndexMap<String, ScalarValue>,
+) -> bool {
+    if !policy.is_canvas_constrained() {
+        return true;
+    }
+    let Some(param) = param else {
+        return true;
+    };
+    current_params.get(param) == Some(&ScalarValue::Float64(Some(size as f64)))
 }
 
 fn warn_about_ignored_bindings(policy: ChartResizePolicy, binding: &ChartResizeBinding) {
@@ -342,6 +422,7 @@ mod tests {
             ChartAppOptions {
                 resize_binding: ChartResizeBinding::width_height("width", "height"),
                 resize_throttle_ms: None,
+                exact_on_resize_settle: true,
                 log_metrics: false,
             },
         )
@@ -413,5 +494,80 @@ mod tests {
         assert!(!status.rerender);
         assert!(!status.rebuild_geometry);
         assert_eq!(state.accepted_resize_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn resize_settle_handler_requests_exact_for_current_size() {
+        use avenger_app::app::SceneGraphBuilder;
+
+        let mut state = resize_test_state().await;
+        let rtree = empty_rtree();
+        ChartResizeHandler
+            .handle(
+                &SceneGraphEvent::WindowResize(WindowResizeEvent {
+                    size: [800.0, 600.0],
+                }),
+                &mut state,
+                &rtree,
+            )
+            .await;
+
+        ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("preview build");
+        assert_eq!(
+            state.last_metrics().await.expect("preview metrics").mode,
+            EvaluationMode::Preview
+        );
+
+        let status = ChartResizeSettleHandler
+            .handle(
+                &SceneGraphEvent::WindowResizeSettled(WindowResizeEvent {
+                    size: [800.0, 600.0],
+                }),
+                &mut state,
+                &rtree,
+            )
+            .await;
+        assert!(status.rerender);
+        assert!(status.rebuild_geometry);
+
+        ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("exact build");
+        assert_eq!(
+            state.last_metrics().await.expect("exact metrics").mode,
+            EvaluationMode::Exact
+        );
+    }
+
+    #[tokio::test]
+    async fn resize_settle_handler_ignores_stale_size() {
+        let mut state = resize_test_state().await;
+        let rtree = empty_rtree();
+        ChartResizeHandler
+            .handle(
+                &SceneGraphEvent::WindowResize(WindowResizeEvent {
+                    size: [800.0, 600.0],
+                }),
+                &mut state,
+                &rtree,
+            )
+            .await;
+
+        let status = ChartResizeSettleHandler
+            .handle(
+                &SceneGraphEvent::WindowResizeSettled(WindowResizeEvent {
+                    size: [720.0, 600.0],
+                }),
+                &mut state,
+                &rtree,
+            )
+            .await;
+
+        assert!(!status.rerender);
+        assert!(!status.rebuild_geometry);
     }
 }

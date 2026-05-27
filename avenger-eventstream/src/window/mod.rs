@@ -6,6 +6,7 @@ mod winit;
 #[derive(Debug, Clone, PartialEq)]
 pub enum WindowEvent {
     WindowResize(WindowResizeEvent),
+    WindowResizeSettled(WindowResizeEvent),
     WindowMoved(WindowMovedEvent),
     WindowFocused(bool),
     WindowCloseRequested,
@@ -31,7 +32,10 @@ impl WindowEvent {
     pub fn skip_if_render_pending(&self) -> bool {
         !matches!(
             self,
-            Self::MouseInput(_) | Self::KeyboardInput(_) | Self::FileChanged(_)
+            Self::MouseInput(_)
+                | Self::KeyboardInput(_)
+                | Self::FileChanged(_)
+                | Self::WindowResizeSettled(_)
         )
     }
 }

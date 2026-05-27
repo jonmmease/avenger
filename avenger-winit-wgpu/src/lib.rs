@@ -9,7 +9,7 @@ use winit::{
     application::ApplicationHandler,
     dpi::{PhysicalSize, Size},
     event::{ElementState, KeyEvent, WindowEvent},
-    event_loop::{ActiveEventLoop, EventLoop},
+    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     keyboard::{self, NamedKey},
     window::{WindowAttributes, WindowId},
 };
@@ -51,6 +51,7 @@ pub struct WinitWgpuAvengerAppOptions {
     pub scale: f32,
     pub window_attributes: WindowAttributes,
     pub window_scene_sizing: WindowSceneSizing,
+    pub resize_settle_delay_ms: Option<u64>,
 }
 
 impl WinitWgpuAvengerAppOptions {
@@ -59,6 +60,7 @@ impl WinitWgpuAvengerAppOptions {
             scale,
             window_attributes: WindowAttributes::default().with_resizable(false),
             window_scene_sizing: WindowSceneSizing::SurfaceFollowsWindow,
+            resize_settle_delay_ms: None,
         }
     }
 
@@ -71,6 +73,11 @@ impl WinitWgpuAvengerAppOptions {
         self.window_scene_sizing = window_scene_sizing;
         self
     }
+
+    pub fn resize_settle_delay_ms(mut self, resize_settle_delay_ms: Option<u64>) -> Self {
+        self.resize_settle_delay_ms = resize_settle_delay_ms;
+        self
+    }
 }
 
 pub struct WinitWgpuAvengerApp<State>
@@ -81,6 +88,8 @@ where
     scale: f32,
     window_attributes: WindowAttributes,
     window_scene_sizing: WindowSceneSizing,
+    resize_settle_delay_ms: Option<u64>,
+    event_proxy: EventLoopProxy<AvengerWindowEvent>,
     pub avenger_app: std::rc::Rc<std::cell::RefCell<AvengerApp<State>>>,
     render_pending: bool,
     pub file_watcher: Option<FileWatcher>,
@@ -116,6 +125,7 @@ where
         let event_loop = EventLoop::<AvengerWindowEvent>::with_user_event()
             .build()
             .expect("Failed to build event loop");
+        let event_proxy = event_loop.create_proxy();
 
         // File watching is only supported on desktop
         #[cfg(not(target_arch = "wasm32"))]
@@ -123,7 +133,7 @@ where
             let watched_files = avenger_app.get_watched_files();
             if !watched_files.is_empty() {
                 Some(
-                    FileWatcher::new(event_loop.create_proxy(), watched_files)
+                    FileWatcher::new(event_proxy.clone(), watched_files)
                         .expect("Failed to create file watcher"),
                 )
             } else {
@@ -138,6 +148,8 @@ where
             scale: options.scale,
             window_attributes: options.window_attributes,
             window_scene_sizing: options.window_scene_sizing,
+            resize_settle_delay_ms: options.resize_settle_delay_ms,
+            event_proxy,
             avenger_app: std::rc::Rc::new(std::cell::RefCell::new(avenger_app)),
             render_pending: false,
             file_watcher,
@@ -215,6 +227,29 @@ where
                     }
                 }
             }
+        }
+    }
+
+    fn schedule_resize_settle(&self, size: [f32; 2]) {
+        let Some(delay_ms) = self.resize_settle_delay_ms else {
+            return;
+        };
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let event_proxy = self.event_proxy.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+                let _ = event_proxy.send_event(AvengerWindowEvent::WindowResizeSettled(
+                    avenger_eventstream::window::WindowResizeEvent { size },
+                ));
+            });
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = delay_ms;
+            let _ = size;
         }
     }
 
@@ -336,17 +371,17 @@ where
                     if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
                         canvas.resize(physical_size);
                     }
+                    let logical_size = [
+                        physical_size.width as f32 / self.scale,
+                        physical_size.height as f32 / self.scale,
+                    ];
                     self.dispatch_avenger_event(
                         AvengerWindowEvent::WindowResize(
-                            avenger_eventstream::window::WindowResizeEvent {
-                                size: [
-                                    physical_size.width as f32 / self.scale,
-                                    physical_size.height as f32 / self.scale,
-                                ],
-                            },
+                            avenger_eventstream::window::WindowResizeEvent { size: logical_size },
                         ),
                         true,
                     );
+                    self.schedule_resize_settle(logical_size);
                 }
                 WindowEvent::RedrawRequested => {
                     if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
