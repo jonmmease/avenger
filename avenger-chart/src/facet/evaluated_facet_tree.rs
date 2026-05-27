@@ -232,6 +232,17 @@ impl EvaluatedFacetTree {
         key
     }
 
+    pub(crate) fn logical_structure_cache_key(&self) -> Vec<String> {
+        let mut key = Vec::new();
+        key.push(format!("logical_depth:{:?}", self.logical_depth()));
+        let Some(root) = self.root.as_ref() else {
+            key.push("empty".to_string());
+            return key;
+        };
+        Self::push_logical_node_structure_cache_key(root, &mut Vec::new(), &mut key);
+        key
+    }
+
     fn push_node_structure_cache_key(
         node: &PartitionNode,
         path: &mut Vec<ScalarValue>,
@@ -255,6 +266,116 @@ impl EvaluatedFacetTree {
                 path.pop();
             }
         }
+    }
+
+    fn push_logical_node_structure_cache_key(
+        node: &PartitionNode,
+        logical_path: &mut Vec<ScalarValue>,
+        key: &mut Vec<String>,
+    ) {
+        if is_wrap_row_field(&node.field) {
+            Self::push_logical_wrap_node_structure_cache_key(node, logical_path, key);
+            return;
+        }
+
+        let values = node.values().cloned().collect::<Vec<_>>();
+        let observed_values = node.observed_values().cloned().collect::<Vec<_>>();
+        key.push(format!(
+            "node:path={:?};direction={:?};sharing={};field={};values={:?};observed={:?}",
+            Self::canonical_path(logical_path),
+            node.direction,
+            node.sharing,
+            node.field,
+            values,
+            observed_values
+        ));
+        if let PartitionContent::Branch { children } = &node.content {
+            for (value, child) in children {
+                logical_path.push(value.clone());
+                Self::push_logical_node_structure_cache_key(child, logical_path, key);
+                logical_path.pop();
+            }
+        }
+    }
+
+    fn push_logical_wrap_node_structure_cache_key(
+        node: &PartitionNode,
+        logical_path: &mut Vec<ScalarValue>,
+        key: &mut Vec<String>,
+    ) {
+        let mut field = wrap_value_field_name(&node.field["__avenger_wrap_row:".len()..]);
+        let mut values = Vec::new();
+        let mut observed_values = Vec::new();
+        if let PartitionContent::Branch { children } = &node.content {
+            for child in children.values() {
+                field = child.field.clone();
+                values.extend(child.values().cloned());
+                observed_values.extend(child.observed_values().cloned());
+            }
+        }
+
+        key.push(format!(
+            "wrap:path={:?};direction={:?};sharing={};field={};values={:?};observed={:?}",
+            Self::canonical_path(logical_path),
+            FacetDirection::Column,
+            node.sharing,
+            field,
+            values,
+            observed_values
+        ));
+
+        if let PartitionContent::Branch { children } = &node.content {
+            for row_child in children.values() {
+                if let PartitionContent::Branch {
+                    children: value_children,
+                } = &row_child.content
+                {
+                    for (value, value_child) in value_children {
+                        logical_path.push(value.clone());
+                        Self::push_logical_node_structure_cache_key(value_child, logical_path, key);
+                        logical_path.pop();
+                    }
+                }
+            }
+        }
+    }
+
+    pub(crate) fn logical_cell_key_for_path(&self, path: &[ScalarValue]) -> Option<Vec<String>> {
+        let mut current = self.root.as_ref()?;
+        let mut key = Vec::new();
+        for (idx, value) in path.iter().enumerate() {
+            if !is_wrap_row_field(&current.field) {
+                key.push(format!(
+                    "{}={:?}",
+                    current.field,
+                    Self::canonical_scalar(value)
+                ));
+            }
+            if idx + 1 < path.len() {
+                current = current.child(value)?;
+            }
+        }
+        Some(key)
+    }
+
+    pub(crate) fn logical_depth(&self) -> usize {
+        self.root
+            .as_ref()
+            .map(Self::count_logical_depth)
+            .unwrap_or(0)
+    }
+
+    fn count_logical_depth(node: &PartitionNode) -> usize {
+        let own_weight = usize::from(!is_wrap_row_field(&node.field));
+        let child_depth = match &node.content {
+            PartitionContent::Leaf { .. } => 0,
+            PartitionContent::Branch { children } => children
+                .values()
+                .next()
+                .map(|b| Self::count_logical_depth(b.as_ref()))
+                .unwrap_or(0),
+        };
+        own_weight + child_depth
     }
 
     // ========================================================================
@@ -2254,6 +2375,88 @@ mod tests {
         .await
     }
 
+    async fn responsive_wrap_tree_from_sql(
+        ctx: &SessionContext,
+        sql: &str,
+        available_width: f32,
+    ) -> Result<EvaluatedFacetTree, AvengerChartError> {
+        let df = ctx.sql(sql).await?;
+        let plot = Plot::<FacetWrap>::new().data(df).mark(
+            Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))))
+                .wrap_with(col("facet"), |c| c.responsive_columns(180.0)),
+        );
+        let compiled = plot.compile(ctx).await?;
+        EvaluatedFacetTree::from_compiled_plot_with_params_and_wrap_layout_context(
+            &compiled,
+            ctx,
+            compiled.get_default_params(),
+            responsive_layout_context(available_width),
+        )
+        .await
+    }
+
+    async fn ordered_responsive_wrap_tree(
+        ctx: &SessionContext,
+        order_desc: bool,
+        available_width: f32,
+    ) -> Result<EvaluatedFacetTree, AvengerChartError> {
+        use datafusion::functions_aggregate::min_max::max;
+
+        let df = responsive_wrap_data(ctx).await;
+        let plot = Plot::<FacetWrap>::new().data(df).mark(
+            Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))))
+                .wrap_with(col("facet"), move |c| {
+                    let c = c.responsive_columns(180.0).order_by(max(col("y")));
+                    if order_desc {
+                        c.order_desc()
+                    } else {
+                        c.order_asc()
+                    }
+                }),
+        );
+        let compiled = plot.compile(ctx).await?;
+        EvaluatedFacetTree::from_compiled_plot_with_params_and_wrap_layout_context(
+            &compiled,
+            ctx,
+            compiled.get_default_params(),
+            responsive_layout_context(available_width),
+        )
+        .await
+    }
+
+    async fn row_nested_responsive_wrap_tree(
+        ctx: &SessionContext,
+        available_width: f32,
+    ) -> Result<EvaluatedFacetTree, AvengerChartError> {
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('North', 'A', 0.0, 0.1),
+                    ('North', 'B', 1.0, 0.2),
+                    ('North', 'C', 2.0, 0.3),
+                    ('South', 'A', 10.0, 0.4),
+                    ('South', 'B', 11.0, 0.5),
+                    ('South', 'C', 12.0, 0.6)
+                ) AS t(region, facet, x, y)",
+            )
+            .await?;
+        let wrap = Plot::<FacetWrap>::new().mark(
+            Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))))
+                .wrap_with(col("facet"), |c| c.responsive_columns(180.0)),
+        );
+        let plot = Plot::<FacetRow>::new()
+            .data(df)
+            .mark(Subplot::new(wrap).row(col("region")));
+        let compiled = plot.compile(ctx).await?;
+        EvaluatedFacetTree::from_compiled_plot_with_params_and_wrap_layout_context(
+            &compiled,
+            ctx,
+            compiled.get_default_params(),
+            responsive_layout_context(available_width),
+        )
+        .await
+    }
+
     fn top_level_wrap_column_count(tree: &EvaluatedFacetTree) -> usize {
         let root = tree.root().expect("wrap root");
         let first_row = root.values().next().expect("first wrap row").clone();
@@ -2288,6 +2491,122 @@ mod tests {
 
         assert_eq!(top_level_wrap_column_count(&narrow), 2);
         assert_eq!(top_level_wrap_column_count(&wide), 5);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn responsive_wrap_logical_structure_ignores_physical_row_reflow()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let narrow = responsive_wrap_tree(&ctx, lit(180.0), 300.0).await?;
+        let wide = responsive_wrap_tree(&ctx, lit(180.0), 900.0).await?;
+
+        assert_ne!(narrow.structure_cache_key(), wide.structure_cache_key());
+        assert_eq!(
+            narrow.logical_structure_cache_key(),
+            wide.logical_structure_cache_key()
+        );
+        assert_eq!(narrow.logical_depth(), 1);
+        assert_eq!(wide.logical_depth(), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn responsive_wrap_logical_cell_key_skips_synthetic_row() -> Result<(), AvengerChartError>
+    {
+        let ctx = SessionContext::new();
+        let tree = responsive_wrap_tree(&ctx, lit(180.0), 300.0).await?;
+        let root = tree.root().expect("wrap root");
+        let first_row = root.values().next().expect("first row").clone();
+        let first_value = root
+            .child(&first_row)
+            .expect("wrap value node")
+            .values()
+            .next()
+            .expect("first wrap value")
+            .clone();
+        let key = tree
+            .logical_cell_key_for_path(&[first_row, first_value])
+            .expect("logical cell key");
+
+        assert_eq!(key, vec!["__avenger_wrap_value:facet=Utf8(\"A\")"]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn responsive_wrap_logical_structure_changes_when_values_change()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let base = responsive_wrap_tree_from_sql(
+            &ctx,
+            "SELECT * FROM (VALUES
+                ('A', 0.0, 0.1),
+                ('B', 1.0, 0.2),
+                ('C', 2.0, 0.3)
+            ) AS t(facet, x, y)",
+            500.0,
+        )
+        .await?;
+        let changed = responsive_wrap_tree_from_sql(
+            &ctx,
+            "SELECT * FROM (VALUES
+                ('A', 0.0, 0.1),
+                ('B', 1.0, 0.2),
+                ('D', 2.0, 0.3)
+            ) AS t(facet, x, y)",
+            500.0,
+        )
+        .await?;
+
+        assert_ne!(
+            base.logical_structure_cache_key(),
+            changed.logical_structure_cache_key()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn responsive_wrap_logical_structure_changes_when_order_changes()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let asc = ordered_responsive_wrap_tree(&ctx, false, 900.0).await?;
+        let desc = ordered_responsive_wrap_tree(&ctx, true, 900.0).await?;
+
+        assert_ne!(
+            asc.logical_structure_cache_key(),
+            desc.logical_structure_cache_key()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn nested_row_wrap_logical_cell_key_includes_row_and_wrap_value()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let tree = row_nested_responsive_wrap_tree(&ctx, 500.0).await?;
+        let root = tree.root().expect("row root");
+        let row_value = root.values().next().expect("first row").clone();
+        let wrap_root = root.child(&row_value).expect("wrap root");
+        let wrap_row = wrap_root.values().next().expect("first wrap row").clone();
+        let wrap_value = wrap_root
+            .child(&wrap_row)
+            .expect("wrap row child")
+            .values()
+            .next()
+            .expect("first wrap value")
+            .clone();
+        let key = tree
+            .logical_cell_key_for_path(&[row_value, wrap_row, wrap_value])
+            .expect("logical cell key");
+
+        assert_eq!(
+            key,
+            vec![
+                "region=Utf8(\"North\")",
+                "__avenger_wrap_value:facet=Utf8(\"A\")"
+            ]
+        );
+        assert_eq!(tree.logical_depth(), 2);
         Ok(())
     }
 

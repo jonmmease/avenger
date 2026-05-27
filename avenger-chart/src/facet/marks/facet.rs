@@ -1215,7 +1215,7 @@ impl CompiledMark for CompiledFacetColumnSubplot {
     ///
     /// Uses the coordinate-system measurement from RenderContext (computed by FacetColumn)
     /// and the already-adjusted column scale to resolve deterministic band positions,
-    /// then renders each subplot using its cached measurement.
+    /// then renders each subplot using its prepared child measurement.
     async fn render_from_data(
         &self,
         _data: Option<&datafusion::arrow::record_batch::RecordBatch>,

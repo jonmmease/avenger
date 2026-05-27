@@ -824,6 +824,7 @@ async fn collect_positioned_child_frame_domain_infos_for_mark(
     let partition_values = Box::pin(PartitionKeyExtractor::extract_keys(
         parent_data,
         &partition_expr,
+        &eval_ctx.params,
     ))
     .await?;
     let child_plot = compiled_subplot_payload_child_plot(subplot.payload());

@@ -70,8 +70,8 @@ use crate::{
     render::{
         CoordinationCheckpoint, EvaluatedPlot, EvaluationContext, EvaluationMetrics,
         EvaluationOptions, FacetSubtreeCheckpoint, FacetSubtreeSelector, FacetSubtreeSnapshot,
-        LayoutDebugOverlayMode, LayoutSnapshot, LayoutSolution, RefinementCheckpoint,
-        RenderContext, WholeChartSnapshot,
+        LayoutDebugOverlayMode, LayoutSnapshot, LayoutSolution, PreviewProfileFallbackReason,
+        RefinementCheckpoint, RenderContext, WholeChartSnapshot,
         debug::{FrameDebugOverlay, create_debug_layout_rects, create_debug_overlay_rects},
     },
     scales::ConfiguredScaleWithSpec,
@@ -81,7 +81,7 @@ use crate::{
 
 use super::{
     ChildFrameContainerView, ChildFrameSharingPath, CompiledPlot, ComponentsMeasurement,
-    MarkDataRequest, PlotComponents, PreparedMarkData,
+    LayoutProfileSnapshot, MarkDataRequest, PlotComponents, PreparedMarkData,
     legends::{HoistedLegendAnchor, HoistedLegendRequest, LegendPlanScope, PreparedLegendPlan},
     prepare_mark_data_runtime,
     scale_provider::{DynamicScaleProvider, ScaleProvider},
@@ -114,8 +114,28 @@ enum ResolvedChartSizing {
 
 struct EvaluationOutcome {
     evaluated: EvaluatedPlot,
-    measurement: Option<ComponentsMeasurement>,
-    facet_tree_structure: Option<Vec<String>>,
+    layout_profile: Option<LayoutProfileSnapshot>,
+}
+
+pub(crate) struct PreviewLayoutProfileAttempt {
+    pub(crate) reused: Option<(EvaluatedPlot, EvaluationMetrics)>,
+    pub(crate) fallback_reasons: Vec<PreviewProfileFallbackReason>,
+}
+
+impl PreviewLayoutProfileAttempt {
+    fn reused(evaluated: EvaluatedPlot, metrics: EvaluationMetrics) -> Self {
+        Self {
+            reused: Some((evaluated, metrics)),
+            fallback_reasons: Vec::new(),
+        }
+    }
+
+    fn fallback(reason: PreviewProfileFallbackReason) -> Self {
+        Self {
+            reused: None,
+            fallback_reasons: vec![reason],
+        }
+    }
 }
 
 impl ResolvedChartSizing {
@@ -4293,7 +4313,7 @@ impl CompiledPlot {
             legend_measurement_cache,
             text_measurement_cache,
         ) = new_plot_session_cache_handles();
-        let (evaluated, metrics, _, _) = Box::pin(
+        let (evaluated, metrics, _) = Box::pin(
             self.evaluate_with_options_and_metrics_with_scale_domain_cache(
                 ctx,
                 params,
@@ -4325,8 +4345,7 @@ impl CompiledPlot {
         (
             EvaluatedPlot,
             EvaluationMetrics,
-            Option<ComponentsMeasurement>,
-            Option<Vec<String>>,
+            Option<LayoutProfileSnapshot>,
         ),
         AvengerChartError,
     > {
@@ -4342,18 +4361,14 @@ impl CompiledPlot {
             guide_overflow_cache,
             legend_measurement_cache,
             text_measurement_cache,
+            None,
         ))
         .await?;
         let metrics = metrics
             .lock()
             .expect("evaluation metrics lock poisoned")
             .clone();
-        Ok((
-            outcome.evaluated,
-            metrics,
-            outcome.measurement,
-            outcome.facet_tree_structure,
-        ))
+        Ok((outcome.evaluated, metrics, outcome.layout_profile))
     }
 
     async fn evaluate_with_options_internal(
@@ -4368,6 +4383,7 @@ impl CompiledPlot {
         guide_overflow_cache: Option<GuideOverflowCacheHandle>,
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
+        layout_profile: Option<Arc<LayoutProfileSnapshot>>,
     ) -> Result<EvaluationOutcome, AvengerChartError> {
         // Merge provided params with defaults
         let merged_params = if let Some(provided) = params {
@@ -4439,7 +4455,6 @@ impl CompiledPlot {
             depth = facet_tree.depth(),
             "evaluated facet tree construction completed"
         );
-        let facet_tree_structure = facet_tree.structure_cache_key();
         let facet_scale_precompute_store = facet_scale_precompute_cache
             .as_ref()
             .filter(|_| facet_tree.depth() > 0)
@@ -4565,6 +4580,9 @@ impl CompiledPlot {
         if let Some(cache) = &text_measurement_cache {
             eval_ctx = eval_ctx.with_text_measurement_cache(cache.clone());
         }
+        if let Some(profile) = layout_profile {
+            eval_ctx = eval_ctx.with_layout_profile(profile);
+        }
         if let Some(store) = facet_scale_precompute_store {
             eval_ctx = eval_ctx.with_facet_scale_precompute_store(store);
         }
@@ -4598,8 +4616,7 @@ impl CompiledPlot {
                     })?;
                     return Ok(EvaluationOutcome {
                         evaluated: Self::pad_facet_subtree_snapshot(evaluated),
-                        measurement: None,
-                        facet_tree_structure: None,
+                        layout_profile: None,
                     });
                 }
                 FacetSubtreeCheckpoint::LocalRetargetedLayout => {}
@@ -4633,8 +4650,7 @@ impl CompiledPlot {
                 .await?;
             return Ok(EvaluationOutcome {
                 evaluated,
-                measurement: None,
-                facet_tree_structure: None,
+                layout_profile: None,
             });
         }
 
@@ -4670,26 +4686,36 @@ impl CompiledPlot {
         .await?;
 
         let evaluated = self.components_to_evaluated_plot(&eval_ctx, components);
+        let layout_profile = LayoutProfileSnapshot::new(
+            measurement,
+            Some(facet_tree.as_ref()),
+            ctx,
+            &eval_ctx.params,
+        );
         Ok(EvaluationOutcome {
             evaluated,
-            measurement: Some(measurement),
-            facet_tree_structure: Some(facet_tree_structure),
+            layout_profile: Some(layout_profile),
         })
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn evaluate_preview_with_cached_measurement_and_metrics(
+    pub(crate) async fn evaluate_preview_with_layout_profile_and_metrics(
         &self,
         ctx: &SessionContext,
         params: Option<IndexMap<String, ScalarValue>>,
         options: EvaluationOptions,
-        cached_measurement: &ComponentsMeasurement,
-        expected_facet_tree_structure: Option<&[String]>,
+        layout_profile: &LayoutProfileSnapshot,
         scale_domain_cache: ScaleDomainCacheHandle,
         facet_semantic_cache: FacetSemanticCacheHandle,
-    ) -> Result<Option<(EvaluatedPlot, EvaluationMetrics)>, AvengerChartError> {
+        facet_scale_precompute_cache: FacetScalePrecomputeCacheHandle,
+        guide_overflow_cache: Option<GuideOverflowCacheHandle>,
+        legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
+        text_measurement_cache: Option<TextMeasurementCacheHandle>,
+    ) -> Result<PreviewLayoutProfileAttempt, AvengerChartError> {
         if options.layout_snapshot != LayoutSnapshot::Final {
-            return Ok(None);
+            return Ok(PreviewLayoutProfileAttempt::fallback(
+                PreviewProfileFallbackReason::NonFinalSnapshot,
+            ));
         }
 
         let metrics = Arc::new(Mutex::new(EvaluationMetrics::default()));
@@ -4739,9 +4765,61 @@ impl CompiledPlot {
             .expect("facet semantic cache lock poisoned")
             .merge_from(slot_cache);
 
-        let facet_tree_structure = facet_tree.structure_cache_key();
-        if expected_facet_tree_structure != Some(facet_tree_structure.as_slice()) {
-            return Ok(None);
+        if !layout_profile.physical_structure_matches(&facet_tree) {
+            if facet_tree.has_wrap_levels() && layout_profile.logical_structure_matches(&facet_tree)
+            {
+                if layout_profile.facet_cell_profile_count() == 0 {
+                    Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                        metrics.record_preview_structure_reflow_miss();
+                    });
+                    return Ok(PreviewLayoutProfileAttempt::fallback(
+                        PreviewProfileFallbackReason::MissingTerminalProfile,
+                    ));
+                }
+                Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                    metrics.record_preview_structure_reflow_reuse();
+                });
+                let outcome = Box::pin(self.evaluate_with_options_internal(
+                    ctx,
+                    Some(merged_params),
+                    options,
+                    Some(metrics.clone()),
+                    Some(scale_domain_cache),
+                    Some(facet_semantic_cache),
+                    Some(facet_scale_precompute_cache),
+                    guide_overflow_cache,
+                    legend_measurement_cache,
+                    text_measurement_cache,
+                    Some(Arc::new(layout_profile.clone())),
+                ))
+                .await?;
+                let skipped_cell_measurements = metrics
+                    .lock()
+                    .expect("evaluation metrics lock poisoned")
+                    .pipeline
+                    .facet_cell_measurement_profile_reuses;
+                Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                    metrics.record_preview_profile_reuse();
+                    metrics.record_skipped_component_measure_calls(skipped_cell_measurements);
+                });
+                let metrics = metrics
+                    .lock()
+                    .expect("evaluation metrics lock poisoned")
+                    .clone();
+                return Ok(PreviewLayoutProfileAttempt::reused(
+                    outcome.evaluated,
+                    metrics,
+                ));
+            }
+            Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                metrics.record_preview_structure_reflow_miss();
+            });
+            let reason = if facet_tree.has_wrap_levels() {
+                PreviewProfileFallbackReason::LogicalStructureMismatch
+            } else {
+                PreviewProfileFallbackReason::PhysicalStructureMismatch
+            };
+            return Ok(PreviewLayoutProfileAttempt::fallback(reason));
         }
 
         let measured_layout_spec = Self::layout_spec_for_resolved_chart_sizing(
@@ -4766,7 +4844,7 @@ impl CompiledPlot {
         .with_scale_domain_cache(scale_domain_cache.clone())
         .with_evaluation_metrics(metrics.clone());
 
-        let mut measurement = cached_measurement.clone();
+        let mut measurement = layout_profile.measurement.clone();
         let old_canvas_size = measurement.canvas_size;
         let target_plot_area_width = if dimensions.width.is_plot_area() {
             dimensions.width_value()
@@ -4879,7 +4957,7 @@ impl CompiledPlot {
             .lock()
             .expect("evaluation metrics lock poisoned")
             .clone();
-        Ok(Some((evaluated, metrics)))
+        Ok(PreviewLayoutProfileAttempt::reused(evaluated, metrics))
     }
 }
 

@@ -424,12 +424,17 @@ async fn facet_wrap_preview_width_resize_flow() {
             .expect("preview responsive wrap width evaluation");
 
         assert_eq!(metrics.mode, EvaluationMode::Preview);
-        assert_eq!(metrics.pipeline.preview_profile_reuses, 0);
-        assert_eq!(metrics.pipeline.preview_profile_misses, 1);
-        assert_eq!(metrics.pipeline.preview_fallbacks, 1);
+        assert_eq!(metrics.pipeline.preview_profile_reuses, 1);
+        assert_eq!(metrics.pipeline.preview_profile_misses, 0);
+        assert_eq!(metrics.pipeline.preview_fallbacks, 0);
+        assert_eq!(metrics.pipeline.preview_structure_reflow_reuses, 1);
+        assert!(
+            metrics.pipeline.facet_cell_measurement_profile_reuses > 0,
+            "responsive wrap preview should reuse terminal cell profiles"
+        );
         assert!(
             metrics.facet_layout.plot_component_measure_calls > 0,
-            "responsive wrap structure changes should fall back to exact measurement"
+            "responsive wrap structure changes should rebuild container layout"
         );
         assert!(
             (evaluated.scene_graph.width - width as f32).abs() <= 0.01,

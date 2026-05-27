@@ -16,7 +16,7 @@ use datafusion::{
 use datafusion_common::tree_node::{TreeNode, TreeNodeRecursion};
 use indexmap::IndexMap;
 
-use avenger_chart_core::{contains_aggregate, scalar_total_cmp};
+use avenger_chart_core::{contains_aggregate, params_to_datafusion, scalar_total_cmp};
 
 use crate::{error::AvengerChartError, facet::FacetDirection};
 
@@ -225,11 +225,11 @@ impl PartitionDimensionSpec {
         if let Some(parent_filter) = parent_filter {
             let df_filtered = df.clone().filter(parent_filter)?;
             let values =
-                PartitionKeyExtractor::extract_keys(&df_filtered, &self.field_expr).await?;
+                PartitionKeyExtractor::extract_keys(&df_filtered, &self.field_expr, params).await?;
             slot_cache.insert(cache_key, values.clone());
             Ok(values)
         } else {
-            let values = PartitionKeyExtractor::extract_keys(df, &self.field_expr).await?;
+            let values = PartitionKeyExtractor::extract_keys(df, &self.field_expr, params).await?;
             slot_cache.insert(cache_key, values.clone());
             Ok(values)
         }
@@ -258,6 +258,7 @@ impl PartitionDimensionSpec {
             &self.field_expr,
             self.order_expr.as_ref(),
             self.order_descending,
+            params,
         )
         .await?;
         slot_cache.insert(cache_key, values.clone());
@@ -356,10 +357,11 @@ impl PartitionKeyExtractor {
     pub async fn extract_keys(
         df: &DataFrame,
         expr: &Expr,
+        params: &IndexMap<String, ScalarValue>,
     ) -> Result<Vec<ScalarValue>, AvengerChartError> {
         let distinct_df = df.clone().select(vec![expr.clone()])?.distinct()?;
 
-        let batches = distinct_df.collect().await?;
+        let batches = Self::collect_with_params(distinct_df, params).await?;
         let mut values = Self::scalar_column_to_vec(&batches, 0)?;
         values.sort_by(scalar_total_cmp);
 
@@ -371,15 +373,16 @@ impl PartitionKeyExtractor {
         key_expr: &Expr,
         order_expr: Option<&Expr>,
         order_descending: bool,
+        params: &IndexMap<String, ScalarValue>,
     ) -> Result<Vec<ScalarValue>, AvengerChartError> {
         let Some(order_expr) = order_expr else {
-            return Self::extract_keys(df, key_expr).await;
+            return Self::extract_keys(df, key_expr, params).await;
         };
 
         validate_order_expr(key_expr, order_expr)?;
 
         if !contains_aggregate(order_expr) {
-            let mut values = Self::extract_keys(df, key_expr).await?;
+            let mut values = Self::extract_keys(df, key_expr, params).await?;
             if order_expr_matches_partition(key_expr, order_expr) && order_descending {
                 values.sort_by(|a, b| scalar_total_cmp(b, a));
             }
@@ -390,7 +393,7 @@ impl PartitionKeyExtractor {
             vec![key_expr.clone()],
             vec![order_expr.clone().alias("__facet_order")],
         )?;
-        let batches = ordered_df.collect().await?;
+        let batches = Self::collect_with_params(ordered_df, params).await?;
         let mut keyed_values = Self::scalar_columns_to_pairs(&batches, 0, 1)?;
 
         keyed_values.sort_by(|(lhs_key, lhs_order), (rhs_key, rhs_order)| {
@@ -414,6 +417,18 @@ impl PartitionKeyExtractor {
         }
 
         Ok(values)
+    }
+
+    async fn collect_with_params(
+        df: DataFrame,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<Vec<RecordBatch>, AvengerChartError> {
+        let batches = if let Some(param_values) = params_to_datafusion(params) {
+            df.with_param_values(param_values)?.collect().await?
+        } else {
+            df.collect().await?
+        };
+        Ok(batches)
     }
 
     fn scalar_column_to_vec(
@@ -835,10 +850,15 @@ mod tests {
     async fn partition_key_extractor_default_ordering_sorts_by_partition_value() {
         let ctx = SessionContext::new();
         let df = ordered_key_df(&ctx);
-        let values =
-            PartitionKeyExtractor::extract_ordered_keys(&df, &col("category"), None, false)
-                .await
-                .expect("default ordered keys");
+        let values = PartitionKeyExtractor::extract_ordered_keys(
+            &df,
+            &col("category"),
+            None,
+            false,
+            &IndexMap::new(),
+        )
+        .await
+        .expect("default ordered keys");
 
         assert_eq!(
             values,
@@ -856,6 +876,7 @@ mod tests {
             &col("category"),
             Some(&max(col("value"))),
             false,
+            &IndexMap::new(),
         )
         .await
         .expect("ascending aggregate order");
@@ -869,6 +890,7 @@ mod tests {
             &col("category"),
             Some(&max(col("value"))),
             true,
+            &IndexMap::new(),
         )
         .await
         .expect("descending aggregate order");
@@ -900,6 +922,7 @@ mod tests {
             &col("category"),
             Some(&max(col("value"))),
             true,
+            &IndexMap::new(),
         )
         .await
         .expect("aggregate order with ties");
@@ -920,6 +943,7 @@ mod tests {
             &col("category"),
             Some(&lit("constant")),
             true,
+            &IndexMap::new(),
         )
         .await
         .expect("literal order");
@@ -933,6 +957,7 @@ mod tests {
             &col("category"),
             Some(&col("category")),
             true,
+            &IndexMap::new(),
         )
         .await
         .expect("partition expression order");
@@ -952,6 +977,7 @@ mod tests {
             &col("category"),
             Some(&col("other")),
             false,
+            &IndexMap::new(),
         )
         .await
         .expect_err("invalid non-aggregate order expression");

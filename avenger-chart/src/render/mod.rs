@@ -15,6 +15,6 @@ pub use types::{
     CoordinationCheckpoint, EvaluatedPlot, EvaluationMetrics, EvaluationMode, EvaluationOptions,
     FacetLayoutMetrics, FacetLayoutRefinement, FacetSubtreeCheckpoint, FacetSubtreeSelector,
     FacetSubtreeSnapshot, LayoutDebugOverlayMode, LayoutSnapshot, LayoutSolution,
-    LegendMeasurements, RefinementCheckpoint, WholeChartSnapshot,
+    LegendMeasurements, PreviewProfileFallbackReason, RefinementCheckpoint, WholeChartSnapshot,
 };
 pub use wgpu::WgpuRenderer;

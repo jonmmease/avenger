@@ -39,13 +39,13 @@ use crate::{
     plot::compiled::ChildFrameSharingPath,
     render::{
         EvaluatedPlot, EvaluationMetrics, EvaluationMode, EvaluationOptions,
-        types::LegendMeasurement,
+        PreviewProfileFallbackReason, types::LegendMeasurement,
     },
     scales::ConfiguredScaleWithSpec,
 };
 
 use super::{
-    CompiledPlot, ComponentsMeasurement, compiled_subplot_payload_child_plot,
+    CompiledPlot, LayoutProfileSnapshot, compiled_subplot_payload_child_plot,
     legends::PreparedLegendGroup,
 };
 
@@ -322,8 +322,7 @@ pub struct PlotSession {
     ctx: Arc<SessionContext>,
     current_params: IndexMap<String, ScalarValue>,
     last_request: Option<EvaluationRequestSummary>,
-    last_measurement: Option<ComponentsMeasurement>,
-    last_facet_tree_structure: Option<Vec<String>>,
+    layout_profile: Option<LayoutProfileSnapshot>,
     last_metrics: Option<EvaluationMetrics>,
     scale_domain_cache: ScaleDomainCacheHandle,
     facet_semantic_cache: FacetSemanticCacheHandle,
@@ -349,8 +348,7 @@ impl PlotSession {
             ctx,
             current_params,
             last_request: None,
-            last_measurement: None,
-            last_facet_tree_structure: None,
+            layout_profile: None,
             last_metrics: None,
             scale_domain_cache,
             facet_semantic_cache,
@@ -400,23 +398,25 @@ impl PlotSession {
         let use_measurement_profile_caches = mode != EvaluationMode::ForceRemeasure;
 
         if mode == EvaluationMode::Preview {
-            if let (Some(measurement), Some(facet_tree_structure)) = (
-                self.last_measurement.as_ref(),
-                self.last_facet_tree_structure.as_deref(),
-            ) {
-                if let Some((evaluated, mut metrics)) = self
+            let mut preview_fallback_reasons = Vec::new();
+            if let Some(layout_profile) = self.layout_profile.as_ref() {
+                let attempt = self
                     .program
-                    .evaluate_preview_with_cached_measurement_and_metrics(
+                    .evaluate_preview_with_layout_profile_and_metrics(
                         self.ctx.as_ref(),
                         Some(next_params.clone()),
                         request.options.clone(),
-                        measurement,
-                        Some(facet_tree_structure),
+                        layout_profile,
                         self.scale_domain_cache.clone(),
                         self.facet_semantic_cache.clone(),
+                        self.facet_scale_precompute_cache.clone(),
+                        use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
+                        use_measurement_profile_caches
+                            .then(|| self.legend_measurement_cache.clone()),
+                        use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
                     )
-                    .await?
-                {
+                    .await?;
+                if let Some((evaluated, mut metrics)) = attempt.reused {
                     metrics.mode = mode;
                     self.current_params = next_params.clone();
                     self.last_request = Some(EvaluationRequestSummary {
@@ -426,9 +426,12 @@ impl PlotSession {
                     self.last_metrics = Some(metrics.clone());
                     return Ok((evaluated, metrics));
                 }
+                preview_fallback_reasons.extend(attempt.fallback_reasons);
+            } else {
+                preview_fallback_reasons.push(PreviewProfileFallbackReason::NoPriorProfile);
             }
 
-            let (evaluated, mut metrics, measurement, facet_tree_structure) = self
+            let (evaluated, mut metrics, layout_profile) = self
                 .program
                 .evaluate_with_options_and_metrics_with_scale_domain_cache(
                     self.ctx.as_ref(),
@@ -445,18 +448,28 @@ impl PlotSession {
             metrics.mode = mode;
             metrics.record_preview_profile_miss();
             metrics.record_preview_fallback();
+            if preview_fallback_reasons.iter().any(|reason| {
+                matches!(
+                    reason,
+                    PreviewProfileFallbackReason::PhysicalStructureMismatch
+                        | PreviewProfileFallbackReason::LogicalStructureMismatch
+                        | PreviewProfileFallbackReason::MissingTerminalProfile
+                )
+            }) {
+                metrics.record_preview_structure_reflow_miss();
+            }
+            metrics.record_preview_profile_fallback_reasons(preview_fallback_reasons);
             self.current_params = next_params.clone();
             self.last_request = Some(EvaluationRequestSummary {
                 mode,
                 params: next_params,
             });
-            self.last_measurement = measurement;
-            self.last_facet_tree_structure = facet_tree_structure;
+            self.layout_profile = layout_profile;
             self.last_metrics = Some(metrics.clone());
             return Ok((evaluated, metrics));
         }
 
-        let (evaluated, mut metrics, measurement, facet_tree_structure) = self
+        let (evaluated, mut metrics, layout_profile) = self
             .program
             .evaluate_with_options_and_metrics_with_scale_domain_cache(
                 self.ctx.as_ref(),
@@ -476,8 +489,7 @@ impl PlotSession {
             mode,
             params: next_params,
         });
-        self.last_measurement = measurement;
-        self.last_facet_tree_structure = facet_tree_structure;
+        self.layout_profile = layout_profile;
         self.last_metrics = Some(metrics.clone());
         Ok((evaluated, metrics))
     }
@@ -705,6 +717,24 @@ fn facet_scale_precompute_dependency_params(
     let mut names = BTreeSet::new();
     collect_plot_dependency_placeholders(plot, ctx, &mut names, &all_param_names);
     names
+}
+
+pub(crate) fn plot_dependency_param_fingerprint(
+    plot: &CompiledPlot,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+) -> Vec<(String, String)> {
+    facet_scale_precompute_dependency_params(plot, ctx, params)
+        .into_iter()
+        .map(|name| {
+            let value = params
+                .get(&name)
+                .or_else(|| params.get(&format!("${name}")))
+                .map(|value| format!("{value:?}"))
+                .unwrap_or_else(|| "<missing>".to_string());
+            (name, value)
+        })
+        .collect()
 }
 
 fn configured_scale_signature(scale: &ConfiguredScaleWithSpec) -> String {
@@ -1249,6 +1279,161 @@ mod tests {
             .await
     }
 
+    async fn compile_responsive_wrap_width_and_child_scale_param_cache_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let width = Param::new("width", ScalarValue::Float64(Some(420.0)));
+        let scale_factor = Param::new("scale_factor", ScalarValue::Float64(Some(1.0)));
+        let child_scale_factor = scale_factor.clone();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('A', 1.0, 2.0), ('B', 2.0, 3.0), ('C', 3.0, 4.0),
+                    ('D', 4.0, 5.0), ('E', 5.0, 6.0), ('F', 6.0, 7.0)
+                ) AS t(facet, x, y)",
+            )
+            .await?;
+        Plot::<FacetWrap>::new()
+            .add_param(width.clone())
+            .add_param(scale_factor.clone())
+            .canvas_constraint(CanvasConstraint::width(width.expr()))
+            .plot_constraint(PlotConstraint::height(120.0))
+            .data(df)
+            .mark(
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(
+                        Symbol::new()
+                            .x(col("x") * child_scale_factor.expr())
+                            .y(col("y"))
+                            .size(20.0)
+                            .fill("#4682b4"),
+                    ),
+                )
+                .wrap_with(col("facet"), |c| c.responsive_columns(180.0)),
+            )
+            .compile(ctx)
+            .await
+    }
+
+    async fn compile_ordered_responsive_wrap_width_param_cache_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        use datafusion::functions_aggregate::min_max::max;
+
+        let width = Param::new("width", ScalarValue::Float64(Some(420.0)));
+        let order_factor = Param::new("order_factor", ScalarValue::Float64(Some(1.0)));
+        let order_expr = order_factor.clone();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('A', 1.0, 2.0, 1.0), ('B', 2.0, 3.0, 2.0),
+                    ('C', 3.0, 4.0, 3.0), ('D', 4.0, 5.0, 4.0),
+                    ('E', 5.0, 6.0, 5.0), ('F', 6.0, 7.0, 6.0)
+                ) AS t(facet, x, y, score)",
+            )
+            .await?;
+        Plot::<FacetWrap>::new()
+            .add_param(width.clone())
+            .add_param(order_factor.clone())
+            .canvas_constraint(CanvasConstraint::width(width.expr()))
+            .plot_constraint(PlotConstraint::height(120.0))
+            .data(df)
+            .mark(
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(
+                        Symbol::new()
+                            .x(col("x"))
+                            .y(col("y"))
+                            .size(20.0)
+                            .fill("#4682b4"),
+                    ),
+                )
+                .wrap_with(col("facet"), move |c| {
+                    c.responsive_columns(180.0)
+                        .order_by(max(col("score") * order_expr.expr()))
+                        .order_desc()
+                }),
+            )
+            .compile(ctx)
+            .await
+    }
+
+    async fn compile_row_nested_responsive_wrap_width_param_cache_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let width = Param::new("width", ScalarValue::Float64(Some(520.0)));
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('North', 'A', 1.0, 2.0), ('North', 'B', 2.0, 3.0),
+                    ('North', 'C', 3.0, 4.0), ('North', 'D', 4.0, 5.0),
+                    ('North', 'E', 5.0, 6.0),
+                    ('South', 'B', 2.5, 3.5), ('South', 'C', 3.5, 4.5),
+                    ('South', 'D', 4.5, 5.5), ('South', 'E', 5.5, 6.5),
+                    ('South', 'F', 6.5, 7.5)
+                ) AS t(region, facet, x, y)",
+            )
+            .await?;
+        let wrap = Plot::<FacetWrap>::new().mark(
+            Subplot::new(
+                Plot::<Cartesian>::new().mark(
+                    Symbol::new()
+                        .x(col("x"))
+                        .y(col("y"))
+                        .size(20.0)
+                        .fill("#4682b4"),
+                ),
+            )
+            .wrap_with(col("facet"), |c| c.responsive_columns(160.0)),
+        );
+        Plot::<FacetRow>::new()
+            .add_param(width.clone())
+            .canvas_constraint(CanvasConstraint::width(width.expr()))
+            .plot_constraint(PlotConstraint::height(120.0))
+            .data(df)
+            .mark(Subplot::new(wrap).row(col("region")))
+            .compile(ctx)
+            .await
+    }
+
+    async fn compile_column_nested_responsive_wrap_width_param_cache_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let width = Param::new("width", ScalarValue::Float64(Some(520.0)));
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('North', 'A', 1.0, 2.0), ('North', 'B', 2.0, 3.0),
+                    ('North', 'C', 3.0, 4.0), ('North', 'D', 4.0, 5.0),
+                    ('North', 'E', 5.0, 6.0), ('North', 'F', 6.0, 7.0),
+                    ('South', 'A', 1.5, 2.5), ('South', 'B', 2.5, 3.5),
+                    ('South', 'C', 3.5, 4.5), ('South', 'D', 4.5, 5.5),
+                    ('South', 'E', 5.5, 6.5), ('South', 'F', 6.5, 7.5)
+                ) AS t(region, facet, x, y)",
+            )
+            .await?;
+        let wrap = Plot::<FacetWrap>::new().mark(
+            Subplot::new(
+                Plot::<Cartesian>::new().mark(
+                    Symbol::new()
+                        .x(col("x"))
+                        .y(col("y"))
+                        .size(20.0)
+                        .fill("#4682b4"),
+                ),
+            )
+            .wrap_with(col("facet"), |c| c.responsive_columns(160.0)),
+        );
+        Plot::<FacetColumn>::new()
+            .add_param(width.clone())
+            .canvas_constraint(CanvasConstraint::width(width.expr()))
+            .plot_constraint(PlotConstraint::height(120.0))
+            .data(df)
+            .mark(Subplot::new(wrap).column(col("region")))
+            .compile(ctx)
+            .await
+    }
+
     async fn compile_positioned_child_width_param_scale_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
@@ -1334,8 +1519,8 @@ mod tests {
             Some(EvaluationMode::Exact)
         );
         assert!(
-            session.last_measurement.is_some(),
-            "exact session evaluation should retain the final component measurement"
+            session.layout_profile.is_some(),
+            "exact session evaluation should retain the final layout profile"
         );
 
         Ok(())
@@ -1635,7 +1820,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn plot_session_preview_reuses_last_measurement_for_width_change()
+    async fn plot_session_preview_reuses_layout_profile_for_width_change()
     -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(compile_width_param_scale_cache_plot(&ctx).await?);
@@ -1670,7 +1855,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn plot_session_preview_reuses_last_measurement_for_domain_param_change()
+    async fn plot_session_preview_reuses_layout_profile_for_domain_param_change()
     -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(compile_pan_zoom_param_preview_plot(&ctx).await?);
@@ -1721,13 +1906,17 @@ mod tests {
         assert_eq!(preview.pipeline.preview_profile_reuses, 0);
         assert_eq!(preview.pipeline.preview_profile_misses, 1);
         assert_eq!(preview.pipeline.preview_fallbacks, 1);
+        assert_eq!(
+            preview.pipeline.preview_profile_fallback_reasons,
+            vec![PreviewProfileFallbackReason::NoPriorProfile]
+        );
         assert!(
             preview.facet_layout.plot_component_measure_calls > 0,
             "preview without a warm measurement should fall back to exact measurement"
         );
         assert_eq!(evaluated.scene_graph.width, 640.0);
         assert!(
-            session.last_measurement.is_some(),
+            session.layout_profile.is_some(),
             "fallback exact measurement should warm future preview requests"
         );
 
@@ -1735,10 +1924,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn plot_session_preview_falls_back_when_responsive_wrap_structure_changes()
+    async fn plot_session_preview_falls_back_when_responsive_wrap_logical_structure_changes()
     -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
-        let compiled = Arc::new(compile_responsive_wrap_width_param_cache_plot(&ctx).await?);
+        let compiled =
+            Arc::new(compile_ordered_responsive_wrap_width_param_cache_plot(&ctx).await?);
         let mut session = compiled.instantiate(ctx);
 
         let (_evaluated, exact) = session
@@ -1746,7 +1936,55 @@ mod tests {
             .await?;
         assert!(
             exact.facet_layout.plot_component_measure_calls > 0,
+            "warm exact evaluation should build the initial ordered wrap profile"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(900.0)));
+        patch.insert("order_factor".to_string(), ScalarValue::Float64(Some(-1.0)));
+        let (_evaluated, preview) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(preview.pipeline.preview_profile_reuses, 0);
+        assert_eq!(preview.pipeline.preview_profile_misses, 1);
+        assert_eq!(preview.pipeline.preview_fallbacks, 1);
+        assert_eq!(preview.pipeline.preview_structure_reflow_misses, 1);
+        assert_eq!(
+            preview.pipeline.preview_profile_fallback_reasons,
+            vec![PreviewProfileFallbackReason::LogicalStructureMismatch]
+        );
+        assert!(
+            preview.facet_layout.plot_component_measure_calls > 0,
+            "logical slot/order changes should use exact fallback, not stale cell profiles"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_preview_facet_cell_measurement_profile_reflows_responsive_wrap_structure()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_responsive_wrap_width_param_cache_plot(&ctx).await?);
+        let mut session = compiled.clone().instantiate(ctx.clone());
+
+        let (_evaluated, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            exact.facet_layout.plot_component_measure_calls > 0,
             "warm exact evaluation should build the initial responsive-wrap measurement"
+        );
+        assert_eq!(
+            session
+                .layout_profile
+                .as_ref()
+                .expect("warm exact layout profile")
+                .facet_cell_profile_count(),
+            6,
+            "top-level wrap profile should index only terminal child cells"
         );
 
         let mut patch = IndexMap::new();
@@ -1756,12 +1994,169 @@ mod tests {
             .await?;
 
         assert_eq!(preview.mode, EvaluationMode::Preview);
-        assert_eq!(preview.pipeline.preview_profile_reuses, 0);
-        assert_eq!(preview.pipeline.preview_profile_misses, 1);
-        assert_eq!(preview.pipeline.preview_fallbacks, 1);
+        assert_eq!(preview.pipeline.preview_profile_reuses, 1);
+        assert_eq!(preview.pipeline.preview_profile_misses, 0);
+        assert_eq!(preview.pipeline.preview_fallbacks, 0);
+        assert_eq!(preview.pipeline.preview_structure_reflow_reuses, 1);
+        assert_eq!(preview.pipeline.preview_structure_reflow_misses, 0);
+        assert!(
+            preview.pipeline.facet_cell_measurement_profile_reuses > 0,
+            "changed wrap structure should reuse terminal cell measurement profiles"
+        );
         assert!(
             preview.facet_layout.plot_component_measure_calls > 0,
-            "changed wrap structure should use the safe exact fallback"
+            "changed wrap structure should rebuild container layout"
+        );
+
+        let (settled, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        let mut one_shot_params = IndexMap::new();
+        one_shot_params.insert("width".to_string(), ScalarValue::Float64(Some(900.0)));
+        let one_shot = compiled
+            .evaluate(ctx.as_ref(), Some(one_shot_params))
+            .await?;
+        assert_eq!(exact.mode, EvaluationMode::Exact);
+        assert_eq!(settled.scene_graph.width, one_shot.scene_graph.width);
+        assert_eq!(settled.scene_graph.height, one_shot.scene_graph.height);
+        assert_eq!(
+            settled.scene_graph.marks.len(),
+            one_shot.scene_graph.marks.len()
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn facet_cell_measurement_profile_misses_when_child_dependency_param_changes()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled =
+            Arc::new(compile_responsive_wrap_width_and_child_scale_param_cache_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let (_evaluated, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            exact.facet_layout.plot_component_measure_calls > 0,
+            "warm exact evaluation should build cell profiles"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(900.0)));
+        patch.insert("scale_factor".to_string(), ScalarValue::Float64(Some(2.0)));
+        let (_evaluated, preview) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(preview.pipeline.preview_fallbacks, 0);
+        assert_eq!(preview.pipeline.preview_structure_reflow_reuses, 1);
+        assert_eq!(preview.pipeline.facet_cell_measurement_profile_reuses, 0);
+        assert!(
+            preview.pipeline.facet_cell_measurement_profile_misses > 0,
+            "cell profile keys should miss when child data/scale dependencies change"
+        );
+        assert_eq!(preview.pipeline.skipped_component_measure_calls, 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_preview_reflows_row_nested_responsive_wrap_with_holes()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled =
+            Arc::new(compile_row_nested_responsive_wrap_width_param_cache_plot(&ctx).await?);
+        let mut session = compiled.clone().instantiate(ctx.clone());
+
+        let (_evaluated, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            exact.facet_layout.plot_component_measure_calls > 0,
+            "warm exact evaluation should build row-local wrap profiles"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(900.0)));
+        let (_evaluated, preview) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(preview.pipeline.preview_profile_reuses, 1);
+        assert_eq!(preview.pipeline.preview_profile_misses, 0);
+        assert_eq!(preview.pipeline.preview_fallbacks, 0);
+        assert_eq!(preview.pipeline.preview_structure_reflow_reuses, 1);
+        assert!(
+            preview.pipeline.facet_cell_measurement_profile_reuses > 0,
+            "row-nested responsive wrap should reuse row-local terminal profiles"
+        );
+        assert!(
+            preview.facet_layout.plot_component_measure_calls > 0,
+            "row-nested reflow should rebuild physical container layout for holes/edges"
+        );
+
+        let (settled, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        let mut one_shot_params = IndexMap::new();
+        one_shot_params.insert("width".to_string(), ScalarValue::Float64(Some(900.0)));
+        let one_shot = compiled
+            .evaluate(ctx.as_ref(), Some(one_shot_params))
+            .await?;
+        assert_eq!(exact.mode, EvaluationMode::Exact);
+        assert_eq!(settled.scene_graph.width, one_shot.scene_graph.width);
+        assert_eq!(settled.scene_graph.height, one_shot.scene_graph.height);
+        assert_eq!(
+            settled.scene_graph.marks.len(),
+            one_shot.scene_graph.marks.len()
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_preview_facet_cell_measurement_profile_reflows_column_nested_responsive_wrap_from_local_width()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled =
+            Arc::new(compile_column_nested_responsive_wrap_width_param_cache_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let (_evaluated, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            exact.facet_layout.plot_component_measure_calls > 0,
+            "warm exact evaluation should build the initial nested responsive-wrap profile"
+        );
+        assert_eq!(
+            session
+                .layout_profile
+                .as_ref()
+                .expect("warm exact layout profile")
+                .facet_cell_profile_count(),
+            12,
+            "nested wrap profile should not index intermediate facet-band measurements"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(900.0)));
+        let (_evaluated, preview) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(preview.pipeline.preview_profile_reuses, 1);
+        assert_eq!(preview.pipeline.preview_profile_misses, 0);
+        assert_eq!(preview.pipeline.preview_fallbacks, 0);
+        assert_eq!(preview.pipeline.preview_structure_reflow_reuses, 1);
+        assert!(
+            preview.pipeline.facet_cell_measurement_profile_reuses > 0,
+            "nested responsive wrap should reuse terminal cell measurement profiles"
         );
 
         Ok(())
@@ -1803,8 +2198,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn force_remeasure_ignores_last_measurement_preview_cache()
-    -> Result<(), AvengerChartError> {
+    async fn force_remeasure_ignores_layout_profile_preview_cache() -> Result<(), AvengerChartError>
+    {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(compile_width_param_scale_cache_plot(&ctx).await?);
         let mut session = compiled.instantiate(ctx);

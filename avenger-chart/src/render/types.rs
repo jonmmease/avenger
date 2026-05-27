@@ -133,6 +133,31 @@ pub enum EvaluationMode {
     ForceRemeasure,
 }
 
+/// Reason a Preview evaluation could not reuse the current layout profile.
+#[doc(hidden)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PreviewProfileFallbackReason {
+    /// The session has not produced an exact layout profile yet.
+    NoPriorProfile,
+    /// Preview profile reuse only supports final layout snapshots.
+    NonFinalSnapshot,
+    /// The facet tree changed in a way that is not a supported logical reflow.
+    PhysicalStructureMismatch,
+    /// A responsive wrap tree changed logical slots, ordering, or membership.
+    LogicalStructureMismatch,
+    /// A logical reflow was possible in principle, but no terminal cell profiles
+    /// were available to reuse.
+    MissingTerminalProfile,
+    /// Profile dependency parameters are known to be incompatible with the
+    /// current request.
+    IncompatibleParams,
+    /// Profile scale signatures are known to be incompatible with the current
+    /// request.
+    IncompatibleScales,
+    /// The profiled child structure is not supported by the current reuse path.
+    UnsupportedChildStructure,
+}
+
 /// Runtime evaluation options for selecting layout snapshots and debug overlays.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EvaluationOptions {
@@ -276,6 +301,31 @@ impl EvaluationMetrics {
         self.pipeline.preview_fallbacks += 1;
     }
 
+    pub(crate) fn record_preview_profile_fallback_reasons(
+        &mut self,
+        reasons: impl IntoIterator<Item = PreviewProfileFallbackReason>,
+    ) {
+        self.pipeline
+            .preview_profile_fallback_reasons
+            .extend(reasons);
+    }
+
+    pub(crate) fn record_preview_structure_reflow_reuse(&mut self) {
+        self.pipeline.preview_structure_reflow_reuses += 1;
+    }
+
+    pub(crate) fn record_preview_structure_reflow_miss(&mut self) {
+        self.pipeline.preview_structure_reflow_misses += 1;
+    }
+
+    pub(crate) fn record_facet_cell_measurement_profile_reuse(&mut self) {
+        self.pipeline.facet_cell_measurement_profile_reuses += 1;
+    }
+
+    pub(crate) fn record_facet_cell_measurement_profile_miss(&mut self) {
+        self.pipeline.facet_cell_measurement_profile_misses += 1;
+    }
+
     pub(crate) fn record_skipped_component_measure_calls(&mut self, count: usize) {
         self.pipeline.skipped_component_measure_calls += count;
     }
@@ -374,6 +424,16 @@ pub struct EvaluationPipelineMetrics {
     pub preview_profile_misses: usize,
     /// Number of preview evaluations that fell back to exact measurement.
     pub preview_fallbacks: usize,
+    /// Typed reasons that Preview could not use the current layout profile.
+    pub preview_profile_fallback_reasons: Vec<PreviewProfileFallbackReason>,
+    /// Number of preview evaluations that reused profiles while rebuilding a changed layout tree.
+    pub preview_structure_reflow_reuses: usize,
+    /// Number of preview evaluations that considered structure reflow but could not use it.
+    pub preview_structure_reflow_misses: usize,
+    /// Number of facet cell measurements reused from a layout profile.
+    pub facet_cell_measurement_profile_reuses: usize,
+    /// Number of facet cell profile lookups that missed during layout-profile preview.
+    pub facet_cell_measurement_profile_misses: usize,
     /// Number of component measurement calls skipped by preview reuse.
     pub skipped_component_measure_calls: usize,
     /// Number of DataFusion collect calls made while preparing mark render data.

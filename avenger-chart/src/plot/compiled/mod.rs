@@ -10,6 +10,7 @@ mod container_labels;
 mod container_sharing;
 mod coordination_scope;
 mod domain_coordination;
+mod layout_profile;
 mod legends;
 mod mark_data_runtime;
 pub(crate) mod rendering;
@@ -76,6 +77,7 @@ pub(crate) use self::container_sharing::{
 };
 pub(crate) use self::coordination_scope::{CoordinationKind, CoordinationScopeKey};
 pub(crate) use self::domain_coordination::{ChildFrameDomainRequest, aggregate_domain_requests};
+pub(crate) use self::layout_profile::LayoutProfileSnapshot;
 use self::legends::PreparedLegendPlan;
 pub(crate) use self::mark_data_runtime::{
     LogicalMarkDataRequest, MarkDataRequest, PreparedMarkData, prepare_logical_mark_data,

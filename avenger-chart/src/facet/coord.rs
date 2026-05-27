@@ -2842,18 +2842,43 @@ async fn measure_cells_overflow_probe(
             .unwrap_or((subplot_plot_width, subplot_plot_height));
 
         let cell_summary = if is_leaf_node {
-            perf_counters.estimated_overflow_leaf_measure_count += 1;
-            let measured = Box::pin(measure_nested_cell(
-                &cell.plan,
-                &cell.data_override,
-                probe_plot_width,
-                probe_plot_height,
-                compiled_subplot,
-                &cell_eval_ctx,
-                nested_ctx,
-                &cell.coordinated_domain_extents,
-            ))
-            .await?;
+            let measured = if let Some(mut measurement) =
+                cell_eval_ctx.layout_profile().and_then(|profile| {
+                    profile.facet_cell_measurement(
+                        nested_ctx.facet_tree.as_ref(),
+                        &cell.plan.full_path,
+                        compiled_subplot.as_ref(),
+                        cell_eval_ctx.session_context().as_ref(),
+                        cell_eval_ctx.params(),
+                    )
+                }) {
+                cell_eval_ctx.record_facet_cell_measurement_profile_reuse();
+                retarget_measurement_plot_area_no_remeasure(
+                    &mut measurement,
+                    compiled_subplot,
+                    &cell_eval_ctx,
+                    &cell.plan.full_path,
+                    probe_plot_width,
+                    probe_plot_height,
+                )?;
+                MeasuredFacetCell { measurement }
+            } else {
+                if cell_eval_ctx.layout_profile().is_some() {
+                    cell_eval_ctx.record_facet_cell_measurement_profile_miss();
+                }
+                perf_counters.estimated_overflow_leaf_measure_count += 1;
+                Box::pin(measure_nested_cell(
+                    &cell.plan,
+                    &cell.data_override,
+                    probe_plot_width,
+                    probe_plot_height,
+                    compiled_subplot,
+                    &cell_eval_ctx,
+                    nested_ctx,
+                    &cell.coordinated_domain_extents,
+                ))
+                .await?
+            };
             Box::pin(capture_estimated_overflow_probe_if_requested(
                 &cell_eval_ctx,
                 compiled_subplot,

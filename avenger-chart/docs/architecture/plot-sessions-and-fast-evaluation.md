@@ -23,7 +23,7 @@ flowchart TD
     OneShot["CompiledPlot::evaluate_with_options\none-shot temporary caches"]
     Session["PlotSession\ncurrent params + durable caches"]
     Exact["EvaluationMode::Exact\ncanonical result"]
-    Preview["EvaluationMode::Preview\nreuse last measurement"]
+    Preview["EvaluationMode::Preview\nreuse layout profile"]
     Force["EvaluationMode::ForceRemeasure\nbypass measurement profiles"]
     Evaluator["evaluate_with_options_internal\nshared evaluator"]
     Output["EvaluatedPlot\nscenegraph + rtree"]
@@ -58,16 +58,20 @@ fresh one-shot evaluation for the same inputs.
 
 `EvaluationMode::Preview` is an explicit interaction mode. It is used for
 pointer moves, drag resize, pan, and zoom where stable frame padding is more
-important than remeasuring every label and legend on every event. Preview
-validates that the cached physical facet structure still applies, clones the
-last successful `ComponentsMeasurement`, rebuilds current scale metadata from
-cached domains, retargets ranges and child-frame allocations, and renders from
-that locked measurement profile. If no safe prior measurement exists, preview
-falls back to exact evaluation and records that fallback in metrics.
+important than remeasuring every label and legend on every event. Preview uses
+the previous exact layout profile. When the physical facet structure still
+matches, it clones the prior `ComponentsMeasurement`, rebuilds current scale
+metadata from cached domains, retargets ranges and child-frame allocations, and
+renders from that locked profile. When responsive `FacetWrap` changes physical
+rows or columns but preserves the same logical facet slots, Preview can rebuild
+the current physical layout from cached terminal cell measurements and
+recompute container coordination. If no safe profile exists, preview falls back
+to exact evaluation and records both the fallback count and typed fallback
+reasons in metrics.
 
 `EvaluationMode::ForceRemeasure` is an exact evaluation that bypasses durable
-guide, legend, text, and last-measurement profile caches. It is useful for
-tests, diagnostics, and explicit host refreshes.
+guide, legend, text, and layout profile caches. It is useful for tests,
+diagnostics, and explicit host refreshes.
 
 ## Session Caches
 
@@ -82,8 +86,9 @@ tests, diagnostics, and explicit host refreshes.
 - guide-overflow cache: measured coordinate-guide overflow profiles;
 - legend-measurement cache: measured local and hoisted legend groups;
 - text-measurement cache: repeated title and subtitle text bounds;
-- last-measurement cache: the previous successful `ComponentsMeasurement` plus
-  the facet tree structure key used by preview.
+- layout profile cache: the previous exact `ComponentsMeasurement`, physical
+  and logical facet structure keys, and terminal facet cell measurements used
+  by Preview.
 
 Prepared mark data and DataFusion subplan materialization are not session
 caches today. Mark data is still collected during rendering, and future data
@@ -108,6 +113,11 @@ diagnostics. Important session counters include:
 - `text_measurement_cache_hits` and `text_measurement_cache_misses`,
 - `preview_profile_reuses`, `preview_profile_misses`, and
   `preview_fallbacks`,
+- `preview_profile_fallback_reasons`,
+- `preview_structure_reflow_reuses` and
+  `preview_structure_reflow_misses`,
+- `facet_cell_measurement_profile_reuses` and
+  `facet_cell_measurement_profile_misses`,
 - `skipped_component_measure_calls`,
 - `facet_layout.plot_component_measure_calls`.
 
