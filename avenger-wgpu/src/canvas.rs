@@ -911,6 +911,9 @@ impl WindowCanvas<'_> {
 
 impl Canvas for WindowCanvas<'_> {
     fn set_current_zindex(&mut self, zindex: i32) {
+        if zindex != self.current_zindex {
+            self.commit_multi_renderer_if_needed(zindex);
+        }
         self.current_zindex = zindex;
     }
 
@@ -1307,6 +1310,9 @@ impl PngCanvas {
 
 impl Canvas for PngCanvas {
     fn set_current_zindex(&mut self, zindex: i32) {
+        if zindex != self.current_zindex {
+            self.commit_multi_renderer_if_needed(zindex);
+        }
         self.current_zindex = zindex;
     }
 

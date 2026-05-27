@@ -49,7 +49,6 @@ use crate::{
 use avenger_chart_core::CoordinatedOverflow;
 
 pub(crate) const HIDDEN_TOP_LOCAL_ANCHOR_EPSILON: f32 = 0.5;
-const DEFAULT_TOP_LOCAL_ANCHOR: f32 = 1.0;
 const MAX_SUBPLOT_OVERFLOW_CACHE_ENTRIES: usize = 4096;
 
 static SUBPLOT_OVERFLOW_CACHE: OnceLock<
@@ -493,8 +492,23 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
         measurement_phase,
     );
     if !has_visible_anchor(guide_anchor) && !O::is_rotated() && !place_at_end {
-        guide_anchor = DEFAULT_TOP_LOCAL_ANCHOR;
-        anchor_source = GuideAnchorSource::MeasuredSubplot;
+        let measured_subplot_overflow = Box::pin(compute_subplot_overflow_common::<O>(
+            state,
+            scales,
+            plot_width,
+            plot_height,
+            theme,
+            params,
+            data_override,
+            ctx,
+            sharing_context,
+        ))
+        .await?;
+        let measured_anchor = O::side_overflow_anchor(place_at_end, &measured_subplot_overflow);
+        if has_visible_anchor(measured_anchor) {
+            guide_anchor = measured_anchor;
+            anchor_source = GuideAnchorSource::MeasuredSubplot;
+        }
     }
 
     let total = O::compose_total_overflow(
