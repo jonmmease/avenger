@@ -1263,6 +1263,28 @@ impl MultiMarkRenderer {
                 push_constant_ranges: &[],
             });
 
+        let uses_stencil = self.num_clip_indices() > 0;
+        let render_depth_stencil = if uses_stencil {
+            Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Stencil8,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::Always,
+                stencil: wgpu::StencilState {
+                    front: wgpu::StencilFaceState {
+                        // Draw pixel if stencil reference value is less than or equal to stencil value
+                        compare: wgpu::CompareFunction::LessEqual,
+                        ..Default::default()
+                    },
+                    back: wgpu::StencilFaceState::IGNORE,
+                    read_mask: !0,
+                    write_mask: !0,
+                },
+                bias: Default::default(),
+            })
+        } else {
+            None
+        };
+
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
             layout: Some(&render_pipeline_layout),
@@ -1291,22 +1313,7 @@ impl MultiMarkRenderer {
                 unclipped_depth: false,
                 conservative: false,
             },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Stencil8,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::Always,
-                stencil: wgpu::StencilState {
-                    front: wgpu::StencilFaceState {
-                        // Draw pixel if stencil reference value is less than or equal to stencil value
-                        compare: wgpu::CompareFunction::LessEqual,
-                        ..Default::default()
-                    },
-                    back: wgpu::StencilFaceState::IGNORE,
-                    read_mask: !0,
-                    write_mask: !0,
-                },
-                bias: Default::default(),
-            }),
+            depth_stencil: render_depth_stencil,
             multisample: wgpu::MultisampleState {
                 count: sample_count,
                 mask: !0,
@@ -1316,64 +1323,68 @@ impl MultiMarkRenderer {
             cache: None,
         });
 
-        let stencil_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: None,
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[MultiVertex::desc()],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: texture_format,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::empty(),
-                })],
-            }),
-            primitive: Default::default(),
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Stencil8,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::Always,
-                stencil: wgpu::StencilState {
-                    front: wgpu::StencilFaceState {
-                        compare: wgpu::CompareFunction::Always,
-                        pass_op: wgpu::StencilOperation::Replace,
-                        ..Default::default()
-                    },
-                    back: wgpu::StencilFaceState::IGNORE,
-                    read_mask: !0,
-                    write_mask: !0,
+        let stencil_pipeline = uses_stencil.then(|| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: None,
+                layout: Some(&render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    compilation_options: Default::default(),
+                    buffers: &[MultiVertex::desc()],
                 },
-                bias: Default::default(),
-            }),
-            multisample: wgpu::MultisampleState {
-                count: sample_count,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-            cache: None,
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: texture_format,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::empty(),
+                    })],
+                }),
+                primitive: Default::default(),
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Stencil8,
+                    depth_write_enabled: false,
+                    depth_compare: wgpu::CompareFunction::Always,
+                    stencil: wgpu::StencilState {
+                        front: wgpu::StencilFaceState {
+                            compare: wgpu::CompareFunction::Always,
+                            pass_op: wgpu::StencilOperation::Replace,
+                            ..Default::default()
+                        },
+                        back: wgpu::StencilFaceState::IGNORE,
+                        read_mask: !0,
+                        write_mask: !0,
+                    },
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: sample_count,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+                cache: None,
+            })
         });
 
-        let stencil_buffer = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Stencil buffer"),
-            size: Extent3d {
-                width: self.dimensions.to_physical_width(),
-                height: self.dimensions.to_physical_height(),
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Stencil8,
-            view_formats: &[],
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        let stencil_buffer = uses_stencil.then(|| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Stencil buffer"),
+                size: Extent3d {
+                    width: self.dimensions.to_physical_width(),
+                    height: self.dimensions.to_physical_height(),
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Stencil8,
+                view_formats: &[],
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            })
         });
 
         // flatten verts and inds
@@ -1435,7 +1446,30 @@ impl MultiMarkRenderer {
 
         // Render batches
         {
-            let depth_view = stencil_buffer.create_view(&Default::default());
+            let depth_view = stencil_buffer
+                .as_ref()
+                .map(|buffer| buffer.create_view(&Default::default()));
+            let depth_stencil_attachment =
+                depth_view
+                    .as_ref()
+                    .map(|view| wgpu::RenderPassDepthStencilAttachment {
+                        view,
+                        depth_ops: if cfg!(feature = "deno") {
+                            // depth_ops shouldn't be needed, but setting to None results in validation
+                            // error in Deno. However, setting it to the below causes a validation error
+                            // in Chrome.
+                            Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(0.0),
+                                store: wgpu::StoreOp::Discard,
+                            })
+                        } else {
+                            None
+                        },
+                        stencil_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                    });
             let mut render_pass = mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Multi Mark Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1446,24 +1480,7 @@ impl MultiMarkRenderer {
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &depth_view,
-                    depth_ops: if cfg!(feature = "deno") {
-                        // depth_ops shouldn't be needed, but setting to None results in validation
-                        // error in Deno. However, setting it to the below causes a validation error
-                        // in Chrome.
-                        Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(0.0),
-                            store: wgpu::StoreOp::Discard,
-                        })
-                    } else {
-                        None
-                    },
-                    stencil_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                }),
+                depth_stencil_attachment,
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
@@ -1485,7 +1502,7 @@ impl MultiMarkRenderer {
                 for batch in &self.batches {
                     if let Some(clip_inds_range) = &batch.clip_indices_range {
                         render_pass.set_stencil_reference(stencil_index);
-                        render_pass.set_pipeline(&stencil_pipeline);
+                        render_pass.set_pipeline(stencil_pipeline.as_ref().unwrap());
                         render_pass.set_vertex_buffer(0, clip_vertex_buffer.slice(..));
                         render_pass.set_index_buffer(
                             clip_index_buffer.slice(..),
@@ -1501,7 +1518,7 @@ impl MultiMarkRenderer {
 
                         // increment stencil index for next draw
                         stencil_index += 1;
-                    } else {
+                    } else if uses_stencil {
                         // Set stencil reference back to zero so that everything is drawn
                         render_pass.set_stencil_reference(0);
                     }

@@ -491,7 +491,17 @@ impl WindowCanvas<'_> {
         dimensions: CanvasDimensions,
         config: CanvasConfig,
     ) -> Result<Self, AvengerWgpuError> {
-        let _ = window.request_inner_size(Size::Physical(dimensions.to_physical_size()));
+        let requested_size = dimensions.to_physical_size();
+        let accepted_size = window
+            .request_inner_size(Size::Physical(requested_size))
+            .unwrap_or_else(|| window.inner_size());
+        let dimensions = CanvasDimensions {
+            size: [
+                accepted_size.width as f32 / dimensions.scale,
+                accepted_size.height as f32 / dimensions.scale,
+            ],
+            scale: dimensions.scale,
+        };
         let instance = make_wgpu_instance();
         let window = Arc::new(window);
         let surface = instance.create_surface(window.clone())?;
@@ -520,8 +530,7 @@ impl WindowCanvas<'_> {
         };
         surface.configure(&device, &surface_config);
 
-        let format_flags = adapter.get_texture_format_features(surface_format).flags;
-        let sample_count = get_supported_sample_count(format_flags);
+        let sample_count = 1;
         let multisampled_framebuffer = create_multisampled_framebuffer(
             &device,
             surface_config.width,
@@ -560,29 +569,43 @@ impl WindowCanvas<'_> {
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
-            // Update dimensions
-            self.dimensions = CanvasDimensions {
-                size: [
-                    new_size.width as f32 / self.dimensions.scale,
-                    new_size.height as f32 / self.dimensions.scale,
-                ],
-                scale: self.dimensions.scale,
-            };
-
-            // Update surface configuration
-            self.surface_config.width = new_size.width;
-            self.surface_config.height = new_size.height;
+            self.update_physical_size(new_size.width, new_size.height);
             self.surface.configure(&self.device, &self.surface_config);
-
-            // Create new multisampled framebuffer with updated size
-            self.multisampled_framebuffer = create_multisampled_framebuffer(
-                &self.device,
-                new_size.width,
-                new_size.height,
-                self.surface_config.format,
-                self.sample_count,
-            );
         }
+    }
+
+    fn update_physical_size(&mut self, width: u32, height: u32) {
+        self.dimensions = CanvasDimensions {
+            size: [
+                width as f32 / self.dimensions.scale,
+                height as f32 / self.dimensions.scale,
+            ],
+            scale: self.dimensions.scale,
+        };
+
+        self.surface_config.width = width;
+        self.surface_config.height = height;
+        self.multisampled_framebuffer = create_multisampled_framebuffer(
+            &self.device,
+            width,
+            height,
+            self.surface_config.format,
+            self.sample_count,
+        );
+    }
+
+    fn sync_to_acquired_surface_texture(&mut self, texture_extent: Extent3d) {
+        if texture_extent.width == 0 || texture_extent.height == 0 {
+            return;
+        }
+
+        if self.surface_config.width == texture_extent.width
+            && self.surface_config.height == texture_extent.height
+        {
+            return;
+        }
+
+        self.update_physical_size(texture_extent.width, texture_extent.height);
     }
 
     #[allow(unused_variables)]
@@ -594,6 +617,7 @@ impl WindowCanvas<'_> {
 
     pub fn render(&mut self) -> Result<(), AvengerWgpuError> {
         let output = self.surface.get_current_texture()?;
+        self.sync_to_acquired_surface_texture(output.texture.size());
         let view = output
             .texture
             .create_view(&TextureViewDescriptor::default());
