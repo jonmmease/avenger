@@ -43,8 +43,9 @@ and returns a clip region.
 
 `avenger-chart-cartesian` owns `Cartesian`, `CartesianAxis`,
 `CartesianGuide`, `CartesianOptions`, Cartesian position configs, Cartesian
-axis evaluation, and Cartesian render implementations for `Line`, `Rect`, and
-`Symbol`.
+axis evaluation, and Cartesian render implementations for built-in data marks
+such as `Area`, `Image`, `Line`, `PathMark`, `Rect`, `Rule`, `Symbol`, `Text`,
+and `Trail`.
 
 `Cartesian` requires `x` and `y`. Its transform returns `PointGeometry`.
 Default range bindings map `x` to plot-area width and `y` to inverted

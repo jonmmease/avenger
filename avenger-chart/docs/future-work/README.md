@@ -26,7 +26,7 @@ current design is available.
 | [derive-api.md](derive-api.md) | Valid goal; depends on the same geometry boundary as adjustments plus a child-mark scheduling model. |
 | [transform-system.md](transform-system.md) | Valid goal; closest to an implementation plan for a narrow data-transform v1. |
 | [controllers.md](controllers.md) | Valid goal; event streams and params exist, but chart-level controller ownership is undecided. |
-| [text-mark.md](text-mark.md) | Valid goal; scenegraph text exists, but a high-level data text mark does not. |
+| [text-mark.md](text-mark.md) | Follow-up goal; `Text<Cartesian>` exists, while smart placement and text-specific legends remain future work. |
 | [faceting.md](faceting.md) | Mostly implemented for row/column facets; remaining work is facet convenience APIs and mark data strategy. |
 | [repeat.md](repeat.md) | Valid goal; design should choose between schema reshaping, template expansion, or dedicated repeat containers. |
 | [layout.md](layout.md) | Valid goal; concat covers some composition, but arbitrary dashboard composition is still separate. |

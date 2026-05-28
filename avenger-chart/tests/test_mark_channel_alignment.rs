@@ -3,6 +3,7 @@ use avenger_common::{
     types::ColorOrGradient,
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
+use avenger_scenegraph::marks::mark::SceneMarkType;
 use avenger_scenegraph::marks::{
     area::SceneAreaMark, image::SceneImageMark, mark::SceneMark, path::ScenePathMark,
     rule::SceneRuleMark, symbol::SceneSymbolMark, text::SceneTextMark, trail::SceneTrailMark,
@@ -149,6 +150,38 @@ async fn cartesian_mark_channel_descriptors_align_with_existing_renderers() {
     let rect = rect_plot.compile(&ctx).await.unwrap().marks()[0].clone();
     let rect_channels = rect.supported_channels();
     assert!(channel(&rect_channels, "corner_radius").allow_column_ref);
+}
+
+#[test]
+fn cartesian_scene_mark_coverage_is_explicit() {
+    fn cartesian_coverage(mark_type: SceneMarkType) -> &'static str {
+        match mark_type {
+            SceneMarkType::Arc => "explicitly deferred to polar/sector-style marks",
+            SceneMarkType::Area => "Area<Cartesian>",
+            SceneMarkType::Path => "PathMark<Cartesian>",
+            SceneMarkType::Symbol => "Symbol<Cartesian>",
+            SceneMarkType::Line => "Line<Cartesian>",
+            SceneMarkType::Trail => "Trail<Cartesian>",
+            SceneMarkType::Rect => "Rect<Cartesian>",
+            SceneMarkType::Rule => "Rule<Cartesian>",
+            SceneMarkType::Text => "Text<Cartesian>",
+            SceneMarkType::Image => "Image<Cartesian>",
+            SceneMarkType::Group => "explicitly covered by layout/composition",
+        }
+    }
+
+    assert_eq!(
+        cartesian_coverage(SceneMarkType::Path),
+        "PathMark<Cartesian>"
+    );
+    assert_eq!(
+        cartesian_coverage(SceneMarkType::Arc),
+        "explicitly deferred to polar/sector-style marks"
+    );
+    assert_eq!(
+        cartesian_coverage(SceneMarkType::Group),
+        "explicitly covered by layout/composition"
+    );
 }
 
 #[tokio::test]
