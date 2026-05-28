@@ -81,3 +81,17 @@ pub(crate) fn optional_stroke_dash(
         }
     }
 }
+
+pub(crate) fn gather_by_indices<T: Sync + Clone>(
+    values: &ScalarOrArray<T>,
+    len: usize,
+    indices: &[usize],
+) -> ScalarOrArray<T> {
+    let values = values.as_vec(len, None);
+    ScalarOrArray::new_array(
+        indices
+            .iter()
+            .filter_map(|index| values.get(*index).cloned())
+            .collect(),
+    )
+}

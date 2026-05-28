@@ -1,3 +1,4 @@
+pub mod area;
 pub mod compiled_data_context;
 pub mod data_context;
 pub mod facet_data_scope;
@@ -8,8 +9,10 @@ pub mod state;
 pub mod subplot;
 pub mod symbol;
 pub mod text;
+pub mod trail;
 pub mod zero_d;
 
+pub use area::{Area, AreaPartitionKey, area_channel_defaults};
 pub use compiled_data_context::CompiledDataContext;
 pub use data_context::DataContext;
 pub use facet_data_scope::FacetDataScope;
@@ -20,4 +23,5 @@ pub use state::{CompiledMarkState, MarkState};
 pub use subplot::Subplot;
 pub use symbol::{Symbol, symbol_channel_defaults, symbol_legend_renderer_kind};
 pub use text::{Text, text_channel_defaults};
+pub use trail::{Trail, TrailPartitionKey, trail_channel_defaults};
 pub use zero_d::CompiledZeroDSymbol;

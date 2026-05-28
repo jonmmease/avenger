@@ -41,11 +41,11 @@ pub use crate::facet::marks::{
     FacetColumnSubplotChannels, FacetRowSubplotChannels, FacetWrapSubplotChannels,
 };
 pub use avenger_chart_cartesian::{
-    CartesianLinePositionChannels, CartesianRectPositionChannels, CartesianRulePositionChannels,
-    CartesianSubplotPositionChannels, CartesianSymbolPositionChannels,
-    CartesianTextPositionChannels,
+    CartesianAreaPositionChannels, CartesianLinePositionChannels, CartesianRectPositionChannels,
+    CartesianRulePositionChannels, CartesianSubplotPositionChannels,
+    CartesianSymbolPositionChannels, CartesianTextPositionChannels, CartesianTrailPositionChannels,
 };
-pub use avenger_chart_marks::{Line, Rect, Rule, Subplot, Symbol, Text};
+pub use avenger_chart_marks::{Area, Line, Rect, Rule, Subplot, Symbol, Text, Trail};
 pub use avenger_chart_polar::PolarSymbolPositionChannels;
 
 // Re-export mark traits and types

@@ -1,8 +1,8 @@
 //! Compatibility re-exports for mark channel coercion helpers.
 
 pub use avenger_chart_core::mark_channel_coercion::{
-    apply_opacity_to_color, apply_opacity_to_color_channel, coerce_bool_channel,
-    coerce_bool_channel_with_renderer, coerce_channel, coerce_color_channel,
+    apply_opacity_to_color, apply_opacity_to_color_channel, coerce_area_orientation_channel,
+    coerce_bool_channel, coerce_bool_channel_with_renderer, coerce_channel, coerce_color_channel,
     coerce_color_channel_with_renderer, coerce_font_style_channel, coerce_font_weight_channel,
     coerce_numeric_channel, coerce_numeric_channel_with_renderer, coerce_opacity_channel,
     coerce_opacity_channel_with_renderer, coerce_stroke_cap_channel,

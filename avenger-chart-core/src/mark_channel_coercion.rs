@@ -4,7 +4,7 @@
 //! into typed values using the avenger-scales Coercer system.
 
 use avenger_common::{
-    types::{ColorOrGradient, StrokeCap, StrokeJoin},
+    types::{AreaOrientation, ColorOrGradient, StrokeCap, StrokeJoin},
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
 use avenger_scales::scales::coerce::Coercer;
@@ -218,6 +218,22 @@ pub fn coerce_font_style_channel(
     default: FontStyle,
 ) -> Result<ScalarOrArray<FontStyle>, AvengerChartError> {
     coerce_channel(data, scalars, channel, |c, a| c.to_font_style(a), default)
+}
+
+/// Get area orientation channel values using Coercer.
+pub fn coerce_area_orientation_channel(
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    default: AreaOrientation,
+) -> Result<ScalarOrArray<AreaOrientation>, AvengerChartError> {
+    coerce_channel(
+        data,
+        scalars,
+        channel,
+        |c, a| c.to_area_orientation(a),
+        default,
+    )
 }
 
 /// Get opacity channel value using Coercer

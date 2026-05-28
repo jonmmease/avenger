@@ -145,8 +145,8 @@ pub use legend_renderer::{
 pub use legend_spec::Legend;
 pub use mark::Mark;
 pub use mark_channel_coercion::{
-    apply_opacity_to_color, apply_opacity_to_color_channel, coerce_bool_channel,
-    coerce_bool_channel_with_renderer, coerce_channel, coerce_color_channel,
+    apply_opacity_to_color, apply_opacity_to_color_channel, coerce_area_orientation_channel,
+    coerce_bool_channel, coerce_bool_channel_with_renderer, coerce_channel, coerce_color_channel,
     coerce_color_channel_with_renderer, coerce_font_style_channel, coerce_font_weight_channel,
     coerce_numeric_channel, coerce_numeric_channel_with_renderer, coerce_opacity_channel,
     coerce_opacity_channel_with_renderer, coerce_stroke_cap_channel,

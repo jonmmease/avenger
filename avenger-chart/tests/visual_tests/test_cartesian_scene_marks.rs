@@ -1,7 +1,7 @@
 use super::helpers::assert_visual_match_default;
 use avenger_chart::prelude::*;
 use avenger_chart_core::ChannelValue;
-use datafusion::arrow::array::{Float64Array, StringArray};
+use datafusion::arrow::array::{BooleanArray, Float64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::*;
@@ -133,6 +133,94 @@ fn text_style_data() -> DataFrame {
         .expect("text style dataframe")
 }
 
+fn area_orientation_data() -> DataFrame {
+    let t = Float64Array::from(vec![5.0, 0.0, 1.0, 2.0, 3.0, 4.0, 6.0]);
+    let vertical_y = Float64Array::from(vec![4.9, 1.0, 2.0, 4.4, 3.6, 5.2, 3.0]);
+    let horizontal_x = Float64Array::from(vec![4.8, 0.8, 1.7, 3.5, 2.8, 4.2, 2.2]);
+    let vertical_defined = BooleanArray::from(vec![true, true, true, true, false, true, true]);
+    let horizontal_defined = BooleanArray::from(vec![true, true, true, false, true, true, true]);
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("t", DataType::Float64, false),
+        Field::new("vertical_y", DataType::Float64, false),
+        Field::new("horizontal_x", DataType::Float64, false),
+        Field::new("vertical_defined", DataType::Boolean, false),
+        Field::new("horizontal_defined", DataType::Boolean, false),
+    ]));
+
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(t),
+            Arc::new(vertical_y),
+            Arc::new(horizontal_x),
+            Arc::new(vertical_defined),
+            Arc::new(horizontal_defined),
+        ],
+    )
+    .expect("area orientation batch");
+
+    SessionContext::new()
+        .read_batch(batch)
+        .expect("area orientation dataframe")
+}
+
+fn trail_style_data() -> DataFrame {
+    let mut series = Vec::new();
+    let mut t = Vec::new();
+    let mut x = Vec::new();
+    let mut y = Vec::new();
+    let mut size = Vec::new();
+    let mut opacity = Vec::new();
+    let mut defined = Vec::new();
+
+    let specs = [
+        ("fast stream", 0.0, 0.95, 0.0),
+        ("slow stream", 0.55, 0.58, 1.15),
+    ];
+
+    for (name, phase, alpha, y_offset) in specs {
+        for i in (0..9).rev() {
+            let t_value = i as f64;
+            series.push(name);
+            t.push(t_value);
+            x.push(t_value);
+            y.push(y_offset + 2.8 + (t_value * 0.75 + phase).sin() * 1.15);
+            size.push(3.0 + t_value * 1.45);
+            opacity.push(alpha);
+            defined.push(!(name == "slow stream" && i == 4));
+        }
+    }
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("series", DataType::Utf8, false),
+        Field::new("t", DataType::Float64, false),
+        Field::new("x", DataType::Float64, false),
+        Field::new("y", DataType::Float64, false),
+        Field::new("size", DataType::Float64, false),
+        Field::new("opacity", DataType::Float64, false),
+        Field::new("defined", DataType::Boolean, false),
+    ]));
+
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(StringArray::from(series)),
+            Arc::new(Float64Array::from(t)),
+            Arc::new(Float64Array::from(x)),
+            Arc::new(Float64Array::from(y)),
+            Arc::new(Float64Array::from(size)),
+            Arc::new(Float64Array::from(opacity)),
+            Arc::new(BooleanArray::from(defined)),
+        ],
+    )
+    .expect("trail style batch");
+
+    SessionContext::new()
+        .read_batch(batch)
+        .expect("trail style dataframe")
+}
+
 #[tokio::test]
 async fn test_cartesian_rule_reference_grid() {
     let ctx = SessionContext::new();
@@ -219,6 +307,107 @@ async fn test_cartesian_text_label_styles() {
         None,
         "cartesian_scene_marks",
         "cartesian_text_label_styles",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_cartesian_area_vertical_horizontal_styles() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Area orientation and styles")
+        .data(area_orientation_data())
+        .mark(
+            Area::new()
+                .x_with(col("t"), |c| {
+                    c.scale(|s| s.domain((0.0, 6.0))).axis(|a| a.title("x"))
+                })
+                .y_with(col("vertical_y"), |c| {
+                    c.scale(|s| s.domain((0.0, 6.0))).axis(|a| a.title("y"))
+                })
+                .y2(0.0)
+                .fill("#60a5fa")
+                .stroke("#1d4ed8")
+                .stroke_width(2.0)
+                .stroke_join("round")
+                .opacity(0.62)
+                .defined(ChannelValue::from(col("vertical_defined")).no_scale())
+                .order(ChannelValue::from(col("t")).no_scale()),
+        )
+        .mark(
+            Area::new()
+                .orientation("horizontal")
+                .x(col("horizontal_x"))
+                .x2(0.0)
+                .y(col("t"))
+                .fill("#f97316")
+                .stroke("#9a3412")
+                .stroke_width(1.5)
+                .stroke_dash("dashed")
+                .opacity(0.44)
+                .defined(ChannelValue::from(col("horizontal_defined")).no_scale())
+                .order(ChannelValue::from(col("t")).no_scale()),
+        )
+        .mark(
+            Rule::new()
+                .x(0.0)
+                .x2(6.0)
+                .y(0.0)
+                .y2(0.0)
+                .stroke("#374151")
+                .stroke_width(1.0)
+                .opacity(0.35),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("compile area plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "cartesian_scene_marks",
+        "cartesian_area_vertical_horizontal_styles",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_cartesian_trail_size_and_opacity() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Trail size and opacity")
+        .data(trail_style_data())
+        .mark(
+            Trail::new()
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s.domain((0.0, 8.0))).axis(|a| a.title("x"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s.domain((0.5, 5.2))).axis(|a| a.title("y"))
+                })
+                .size_with(col("size"), |c| c.no_scale())
+                .stroke_with(col("series"), |c| c.legend(|l| l.title("series")))
+                .opacity_with(col("opacity"), |c| c.no_scale())
+                .defined(ChannelValue::from(col("defined")).no_scale())
+                .order(ChannelValue::from(col("t")).no_scale()),
+        )
+        .mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                .size(36.0)
+                .fill("#ffffff")
+                .stroke("#111827")
+                .stroke_width(0.75)
+                .opacity(0.5),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("compile trail plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "cartesian_scene_marks",
+        "cartesian_trail_size_and_opacity",
     )
     .await;
 }
