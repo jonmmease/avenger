@@ -50,9 +50,10 @@ flowchart TD
 ```
 
 Other workspace crates such as `avenger-scales`, `avenger-scenegraph`,
-`avenger-guides`, `avenger-text`, `avenger-app`, `avenger-eventstream`, and
-`avenger-wgpu` sit outside this chart-layer graph and provide runtime services
-used by the facade or extension crates.
+`avenger-guides`, `avenger-text`, `avenger-app`, `avenger-eventstream`,
+`avenger-wgpu`, `avenger-winit-wgpu`, and `avenger-chart-app` sit outside this
+chart-layer graph and provide runtime services used by the facade, examples,
+apps, or extension crates.
 
 ## Owner Crates
 
@@ -65,6 +66,8 @@ used by the facade or extension crates.
 | `avenger-chart-cartesian` | `Cartesian`, `CartesianGuide`, `CartesianAxis`, Cartesian channel/axis behavior, Cartesian render implementations for built-in data marks, and Cartesian `Subplot` placement channels `subplot_x` and `subplot_y`. |
 | `avenger-chart-polar` | `Polar`, `PolarGuide`, `PolarAxis`, polar channel/axis behavior, Polar `Symbol` render implementation, and Polar `Subplot` placement channels `r` and `theta`. |
 | `avenger-chart` | Facade exports plus `Plot`, `CompiledPlot`, facade `render::EvaluationContext`, facet, concat, partitioning, child-frame measurement, layout solvers, generic positioned subplot measurement/rendering, plot-level scale and legend planning, WGPU/canvas rendering, and integration tests. |
+| `avenger-chart-app` | Chart-specific app bridge: `ChartAppState`, `ChartResizeBinding`, `ChartAppOptions`, `chart_avenger_app`, resize handlers, and Winit/WGPU helper exports behind the `winit-wgpu` feature. |
+| `avenger-winit-wgpu` | Desktop/WASM host integration: `WinitWgpuAvengerApp`, `WinitWgpuAvengerAppOptions`, `WindowSceneSizing`, `CanvasFrameOptions`, Winit event-loop handling, virtual canvas frame input, scenegraph installation, and WGPU surface rendering. |
 
 ## Facade Re-Exports
 

@@ -1,12 +1,12 @@
 # Compile, Evaluate, Render Pipeline
 
-The chart runtime has two public stages:
+The chart runtime has two public chart stages plus a reusable app-session path:
 
 - `Plot<C>::compile` consumes the authoring plot and returns `CompiledPlot`.
 - `CompiledPlot::evaluate` or `CompiledPlot::evaluate_with_options` returns an
   `EvaluatedPlot` with a scenegraph and spatial index.
 - `Arc<CompiledPlot>::instantiate` creates a reusable `PlotSession` for apps
-  that evaluate the same compiled program repeatedly.
+  and other callers that evaluate the same compiled program repeatedly.
 
 Rendering helpers such as `WgpuRenderer` and `CanvasExt` evaluate a compiled
 plot and hand the scenegraph to the lower-level renderer.
@@ -103,3 +103,7 @@ scenegraph and WGPU/canvas handoff.
 See [plot-sessions-and-fast-evaluation.md](plot-sessions-and-fast-evaluation.md)
 for `PlotSession`, `EvaluationRequest`, `EvaluationMode::Preview`, and cache
 metrics.
+
+See [chart-apps-and-interaction.md](chart-apps-and-interaction.md) for how
+interactive apps instantiate `PlotSession`, patch resize params, and choose
+`Preview` or `Exact` evaluation during framed canvas resize.

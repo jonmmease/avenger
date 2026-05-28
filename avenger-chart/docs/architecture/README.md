@@ -14,6 +14,9 @@ agents. User-facing chart documentation lives in `avenger-chart/book/src`.
   [plot-sessions-and-fast-evaluation.md](plot-sessions-and-fast-evaluation.md),
   [marks-and-channels.md](marks-and-channels.md), and
   [rendering-and-scenegraph.md](rendering-and-scenegraph.md).
+- To work on interactive chart apps or resize behavior, read
+  [chart-apps-and-interaction.md](chart-apps-and-interaction.md) and
+  [plot-sessions-and-fast-evaluation.md](plot-sessions-and-fast-evaluation.md).
 - To work on nested layout, read
   [layout-and-child-frames.md](layout-and-child-frames.md),
   [facet-system.md](facet-system.md), [concat-system.md](concat-system.md), and
@@ -36,6 +39,7 @@ flowchart TD
     Coord["Coordinate measurement\nfacet, concat, positioned subplots"]
     Render["Scenegraph rendering\nPlotComponents, EvaluatedPlot"]
     Wgpu["Raster output\nWgpuRenderer, CanvasExt"]
+    Apps["Interactive apps\navenger-chart-app, avenger-winit-wgpu"]
 
     Author --> Compile
     Compile --> Session
@@ -45,12 +49,15 @@ flowchart TD
     Coord --> Layout
     Layout --> Render
     Render --> Wgpu
+    Session --> Apps
+    Apps --> Wgpu
 
     Compile -. details .-> Marks["marks-and-channels.md"]
     ScaleLegend -. details .-> Scales["scales-domains-and-sharing.md"]
     Layout -. details .-> ChildFrames["layout-and-child-frames.md"]
     Coord -. details .-> Containers["facet-system.md / concat-system.md / positioned-subplots.md"]
     Render -. details .-> Rendering["rendering-and-scenegraph.md"]
+    Apps -. details .-> AppDocs["chart-apps-and-interaction.md"]
 ```
 
 ## Documents
@@ -63,6 +70,9 @@ flowchart TD
   the runtime path from `Plot` to `EvaluatedPlot`.
 - [plot-sessions-and-fast-evaluation.md](plot-sessions-and-fast-evaluation.md):
   reusable `PlotSession` evaluation, cache families, preview mode, and metrics.
+- [chart-apps-and-interaction.md](chart-apps-and-interaction.md):
+  `avenger-chart-app`, framed canvas resize, app event flow, and Winit/WGPU
+  hosting.
 - [marks-and-channels.md](marks-and-channels.md): mark traits, mark state,
   channel values, channel configs, and channel extraction.
 - [scales-domains-and-sharing.md](scales-domains-and-sharing.md): scale

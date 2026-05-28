@@ -16,6 +16,7 @@ flowchart TD
     Concat["concat"]
     Positioned["positioned subplots"]
     External["external extension boundaries"]
+    Apps["chart apps"]
     Visual["visual baselines"]
 
     Core --> CoreChecks["cargo test -p avenger-chart-core --lib"]
@@ -27,6 +28,7 @@ flowchart TD
     Concat --> ConcatChecks["cargo test -p avenger-chart --test visual_regression concat"]
     Positioned --> PositionedChecks["cargo test -p avenger-chart --test visual_regression positioned_subplot"]
     External --> ExternalChecks["cargo test --manifest-path avenger-chart-external-test/Cargo.toml"]
+    Apps --> AppChecks["cargo test -p avenger-chart-app --features winit-wgpu resize"]
     Visual --> VisualChecks["cargo test -p avenger-chart --test visual_regression"]
 ```
 
@@ -41,6 +43,7 @@ flowchart TD
 | Child-frame domain sharing | `cargo test -p avenger-chart --lib container_domain_sharing -- --nocapture` |
 | Facet tree | `cargo test -p avenger-chart --test test_evaluated_facet_tree -- --nocapture` |
 | External boundaries | `cargo test --manifest-path avenger-chart-external-test/Cargo.toml -- --nocapture` |
+| Chart app resize | `cargo test -p avenger-chart-app --features winit-wgpu resize -- --nocapture`; `cargo check -p avenger-chart-app --all-targets --features winit-wgpu`; `cargo check -p avenger-winit-wgpu --all-targets` |
 | Compile coverage | `cargo check -p avenger-chart --all-targets`; `cargo check --manifest-path avenger-chart-external-test/Cargo.toml --all-targets` |
 
 ## Visual Categories
