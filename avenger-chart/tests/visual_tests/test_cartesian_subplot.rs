@@ -82,10 +82,7 @@ async fn partitioned_subplot_data(ctx: &SessionContext) -> DataFrame {
     .expect("create partitioned positioned subplot data")
 }
 
-fn inherited_cartesian_scatter_child(
-    x_sharing: ScaleSharing,
-    y_sharing: ScaleSharing,
-) -> Plot<Cartesian> {
+fn inherited_cartesian_scatter_child(x_sharing: Sharing, y_sharing: Sharing) -> Plot<Cartesian> {
     Plot::<Cartesian>::new()
         .configure_guide(CartesianGuide::new().plot_background_color("#f8fbff"))
         .mark(
@@ -107,10 +104,7 @@ fn inherited_cartesian_scatter_child(
         )
 }
 
-fn inherited_polar_scatter_child(
-    r_sharing: ScaleSharing,
-    theta_sharing: ScaleSharing,
-) -> Plot<Polar> {
+fn inherited_polar_scatter_child(r_sharing: Sharing, theta_sharing: Sharing) -> Plot<Polar> {
     Plot::<Polar>::new()
         .configure_guide(PolarGuide::new().plot_background_color("#fbfaf7"))
         .mark(
@@ -222,8 +216,8 @@ async fn cartesian_partitioned_subplot_scatter() {
         .title("Cartesian partitioned subplots")
         .mark(
             Subplot::<Cartesian>::new(inherited_cartesian_scatter_child(
-                ScaleSharing::Shared,
-                ScaleSharing::Shared,
+                Sharing::Shared,
+                Sharing::Shared,
             ))
             .partition_by(col("species"))
             .subplot_x_with(avg(col("parent_x")), |c| {
@@ -258,18 +252,19 @@ async fn cartesian_partitioned_subplot_polar_children() {
         .data(partitioned_subplot_data(&ctx).await)
         .title("Cartesian partitioned polar children")
         .mark(
-            Subplot::<Cartesian>::new(inherited_polar_scatter_child(
-                ScaleSharing::Free,
-                ScaleSharing::Free,
-            ))
-            .partition_by(col("species"))
-            .subplot_x_with(avg(col("parent_x")), |c| {
-                c.scale_with::<Linear>(|s| s.domain((lit(0.0), lit(6.2))).nice(false).zero(false))
-            })
-            .subplot_y_with(avg(col("parent_y")), |c| {
-                c.scale_with::<Linear>(|s| s.domain((lit(0.0), lit(3.2))).nice(false).zero(false))
-            })
-            .plot_size(104.0, 104.0),
+            Subplot::<Cartesian>::new(inherited_polar_scatter_child(Sharing::Free, Sharing::Free))
+                .partition_by(col("species"))
+                .subplot_x_with(avg(col("parent_x")), |c| {
+                    c.scale_with::<Linear>(|s| {
+                        s.domain((lit(0.0), lit(6.2))).nice(false).zero(false)
+                    })
+                })
+                .subplot_y_with(avg(col("parent_y")), |c| {
+                    c.scale_with::<Linear>(|s| {
+                        s.domain((lit(0.0), lit(3.2))).nice(false).zero(false)
+                    })
+                })
+                .plot_size(104.0, 104.0),
         );
 
     let compiled = plot
@@ -296,8 +291,8 @@ async fn polar_partitioned_subplot_cartesian_children() {
         .title("Polar partitioned Cartesian children")
         .mark(
             Subplot::<Polar>::new(inherited_cartesian_scatter_child(
-                ScaleSharing::Free,
-                ScaleSharing::Free,
+                Sharing::Free,
+                Sharing::Free,
             ))
             .partition_by(col("species"))
             .r_with(avg(col("parent_radius")), |c| {
@@ -337,8 +332,8 @@ async fn polar_partitioned_subplot_polar_children() {
         .title("Polar partitioned polar children")
         .mark(
             Subplot::<Polar>::new(inherited_polar_scatter_child(
-                ScaleSharing::Level(1),
-                ScaleSharing::Level(1),
+                Sharing::Level(1),
+                Sharing::Level(1),
             ))
             .partition_by(col("species"))
             .r_with(avg(col("parent_radius")), |c| {

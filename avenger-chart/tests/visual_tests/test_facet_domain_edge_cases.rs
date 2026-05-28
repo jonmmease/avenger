@@ -229,7 +229,7 @@ async fn facet_row_large_range() {
                     Symbol::new()
                         .x_with(col("x"), |c| {
                             c.scale_with::<Linear>(|s| s)
-                                .with_scale_sharing(ScaleSharing::Free)
+                                .with_scale_sharing(Sharing::Free)
                         })
                         .y(col("y"))
                         .size(36.0)

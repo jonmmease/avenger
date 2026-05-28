@@ -17,8 +17,8 @@ use crate::{
     AvengerChartError, ChannelDescriptor, ColumnDimensionConfig, CompiledDataContext, CompiledMark,
     CompiledMarkCore, CompiledMarkState, CoordinateSystem, CoordinateSystemTransformCore,
     DataContext, DefaultLogicalExprNodeExt, FacetDimensionConfig, FacetEmptyCellPolicy,
-    FacetWrapColumnMode, MarkRuntimeContext, RadiusExpression, RowDimensionConfig, ScaleSharing,
-    SerializableExpr, contains_aggregate,
+    FacetWrapColumnMode, MarkRuntimeContext, RadiusExpression, RowDimensionConfig,
+    SerializableExpr, Sharing, contains_aggregate,
 };
 
 /// Data source selected for a compiled subplot's child plot.
@@ -87,7 +87,7 @@ pub trait SubplotMarkCore: Send + Sync {
         None
     }
 
-    fn facet_row_slot_sharing_config(&self) -> Option<ScaleSharing> {
+    fn facet_row_slot_sharing_config(&self) -> Option<Sharing> {
         None
     }
 
@@ -115,7 +115,7 @@ pub trait SubplotMarkCore: Send + Sync {
         None
     }
 
-    fn facet_col_slot_sharing_config(&self) -> Option<ScaleSharing> {
+    fn facet_col_slot_sharing_config(&self) -> Option<Sharing> {
         None
     }
 
@@ -143,7 +143,7 @@ pub trait SubplotMarkCore: Send + Sync {
         None
     }
 
-    fn facet_wrap_slot_sharing_config(&self) -> Option<ScaleSharing> {
+    fn facet_wrap_slot_sharing_config(&self) -> Option<Sharing> {
         None
     }
 

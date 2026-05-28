@@ -103,7 +103,7 @@ that placement to child-frame render placements, and calls
 
 ## Sharing
 
-Facet slot sharing and scale-domain sharing both use `ScaleSharing` at the API
+Facet slot sharing and scale-domain sharing both use `Sharing` at the API
 boundary and `SharingLevel` internally. `facet/sharing_policy.rs` combines
 sharing primitives with facet path metadata to decide domain grouping, axis
 label ownership, axis title ownership, and legend ownership.

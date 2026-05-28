@@ -1,4 +1,4 @@
-use crate::ScaleSharing;
+use crate::Sharing;
 
 /// Canonical representation for child-frame/container sharing levels.
 ///
@@ -74,15 +74,15 @@ impl From<SharingLevel> for u8 {
     }
 }
 
-impl From<ScaleSharing> for SharingLevel {
-    fn from(value: ScaleSharing) -> Self {
+impl From<Sharing> for SharingLevel {
+    fn from(value: Sharing) -> Self {
         Self::from_raw(value.to_level())
     }
 }
 
-impl From<SharingLevel> for ScaleSharing {
+impl From<SharingLevel> for Sharing {
     fn from(value: SharingLevel) -> Self {
-        ScaleSharing::from_level(value.raw())
+        Sharing::from_level(value.raw())
     }
 }
 

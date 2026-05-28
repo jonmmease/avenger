@@ -681,7 +681,7 @@ mod tests {
         scales::{Linear, LinearScaleExt, ScaleChannelConfig},
         zerod::ZeroDCoord,
     };
-    use avenger_chart_core::{CoordinationAxis, ScaleSharing};
+    use avenger_chart_core::{CoordinationAxis, Sharing};
 
     async fn measurement_for_plot(
         compiled: &CompiledPlot,
@@ -822,7 +822,7 @@ mod tests {
     ) -> Plot<Cartesian> {
         let symbol = if share_x {
             Symbol::new()
-                .x_with(col("x"), |c| c.with_scale_sharing(ScaleSharing::Shared))
+                .x_with(col("x"), |c| c.with_scale_sharing(Sharing::Shared))
                 .y(col("y"))
         } else {
             Symbol::new().x(col("x")).y(col("y"))
@@ -835,7 +835,7 @@ mod tests {
         if share_x {
             mark.x_with(col("x"), |c| {
                 c.scale_with::<Linear>(|s| s.nice(false).zero(false))
-                    .with_scale_sharing(ScaleSharing::Shared)
+                    .with_scale_sharing(Sharing::Shared)
             })
         } else {
             mark.x_with(col("x"), |c| {

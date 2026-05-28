@@ -46,7 +46,7 @@ async fn facet_column_shared_y_scale() {
                     .x(col("sepal_length"))
                     .y_with(col("sepal_width"), |c| {
                         c.scale_with::<Linear>(|s| s)
-                            .with_scale_sharing(ScaleSharing::Shared)
+                            .with_scale_sharing(Sharing::Shared)
                             .axis(|a| a.title("Sepal Width"))
                     })
                     .size(36.0)
@@ -74,12 +74,8 @@ async fn facet_column_free_scales() {
         Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
-                    .x_with(col("sepal_length"), |c| {
-                        c.with_scale_sharing(ScaleSharing::Free)
-                    })
-                    .y_with(col("sepal_width"), |c| {
-                        c.with_scale_sharing(ScaleSharing::Free)
-                    })
+                    .x_with(col("sepal_length"), |c| c.with_scale_sharing(Sharing::Free))
+                    .y_with(col("sepal_width"), |c| c.with_scale_sharing(Sharing::Free))
                     .size(36.0)
                     .fill("#4682b4"),
             ),
@@ -159,11 +155,9 @@ async fn facet_column_hybrid_sharing() {
         Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
-                    .x_with(col("sepal_length"), |c| {
-                        c.with_scale_sharing(ScaleSharing::Free)
-                    })
+                    .x_with(col("sepal_length"), |c| c.with_scale_sharing(Sharing::Free))
                     .y_with(col("sepal_width"), |c| {
-                        c.with_scale_sharing(ScaleSharing::Shared)
+                        c.with_scale_sharing(Sharing::Shared)
                     })
                     .size(36.0)
                     .fill("#4682b4"),

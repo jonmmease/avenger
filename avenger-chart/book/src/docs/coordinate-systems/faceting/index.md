@@ -139,7 +139,7 @@ Both types can be nested to create multi-dimensional grids.
 | Concept | Type | Purpose |
 |---------|------|---------|
 | **Subplot Mark** | `Subplot<FacetRow>` / `Subplot<FacetColumn>` | Creates the faceted layout by splitting data and creating subplot instances |
-| **Scale Sharing** | `ScaleSharing` enum | Controls whether scales are unified across facets or independent per panel |
+| **Scale Sharing** | `Sharing` enum | Controls whether scales are unified across facets or independent per panel |
 | **Subplot** | `Plot<InnerC>` | The inner chart specification rendered once per facet cell |
 | **Coordinate System** | `FacetRow`, `FacetColumn` | Defines the layout direction and coordinate space for facets |
 
@@ -149,8 +149,8 @@ Both types can be nested to create multi-dimensional grids.
 |----------|----------|
 | How do I create a row facet? | `Plot::<FacetRow>::new().mark(Subplot::new(...).row(col("category")))` |
 | How do I create a column facet? | `Plot::<FacetColumn>::new().mark(Subplot::new(...).column(col("category")))` |
-| How do I share scales across facets? | Use `.with_scale_sharing(ScaleSharing::Shared)` on inner mark channels |
-| How do I make scales independent? | Use `.with_scale_sharing(ScaleSharing::Free)` on inner mark channels (default) |
+| How do I share scales across facets? | Use `.with_scale_sharing(Sharing::Shared)` on inner mark channels |
+| How do I make scales independent? | Use `.with_scale_sharing(Sharing::Free)` on inner mark channels (default) |
 | How do I add a facet title? | Use `.row_with(col("cat"), \|c\| c.facet(\|f\| f.title("Category")))` |
 | How do I adjust spacing? | Facet spacing is computed from measured subplot overflows. |
 | How do I create nested facets? | Use a facet coordinate system as the subplot of another facet |

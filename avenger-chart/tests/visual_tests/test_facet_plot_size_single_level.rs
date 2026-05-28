@@ -86,10 +86,10 @@ async fn facet_plot_size_row_shared_scales() {
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
-                            c.with_scale_sharing(ScaleSharing::Shared)
+                            c.with_scale_sharing(Sharing::Shared)
                         })
                         .y_with(col("sepal_width"), |c| {
-                            c.with_scale_sharing(ScaleSharing::Shared)
+                            c.with_scale_sharing(Sharing::Shared)
                         })
                         .size(30.0)
                         .fill("#4682b4"),
@@ -121,12 +121,8 @@ async fn facet_plot_size_col_free_scales() {
             Subplot::new(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
-                        .x_with(col("sepal_length"), |c| {
-                            c.with_scale_sharing(ScaleSharing::Free)
-                        })
-                        .y_with(col("sepal_width"), |c| {
-                            c.with_scale_sharing(ScaleSharing::Free)
-                        })
+                        .x_with(col("sepal_length"), |c| c.with_scale_sharing(Sharing::Free))
+                        .y_with(col("sepal_width"), |c| c.with_scale_sharing(Sharing::Free))
                         .size(30.0)
                         .fill("#4682b4"),
                 ),
@@ -158,11 +154,9 @@ async fn facet_plot_size_row_hybrid_shared_x_free_y() {
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
-                            c.with_scale_sharing(ScaleSharing::Shared)
+                            c.with_scale_sharing(Sharing::Shared)
                         })
-                        .y_with(col("sepal_width"), |c| {
-                            c.with_scale_sharing(ScaleSharing::Free)
-                        })
+                        .y_with(col("sepal_width"), |c| c.with_scale_sharing(Sharing::Free))
                         .size(30.0)
                         .fill("#4682b4"),
                 ),
@@ -323,11 +317,11 @@ async fn facet_plot_size_row_polar() {
                     Symbol::new()
                         .r_with(col("sepal_length"), |c| {
                             c.scale_with::<Linear>(|s| s)
-                                .with_scale_sharing(ScaleSharing::Shared)
+                                .with_scale_sharing(Sharing::Shared)
                         })
                         .theta_with(col("sepal_width"), |c| {
                             c.scale_with::<Linear>(|s| s)
-                                .with_scale_sharing(ScaleSharing::Shared)
+                                .with_scale_sharing(Sharing::Shared)
                         })
                         .size(30.0)
                         .fill("#cd5c5c"),

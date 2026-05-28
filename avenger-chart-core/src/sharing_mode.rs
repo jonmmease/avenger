@@ -1,8 +1,7 @@
-/// Hierarchical sharing modes for plot scale domains and facet slots.
+/// Hierarchical sharing modes for coordinated chart state.
 ///
-/// For data channels, this controls plot scale domain sharing across facets.
-/// For facet row/column channels, this controls slot sharing: whether a facet
-/// level enumerates slots independently per parent or from a shared ancestor.
+/// The same `Free` / `Level(N)` / `Shared` vocabulary is used for scale
+/// domains, facet slots, guides, legends, and scoped params.
 ///
 /// # Implementation Note: Unified UNION Semantics
 ///
@@ -12,10 +11,10 @@
 ///
 /// While `Shared` is semantically equivalent to `Level(u8::MAX)`, they currently
 /// follow different code paths internally for historical reasons. When you need to
-/// check if a mode represents "fully shared" behavior, use [`ScaleSharing::is_fully_shared`].
+/// check if a mode represents "fully shared" behavior, use [`Sharing::is_fully_shared`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ScaleSharing {
+pub enum Sharing {
     /// Share across all facets.
     /// Equivalent to Level(u8::MAX)
     Shared,
@@ -31,17 +30,13 @@ pub enum ScaleSharing {
     Level(u8),
 }
 
-impl From<bool> for ScaleSharing {
+impl From<bool> for Sharing {
     fn from(v: bool) -> Self {
-        if v {
-            ScaleSharing::Shared
-        } else {
-            ScaleSharing::Free
-        }
+        if v { Sharing::Shared } else { Sharing::Free }
     }
 }
 
-impl ScaleSharing {
+impl Sharing {
     /// Convert this sharing mode to a level value
     ///
     /// - Free -> 0
@@ -49,20 +44,20 @@ impl ScaleSharing {
     /// - Shared -> u8::MAX
     pub fn to_level(self) -> u8 {
         match self {
-            ScaleSharing::Free => 0,
-            ScaleSharing::Level(n) => n,
-            ScaleSharing::Shared => u8::MAX,
+            Sharing::Free => 0,
+            Sharing::Level(n) => n,
+            Sharing::Shared => u8::MAX,
         }
     }
 
-    /// Create a ScaleSharing from a level value
+    /// Create a Sharing from a level value
     ///
     /// Returns normalized Level values for internal consistency:
     /// - 0 -> Level(0)
     /// - u8::MAX -> Level(255)
     /// - n -> Level(n)
     pub fn from_level(level: u8) -> Self {
-        ScaleSharing::Level(level)
+        Sharing::Level(level)
     }
 
     /// Check if this is free (independent per facet cell)
@@ -72,13 +67,13 @@ impl ScaleSharing {
         self.to_level() == 0
     }
 
-    /// Check if this sharing mode shares with the parent facet.
+    /// Check if this sharing mode shares with the parent container.
     ///
     /// Returns true for Level(1+), Shared.
     /// Returns false for Free, Level(0).
     ///
-    /// This is useful for determining whether a nested facet should
-    /// coordinate its scale domains with its parent facet.
+    /// This is useful for determining whether nested state should coordinate
+    /// with its parent container.
     pub fn should_share_with_parent(self) -> bool {
         self.to_level() > 0
     }
@@ -88,7 +83,7 @@ impl ScaleSharing {
     /// Returns true for Shared and Level(u8::MAX).
     /// These modes share domains across all nesting levels.
     pub fn is_fully_shared(self) -> bool {
-        matches!(self, ScaleSharing::Shared | ScaleSharing::Level(u8::MAX))
+        matches!(self, Sharing::Shared | Sharing::Level(u8::MAX))
     }
 
     /// Normalize to Level representation for internal consistency.
@@ -100,8 +95,8 @@ impl ScaleSharing {
     /// This ensures all internal code only needs to handle the Level variant.
     pub fn to_normalized(self) -> Self {
         match self {
-            ScaleSharing::Free => ScaleSharing::Level(0),
-            ScaleSharing::Shared => ScaleSharing::Level(u8::MAX),
+            Sharing::Free => Sharing::Level(0),
+            Sharing::Shared => Sharing::Level(u8::MAX),
             level => level,
         }
     }

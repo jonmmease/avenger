@@ -127,7 +127,7 @@ Scale sharing becomes more nuanced with nested facets. Each level can specify di
 
 ### Shared Scales Across All Cells
 
-Use `ScaleSharing::Shared` to create a single domain across all cells:
+Use `Sharing::Shared` to create a single domain across all cells:
 
 ```rust,render
 use avenger_chart::prelude::*;
@@ -158,10 +158,10 @@ let plot = Plot::<FacetColumn>::new()
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x_with(col("sepal_length"), |c| {
-                                c.with_scale_sharing(ScaleSharing::Shared)
+                                c.with_scale_sharing(Sharing::Shared)
                             })
                             .y_with(col("sepal_width"), |c| {
-                                c.with_scale_sharing(ScaleSharing::Shared)
+                                c.with_scale_sharing(Sharing::Shared)
                             })
                             .size(25.0)
                             .fill("#4682b4"),
@@ -182,7 +182,7 @@ With `Shared`, all 9 cells use the same x and y domains, making direct visual co
 
 ### Free Scales Per Cell
 
-Use `ScaleSharing::Free` to let each cell compute its own optimal scale:
+Use `Sharing::Free` to let each cell compute its own optimal scale:
 
 ```rust,render
 use avenger_chart::prelude::*;
@@ -213,10 +213,10 @@ let plot = Plot::<FacetColumn>::new()
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x_with(col("sepal_length"), |c| {
-                                c.with_scale_sharing(ScaleSharing::Free)
+                                c.with_scale_sharing(Sharing::Free)
                             })
                             .y_with(col("sepal_width"), |c| {
-                                c.with_scale_sharing(ScaleSharing::Free)
+                                c.with_scale_sharing(Sharing::Free)
                             })
                             .size(25.0)
                             .fill("#4682b4"),
@@ -237,7 +237,7 @@ With `Free`, each of the 9 cells optimizes its scales independently, maximizing 
 
 ## Level-Based Sharing
 
-`ScaleSharing::Level(1)` enables sharing scales with the immediate parent facet, creating column-wise or row-wise sharing depending on the nesting structure.
+`Sharing::Level(1)` enables sharing scales with the immediate parent facet, creating column-wise or row-wise sharing depending on the nesting structure.
 
 ### Column-Wise Sharing: Level(1) in FacetColumn > FacetRow
 
@@ -272,10 +272,10 @@ let plot = Plot::<FacetColumn>::new()
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x_with(col("sepal_length"), |c| {
-                                c.with_scale_sharing(ScaleSharing::Level(1))
+                                c.with_scale_sharing(Sharing::Level(1))
                             })
                             .y_with(col("sepal_width"), |c| {
-                                c.with_scale_sharing(ScaleSharing::Level(1))
+                                c.with_scale_sharing(Sharing::Level(1))
                             })
                             .size(25.0)
                             .fill("#4682b4"),
@@ -333,10 +333,10 @@ let plot = Plot::<FacetRow>::new()
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x_with(col("sepal_length"), |c| {
-                                c.with_scale_sharing(ScaleSharing::Level(1))
+                                c.with_scale_sharing(Sharing::Level(1))
                             })
                             .y_with(col("sepal_width"), |c| {
-                                c.with_scale_sharing(ScaleSharing::Level(1))
+                                c.with_scale_sharing(Sharing::Level(1))
                             })
                             .size(25.0)
                             .fill("#4682b4"),

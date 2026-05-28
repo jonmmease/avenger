@@ -499,7 +499,7 @@ let plot = Plot::<FacetColumn>::new()
                     .y_with(col("sepal_width"), |c| {
                         c.scale_with::<Linear>(|s| s)
                             .axis(|a| a.title("Sepal Width (cm)"))
-                            .with_scale_sharing(ScaleSharing::Shared)
+                            .with_scale_sharing(Sharing::Shared)
                     })
                     .size(120.0)
                     .fill("#9b59b6")
@@ -536,7 +536,7 @@ impl FacetOptions {
 
     /// Configure slot sharing for the facet variable domain
     /// Controls whether nested facets share the same categories
-    pub fn with_slot_sharing(self, mode: ScaleSharing) -> Self
+    pub fn with_slot_sharing(self, mode: Sharing) -> Self
 
     /// Convenience method: Set slot sharing to Shared
     /// All nested cells will show the same categories (grid-like)

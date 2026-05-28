@@ -46,7 +46,7 @@ if !domain_vals.is_empty() {
         let mut left_scales = left_base_scales.clone();
         let mut right_scales = right_base_scales.clone();
         for (ch, mode) in &scale_sharing_by_channel {
-            if *mode != ScaleSharing::Shared {
+            if *mode != Sharing::Shared {
                 if let Some(s) = left_scales_filt.get(ch) { left_scales.insert(ch.clone(), s.clone()); }
                 if let Some(s) = right_scales_filt.get(ch) { right_scales.insert(ch.clone(), s.clone()); }
             }

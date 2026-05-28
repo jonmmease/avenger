@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 use crate::{
-    AvengerChartError, Legend, ScaleConfigSpec, ScaleSharing, SerializableExpr,
+    AvengerChartError, Legend, ScaleConfigSpec, SerializableExpr, Sharing,
     channel::strip_trailing_numbers,
 };
 
@@ -167,9 +167,9 @@ pub enum ChannelValue {
         scale_config: Option<Box<ScaleConfigSpec>>,
         /// Optional legend configuration
         legend_config: Option<Box<Legend>>,
-        /// Share this channel's scale across facets using ScaleSharing enum
+        /// Share this channel's scale across facets using Sharing enum
         #[serde(default)]
-        share_mode: Option<ScaleSharing>,
+        share_mode: Option<Sharing>,
     },
     /// Expression that bypasses scaling (identity transformation)
     Value {
@@ -187,9 +187,9 @@ pub enum ChannelValue {
         scale_config: Option<Box<ScaleConfigSpec>>,
         /// Optional legend configuration (applies to all Field branches)
         legend_config: Option<Box<Legend>>,
-        /// Share this channel's scale across facets using ScaleSharing enum
+        /// Share this channel's scale across facets using Sharing enum
         #[serde(default)]
-        share_mode: Option<ScaleSharing>,
+        share_mode: Option<Sharing>,
     },
 }
 
@@ -263,7 +263,7 @@ impl ChannelValue {
     }
 
     /// Get per-channel facet sharing mode
-    pub fn get_share_mode(&self) -> Option<ScaleSharing> {
+    pub fn get_share_mode(&self) -> Option<Sharing> {
         match self {
             ChannelValue::Scaled { share_mode, .. }
             | ChannelValue::Conditional { share_mode, .. } => *share_mode,

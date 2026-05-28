@@ -5798,13 +5798,13 @@ mod tests {
                                 Rect::new()
                                     .x_with(col("category"), |c| {
                                         c.scale_with::<Band>(|s| s)
-                                            .with_scale_sharing(ScaleSharing::Shared)
+                                            .with_scale_sharing(Sharing::Shared)
                                             .axis(|a| a.title("Category"))
                                     })
                                     .x2_with(col(":x"), |c| c.band(1.0))
                                     .y(0.0)
                                     .y2_with(col("value"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                        c.with_scale_sharing(Sharing::Shared)
                                             .axis(|a| a.title("Value"))
                                     })
                                     .fill("#4682b4"),
@@ -5832,10 +5832,10 @@ mod tests {
                                             Plot::<Cartesian>::new().mark(
                                                 Symbol::new()
                                                     .x_with(col("x_val"), |c| {
-                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                        c.with_scale_sharing(Sharing::Level(4))
                                                     })
                                                     .y_with(col("y_val"), |c| {
-                                                        c.with_scale_sharing(ScaleSharing::Level(4))
+                                                        c.with_scale_sharing(Sharing::Level(4))
                                                     })
                                                     .size(24.0)
                                                     .fill("#3498db"),
@@ -5845,7 +5845,7 @@ mod tests {
                                     ),
                                 )
                                 .col_with(col("team"), |c| {
-                                    c.with_slot_sharing(ScaleSharing::Level(1))
+                                    c.with_slot_sharing(Sharing::Level(1))
                                         .guide(|g| g.title("Team"))
                                 }),
                             ),
@@ -6092,10 +6092,10 @@ mod tests {
 
     fn build_level1_fill_legend_symbol(position: LegendPosition) -> Symbol<Cartesian> {
         Symbol::new()
-            .x_with(col("x_val"), |c| c.with_scale_sharing(ScaleSharing::Shared))
-            .y_with(col("y_val"), |c| c.with_scale_sharing(ScaleSharing::Shared))
+            .x_with(col("x_val"), |c| c.with_scale_sharing(Sharing::Shared))
+            .y_with(col("y_val"), |c| c.with_scale_sharing(Sharing::Shared))
             .fill_with(col("category"), move |c| {
-                c.with_scale_sharing(ScaleSharing::Level(1))
+                c.with_scale_sharing(Sharing::Level(1))
                     .legend(|legend| legend.title("Category").position(position))
             })
             .size(70.0)
@@ -6103,10 +6103,10 @@ mod tests {
 
     fn build_level2_fill_legend_symbol(position: LegendPosition) -> Symbol<Cartesian> {
         Symbol::new()
-            .x_with(col("x_val"), |c| c.with_scale_sharing(ScaleSharing::Shared))
-            .y_with(col("y_val"), |c| c.with_scale_sharing(ScaleSharing::Shared))
+            .x_with(col("x_val"), |c| c.with_scale_sharing(Sharing::Shared))
+            .y_with(col("y_val"), |c| c.with_scale_sharing(Sharing::Shared))
             .fill_with(col("category"), move |c| {
-                c.with_scale_sharing(ScaleSharing::Level(2))
+                c.with_scale_sharing(Sharing::Level(2))
                     .legend(|legend| legend.title("Category").position(position))
             })
             .size(70.0)
@@ -6156,14 +6156,10 @@ mod tests {
                         Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
-                                    .x_with(col("x_val"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Shared)
-                                    })
-                                    .y_with(col("y_val"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Shared)
-                                    })
+                                    .x_with(col("x_val"), |c| c.with_scale_sharing(Sharing::Shared))
+                                    .y_with(col("y_val"), |c| c.with_scale_sharing(Sharing::Shared))
                                     .fill_with(col("category"), move |c| {
-                                        c.with_scale_sharing(ScaleSharing::Free).legend(|legend| {
+                                        c.with_scale_sharing(Sharing::Free).legend(|legend| {
                                             legend.title("Category").position(position)
                                         })
                                     })
@@ -6244,10 +6240,10 @@ mod tests {
                                     Plot::<Cartesian>::new().mark(
                                         Symbol::new()
                                             .x_with(col("x_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Shared)
+                                                c.with_scale_sharing(Sharing::Shared)
                                             })
                                             .y_with(col("y_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Shared)
+                                                c.with_scale_sharing(Sharing::Shared)
                                             })
                                             .fill_with(col("y_val"), |c| {
                                                 c.scale_with::<avenger_chart_scales::Linear>(|s| s)
@@ -6286,7 +6282,7 @@ mod tests {
                     .axis(|a| a.show_title(false))
                 })
                 .fill_with(col("category"), |c| {
-                    c.with_scale_sharing(ScaleSharing::Shared)
+                    c.with_scale_sharing(Sharing::Shared)
                         .legend(|legend| legend.title("Category").position(LegendPosition::Right))
                 })
                 .stroke("#ffffff")
@@ -6323,10 +6319,10 @@ mod tests {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(ScaleSharing::Shared)
+                                    c.with_scale_sharing(Sharing::Shared)
                                 })
                                 .y_with(col("sepal_width"), |c| {
-                                    c.with_scale_sharing(ScaleSharing::Level(1))
+                                    c.with_scale_sharing(Sharing::Level(1))
                                 })
                                 .size(25.0)
                                 .fill("#4682b4"),
@@ -6351,7 +6347,7 @@ mod tests {
                                 .mark(Symbol::new().x(col("x_val")).y(col("y_val")).size(35.0)),
                         )
                         .row_with(col("row_group"), |c| {
-                            c.with_slot_sharing(ScaleSharing::Shared)
+                            c.with_slot_sharing(Sharing::Shared)
                                 .guide(|g| g.position("right"))
                         }),
                     ),
@@ -6370,18 +6366,12 @@ mod tests {
                         Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
-                                    .x_with(col("x_val"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Shared)
-                                    })
-                                    .y_with(col("y_val"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Shared)
-                                    })
+                                    .x_with(col("x_val"), |c| c.with_scale_sharing(Sharing::Shared))
+                                    .y_with(col("y_val"), |c| c.with_scale_sharing(Sharing::Shared))
                                     .size(35.0),
                             ),
                         )
-                        .row_with(col("row_group"), |c| {
-                            c.with_slot_sharing(ScaleSharing::Shared)
-                        }),
+                        .row_with(col("row_group"), |c| c.with_slot_sharing(Sharing::Shared)),
                     ),
                 )
                 .column(col("col_group")),
@@ -6401,17 +6391,13 @@ mod tests {
                         Subplot::new(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
-                                    .x_with(col("x_val"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Shared)
-                                    })
-                                    .y_with(col("y_val"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Shared)
-                                    })
+                                    .x_with(col("x_val"), |c| c.with_scale_sharing(Sharing::Shared))
+                                    .y_with(col("y_val"), |c| c.with_scale_sharing(Sharing::Shared))
                                     .size(35.0),
                             ),
                         )
                         .row_with(col("row_group"), move |c| {
-                            c.with_slot_sharing(ScaleSharing::Shared)
+                            c.with_slot_sharing(Sharing::Shared)
                                 .empty_cell_policy(policy)
                         }),
                     ),
@@ -6439,7 +6425,7 @@ mod tests {
                                     ),
                                 )
                                 .row_with(col("row_group"), |c| {
-                                    c.with_slot_sharing(ScaleSharing::Level(1))
+                                    c.with_slot_sharing(Sharing::Level(1))
                                         .guide(|g| g.position("right"))
                                 }),
                             ),
@@ -6535,10 +6521,10 @@ mod tests {
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("x_val"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Level(2))
+                                        c.with_scale_sharing(Sharing::Level(2))
                                     })
                                     .y_with(col("y_val"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Level(2))
+                                        c.with_scale_sharing(Sharing::Level(2))
                                     })
                                     .size(40.0)
                                     .fill("#9b59b6"),
@@ -6578,13 +6564,13 @@ mod tests {
                                     Plot::<Cartesian>::new().mark(
                                         Symbol::new()
                                             .x_with(col("x_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Shared)
+                                                c.with_scale_sharing(Sharing::Shared)
                                             })
                                             .y_with(col("y_val"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Free)
+                                                c.with_scale_sharing(Sharing::Free)
                                             })
                                             .fill_with(col("category"), |c| {
-                                                c.with_scale_sharing(ScaleSharing::Level(1))
+                                                c.with_scale_sharing(Sharing::Level(1))
                                             })
                                             .size(58.0),
                                     ),

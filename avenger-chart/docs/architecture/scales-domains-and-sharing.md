@@ -15,7 +15,7 @@ flowchart TD
     Domains["DomainExtent\ninferred or explicit domains"]
     Coord["Coordinate transform\ndefault range bindings"]
     Runtime["ConfiguredScaleWithSpec\nConfiguredScale"]
-    Sharing["ScaleSharing / SharingLevel\nfacet and child-frame grouping"]
+    Sharing["Sharing / SharingLevel\nfacet and child-frame grouping"]
 
     Channel --> PlotSpecs
     PlotSpecs --> Builder
@@ -38,7 +38,7 @@ Core owns generic authoring values:
 - `ScaleRange`,
 - `ScaleTypePreference`,
 - `ScaleChannelConfig` and `ScaleChannelValue`,
-- `ScaleSharing` and `SharingLevel`.
+- `Sharing` and `SharingLevel`.
 
 Built-in marker types such as `Linear`, `Log`, `Band`, and `Ordinal` live in
 `avenger-chart-scales`. Built-in type-specific methods live in extension traits
@@ -65,7 +65,7 @@ for a requested plot-area size. Its cached channel data is represented by
 
 ## Domain Sharing
 
-`ScaleSharing` is the user-facing sharing mode:
+`Sharing` is the user-facing sharing mode:
 
 - `Free` means local domains,
 - `Level(n)` shares at an ancestor level,

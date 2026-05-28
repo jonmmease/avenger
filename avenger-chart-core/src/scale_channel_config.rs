@@ -1,4 +1,4 @@
-use crate::{Auto, ChannelConfig, ChannelValue, Scale, ScaleSharing, ScaleSpec};
+use crate::{Auto, ChannelConfig, ChannelValue, Scale, ScaleSpec, Sharing};
 
 /// Extension methods for channel configs that carry scale configuration.
 pub trait ScaleChannelConfig: ChannelConfig {
@@ -27,10 +27,10 @@ pub trait ScaleChannelConfig: ChannelConfig {
     /// Configure how this channel's plot scale domain is shared across facets.
     ///
     /// This applies to data channels such as x, y, color, and size. Facet row
-    /// and column channels use the same `ScaleSharing` values to configure
+    /// and column channels use the same `Sharing` values to configure
     /// facet slot sharing, but expose that through facet-specific
     /// `with_slot_sharing` options.
-    fn with_scale_sharing(mut self, mode: ScaleSharing) -> Self {
+    fn with_scale_sharing(mut self, mode: Sharing) -> Self {
         let normalized = mode.to_normalized();
         let mut value = self.get_value().clone();
         value = match value {
@@ -70,12 +70,12 @@ pub trait ScaleChannelConfig: ChannelConfig {
 
     /// Share this channel's plot scale domain across all facets.
     fn share_scale(self) -> Self {
-        self.with_scale_sharing(ScaleSharing::Shared)
+        self.with_scale_sharing(Sharing::Shared)
     }
 
     /// Make this channel's plot scale domain independent for each facet.
     fn free_scale(self) -> Self {
-        self.with_scale_sharing(ScaleSharing::Free)
+        self.with_scale_sharing(Sharing::Free)
     }
 }
 

@@ -57,11 +57,11 @@ pub mod scale_config_spec;
 pub mod scale_domain;
 pub mod scale_range;
 pub mod scale_range_binding;
-pub mod scale_sharing;
 pub mod scale_spec;
 pub mod scale_type;
 pub mod serialization;
 pub mod sharing;
+pub mod sharing_mode;
 pub mod subplot_child_plot;
 pub mod theme;
 pub mod theme_context;
@@ -183,7 +183,6 @@ pub use scale_range::ScaleRange;
 pub use scale_range_binding::{
     PlotAreaDimension, PlotAreaRangeEndpoint, PlotAreaRangeExpr, ScaleRangeBinding,
 };
-pub use scale_sharing::ScaleSharing;
 pub use scale_spec::{Auto, ScaleSpec};
 pub use scale_type::{ScaleTypePreference, default_scale_type_for_data_type, is_continuous_scale};
 pub use serialization::{
@@ -191,6 +190,7 @@ pub use serialization::{
     SerializableExpr, SerializableNestedScalarMap, SerializableScalar, SerializableScalarMap,
 };
 pub use sharing::{CoordinationAxis, SharingLevel};
+pub use sharing_mode::Sharing;
 pub use subplot_child_plot::{
     CompiledPositionedSubplot, CompiledSubplotChildPlot, CompiledSubplotPayload,
     PositionedSubplotChannel, PositionedSubplotMarkCore, PositionedSubplotSpec,

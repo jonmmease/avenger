@@ -13,7 +13,7 @@ exist:
 - Nested facets can create row/column grids from data partitions.
 - DataFusion preprocessing can reshape wide data into long data, after which
   ordinary facets can approximate some repeat use cases.
-- `ScaleSharing` and child-frame sharing already solve much of the domain,
+- `Sharing` and child-frame sharing already solve much of the domain,
   guide, and legend ownership problem for nested child plots.
 
 The old repeat note also contained facet scale sharing, axis display, labels,
@@ -93,7 +93,7 @@ layout feature or documentation/API sugar around transforms and facets.
 
 - Whether repeat is a distinct runtime container or authoring-time expansion.
 - Whether the API prioritizes Rust closures or serializable placeholders.
-- How per-variable scale sharing is represented with existing `ScaleSharing`
+- How per-variable scale sharing is represented with existing `Sharing`
   levels.
 - How diagonal, upper/lower triangle, and asymmetric scatterplot matrices are
   expressed.

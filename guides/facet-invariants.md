@@ -84,8 +84,8 @@ For the overall architecture, see `avenger-chart/docs/architecture/facet-system.
 
 | Property | Value |
 |----------|-------|
-| **Invariant** | User-facing `ScaleSharing` is normalized to `SharingLevel(u8)` at the entry point: `Free → SharingLevel(0)`, `Shared → SharingLevel(255)`, `Level(n) → SharingLevel(n)`. Comparisons must use the normalized form. |
-| **Consequence if Violated** | Sharing groups computed from raw `ScaleSharing` won't match those computed from normalized `SharingLevel`; ancestor truncation paths diverge. |
+| **Invariant** | User-facing `Sharing` is normalized to `SharingLevel(u8)` at the entry point: `Free → SharingLevel(0)`, `Shared → SharingLevel(255)`, `Level(n) → SharingLevel(n)`. Comparisons must use the normalized form. |
+| **Consequence if Violated** | Sharing groups computed from raw `Sharing` won't match those computed from normalized `SharingLevel`; ancestor truncation paths diverge. |
 | **Current Enforcement** | `FacetOptions::with_slot_sharing` calls `to_normalized()`. Downstream code uses `SharingLevel` exclusively. |
 | **Location** | `avenger-chart/src/facet/marks/facet_config.rs`, `avenger-chart/src/facet/sharing_level.rs` |
 

@@ -100,14 +100,14 @@ fn positioned_child_plot() -> Plot<Cartesian> {
             Symbol::<Cartesian>::new()
                 .x_with(col("child_x"), |c| {
                     c.scale_with::<Linear>(|s| s.nice(false).zero(false))
-                        .with_scale_sharing(ScaleSharing::Free)
+                        .with_scale_sharing(Sharing::Free)
                         .axis(|a| a.tick_count(3).title("child_x"))
                 })
                 .y_with(col("child_y"), |c| {
                     c.scale_with::<Linear>(|s| {
                         s.domain((lit(0.0), lit(1.0))).nice(false).zero(false)
                     })
-                    .with_scale_sharing(ScaleSharing::Free)
+                    .with_scale_sharing(Sharing::Free)
                     .axis(|a| a.tick_count(3).title("child_y"))
                 })
                 .fill("#0072b2")
@@ -135,7 +135,7 @@ fn positioned_fill_child_plot(fill_sharing_level: u8) -> Plot<Cartesian> {
                     .axis(|a| a.tick_count(3).title("child_y"))
                 })
                 .fill_with(col("fill_category"), move |c| {
-                    c.with_scale_sharing(ScaleSharing::Level(fill_sharing_level))
+                    c.with_scale_sharing(Sharing::Level(fill_sharing_level))
                         .scale_with::<Ordinal>(|s| s.range_discrete(fill_sharing_palette()))
                         .legend(|l| l.title("Fill group").position(LegendPosition::Right))
                 })
@@ -158,14 +158,14 @@ fn positioned_parent_plot(
                     c.scale_with::<Linear>(|s| {
                         s.domain((lit(0.0), lit(1.0))).nice(false).zero(false)
                     })
-                    .with_scale_sharing(ScaleSharing::Level(subplot_x_sharing_level))
+                    .with_scale_sharing(Sharing::Level(subplot_x_sharing_level))
                     .axis(|a| a.title("subplot_x"))
                 })
                 .subplot_y_with(lit(0.5), move |c| {
                     c.scale_with::<Linear>(|s| {
                         s.domain((lit(0.0), lit(1.0))).nice(false).zero(false)
                     })
-                    .with_scale_sharing(ScaleSharing::Level(subplot_y_sharing_level))
+                    .with_scale_sharing(Sharing::Level(subplot_y_sharing_level))
                     .axis(|a| a.title("subplot_y"))
                 })
                 .plot_size(142.0, 104.0),

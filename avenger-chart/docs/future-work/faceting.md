@@ -13,7 +13,7 @@ Implemented now:
   `SubplotContainerCoordinateSystem`.
 - Facet child plots inherit parent data and are filtered per facet cell.
 - Nested row/column facets are supported.
-- `ScaleSharing` and nested sharing levels coordinate domains, axis
+- `Sharing` and nested sharing levels coordinate domains, axis
   visibility, legends, and child-frame behavior.
 - The runtime has `EvaluatedFacetTree`, `PartitionNode`, facet band
   measurement, guide sharing, and layout coordination.

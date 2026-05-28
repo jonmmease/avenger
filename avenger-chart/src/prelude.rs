@@ -25,7 +25,7 @@ pub use crate::event::{
 };
 pub use crate::facet::coord::{FacetColumn, FacetRow, FacetWrap};
 pub use avenger_chart_cartesian::Cartesian;
-pub use avenger_chart_core::{FacetEmptyCellPolicy, ScaleSharing, ZeroDCoord};
+pub use avenger_chart_core::{FacetEmptyCellPolicy, Sharing, ZeroDCoord};
 pub use avenger_chart_polar::Polar;
 
 // Re-export the Plot type

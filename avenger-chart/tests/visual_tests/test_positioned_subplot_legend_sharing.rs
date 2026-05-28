@@ -51,7 +51,7 @@ fn shared_legend_child() -> Plot<Cartesian> {
                     .axis(|a| a.tick_count(3).show_title(false))
                 })
                 .fill_with(col("category"), |c| {
-                    c.with_scale_sharing(ScaleSharing::Shared)
+                    c.with_scale_sharing(Sharing::Shared)
                         .legend(|l| l.title("Category").position(LegendPosition::Right))
                 })
                 .stroke("#ffffff")

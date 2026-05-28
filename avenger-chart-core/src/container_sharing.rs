@@ -188,7 +188,7 @@ pub fn project_container_edge_levels(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ScaleSharing;
+    use crate::Sharing;
 
     fn s(v: &str) -> ScalarValue {
         ScalarValue::Utf8(Some(v.to_string()))
@@ -220,22 +220,16 @@ mod tests {
     }
 
     #[test]
-    fn sharing_level_scale_sharing_conversions_normalized() {
+    fn sharing_level_conversions_normalized() {
+        assert_eq!(SharingLevel::from(Sharing::Free), SharingLevel::from_raw(0));
+        assert_eq!(SharingLevel::from(Sharing::Shared), SharingLevel::GLOBAL);
         assert_eq!(
-            SharingLevel::from(ScaleSharing::Free),
-            SharingLevel::from_raw(0)
-        );
-        assert_eq!(
-            SharingLevel::from(ScaleSharing::Shared),
-            SharingLevel::GLOBAL
-        );
-        assert_eq!(
-            SharingLevel::from(ScaleSharing::Level(3)),
+            SharingLevel::from(Sharing::Level(3)),
             SharingLevel::from_raw(3)
         );
 
-        let back_to_scale: ScaleSharing = SharingLevel::GLOBAL.into();
-        assert_eq!(back_to_scale, ScaleSharing::Level(255));
+        let back_to_scale: Sharing = SharingLevel::GLOBAL.into();
+        assert_eq!(back_to_scale, Sharing::Level(255));
     }
 
     #[test]
