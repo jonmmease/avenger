@@ -361,22 +361,22 @@ pub async fn run() {
     // Predefine configs that are used in multiple handlers
     let left_mouse_down_config = EventStreamConfig {
         types: vec![SceneGraphEventType::MouseDown],
-        filter: Some(vec![EventStreamFilter(Arc::new(|event| {
+        filter: Some(vec![EventStreamFilter::event(|event| {
             let SceneGraphEvent::MouseDown(mouse_down) = event else {
                 return false;
             };
             mouse_down.button == MouseButton::Left
-        }))]),
+        })]),
         ..Default::default()
     };
     let left_mouse_up_config = EventStreamConfig {
         types: vec![SceneGraphEventType::MouseUp],
-        filter: Some(vec![EventStreamFilter(Arc::new(|event| {
+        filter: Some(vec![EventStreamFilter::event(|event| {
             let SceneGraphEvent::MouseUp(mouse_up) = event else {
                 return false;
             };
             mouse_up.button == MouseButton::Left
-        }))]),
+        })]),
         ..Default::default()
     };
 

@@ -12,18 +12,28 @@ use crate::{
         SceneKeyReleaseEvent, SceneMouseDownEvent, SceneMouseEnterEvent, SceneMouseLeaveEvent,
         SceneMouseUpEvent, SceneMouseWheelEvent,
     },
-    stream::{EventStream, EventStreamConfig, UpdateStatus},
+    stream::{EventStream, EventStreamConfig, EventStreamContext, UpdateStatus},
     window::{ElementState, Key, MouseButton, NamedKey, WindowEvent, WindowKeyboardInput},
 };
 
 #[async_trait]
-pub trait EventStreamHandler<State: Clone + Send + Sync + 'static> {
+pub trait EventStreamHandler<State: Clone + Send + Sync + 'static>: Send + Sync {
     async fn handle(
         &self,
         event: &SceneGraphEvent,
         state: &mut State,
         rtree: &SceneGraphRTree,
     ) -> UpdateStatus;
+
+    async fn handle_with_context(
+        &self,
+        event: &SceneGraphEvent,
+        _context: &EventStreamContext,
+        state: &mut State,
+        rtree: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        self.handle(event, state, rtree).await
+    }
 }
 
 #[derive(Clone)]
@@ -290,13 +300,18 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
         let mut update_status = UpdateStatus::default();
 
         for stream in &mut self.streams {
-            if stream.matches_and_update(event, mark_instance.as_ref(), instant) {
-                // Update last handled time
-                stream.last_handled_time = Some(instant);
-
+            if let Some(context) =
+                stream.matches_and_update(event, mark_instance.as_ref(), rtree, instant)
+            {
                 // Call handler and merge update status
-                update_status = update_status
-                    .merge(&stream.handler.handle(event, &mut self.state, rtree).await);
+                update_status = update_status.merge(
+                    &stream
+                        .handler
+                        .handle_with_context(event, &context, &mut self.state, rtree)
+                        .await,
+                );
+
+                stream.mark_accepted(event, mark_instance.as_ref(), instant);
 
                 // Handle consume flag
                 if stream.config.consume {
@@ -483,13 +498,15 @@ mod tests {
 
     use super::*;
     use crate::{
-        stream::EventStreamConfig,
-        window::{CanvasResizeEvent, WindowEvent},
+        stream::{EventStreamConfig, EventStreamFilter},
+        window::{CanvasResizeEvent, WindowCursorMoved, WindowEvent, WindowMouseInput},
     };
 
     #[derive(Clone, Default)]
     struct TestState {
         events: Arc<Mutex<Vec<SceneGraphEvent>>>,
+        contexts: Arc<Mutex<Vec<EventStreamContext>>>,
+        labels: Arc<Mutex<Vec<String>>>,
     }
 
     struct RecordingHandler;
@@ -510,6 +527,55 @@ mod tests {
         }
     }
 
+    struct ContextRecordingHandler;
+
+    #[async_trait]
+    impl EventStreamHandler<TestState> for ContextRecordingHandler {
+        async fn handle(
+            &self,
+            event: &SceneGraphEvent,
+            state: &mut TestState,
+            _rtree: &SceneGraphRTree,
+        ) -> UpdateStatus {
+            state.events.lock().unwrap().push(event.clone());
+            UpdateStatus {
+                rerender: true,
+                rebuild_geometry: false,
+            }
+        }
+
+        async fn handle_with_context(
+            &self,
+            event: &SceneGraphEvent,
+            context: &EventStreamContext,
+            state: &mut TestState,
+            rtree: &SceneGraphRTree,
+        ) -> UpdateStatus {
+            state.contexts.lock().unwrap().push(context.clone());
+            self.handle(event, state, rtree).await
+        }
+    }
+
+    #[derive(Clone)]
+    struct HandlerId(&'static str);
+
+    #[async_trait]
+    impl EventStreamHandler<TestState> for HandlerId {
+        async fn handle(
+            &self,
+            event: &SceneGraphEvent,
+            state: &mut TestState,
+            _rtree: &SceneGraphRTree,
+        ) -> UpdateStatus {
+            state
+                .labels
+                .lock()
+                .unwrap()
+                .push(format!("{}:{:?}", self.0, event.event_type()));
+            Default::default()
+        }
+    }
+
     fn empty_rtree() -> SceneGraphRTree {
         SceneGraphRTree::from_scene_graph(&SceneGraph {
             marks: Vec::new(),
@@ -517,6 +583,76 @@ mod tests {
             height: 1.0,
             origin: [0.0, 0.0],
         })
+    }
+
+    fn left_mouse_down_config() -> EventStreamConfig {
+        EventStreamConfig {
+            types: vec![SceneGraphEventType::MouseDown],
+            filter: Some(vec![EventStreamFilter::event(|event| {
+                matches!(
+                    event,
+                    SceneGraphEvent::MouseDown(mouse_down)
+                        if mouse_down.button == MouseButton::Left
+                )
+            })]),
+            ..Default::default()
+        }
+    }
+
+    fn left_mouse_up_config() -> EventStreamConfig {
+        EventStreamConfig {
+            types: vec![SceneGraphEventType::MouseUp],
+            filter: Some(vec![EventStreamFilter::event(|event| {
+                matches!(
+                    event,
+                    SceneGraphEvent::MouseUp(mouse_up)
+                        if mouse_up.button == MouseButton::Left
+                )
+            })]),
+            ..Default::default()
+        }
+    }
+
+    fn drag_stream_config() -> EventStreamConfig {
+        EventStreamConfig {
+            types: vec![SceneGraphEventType::CursorMoved],
+            between: Some((
+                Box::new(left_mouse_down_config()),
+                Box::new(left_mouse_up_config()),
+            )),
+            ..Default::default()
+        }
+    }
+
+    async fn dispatch_cursor(
+        manager: &mut EventStreamManager<TestState>,
+        position: [f32; 2],
+        instant: Instant,
+    ) {
+        manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved { position }),
+                &empty_rtree(),
+                instant,
+            )
+            .await;
+    }
+
+    async fn dispatch_left_mouse(
+        manager: &mut EventStreamManager<TestState>,
+        state: ElementState,
+        instant: Instant,
+    ) {
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state,
+                    button: MouseButton::Left,
+                }),
+                &empty_rtree(),
+                instant,
+            )
+            .await;
     }
 
     #[tokio::test]
@@ -548,6 +684,168 @@ mod tests {
             &[SceneGraphEvent::CanvasResize(CanvasResizeEvent {
                 size: [720.0, 420.0],
             })]
+        );
+    }
+
+    #[tokio::test]
+    async fn between_stream_context_includes_start_and_previous_events() {
+        let state = TestState::default();
+        let events = state.events.clone();
+        let contexts = state.contexts.clone();
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(drag_stream_config(), Arc::new(ContextRecordingHandler));
+
+        let start = Instant::now();
+        dispatch_cursor(&mut manager, [10.0, 20.0], start).await;
+        dispatch_left_mouse(&mut manager, ElementState::Pressed, start).await;
+        dispatch_cursor(&mut manager, [15.0, 22.0], start + Duration::from_millis(1)).await;
+        dispatch_cursor(&mut manager, [18.0, 24.0], start + Duration::from_millis(2)).await;
+        dispatch_left_mouse(
+            &mut manager,
+            ElementState::Released,
+            start + Duration::from_millis(3),
+        )
+        .await;
+        dispatch_cursor(&mut manager, [20.0, 26.0], start + Duration::from_millis(4)).await;
+
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].position(), Some([15.0, 22.0]));
+        assert_eq!(events[1].position(), Some([18.0, 24.0]));
+
+        let contexts = contexts.lock().unwrap();
+        assert_eq!(contexts.len(), 2);
+
+        let first_start = contexts[0].start_event.as_ref().expect("start event");
+        assert_eq!(first_start.event.position(), Some([10.0, 20.0]));
+        assert!(contexts[0].previous_event.is_none());
+
+        let second_start = contexts[1].start_event.as_ref().expect("start event");
+        assert_eq!(second_start.event.position(), Some([10.0, 20.0]));
+        let previous = contexts[1].previous_event.as_ref().expect("previous event");
+        assert_eq!(previous.event.position(), Some([15.0, 22.0]));
+    }
+
+    #[tokio::test]
+    async fn throttled_trigger_does_not_update_previous_event() {
+        let state = TestState::default();
+        let events = state.events.clone();
+        let contexts = state.contexts.clone();
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                throttle: Some(10),
+                ..drag_stream_config()
+            },
+            Arc::new(ContextRecordingHandler),
+        );
+
+        let start = Instant::now();
+        dispatch_cursor(&mut manager, [0.0, 0.0], start).await;
+        dispatch_left_mouse(&mut manager, ElementState::Pressed, start).await;
+        dispatch_cursor(&mut manager, [1.0, 0.0], start + Duration::from_millis(1)).await;
+        dispatch_cursor(&mut manager, [2.0, 0.0], start + Duration::from_millis(2)).await;
+        dispatch_cursor(&mut manager, [3.0, 0.0], start + Duration::from_millis(12)).await;
+
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].position(), Some([1.0, 0.0]));
+        assert_eq!(events[1].position(), Some([3.0, 0.0]));
+
+        let contexts = contexts.lock().unwrap();
+        let previous = contexts[1].previous_event.as_ref().expect("previous event");
+        assert_eq!(previous.event.position(), Some([1.0, 0.0]));
+    }
+
+    #[tokio::test]
+    async fn trigger_throttle_does_not_block_end_transition() {
+        let state = TestState::default();
+        let events = state.events.clone();
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                throttle: Some(100),
+                ..drag_stream_config()
+            },
+            Arc::new(ContextRecordingHandler),
+        );
+
+        let start = Instant::now();
+        dispatch_cursor(&mut manager, [0.0, 0.0], start).await;
+        dispatch_left_mouse(&mut manager, ElementState::Pressed, start).await;
+        dispatch_cursor(&mut manager, [1.0, 0.0], start + Duration::from_millis(1)).await;
+        dispatch_left_mouse(
+            &mut manager,
+            ElementState::Released,
+            start + Duration::from_millis(2),
+        )
+        .await;
+        dispatch_cursor(&mut manager, [2.0, 0.0], start + Duration::from_millis(3)).await;
+
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].position(), Some([1.0, 0.0]));
+    }
+
+    #[tokio::test]
+    async fn context_filter_can_inspect_start_event() {
+        let state = TestState::default();
+        let events = state.events.clone();
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                filter: Some(vec![EventStreamFilter::context(
+                    |event, context, _rtree| {
+                        let Some(start_x) = context
+                            .start_event
+                            .as_ref()
+                            .and_then(|e| e.event.position().map(|position| position[0]))
+                        else {
+                            return false;
+                        };
+                        let Some(current_x) = event.position().map(|position| position[0]) else {
+                            return false;
+                        };
+                        current_x > start_x
+                    },
+                )]),
+                ..drag_stream_config()
+            },
+            Arc::new(ContextRecordingHandler),
+        );
+
+        let start = Instant::now();
+        dispatch_cursor(&mut manager, [10.0, 0.0], start).await;
+        dispatch_left_mouse(&mut manager, ElementState::Pressed, start).await;
+        dispatch_cursor(&mut manager, [8.0, 0.0], start + Duration::from_millis(1)).await;
+        dispatch_cursor(&mut manager, [12.0, 0.0], start + Duration::from_millis(2)).await;
+
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].position(), Some([12.0, 0.0]));
+    }
+
+    #[tokio::test]
+    async fn start_event_does_not_consume_other_streams() {
+        let state = TestState::default();
+        let labels = state.labels.clone();
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                consume: true,
+                ..drag_stream_config()
+            },
+            Arc::new(HandlerId("drag")),
+        );
+        manager.register_handler(left_mouse_down_config(), Arc::new(HandlerId("down")));
+
+        let start = Instant::now();
+        dispatch_cursor(&mut manager, [10.0, 20.0], start).await;
+        dispatch_left_mouse(&mut manager, ElementState::Pressed, start).await;
+
+        assert_eq!(
+            labels.lock().unwrap().as_slice(),
+            &["down:MouseDown".to_string()]
         );
     }
 }
