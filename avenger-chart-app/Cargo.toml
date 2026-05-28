@@ -13,7 +13,9 @@ winit-wgpu = [
 
 [dependencies]
 avenger-app = { path = "../avenger-app" }
+avenger-common = { path = "../avenger-common" }
 avenger-chart = { path = "../avenger-chart" }
+avenger-chart-core = { path = "../avenger-chart-core" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-geometry = { path = "../avenger-geometry" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }

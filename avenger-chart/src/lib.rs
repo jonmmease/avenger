@@ -17,6 +17,7 @@ pub mod container;
 pub mod coords;
 pub mod doc;
 pub mod error;
+pub mod event;
 pub mod facet;
 pub mod guide;
 pub mod layout;

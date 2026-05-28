@@ -568,6 +568,8 @@ dependencies = [
  "async-trait",
  "avenger-app",
  "avenger-chart",
+ "avenger-chart-core",
+ "avenger-common",
  "avenger-eventstream",
  "avenger-geometry",
  "avenger-scenegraph",

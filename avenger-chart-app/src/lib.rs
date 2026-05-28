@@ -1,5 +1,7 @@
 #![recursion_limit = "512"]
 
+mod event_binding;
+
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -25,6 +27,8 @@ use avenger_scenegraph::scene_graph::SceneGraph;
 use datafusion::{prelude::SessionContext, scalar::ScalarValue};
 use indexmap::IndexMap;
 use tokio::sync::Mutex;
+
+use crate::event_binding::{event_streams_for_bindings, event_streams_for_plot_bindings};
 
 #[cfg(feature = "winit-wgpu")]
 pub use avenger_winit_wgpu::{
@@ -99,6 +103,19 @@ pub struct ChartAppState {
     runtime: Arc<Mutex<ChartAppRuntime>>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ChartEventMetrics {
+    pub event_batches_evaluated: usize,
+    pub physical_expression_evaluations: usize,
+    pub filter_passes: usize,
+    pub filter_failures: usize,
+    pub param_patch_events: usize,
+    pub params_patched: usize,
+    pub unchanged_patch_skips: usize,
+    pub evaluation_errors: usize,
+    pub total_eval_us: u64,
+}
+
 struct ChartAppRuntime {
     session: PlotSession,
     resize_policy: ChartResizePolicy,
@@ -111,6 +128,7 @@ struct ChartAppRuntime {
     last_evaluation_elapsed: Option<Duration>,
     last_scene_size: Option<[f32; 2]>,
     accepted_resize_count: usize,
+    event_metrics: ChartEventMetrics,
 }
 
 impl ChartAppState {
@@ -133,6 +151,7 @@ impl ChartAppState {
                 last_evaluation_elapsed: None,
                 last_scene_size: None,
                 accepted_resize_count: 0,
+                event_metrics: ChartEventMetrics::default(),
             })),
         }
     }
@@ -159,6 +178,10 @@ impl ChartAppState {
 
     pub async fn accepted_resize_count(&self) -> usize {
         self.runtime.lock().await.accepted_resize_count
+    }
+
+    pub async fn event_metrics(&self) -> ChartEventMetrics {
+        self.runtime.lock().await.event_metrics.clone()
     }
 }
 
@@ -363,26 +386,63 @@ pub async fn chart_avenger_app(
     options: ChartAppOptions,
 ) -> Result<AvengerApp<ChartAppState>, AvengerAppError> {
     let resize_policy = compiled_plot.resize_policy();
+    let mut event_streams = event_streams_for_plot_bindings(&compiled_plot, ctx.as_ref())?;
+    let resize_bindings = resize_event_bindings(
+        resize_policy,
+        &options.resize_binding,
+        options.resize_throttle_ms,
+    );
+    event_streams.extend(event_streams_for_bindings(
+        &resize_bindings,
+        ctx.as_ref(),
+        compiled_plot.get_default_params(),
+    )?);
     let session = Arc::new(compiled_plot).instantiate(ctx);
-    let resize_throttle_ms = options.resize_throttle_ms;
+    let exact_on_resize_settle = options.exact_on_resize_settle;
     let state = ChartAppState::new(session, resize_policy, options);
-    let mut streams = vec![(
-        EventStreamConfig {
-            types: vec![SceneGraphEventType::CanvasResize],
-            throttle: resize_throttle_ms,
-            ..Default::default()
-        },
-        Arc::new(ChartResizeHandler) as Arc<dyn EventStreamHandler<ChartAppState>>,
-    )];
-    streams.push((
-        EventStreamConfig {
-            types: vec![SceneGraphEventType::CanvasResizeSettled],
-            ..Default::default()
-        },
-        Arc::new(ChartResizeSettleHandler) as Arc<dyn EventStreamHandler<ChartAppState>>,
-    ));
+    let mut streams = event_streams;
+    if exact_on_resize_settle {
+        streams.push((
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::CanvasResizeSettled],
+                ..Default::default()
+            },
+            Arc::new(ChartResizeSettleHandler) as Arc<dyn EventStreamHandler<ChartAppState>>,
+        ));
+    }
 
     AvengerApp::try_new(state, Arc::new(ChartSceneGraphBuilder), streams).await
+}
+
+fn resize_event_bindings(
+    policy: ChartResizePolicy,
+    binding: &ChartResizeBinding,
+    throttle_ms: Option<u64>,
+) -> Vec<avenger_chart::event::ChartEventBinding> {
+    use avenger_chart::event::{self as ev, ChartEventBinding, ChartEventType};
+
+    let mut resize = ChartEventBinding::on(ChartEventType::CanvasResize).preview();
+    if let Some(ms) = throttle_ms {
+        resize = resize.throttle_ms(ms);
+    }
+    let mut has_assignment = false;
+    if policy.width.is_canvas_constrained()
+        && let Some(param) = binding.width_param.as_deref()
+    {
+        resize = resize.set_param(param, ev::canvas_width());
+        has_assignment = true;
+    }
+    if policy.height.is_canvas_constrained()
+        && let Some(param) = binding.height_param.as_deref()
+    {
+        resize = resize.set_param(param, ev::canvas_height());
+        has_assignment = true;
+    }
+    if has_assignment {
+        vec![resize]
+    } else {
+        Vec::new()
+    }
 }
 
 #[cfg(feature = "winit-wgpu")]

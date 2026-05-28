@@ -36,10 +36,13 @@ use avenger_chart_core::{
 };
 use avenger_chart_scales::{ConfiguredScaleWithSpec, PlotScaleSpec as ScaleSpec, ScaleBuilder};
 
-use crate::layout::{
-    ChartResizePolicy, ChildFrameContentMeasurement, ChildFrameContentSolver, ContentAllocation,
-    ContentLayout, ContentLayoutSolver, FrameAllocation, FrameDemand, LayoutSpec,
-    SinglePlotContentMeasurement, SinglePlotContentSolver,
+use crate::{
+    event::ChartEventBinding,
+    layout::{
+        ChartResizePolicy, ChildFrameContentMeasurement, ChildFrameContentSolver,
+        ContentAllocation, ContentLayout, ContentLayoutSolver, FrameAllocation, FrameDemand,
+        LayoutSpec, SinglePlotContentMeasurement, SinglePlotContentSolver,
+    },
 };
 
 pub use self::child_frame_container::ChildFrameContainerView;
@@ -139,6 +142,10 @@ pub struct CompiledPlot {
     /// Default parameter values for prepared statements
     #[serde_as(as = "FromInto<SerializableScalarMap>")]
     pub(crate) default_params: IndexMap<String, ScalarValue>,
+
+    /// Plot-level event bindings for chart apps.
+    #[serde(default)]
+    pub(crate) event_bindings: Vec<ChartEventBinding>,
 }
 
 impl CompiledPlot {
@@ -172,6 +179,11 @@ impl CompiledPlot {
     /// Get default parameter values
     pub fn get_default_params(&self) -> &IndexMap<String, ScalarValue> {
         &self.default_params
+    }
+
+    /// Get plot-level event bindings.
+    pub fn event_bindings(&self) -> &[ChartEventBinding] {
+        &self.event_bindings
     }
 
     /// Get compiled mark renderers

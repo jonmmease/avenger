@@ -13,6 +13,7 @@ use avenger_chart_core::{
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
 
 use crate::{
+    event::ChartEventBinding,
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint, SizeMode},
     serialization::serializable_expr_from_expr,
 };
@@ -55,6 +56,9 @@ pub struct Plot<C: CoordinateSystem> {
 
     /// Parameters that can be used in expressions
     pub(crate) params: Vec<Param>,
+
+    /// Plot-level event bindings that patch params in chart apps
+    pub(crate) event_bindings: Vec<ChartEventBinding>,
 }
 
 #[async_trait::async_trait]
@@ -92,6 +96,7 @@ impl<C: CoordinateSystem> Plot<C> {
             theme: None,
             guide_config: None,
             params: Vec::new(),
+            event_bindings: Vec::new(),
         }
     }
 }
@@ -114,6 +119,10 @@ impl<C: CoordinateSystem> Plot<C> {
         self,
         session_context: &datafusion::prelude::SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
+        for binding in &self.event_bindings {
+            binding.validate()?;
+        }
+
         // Start with plot-level configurations
         let mut axis_specs: HashMap<String, AxisSpec> = HashMap::new();
         let mut legends: IndexMap<String, Legend> = self.legends.clone();
@@ -224,6 +233,7 @@ impl<C: CoordinateSystem> Plot<C> {
             scale_specs,
             data: data_plan_node,
             default_params,
+            event_bindings: self.event_bindings,
         })
     }
 
@@ -253,6 +263,18 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Add multiple parameters at once
     pub fn add_params(mut self, params: impl IntoIterator<Item = Param>) -> Self {
         self.params.extend(params);
+        self
+    }
+
+    /// Add a plot-level event binding that can patch one or more params in chart apps.
+    pub fn event_binding(mut self, binding: ChartEventBinding) -> Self {
+        self.event_bindings.push(binding);
+        self
+    }
+
+    /// Add multiple plot-level event bindings.
+    pub fn event_bindings(mut self, bindings: impl IntoIterator<Item = ChartEventBinding>) -> Self {
+        self.event_bindings.extend(bindings);
         self
     }
 

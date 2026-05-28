@@ -54,6 +54,7 @@ impl EventStreamEventSnapshot {
 #[derive(Clone, Default, Debug)]
 pub struct EventStreamContext {
     pub mark_instance: Option<MarkInstance>,
+    pub current_event: Option<EventStreamEventSnapshot>,
     pub start_event: Option<EventStreamEventSnapshot>,
     pub previous_event: Option<EventStreamEventSnapshot>,
 }
@@ -61,11 +62,13 @@ pub struct EventStreamContext {
 impl EventStreamContext {
     fn new(
         mark_instance: Option<&MarkInstance>,
+        current_event: Option<EventStreamEventSnapshot>,
         start_event: Option<EventStreamEventSnapshot>,
         previous_event: Option<EventStreamEventSnapshot>,
     ) -> Self {
         Self {
             mark_instance: mark_instance.cloned(),
+            current_event,
             start_event,
             previous_event,
         }
@@ -232,7 +235,12 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
         if let Some(between) = &mut self.between_state {
             if between.start_event.is_none() {
                 // Not started yet, check if this is start event
-                let context = EventStreamContext::new(mark_instance, None, previous_event.clone());
+                let context = EventStreamContext::new(
+                    mark_instance,
+                    Some(current_snapshot.clone()),
+                    None,
+                    previous_event.clone(),
+                );
                 if between.start_stream.matches_event(event, &context, rtree) {
                     between.start_event = Some(current_snapshot);
                 }
@@ -242,6 +250,7 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
                 start_event = between.start_event.clone();
                 let context = EventStreamContext::new(
                     mark_instance,
+                    Some(current_snapshot.clone()),
                     start_event.clone(),
                     previous_event.clone(),
                 );
@@ -252,7 +261,12 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
             }
         }
 
-        let context = EventStreamContext::new(mark_instance, start_event, previous_event);
+        let context = EventStreamContext::new(
+            mark_instance,
+            Some(current_snapshot),
+            start_event,
+            previous_event,
+        );
 
         // Check if event matches and throttling allows it
         if self.matches_event(event, &context, rtree) && self.should_handle_event(now) {

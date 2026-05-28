@@ -18,6 +18,7 @@ pub mod coordinate_system;
 pub mod coordinate_transform;
 pub mod coordination_values;
 pub mod data_context;
+pub mod datafusion_physical_eval;
 pub mod datafusion_utils;
 pub mod error;
 pub mod evaluation_context;
@@ -101,6 +102,12 @@ pub use coordinate_system::{CoordinateSystem, CoordinateSystemCore};
 pub use coordinate_transform::{CoordinateSystemTransform, CoordinateSystemTransformCore};
 pub use coordination_values::{CoordinatedLayout, CoordinatedOverflow};
 pub use data_context::DataContext;
+pub use datafusion_physical_eval::{
+    CompiledScalarExpression, CompiledScalarExpressionProgram, PhysicalScalarExpressionSpec,
+    PhysicalScalarProgramOptions, PlaceholderColumn, collect_placeholder_ids,
+    one_row_batch_from_scalars, scalar_from_columnar_value, schema_from_fields,
+    validate_row_local_expr,
+};
 pub use datafusion_utils::{
     ArrayRefHelpers, DataFrameChartHelpers, ExprHelpers, ScalarValueHelpers, array_value_to_f64,
     contains_aggregate, eval_to_scalars, params_to_datafusion, partition_expressions,

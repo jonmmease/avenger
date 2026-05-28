@@ -20,6 +20,9 @@
 
 // Re-export coordinate systems
 pub use crate::concat::{ConcatGuide, HConcat, VConcat};
+pub use crate::event::{
+    ChartEventBinding, ChartEventEvaluationMode, ChartEventStream, ChartEventType,
+};
 pub use crate::facet::coord::{FacetColumn, FacetRow, FacetWrap};
 pub use avenger_chart_cartesian::Cartesian;
 pub use avenger_chart_core::{FacetEmptyCellPolicy, ScaleSharing, ZeroDCoord};
