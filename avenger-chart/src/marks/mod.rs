@@ -5,9 +5,11 @@ pub mod line;
 #[macro_use]
 pub mod macros;
 pub mod rect;
+pub mod rule;
 pub mod state;
 pub mod subplot;
 pub mod symbol;
+pub mod text;
 pub mod util;
 
 pub use crate::concat::CompiledConcatSubplot;

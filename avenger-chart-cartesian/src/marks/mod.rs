@@ -1,22 +1,177 @@
 pub mod line;
 pub mod rect;
+pub mod rule;
 pub mod subplot;
 pub mod symbol;
+pub mod text;
+mod util;
 
 use std::sync::Arc;
 
 use avenger_chart_core::{ChannelValue, PositionConfig};
-use avenger_chart_marks::{Line, Rect, Symbol};
+use avenger_chart_marks::{Line, Rect, Rule, Symbol, Text};
 
 use crate::{Cartesian, CartesianPositionConfig};
 
 pub use line::{CompiledCartesianLine, ensure_dictionary_array_fn};
 pub use rect::CompiledCartesianRect;
+pub use rule::CompiledCartesianRule;
 pub use subplot::{
     CARTESIAN_SUBPLOT_PARTITION_CHANNEL, CARTESIAN_SUBPLOT_X_CHANNEL, CARTESIAN_SUBPLOT_Y_CHANNEL,
     CartesianSubplotPositionChannels, CompiledCartesianSubplot,
 };
 pub use symbol::CompiledCartesianSymbol;
+pub use text::CompiledCartesianText;
+
+/// Cartesian position-channel builders for the generic `Rule` mark.
+pub trait CartesianRulePositionChannels: Sized {
+    fn x<V: Into<ChannelValue>>(self, value: V) -> Self;
+    fn x_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
+    fn x2<V: Into<ChannelValue>>(self, value: V) -> Self;
+    fn x2_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
+    fn y<V: Into<ChannelValue>>(self, value: V) -> Self;
+    fn y_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
+    fn y2<V: Into<ChannelValue>>(self, value: V) -> Self;
+    fn y2_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
+}
+
+impl CartesianRulePositionChannels for Rule<Cartesian> {
+    fn x<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("x", value.into())
+    }
+
+    fn x_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+    {
+        configure_rule_position_channel(self, "x", value.into(), f)
+    }
+
+    fn x2<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("x2", value.into())
+    }
+
+    fn x2_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+    {
+        configure_rule_position_channel(self, "x2", value.into(), f)
+    }
+
+    fn y<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("y", value.into())
+    }
+
+    fn y_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+    {
+        configure_rule_position_channel(self, "y", value.into(), f)
+    }
+
+    fn y2<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("y2", value.into())
+    }
+
+    fn y2_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+    {
+        configure_rule_position_channel(self, "y2", value.into(), f)
+    }
+}
+
+fn configure_rule_position_channel(
+    mark: Rule<Cartesian>,
+    channel_name: &str,
+    channel_value: ChannelValue,
+    f: impl FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+) -> Rule<Cartesian> {
+    let config = CartesianPositionConfig::new(channel_value);
+    let configured = f(config);
+    let (channel_value, axis_config) = configured.take_axis_config();
+    let mut mark = mark.with_channel_value(channel_name, channel_value);
+    if let Some(axis_config) = axis_config {
+        mark.state_mut()
+            .axis_configs
+            .insert(channel_name.to_string(), Arc::new(axis_config));
+    }
+    mark
+}
+
+/// Cartesian position-channel builders for the generic `Text` mark.
+pub trait CartesianTextPositionChannels: Sized {
+    fn x<V: Into<ChannelValue>>(self, value: V) -> Self;
+    fn x_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
+    fn y<V: Into<ChannelValue>>(self, value: V) -> Self;
+    fn y_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
+}
+
+impl CartesianTextPositionChannels for Text<Cartesian> {
+    fn x<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("x", value.into())
+    }
+
+    fn x_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+    {
+        configure_text_position_channel(self, "x", value.into(), f)
+    }
+
+    fn y<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("y", value.into())
+    }
+
+    fn y_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+    {
+        configure_text_position_channel(self, "y", value.into(), f)
+    }
+}
+
+fn configure_text_position_channel(
+    mark: Text<Cartesian>,
+    channel_name: &str,
+    channel_value: ChannelValue,
+    f: impl FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+) -> Text<Cartesian> {
+    let config = CartesianPositionConfig::new(channel_value);
+    let configured = f(config);
+    let (channel_value, axis_config) = configured.take_axis_config();
+    let mut mark = mark.with_channel_value(channel_name, channel_value);
+    if let Some(axis_config) = axis_config {
+        mark.state_mut()
+            .axis_configs
+            .insert(channel_name.to_string(), Arc::new(axis_config));
+    }
+    mark
+}
 
 /// Cartesian position-channel builders for the generic `Line` mark.
 pub trait CartesianLinePositionChannels: Sized {

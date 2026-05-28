@@ -9,6 +9,7 @@ use avenger_common::{
     types::{AreaOrientation, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin},
     value::ScalarOrArray,
 };
+use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use lazy_static::lazy_static;
 use serde::de::DeserializeOwned;
 
@@ -210,6 +211,10 @@ impl ScaleImpl for OrdinalScale {
     impl_ordinal_enum_scale_method!(ImageAlign);
     impl_ordinal_enum_scale_method!(ImageBaseline);
     impl_ordinal_enum_scale_method!(AreaOrientation);
+    impl_ordinal_enum_scale_method!(TextAlign);
+    impl_ordinal_enum_scale_method!(TextBaseline);
+    impl_ordinal_enum_scale_method!(FontWeight);
+    impl_ordinal_enum_scale_method!(FontStyle);
 }
 
 /// Helper function to get dictionary array with range indices corresponding to values
@@ -400,6 +405,19 @@ mod tests {
         assert_eq!(result[3], 2.5);
         assert!(result[4].is_nan());
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_ordinal_scale_to_text_align() -> Result<(), AvengerScaleError> {
+        let domain = Arc::new(StringArray::from(vec!["left", "center", "right"])) as ArrayRef;
+        let range = Arc::new(StringArray::from(vec!["left", "center", "right"])) as ArrayRef;
+        let values = Arc::new(StringArray::from(vec!["right", "left"])) as ArrayRef;
+
+        let scale = OrdinalScale::configured(domain).with_range(range);
+        let aligned = scale.scale_to_text_align(&values)?.as_vec(2, None);
+
+        assert_eq!(aligned, vec![TextAlign::Right, TextAlign::Left]);
         Ok(())
     }
 

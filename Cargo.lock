@@ -595,6 +595,7 @@ dependencies = [
  "avenger-guides",
  "avenger-scales",
  "avenger-scenegraph",
+ "avenger-text",
  "datafusion",
  "datafusion-proto",
  "indexmap 2.9.0",

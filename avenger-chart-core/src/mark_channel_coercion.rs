@@ -8,6 +8,7 @@ use avenger_common::{
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
 use avenger_scales::scales::coerce::Coercer;
+use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 
 use datafusion::arrow::{array::ArrayRef, record_batch::RecordBatch};
 use datafusion_common::ScalarValue;
@@ -119,8 +120,18 @@ pub fn coerce_stroke_cap_channel(
     channel: &str,
     default: StrokeCap,
 ) -> Result<StrokeCap, AvengerChartError> {
-    coerce_channel(data, scalars, channel, |c, a| c.to_stroke_cap(a), default)
+    coerce_stroke_cap_channel_values(data, scalars, channel, default)
         .map(|v| v.first().cloned().unwrap_or(default))
+}
+
+/// Get stroke cap channel values using Coercer.
+pub fn coerce_stroke_cap_channel_values(
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    default: StrokeCap,
+) -> Result<ScalarOrArray<StrokeCap>, AvengerChartError> {
+    coerce_channel(data, scalars, channel, |c, a| c.to_stroke_cap(a), default)
 }
 
 /// Get stroke join channel value using Coercer
@@ -132,8 +143,18 @@ pub fn coerce_stroke_join_channel(
     channel: &str,
     default: StrokeJoin,
 ) -> Result<StrokeJoin, AvengerChartError> {
-    coerce_channel(data, scalars, channel, |c, a| c.to_stroke_join(a), default)
+    coerce_stroke_join_channel_values(data, scalars, channel, default)
         .map(|v| v.first().cloned().unwrap_or(default))
+}
+
+/// Get stroke join channel values using Coercer.
+pub fn coerce_stroke_join_channel_values(
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    default: StrokeJoin,
+) -> Result<ScalarOrArray<StrokeJoin>, AvengerChartError> {
+    coerce_channel(data, scalars, channel, |c, a| c.to_stroke_join(a), default)
 }
 
 /// Get text channel values using Coercer
@@ -151,6 +172,52 @@ pub fn coerce_text_channel(
         move |c, a| c.to_string(a, Some(&default_ref)),
         default,
     )
+}
+
+/// Get text align channel values using Coercer.
+pub fn coerce_text_align_channel(
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    default: TextAlign,
+) -> Result<ScalarOrArray<TextAlign>, AvengerChartError> {
+    coerce_channel(data, scalars, channel, |c, a| c.to_text_align(a), default)
+}
+
+/// Get text baseline channel values using Coercer.
+pub fn coerce_text_baseline_channel(
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    default: TextBaseline,
+) -> Result<ScalarOrArray<TextBaseline>, AvengerChartError> {
+    coerce_channel(
+        data,
+        scalars,
+        channel,
+        |c, a| c.to_text_baseline(a),
+        default,
+    )
+}
+
+/// Get font weight channel values using Coercer.
+pub fn coerce_font_weight_channel(
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    default: FontWeight,
+) -> Result<ScalarOrArray<FontWeight>, AvengerChartError> {
+    coerce_channel(data, scalars, channel, |c, a| c.to_font_weight(a), default)
+}
+
+/// Get font style channel values using Coercer.
+pub fn coerce_font_style_channel(
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    default: FontStyle,
+) -> Result<ScalarOrArray<FontStyle>, AvengerChartError> {
+    coerce_channel(data, scalars, channel, |c, a| c.to_font_style(a), default)
 }
 
 /// Get opacity channel value using Coercer
@@ -444,8 +511,43 @@ where
         })
         .unwrap_or(fallback_default);
 
+    coerce_stroke_cap_channel_values_with_renderer(
+        mark,
+        data,
+        scalars,
+        channel,
+        context,
+        fallback_default,
+    )
+    .map(|v| v.first().cloned().unwrap_or(default))
+}
+
+/// Get stroke cap channel values using Coercer with compiled mark defaults.
+pub fn coerce_stroke_cap_channel_values_with_renderer<M>(
+    mark: &M,
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    context: &MarkRenderContext<'_>,
+    fallback_default: StrokeCap,
+) -> Result<ScalarOrArray<StrokeCap>, AvengerChartError>
+where
+    M: CompiledMarkCore + ?Sized,
+{
+    let default = mark
+        .default_channel_value(channel, context)
+        .and_then(|scalar| match scalar {
+            ScalarValue::Utf8(Some(s)) => match s.as_str() {
+                "butt" => Some(StrokeCap::Butt),
+                "round" => Some(StrokeCap::Round),
+                "square" => Some(StrokeCap::Square),
+                _ => None,
+            },
+            _ => None,
+        })
+        .unwrap_or(fallback_default);
+
     coerce_channel(data, scalars, channel, |c, a| c.to_stroke_cap(a), default)
-        .map(|v| v.first().cloned().unwrap_or(default))
 }
 
 /// Get stroke join channel value using Coercer with compiled mark defaults.
@@ -473,6 +575,41 @@ where
         })
         .unwrap_or(fallback_default);
 
+    coerce_stroke_join_channel_values_with_renderer(
+        mark,
+        data,
+        scalars,
+        channel,
+        context,
+        fallback_default,
+    )
+    .map(|v| v.first().cloned().unwrap_or(default))
+}
+
+/// Get stroke join channel values using Coercer with compiled mark defaults.
+pub fn coerce_stroke_join_channel_values_with_renderer<M>(
+    mark: &M,
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    context: &MarkRenderContext<'_>,
+    fallback_default: StrokeJoin,
+) -> Result<ScalarOrArray<StrokeJoin>, AvengerChartError>
+where
+    M: CompiledMarkCore + ?Sized,
+{
+    let default = mark
+        .default_channel_value(channel, context)
+        .and_then(|scalar| match scalar {
+            ScalarValue::Utf8(Some(s)) => match s.as_str() {
+                "miter" => Some(StrokeJoin::Miter),
+                "round" => Some(StrokeJoin::Round),
+                "bevel" => Some(StrokeJoin::Bevel),
+                _ => None,
+            },
+            _ => None,
+        })
+        .unwrap_or(fallback_default);
+
     coerce_channel(data, scalars, channel, |c, a| c.to_stroke_join(a), default)
-        .map(|v| v.first().cloned().unwrap_or(default))
 }
