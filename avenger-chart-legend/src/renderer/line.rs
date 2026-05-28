@@ -137,7 +137,7 @@ impl LegendRenderer for CompiledLineLegend {
             && channels.iter().all(|c| {
                 matches!(
                     c.channel_type.as_str(),
-                    "stroke" | "stroke_width" | "stroke_dash" | "stroke_opacity"
+                    "stroke" | "stroke_width" | "stroke_dash" | "opacity"
                 )
             })
     }

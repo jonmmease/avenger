@@ -174,6 +174,127 @@ pub fn coerce_opacity_channel(
     )
 }
 
+/// Get opacity channel values using Coercer with compiled mark defaults.
+pub fn coerce_opacity_channel_with_renderer<M>(
+    mark: &M,
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    context: &MarkRenderContext<'_>,
+    fallback_default: f32,
+) -> Result<ScalarOrArray<f32>, AvengerChartError>
+where
+    M: CompiledMarkCore + ?Sized,
+{
+    let default = mark
+        .default_channel_value(channel, context)
+        .and_then(|scalar| scalar.as_f32().ok())
+        .unwrap_or(fallback_default)
+        .clamp(0.0, 1.0);
+
+    coerce_channel(
+        data,
+        scalars,
+        channel,
+        |c, a| {
+            c.to_numeric(a, Some(default))
+                .map(|values| values.map(|v| v.clamp(0.0, 1.0)))
+        },
+        default,
+    )
+}
+
+/// Apply opacity to a color or gradient.
+///
+/// Opacity is multiplicative with an explicit color alpha. Gradient opacity is
+/// not represented independently in the scenegraph, so gradient references are
+/// passed through unchanged.
+pub fn apply_opacity_to_color(color: &ColorOrGradient, opacity: f32) -> ColorOrGradient {
+    match color {
+        ColorOrGradient::Color(color) => {
+            let mut color = *color;
+            color[3] *= opacity.clamp(0.0, 1.0);
+            ColorOrGradient::Color(color)
+        }
+        ColorOrGradient::GradientIndex(_) => color.clone(),
+    }
+}
+
+/// Apply scalar or array opacity to scalar or array colors.
+///
+/// The result remains scalar only when both inputs are scalar. Otherwise, the
+/// result is expanded to `len` rows.
+pub fn apply_opacity_to_color_channel(
+    colors: ScalarOrArray<ColorOrGradient>,
+    opacity: &ScalarOrArray<f32>,
+    len: usize,
+) -> ScalarOrArray<ColorOrGradient> {
+    match (colors.value(), opacity.value()) {
+        (ScalarOrArrayValue::Scalar(color), ScalarOrArrayValue::Scalar(opacity)) => {
+            ScalarOrArray::new_scalar(apply_opacity_to_color(color, *opacity))
+        }
+        _ => {
+            let colors = colors.as_vec(len, None);
+            let opacities = opacity.as_vec(len, None);
+            ScalarOrArray::new_array(
+                colors
+                    .iter()
+                    .zip(opacities.iter())
+                    .map(|(color, opacity)| apply_opacity_to_color(color, *opacity))
+                    .collect(),
+            )
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{apply_opacity_to_color, apply_opacity_to_color_channel};
+    use avenger_common::{
+        types::ColorOrGradient,
+        value::{ScalarOrArray, ScalarOrArrayValue},
+    };
+
+    #[test]
+    fn apply_opacity_to_color_multiplies_existing_alpha() {
+        let color = ColorOrGradient::Color([0.2, 0.4, 0.6, 0.5]);
+        assert_eq!(
+            apply_opacity_to_color(&color, 0.25),
+            ColorOrGradient::Color([0.2, 0.4, 0.6, 0.125])
+        );
+    }
+
+    #[test]
+    fn apply_opacity_to_color_channel_preserves_scalar_shape_when_possible() {
+        let color = ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 0.0, 0.0, 0.8]));
+        let opacity = ScalarOrArray::new_scalar(0.5);
+        let result = apply_opacity_to_color_channel(color, &opacity, 1);
+
+        assert!(matches!(
+            result.value(),
+            ScalarOrArrayValue::Scalar(ColorOrGradient::Color([1.0, 0.0, 0.0, 0.4]))
+        ));
+    }
+
+    #[test]
+    fn apply_opacity_to_color_channel_expands_arrays() {
+        let colors = ScalarOrArray::new_array(vec![
+            ColorOrGradient::Color([1.0, 0.0, 0.0, 1.0]),
+            ColorOrGradient::Color([0.0, 0.0, 1.0, 0.5]),
+        ]);
+        let opacity = ScalarOrArray::new_array(vec![0.25, 0.5]);
+        let result = apply_opacity_to_color_channel(colors, &opacity, 2);
+
+        assert_eq!(
+            result.as_vec(2, None),
+            vec![
+                ColorOrGradient::Color([1.0, 0.0, 0.0, 0.25]),
+                ColorOrGradient::Color([0.0, 0.0, 1.0, 0.25]),
+            ]
+        );
+    }
+}
+
 /// Get stroke dash channel value using Coercer
 pub fn coerce_stroke_dash_channel(
     data: Option<&RecordBatch>,

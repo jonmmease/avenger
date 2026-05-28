@@ -2,9 +2,9 @@ use avenger_scales::scales::ConfiguredScale;
 use datafusion_common::ScalarValue;
 
 use avenger_chart_core::{
-    AngleChannelConfig, ColorChannelConfig, LegendRendererKind, MarkState, ShapeChannelConfig,
-    SizeChannelConfig, StrokeWidthChannelConfig, define_common_mark_channels, impl_mark_base,
-    is_continuous_scale,
+    AngleChannelConfig, ColorChannelConfig, LegendRendererKind, MarkState, OpacityChannelConfig,
+    ShapeChannelConfig, SizeChannelConfig, StrokeWidthChannelConfig, define_common_mark_channels,
+    impl_mark_base, is_continuous_scale,
 };
 
 pub struct Symbol<C> {
@@ -34,6 +34,9 @@ define_common_mark_channels! {
         },
         angle: {
             with_config: AngleChannelConfig,
+        },
+        opacity: {
+            with_config: OpacityChannelConfig,
         },
     }
 }

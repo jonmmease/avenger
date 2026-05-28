@@ -3,9 +3,10 @@ use std::sync::Arc;
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
     CompiledMarkState, CoordinateSystemTransformCore, LegendRendererKind, LegendRendererSelection,
-    Mark, MarkRuntimeContext, PointGeometry, ScaleTypePreference,
+    Mark, MarkRuntimeContext, PointGeometry, ScaleTypePreference, apply_opacity_to_color_channel,
     coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
-    default_scale_type_for_data_type, impl_mark_trait_common, is_continuous_scale,
+    coerce_opacity_channel_with_renderer, default_scale_type_for_data_type, impl_mark_trait_common,
+    is_continuous_scale,
 };
 use avenger_chart_marks::{Rect, rect_channel_defaults};
 use avenger_scales::scales::ConfiguredScale;
@@ -274,6 +275,16 @@ impl CompiledMark for CompiledCartesianRect {
             &mark_context,
             0.0,
         )?;
+        let opacity = coerce_opacity_channel_with_renderer(
+            self,
+            data,
+            scalars,
+            "opacity",
+            &mark_context,
+            1.0,
+        )?;
+        let fill = apply_opacity_to_color_channel(fill, &opacity, len as usize);
+        let stroke = apply_opacity_to_color_channel(stroke, &opacity, len as usize);
 
         // Create SceneRectMark
         let rect_mark = SceneRectMark {

@@ -3,8 +3,9 @@ use std::sync::Arc;
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
     CompiledMarkState, CoordinateSystemTransformCore, LegendRendererKind, LegendRendererSelection,
-    Mark, MarkRuntimeContext, PointGeometry, RadiusExpression, coerce_bool_channel_with_renderer,
-    coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
+    Mark, MarkRuntimeContext, PointGeometry, RadiusExpression, apply_opacity_to_color,
+    coerce_bool_channel_with_renderer, coerce_color_channel_with_renderer,
+    coerce_numeric_channel_with_renderer, coerce_opacity_channel_with_renderer,
     impl_mark_trait_common, is_continuous_scale, serialization::DefaultLogicalExprNodeExt,
 };
 use avenger_chart_marks::{Line, PartitionKey, ensure_dictionary_array, line_channel_defaults};
@@ -97,7 +98,7 @@ impl CompiledMarkCore for CompiledCartesianLine {
                 allow_column_ref: true,
             },
             ChannelDescriptor {
-                name: "stroke_opacity",
+                name: "opacity",
                 required: false,
                 default_value: None,
                 allow_column_ref: true,
@@ -169,7 +170,7 @@ impl CompiledMarkCore for CompiledCartesianLine {
                 LegendRendererKind::Colorbar,
             )),
             // Line marks use line legend for stroke properties
-            "stroke" | "stroke_width" | "stroke_dash" | "stroke_opacity" => {
+            "stroke" | "stroke_width" | "stroke_dash" | "opacity" => {
                 Some(LegendRendererSelection::BuiltIn(LegendRendererKind::Line))
             }
             // No legend for position channels
@@ -248,10 +249,12 @@ impl CompiledMark for CompiledCartesianLine {
         let stroke_array = data.column_by_name("stroke");
         let width_array = data.column_by_name("stroke_width");
         let dash_array = data.column_by_name("stroke_dash");
+        let opacity_array = data.column_by_name("opacity");
 
         let has_varying_stroke = stroke_array.is_some();
         let has_varying_width = width_array.is_some();
         let has_varying_dash = dash_array.is_some();
+        let has_varying_opacity = opacity_array.is_some();
 
         // Extract scalar style properties
         // TODO: Implement proper coercion for stroke_cap and stroke_join when available
@@ -282,7 +285,7 @@ impl CompiledMark for CompiledCartesianLine {
             .unwrap_or(avenger_common::types::StrokeJoin::Miter);
 
         // Simple case: all style properties are uniform
-        if !has_varying_stroke && !has_varying_width && !has_varying_dash {
+        if !has_varying_stroke && !has_varying_width && !has_varying_dash && !has_varying_opacity {
             let stroke_scalar = coerce_color_channel_with_renderer(
                 self,
                 None,
@@ -295,6 +298,19 @@ impl CompiledMark for CompiledCartesianLine {
                 ScalarOrArrayValue::Scalar(c) => c.clone(),
                 ScalarOrArrayValue::Array(arr) => arr[0].clone(),
             };
+            let opacity_scalar = coerce_opacity_channel_with_renderer(
+                self,
+                None,
+                scalars,
+                "opacity",
+                &mark_context,
+                1.0,
+            )?;
+            let opacity = match opacity_scalar.value() {
+                ScalarOrArrayValue::Scalar(opacity) => *opacity,
+                ScalarOrArrayValue::Array(arr) => arr[0],
+            };
+            let stroke = apply_opacity_to_color(&stroke, opacity);
 
             let stroke_width_scalar = coerce_numeric_channel_with_renderer(
                 self,
@@ -363,6 +379,12 @@ impl CompiledMark for CompiledCartesianLine {
             None
         };
 
+        let opacity_dict = if has_varying_opacity {
+            Some(ensure_dictionary_array(opacity_array.unwrap())?)
+        } else {
+            None
+        };
+
         // Get dictionary arrays and their keys outside the loop
         let stroke_keys = stroke_dict.as_ref().map(|d| {
             let dict = d.as_any_dictionary();
@@ -373,6 +395,10 @@ impl CompiledMark for CompiledCartesianLine {
             (dict, dict.normalized_keys())
         });
         let dash_keys = dash_dict.as_ref().map(|d| {
+            let dict = d.as_any_dictionary();
+            (dict, dict.normalized_keys())
+        });
+        let opacity_keys = opacity_dict.as_ref().map(|d| {
             let dict = d.as_any_dictionary();
             (dict, dict.normalized_keys())
         });
@@ -395,6 +421,17 @@ impl CompiledMark for CompiledCartesianLine {
         let dash_values = if let Some((dict, _)) = &dash_keys {
             let values = dict.values();
             Some(coercer.to_stroke_dash(values)?)
+        } else {
+            None
+        };
+
+        let opacity_values = if let Some((dict, _)) = &opacity_keys {
+            let values = dict.values();
+            Some(
+                coercer
+                    .to_numeric(values, Some(1.0))?
+                    .map(|v| v.clamp(0.0, 1.0)),
+            )
         } else {
             None
         };
@@ -437,6 +474,16 @@ impl CompiledMark for CompiledCartesianLine {
             None
         };
 
+        let opacity_default = if let Some(opacity_scalar) = scalars.column_by_name("opacity") {
+            *coercer
+                .to_numeric(opacity_scalar, Some(1.0))?
+                .first()
+                .unwrap()
+        } else {
+            1.0
+        }
+        .clamp(0.0, 1.0);
+
         // Build partition map
         let mut partition_groups: IndexMap<PartitionKey, Vec<usize>> = IndexMap::new();
 
@@ -449,6 +496,9 @@ impl CompiledMark for CompiledCartesianLine {
                     if dict.is_null(i) { None } else { Some(keys[i]) }
                 }),
                 dash: dash_keys.as_ref().and_then(|(dict, keys)| {
+                    if dict.is_null(i) { None } else { Some(keys[i]) }
+                }),
+                opacity: opacity_keys.as_ref().and_then(|(dict, keys)| {
                     if dict.is_null(i) { None } else { Some(keys[i]) }
                 }),
             };
@@ -473,6 +523,16 @@ impl CompiledMark for CompiledCartesianLine {
             } else {
                 stroke_default.clone()
             };
+            let opacity_value = if let Some(key) = partition_key.opacity {
+                if let Some(values) = &opacity_values {
+                    values.as_vec(values.len(), None)[key]
+                } else {
+                    opacity_default
+                }
+            } else {
+                opacity_default
+            };
+            let stroke_color = apply_opacity_to_color(&stroke_color, opacity_value);
 
             let stroke_width_value = if let Some(key) = partition_key.width {
                 if let Some(values) = &width_values {

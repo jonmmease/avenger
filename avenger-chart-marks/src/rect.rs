@@ -26,9 +26,7 @@ define_common_mark_channels! {
         opacity: {
             with_config: OpacityChannelConfig,
         },
-        corner_radius: {
-            allow_column: false,
-        },
+        corner_radius: {},
     }
 }
 

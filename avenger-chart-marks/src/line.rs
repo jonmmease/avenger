@@ -34,7 +34,7 @@ define_common_mark_channels! {
             allow_column: false,
         },
         opacity: {
-            allow_column: false,
+            allow_column: true,
             with_config: OpacityChannelConfig,
         },
         defined: {},
@@ -51,6 +51,7 @@ pub struct PartitionKey {
     pub stroke: Option<usize>,
     pub width: Option<usize>,
     pub dash: Option<usize>,
+    pub opacity: Option<usize>,
 }
 
 /// Convert an array to dictionary encoding for efficient partitioning.

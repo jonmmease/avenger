@@ -4,8 +4,9 @@ use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
     CompiledMarkState, CoordinateSystemTransformCore, LegendRendererSelection, Mark,
     MarkRuntimeContext, PointGeometry, RadiusExpression, ResolvedDomain, ScalarValueHelpers,
-    ScaleRange, ScaleTypePreference, Theme, coerce_color_channel_with_renderer,
-    coerce_numeric_channel_with_renderer, default_scale_type_for_data_type, impl_mark_trait_common,
+    ScaleRange, ScaleTypePreference, Theme, apply_opacity_to_color_channel,
+    coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
+    coerce_opacity_channel_with_renderer, default_scale_type_for_data_type, impl_mark_trait_common,
     is_continuous_scale, serialization::DefaultLogicalExprNodeExt,
 };
 use avenger_chart_marks::{Symbol, symbol_channel_defaults, symbol_legend_renderer_kind};
@@ -100,7 +101,7 @@ impl CompiledMarkCore for CompiledCartesianSymbol {
                 name: "stroke_width",
                 required: false,
                 default_value: None,
-                allow_column_ref: true,
+                allow_column_ref: false,
             },
             ChannelDescriptor {
                 name: "shape",
@@ -110,6 +111,12 @@ impl CompiledMarkCore for CompiledCartesianSymbol {
             },
             ChannelDescriptor {
                 name: "angle",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "opacity",
                 required: false,
                 default_value: None,
                 allow_column_ref: true,
@@ -339,6 +346,17 @@ impl CompiledMark for CompiledCartesianSymbol {
 
         // Determine the number of symbols from any array channel
         let len = data.map_or(1, |data| data.num_rows()) as u32;
+
+        let opacity = coerce_opacity_channel_with_renderer(
+            self,
+            data,
+            scalars,
+            "opacity",
+            &mark_context,
+            1.0,
+        )?;
+        let fill = apply_opacity_to_color_channel(fill, &opacity, len as usize);
+        let stroke = apply_opacity_to_color_channel(stroke, &opacity, len as usize);
 
         // Handle shape channel efficiently - get default from mark
         let coercer = Coercer::default();
