@@ -89,6 +89,8 @@ pub enum ChannelScaleData {
         data_extents: DataExtents,
         /// Scale options (e.g., nice, zero, padding)
         options: HashMap<String, LogicalExprNode>,
+        /// Runtime raw-domain override expression, if configured.
+        raw_domain: Option<LogicalExprNode>,
     },
 
     /// Radius-aware scale: cache raw data, recompute domain on each build
@@ -107,6 +109,8 @@ pub enum ChannelScaleData {
         radius_upper_data: Vec<f64>,
         /// Scale options (e.g., nice, zero, padding)
         options: HashMap<String, LogicalExprNode>,
+        /// Runtime raw-domain override expression, if configured.
+        raw_domain: Option<LogicalExprNode>,
     },
 
     /// Explicit domain scale: no data caching, domain set explicitly
@@ -189,6 +193,31 @@ fn append_radius_domain_boundary_samples(
     })
 }
 
+fn should_use_cached_domain(scale: &Scale<Auto>) -> bool {
+    match &scale.config().domain {
+        Maybe::Set(domain) => {
+            matches!(domain.default_domain, ScaleDefaultDomain::DomainExprs(_))
+                || domain.is_raw_only()
+        }
+        Maybe::Unset => true,
+    }
+}
+
+fn current_raw_domain(
+    scale: &Scale<Auto>,
+    fallback: Option<&LogicalExprNode>,
+) -> Option<LogicalExprNode> {
+    scale
+        .get_domain()
+        .and_then(|domain| domain.raw_domain.clone())
+        .or_else(|| fallback.cloned())
+}
+
+fn attach_raw_domain(mut domain: ScaleDomain, raw_domain: Option<LogicalExprNode>) -> ScaleDomain {
+    domain.raw_domain = raw_domain;
+    domain
+}
+
 impl ScaleBuilder {
     /// Create a new empty scale builder
     pub fn new() -> Self {
@@ -217,6 +246,7 @@ impl ScaleBuilder {
                 scale_spec,
                 data_extents,
                 options,
+                raw_domain: None,
             },
         );
     }
@@ -239,6 +269,7 @@ impl ScaleBuilder {
                 radius_lower_data,
                 radius_upper_data,
                 options,
+                raw_domain: None,
             },
         );
     }
@@ -259,6 +290,29 @@ impl ScaleBuilder {
                 domain,
             },
         );
+    }
+
+    /// Attach a raw-domain override to a cached scale channel.
+    pub fn apply_raw_domain(
+        &mut self,
+        channel_name: &str,
+        raw_domain_override: Option<LogicalExprNode>,
+    ) {
+        let Some(raw_domain_override) = raw_domain_override else {
+            return;
+        };
+
+        if let Some(channel_builder) = self.channel_scale_data.get_mut(channel_name) {
+            match channel_builder {
+                ChannelScaleData::Standard { raw_domain, .. }
+                | ChannelScaleData::RadiusAware { raw_domain, .. } => {
+                    *raw_domain = Some(raw_domain_override);
+                }
+                ChannelScaleData::ExplicitDomain { domain, .. } => {
+                    domain.raw_domain = Some(raw_domain_override);
+                }
+            }
+        }
     }
 
     /// Get the channel builders
@@ -564,6 +618,7 @@ impl ScaleBuilder {
                     scale_spec,
                     data_extents,
                     options,
+                    raw_domain,
                 } => {
                     // For standard scales: use cached extents directly (no query!)
                     let mut scale = Scale::<Auto>::from_spec(scale_spec.as_ref().clone_box());
@@ -585,28 +640,17 @@ impl ScaleBuilder {
                         }
 
                         // Check if domain is still DomainExprs (needs data) or explicit
-                        match &scale.config().domain {
-                            Maybe::Set(domain) => {
-                                match &domain.default_domain {
-                                    ScaleDefaultDomain::DomainExprs(_) => {
-                                        true // Use cached data
-                                    }
-                                    _ => {
-                                        false // Skip cached data, use explicit domain
-                                    }
-                                }
-                            }
-                            Maybe::Unset => {
-                                true // Use cached data if domain not set
-                            }
-                        }
+                        should_use_cached_domain(&scale)
                     } else {
                         true // No override, use cached data
                     };
 
                     // Set domain from cached extents only if needed
                     if use_cached_domain {
-                        let domain = data_extents.to_scale_domain()?;
+                        let domain = attach_raw_domain(
+                            data_extents.to_scale_domain()?,
+                            current_raw_domain(&scale, raw_domain.as_ref()),
+                        );
                         scale = scale.domain(domain);
                     }
 
@@ -656,6 +700,7 @@ impl ScaleBuilder {
                     radius_lower_data,
                     radius_upper_data,
                     options,
+                    raw_domain,
                 } => {
                     // For radius-aware scales: recompute domain with new range (cheap math, no query!)
                     let mut scale = Scale::<Auto>::from_spec(scale_spec.as_ref().clone_box());
@@ -706,7 +751,11 @@ impl ScaleBuilder {
                     }
 
                     // Set domain and range
-                    scale = scale.domain_interval(lit(d_min), lit(d_max));
+                    let domain = attach_raw_domain(
+                        ScaleDomain::new_interval(lit(d_min), lit(d_max)),
+                        raw_domain.clone(),
+                    );
+                    scale = scale.domain(domain);
                     scale = scale.range_interval(lit(range_min), lit(range_max));
 
                     // Normalize domain (apply zero, nice, padding)
@@ -849,6 +898,7 @@ impl DataExtents {
 mod tests {
     use super::*;
     use crate::Linear;
+    use datafusion::functions_array::expr_fn::make_array;
 
     fn no_default_range(
         _channel: &str,
@@ -987,6 +1037,91 @@ mod tests {
         let (d_min, d_max) = x_scale.configured().numeric_interval_domain().unwrap();
         assert!(d_min <= 0.0);
         assert!(d_max >= 100.0);
+    }
+
+    #[tokio::test]
+    async fn test_build_scales_standard_with_raw_domain_override() {
+        let mut builder = ScaleBuilder::new();
+        let scale_spec = Box::new(Linear) as Box<dyn ScaleSpec>;
+        builder.add_standard(
+            "x".to_string(),
+            scale_spec,
+            DataExtents::Interval(0.0, 100.0),
+            HashMap::new(),
+        );
+
+        let mut coord_ranges = HashMap::new();
+        coord_ranges.insert(
+            "x".to_string(),
+            ScaleRangeBinding::fixed_interval(0.0, 400.0),
+        );
+
+        let mut scale_specs = HashMap::new();
+        let scale_config = Scale::<Auto>::from_spec(Box::new(Linear))
+            .raw_domain(make_array(vec![lit(20.0), lit(40.0)]))
+            .into_config();
+        scale_specs.insert("x".to_string(), PlotScaleSpec::Local(scale_config));
+
+        let ctx = SessionContext::new();
+        let scales = builder
+            .build_scales(
+                400.0,
+                300.0,
+                &coord_ranges,
+                &scale_specs,
+                &no_default_range,
+                &Theme::light(),
+                &ctx,
+                &IndexMap::new(),
+            )
+            .await
+            .unwrap();
+
+        let x_scale = scales.get("x").unwrap();
+        let (d_min, d_max) = x_scale.configured().numeric_interval_domain().unwrap();
+        assert_eq!((d_min, d_max), (20.0, 40.0));
+    }
+
+    #[tokio::test]
+    async fn test_build_scales_raw_domain_only_override_preserves_explicit_fallback_domain() {
+        let mut builder = ScaleBuilder::new();
+        builder.add_explicit_domain(
+            "x".to_string(),
+            Box::new(Linear),
+            HashMap::new(),
+            ScaleDomain::new_interval(lit(0.0), lit(100.0)),
+        );
+
+        let mut coord_ranges = HashMap::new();
+        coord_ranges.insert(
+            "x".to_string(),
+            ScaleRangeBinding::fixed_interval(0.0, 400.0),
+        );
+
+        let mut scale_specs = HashMap::new();
+        let scale_config = Scale::<Auto>::from_spec(Box::new(Linear))
+            .raw_domain(make_array(vec![lit(20.0), lit(40.0)]))
+            .into_config();
+        scale_specs.insert("x".to_string(), PlotScaleSpec::Local(scale_config));
+
+        let ctx = SessionContext::new();
+        let scales = builder
+            .build_scales(
+                400.0,
+                300.0,
+                &coord_ranges,
+                &scale_specs,
+                &no_default_range,
+                &Theme::light(),
+                &ctx,
+                &IndexMap::new(),
+            )
+            .await
+            .unwrap();
+
+        let x_scale = scales.get("x").unwrap();
+        let (d_min, d_max) = x_scale.configured().numeric_interval_domain().unwrap();
+        assert_eq!((d_min, d_max), (20.0, 40.0));
     }
 
     #[tokio::test]

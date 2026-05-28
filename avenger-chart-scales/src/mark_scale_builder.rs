@@ -542,7 +542,8 @@ where
     let mut has_explicit_domain = chosen_scale_config
         .as_ref()
         .and_then(|c| c.get_domain())
-        .is_some();
+        .map(|domain| !domain.is_raw_only())
+        .unwrap_or(false);
 
     // Apply coordinate and mark defaults FIRST
     // When explicit domain is set, skip domain-affecting options (nice, zero, padding)
@@ -594,8 +595,13 @@ where
     if let Some(plot_spec) = plot_scale_specs.get(channel) {
         let PlotScaleSpec::Local(scale_changes) = plot_spec;
         scale = scale.update(Scale::from_config(scale_changes.clone()));
-        // If plot-level override set the domain (including DomainExprs), treat as explicit
-        if scale.get_domain().is_some() {
+        // If plot-level override set a real fallback domain, treat it as explicit.
+        // A raw-only override still uses the inferred/cached fallback domain.
+        if scale
+            .get_domain()
+            .map(|domain| !domain.is_raw_only())
+            .unwrap_or(false)
+        {
             has_explicit_domain = true;
         }
     }
@@ -784,6 +790,10 @@ async fn cache_domain_data(
             }
         }
     }
+
+    let raw_domain_override = scale
+        .get_domain()
+        .and_then(|domain| domain.raw_domain.clone());
 
     // Collect data expressions (and per-mark/per-override radius) for this scale
     let mut entries: Vec<(Arc<DataFrame>, Expr, Option<PreparedRadiusExpression>)> = Vec::new();
@@ -995,6 +1005,8 @@ async fn cache_domain_data(
         .await?;
     }
 
+    builder.apply_raw_domain(channel, raw_domain_override);
+
     Ok(())
 }
 
@@ -1013,6 +1025,7 @@ async fn build_temp_configured_scale(
             scale_spec,
             data_extents,
             options,
+            raw_domain,
         } => {
             let mut scale = Scale::<Auto>::from_spec(scale_spec.as_ref().clone_box());
 
@@ -1023,7 +1036,8 @@ async fn build_temp_configured_scale(
             }
 
             // Set domain from cached extents
-            let domain = data_extents.to_scale_domain()?;
+            let mut domain = data_extents.to_scale_domain()?;
+            domain.raw_domain = raw_domain.clone();
             scale = scale.domain(domain);
 
             // Set range from theme

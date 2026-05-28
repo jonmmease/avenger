@@ -9,7 +9,8 @@ use avenger_chart_core::{
 use avenger_scales::scales::{ConfiguredScale, DomainKind, RangeKind, ScaleConfig, ScaleContext};
 use datafusion::{
     arrow::array::{
-        ArrayRef, Date32Array, Date64Array, Float32Array, Float32Builder, ListBuilder, StringArray,
+        Array, ArrayRef, Date32Array, Date64Array, Float32Array, Float32Builder, ListBuilder,
+        StringArray,
     },
     logical_expr::{Expr, lit},
     prelude::SessionContext,
@@ -67,12 +68,25 @@ impl<S: ScaleSpec> ScaleRuntimeExt for Scale<S> {
             return Ok(self);
         }
 
-        let configured = self
+        let raw_domain_override = self
+            .get_domain()
+            .and_then(|domain| domain.raw_domain.clone());
+        let mut scale_for_normalize = self.clone();
+        if let Maybe::Set(domain) = scale_for_normalize.config_mut().domain.as_mut() {
+            domain.raw_domain = None;
+        }
+
+        let configured = scale_for_normalize
             .create_configured_scale(plot_area_width, plot_area_height, ctx, params)
             .await?;
 
         if let Ok((min, max)) = configured.numeric_interval_domain() {
             self = self.domain_interval(lit(min as f64), lit(max as f64));
+            if let Some(raw_domain_override) = raw_domain_override
+                && let Maybe::Set(domain) = self.config_mut().domain.as_mut()
+            {
+                domain.raw_domain = Some(raw_domain_override);
+            }
         }
 
         Ok(self)
@@ -182,6 +196,9 @@ impl<S: ScaleSpec> ScaleRuntimeExt for Scale<S> {
                 ));
             }
         };
+        let domain =
+            apply_raw_domain_override(&domain, domain_spec, scale_impl.as_ref(), ctx, params)
+                .await?;
 
         let range = match self.config().range.as_ref() {
             Maybe::Set(ScaleRange::Numeric(start, end)) => {
@@ -271,6 +288,52 @@ impl<S: ScaleSpec> ScaleRuntimeExt for Scale<S> {
                 context: ScaleContext::default(),
             },
         })
+    }
+}
+
+async fn apply_raw_domain_override(
+    fallback_domain: &ArrayRef,
+    domain_spec: &ScaleDomain,
+    scale_impl: &dyn avenger_scales::scales::ScaleImpl,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+) -> Result<ArrayRef, AvengerChartError> {
+    let Some(raw_domain) = &domain_spec.raw_domain else {
+        return Ok(fallback_domain.clone());
+    };
+
+    if scale_impl.domain_kind() != DomainKind::Numeric
+        || scale_impl.range_kind() != RangeKind::Continuous
+    {
+        return Err(AvengerChartError::InvalidArgument(
+            "Scale raw_domain is only supported for numeric continuous scale domains".to_string(),
+        ));
+    }
+
+    let expr = raw_domain.to_expr(ctx)?;
+    let datafusion_params = params_to_datafusion(params);
+    let scalars = eval_to_scalars(vec![expr], Some(ctx), datafusion_params.as_ref()).await?;
+    let Some(raw_value) = scalars.first() else {
+        return Err(AvengerChartError::InternalError(
+            "Expected one scalar value for raw scale domain".to_string(),
+        ));
+    };
+
+    if scalar_value_is_null(raw_value) {
+        return Ok(fallback_domain.clone());
+    }
+
+    let [start, end] = raw_value.as_f32x2()?;
+    Ok(Arc::new(Float32Array::from(vec![start, end])) as ArrayRef)
+}
+
+fn scalar_value_is_null(value: &ScalarValue) -> bool {
+    match value {
+        ScalarValue::Null => true,
+        ScalarValue::List(array) => array.is_empty() || array.is_null(0),
+        ScalarValue::LargeList(array) => array.is_empty() || array.is_null(0),
+        ScalarValue::FixedSizeList(array) => array.is_empty() || array.is_null(0),
+        _ => false,
     }
 }
 
@@ -499,5 +562,132 @@ impl TimeScaleExt for Scale<Time> {
 
     fn clamp(self, value: bool) -> Self {
         self._option("clamp", lit(value))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use avenger_chart_core::Param;
+    use datafusion::{functions_array::expr_fn::make_array, prelude::SessionContext};
+    use datafusion_common::ScalarValue;
+
+    fn assert_interval(actual: (f32, f32), expected: (f32, f32)) {
+        assert!(
+            (actual.0 - expected.0).abs() < 1e-5,
+            "expected min {}, got {}",
+            expected.0,
+            actual.0
+        );
+        assert!(
+            (actual.1 - expected.1).abs() < 1e-5,
+            "expected max {}, got {}",
+            expected.1,
+            actual.1
+        );
+    }
+
+    #[tokio::test]
+    async fn raw_domain_overrides_interval_domain() {
+        let ctx = SessionContext::new();
+        let params = IndexMap::new();
+        let scale = Scale::<Linear>::new()
+            .domain_interval(lit(0.0), lit(10.0))
+            .raw_domain(make_array(vec![lit(2.0), lit(4.0)]))
+            .range_interval(lit(0.0), lit(100.0))
+            .nice(false);
+
+        let configured = scale
+            .create_configured_scale(400.0, 300.0, &ctx, &params)
+            .await
+            .unwrap();
+
+        assert_interval(configured.numeric_interval_domain().unwrap(), (2.0, 4.0));
+    }
+
+    #[tokio::test]
+    async fn raw_domain_null_uses_default_domain() {
+        let ctx = SessionContext::new();
+        let params = IndexMap::new();
+        let scale = Scale::<Linear>::new()
+            .domain_interval(lit(0.0), lit(10.0))
+            .raw_domain(lit(ScalarValue::Null))
+            .range_interval(lit(0.0), lit(100.0))
+            .nice(false);
+
+        let configured = scale
+            .create_configured_scale(400.0, 300.0, &ctx, &params)
+            .await
+            .unwrap();
+
+        assert_interval(configured.numeric_interval_domain().unwrap(), (0.0, 10.0));
+    }
+
+    #[tokio::test]
+    async fn raw_domain_can_be_built_from_params() {
+        let ctx = SessionContext::new();
+        let raw_min = Param::new("raw_min", ScalarValue::Float64(Some(0.0)));
+        let raw_max = Param::new("raw_max", ScalarValue::Float64(Some(0.0)));
+        let mut params = IndexMap::new();
+        params.insert("raw_min".to_string(), ScalarValue::Float64(Some(3.0)));
+        params.insert("raw_max".to_string(), ScalarValue::Float64(Some(7.0)));
+
+        let scale = Scale::<Linear>::new()
+            .domain_interval(lit(0.0), lit(10.0))
+            .raw_domain(make_array(vec![raw_min.expr(), raw_max.expr()]))
+            .range_interval(lit(0.0), lit(100.0))
+            .nice(false);
+
+        let configured = scale
+            .create_configured_scale(400.0, 300.0, &ctx, &params)
+            .await
+            .unwrap();
+
+        assert_interval(configured.numeric_interval_domain().unwrap(), (3.0, 7.0));
+    }
+
+    #[tokio::test]
+    async fn raw_domain_bypasses_default_domain_normalization() {
+        let ctx = SessionContext::new();
+        let params = IndexMap::new();
+        let scale = Scale::<Linear>::new()
+            .domain_interval(lit(1.2), lit(2.8))
+            .raw_domain(make_array(vec![lit(5.2), lit(6.8)]))
+            .range_interval(lit(0.0), lit(100.0))
+            .nice(true)
+            .zero(true);
+
+        let scale = scale
+            .normalize_domain(400.0, 300.0, &ctx, &params)
+            .await
+            .unwrap();
+        let configured = scale
+            .create_configured_scale(400.0, 300.0, &ctx, &params)
+            .await
+            .unwrap();
+
+        assert_interval(configured.numeric_interval_domain().unwrap(), (5.2, 6.8));
+    }
+
+    #[tokio::test]
+    async fn raw_domain_rejects_categorical_scales() {
+        let ctx = SessionContext::new();
+        let params = IndexMap::new();
+        let scale = Scale::<Band>::new()
+            .domain_discrete(vec![lit("a"), lit("b")])
+            .raw_domain(make_array(vec![lit(0.0), lit(1.0)]))
+            .range_interval(lit(0.0), lit(100.0));
+
+        let err = scale
+            .create_configured_scale(400.0, 300.0, &ctx, &params)
+            .await
+            .expect_err("expected categorical raw_domain rejection");
+
+        match err {
+            AvengerChartError::InvalidArgument(message) => {
+                assert!(message.contains("raw_domain"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 }

@@ -55,6 +55,17 @@ pub struct DomainExpr {
 }
 
 impl ScaleDomain {
+    pub fn new_raw(expr: Expr) -> Self {
+        Self {
+            default_domain: ScaleDefaultDomain::NoDefault,
+            raw_domain: Some(logical_expr_node_from_expr(expr, "raw domain expr")),
+        }
+    }
+
+    pub fn is_raw_only(&self) -> bool {
+        matches!(self.default_domain, ScaleDefaultDomain::NoDefault) && self.raw_domain.is_some()
+    }
+
     pub fn new_interval<E: Into<Expr>>(start: E, end: E) -> Self {
         let start_node = logical_expr_node_from_expr(start.into(), "start expr");
         let end_node = logical_expr_node_from_expr(end.into(), "end expr");

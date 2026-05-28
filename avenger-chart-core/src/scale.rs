@@ -127,9 +127,21 @@ impl<S: ScaleSpec> Scale<S> {
             self.config.scale_spec = other.config.scale_spec;
         }
 
-        // Update domain if set
-        if other.config.domain.is_set() {
-            self.config.domain = other.config.domain;
+        // Update domain if set. A raw-only domain override augments the current
+        // fallback domain rather than replacing inferred or explicit defaults.
+        if let Maybe::Set(other_domain) = other.config.domain.clone() {
+            if other_domain.is_raw_only() {
+                match &mut self.config.domain {
+                    Maybe::Set(domain) => {
+                        domain.raw_domain = other_domain.raw_domain;
+                    }
+                    Maybe::Unset => {
+                        self.config.domain = Maybe::Set(other_domain);
+                    }
+                }
+            } else {
+                self.config.domain = Maybe::Set(other_domain);
+            }
         }
 
         // Update range if set
@@ -188,6 +200,27 @@ impl<S: ScaleSpec> Scale<S> {
         self.config.domain = Maybe::Set(ScaleDomain::new_discrete(
             values.into_iter().map(|v| v.into()).collect(),
         ));
+        self
+    }
+
+    /// Set a runtime raw-domain override.
+    ///
+    /// The regular domain remains the fallback used when the raw-domain
+    /// expression evaluates to null. This is useful for interaction state such
+    /// as pan/zoom domain extents.
+    pub fn raw_domain(mut self, expr: impl IntoExpr) -> Self {
+        let expr = expr.into_expr();
+        match &mut self.config.domain {
+            Maybe::Set(domain) => {
+                domain.raw_domain = Some(
+                    LogicalExprNode::from_expr(expr)
+                        .expect("Failed to serialize raw domain expression"),
+                );
+            }
+            Maybe::Unset => {
+                self.config.domain = Maybe::Set(ScaleDomain::new_raw(expr));
+            }
+        }
         self
     }
 
