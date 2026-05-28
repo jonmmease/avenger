@@ -1,5 +1,7 @@
 pub mod area;
+pub mod image;
 pub mod line;
+pub mod path;
 pub mod rect;
 pub mod rule;
 pub mod subplot;
@@ -11,12 +13,14 @@ mod util;
 use std::sync::Arc;
 
 use avenger_chart_core::{ChannelValue, PositionConfig};
-use avenger_chart_marks::{Area, Line, Rect, Rule, Symbol, Text, Trail};
+use avenger_chart_marks::{Area, Image, Line, PathMark, Rect, Rule, Symbol, Text, Trail};
 
 use crate::{Cartesian, CartesianPositionConfig};
 
 pub use area::CompiledCartesianArea;
+pub use image::CompiledCartesianImage;
 pub use line::{CompiledCartesianLine, ensure_dictionary_array_fn};
+pub use path::CompiledCartesianPath;
 pub use rect::CompiledCartesianRect;
 pub use rule::CompiledCartesianRule;
 pub use subplot::{
@@ -107,6 +111,122 @@ fn configure_area_position_channel(
     channel_value: ChannelValue,
     f: impl FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
 ) -> Area<Cartesian> {
+    let config = CartesianPositionConfig::new(channel_value);
+    let configured = f(config);
+    let (channel_value, axis_config) = configured.take_axis_config();
+    let mut mark = mark.with_channel_value(channel_name, channel_value);
+    if let Some(axis_config) = axis_config {
+        mark.state_mut()
+            .axis_configs
+            .insert(channel_name.to_string(), Arc::new(axis_config));
+    }
+    mark
+}
+
+/// Cartesian position-channel builders for the generic `Image` mark.
+pub trait CartesianImagePositionChannels: Sized {
+    fn x<V: Into<ChannelValue>>(self, value: V) -> Self;
+    fn x_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
+    fn y<V: Into<ChannelValue>>(self, value: V) -> Self;
+    fn y_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
+}
+
+impl CartesianImagePositionChannels for Image<Cartesian> {
+    fn x<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("x", value.into())
+    }
+
+    fn x_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+    {
+        configure_image_position_channel(self, "x", value.into(), f)
+    }
+
+    fn y<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("y", value.into())
+    }
+
+    fn y_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+    {
+        configure_image_position_channel(self, "y", value.into(), f)
+    }
+}
+
+fn configure_image_position_channel(
+    mark: Image<Cartesian>,
+    channel_name: &str,
+    channel_value: ChannelValue,
+    f: impl FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+) -> Image<Cartesian> {
+    let config = CartesianPositionConfig::new(channel_value);
+    let configured = f(config);
+    let (channel_value, axis_config) = configured.take_axis_config();
+    let mut mark = mark.with_channel_value(channel_name, channel_value);
+    if let Some(axis_config) = axis_config {
+        mark.state_mut()
+            .axis_configs
+            .insert(channel_name.to_string(), Arc::new(axis_config));
+    }
+    mark
+}
+
+/// Cartesian position-channel builders for the generic `PathMark` mark.
+pub trait CartesianPathPositionChannels: Sized {
+    fn x<V: Into<ChannelValue>>(self, value: V) -> Self;
+    fn x_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
+    fn y<V: Into<ChannelValue>>(self, value: V) -> Self;
+    fn y_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig;
+}
+
+impl CartesianPathPositionChannels for PathMark<Cartesian> {
+    fn x<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("x", value.into())
+    }
+
+    fn x_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+    {
+        configure_path_position_channel(self, "x", value.into(), f)
+    }
+
+    fn y<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("y", value.into())
+    }
+
+    fn y_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+    {
+        configure_path_position_channel(self, "y", value.into(), f)
+    }
+}
+
+fn configure_path_position_channel(
+    mark: PathMark<Cartesian>,
+    channel_name: &str,
+    channel_value: ChannelValue,
+    f: impl FnOnce(CartesianPositionConfig) -> CartesianPositionConfig,
+) -> PathMark<Cartesian> {
     let config = CartesianPositionConfig::new(channel_value);
     let configured = f(config);
     let (channel_value, axis_config) = configured.take_axis_config();

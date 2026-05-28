@@ -4,7 +4,7 @@
 //! into typed values using the avenger-scales Coercer system.
 
 use avenger_common::{
-    types::{AreaOrientation, ColorOrGradient, StrokeCap, StrokeJoin},
+    types::{AreaOrientation, ColorOrGradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin},
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
 use avenger_scales::scales::coerce::Coercer;
@@ -232,6 +232,32 @@ pub fn coerce_area_orientation_channel(
         scalars,
         channel,
         |c, a| c.to_area_orientation(a),
+        default,
+    )
+}
+
+/// Get image align channel values using Coercer.
+pub fn coerce_image_align_channel(
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    default: ImageAlign,
+) -> Result<ScalarOrArray<ImageAlign>, AvengerChartError> {
+    coerce_channel(data, scalars, channel, |c, a| c.to_image_align(a), default)
+}
+
+/// Get image baseline channel values using Coercer.
+pub fn coerce_image_baseline_channel(
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    default: ImageBaseline,
+) -> Result<ScalarOrArray<ImageBaseline>, AvengerChartError> {
+    coerce_channel(
+        data,
+        scalars,
+        channel,
+        |c, a| c.to_image_baseline(a),
         default,
     )
 }

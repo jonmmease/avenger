@@ -221,6 +221,93 @@ fn trail_style_data() -> DataFrame {
         .expect("trail style dataframe")
 }
 
+fn image_alignment_data() -> DataFrame {
+    let mut x = Vec::new();
+    let mut y = Vec::new();
+    let mut align = Vec::new();
+    let mut baseline = Vec::new();
+
+    let aligns = ["left", "center", "right"];
+    let baselines = ["top", "middle", "bottom"];
+    for (row, baseline_value) in baselines.iter().enumerate() {
+        for (col, align_value) in aligns.iter().enumerate() {
+            x.push(col as f64);
+            y.push(2.0 - row as f64);
+            align.push(*align_value);
+            baseline.push(*baseline_value);
+        }
+    }
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("x", DataType::Float64, false),
+        Field::new("y", DataType::Float64, false),
+        Field::new("align", DataType::Utf8, false),
+        Field::new("baseline", DataType::Utf8, false),
+    ]));
+
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(Float64Array::from(x)),
+            Arc::new(Float64Array::from(y)),
+            Arc::new(StringArray::from(align)),
+            Arc::new(StringArray::from(baseline)),
+        ],
+    )
+    .expect("image alignment batch");
+
+    SessionContext::new()
+        .read_batch(batch)
+        .expect("image alignment dataframe")
+}
+
+fn path_transform_data() -> DataFrame {
+    let x = Float64Array::from(vec![0.4, 1.2, 2.0, 0.8, 1.7]);
+    let y = Float64Array::from(vec![0.55, 1.35, 0.85, 2.15, 2.45]);
+    let path = StringArray::from(vec![
+        "M 0 -18 L 15 12 L -15 12 Z",
+        "M -16 -16 L 16 -16 L 16 16 L -16 16 Z",
+        "M -18 0 C -8 -18 8 -18 18 0 C 8 18 -8 18 -18 0 Z",
+        "M -18 -10 L 0 -18 L 18 -10 L 10 16 L -10 16 Z",
+        "M -16 12 L 0 -16 L 16 12 Z",
+    ]);
+    let transform = StringArray::from(vec![
+        "rotate(-20) scale(1.0)",
+        "rotate(12) scale(0.85)",
+        "rotate(28) scale(1.05)",
+        "rotate(-38) scale(0.9)",
+        "rotate(42) scale(1.15)",
+    ]);
+    let group = StringArray::from(vec!["alpha", "beta", "gamma", "alpha", "beta"]);
+    let opacity = Float64Array::from(vec![0.95, 0.8, 0.68, 0.78, 0.9]);
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("x", DataType::Float64, false),
+        Field::new("y", DataType::Float64, false),
+        Field::new("path", DataType::Utf8, false),
+        Field::new("transform", DataType::Utf8, false),
+        Field::new("group", DataType::Utf8, false),
+        Field::new("opacity", DataType::Float64, false),
+    ]));
+
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(x),
+            Arc::new(y),
+            Arc::new(path),
+            Arc::new(transform),
+            Arc::new(group),
+            Arc::new(opacity),
+        ],
+    )
+    .expect("path transform batch");
+
+    SessionContext::new()
+        .read_batch(batch)
+        .expect("path transform dataframe")
+}
+
 #[tokio::test]
 async fn test_cartesian_rule_reference_grid() {
     let ctx = SessionContext::new();
@@ -411,3 +498,92 @@ async fn test_cartesian_trail_size_and_opacity() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn test_cartesian_image_alignment_grid() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Image alignment grid")
+        .data(image_alignment_data())
+        .mark(
+            Image::new()
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s.domain((-0.45, 2.45))).axis(|a| a.title("x"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s.domain((-0.45, 2.45))).axis(|a| a.title("y"))
+                })
+                .image(TINY_PNG_DATA_URI)
+                .width(ChannelValue::from(lit(36.0)).no_scale())
+                .height(ChannelValue::from(lit(28.0)).no_scale())
+                .align(ChannelValue::from(col("align")).no_scale())
+                .baseline(ChannelValue::from(col("baseline")).no_scale())
+                .aspect(false)
+                .smooth(false),
+        )
+        .mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                .size(42.0)
+                .fill("#111827")
+                .stroke("#ffffff")
+                .stroke_width(1.0),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("compile image plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "cartesian_scene_marks",
+        "cartesian_image_alignment_grid",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_cartesian_path_svg_transform_styles() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Path SVG transforms")
+        .data(path_transform_data())
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s.domain((0.0, 2.4))).axis(|a| a.title("x"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s.domain((0.2, 2.8))).axis(|a| a.title("y"))
+                })
+                .size(50.0)
+                .fill("#ffffff")
+                .stroke("#111827")
+                .stroke_width(0.9)
+                .opacity(0.65),
+        )
+        .mark(
+            PathMark::new()
+                .x(col("x"))
+                .y(col("y"))
+                .path(ChannelValue::from(col("path")).no_scale())
+                .transform(ChannelValue::from(col("transform")).no_scale())
+                .fill_with(col("group"), |c| c.legend(|l| l.visible(false)))
+                .stroke("#111827")
+                .stroke_width(1.6)
+                .stroke_join("round")
+                .opacity_with(col("opacity"), |c| c.no_scale()),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("compile path plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "cartesian_scene_marks",
+        "cartesian_path_svg_transform_styles",
+    )
+    .await;
+}
+
+const TINY_PNG_DATA_URI: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAG0lEQVR4nGO4o6b2XzX59X8GscVe/3+dEf0PAE8fCXZKLiUkAAAAAElFTkSuQmCC";

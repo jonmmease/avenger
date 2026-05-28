@@ -599,6 +599,8 @@ dependencies = [
  "datafusion",
  "datafusion-proto",
  "indexmap 2.9.0",
+ "lyon_extra",
+ "lyon_path",
  "serde",
  "serde_with",
  "typetag",

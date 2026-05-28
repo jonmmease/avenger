@@ -16,6 +16,8 @@ async-trait = { workspace = true }
 datafusion = { workspace = true }
 datafusion-proto = "48.0.1"
 indexmap = { workspace = true }
+lyon_extra = { workspace = true }
+lyon_path = { workspace = true }
 serde = { workspace = true }
 serde_with = "3.0"
 typetag = "0.2"

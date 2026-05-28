@@ -4,8 +4,8 @@ use avenger_common::{
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
 use avenger_scenegraph::marks::{
-    area::SceneAreaMark, mark::SceneMark, rule::SceneRuleMark, symbol::SceneSymbolMark,
-    text::SceneTextMark, trail::SceneTrailMark,
+    area::SceneAreaMark, image::SceneImageMark, mark::SceneMark, path::ScenePathMark,
+    rule::SceneRuleMark, symbol::SceneSymbolMark, text::SceneTextMark, trail::SceneTrailMark,
 };
 use datafusion::{
     arrow::{
@@ -81,6 +81,30 @@ fn collect_trails<'a>(mark: &'a SceneMark, trails: &mut Vec<&'a SceneTrailMark>)
         SceneMark::Group(group) => {
             for mark in &group.marks {
                 collect_trails(mark, trails);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_images<'a>(mark: &'a SceneMark, images: &mut Vec<&'a SceneImageMark>) {
+    match mark {
+        SceneMark::Image(image) => images.push(image),
+        SceneMark::Group(group) => {
+            for mark in &group.marks {
+                collect_images(mark, images);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_paths<'a>(mark: &'a SceneMark, paths: &mut Vec<&'a ScenePathMark>) {
+    match mark {
+        SceneMark::Path(path) => paths.push(path),
+        SceneMark::Group(group) => {
+            for mark in &group.marks {
+                collect_paths(mark, paths);
             }
         }
         _ => {}
@@ -193,6 +217,47 @@ async fn area_and_trail_channel_descriptors_expose_scene_mark_channels() {
     assert!(channel(&trail_channels, "size").allow_column_ref);
     assert!(channel(&trail_channels, "stroke").allow_column_ref);
     assert!(channel(&trail_channels, "opacity").allow_column_ref);
+}
+
+#[tokio::test]
+async fn image_and_path_channel_descriptors_expose_scene_mark_channels() {
+    let ctx = SessionContext::new();
+
+    let image_plot = Plot::<Cartesian>::new().mark(
+        Image::new()
+            .x(col("x"))
+            .y(col("y"))
+            .image(TINY_PNG_DATA_URI)
+            .width(col("width"))
+            .height(col("height"))
+            .align(col("align"))
+            .baseline(col("baseline"))
+            .aspect(false),
+    );
+    let image = image_plot.compile(&ctx).await.unwrap().marks()[0].clone();
+    let image_channels = image.supported_channels();
+    assert!(channel(&image_channels, "image").allow_column_ref);
+    assert!(channel(&image_channels, "align").allow_column_ref);
+    assert!(channel(&image_channels, "baseline").allow_column_ref);
+    assert!(!channel(&image_channels, "aspect").allow_column_ref);
+    assert!(!channel(&image_channels, "smooth").allow_column_ref);
+
+    let path_plot = Plot::<Cartesian>::new().mark(
+        PathMark::new()
+            .x(col("x"))
+            .y(col("y"))
+            .path("M -8 -8 L 8 -8 L 0 8 Z")
+            .transform("rotate(15)")
+            .fill(col("fill"))
+            .stroke_width(col("width"))
+            .opacity(col("opacity")),
+    );
+    let path = path_plot.compile(&ctx).await.unwrap().marks()[0].clone();
+    let path_channels = path.supported_channels();
+    assert!(channel(&path_channels, "path").allow_column_ref);
+    assert!(channel(&path_channels, "transform").allow_column_ref);
+    assert!(channel(&path_channels, "opacity").allow_column_ref);
+    assert!(!channel(&path_channels, "stroke_width").allow_column_ref);
 }
 
 #[tokio::test]
@@ -384,6 +449,71 @@ async fn varying_area_and_trail_scalar_styles_partition_scene_marks() {
 }
 
 #[tokio::test]
+async fn image_data_uri_renders_without_network_resources() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new().mark(
+        Image::new()
+            .x(0.5)
+            .y(0.5)
+            .image(TINY_PNG_DATA_URI)
+            .width(16.0)
+            .height(16.0)
+            .align("center")
+            .baseline("middle")
+            .smooth(false),
+    );
+
+    let evaluated = plot
+        .compile(&ctx)
+        .await
+        .unwrap()
+        .evaluate(&ctx, None)
+        .await
+        .unwrap();
+
+    let mut images = Vec::new();
+    for mark in &evaluated.scene_graph.marks {
+        collect_images(mark, &mut images);
+    }
+
+    let image = images.first().expect("image mark");
+    let rgba = image.image.first().expect("decoded image");
+    assert_eq!((rgba.width, rgba.height), (2, 2));
+}
+
+#[tokio::test]
+async fn path_opacity_is_folded_into_fill_and_stroke_alpha() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new().mark(
+        PathMark::new()
+            .x(0.5)
+            .y(0.5)
+            .path("M -8 -8 L 8 -8 L 0 8 Z")
+            .fill("#ff0000")
+            .stroke("#0000ff")
+            .stroke_width(1.5)
+            .opacity(0.25),
+    );
+
+    let evaluated = plot
+        .compile(&ctx)
+        .await
+        .unwrap()
+        .evaluate(&ctx, None)
+        .await
+        .unwrap();
+
+    let mut paths = Vec::new();
+    for mark in &evaluated.scene_graph.marks {
+        collect_paths(mark, &mut paths);
+    }
+
+    let path = paths.first().expect("path mark");
+    assert_eq!(alpha(&path.fill), 0.25);
+    assert_eq!(alpha(&path.stroke), 0.25);
+}
+
+#[tokio::test]
 async fn text_column_values_render_as_strings_without_scale() {
     let ctx = SessionContext::new();
     let batch = RecordBatch::try_new(
@@ -481,3 +611,5 @@ fn styled_xy_data(ctx: &SessionContext) -> DataFrame {
 
     ctx.read_batch(batch).unwrap()
 }
+
+const TINY_PNG_DATA_URI: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAG0lEQVR4nGO4o6b2XzX59X8GscVe/3+dEf0PAE8fCXZKLiUkAAAAAElFTkSuQmCC";

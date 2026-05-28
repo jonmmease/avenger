@@ -12,7 +12,7 @@ use avenger_common::{
     },
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
-use avenger_image::{make_image_fetcher, RgbaImage};
+use avenger_image::RgbaImage;
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use lyon_extra::parser::{ParserOptions, Source};
 use lyon_path::geom::point;
@@ -270,11 +270,10 @@ impl Coercer {
         match dtype {
             // Handle strings
             DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
-                let fetcher = make_image_fetcher()?;
                 let cast_array = cast(values, &DataType::Utf8)?;
                 let string_array = cast_array.as_string::<i32>();
                 for s in string_array.iter().flatten() {
-                    let img = RgbaImage::from_str(s, Some(fetcher.clone()))?;
+                    let img = RgbaImage::from_str(s, None)?;
                     result.push(img);
                 }
             }

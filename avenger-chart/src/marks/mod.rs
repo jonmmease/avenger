@@ -2,9 +2,11 @@ pub mod area;
 pub mod compiled_data_context;
 pub mod data_context;
 pub mod facet_data_scope;
+pub mod image;
 pub mod line;
 #[macro_use]
 pub mod macros;
+pub mod path;
 pub mod rect;
 pub mod rule;
 pub mod state;
