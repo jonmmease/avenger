@@ -1447,9 +1447,20 @@ mod tests {
     /// param, with the same x_pan_binding. A pan in any cell writes the Shared
     /// (root) domain, so every cell pans together.
     async fn faceted_pan_state_and_handler() -> (ChartAppState, ChartEventBindingHandler) {
+        faceted_pan_state_and_handler_with_sharing(Sharing::Shared).await
+    }
+
+    async fn faceted_pan_state_and_handler_with_sharing(
+        sharing: Sharing,
+    ) -> (ChartAppState, ChartEventBindingHandler) {
         let ctx = SessionContext::new();
         let x_domain = Param::raw_domain("x_domain");
         let raw = x_domain.expr();
+        // A `Shared` param drives one root domain for all cells; a `Free` param
+        // pans only the cell under the pointer. Match the scale's `share_scale`
+        // to the param sharing so validation passes (param must be at least as
+        // broad as the scale it drives).
+        let share_scale = sharing.to_level() == u8::MAX;
         let df = ctx
             .sql(
                 "SELECT * FROM (VALUES
@@ -1463,15 +1474,16 @@ mod tests {
         let compiled = Plot::<FacetColumn>::new()
             .canvas_size(640.0, 320.0)
             .data(df)
-            .add_param(x_domain.clone())
+            .add_param_with_sharing(x_domain.clone(), sharing)
             .mark(
                 Subplot::new(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x_with(col("x"), move |c| {
-                                c.scale_with::<Linear>(move |s| {
+                                let c = c.scale_with::<Linear>(move |s| {
                                     s.raw_domain(raw.clone()).nice(false).zero(false)
-                                })
+                                });
+                                if share_scale { c.share_scale() } else { c }
                             })
                             .y(col("y"))
                             .size(20.0),
@@ -1734,6 +1746,85 @@ mod tests {
             .build(&mut state)
             .await
             .expect("build after shared facet pan");
+    }
+
+    /// First component of a scope's facet path, as a `&str` cell value.
+    fn scope_cell(scope: &EvaluatedInteractionScope) -> Option<String> {
+        match scope.facet_path.first() {
+            Some(ScalarValue::Utf8(Some(value))) => Some(value.clone()),
+            _ => None,
+        }
+    }
+
+    /// Numeric x domain of the scope for `cell`.
+    fn scope_x_domain(scopes: &[EvaluatedInteractionScope], cell: &str) -> (f32, f32) {
+        scopes
+            .iter()
+            .find(|scope| scope_cell(scope).as_deref() == Some(cell))
+            .unwrap_or_else(|| panic!("no scope for cell {cell}"))
+            .scales
+            .get("x")
+            .expect("scope has x scale")
+            .numeric_interval_domain()
+            .expect("x domain is numeric")
+    }
+
+    #[tokio::test]
+    async fn faceted_free_pan_updates_only_active_cell() {
+        use avenger_app::app::SceneGraphBuilder;
+
+        let (mut state, handler) = faceted_pan_state_and_handler_with_sharing(Sharing::Free).await;
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial build");
+        let scopes = state.interaction_scopes().await;
+        assert_eq!(scopes.len(), 2, "two facet columns export two scopes");
+
+        // Pan inside cell "A". A Free param routes the write to cell A's owner.
+        let cell_a = scopes
+            .iter()
+            .find(|scope| scope_cell(scope).as_deref() == Some("A"))
+            .expect("cell A scope")
+            .clone();
+        let bounds = cell_a.bounds;
+        let cx = bounds.x + bounds.width * 0.5;
+        let cy = bounds.y + bounds.height * 0.5;
+        let status = pan_move(
+            &mut state,
+            &handler,
+            Instant::now(),
+            [cx, cy],
+            [cx + 40.0, cy],
+        )
+        .await;
+        assert!(status.rerender, "a drag inside cell A should rerender");
+
+        // The root param is untouched: a Free write targets the cell owner path,
+        // not the root, so `params()` still reports the default null-list domain.
+        let root_domain = state.params().await.get("x_domain").cloned();
+        assert!(
+            matches!(root_domain, Some(ScalarValue::List(_))),
+            "root x_domain should remain a (default) list for a Free pan, got {root_domain:?}"
+        );
+
+        // Re-evaluate and confirm only cell A moved; cell B keeps its inferred
+        // domain.
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("build after free facet pan");
+        let scopes = state.interaction_scopes().await;
+        let a = scope_x_domain(&scopes, "A");
+        let b = scope_x_domain(&scopes, "B");
+        assert!(
+            a.0 < 0.0 && a.1 < 10.0,
+            "cell A should be panned left, got {a:?}"
+        );
+        assert!(
+            (b.0 - 0.0).abs() < 0.5 && (b.1 - 10.0).abs() < 0.5,
+            "cell B should keep its inferred [0, 10] domain, got {b:?}"
+        );
     }
 
     fn empty_rtree() -> SceneGraphRTree {
