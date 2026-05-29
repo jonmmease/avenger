@@ -33,7 +33,7 @@ use serde_with::{FromInto, serde_as};
 use std::{
     future::Future,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{Arc, LazyLock, Mutex},
 };
 use tracing::trace;
 
@@ -215,6 +215,26 @@ async fn build_one_facet_cell(
         .await?
     };
 
+    // Capture this terminal cell's rendered components into the layout profile
+    // (exact-evaluation only; `None` during Preview). The profile is keyed by the
+    // cell's facet path, so concurrent inserts from sibling cells never collide
+    // and the result is order-independent.
+    if is_terminal_cell
+        && let Some(capture) = cell_eval_ctx.facet_cell_rendered_components_capture()
+    {
+        capture
+            .lock()
+            .expect("facet cell rendered components profile lock poisoned")
+            .insert_for_cell(
+                cell_eval_ctx.facet_tree.as_ref(),
+                &full_path,
+                subplot.as_ref(),
+                cell_eval_ctx.session_context().as_ref(),
+                cell_eval_ctx.params(),
+                components.clone(),
+            );
+    }
+
     if let (Some(parent), Some(local)) = (parent_metrics, local_metrics) {
         let local = local.lock().expect("evaluation metrics lock poisoned");
         parent
@@ -233,14 +253,18 @@ async fn build_one_facet_cell(
 /// ever has one thread — `tokio::spawn` would still run cooperatively, but to
 /// avoid depending on a spawn-capable runtime there at all, wasm falls back to a
 /// plain sequential await. Either way the output is identical and ordered.
+/// Escape hatch / A-B diagnostic: force the sequential build path even on a
+/// multi-thread runtime so parallel-vs-sequential cost can be compared on the
+/// same binary. Read once.
+#[cfg(not(target_arch = "wasm32"))]
+static FORCE_SEQUENTIAL_FACET_BUILDS: LazyLock<bool> =
+    LazyLock::new(|| std::env::var_os("AVENGER_FACET_SEQUENTIAL").is_some());
+
 #[cfg(not(target_arch = "wasm32"))]
 async fn run_facet_cell_builds(
     tasks: Vec<FacetCellBuildTask>,
 ) -> Result<Vec<PlotComponents>, AvengerChartError> {
-    // Escape hatch / A-B diagnostic: force the sequential path even on a
-    // multi-thread runtime so parallel-vs-sequential cost can be compared on the
-    // same binary.
-    if std::env::var_os("AVENGER_FACET_SEQUENTIAL").is_some() {
+    if *FORCE_SEQUENTIAL_FACET_BUILDS {
         return run_facet_cell_builds_sequential(tasks).await;
     }
     let handles: Vec<_> = tasks
@@ -286,13 +310,9 @@ struct FacetCellPlan {
 enum FacetCellPlanKind {
     /// Empty cell under the `Hole` policy: render an empty group, no build.
     EmptyHole,
-    /// A cell whose components were built (see the matching entry in the build
-    /// results, consumed in order).
-    Built {
-        is_terminal_cell: bool,
-        cell_eval_ctx: EvaluationContext,
-        full_path: Vec<ScalarValue>,
-    },
+    /// A built cell; its components are taken from the build results in order
+    /// (capture + metrics happen inside the build task).
+    Built,
 }
 
 async fn render_facet_band_with_placement(
@@ -398,7 +418,7 @@ async fn render_facet_band_with_placement(
 
         build_tasks.push(FacetCellBuildTask {
             subplot: subplot_arc.clone(),
-            cell_eval_ctx: cell_eval_ctx.clone(),
+            cell_eval_ctx,
             measurement: cell.measurement.clone(),
             data_override: cell.data_override.clone(),
             full_path: cell.plan.full_path.clone(),
@@ -409,11 +429,7 @@ async fn render_facet_band_with_placement(
             subplot_origin,
             position,
             band_size,
-            kind: FacetCellPlanKind::Built {
-                is_terminal_cell,
-                cell_eval_ctx,
-                full_path: cell.plan.full_path.clone(),
-            },
+            kind: FacetCellPlanKind::Built,
         });
     }
 
@@ -448,32 +464,12 @@ async fn render_facet_band_with_placement(
                 };
                 scene_marks.push(SceneMark::Group(empty_group));
             }
-            FacetCellPlanKind::Built {
-                is_terminal_cell,
-                cell_eval_ctx,
-                full_path,
-            } => {
+            FacetCellPlanKind::Built => {
                 let mut components = built.next().ok_or_else(|| {
                     AvengerChartError::InternalError(
                         "Missing facet cell build result during assembly".into(),
                     )
                 })?;
-
-                if is_terminal_cell
-                    && let Some(capture) = cell_eval_ctx.facet_cell_rendered_components_capture()
-                {
-                    capture
-                        .lock()
-                        .expect("facet cell rendered components profile lock poisoned")
-                        .insert_for_cell(
-                            cell_eval_ctx.facet_tree.as_ref(),
-                            &full_path,
-                            compiled_subplot,
-                            cell_eval_ctx.session_context().as_ref(),
-                            cell_eval_ctx.params(),
-                            components.clone(),
-                        );
-                }
 
                 // Collect this cell's interaction scopes, translate them by the
                 // cell's scene origin (the subplot group origin; the cell
