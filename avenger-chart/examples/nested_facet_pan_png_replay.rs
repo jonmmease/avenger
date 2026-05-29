@@ -35,9 +35,7 @@ use avenger_chart::{
 };
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
-use datafusion::{
-    arrow::datatypes::DataType, prelude::SessionContext, scalar::ScalarValue,
-};
+use datafusion::{arrow::datatypes::DataType, prelude::SessionContext, scalar::ScalarValue};
 
 const PNG_CANVAS_SIZE: [f32; 2] = [820.0, 520.0];
 const PNG_CANVAS_SCALE: f32 = 2.0;
@@ -68,7 +66,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (evaluated, metrics) = session
         .evaluate_with_metrics(EvaluationRequest::new().exact())
         .await?;
-    render_png_frame(&mut canvas, &evaluated.scene_graph, 0, "Exact", &metrics, &dump_dir).await?;
+    render_png_frame(
+        &mut canvas,
+        &evaluated.scene_graph,
+        0,
+        "Exact",
+        &metrics,
+        &dump_dir,
+    )
+    .await?;
 
     // Pan the "Top" row: Level(1) owner path is the row value. Each frame shifts
     // the domain so the preview path does real work (not a no-op).
@@ -99,16 +105,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?;
         let eval_elapsed = eval_start.elapsed();
 
-        let (set_scene_elapsed, render_elapsed) =
-            render_png_frame(&mut canvas, &evaluated.scene_graph, idx + 1, "Preview", &metrics, &dump_dir)
-                .await?;
+        let (set_scene_elapsed, render_elapsed) = render_png_frame(
+            &mut canvas,
+            &evaluated.scene_graph,
+            idx + 1,
+            "Preview",
+            &metrics,
+            &dump_dir,
+        )
+        .await?;
 
         eval_total += eval_elapsed;
         set_scene_total += set_scene_elapsed;
         render_total += render_elapsed;
 
         println!(
-            "pan_replay seq={} mode=Preview scene={:.0}x{:.0} eval={:.2}ms set_scene={:.2}ms png_render={:.2}ms frame_total={:.2}ms reflow_reuse={} preview_reuse={} cell_reuse={} data_reuse={} data_miss={} chrome={} guides={} guide_ms={:.2} probe_ms={:.2} build_ms={:.2}",
+            "pan_replay seq={} mode=Preview scene={:.0}x{:.0} eval={:.2}ms set_scene={:.2}ms png_render={:.2}ms frame_total={:.2}ms cells_built={} reflow_reuse={} preview_reuse={} cell_reuse={} data_reuse={} data_miss={} chrome={} guides={} guide_ms={:.2} probe_ms={:.2} build_ms={:.2}",
             idx + 1,
             evaluated.scene_graph.width,
             evaluated.scene_graph.height,
@@ -116,6 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ms(set_scene_elapsed),
             ms(render_elapsed),
             ms(eval_elapsed + set_scene_elapsed + render_elapsed),
+            metrics.pipeline.facet_cells_built,
             metrics.pipeline.preview_structure_reflow_reuses,
             metrics.pipeline.preview_profile_reuses,
             metrics.pipeline.facet_cell_measurement_profile_reuses,

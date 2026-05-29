@@ -363,6 +363,10 @@ impl EvaluationMetrics {
         self.pipeline.preview_data_mark_reuse_misses += 1;
     }
 
+    pub(crate) fn record_facet_cells_built(&mut self, count: usize) {
+        self.pipeline.facet_cells_built += count;
+    }
+
     pub(crate) fn record_facet_cell_measurement_profile_reuse(&mut self) {
         self.pipeline.facet_cell_measurement_profile_reuses += 1;
     }
@@ -516,6 +520,10 @@ pub struct EvaluationPipelineMetrics {
     pub facet_cell_measurement_profile_misses: usize,
     /// Number of reused facet cell profiles whose guide/layout chrome was refreshed.
     pub facet_cell_measurement_profile_chrome_refreshes: usize,
+    /// Number of facet cells dispatched through the per-cell build path (each is an
+    /// independent task that runs in parallel on a multi-thread runtime). Summed
+    /// across all facet bands in the evaluation.
+    pub facet_cells_built: usize,
     /// Number of component measurement calls skipped by preview reuse.
     pub skipped_component_measure_calls: usize,
     /// Number of DataFusion collect calls made while preparing mark render data.

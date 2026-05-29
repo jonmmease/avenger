@@ -11,7 +11,8 @@ use crate::facet::ownership_policy::{
 use crate::facet::placement::{FacetBandPlacement, facet_child_frame_placement_from_band};
 use crate::plot::CompiledPlot;
 use crate::plot::compiled::{
-    compiled_subplot_payload_child_plot, compiled_subplot_payload_child_plot_arc,
+    ComponentsMeasurement, PlotComponents, compiled_subplot_payload_child_plot,
+    compiled_subplot_payload_child_plot_arc,
 };
 use crate::render::{EvaluationContext, RenderContext};
 use avenger_chart_core::{
@@ -25,7 +26,7 @@ use avenger_chart_core::{
 };
 use avenger_chart_marks::Subplot;
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
-use datafusion::prelude::SessionContext;
+use datafusion::{dataframe::DataFrame, prelude::SessionContext, scalar::ScalarValue};
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
@@ -103,6 +104,156 @@ fn facet_subplot_eval_ctx(
     eval_ctx.with_axis_owner_ignore_empty_cells(axis_owner_ignore_empty_cells)
 }
 
+/// Owned, `'static` inputs for building a single facet cell off the main task,
+/// so each cell can be dispatched independently (in parallel on native
+/// multi-thread runtimes).
+struct FacetCellBuildTask {
+    subplot: Arc<CompiledPlot>,
+    cell_eval_ctx: EvaluationContext,
+    measurement: ComponentsMeasurement,
+    data_override: DataFrame,
+    full_path: Vec<ScalarValue>,
+    is_terminal_cell: bool,
+}
+
+/// Build one facet cell's `PlotComponents`, reusing cached data marks when a
+/// layout profile is available. This is the per-cell unit dispatched across
+/// facet cells; it touches only `Arc`/`Arc<Mutex>` shared state, so it is safe
+/// to run concurrently.
+async fn build_one_facet_cell(
+    task: FacetCellBuildTask,
+) -> Result<PlotComponents, AvengerChartError> {
+    let FacetCellBuildTask {
+        subplot,
+        cell_eval_ctx,
+        measurement,
+        data_override,
+        full_path,
+        is_terminal_cell,
+    } = task;
+
+    let cached_profile = if is_terminal_cell {
+        cell_eval_ctx.layout_profile().and_then(|profile| {
+            let source_measurement = profile.facet_cell_measurement(
+                cell_eval_ctx.facet_tree.as_ref(),
+                &full_path,
+                subplot.as_ref(),
+                cell_eval_ctx.session_context().as_ref(),
+                cell_eval_ctx.params(),
+            )?;
+            let components = profile.facet_cell_rendered_components(
+                cell_eval_ctx.facet_tree.as_ref(),
+                &full_path,
+                subplot.as_ref(),
+                cell_eval_ctx.session_context().as_ref(),
+                cell_eval_ctx.params(),
+            )?;
+            Some((source_measurement, components))
+        })
+    } else {
+        None
+    };
+
+    if let Some((source_measurement, cached_components)) = cached_profile {
+        match Box::pin(subplot.build_plot_components_reusing_data_marks(
+            &cell_eval_ctx,
+            &source_measurement,
+            &measurement,
+            Some(&data_override),
+            true,
+            &full_path,
+            &cached_components,
+        ))
+        .await?
+        {
+            Some(components) => {
+                cell_eval_ctx.record_preview_data_mark_reuse();
+                Ok(components)
+            }
+            None => {
+                cell_eval_ctx.record_preview_data_mark_reuse_miss();
+                Ok(Box::pin(subplot.build_plot_components(
+                    &cell_eval_ctx,
+                    &measurement,
+                    Some(&data_override),
+                    true,
+                    &full_path,
+                ))
+                .await?)
+            }
+        }
+    } else {
+        if is_terminal_cell && cell_eval_ctx.layout_profile().is_some() {
+            cell_eval_ctx.record_preview_data_mark_reuse_miss();
+        }
+        Ok(Box::pin(subplot.build_plot_components(
+            &cell_eval_ctx,
+            &measurement,
+            Some(&data_override),
+            true,
+            &full_path,
+        ))
+        .await?)
+    }
+}
+
+/// Execute the per-cell builds, returning results in input order.
+///
+/// On native multi-thread runtimes each cell runs as an independent `tokio` task
+/// (true parallelism). On a single-threaded runtime — including wasm, which only
+/// ever has one thread — `tokio::spawn` would still run cooperatively, but to
+/// avoid depending on a spawn-capable runtime there at all, wasm falls back to a
+/// plain sequential await. Either way the output is identical and ordered.
+#[cfg(not(target_arch = "wasm32"))]
+async fn run_facet_cell_builds(
+    tasks: Vec<FacetCellBuildTask>,
+) -> Result<Vec<PlotComponents>, AvengerChartError> {
+    let handles: Vec<_> = tasks
+        .into_iter()
+        .map(|task| tokio::spawn(build_one_facet_cell(task)))
+        .collect();
+    let mut built = Vec::with_capacity(handles.len());
+    for handle in handles {
+        built.push(handle.await.map_err(|err| {
+            AvengerChartError::InternalError(format!("facet cell build task failed: {err}"))
+        })??);
+    }
+    Ok(built)
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn run_facet_cell_builds(
+    tasks: Vec<FacetCellBuildTask>,
+) -> Result<Vec<PlotComponents>, AvengerChartError> {
+    let mut built = Vec::with_capacity(tasks.len());
+    for task in tasks {
+        built.push(build_one_facet_cell(task).await?);
+    }
+    Ok(built)
+}
+
+/// Per-cell assembly metadata captured before the parallel build, used to stitch
+/// results back together in cell order.
+struct FacetCellPlan {
+    idx: usize,
+    subplot_origin: [f32; 2],
+    position: f32,
+    band_size: f32,
+    kind: FacetCellPlanKind,
+}
+
+enum FacetCellPlanKind {
+    /// Empty cell under the `Hole` policy: render an empty group, no build.
+    EmptyHole,
+    /// A cell whose components were built (see the matching entry in the build
+    /// results, consumed in order).
+    Built {
+        is_terminal_cell: bool,
+        cell_eval_ctx: EvaluationContext,
+        full_path: Vec<ScalarValue>,
+    },
+}
+
 async fn render_facet_band_with_placement(
     ops: FacetBandRenderOps,
     compiled_subplot: &CompiledPlot,
@@ -146,7 +297,12 @@ async fn render_facet_band_with_placement(
         ops.label
     );
 
-    let mut scene_marks = Vec::with_capacity(facet_measurement.cells.len());
+    // Phase 1: plan each cell and collect owned, `'static` build inputs. Empty
+    // `Hole` cells skip the build entirely; every other cell becomes an
+    // independent build task.
+    let subplot_arc = facet_measurement.compiled_subplot.clone();
+    let mut plans: Vec<FacetCellPlan> = Vec::with_capacity(facet_measurement.cells.len());
+    let mut build_tasks: Vec<FacetCellBuildTask> = Vec::new();
     for (idx, cell) in facet_measurement.cells.iter().enumerate() {
         let cell_placement = placement.cell(idx).ok_or_else(|| {
             AvengerChartError::InternalError(format!(
@@ -169,19 +325,13 @@ async fn render_facet_band_with_placement(
                 FacetEmptyCellPolicy::Hole
             )
         {
-            let empty_group = SceneGroup {
-                name: ops.group_name(idx, true),
-                origin: subplot_origin,
-                clip: avenger_scenegraph::marks::group::Clip::None,
-                marks: Vec::new(),
-                gradients: Vec::new(),
-                fill: None,
-                stroke: None,
-                stroke_width: None,
-                stroke_offset: None,
-                zindex: None,
-            };
-            scene_marks.push(SceneMark::Group(empty_group));
+            plans.push(FacetCellPlan {
+                idx,
+                subplot_origin,
+                position,
+                band_size,
+                kind: FacetCellPlanKind::EmptyHole,
+            });
             continue;
         }
 
@@ -204,126 +354,130 @@ async fn render_facet_band_with_placement(
 
         let is_terminal_cell =
             facet_band_ref(cell.measurement.coord_measurement.as_ref()).is_none();
-        let cached_profile = if is_terminal_cell {
-            cell_eval_ctx.layout_profile().and_then(|profile| {
-                let source_measurement = profile.facet_cell_measurement(
-                    cell_eval_ctx.facet_tree.as_ref(),
-                    &cell.plan.full_path,
-                    compiled_subplot,
-                    cell_eval_ctx.session_context().as_ref(),
-                    cell_eval_ctx.params(),
-                )?;
-                let components = profile.facet_cell_rendered_components(
-                    cell_eval_ctx.facet_tree.as_ref(),
-                    &cell.plan.full_path,
-                    compiled_subplot,
-                    cell_eval_ctx.session_context().as_ref(),
-                    cell_eval_ctx.params(),
-                )?;
-                Some((source_measurement, components))
-            })
-        } else {
-            None
-        };
-        let mut components = if let Some((source_measurement, cached_components)) = cached_profile {
-            match Box::pin(compiled_subplot.build_plot_components_reusing_data_marks(
-                &cell_eval_ctx,
-                &source_measurement,
-                &cell.measurement,
-                Some(&cell.data_override),
-                true,
-                &cell.plan.full_path,
-                &cached_components,
-            ))
-            .await?
-            {
-                Some(components) => {
-                    cell_eval_ctx.record_preview_data_mark_reuse();
-                    components
-                }
-                None => {
-                    cell_eval_ctx.record_preview_data_mark_reuse_miss();
-                    Box::pin(compiled_subplot.build_plot_components(
-                        &cell_eval_ctx,
-                        &cell.measurement,
-                        Some(&cell.data_override),
-                        true,
-                        &cell.plan.full_path,
-                    ))
-                    .await?
-                }
+
+        build_tasks.push(FacetCellBuildTask {
+            subplot: subplot_arc.clone(),
+            cell_eval_ctx: cell_eval_ctx.clone(),
+            measurement: cell.measurement.clone(),
+            data_override: cell.data_override.clone(),
+            full_path: cell.plan.full_path.clone(),
+            is_terminal_cell,
+        });
+        plans.push(FacetCellPlan {
+            idx,
+            subplot_origin,
+            position,
+            band_size,
+            kind: FacetCellPlanKind::Built {
+                is_terminal_cell,
+                cell_eval_ctx,
+                full_path: cell.plan.full_path.clone(),
+            },
+        });
+    }
+
+    // Phase 2: build all cells (in parallel on a native multi-thread runtime;
+    // sequentially on single-threaded/wasm runtimes), then assemble the scene
+    // marks in cell order so output is identical to the serial path.
+    context.eval.record_facet_cells_built(build_tasks.len());
+    let mut built = run_facet_cell_builds(build_tasks).await?.into_iter();
+
+    let mut scene_marks = Vec::with_capacity(plans.len());
+    for plan in plans {
+        let FacetCellPlan {
+            idx,
+            subplot_origin,
+            position,
+            band_size,
+            kind,
+        } = plan;
+        match kind {
+            FacetCellPlanKind::EmptyHole => {
+                let empty_group = SceneGroup {
+                    name: ops.group_name(idx, true),
+                    origin: subplot_origin,
+                    clip: avenger_scenegraph::marks::group::Clip::None,
+                    marks: Vec::new(),
+                    gradients: Vec::new(),
+                    fill: None,
+                    stroke: None,
+                    stroke_width: None,
+                    stroke_offset: None,
+                    zindex: None,
+                };
+                scene_marks.push(SceneMark::Group(empty_group));
             }
-        } else {
-            if is_terminal_cell && cell_eval_ctx.layout_profile().is_some() {
-                cell_eval_ctx.record_preview_data_mark_reuse_miss();
+            FacetCellPlanKind::Built {
+                is_terminal_cell,
+                cell_eval_ctx,
+                full_path,
+            } => {
+                let mut components = built.next().ok_or_else(|| {
+                    AvengerChartError::InternalError(
+                        "Missing facet cell build result during assembly".into(),
+                    )
+                })?;
+
+                if is_terminal_cell
+                    && let Some(capture) = cell_eval_ctx.facet_cell_rendered_components_capture()
+                {
+                    capture
+                        .lock()
+                        .expect("facet cell rendered components profile lock poisoned")
+                        .insert_for_cell(
+                            cell_eval_ctx.facet_tree.as_ref(),
+                            &full_path,
+                            compiled_subplot,
+                            cell_eval_ctx.session_context().as_ref(),
+                            cell_eval_ctx.params(),
+                            components.clone(),
+                        );
+                }
+
+                // Collect this cell's interaction scopes, translate them by the
+                // cell's scene origin (the subplot group origin; the cell
+                // data-marks group is at [0, 0] within it), and push them into the
+                // parent's scope sink.
+                let cell_scopes = std::mem::take(&mut components.interaction_scopes);
+                if !cell_scopes.is_empty() {
+                    let translated = cell_scopes.into_iter().map(|mut scope| {
+                        scope.bounds.x += subplot_origin[0];
+                        scope.bounds.y += subplot_origin[1];
+                        scope
+                    });
+                    context.eval.push_interaction_scopes(translated);
+                }
+
+                let data_marks_group = SceneGroup {
+                    origin: [0.0, 0.0],
+                    marks: components.data_marks,
+                    clip: components.clip,
+                    zindex: Some(0),
+                    ..Default::default()
+                };
+                let mut all_marks = vec![SceneMark::Group(data_marks_group)];
+                all_marks.extend(components.guide_marks);
+                all_marks.extend(components.legend_marks);
+                all_marks.extend(components.title_marks);
+                all_marks.extend(components.subtitle_marks);
+                all_marks.extend(components.debug_marks);
+
+                let subplot_group = SceneGroup {
+                    name: ops.group_name(idx, false),
+                    origin: subplot_origin,
+                    clip: avenger_scenegraph::marks::group::Clip::None,
+                    marks: all_marks,
+                    gradients: Vec::new(),
+                    fill: None,
+                    stroke: None,
+                    stroke_width: None,
+                    stroke_offset: None,
+                    zindex: None,
+                };
+                scene_marks.push(SceneMark::Group(subplot_group));
+                ops.trace_position(idx, subplot_origin, position, band_size);
             }
-            Box::pin(compiled_subplot.build_plot_components(
-                &cell_eval_ctx,
-                &cell.measurement,
-                Some(&cell.data_override),
-                true,
-                &cell.plan.full_path,
-            ))
-            .await?
-        };
-
-        if is_terminal_cell
-            && let Some(capture) = cell_eval_ctx.facet_cell_rendered_components_capture()
-        {
-            capture
-                .lock()
-                .expect("facet cell rendered components profile lock poisoned")
-                .insert_for_cell(
-                    cell_eval_ctx.facet_tree.as_ref(),
-                    &cell.plan.full_path,
-                    compiled_subplot,
-                    cell_eval_ctx.session_context().as_ref(),
-                    cell_eval_ctx.params(),
-                    components.clone(),
-                );
         }
-
-        // Collect this cell's interaction scopes, translate them by the cell's
-        // scene origin (the subplot group origin; the cell data-marks group is at
-        // [0, 0] within it), and push them into the parent's scope sink.
-        let cell_scopes = std::mem::take(&mut components.interaction_scopes);
-        if !cell_scopes.is_empty() {
-            let translated = cell_scopes.into_iter().map(|mut scope| {
-                scope.bounds.x += subplot_origin[0];
-                scope.bounds.y += subplot_origin[1];
-                scope
-            });
-            context.eval.push_interaction_scopes(translated);
-        }
-
-        let data_marks_group = SceneGroup {
-            origin: [0.0, 0.0],
-            marks: components.data_marks,
-            clip: components.clip,
-            zindex: Some(0),
-            ..Default::default()
-        };
-        let mut all_marks = vec![SceneMark::Group(data_marks_group)];
-        all_marks.extend(components.guide_marks);
-        all_marks.extend(components.legend_marks);
-        all_marks.extend(components.title_marks);
-        all_marks.extend(components.subtitle_marks);
-        all_marks.extend(components.debug_marks);
-
-        let subplot_group = SceneGroup {
-            name: ops.group_name(idx, false),
-            origin: subplot_origin,
-            clip: avenger_scenegraph::marks::group::Clip::None,
-            marks: all_marks,
-            gradients: Vec::new(),
-            fill: None,
-            stroke: None,
-            stroke_width: None,
-            stroke_offset: None,
-            zindex: None,
-        };
-        scene_marks.push(SceneMark::Group(subplot_group));
-        ops.trace_position(idx, subplot_origin, position, band_size);
     }
 
     Ok(scene_marks)

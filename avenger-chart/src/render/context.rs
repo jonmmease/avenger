@@ -1414,6 +1414,15 @@ impl EvaluationContext {
         }
     }
 
+    pub(crate) fn record_facet_cells_built(&self, count: usize) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_facet_cells_built(count);
+        }
+    }
+
     pub(crate) fn record_facet_band_measure_run(
         &self,
         estimated_overflow_leaf_measure_count: usize,
