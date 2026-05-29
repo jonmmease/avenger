@@ -34,8 +34,8 @@ use crate::{
         LegendMeasurementCacheHandle, ScaleDomainCacheHandle, TextMeasurementCacheHandle,
     },
     render::types::{
-        EvaluatedPlot, EvaluationMetrics, FacetLayoutRefinement, FacetSubtreeSnapshot,
-        LayoutDebugOverlayMode,
+        EvaluatedInteractionScope, EvaluatedPlot, EvaluationMetrics, FacetLayoutRefinement,
+        FacetSubtreeSnapshot, LayoutDebugOverlayMode,
     },
     scales::ConfiguredScaleWithSpec,
     theme::{Theme, ThemeContext, ThemeValue},
@@ -268,6 +268,11 @@ pub struct EvaluationContext {
         Option<FacetCellRenderedComponentsProfileCapture>,
     /// Optional one-shot facet-subtree snapshot capture for non-renderable intermediate states.
     pub(crate) facet_subtree_snapshot_capture: Option<Arc<Mutex<FacetSubtreeSnapshotCapture>>>,
+    /// Optional sink that collects interaction scopes produced while building a
+    /// `PlotComponents`. Facet rendering translates each child cell's scopes by
+    /// the cell scene origin and pushes them here so the parent components pick
+    /// them up. Interior-mutable so it can be shared across `&EvaluationContext`.
+    pub(crate) interaction_scope_sink: Option<Arc<Mutex<Vec<EvaluatedInteractionScope>>>>,
 }
 
 impl EvaluationContext {
@@ -299,6 +304,32 @@ impl EvaluationContext {
             layout_profile: None,
             facet_cell_rendered_components_capture: None,
             facet_subtree_snapshot_capture: None,
+            interaction_scope_sink: None,
+        }
+    }
+
+    /// Create a context with a fresh interaction-scope sink installed.
+    ///
+    /// Used by `build_plot_components_internal` so that scopes produced while
+    /// rendering this plot's marks (e.g. facet child cells) are collected into a
+    /// sink isolated from any parent sink.
+    pub(crate) fn with_interaction_scope_sink(
+        &self,
+        sink: Option<Arc<Mutex<Vec<EvaluatedInteractionScope>>>>,
+    ) -> Self {
+        let mut ctx = self.clone();
+        ctx.interaction_scope_sink = sink;
+        ctx
+    }
+
+    /// Push interaction scopes into the current sink, if one is installed.
+    pub(crate) fn push_interaction_scopes(
+        &self,
+        scopes: impl IntoIterator<Item = EvaluatedInteractionScope>,
+    ) {
+        if let Some(sink) = &self.interaction_scope_sink {
+            let mut guard = sink.lock().expect("interaction scope sink poisoned");
+            guard.extend(scopes);
         }
     }
 
@@ -328,6 +359,7 @@ impl EvaluationContext {
                 .facet_cell_rendered_components_capture
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 
@@ -357,6 +389,7 @@ impl EvaluationContext {
                 .facet_cell_rendered_components_capture
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 
@@ -391,6 +424,7 @@ impl EvaluationContext {
                 .facet_cell_rendered_components_capture
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 
@@ -432,6 +466,7 @@ impl EvaluationContext {
                 .facet_cell_rendered_components_capture
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 
@@ -460,6 +495,7 @@ impl EvaluationContext {
                 .facet_cell_rendered_components_capture
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 
@@ -492,6 +528,7 @@ impl EvaluationContext {
                 .facet_cell_rendered_components_capture
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 
@@ -524,6 +561,7 @@ impl EvaluationContext {
                 .facet_cell_rendered_components_capture
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 
@@ -552,6 +590,7 @@ impl EvaluationContext {
                 .facet_cell_rendered_components_capture
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 
@@ -587,6 +626,7 @@ impl EvaluationContext {
                 .facet_cell_rendered_components_capture
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 
@@ -627,6 +667,7 @@ impl EvaluationContext {
                 .facet_cell_rendered_components_capture
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 
@@ -675,6 +716,7 @@ impl EvaluationContext {
                 .facet_cell_rendered_components_capture
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 
@@ -705,6 +747,7 @@ impl EvaluationContext {
                 .facet_cell_rendered_components_capture
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 
@@ -733,6 +776,7 @@ impl EvaluationContext {
                 .facet_cell_rendered_components_capture
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 
@@ -765,6 +809,7 @@ impl EvaluationContext {
                 .facet_cell_rendered_components_capture
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 
@@ -800,6 +845,7 @@ impl EvaluationContext {
                 .facet_cell_rendered_components_capture
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 
@@ -832,6 +878,7 @@ impl EvaluationContext {
                 .facet_cell_rendered_components_capture
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 
@@ -864,6 +911,7 @@ impl EvaluationContext {
                 .facet_cell_rendered_components_capture
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 
@@ -897,6 +945,7 @@ impl EvaluationContext {
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: Some(capture),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 
@@ -934,6 +983,7 @@ impl EvaluationContext {
                 .facet_cell_rendered_components_capture
                 .clone(),
             facet_subtree_snapshot_capture: Some(capture),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 
@@ -964,6 +1014,7 @@ impl EvaluationContext {
                 .facet_cell_rendered_components_capture
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 
@@ -1009,6 +1060,7 @@ impl EvaluationContext {
                 .facet_cell_rendered_components_capture
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 
@@ -1042,6 +1094,7 @@ impl EvaluationContext {
                 .facet_cell_rendered_components_capture
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
         }
     }
 

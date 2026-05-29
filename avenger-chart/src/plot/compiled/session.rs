@@ -3608,6 +3608,73 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn faceted_cartesian_plot_exports_one_scope_per_leaf_cell()
+    -> Result<(), AvengerChartError> {
+        use crate::render::InteractionScopeKind;
+        let ctx = Arc::new(SessionContext::new());
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('A', 1.0, 2.0), ('A', 2.0, 4.0),
+                    ('B', 10.0, 3.0), ('B', 12.0, 5.0)
+                ) AS t(group_name, x, y)",
+            )
+            .await?;
+        let compiled = Arc::new(
+            Plot::<FacetColumn>::new()
+                .canvas_size(520.0, 320.0)
+                .data(df)
+                .mark(
+                    Subplot::new(
+                        Plot::<Cartesian>::new()
+                            .mark(Symbol::new().x(col("x")).y(col("y")).size(20.0)),
+                    )
+                    .column(col("group_name")),
+                )
+                .compile(&ctx)
+                .await?,
+        );
+        let mut session = compiled.instantiate(ctx);
+        let evaluated = session.evaluate(EvaluationRequest::new().exact()).await?;
+
+        // Two columns (A, B) => one Cartesian coordinate scope per leaf cell.
+        assert_eq!(
+            evaluated.interaction.scopes.len(),
+            2,
+            "expected one coordinate scope per faceted leaf cell"
+        );
+        for scope in &evaluated.interaction.scopes {
+            assert_eq!(scope.kind, InteractionScopeKind::Coordinate);
+            assert_eq!(
+                scope.facet_path.len(),
+                1,
+                "each leaf scope should carry its column facet path"
+            );
+            assert!(scope.scales.contains_key("x") && scope.scales.contains_key("y"));
+            // Free (level 0) resolves to the full cell path; the column owner
+            // (level 1) resolves to the empty root path for a single facet level.
+            assert_eq!(
+                scope.sharing_owner_paths.get(&0),
+                Some(&scope.facet_path),
+                "Free sharing should own the full cell path"
+            );
+            assert!(scope.plot_area_width > 0.0 && scope.plot_area_height > 0.0);
+        }
+        // The two cells occupy distinct horizontal bands (column facet).
+        let xs: Vec<f32> = evaluated
+            .interaction
+            .scopes
+            .iter()
+            .map(|s| s.bounds.x)
+            .collect();
+        assert!(
+            (xs[0] - xs[1]).abs() > 1.0,
+            "column facet cells should have distinct x origins, got {xs:?}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn root_scoped_params_resolve_to_root_owner_path() -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
         let x_domain = Param::raw_domain("x_domain");

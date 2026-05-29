@@ -4095,8 +4095,14 @@ impl CompiledPlot {
         let merged_scales = measurement.scales.clone();
         let legend_plan_initial = measurement.legend_plan.clone();
 
-        // Create context with measurement's params (which include dimensions)
-        let mark_eval_ctx = eval_ctx.with_params(merged_params.clone());
+        // Create context with measurement's params (which include dimensions).
+        // Install a fresh interaction-scope sink so child cells (facets, concat)
+        // collect their translated scopes here, isolated from any parent sink.
+        let interaction_scope_sink: Arc<Mutex<Vec<EvaluatedInteractionScope>>> =
+            Arc::new(Mutex::new(Vec::new()));
+        let mark_eval_ctx = eval_ctx
+            .with_params(merged_params.clone())
+            .with_interaction_scope_sink(Some(interaction_scope_sink.clone()));
 
         // Render marks using pre-computed measurements from measurement
         let coord_measurement_ref: &dyn CoordMeasurement = measurement.coord_measurement.as_ref();
@@ -4324,19 +4330,37 @@ impl CompiledPlot {
         let subtitle_mark_count = subtitle_marks.len();
         let debug_mark_count = debug_marks.len();
 
-        // Export a coordinate interaction scope when this coordinate system can
-        // invert pointer positions. Bounds are local to this plot's scene group;
-        // container renderers translate child scopes the same way they translate
-        // child scene marks. The root plot's local bounds are already scene-space.
-        let interaction_scopes = self.build_coordinate_interaction_scopes(
-            plot_bounds_struct,
+        // Collect interaction scopes for this plot:
+        // 1. child cell scopes pushed into the sink by facet rendering (already
+        //    translated into this plot's data-marks-local space), plus
+        // 2. this plot's own coordinate scope when its coordinate system can
+        //    invert pointer positions.
+        //
+        // All scope bounds are in data-marks-local space; the consumer (the
+        // root `components_to_evaluated_plot`, or the parent facet render for a
+        // nested container) translates them by the origin it applies to the
+        // data-marks group.
+        let mut interaction_scopes = interaction_scope_sink
+            .lock()
+            .expect("interaction scope sink poisoned")
+            .drain(..)
+            .collect::<Vec<_>>();
+        let local_scope_bounds = LayoutBounds {
+            x: 0.0,
+            y: 0.0,
+            width: plot_area_width,
+            height: plot_area_height,
+        };
+        let sharing_owner_paths = self.interaction_sharing_owner_paths(eval_ctx, facet_path);
+        interaction_scopes.extend(self.build_coordinate_interaction_scopes(
+            local_scope_bounds,
             plot_area_width,
             plot_area_height,
             &merged_scales,
             facet_path,
             eval_ctx.facet_coord_node_path().to_vec(),
-            HashMap::new(),
-        );
+            sharing_owner_paths,
+        ));
 
         let components = PlotComponents {
             data_marks,
@@ -4376,11 +4400,40 @@ impl CompiledPlot {
         Ok(components)
     }
 
+    /// Sharing-owner paths for an interaction scope at `facet_path`.
+    ///
+    /// Provides an owner path for every logical sharing level the cell could use
+    /// (0 = Free .. logical depth = fully shared), so an event-binding assignment
+    /// can resolve the owner path for whatever sharing level its param declares.
+    /// The root scope (empty facet path) returns an empty map, which resolves
+    /// every level to the root owner path `[]`.
+    fn interaction_sharing_owner_paths(
+        &self,
+        eval_ctx: &EvaluationContext,
+        facet_path: &[ScalarValue],
+    ) -> HashMap<u8, Vec<ScalarValue>> {
+        let mut owner_paths = HashMap::new();
+        if facet_path.is_empty() {
+            return owner_paths;
+        }
+        let facet_tree = eval_ctx.facet_tree.as_ref();
+        let logical_depth = facet_tree.logical_depth_for_path(facet_path);
+        for level in 0..=logical_depth.min(u8::MAX as usize) {
+            let level_u8 = level as u8;
+            owner_paths.insert(
+                level_u8,
+                facet_tree.sharing_owner_path(facet_path, level_u8),
+            );
+        }
+        owner_paths
+    }
+
     /// Build coordinate interaction scopes for this plot's coordinate system.
     ///
     /// Returns an empty vector unless the coordinate transform declares
     /// interaction-invertible channels and a configured scale exists for every
-    /// requested channel. `bounds` are in this plot's local scene coordinates.
+    /// requested channel. `bounds` are in this plot's data-marks-local scene
+    /// coordinates; the consumer translates them by the data-marks group origin.
     #[allow(clippy::too_many_arguments)]
     fn build_coordinate_interaction_scopes(
         &self,
@@ -4436,9 +4489,13 @@ impl CompiledPlot {
         let plot_bounds = components.plot_bounds;
         let (final_width, final_height) = components.size;
 
-        // Assign stable ids to the exported interaction scopes.
+        // Scopes are collected in data-marks-local space; translate them by the
+        // data-marks group origin so their bounds are in final scene coordinates,
+        // then assign stable ids.
         let mut interaction_scopes = components.interaction_scopes;
         for (index, scope) in interaction_scopes.iter_mut().enumerate() {
+            scope.bounds.x += plot_bounds.x;
+            scope.bounds.y += plot_bounds.y;
             scope.id = InteractionScopeId(index);
         }
         let interaction = EvaluatedInteractionState {

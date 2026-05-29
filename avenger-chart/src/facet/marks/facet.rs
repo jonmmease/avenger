@@ -225,7 +225,7 @@ async fn render_facet_band_with_placement(
         } else {
             None
         };
-        let components = if let Some((source_measurement, cached_components)) = cached_profile {
+        let mut components = if let Some((source_measurement, cached_components)) = cached_profile {
             match Box::pin(compiled_subplot.build_plot_components_reusing_data_marks(
                 &cell_eval_ctx,
                 &source_measurement,
@@ -281,6 +281,19 @@ async fn render_facet_band_with_placement(
                     cell_eval_ctx.params(),
                     components.clone(),
                 );
+        }
+
+        // Collect this cell's interaction scopes, translate them by the cell's
+        // scene origin (the subplot group origin; the cell data-marks group is at
+        // [0, 0] within it), and push them into the parent's scope sink.
+        let cell_scopes = std::mem::take(&mut components.interaction_scopes);
+        if !cell_scopes.is_empty() {
+            let translated = cell_scopes.into_iter().map(|mut scope| {
+                scope.bounds.x += subplot_origin[0];
+                scope.bounds.y += subplot_origin[1];
+                scope
+            });
+            context.eval.push_interaction_scopes(translated);
         }
 
         let data_marks_group = SceneGroup {

@@ -1443,6 +1443,63 @@ mod tests {
         (state, handler)
     }
 
+    /// A two-column FacetColumn plot whose leaf x scale reads a Shared raw-domain
+    /// param, with the same x_pan_binding. A pan in any cell writes the Shared
+    /// (root) domain, so every cell pans together.
+    async fn faceted_pan_state_and_handler() -> (ChartAppState, ChartEventBindingHandler) {
+        let ctx = SessionContext::new();
+        let x_domain = Param::raw_domain("x_domain");
+        let raw = x_domain.expr();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('A', 0.0, 0.0), ('A', 10.0, 10.0),
+                    ('B', 0.0, 1.0), ('B', 10.0, 9.0)
+                ) AS t(group_name, x, y)",
+            )
+            .await
+            .expect("data");
+        let binding = x_pan_binding();
+        let compiled = Plot::<FacetColumn>::new()
+            .canvas_size(640.0, 320.0)
+            .data(df)
+            .add_param(x_domain.clone())
+            .mark(
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(
+                        Symbol::new()
+                            .x_with(col("x"), move |c| {
+                                c.scale_with::<Linear>(move |s| {
+                                    s.raw_domain(raw.clone()).nice(false).zero(false)
+                                })
+                            })
+                            .y(col("y"))
+                            .size(20.0),
+                    ),
+                )
+                .column(col("group_name")),
+            )
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile faceted pan plot");
+        let policy = compiled.resize_policy();
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+        )
+        .expect("compile binding runtime");
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        (state, handler)
+    }
+
     fn drag_x_domain_value(value: Option<&ScalarValue>) -> [f32; 2] {
         use avenger_chart_core::ScalarValueHelpers;
         match value {
@@ -1631,6 +1688,52 @@ mod tests {
             "multi {multi_domain:?} vs single {single_domain:?}"
         );
         assert!((multi_domain[1] - single_domain[1]).abs() < 1e-3);
+    }
+
+    #[tokio::test]
+    async fn faceted_shared_pan_updates_all_cells_via_root_domain() {
+        use avenger_app::app::SceneGraphBuilder;
+
+        let (mut state, handler) = faceted_pan_state_and_handler().await;
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial build");
+        let scopes = state.interaction_scopes().await;
+        assert_eq!(
+            scopes.len(),
+            2,
+            "two facet columns should export two coordinate scopes"
+        );
+
+        // Pan inside the first cell; the Shared param writes the root domain.
+        let bounds = scopes[0].bounds;
+        let cx = bounds.x + bounds.width * 0.5;
+        let cy = bounds.y + bounds.height * 0.5;
+        let status = pan_move(
+            &mut state,
+            &handler,
+            Instant::now(),
+            [cx, cy],
+            [cx + 40.0, cy],
+        )
+        .await;
+        assert!(
+            status.rerender,
+            "a drag inside a facet cell should rerender"
+        );
+
+        let params = state.params().await;
+        let domain = drag_x_domain_value(params.get("x_domain"));
+        assert!(
+            domain[0] < 0.0 && domain[1] < 10.0,
+            "expected a left-shifted shared domain, got {domain:?}"
+        );
+        // Re-evaluating applies the shared domain to every cell without error.
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("build after shared facet pan");
     }
 
     fn empty_rtree() -> SceneGraphRTree {
