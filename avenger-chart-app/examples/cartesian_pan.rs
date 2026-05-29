@@ -65,8 +65,8 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
     // Pan delta in data space, measured through the frozen start scale so the
     // gesture does not feed back as the raw domains update during the drag.
-    let dx = ev::event_at_start_data("x") - ev::start_data("x");
-    let dy = ev::event_at_start_data("y") - ev::start_data("y");
+    let dx = ev::event_at_start_coord("x") - ev::start_coord("x");
+    let dy = ev::event_at_start_coord("y") - ev::start_coord("y");
 
     let pan = ChartEventBinding::on(ChartEventType::CursorMoved)
         .between(
@@ -75,16 +75,16 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         )
         .set_param(
             &x_domain,
-            ev::domain_interval(
-                ev::domain_start(ev::start_domain("x")) - dx.clone(),
-                ev::domain_end(ev::start_domain("x")) - dx,
+            ev::interval(
+                ev::interval_start(ev::start_domain("x")) - dx.clone(),
+                ev::interval_end(ev::start_domain("x")) - dx,
             ),
         )
         .set_param(
             &y_domain,
-            ev::domain_interval(
-                ev::domain_start(ev::start_domain("y")) - dy.clone(),
-                ev::domain_end(ev::start_domain("y")) - dy,
+            ev::interval(
+                ev::interval_start(ev::start_domain("y")) - dy.clone(),
+                ev::interval_end(ev::start_domain("y")) - dy,
             ),
         )
         .preview()

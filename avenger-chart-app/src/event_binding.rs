@@ -653,14 +653,14 @@ fn compute_interaction_values(
 
     fill_coords(
         &mut values,
-        &requests.current_data,
+        &requests.current_coord,
         current_point,
         current_scope,
         event::event_coord_column_name,
     );
     fill_coords(
         &mut values,
-        &requests.start_data,
+        &requests.start_coord,
         start_point,
         start_scope,
         event::start_coord_column_name,
@@ -668,14 +668,14 @@ fn compute_interaction_values(
     // event_at_start uses the CURRENT point through the FROZEN start scope.
     fill_coords(
         &mut values,
-        &requests.event_at_start_data,
+        &requests.event_at_start_coord,
         current_point,
         start_scope,
         event::event_at_start_coord_column_name,
     );
     fill_coords(
         &mut values,
-        &requests.previous_data,
+        &requests.previous_coord,
         previous_point,
         previous_scope,
         event::previous_coord_column_name,
@@ -963,28 +963,28 @@ fn event_schema(
     }
 
     // Derived coordinate columns invert to a single channel value (Float64).
-    for channel in interaction.current_data.iter() {
+    for channel in interaction.current_coord.iter() {
         fields.push(Field::new(
             event::event_coord_column_name(channel),
             DataType::Float64,
             true,
         ));
     }
-    for channel in interaction.start_data.iter() {
+    for channel in interaction.start_coord.iter() {
         fields.push(Field::new(
             event::start_coord_column_name(channel),
             DataType::Float64,
             true,
         ));
     }
-    for channel in interaction.event_at_start_data.iter() {
+    for channel in interaction.event_at_start_coord.iter() {
         fields.push(Field::new(
             event::event_at_start_coord_column_name(channel),
             DataType::Float64,
             true,
         ));
     }
-    for channel in interaction.previous_data.iter() {
+    for channel in interaction.previous_coord.iter() {
         fields.push(Field::new(
             event::previous_coord_column_name(channel),
             DataType::Float64,
@@ -1381,7 +1381,7 @@ mod tests {
     }
 
     fn x_pan_binding() -> ChartEventBinding {
-        let dx = event::event_at_start_data("x") - event::start_data("x");
+        let dx = event::event_at_start_coord("x") - event::start_coord("x");
         ChartEventBinding::on(ChartEventType::CursorMoved)
             .between(
                 ChartEventStream::on(ChartEventType::MouseDown)
@@ -1390,9 +1390,9 @@ mod tests {
             )
             .set_param(
                 "x_domain",
-                event::domain_interval(
-                    event::domain_start(event::start_domain("x")) - dx.clone(),
-                    event::domain_end(event::start_domain("x")) - dx,
+                event::interval(
+                    event::interval_start(event::start_domain("x")) - dx.clone(),
+                    event::interval_end(event::start_domain("x")) - dx,
                 ),
             )
             .preview()
@@ -1931,9 +1931,9 @@ mod tests {
         let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
             .set_param(
                 &x_domain,
-                event::domain_interval(
-                    event::domain_start(raw.clone()) - event::event_at_start_data("x"),
-                    event::domain_end(raw) - event::event_at_start_data("x"),
+                event::interval(
+                    event::interval_start(raw.clone()) - event::event_at_start_coord("x"),
+                    event::interval_end(raw) - event::event_at_start_coord("x"),
                 ),
             )
             .preview();
@@ -1967,7 +1967,7 @@ mod tests {
         assert!(
             runtime
                 .interaction_requests
-                .event_at_start_data
+                .event_at_start_coord
                 .contains("x")
         );
     }

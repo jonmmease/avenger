@@ -442,12 +442,12 @@ pub fn previous_param(param: impl IntoParamName) -> Expr {
 }
 
 /// Current event point inverted through the current evaluated coordinate scope.
-pub fn event_data(channel: &str) -> Expr {
+pub fn event_coord(channel: &str) -> Expr {
     col(event_coord_column_name(channel))
 }
 
 /// Start event point inverted through the frozen start coordinate scope.
-pub fn start_data(channel: &str) -> Expr {
+pub fn start_coord(channel: &str) -> Expr {
     col(start_coord_column_name(channel))
 }
 
@@ -455,12 +455,12 @@ pub fn start_data(channel: &str) -> Expr {
 ///
 /// This is the primary pan delta primitive: it avoids feedback as raw domains
 /// update during a drag because it always uses the start scale.
-pub fn event_at_start_data(channel: &str) -> Expr {
+pub fn event_at_start_coord(channel: &str) -> Expr {
     col(event_at_start_coord_column_name(channel))
 }
 
 /// Previous event point inverted through the previous/current coordinate scope.
-pub fn previous_data(channel: &str) -> Expr {
+pub fn previous_coord(channel: &str) -> Expr {
     col(previous_coord_column_name(channel))
 }
 
@@ -474,19 +474,22 @@ pub fn start_domain(channel: &str) -> Expr {
     col(start_domain_column_name(channel))
 }
 
-/// Build a two-element domain list expression from min/max scalar expressions.
-pub fn domain_interval(min: impl IntoExpr, max: impl IntoExpr) -> Expr {
+/// Build a two-element interval list `[min, max]` from scalar expressions.
+///
+/// This is a plain array constructor; pair it with [`interval_start`] and
+/// [`interval_end`] to decompose a two-element list such as a scale domain.
+pub fn interval(min: impl IntoExpr, max: impl IntoExpr) -> Expr {
     make_array(vec![min.into_expr(), max.into_expr()])
 }
 
-/// Extract the first element (domain start) from a two-element domain list.
-pub fn domain_start(domain: impl IntoExpr) -> Expr {
-    array_element(domain.into_expr(), lit(1_i64))
+/// Extract the first element from a two-element interval list.
+pub fn interval_start(interval: impl IntoExpr) -> Expr {
+    array_element(interval.into_expr(), lit(1_i64))
 }
 
-/// Extract the second element (domain end) from a two-element domain list.
-pub fn domain_end(domain: impl IntoExpr) -> Expr {
-    array_element(domain.into_expr(), lit(2_i64))
+/// Extract the second element from a two-element interval list.
+pub fn interval_end(interval: impl IntoExpr) -> Expr {
+    array_element(interval.into_expr(), lit(2_i64))
 }
 
 pub fn event_coord_column_name(channel: &str) -> String {
@@ -530,20 +533,20 @@ pub fn previous_param_column_name(param_name: &str) -> String {
 /// and which coordinate inversions the runtime must perform per event.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct InteractionColumnRequests {
-    pub current_data: BTreeSet<String>,
-    pub start_data: BTreeSet<String>,
-    pub event_at_start_data: BTreeSet<String>,
-    pub previous_data: BTreeSet<String>,
+    pub current_coord: BTreeSet<String>,
+    pub start_coord: BTreeSet<String>,
+    pub event_at_start_coord: BTreeSet<String>,
+    pub previous_coord: BTreeSet<String>,
     pub current_domain: BTreeSet<String>,
     pub start_domain: BTreeSet<String>,
 }
 
 impl InteractionColumnRequests {
     pub fn is_empty(&self) -> bool {
-        self.current_data.is_empty()
-            && self.start_data.is_empty()
-            && self.event_at_start_data.is_empty()
-            && self.previous_data.is_empty()
+        self.current_coord.is_empty()
+            && self.start_coord.is_empty()
+            && self.event_at_start_coord.is_empty()
+            && self.previous_coord.is_empty()
             && self.current_domain.is_empty()
             && self.start_domain.is_empty()
     }
@@ -551,10 +554,10 @@ impl InteractionColumnRequests {
     /// Union of every coordinate channel referenced by any request kind.
     pub fn all_channels(&self) -> BTreeSet<String> {
         let mut channels = BTreeSet::new();
-        channels.extend(self.current_data.iter().cloned());
-        channels.extend(self.start_data.iter().cloned());
-        channels.extend(self.event_at_start_data.iter().cloned());
-        channels.extend(self.previous_data.iter().cloned());
+        channels.extend(self.current_coord.iter().cloned());
+        channels.extend(self.start_coord.iter().cloned());
+        channels.extend(self.event_at_start_coord.iter().cloned());
+        channels.extend(self.previous_coord.iter().cloned());
         channels.extend(self.current_domain.iter().cloned());
         channels.extend(self.start_domain.iter().cloned());
         channels
@@ -564,13 +567,13 @@ impl InteractionColumnRequests {
         // Most-specific prefixes first; the prefixes are mutually exclusive but
         // ordering keeps the intent explicit.
         if let Some(channel) = name.strip_prefix(EVENT_AT_START_COORD_PREFIX) {
-            self.event_at_start_data.insert(channel.to_string());
+            self.event_at_start_coord.insert(channel.to_string());
         } else if let Some(channel) = name.strip_prefix(EVENT_COORD_PREFIX) {
-            self.current_data.insert(channel.to_string());
+            self.current_coord.insert(channel.to_string());
         } else if let Some(channel) = name.strip_prefix(START_COORD_PREFIX) {
-            self.start_data.insert(channel.to_string());
+            self.start_coord.insert(channel.to_string());
         } else if let Some(channel) = name.strip_prefix(PREVIOUS_COORD_PREFIX) {
-            self.previous_data.insert(channel.to_string());
+            self.previous_coord.insert(channel.to_string());
         } else if let Some(channel) = name.strip_prefix(EVENT_DOMAIN_PREFIX) {
             self.current_domain.insert(channel.to_string());
         } else if let Some(channel) = name.strip_prefix(START_DOMAIN_PREFIX) {
@@ -626,32 +629,32 @@ mod tests {
             "__start_domain_x".to_string()
         );
         // The public helper expressions reference those reserved columns.
-        assert_eq!(event_data("x"), col("__event_coord_x"));
+        assert_eq!(event_coord("x"), col("__event_coord_x"));
         assert_eq!(start_domain("y"), col("__start_domain_y"));
     }
 
     #[test]
-    fn domain_helpers_build_valid_expressions() {
-        // domain_interval builds a two-element list; domain_start/end index it.
-        let interval = domain_interval(lit(2.0), lit(8.0));
-        let start = domain_start(start_domain("x"));
-        let end = domain_end(start_domain("x"));
+    fn interval_helpers_build_valid_expressions() {
+        // interval builds a two-element list; interval_start/end index it.
+        let interval_expr = interval(lit(2.0), lit(8.0));
+        let start = interval_start(start_domain("x"));
+        let end = interval_end(start_domain("x"));
         // These must serialize as ordinary DataFusion expressions.
-        for expr in [interval, start, end] {
-            LogicalExprNode::from_expr(expr).expect("interaction domain expr serializes");
+        for expr in [interval_expr, start, end] {
+            LogicalExprNode::from_expr(expr).expect("interaction interval expr serializes");
         }
     }
 
     #[test]
     fn scan_detects_requested_interaction_columns() {
         let requests = scan_interaction_columns(&[
-            event_at_start_data("x") - start_data("x"),
-            domain_start(start_domain("x")),
+            event_at_start_coord("x") - start_coord("x"),
+            interval_start(start_domain("x")),
         ]);
-        assert!(requests.event_at_start_data.contains("x"));
-        assert!(requests.start_data.contains("x"));
+        assert!(requests.event_at_start_coord.contains("x"));
+        assert!(requests.start_coord.contains("x"));
         assert!(requests.start_domain.contains("x"));
-        assert!(requests.current_data.is_empty());
+        assert!(requests.current_coord.is_empty());
         assert!(!requests.is_empty());
         assert!(requests.all_channels().contains("x"));
     }
