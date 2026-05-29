@@ -29,7 +29,8 @@ use indexmap::IndexMap;
 use tracing::{Level, debug, trace};
 
 use avenger_chart_core::{
-    AxisPosition, FacetEmptyCellPolicy, LegendPosition, evaluate_f32_expr, maybe::Maybe,
+    AxisPosition, FacetEmptyCellPolicy, LegendPosition, ScalarValueHelpers, eval_to_scalars,
+    evaluate_f32_expr, maybe::Maybe, params_to_datafusion,
 };
 
 use crate::{
@@ -42,8 +43,8 @@ use crate::{
     error::AvengerChartError,
     facet::{
         coord::{
-            FacetBandCoordMeasurement, FacetCellRuntime, renderable_for_empty_policy,
-            retarget_measurement_plot_area_no_remeasure,
+            FacetBandCoordMeasurement, FacetCellRuntime, facet_band_mut,
+            renderable_for_empty_policy, retarget_measurement_plot_area_no_remeasure,
             retarget_measurement_plot_area_policy_no_remeasure,
             retarget_scale_ranges_for_plot_area, sync_measurement_owned_slabs_from_coord,
         },
@@ -343,6 +344,56 @@ fn retarget_clip_for_plot_area(
             height: height * adjustment_scale(y_adjustment, scale_y),
         }),
         Clip::Path(_) => None,
+    }
+}
+
+/// Resolve non-null raw-domain overrides for a subplot's scales.
+///
+/// Returns, for each scale whose `raw_domain` evaluates to a finite, non-empty
+/// two-element interval under `params`, the resolved `(min, max)`. Scales with no
+/// raw_domain, or whose raw_domain is null/degenerate, are omitted (so the cell
+/// keeps its inferred domain).
+async fn resolve_raw_domain_overrides(
+    subplot: &CompiledPlot,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+) -> Result<HashMap<String, (f32, f32)>, AvengerChartError> {
+    let mut overrides = HashMap::new();
+    let datafusion_params = params_to_datafusion(params);
+    for (scale_name, spec) in &subplot.scale_specs {
+        let avenger_chart_scales::PlotScaleSpec::Local(config) = spec;
+        let Some(domain) = config.domain.as_option() else {
+            continue;
+        };
+        let Some(raw_domain) = &domain.raw_domain else {
+            continue;
+        };
+        let expr = raw_domain.to_expr(ctx)?;
+        let scalars = eval_to_scalars(vec![expr], Some(ctx), datafusion_params.as_ref()).await?;
+        let Some(raw_value) = scalars.first() else {
+            continue;
+        };
+        if let Ok([min, max]) = raw_value.as_f32x2()
+            && min.is_finite()
+            && max.is_finite()
+            && min != max
+        {
+            overrides.insert(scale_name.clone(), (min, max));
+        }
+    }
+    Ok(overrides)
+}
+
+/// Apply resolved raw-domain overrides to a scale map, preserving ranges/options.
+fn apply_domain_overrides_to_scales(
+    scales: &mut HashMap<String, ConfiguredScaleWithSpec>,
+    overrides: &HashMap<String, (f32, f32)>,
+) {
+    for (name, &(min, max)) in overrides {
+        if let Some(scale) = scales.get_mut(name) {
+            let configured = scale.configured().clone().with_domain_interval((min, max));
+            scale.set_configured(configured);
+        }
     }
 }
 
@@ -5374,6 +5425,39 @@ impl CompiledPlot {
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// Re-apply active raw-domain overrides to faceted cell scales during Preview.
+    ///
+    /// Preview clones the last measurement and refreshes only the top-level
+    /// scales. For faceted charts the per-cell scales live inside the coord
+    /// measurement and otherwise keep their pre-pan domains. This walks the facet
+    /// band tree, evaluates each band's leaf raw-domain expressions with the
+    /// current params, and applies any non-null resolved domain to every cell's
+    /// matching scale (ranges are left untouched). Only scales that declare a
+    /// raw_domain are touched, so non-pan faceted charts are unaffected.
+    async fn apply_preview_facet_domain_overrides(
+        measurement: &mut ComponentsMeasurement,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<(), AvengerChartError> {
+        let Some(band) = facet_band_mut(measurement.coord_measurement.as_mut()) else {
+            return Ok(());
+        };
+        let subplot = band.compiled_subplot.clone();
+        let overrides = resolve_raw_domain_overrides(subplot.as_ref(), ctx, params).await?;
+        for cell in &mut band.cells {
+            if !overrides.is_empty() {
+                apply_domain_overrides_to_scales(&mut cell.measurement.scales, &overrides);
+            }
+            Box::pin(Self::apply_preview_facet_domain_overrides(
+                &mut cell.measurement,
+                ctx,
+                params,
+            ))
+            .await?;
+        }
+        Ok(())
+    }
+
     pub(crate) async fn evaluate_preview_with_layout_profile_and_metrics(
         &self,
         ctx: &SessionContext,
@@ -5666,6 +5750,11 @@ impl CompiledPlot {
             }
         }
         measurement.params = eval_ctx.params.clone();
+
+        // The clone-and-retarget path above refreshes only the top-level scales.
+        // Re-apply active raw-domain overrides to faceted cell scales so a pan
+        // updates per-cell domains live in Preview (no-op for non-pan facets).
+        Self::apply_preview_facet_domain_overrides(&mut measurement, ctx, &eval_ctx.params).await?;
 
         Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
             metrics.record_preview_profile_reuse();

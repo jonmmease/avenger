@@ -3675,6 +3675,86 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn faceted_preview_refreshes_per_cell_shared_domain() -> Result<(), AvengerChartError> {
+        use datafusion::arrow::datatypes::DataType;
+        let ctx = Arc::new(SessionContext::new());
+        let x_domain = Param::raw_domain("x_domain");
+        let raw = x_domain.expr();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('A', 0.0, 0.0), ('A', 10.0, 10.0),
+                    ('B', 0.0, 1.0), ('B', 10.0, 9.0)
+                ) AS t(group_name, x, y)",
+            )
+            .await?;
+        let compiled = Arc::new(
+            Plot::<FacetColumn>::new()
+                .add_param(x_domain.clone())
+                .canvas_size(640.0, 320.0)
+                .data(df)
+                .mark(
+                    Subplot::new(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("x"), move |c| {
+                                    c.scale_with::<Linear>(move |s| {
+                                        s.raw_domain(raw.clone()).nice(false).zero(false)
+                                    })
+                                    .share_scale()
+                                })
+                                .y(col("y"))
+                                .size(20.0),
+                        ),
+                    )
+                    .column(col("group_name")),
+                )
+                .compile(&ctx)
+                .await?,
+        );
+        let mut session = compiled.instantiate(ctx);
+
+        // Warm exact frame establishes the layout profile.
+        session.evaluate(EvaluationRequest::new().exact()).await?;
+
+        // Preview pan: write a concrete shared x domain.
+        let mut patch = IndexMap::new();
+        patch.insert(
+            "x_domain".to_string(),
+            ScalarValue::List(ScalarValue::new_list(
+                &[
+                    ScalarValue::Float64(Some(2.0)),
+                    ScalarValue::Float64(Some(8.0)),
+                ],
+                &DataType::Float64,
+                true,
+            )),
+        );
+        let (evaluated, metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+
+        // The preview reused the layout profile (fast path), and every cell scope
+        // now reports the panned shared x domain.
+        assert_eq!(metrics.pipeline.preview_profile_reuses, 1);
+        assert_eq!(metrics.pipeline.preview_fallbacks, 0);
+        assert_eq!(evaluated.interaction.scopes.len(), 2);
+        for scope in &evaluated.interaction.scopes {
+            let (min, max) = scope
+                .scales
+                .get("x")
+                .expect("scope has x scale")
+                .numeric_interval_domain()
+                .expect("x domain is numeric");
+            assert!(
+                (min - 2.0).abs() < 1e-3 && (max - 8.0).abs() < 1e-3,
+                "preview cell x domain should reflect the pan, got ({min}, {max})"
+            );
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn root_scoped_params_resolve_to_root_owner_path() -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
         let x_domain = Param::raw_domain("x_domain");
