@@ -93,7 +93,7 @@ pub use self::session::{
 };
 pub(crate) use self::session::{
     GuideOverflowCacheHandle, LegendMeasurementCacheHandle, ScaleDomainCacheHandle,
-    TextMeasurementCacheHandle, TextMeasurementCacheKey,
+    ScopedParamStore, TextMeasurementCacheHandle, TextMeasurementCacheKey,
 };
 
 use super::title::{PlotSubtitle, PlotTitle};

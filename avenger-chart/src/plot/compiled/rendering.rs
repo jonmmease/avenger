@@ -96,8 +96,9 @@ use super::{
     session::{
         FacetScalePrecomputeCacheHandle, FacetSemanticCacheHandle, GuideOverflowCacheHandle,
         LegendMeasurementCacheHandle, ScaleDomainCacheHandle, ScaleDomainCacheScope,
-        TextMeasurementCacheHandle, changed_param_names, layout_size_dependency_params,
-        new_plot_session_cache_handles, scale_domain_cache_key_for_parts_with_scope,
+        ScopedParamStore, TextMeasurementCacheHandle, changed_param_names,
+        layout_size_dependency_params, new_plot_session_cache_handles,
+        scale_domain_cache_key_for_parts_with_scope,
     },
 };
 
@@ -5020,6 +5021,7 @@ impl CompiledPlot {
                 Some(guide_overflow_cache),
                 Some(legend_measurement_cache),
                 Some(text_measurement_cache),
+                None,
             ),
         )
         .await?;
@@ -5037,6 +5039,7 @@ impl CompiledPlot {
         guide_overflow_cache: Option<GuideOverflowCacheHandle>,
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
+        scoped_param_store: Option<Arc<ScopedParamStore>>,
     ) -> Result<
         (
             EvaluatedPlot,
@@ -5058,6 +5061,7 @@ impl CompiledPlot {
             legend_measurement_cache,
             text_measurement_cache,
             None,
+            scoped_param_store,
         ))
         .await?;
         let metrics = metrics
@@ -5080,6 +5084,7 @@ impl CompiledPlot {
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
         layout_profile: Option<Arc<LayoutProfileSnapshot>>,
+        scoped_param_store: Option<Arc<ScopedParamStore>>,
     ) -> Result<EvaluationOutcome, AvengerChartError> {
         // Merge provided params with defaults
         let merged_params = if let Some(provided) = params {
@@ -5291,6 +5296,9 @@ impl CompiledPlot {
         if let Some(store) = facet_scale_precompute_store {
             eval_ctx = eval_ctx.with_facet_scale_precompute_store(store);
         }
+        if let Some(store) = scoped_param_store {
+            eval_ctx = eval_ctx.with_scoped_param_store(store);
+        }
         if let Some(metrics) = evaluation_metrics {
             eval_ctx = eval_ctx.with_evaluation_metrics(metrics);
         }
@@ -5438,20 +5446,44 @@ impl CompiledPlot {
         measurement: &mut ComponentsMeasurement,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
+        tree: &EvaluatedFacetTree,
+        store: Option<&Arc<ScopedParamStore>>,
     ) -> Result<(), AvengerChartError> {
         let Some(band) = facet_band_mut(measurement.coord_measurement.as_mut()) else {
             return Ok(());
         };
         let subplot = band.compiled_subplot.clone();
-        let overrides = resolve_raw_domain_overrides(subplot.as_ref(), ctx, params).await?;
+        // Shared fast path: when no per-cell (`Free`/`Level`) assignment exists,
+        // resolve the raw-domain overrides once from the global params and reuse
+        // them for every cell. This preserves the original single-eval behavior.
+        let per_cell = matches!(store, Some(store) if store.has_scoped_overrides());
+        let shared_overrides = if per_cell {
+            None
+        } else {
+            Some(resolve_raw_domain_overrides(subplot.as_ref(), ctx, params).await?)
+        };
         for cell in &mut band.cells {
+            // Per-cell path resolves this cell owner's effective params (via its
+            // absolute `full_path`) and evaluates the raw-domain against those.
+            let per_cell_overrides;
+            let overrides: &HashMap<String, (f32, f32)> = if let Some(shared) = &shared_overrides {
+                shared
+            } else {
+                let store = store.expect("per-cell override path implies a scoped store");
+                let cell_params = store.effective_params_for_cell(tree, &cell.plan.full_path);
+                per_cell_overrides =
+                    resolve_raw_domain_overrides(subplot.as_ref(), ctx, &cell_params).await?;
+                &per_cell_overrides
+            };
             if !overrides.is_empty() {
-                apply_domain_overrides_to_scales(&mut cell.measurement.scales, &overrides);
+                apply_domain_overrides_to_scales(&mut cell.measurement.scales, overrides);
             }
             Box::pin(Self::apply_preview_facet_domain_overrides(
                 &mut cell.measurement,
                 ctx,
                 params,
+                tree,
+                store,
             ))
             .await?;
         }
@@ -5470,6 +5502,7 @@ impl CompiledPlot {
         guide_overflow_cache: Option<GuideOverflowCacheHandle>,
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
+        scoped_param_store: Option<Arc<ScopedParamStore>>,
     ) -> Result<PreviewLayoutProfileAttempt, AvengerChartError> {
         tracing::debug!(target: "avenger_chart::resize", "plot_session.preview_attempt start");
         if options.layout_snapshot != LayoutSnapshot::Final {
@@ -5552,6 +5585,7 @@ impl CompiledPlot {
                     legend_measurement_cache,
                     text_measurement_cache,
                     Some(Arc::new(layout_profile.clone())),
+                    scoped_param_store.clone(),
                 ))
                 .await?;
                 let reflow_elapsed = reflow_start.elapsed();
@@ -5621,6 +5655,9 @@ impl CompiledPlot {
             .with_facet_cell_rendered_components_capture(
                 facet_cell_rendered_components_capture.clone(),
             );
+        if let Some(store) = scoped_param_store {
+            eval_ctx = eval_ctx.with_scoped_param_store(store);
+        }
 
         let mut measurement = layout_profile.measurement.clone();
         let old_canvas_size = measurement.canvas_size;
@@ -5754,7 +5791,17 @@ impl CompiledPlot {
         // The clone-and-retarget path above refreshes only the top-level scales.
         // Re-apply active raw-domain overrides to faceted cell scales so a pan
         // updates per-cell domains live in Preview (no-op for non-pan facets).
-        Self::apply_preview_facet_domain_overrides(&mut measurement, ctx, &eval_ctx.params).await?;
+        // For Free/Level pans, each cell resolves its owner's param via the
+        // scoped store + facet tree; for Shared (or no store) it reuses the
+        // single global resolution.
+        Self::apply_preview_facet_domain_overrides(
+            &mut measurement,
+            ctx,
+            &eval_ctx.params,
+            eval_ctx.facet_tree.as_ref(),
+            eval_ctx.scoped_param_store.as_ref(),
+        )
+        .await?;
 
         Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
             metrics.record_preview_profile_reuse();

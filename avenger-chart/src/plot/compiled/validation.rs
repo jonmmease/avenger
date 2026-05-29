@@ -1,8 +1,18 @@
 //! Validation methods for CompiledPlot
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
-use crate::{error::AvengerChartError, scales::ConfiguredScaleWithSpec};
+use avenger_chart_core::{CompiledMark, DefaultLogicalExprNodeExt};
+use avenger_chart_scales::PlotScaleSpec;
+use datafusion::logical_expr::Expr;
+use datafusion::prelude::SessionContext;
+use datafusion_common::tree_node::{TreeNode, TreeNodeRecursion};
+
+use crate::{
+    error::AvengerChartError, facet::marks::facet::facet_subplot_ref,
+    scales::ConfiguredScaleWithSpec,
+};
 
 use super::CompiledPlot;
 
@@ -80,6 +90,87 @@ impl CompiledPlot {
         Ok(())
     }
 
+    /// Validate that raw-domain placeholder params are shared at least as broadly
+    /// as the scales they drive.
+    ///
+    /// A `raw_domain` param partitioned more finely than the shared domain it
+    /// feeds is ambiguous: multiple per-cell param values would map onto a single
+    /// shared-domain group, so "the domain" is undefined. The rule (using
+    /// `Sharing::to_level()`, where a higher level is broader) is: error when
+    /// `param_level < scale_level`. `Shared` params (level `u8::MAX`) are always
+    /// valid; a `Free` param (0) is valid only for a `Free`/unscoped scale.
+    ///
+    /// Params are declared at the (root) plot while the `raw_domain`-driven scales
+    /// usually live in faceted leaf subplots, so this collects param sharing
+    /// levels top-down and then recurses through facet subplots to reach the
+    /// scales.
+    pub(crate) fn validate_scoped_raw_domain_sharing(
+        &self,
+        ctx: &SessionContext,
+    ) -> Result<(), AvengerChartError> {
+        let mut param_levels: HashMap<String, u8> = HashMap::new();
+        self.collect_param_sharing_levels(&mut param_levels);
+        self.validate_raw_domain_sharing_recursive(ctx, &param_levels)
+    }
+
+    fn collect_param_sharing_levels(&self, out: &mut HashMap<String, u8>) {
+        for (name, spec) in &self.param_specs {
+            out.entry(name.clone())
+                .or_insert_with(|| spec.sharing.to_level());
+        }
+        for mark in &self.marks {
+            if let Some(facet) = facet_subplot_ref(mark.as_ref()) {
+                facet.compiled_subplot().collect_param_sharing_levels(out);
+            }
+        }
+    }
+
+    fn validate_raw_domain_sharing_recursive(
+        &self,
+        ctx: &SessionContext,
+        param_levels: &HashMap<String, u8>,
+    ) -> Result<(), AvengerChartError> {
+        let scale_share_levels = scale_domain_share_levels(&self.marks);
+        for (scale_name, spec) in &self.scale_specs {
+            let PlotScaleSpec::Local(config) = spec;
+            let Some(domain) = config.domain.as_option() else {
+                continue;
+            };
+            let Some(raw_domain) = &domain.raw_domain else {
+                continue;
+            };
+            let expr = raw_domain.to_expr(ctx)?;
+            // An unscoped scale (no explicit `share_mode`) defaults to per-cell
+            // (`Free`, level 0), which can never be stricter than any param.
+            let scale_level = scale_share_levels.get(scale_name).copied().unwrap_or(0);
+            for param_name in placeholder_param_names(&expr)? {
+                let Some(&param_level) = param_levels.get(&param_name) else {
+                    continue;
+                };
+                if param_level < scale_level {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "raw-domain param '{param}' is shared at {param_sharing} but scale \
+                         '{scale}' is shared at {scale_sharing}; the param must be shared at \
+                         {scale_sharing} or broader so every shared-domain group resolves to a \
+                         single param value",
+                        param = param_name,
+                        param_sharing = describe_sharing_level(param_level),
+                        scale = scale_name,
+                        scale_sharing = describe_sharing_level(scale_level),
+                    )));
+                }
+            }
+        }
+        for mark in &self.marks {
+            if let Some(facet) = facet_subplot_ref(mark.as_ref()) {
+                facet
+                    .compiled_subplot()
+                    .validate_raw_domain_sharing_recursive(ctx, param_levels)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Create error for non-numeric positional channel
     fn create_positional_type_error(
         &self,
@@ -116,5 +207,60 @@ impl CompiledPlot {
             literal_value,
             suggestion,
         })
+    }
+}
+
+/// Map each scale name to the broadest domain sharing level declared by the
+/// (non-facet) marks at this plot level.
+///
+/// Channels without an explicit `share_mode` are omitted (treated as `Free`,
+/// level 0, by the caller). Facet subplot marks are skipped because their
+/// channels live one nesting level deeper and are validated by the recursion.
+fn scale_domain_share_levels(marks: &[Arc<dyn CompiledMark>]) -> HashMap<String, u8> {
+    let mut result: HashMap<String, u8> = HashMap::new();
+    for mark in marks {
+        if facet_subplot_ref(mark.as_ref()).is_some() {
+            continue;
+        }
+        for (channel_name, channel_value) in mark.data_context().channels() {
+            let Some(level) = channel_value.get_share_mode().map(|mode| mode.to_level()) else {
+                continue;
+            };
+            let Some(scale_name) = channel_value.get_scale_name(channel_name) else {
+                continue;
+            };
+            result
+                .entry(scale_name)
+                .and_modify(|existing| *existing = (*existing).max(level))
+                .or_insert(level);
+        }
+    }
+    result
+}
+
+/// Collect the names of placeholder params (`$name`) referenced anywhere in a
+/// raw-domain expression.
+fn placeholder_param_names(expr: &Expr) -> Result<Vec<String>, AvengerChartError> {
+    let mut names = Vec::new();
+    expr.apply(|node| {
+        if let Expr::Placeholder(placeholder) = node
+            && let Some(name) = placeholder.id.strip_prefix('$')
+        {
+            names.push(name.to_string());
+        }
+        Ok(TreeNodeRecursion::Continue)
+    })
+    .map_err(|err| {
+        AvengerChartError::InternalError(format!("walk raw-domain expression: {err}"))
+    })?;
+    Ok(names)
+}
+
+/// Human-readable description of a `Sharing::to_level()` value.
+fn describe_sharing_level(level: u8) -> String {
+    match level {
+        0 => "Free".to_string(),
+        u8::MAX => "Shared".to_string(),
+        n => format!("Level({n})"),
     }
 }

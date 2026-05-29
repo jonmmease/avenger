@@ -31,7 +31,8 @@ use crate::{
     },
     plot::compiled::{
         FacetCellRenderedComponentsProfileCapture, GuideOverflowCacheHandle, LayoutProfileSnapshot,
-        LegendMeasurementCacheHandle, ScaleDomainCacheHandle, TextMeasurementCacheHandle,
+        LegendMeasurementCacheHandle, ScaleDomainCacheHandle, ScopedParamStore,
+        TextMeasurementCacheHandle,
     },
     render::types::{
         EvaluatedInteractionScope, EvaluatedPlot, EvaluationMetrics, FacetLayoutRefinement,
@@ -273,6 +274,11 @@ pub struct EvaluationContext {
     /// the cell scene origin and pushes them here so the parent components pick
     /// them up. Interior-mutable so it can be shared across `&EvaluationContext`.
     pub(crate) interaction_scope_sink: Option<Arc<Mutex<Vec<EvaluatedInteractionScope>>>>,
+    /// Optional session-owned scoped param store, present only when an
+    /// interaction has written `Free`/`Level(N)` (non-root) param assignments.
+    /// When set, per-cell measurement resolves each cell's effective params from
+    /// this store + the facet tree. `None` on the common (non-interactive) path.
+    pub(crate) scoped_param_store: Option<Arc<ScopedParamStore>>,
 }
 
 impl EvaluationContext {
@@ -305,6 +311,7 @@ impl EvaluationContext {
             facet_cell_rendered_components_capture: None,
             facet_subtree_snapshot_capture: None,
             interaction_scope_sink: None,
+            scoped_param_store: None,
         }
     }
 
@@ -330,6 +337,45 @@ impl EvaluationContext {
         if let Some(sink) = &self.interaction_scope_sink {
             let mut guard = sink.lock().expect("interaction scope sink poisoned");
             guard.extend(scopes);
+        }
+    }
+
+    /// Install the session-owned scoped param store for per-cell resolution.
+    pub(crate) fn with_scoped_param_store(&self, store: Arc<ScopedParamStore>) -> Self {
+        let mut ctx = self.clone();
+        ctx.scoped_param_store = Some(store);
+        ctx
+    }
+
+    /// Resolve the effective params for a faceted cell, if a scoped store with
+    /// non-root assignments is installed.
+    ///
+    /// Returns `None` on the common (non-interactive) path so callers can
+    /// cheaply skip per-cell work. `full_path` is the cell's absolute facet path
+    /// (resolved against the root facet tree, which `self.facet_tree` always is).
+    pub(crate) fn scoped_cell_params(
+        &self,
+        full_path: &[ScalarValue],
+    ) -> Option<IndexMap<String, ScalarValue>> {
+        let store = self.scoped_param_store.as_ref()?;
+        if !store.has_scoped_overrides() {
+            return None;
+        }
+        Some(store.effective_params_for_cell(&self.facet_tree, full_path))
+    }
+
+    /// Return a context whose params are merged with the cell's scoped overrides.
+    ///
+    /// No-op (cheap clone) when no scoped store with non-root assignments is
+    /// installed, so the non-interactive measurement path is unaffected.
+    pub(crate) fn with_scoped_cell_params(&self, full_path: &[ScalarValue]) -> Self {
+        match self.scoped_cell_params(full_path) {
+            Some(cell_params) => {
+                let mut merged = self.params().clone();
+                merged.extend(cell_params);
+                self.with_params(merged)
+            }
+            None => self.clone(),
         }
     }
 
@@ -360,6 +406,7 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 
@@ -390,6 +437,7 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 
@@ -425,6 +473,7 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 
@@ -467,6 +516,7 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 
@@ -496,6 +546,7 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 
@@ -529,6 +580,7 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 
@@ -562,6 +614,7 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 
@@ -591,6 +644,7 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 
@@ -627,6 +681,7 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 
@@ -668,6 +723,7 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 
@@ -717,6 +773,7 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 
@@ -748,6 +805,7 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 
@@ -777,6 +835,7 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 
@@ -810,6 +869,7 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 
@@ -846,6 +906,7 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 
@@ -879,6 +940,7 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 
@@ -912,6 +974,7 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 
@@ -946,6 +1009,7 @@ impl EvaluationContext {
             facet_cell_rendered_components_capture: Some(capture),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 
@@ -984,6 +1048,7 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: Some(capture),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 
@@ -1015,6 +1080,7 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 
@@ -1061,6 +1127,7 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 
@@ -1095,6 +1162,7 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
         }
     }
 

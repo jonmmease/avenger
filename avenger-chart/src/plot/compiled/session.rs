@@ -369,6 +369,35 @@ impl ScopedParamStore {
         self.effective_params_for_owner_paths(&HashMap::new())
     }
 
+    /// Build the effective param map for a faceted cell identified by `full_path`.
+    ///
+    /// Resolves each registered param's value at the owner path implied by its
+    /// sharing level and the cell's position in `tree`: `Free` resolves to the
+    /// full path (per-cell), `Shared` to root `[]`, and `Level(n)` to `n` logical
+    /// levels up (FacetWrap weight-0 levels collapsed by the tree).
+    pub(crate) fn effective_params_for_cell(
+        &self,
+        tree: &EvaluatedFacetTree,
+        full_path: &[ScalarValue],
+    ) -> IndexMap<String, ScalarValue> {
+        let mut owner_paths: HashMap<u8, Vec<ScalarValue>> = HashMap::new();
+        for spec in self.specs.values() {
+            let level = spec.sharing.to_level();
+            owner_paths
+                .entry(level)
+                .or_insert_with(|| tree.sharing_owner_path(full_path, level));
+        }
+        self.effective_params_for_owner_paths(&owner_paths)
+    }
+
+    /// True when any scoped (non-root) assignment exists.
+    ///
+    /// Used as a global fast-path gate: when false, per-cell resolution is a
+    /// no-op and the non-interactive measurement path is unchanged.
+    pub(crate) fn has_scoped_overrides(&self) -> bool {
+        self.values.keys().any(|key| !key.owner_path.is_empty())
+    }
+
     /// Replace root values with `params`, clearing prior root values first.
     fn set_root_params(&mut self, params: IndexMap<String, ScalarValue>) {
         self.values.retain(|key, _| !key.owner_path.is_empty());
@@ -697,6 +726,15 @@ impl PlotSession {
         self.last_metrics.take()
     }
 
+    /// Build a shareable handle to the scoped store for per-cell evaluation,
+    /// only when non-root (`Free`/`Level`) assignments exist. Returns `None` on
+    /// the common path so evaluation stays allocation-free and unchanged.
+    fn scoped_param_store_handle(&self) -> Option<Arc<ScopedParamStore>> {
+        self.scoped_params
+            .has_scoped_overrides()
+            .then(|| Arc::new(self.scoped_params.clone()))
+    }
+
     pub async fn evaluate(
         &mut self,
         request: EvaluationRequest,
@@ -713,6 +751,7 @@ impl PlotSession {
         let next_params = self.params_for_request(&request);
         let options = options_for_evaluation_mode(mode, request.options);
         let use_measurement_profile_caches = mode != EvaluationMode::ForceRemeasure;
+        let scoped_store = self.scoped_param_store_handle();
 
         if mode == EvaluationMode::Preview {
             let mut preview_fallback_reasons = Vec::new();
@@ -733,6 +772,7 @@ impl PlotSession {
                         use_measurement_profile_caches
                             .then(|| self.legend_measurement_cache.clone()),
                         use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
+                        scoped_store.clone(),
                     )
                     .await?;
                 preview_attempt_duration += preview_attempt_start.elapsed();
@@ -767,6 +807,7 @@ impl PlotSession {
                     use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
                     use_measurement_profile_caches.then(|| self.legend_measurement_cache.clone()),
                     use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
+                    scoped_store.clone(),
                 )
                 .await?;
             metrics.mode = mode;
@@ -806,6 +847,7 @@ impl PlotSession {
                 use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
                 use_measurement_profile_caches.then(|| self.legend_measurement_cache.clone()),
                 use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
+                scoped_store,
             )
             .await?;
         metrics.mode = mode;
@@ -3811,5 +3853,358 @@ mod tests {
         let fingerprint = session.scoped_fingerprint_for_names(&names);
         assert!(!fingerprint.is_empty());
         Ok(())
+    }
+
+    /// Read the numeric x domain from each leaf-cell scope, keyed by the cell's
+    /// facet value (the first path component).
+    fn cell_x_domains(evaluated: &EvaluatedPlot) -> HashMap<String, (f32, f32)> {
+        let mut out = HashMap::new();
+        for scope in &evaluated.interaction.scopes {
+            let cell = match scope.facet_path.first() {
+                Some(ScalarValue::Utf8(Some(value))) => value.clone(),
+                other => panic!("unexpected facet path head: {other:?}"),
+            };
+            let domain = scope
+                .scales
+                .get("x")
+                .expect("scope has x scale")
+                .numeric_interval_domain()
+                .expect("x domain is numeric");
+            out.insert(cell, domain);
+        }
+        out
+    }
+
+    fn assert_close_tol(actual: (f32, f32), expected: (f32, f32), tol: f32, context: &str) {
+        assert!(
+            (actual.0 - expected.0).abs() < tol && (actual.1 - expected.1).abs() < tol,
+            "{context}: expected ({}, {}) within {tol}, got ({}, {})",
+            expected.0,
+            expected.1,
+            actual.0,
+            actual.1
+        );
+    }
+
+    /// An applied raw-domain override sets the domain exactly.
+    fn assert_override(actual: (f32, f32), expected: (f32, f32), context: &str) {
+        assert_close_tol(actual, expected, 1e-3, context);
+    }
+
+    /// An inferred (data-derived) domain may carry small scale padding.
+    fn assert_inferred(actual: (f32, f32), expected: (f32, f32), context: &str) {
+        assert_close_tol(actual, expected, 0.5, context);
+    }
+
+    /// Build a single-level column-faceted scatter whose per-cell x scale reads a
+    /// raw-domain param with the requested sharing. Each cell spans x in [0, 10].
+    async fn build_free_pan_session(
+        sharing: Sharing,
+        share_scale: bool,
+    ) -> Result<(PlotSession, Param), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let x_domain = Param::raw_domain("x_domain");
+        let raw = x_domain.expr();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('A', 0.0, 0.0), ('A', 10.0, 10.0),
+                    ('B', 0.0, 1.0), ('B', 10.0, 9.0)
+                ) AS t(group_name, x, y)",
+            )
+            .await?;
+        let compiled = Arc::new(
+            Plot::<FacetColumn>::new()
+                .add_param_with_sharing(x_domain.clone(), sharing)
+                .canvas_size(640.0, 320.0)
+                .data(df)
+                .mark(
+                    Subplot::new(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("x"), move |c| {
+                                    let c = c.scale_with::<Linear>(move |s| {
+                                        s.raw_domain(raw.clone()).nice(false).zero(false)
+                                    });
+                                    if share_scale { c.share_scale() } else { c }
+                                })
+                                .y(col("y"))
+                                .size(20.0),
+                        ),
+                    )
+                    .column(col("group_name")),
+                )
+                .compile(&ctx)
+                .await?,
+        );
+        Ok((compiled.instantiate(ctx), x_domain))
+    }
+
+    fn list_domain(min: f64, max: f64) -> ScalarValue {
+        use datafusion::arrow::datatypes::DataType;
+        ScalarValue::List(ScalarValue::new_list(
+            &[
+                ScalarValue::Float64(Some(min)),
+                ScalarValue::Float64(Some(max)),
+            ],
+            &DataType::Float64,
+            true,
+        ))
+    }
+
+    #[tokio::test]
+    async fn faceted_free_pan_updates_only_active_cell() -> Result<(), AvengerChartError> {
+        // A `Free` (per-cell) raw-domain param: panning one cell's owner path must
+        // move only that cell; the others fall back to their inferred domains.
+        let (mut session, _x_domain) = build_free_pan_session(Sharing::Free, false).await?;
+
+        // Warm exact frame (no scoped overrides) establishes the layout profile.
+        session.evaluate(EvaluationRequest::new().exact()).await?;
+
+        // Pan only cell "A" by writing a Free-scoped value at owner path ["A"].
+        session.apply_scoped_param_patch(vec![ScopedParamAssignment {
+            name: "x_domain".to_string(),
+            owner_path: vec![ScalarValue::Utf8(Some("A".to_string()))],
+            value: list_domain(2.0, 8.0),
+        }]);
+
+        // Preview reuse exercises the per-cell override pass (C3).
+        let (preview, metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview())
+            .await?;
+        assert_eq!(
+            metrics.pipeline.preview_fallbacks, 0,
+            "preview should reuse the layout profile"
+        );
+        assert!(metrics.pipeline.preview_profile_reuses >= 1);
+        let preview_domains = cell_x_domains(&preview);
+        assert_override(preview_domains["A"], (2.0, 8.0), "preview cell A (panned)");
+        assert_inferred(
+            preview_domains["B"],
+            (0.0, 10.0),
+            "preview cell B (inferred)",
+        );
+
+        // Exact re-eval exercises the fresh-measure per-cell injection (C2).
+        let exact = session.evaluate(EvaluationRequest::new().exact()).await?;
+        let exact_domains = cell_x_domains(&exact);
+        assert_override(exact_domains["A"], (2.0, 8.0), "exact cell A (panned)");
+        assert_inferred(exact_domains["B"], (0.0, 10.0), "exact cell B (inferred)");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn effective_params_for_cell_resolves_nested_owner_paths() -> Result<(), AvengerChartError>
+    {
+        // Build a two-level row > column facet so Level(1)/Level(2) differ.
+        let ctx = SessionContext::new();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('North','West', 1.0, 2.0), ('North','East', 3.0, 4.0),
+                    ('South','West', 5.0, 6.0), ('South','East', 7.0, 8.0)
+                ) AS t(facet_row, facet_col, x, y)",
+            )
+            .await?;
+        let leaf = Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y")));
+        let col_plot =
+            Plot::<FacetColumn>::new().mark(Subplot::new(leaf).col_with(col("facet_col"), |c| c));
+        let compiled = Plot::<FacetRow>::new()
+            .data(df)
+            .mark(Subplot::new(col_plot).row_with(col("facet_row"), |c| c))
+            .compile(&ctx)
+            .await?;
+        let tree =
+            EvaluatedFacetTree::from_compiled_plot_with_params(&compiled, &ctx, &IndexMap::new())
+                .await?;
+
+        let utf8 = |s: &str| ScalarValue::Utf8(Some(s.to_string()));
+        let north_west = vec![utf8("North"), utf8("West")];
+        let north_east = vec![utf8("North"), utf8("East")];
+        let south_west = vec![utf8("South"), utf8("West")];
+        assert!(
+            tree.cell_exists(&north_west),
+            "north/west leaf should exist (path order is [row, col])"
+        );
+
+        // Owner-path math across sharing levels.
+        assert_eq!(
+            tree.sharing_owner_path(&north_west, 0),
+            north_west,
+            "Free → full path"
+        );
+        let level1_owner = tree.sharing_owner_path(&north_west, 1);
+        assert_eq!(level1_owner, vec![utf8("North")], "Level(1) → row owner");
+        assert!(
+            tree.sharing_owner_path(&north_west, 2).is_empty(),
+            "Level(2) → root (no remaining ancestor)"
+        );
+        assert!(
+            tree.sharing_owner_path(&north_west, u8::MAX).is_empty(),
+            "Shared → root"
+        );
+
+        // Glue: a Level(1) param written at the row owner is shared by every cell
+        // in that row, but not by cells in the sibling row.
+        let mut specs = IndexMap::new();
+        specs.insert(
+            "x_domain".to_string(),
+            CompiledParamSpec::new(&Param::raw_domain("x_domain"), Sharing::Level(1)),
+        );
+        let mut store = ScopedParamStore::new(specs);
+        let panned = list_domain(2.0, 8.0);
+        store.apply_scoped_patch(vec![ScopedParamAssignment {
+            name: "x_domain".to_string(),
+            owner_path: level1_owner.clone(),
+            value: panned.clone(),
+        }]);
+        assert_eq!(
+            store
+                .effective_params_for_cell(&tree, &north_west)
+                .get("x_domain"),
+            Some(&panned),
+            "north/west sees the row pan"
+        );
+        assert_eq!(
+            store
+                .effective_params_for_cell(&tree, &north_east)
+                .get("x_domain"),
+            Some(&panned),
+            "north/east (same row) sees the row pan"
+        );
+        assert_ne!(
+            store
+                .effective_params_for_cell(&tree, &south_west)
+                .get("x_domain"),
+            Some(&panned),
+            "south row must not see north's pan"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn nested_level1_pan_updates_only_active_row() -> Result<(), AvengerChartError> {
+        use datafusion::arrow::datatypes::DataType;
+        // Two-level row > column facet with Level(1) params + Level(1) scales:
+        // panning a cell shares the domain with its row (one level up), not the
+        // whole chart and not just the single cell.
+        let ctx = Arc::new(SessionContext::new());
+        let x_domain = Param::raw_domain("x_domain");
+        let raw = x_domain.expr();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('Top','Left', 0.0, 0.0),    ('Top','Left', 10.0, 1.0),
+                    ('Top','Right', 0.0, 2.0),   ('Top','Right', 10.0, 3.0),
+                    ('Bottom','Left', 0.0, 4.0), ('Bottom','Left', 10.0, 5.0),
+                    ('Bottom','Right', 0.0, 6.0),('Bottom','Right', 10.0, 7.0)
+                ) AS t(row_name, col_name, x, y)",
+            )
+            .await?;
+        let leaf = Plot::<Cartesian>::new().mark(
+            Symbol::new()
+                .x_with(col("x"), move |c| {
+                    c.scale_with::<Linear>(move |s| {
+                        s.raw_domain(raw.clone()).nice(false).zero(false)
+                    })
+                    .with_scale_sharing(Sharing::Level(1))
+                })
+                .y(col("y"))
+                .size(20.0),
+        );
+        let columns = Plot::<FacetColumn>::new().mark(Subplot::new(leaf).column(col("col_name")));
+        let compiled = Arc::new(
+            Plot::<FacetRow>::new()
+                .add_param_with_sharing(x_domain.clone(), Sharing::Level(1))
+                .canvas_size(640.0, 480.0)
+                .data(df)
+                .mark(Subplot::new(columns).row(col("row_name")))
+                .compile(&ctx)
+                .await?,
+        );
+        let mut session = compiled.instantiate(ctx);
+
+        // Warm exact frame establishes the layout profile.
+        session.evaluate(EvaluationRequest::new().exact()).await?;
+
+        // Pan the "Top" row: write the Level(1) owner path (the row) directly.
+        session.apply_scoped_param_patch(vec![ScopedParamAssignment {
+            name: "x_domain".to_string(),
+            owner_path: vec![ScalarValue::Utf8(Some("Top".to_string()))],
+            value: ScalarValue::List(ScalarValue::new_list(
+                &[
+                    ScalarValue::Float64(Some(2.0)),
+                    ScalarValue::Float64(Some(8.0)),
+                ],
+                &DataType::Float64,
+                true,
+            )),
+        }]);
+
+        // Assert via both the exact (fresh-measure, C2) and preview (reuse, C3)
+        // paths that every Top-row cell moved and every Bottom-row cell did not.
+        let assert_row_split = |evaluated: &EvaluatedPlot, label: &str| {
+            for scope in &evaluated.interaction.scopes {
+                let row = match scope.facet_path.first() {
+                    Some(ScalarValue::Utf8(Some(value))) => value.clone(),
+                    other => panic!("unexpected facet path head: {other:?}"),
+                };
+                let domain = scope
+                    .scales
+                    .get("x")
+                    .expect("scope has x scale")
+                    .numeric_interval_domain()
+                    .expect("x domain is numeric");
+                match row.as_str() {
+                    "Top" => assert_override(domain, (2.0, 8.0), &format!("{label} Top row")),
+                    "Bottom" => {
+                        assert_inferred(domain, (0.0, 10.0), &format!("{label} Bottom row"))
+                    }
+                    other => panic!("unexpected row {other}"),
+                }
+            }
+        };
+
+        let preview = session.evaluate(EvaluationRequest::new().preview()).await?;
+        assert_eq!(preview.interaction.scopes.len(), 4, "2x2 leaf cells");
+        assert_row_split(&preview, "preview");
+
+        let exact = session.evaluate(EvaluationRequest::new().exact()).await?;
+        assert_row_split(&exact, "exact");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn incompatible_free_param_for_shared_scale_errors_on_compile() {
+        // A `Free` raw-domain param feeding a `Shared` scale is ambiguous and must
+        // be rejected at compile time (validation item A).
+        let ctx = SessionContext::new();
+        let x_domain = Param::raw_domain("x_domain");
+        let raw = x_domain.expr();
+        let result = Plot::<FacetColumn>::new()
+            .add_param_with_sharing(x_domain, Sharing::Free)
+            .mark(
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(
+                        Symbol::new()
+                            .x_with(col("x"), move |c| {
+                                c.scale_with::<Linear>(move |s| s.raw_domain(raw.clone()))
+                                    .share_scale()
+                            })
+                            .y(col("y")),
+                    ),
+                )
+                .column(col("group_name")),
+            )
+            .compile(&ctx)
+            .await;
+        let err = match result {
+            Ok(_) => panic!("Free param feeding a Shared scale should fail validation"),
+            Err(err) => err.to_string(),
+        };
+        assert!(
+            err.contains("x_domain") && err.contains("Free") && err.contains("Shared"),
+            "unexpected validation error: {err}"
+        );
     }
 }

@@ -2845,7 +2845,12 @@ async fn measure_cells_overflow_probe(
                 axis,
                 facet_depth,
                 cell.plan.value.clone(),
-            ));
+            ))
+            // Per-cell scoped params (Free/Level pan): merges the cell owner's
+            // raw-domain value into the params this fresh measurement reads, so
+            // its scales are built with the cell-specific domain. No-op unless a
+            // scoped store with non-root assignments is installed.
+            .with_scoped_cell_params(&cell.plan.full_path);
         let (probe_plot_width, probe_plot_height) = cell_eval_ctx
             .facet_probe_size_override(&cell.plan.full_path)
             .unwrap_or((subplot_plot_width, subplot_plot_height));
