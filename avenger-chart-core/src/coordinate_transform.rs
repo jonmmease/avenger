@@ -1,10 +1,24 @@
 use std::{any::Any, collections::HashMap};
 
 use avenger_common::value::ScalarOrArray;
-use avenger_scales::scales::ScaleImpl;
+use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
 use datafusion::common::ScalarValue;
+use indexmap::IndexMap;
 
 use crate::{AvengerChartError, PlotGeometry, ScaleRangeBinding};
+
+/// Request to invert a local plot-area point back to data-space channel values.
+///
+/// `local_point` is in the coordinate scope's local plot-area coordinates (the
+/// same space the configured scale ranges are bound to). The transform inverts
+/// each requested channel through its configured scale.
+pub struct InteractionPointInversionRequest<'a> {
+    pub local_point: [f32; 2],
+    pub plot_area_width: f32,
+    pub plot_area_height: f32,
+    pub channels: &'a [&'a str],
+    pub scales: &'a HashMap<String, ConfiguredScale>,
+}
 
 /// Core-safe coordinate transform behavior.
 ///
@@ -45,6 +59,29 @@ pub trait CoordinateSystemTransformCore: Send + Sync {
         channel: &str,
         scale_impl: &dyn ScaleImpl,
     ) -> HashMap<String, ScalarValue>;
+
+    /// Coordinate channels this transform can invert from a local plot-area point.
+    ///
+    /// Only transforms with a non-empty list export interaction coordinate
+    /// scopes. This keeps facet/concat container transforms from becoming bogus
+    /// coordinate targets while their Cartesian leaf subplots still export
+    /// scopes. The default is empty (no interaction inversion).
+    fn interaction_invertible_channels(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// Invert a local plot-area point to data-space values for each channel.
+    ///
+    /// The default implementation reports that the coordinate system does not
+    /// support event coordinate inversion.
+    fn invert_interaction_point(
+        &self,
+        _request: InteractionPointInversionRequest<'_>,
+    ) -> Result<IndexMap<String, ScalarValue>, AvengerChartError> {
+        Err(AvengerChartError::InvalidArgument(
+            "coordinate system does not support event coordinate inversion".to_string(),
+        ))
+    }
 }
 
 /// Serializable, object-safe coordinate transform contract.

@@ -7,9 +7,9 @@ use std::{
 };
 
 use avenger_chart_core::{
-    ChannelInfo, DefaultLogicalExprNodeExt, FacetWrapColumnMode, LegendChannel, LegendPosition,
-    LogicalPlanNodeExt, Maybe, RadiusExpression, ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain,
-    SerializableExpr,
+    ChannelInfo, CompiledParamSpec, DefaultLogicalExprNodeExt, FacetWrapColumnMode, LegendChannel,
+    LegendPosition, LogicalPlanNodeExt, Maybe, RadiusExpression, ScaleConfigSpec,
+    ScaleDefaultDomain, ScaleDomain, SerializableExpr, Sharing,
 };
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
 use avenger_scales::scales::ConfiguredScale;
@@ -254,6 +254,242 @@ impl TextMeasurementCacheKey {
     }
 }
 
+/// Identifies one scoped copy of a parameter at a specific facet owner path.
+///
+/// The root/global copy uses an empty `owner_path`. Facet-scoped copies use the
+/// logical owner path resolved for the parameter's `Sharing` level.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct ScopedParamKey {
+    name: String,
+    owner_path: Vec<ScalarValue>,
+}
+
+/// A single scoped parameter write produced by an event binding assignment.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScopedParamAssignment {
+    pub name: String,
+    pub owner_path: Vec<ScalarValue>,
+    pub value: ScalarValue,
+}
+
+/// Immutable snapshot of the scoped parameter store.
+///
+/// Captures both the root effective values and any facet-scoped overrides so a
+/// gesture can resolve frozen start/previous params at any sharing scope.
+#[derive(Clone, Debug, Default)]
+pub struct ScopedParamStoreSnapshot {
+    root: IndexMap<String, ScalarValue>,
+    scoped: IndexMap<ScopedParamKey, ScalarValue>,
+}
+
+impl ScopedParamStoreSnapshot {
+    /// Build a snapshot that only carries root (global/shared) param values.
+    ///
+    /// Useful for tests and for callers that operate purely at the root scope.
+    pub fn from_root_params(root: IndexMap<String, ScalarValue>) -> Self {
+        Self {
+            root,
+            scoped: IndexMap::new(),
+        }
+    }
+}
+
+/// Resolve the logical owner path for a sharing scope.
+///
+/// `Shared` always resolves to the root path `[]`. `Free`/`Level(0)` and
+/// `Level(N)` look up the routed scope's owner path for that level, falling back
+/// to root when the scope does not provide one (e.g. unfaceted plots).
+fn owner_path_for_sharing(
+    sharing: Sharing,
+    sharing_owner_paths: &HashMap<u8, Vec<ScalarValue>>,
+) -> Vec<ScalarValue> {
+    let level = sharing.to_level();
+    if level == u8::MAX {
+        return Vec::new();
+    }
+    sharing_owner_paths.get(&level).cloned().unwrap_or_default()
+}
+
+/// Session-owned store of sharing-scoped parameter values.
+///
+/// Root (global/shared) values live at the empty owner path. Facet-scoped values
+/// live at their resolved logical owner path. Reads fall back to the registered
+/// `CompiledParamSpec` default when no scoped value exists.
+#[derive(Clone, Debug)]
+pub(crate) struct ScopedParamStore {
+    specs: IndexMap<String, CompiledParamSpec>,
+    values: IndexMap<ScopedParamKey, ScalarValue>,
+    revisions: IndexMap<String, u64>,
+}
+
+impl ScopedParamStore {
+    fn new(specs: IndexMap<String, CompiledParamSpec>) -> Self {
+        Self {
+            specs,
+            values: IndexMap::new(),
+            revisions: IndexMap::new(),
+        }
+    }
+
+    fn bump_revision(&mut self, name: &str) {
+        *self.revisions.entry(name.to_string()).or_insert(0) += 1;
+    }
+
+    /// Build a flat effective param map for a scope's sharing-owner paths.
+    fn effective_params_for_owner_paths(
+        &self,
+        sharing_owner_paths: &HashMap<u8, Vec<ScalarValue>>,
+    ) -> IndexMap<String, ScalarValue> {
+        let mut result = IndexMap::with_capacity(self.specs.len());
+        for (name, spec) in &self.specs {
+            let owner_path = owner_path_for_sharing(spec.sharing, sharing_owner_paths);
+            let key = ScopedParamKey {
+                name: name.clone(),
+                owner_path,
+            };
+            let value = self
+                .values
+                .get(&key)
+                .cloned()
+                .unwrap_or_else(|| spec.default.clone());
+            result.insert(name.clone(), value);
+        }
+        // Preserve any root values for names that are not registered specs so the
+        // historical flat `set_params` behavior (which kept extra keys) holds.
+        for (key, value) in &self.values {
+            if key.owner_path.is_empty() && !self.specs.contains_key(&key.name) {
+                result.insert(key.name.clone(), value.clone());
+            }
+        }
+        result
+    }
+
+    /// Build the root (owner path `[]`) effective param map.
+    fn root_effective_params(&self) -> IndexMap<String, ScalarValue> {
+        self.effective_params_for_owner_paths(&HashMap::new())
+    }
+
+    /// Replace root values with `params`, clearing prior root values first.
+    fn set_root_params(&mut self, params: IndexMap<String, ScalarValue>) {
+        self.values.retain(|key, _| !key.owner_path.is_empty());
+        for (name, value) in params {
+            self.values.insert(
+                ScopedParamKey {
+                    name: name.clone(),
+                    owner_path: Vec::new(),
+                },
+                value,
+            );
+            self.bump_revision(&name);
+        }
+    }
+
+    /// Patch root values from `patch`, leaving unrelated root values intact.
+    fn apply_root_patch(&mut self, patch: IndexMap<String, ScalarValue>) {
+        for (name, value) in patch {
+            let key = ScopedParamKey {
+                name: name.clone(),
+                owner_path: Vec::new(),
+            };
+            let changed = self.values.get(&key) != Some(&value);
+            self.values.insert(key, value);
+            if changed {
+                self.bump_revision(&name);
+            }
+        }
+    }
+
+    /// Apply scoped assignments. Empty owner paths target root values.
+    fn apply_scoped_patch(&mut self, patch: impl IntoIterator<Item = ScopedParamAssignment>) {
+        for assignment in patch {
+            let key = ScopedParamKey {
+                name: assignment.name.clone(),
+                owner_path: assignment.owner_path,
+            };
+            let changed = self.values.get(&key) != Some(&assignment.value);
+            self.values.insert(key, assignment.value);
+            if changed {
+                self.bump_revision(&assignment.name);
+            }
+        }
+    }
+
+    fn snapshot(&self) -> ScopedParamStoreSnapshot {
+        ScopedParamStoreSnapshot {
+            root: self.root_effective_params(),
+            scoped: self.values.clone(),
+        }
+    }
+
+    /// Effective params for a scope using a frozen snapshot rather than live values.
+    fn effective_params_from_snapshot(
+        &self,
+        snapshot: &ScopedParamStoreSnapshot,
+        sharing_owner_paths: &HashMap<u8, Vec<ScalarValue>>,
+    ) -> IndexMap<String, ScalarValue> {
+        let mut result = IndexMap::with_capacity(self.specs.len());
+        for (name, spec) in &self.specs {
+            let owner_path = owner_path_for_sharing(spec.sharing, sharing_owner_paths);
+            let value = if owner_path.is_empty() {
+                snapshot
+                    .root
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| spec.default.clone())
+            } else {
+                let key = ScopedParamKey {
+                    name: name.clone(),
+                    owner_path,
+                };
+                snapshot
+                    .scoped
+                    .get(&key)
+                    .cloned()
+                    .or_else(|| snapshot.root.get(name).cloned())
+                    .unwrap_or_else(|| spec.default.clone())
+            };
+            result.insert(name.clone(), value);
+        }
+        result
+    }
+
+    /// Deterministic fingerprint of all materialized scoped values for `names`.
+    ///
+    /// Used by facet scale-precompute cache keys that span multiple facet owners.
+    /// Includes a default marker so a missing scoped value is distinguished from a
+    /// written one.
+    // Consumed by facet-scoped cache keys when faceted scoped-param evaluation
+    // lands; retained as part of the scoped-param store contract.
+    #[allow(dead_code)]
+    fn scoped_fingerprint_for_names(
+        &self,
+        names: &BTreeSet<String>,
+    ) -> Vec<(String, Vec<String>, String)> {
+        let mut fingerprint: Vec<(String, Vec<String>, String)> = Vec::new();
+        for (key, value) in &self.values {
+            if names.contains(&key.name) {
+                let owner_path = key
+                    .owner_path
+                    .iter()
+                    .map(|v| format!("{v:?}"))
+                    .collect::<Vec<_>>();
+                fingerprint.push((key.name.clone(), owner_path, format!("{value:?}")));
+            }
+        }
+        for name in names {
+            if let Some(spec) = self.specs.get(name) {
+                fingerprint.push((
+                    name.clone(),
+                    vec!["<default>".to_string()],
+                    format!("{:?}", spec.default),
+                ));
+            }
+        }
+        fingerprint.sort();
+        fingerprint
+    }
+}
+
 /// Request object for evaluating a `PlotSession`.
 #[derive(Clone, Debug)]
 pub struct EvaluationRequest {
@@ -332,7 +568,9 @@ struct EvaluationRequestSummary {
 pub struct PlotSession {
     program: Arc<CompiledPlot>,
     ctx: Arc<SessionContext>,
-    current_params: IndexMap<String, ScalarValue>,
+    scoped_params: ScopedParamStore,
+    /// Cached root (owner path `[]`) effective param map for `params()`.
+    root_cache: IndexMap<String, ScalarValue>,
     last_request: Option<EvaluationRequestSummary>,
     layout_profile: Option<LayoutProfileSnapshot>,
     last_metrics: Option<EvaluationMetrics>,
@@ -346,7 +584,11 @@ pub struct PlotSession {
 
 impl PlotSession {
     pub(crate) fn new(program: Arc<CompiledPlot>, ctx: Arc<SessionContext>) -> Self {
-        let current_params = program.get_default_params().clone();
+        let mut scoped_params = ScopedParamStore::new(program.param_specs().clone());
+        // Seed root values from compiled defaults so existing root params and any
+        // undeclared default keys are present at the root owner path.
+        scoped_params.set_root_params(program.get_default_params().clone());
+        let root_cache = scoped_params.root_effective_params();
         let (
             scale_domain_cache,
             facet_semantic_cache,
@@ -358,7 +600,8 @@ impl PlotSession {
         Self {
             program,
             ctx,
-            current_params,
+            scoped_params,
+            root_cache,
             last_request: None,
             layout_profile: None,
             last_metrics: None,
@@ -371,18 +614,79 @@ impl PlotSession {
         }
     }
 
+    fn refresh_root_cache(&mut self) {
+        self.root_cache = self.scoped_params.root_effective_params();
+    }
+
+    /// Commit a fully merged root param map after a successful evaluation.
+    fn commit_root_params(&mut self, params: IndexMap<String, ScalarValue>) {
+        self.scoped_params.set_root_params(params);
+        self.refresh_root_cache();
+    }
+
     pub fn params(&self) -> &IndexMap<String, ScalarValue> {
-        &self.current_params
+        &self.root_cache
     }
 
     pub fn set_params(&mut self, params: IndexMap<String, ScalarValue>) {
         let mut merged = self.program.get_default_params().clone();
         merged.extend(params);
-        self.current_params = merged;
+        self.scoped_params.set_root_params(merged);
+        self.refresh_root_cache();
     }
 
     pub fn apply_param_patch(&mut self, patch: IndexMap<String, ScalarValue>) {
-        self.current_params.extend(patch);
+        self.scoped_params.apply_root_patch(patch);
+        self.refresh_root_cache();
+    }
+
+    /// Build the flat effective param map for a scope's sharing-owner paths.
+    ///
+    /// The root scope passes an empty map, which resolves every sharing level to
+    /// the root owner path.
+    pub fn effective_params_for_owner_paths(
+        &self,
+        sharing_owner_paths: &HashMap<u8, Vec<ScalarValue>>,
+    ) -> IndexMap<String, ScalarValue> {
+        self.scoped_params
+            .effective_params_for_owner_paths(sharing_owner_paths)
+    }
+
+    /// Apply scoped parameter assignments produced by an event binding.
+    pub fn apply_scoped_param_patch(&mut self, patch: Vec<ScopedParamAssignment>) {
+        let touches_root = patch
+            .iter()
+            .any(|assignment| assignment.owner_path.is_empty());
+        self.scoped_params.apply_scoped_patch(patch);
+        if touches_root {
+            self.refresh_root_cache();
+        }
+    }
+
+    /// Snapshot the entire scoped parameter store for gesture freezing.
+    pub fn snapshot_scoped_params(&self) -> ScopedParamStoreSnapshot {
+        self.scoped_params.snapshot()
+    }
+
+    /// Resolve effective params for a scope from a frozen scoped-store snapshot.
+    pub fn effective_params_from_snapshot(
+        &self,
+        snapshot: &ScopedParamStoreSnapshot,
+        sharing_owner_paths: &HashMap<u8, Vec<ScalarValue>>,
+    ) -> IndexMap<String, ScalarValue> {
+        self.scoped_params
+            .effective_params_from_snapshot(snapshot, sharing_owner_paths)
+    }
+
+    /// Deterministic scoped fingerprint for the requested param names.
+    // Consumed by facet-scoped cache keys when faceted scoped-param evaluation
+    // lands; retained as part of the scoped-param store contract.
+    #[allow(dead_code)]
+    pub(crate) fn scoped_fingerprint_for_names(
+        &self,
+        names: &BTreeSet<String>,
+    ) -> Vec<(String, Vec<String>, String)> {
+        self.scoped_params.scoped_fingerprint_for_names(names)
     }
 
     pub fn last_metrics(&self) -> Option<&EvaluationMetrics> {
@@ -435,7 +739,7 @@ impl PlotSession {
                 if let Some((evaluated, mut metrics, layout_profile)) = attempt.reused {
                     metrics.mode = mode;
                     metrics.record_preview_attempt_duration(preview_attempt_duration);
-                    self.current_params = next_params.clone();
+                    self.commit_root_params(next_params.clone());
                     self.last_request = Some(EvaluationRequestSummary {
                         mode,
                         params: next_params,
@@ -480,7 +784,7 @@ impl PlotSession {
                 metrics.record_preview_structure_reflow_miss();
             }
             metrics.record_preview_profile_fallback_reasons(preview_fallback_reasons);
-            self.current_params = next_params.clone();
+            self.commit_root_params(next_params.clone());
             self.last_request = Some(EvaluationRequestSummary {
                 mode,
                 params: next_params,
@@ -505,7 +809,7 @@ impl PlotSession {
             )
             .await?;
         metrics.mode = mode;
-        self.current_params = next_params.clone();
+        self.commit_root_params(next_params.clone());
         self.last_request = Some(EvaluationRequestSummary {
             mode,
             params: next_params,
@@ -521,7 +825,7 @@ impl PlotSession {
             request
                 .params
                 .clone()
-                .unwrap_or_else(|| self.current_params.clone()),
+                .unwrap_or_else(|| self.root_cache.clone()),
         );
         if let Some(patch) = &request.param_patch {
             params.extend(patch.clone());
@@ -3160,6 +3464,205 @@ mod tests {
         );
         assert_eq!(second.pipeline.facet_scale_precompute_cache_misses, 1);
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn add_param_compiles_to_shared_sharing() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .add_param(Param::new("width", ScalarValue::Float64(Some(640.0))))
+            .compile(&ctx)
+            .await?;
+        let spec = compiled
+            .param_specs()
+            .get("width")
+            .expect("width spec present");
+        assert_eq!(spec.sharing, Sharing::Shared);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn add_param_with_sharing_round_trips_through_serialization()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let x_domain = Param::raw_domain("x_domain");
+        let compiled = Plot::<Cartesian>::new()
+            .add_param_with_sharing(x_domain, Sharing::Level(1))
+            .compile(&ctx)
+            .await?;
+        assert_eq!(
+            compiled.param_specs().get("x_domain").unwrap().sharing,
+            Sharing::Level(1)
+        );
+
+        let bytes = bincode::serialize(&compiled).expect("serialize compiled plot");
+        let restored: CompiledPlot =
+            bincode::deserialize(&bytes).expect("deserialize compiled plot");
+        assert_eq!(
+            restored.param_specs().get("x_domain").unwrap().sharing,
+            Sharing::Level(1)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn duplicate_param_names_error_on_compile() {
+        let ctx = SessionContext::new();
+        let result = Plot::<Cartesian>::new()
+            .add_param(Param::new("width", ScalarValue::Float64(Some(1.0))))
+            .add_param_with_sharing(
+                Param::new("width", ScalarValue::Float64(Some(2.0))),
+                Sharing::Level(1),
+            )
+            .compile(&ctx)
+            .await;
+        let err = match result {
+            Ok(_) => panic!("duplicate param name should error"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string().contains("Duplicate plot parameter 'width'"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn raw_domain_param_defaults_to_inferred_domain() -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let x_domain = Param::raw_domain("x_domain");
+        let raw_expr = x_domain.expr();
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
+            .await?;
+        let compiled = Arc::new(
+            Plot::<Cartesian>::new()
+                .add_param(x_domain.clone())
+                .canvas_size(420.0, 320.0)
+                .data(df)
+                .mark(
+                    Symbol::new()
+                        .x_with(col("x"), move |c| {
+                            c.scale_with::<Linear>(move |s| s.raw_domain(raw_expr.clone()))
+                        })
+                        .y(col("y"))
+                        .size(20.0),
+                )
+                .compile(&ctx)
+                .await?,
+        );
+        // The raw-domain param default is a typed null list, so the scale falls
+        // back to the inferred numeric domain and evaluation succeeds.
+        assert!(matches!(
+            compiled.get_default_params().get("x_domain"),
+            Some(ScalarValue::List(_))
+        ));
+        let mut session = compiled.instantiate(ctx);
+        let evaluated = session.evaluate(EvaluationRequest::new().exact()).await?;
+        assert!(!evaluated.scene_graph.marks.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn root_cartesian_plot_exports_single_coordinate_scope() -> Result<(), AvengerChartError>
+    {
+        use crate::render::InteractionScopeKind;
+        let ctx = Arc::new(SessionContext::new());
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
+            .await?;
+        let compiled = Arc::new(
+            Plot::<Cartesian>::new()
+                .canvas_size(420.0, 320.0)
+                .data(df)
+                .mark(Symbol::new().x(col("x")).y(col("y")).size(20.0))
+                .compile(&ctx)
+                .await?,
+        );
+        let mut session = compiled.instantiate(ctx);
+        let evaluated = session.evaluate(EvaluationRequest::new().exact()).await?;
+
+        assert_eq!(
+            evaluated.interaction.scopes.len(),
+            1,
+            "unfaceted Cartesian plot should export exactly one coordinate scope"
+        );
+        let scope = &evaluated.interaction.scopes[0];
+        assert_eq!(scope.kind, InteractionScopeKind::Coordinate);
+        assert!(scope.facet_path.is_empty());
+        assert!(scope.coord_node_path.is_empty());
+        assert!(scope.channels.contains(&"x".to_string()));
+        assert!(scope.channels.contains(&"y".to_string()));
+        assert!(
+            scope.scales.contains_key("x"),
+            "scope should carry the x scale"
+        );
+        assert!(
+            scope.scales.contains_key("y"),
+            "scope should carry the y scale"
+        );
+        assert!(scope.plot_area_width > 0.0 && scope.plot_area_height > 0.0);
+        assert!((scope.bounds.width - scope.plot_area_width).abs() < 1e-3);
+        assert!((scope.bounds.height - scope.plot_area_height).abs() < 1e-3);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn root_scoped_params_resolve_to_root_owner_path() -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let x_domain = Param::raw_domain("x_domain");
+        let compiled = Arc::new(
+            Plot::<Cartesian>::new()
+                .add_param_with_sharing(x_domain, Sharing::Level(1))
+                .compile(&ctx)
+                .await?,
+        );
+        let mut session = compiled.instantiate(ctx);
+
+        // Root scope (empty owner paths) resolves the Level(1) param to its default.
+        let root = session.effective_params_for_owner_paths(&HashMap::new());
+        assert!(matches!(root.get("x_domain"), Some(ScalarValue::List(_))));
+
+        // Write a scoped value for a Level(1) owner path.
+        let owner_path = vec![ScalarValue::Utf8(Some("A".to_string()))];
+        let domain_value = ScalarValue::List(ScalarValue::new_list(
+            &[
+                ScalarValue::Float64(Some(2.0)),
+                ScalarValue::Float64(Some(8.0)),
+            ],
+            &datafusion::arrow::datatypes::DataType::Float64,
+            true,
+        ));
+        session.apply_scoped_param_patch(vec![ScopedParamAssignment {
+            name: "x_domain".to_string(),
+            owner_path: owner_path.clone(),
+            value: domain_value.clone(),
+        }]);
+
+        // Root remains the default; the scoped owner path sees the written value.
+        let root_after = session.effective_params_for_owner_paths(&HashMap::new());
+        assert!(matches!(
+            root_after.get("x_domain"),
+            Some(ScalarValue::List(_))
+        ));
+        assert_ne!(
+            root_after.get("x_domain"),
+            Some(&domain_value),
+            "root scope must not see the Level(1) scoped write"
+        );
+        let mut owner_paths = HashMap::new();
+        owner_paths.insert(1u8, owner_path);
+        let scoped = session.effective_params_for_owner_paths(&owner_paths);
+        assert_eq!(scoped.get("x_domain"), Some(&domain_value));
+
+        // Snapshot resolution mirrors live resolution, and fingerprints are non-empty.
+        let snapshot = session.snapshot_scoped_params();
+        let from_snapshot = session.effective_params_from_snapshot(&snapshot, &owner_paths);
+        assert_eq!(from_snapshot.get("x_domain"), Some(&domain_value));
+        let mut names = BTreeSet::new();
+        names.insert("x_domain".to_string());
+        let fingerprint = session.scoped_fingerprint_for_names(&names);
+        assert!(!fingerprint.is_empty());
         Ok(())
     }
 }

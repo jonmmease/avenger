@@ -4,12 +4,16 @@
 //! `avenger-eventstream` handlers and compile their DataFusion expressions into
 //! physical expression programs.
 
+use std::collections::BTreeSet;
+
 use avenger_chart_core::{AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, Param};
 use avenger_eventstream::scene::SceneGraphEventType;
 use datafusion::{
+    functions_array::expr_fn::{array_element, make_array},
     logical_expr::expr::Placeholder,
-    prelude::{Expr, col},
+    prelude::{Expr, col, lit},
 };
+use datafusion_common::tree_node::{TreeNode, TreeNodeRecursion};
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
@@ -50,6 +54,17 @@ pub const PREVIOUS_ELAPSED_MS_FIELD: &str = "__previous_elapsed_ms";
 pub const PARAM_PREFIX: &str = "__param_";
 pub const START_PARAM_PREFIX: &str = "__start_param_";
 pub const PREVIOUS_PARAM_PREFIX: &str = "__previous_param_";
+
+// Reserved derived interaction columns. The channel name is appended to the
+// prefix (e.g. `__event_coord_x`). The channel is author-chosen, not a
+// hard-coded Cartesian assumption, so future coordinate systems can reuse the
+// same helpers with channels like `r` and `theta`.
+pub const EVENT_COORD_PREFIX: &str = "__event_coord_";
+pub const START_COORD_PREFIX: &str = "__start_coord_";
+pub const EVENT_AT_START_COORD_PREFIX: &str = "__event_at_start_coord_";
+pub const PREVIOUS_COORD_PREFIX: &str = "__previous_coord_";
+pub const EVENT_DOMAIN_PREFIX: &str = "__event_domain_";
+pub const START_DOMAIN_PREFIX: &str = "__start_domain_";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChartEventType {
@@ -426,6 +441,78 @@ pub fn previous_param(param: impl IntoParamName) -> Expr {
     ))
 }
 
+/// Current event point inverted through the current evaluated coordinate scope.
+pub fn event_data(channel: &str) -> Expr {
+    col(event_coord_column_name(channel))
+}
+
+/// Start event point inverted through the frozen start coordinate scope.
+pub fn start_data(channel: &str) -> Expr {
+    col(start_coord_column_name(channel))
+}
+
+/// Current event point inverted through the frozen start coordinate scope.
+///
+/// This is the primary pan delta primitive: it avoids feedback as raw domains
+/// update during a drag because it always uses the start scale.
+pub fn event_at_start_data(channel: &str) -> Expr {
+    col(event_at_start_coord_column_name(channel))
+}
+
+/// Previous event point inverted through the previous/current coordinate scope.
+pub fn previous_data(channel: &str) -> Expr {
+    col(previous_coord_column_name(channel))
+}
+
+/// Current configured domain for a coordinate channel as a two-element list.
+pub fn event_domain(channel: &str) -> Expr {
+    col(event_domain_column_name(channel))
+}
+
+/// Frozen start configured domain for a coordinate channel as a two-element list.
+pub fn start_domain(channel: &str) -> Expr {
+    col(start_domain_column_name(channel))
+}
+
+/// Build a two-element domain list expression from min/max scalar expressions.
+pub fn domain_interval(min: impl IntoExpr, max: impl IntoExpr) -> Expr {
+    make_array(vec![min.into_expr(), max.into_expr()])
+}
+
+/// Extract the first element (domain start) from a two-element domain list.
+pub fn domain_start(domain: impl IntoExpr) -> Expr {
+    array_element(domain.into_expr(), lit(1_i64))
+}
+
+/// Extract the second element (domain end) from a two-element domain list.
+pub fn domain_end(domain: impl IntoExpr) -> Expr {
+    array_element(domain.into_expr(), lit(2_i64))
+}
+
+pub fn event_coord_column_name(channel: &str) -> String {
+    format!("{EVENT_COORD_PREFIX}{channel}")
+}
+
+pub fn start_coord_column_name(channel: &str) -> String {
+    format!("{START_COORD_PREFIX}{channel}")
+}
+
+pub fn event_at_start_coord_column_name(channel: &str) -> String {
+    format!("{EVENT_AT_START_COORD_PREFIX}{channel}")
+}
+
+pub fn previous_coord_column_name(channel: &str) -> String {
+    format!("{PREVIOUS_COORD_PREFIX}{channel}")
+}
+
+pub fn event_domain_column_name(channel: &str) -> String {
+    format!("{EVENT_DOMAIN_PREFIX}{channel}")
+}
+
+pub fn start_domain_column_name(channel: &str) -> String {
+    format!("{START_DOMAIN_PREFIX}{channel}")
+}
+
 pub fn param_column_name(param_name: &str) -> String {
     format!("{PARAM_PREFIX}{param_name}")
 }
@@ -436,6 +523,74 @@ pub fn start_param_column_name(param_name: &str) -> String {
 
 pub fn previous_param_column_name(param_name: &str) -> String {
     format!("{PREVIOUS_PARAM_PREFIX}{param_name}")
+}
+
+/// Derived interaction columns requested by a binding's expressions, grouped by
+/// the kind of inversion they need. The channel sets drive both the event schema
+/// and which coordinate inversions the runtime must perform per event.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct InteractionColumnRequests {
+    pub current_data: BTreeSet<String>,
+    pub start_data: BTreeSet<String>,
+    pub event_at_start_data: BTreeSet<String>,
+    pub previous_data: BTreeSet<String>,
+    pub current_domain: BTreeSet<String>,
+    pub start_domain: BTreeSet<String>,
+}
+
+impl InteractionColumnRequests {
+    pub fn is_empty(&self) -> bool {
+        self.current_data.is_empty()
+            && self.start_data.is_empty()
+            && self.event_at_start_data.is_empty()
+            && self.previous_data.is_empty()
+            && self.current_domain.is_empty()
+            && self.start_domain.is_empty()
+    }
+
+    /// Union of every coordinate channel referenced by any request kind.
+    pub fn all_channels(&self) -> BTreeSet<String> {
+        let mut channels = BTreeSet::new();
+        channels.extend(self.current_data.iter().cloned());
+        channels.extend(self.start_data.iter().cloned());
+        channels.extend(self.event_at_start_data.iter().cloned());
+        channels.extend(self.previous_data.iter().cloned());
+        channels.extend(self.current_domain.iter().cloned());
+        channels.extend(self.start_domain.iter().cloned());
+        channels
+    }
+
+    fn record_column(&mut self, name: &str) {
+        // Most-specific prefixes first; the prefixes are mutually exclusive but
+        // ordering keeps the intent explicit.
+        if let Some(channel) = name.strip_prefix(EVENT_AT_START_COORD_PREFIX) {
+            self.event_at_start_data.insert(channel.to_string());
+        } else if let Some(channel) = name.strip_prefix(EVENT_COORD_PREFIX) {
+            self.current_data.insert(channel.to_string());
+        } else if let Some(channel) = name.strip_prefix(START_COORD_PREFIX) {
+            self.start_data.insert(channel.to_string());
+        } else if let Some(channel) = name.strip_prefix(PREVIOUS_COORD_PREFIX) {
+            self.previous_data.insert(channel.to_string());
+        } else if let Some(channel) = name.strip_prefix(EVENT_DOMAIN_PREFIX) {
+            self.current_domain.insert(channel.to_string());
+        } else if let Some(channel) = name.strip_prefix(START_DOMAIN_PREFIX) {
+            self.start_domain.insert(channel.to_string());
+        }
+    }
+}
+
+/// Scan binding filter/assignment expressions for reserved interaction columns.
+pub fn scan_interaction_columns(exprs: &[Expr]) -> InteractionColumnRequests {
+    let mut requests = InteractionColumnRequests::default();
+    for expr in exprs {
+        let _ = expr.apply(|node| {
+            if let Expr::Column(column) = node {
+                requests.record_column(&column.name);
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
+    }
+    requests
 }
 
 fn expr_node(expr: Expr, label: &str) -> LogicalExprNode {
@@ -457,6 +612,54 @@ mod tests {
 
         let err = binding.validate().expect_err("duplicate assignment");
         assert!(err.to_string().contains("more than once"));
+    }
+
+    #[test]
+    fn interaction_helpers_produce_expected_column_names() {
+        assert_eq!(event_coord_column_name("x"), "__event_coord_x".to_string());
+        assert_eq!(
+            event_at_start_coord_column_name("y"),
+            "__event_at_start_coord_y".to_string()
+        );
+        assert_eq!(
+            start_domain_column_name("x"),
+            "__start_domain_x".to_string()
+        );
+        // The public helper expressions reference those reserved columns.
+        assert_eq!(event_data("x"), col("__event_coord_x"));
+        assert_eq!(start_domain("y"), col("__start_domain_y"));
+    }
+
+    #[test]
+    fn domain_helpers_build_valid_expressions() {
+        // domain_interval builds a two-element list; domain_start/end index it.
+        let interval = domain_interval(lit(2.0), lit(8.0));
+        let start = domain_start(start_domain("x"));
+        let end = domain_end(start_domain("x"));
+        // These must serialize as ordinary DataFusion expressions.
+        for expr in [interval, start, end] {
+            LogicalExprNode::from_expr(expr).expect("interaction domain expr serializes");
+        }
+    }
+
+    #[test]
+    fn scan_detects_requested_interaction_columns() {
+        let requests = scan_interaction_columns(&[
+            event_at_start_data("x") - start_data("x"),
+            domain_start(start_domain("x")),
+        ]);
+        assert!(requests.event_at_start_data.contains("x"));
+        assert!(requests.start_data.contains("x"));
+        assert!(requests.start_domain.contains("x"));
+        assert!(requests.current_data.is_empty());
+        assert!(!requests.is_empty());
+        assert!(requests.all_channels().contains("x"));
+    }
+
+    #[test]
+    fn scan_without_coordinate_helpers_is_empty() {
+        let requests = scan_interaction_columns(&[x() - start_x(), button().eq(lit("left"))]);
+        assert!(requests.is_empty());
     }
 
     #[test]

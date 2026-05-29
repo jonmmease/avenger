@@ -7,8 +7,9 @@ use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    AvengerChartError, AxisSpec, CompiledMark, CompiledMarkState, CompiledSubplotChildPlot,
-    CoordinateGuide, CoordinateSystem, IntoExpr, Legend, Mark, Param, SubplotChildPlotSpec, Theme,
+    AvengerChartError, AxisSpec, CompiledMark, CompiledMarkState, CompiledParamSpec,
+    CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, IntoExpr, Legend, Mark, Param,
+    Sharing, SubplotChildPlotSpec, Theme,
 };
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
 
@@ -54,8 +55,8 @@ pub struct Plot<C: CoordinateSystem> {
     /// Guide configuration
     pub(crate) guide_config: Option<C::Guide>,
 
-    /// Parameters that can be used in expressions
-    pub(crate) params: Vec<Param>,
+    /// Parameters that can be used in expressions, with their sharing scope.
+    pub(crate) param_specs: Vec<CompiledParamSpec>,
 
     /// Plot-level event bindings that patch params in chart apps
     pub(crate) event_bindings: Vec<ChartEventBinding>,
@@ -95,7 +96,7 @@ impl<C: CoordinateSystem> Plot<C> {
             subtitle: None,
             theme: None,
             guide_config: None,
-            params: Vec::new(),
+            param_specs: Vec::new(),
             event_bindings: Vec::new(),
         }
     }
@@ -210,11 +211,24 @@ impl<C: CoordinateSystem> Plot<C> {
             None => None,
         };
 
-        // Build default params for scale building
-        let default_params: IndexMap<String, ScalarValue> = self
-            .params
-            .iter()
-            .map(|p| (p.name.clone(), p.default.clone()))
+        // Build param specs (preserving declaration order) and reject duplicate
+        // names regardless of whether they came from add_param or
+        // add_param_with_sharing.
+        let mut param_specs: IndexMap<String, CompiledParamSpec> = IndexMap::new();
+        for spec in &self.param_specs {
+            if param_specs.contains_key(&spec.name) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Duplicate plot parameter '{}'",
+                    spec.name
+                )));
+            }
+            param_specs.insert(spec.name.clone(), spec.clone());
+        }
+
+        // Derive the flat default-param map for existing callers from the specs.
+        let default_params: IndexMap<String, ScalarValue> = param_specs
+            .values()
+            .map(|spec| (spec.name.clone(), spec.default.clone()))
             .collect();
 
         // 5. Build CompiledPlot (we do not store a persistent ScaleBuilder; it is
@@ -233,6 +247,7 @@ impl<C: CoordinateSystem> Plot<C> {
             scale_specs,
             data: data_plan_node,
             default_params,
+            param_specs,
             event_bindings: self.event_bindings,
         })
     }
@@ -254,15 +269,31 @@ impl<C: CoordinateSystem> Plot<C> {
         self
     }
 
-    /// Add a parameter that can be used in plot expressions
+    /// Add a parameter that can be used in plot expressions.
+    ///
+    /// The parameter is globally shared (`Sharing::Shared`), matching the
+    /// historical single-value behavior. Use [`Plot::add_param_with_sharing`] to
+    /// register a parameter with a finer-grained facet sharing scope.
     pub fn add_param(mut self, param: Param) -> Self {
-        self.params.push(param);
+        self.param_specs.push(CompiledParamSpec::shared(&param));
         self
     }
 
-    /// Add multiple parameters at once
+    /// Add multiple parameters at once, all globally shared.
     pub fn add_params(mut self, params: impl IntoIterator<Item = Param>) -> Self {
-        self.params.extend(params);
+        self.param_specs
+            .extend(params.into_iter().map(|p| CompiledParamSpec::shared(&p)));
+        self
+    }
+
+    /// Add a parameter with an explicit facet sharing scope.
+    ///
+    /// `Sharing::Free`/`Level(0)` gives one value per leaf coordinate scope,
+    /// `Sharing::Level(N)` shares per logical ancestor `N` levels up, and
+    /// `Sharing::Shared` keeps one global value.
+    pub fn add_param_with_sharing(mut self, param: Param, sharing: Sharing) -> Self {
+        self.param_specs
+            .push(CompiledParamSpec::new(&param, sharing));
         self
     }
 

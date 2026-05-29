@@ -99,7 +99,9 @@ pub use container_sharing::{
 pub use coord_measurement::{CoordMeasurement, EmptyCoordMeasurement};
 pub use coordinate_guide::{CompiledGuide, CoordinateGuide, GuideSharingContext};
 pub use coordinate_system::{CoordinateSystem, CoordinateSystemCore};
-pub use coordinate_transform::{CoordinateSystemTransform, CoordinateSystemTransformCore};
+pub use coordinate_transform::{
+    CoordinateSystemTransform, CoordinateSystemTransformCore, InteractionPointInversionRequest,
+};
 pub use coordination_values::{CoordinatedLayout, CoordinatedOverflow};
 pub use data_context::DataContext;
 pub use datafusion_physical_eval::{
@@ -170,7 +172,7 @@ pub use mark_state::{CompiledMarkState, MarkState};
 pub use maybe::{Maybe, MaybeOptionalExpr};
 pub use no_guide::NoGuide;
 pub use overflow::{MeasurementResult, OverflowSpaceRequirement};
-pub use param::Param;
+pub use param::{CompiledParamSpec, Param};
 pub use position_config::{GenericPositionConfig, PositionConfig};
 pub use radius_expression::RadiusExpression;
 pub use resolved_domain::ResolvedDomain;

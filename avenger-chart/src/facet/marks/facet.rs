@@ -992,6 +992,7 @@ fn build_physical_wrap_subplot(
         scale_specs: Default::default(),
         data: None,
         default_params: compiled_subplot.default_params.clone(),
+        param_specs: compiled_subplot.param_specs.clone(),
         event_bindings: Vec::new(),
     }))
 }

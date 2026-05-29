@@ -6,14 +6,18 @@ use std::{
 use async_trait::async_trait;
 use avenger_app::error::AvengerAppError;
 use avenger_chart::{
-    event::{self, ChartEventBinding, ChartEventEvaluationMode, ChartEventStream, ChartEventType},
-    plot::CompiledPlot,
-    render::EvaluationMode,
+    event::{
+        self, ChartEventBinding, ChartEventEvaluationMode, ChartEventStream, ChartEventType,
+        InteractionColumnRequests,
+    },
+    plot::{CompiledPlot, ScopedParamAssignment, ScopedParamStoreSnapshot},
+    render::{EvaluatedInteractionScope, EvaluationMode},
     serialization::LogicalExprNodeExt,
 };
 use avenger_chart_core::{
-    CompiledScalarExpressionProgram, PhysicalScalarExpressionSpec, PhysicalScalarProgramOptions,
-    PlaceholderColumn, collect_placeholder_ids, one_row_batch_from_scalars, schema_from_fields,
+    CompiledParamSpec, CompiledScalarExpressionProgram, InteractionPointInversionRequest,
+    PhysicalScalarExpressionSpec, PhysicalScalarProgramOptions, PlaceholderColumn, Sharing,
+    collect_placeholder_ids, one_row_batch_from_scalars, schema_from_fields,
 };
 use avenger_common::time::Instant;
 use avenger_eventstream::{
@@ -52,14 +56,14 @@ pub(crate) fn event_streams_for_plot_bindings(
     event_streams_for_bindings(
         compiled_plot.event_bindings(),
         ctx,
-        compiled_plot.get_default_params(),
+        compiled_plot.param_specs(),
     )
 }
 
 pub(crate) fn event_streams_for_bindings(
     bindings: &[ChartEventBinding],
     ctx: &SessionContext,
-    default_params: &IndexMap<String, ScalarValue>,
+    param_specs: &IndexMap<String, CompiledParamSpec>,
 ) -> Result<
     Vec<(
         EventStreamConfig,
@@ -73,7 +77,7 @@ pub(crate) fn event_streams_for_bindings(
             binding_index,
             binding,
             ctx,
-            default_params,
+            param_specs,
         )?);
         streams.push((
             runtime.event_stream_config.clone(),
@@ -86,7 +90,7 @@ pub(crate) fn event_streams_for_bindings(
         if binding.settle_exact {
             if let Some(between) = &binding.between {
                 let end_config =
-                    stream_config_for_chart_stream(&between.end, None, false, ctx, default_params)?;
+                    stream_config_for_chart_stream(&between.end, None, false, ctx, param_specs)?;
                 streams.push((
                     end_config,
                     Arc::new(ChartEventExactOnlyHandler)
@@ -105,10 +109,12 @@ struct CompiledChartEventBinding {
     filter_count: usize,
     assignments: Vec<CompiledParamAssignment>,
     evaluation_mode: ChartEventEvaluationMode,
+    interaction_requests: InteractionColumnRequests,
 }
 
 struct CompiledParamAssignment {
     param_name: String,
+    sharing: Sharing,
 }
 
 impl CompiledChartEventBinding {
@@ -116,13 +122,13 @@ impl CompiledChartEventBinding {
         binding_index: usize,
         binding: &ChartEventBinding,
         ctx: &SessionContext,
-        default_params: &IndexMap<String, ScalarValue>,
+        param_specs: &IndexMap<String, CompiledParamSpec>,
     ) -> Result<Self, AvengerAppError> {
         binding
             .validate()
             .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
         for assignment in &binding.assignments {
-            if !default_params.contains_key(&assignment.param_name) {
+            if !param_specs.contains_key(&assignment.param_name) {
                 return Err(AvengerAppError::InternalError(format!(
                     "Chart event binding assigns unknown param '{}'",
                     assignment.param_name
@@ -130,20 +136,40 @@ impl CompiledChartEventBinding {
             }
         }
 
-        let schema = event_schema(default_params);
+        // Convert filter and assignment expressions once so we can scan them for
+        // reserved interaction columns before building the event schema.
+        let mut filter_exprs = Vec::new();
+        for filter in &binding.filters {
+            filter_exprs.push(
+                filter
+                    .to_expr(ctx)
+                    .map_err(|err| AvengerAppError::InternalError(err.to_string()))?,
+            );
+        }
+        let mut assignment_exprs = Vec::new();
+        for assignment in &binding.assignments {
+            let expr = assignment
+                .expr
+                .to_expr(ctx)
+                .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
+            assignment_exprs.push((assignment.param_name.clone(), expr));
+        }
+
+        let mut scan_exprs = filter_exprs.clone();
+        scan_exprs.extend(assignment_exprs.iter().map(|(_, expr)| expr.clone()));
+        let interaction_requests = event::scan_interaction_columns(&scan_exprs);
+
+        let schema = event_schema(param_specs, &interaction_requests);
         let allowed_columns = schema
             .fields()
             .iter()
             .map(|field| field.name().clone())
             .collect::<HashSet<_>>();
-        let placeholder_columns = default_params.keys().map(|param| {
+        let placeholder_columns = param_specs.keys().map(|param| {
             PlaceholderColumn::new(format!("${param}"), event::param_column_name(param))
         });
         let mut specs = Vec::new();
-        for (index, filter) in binding.filters.iter().enumerate() {
-            let expr = filter
-                .to_expr(ctx)
-                .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
+        for (index, expr) in filter_exprs.into_iter().enumerate() {
             specs.push(
                 PhysicalScalarExpressionSpec::new(format!("filter_{index}"), expr)
                     .with_expected_type(DataType::Boolean),
@@ -151,25 +177,20 @@ impl CompiledChartEventBinding {
         }
         let filter_count = specs.len();
         let mut assignments = Vec::new();
-        for assignment in &binding.assignments {
-            let expr = assignment
-                .expr
-                .to_expr(ctx)
-                .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
-            let target_type = default_params
-                .get(&assignment.param_name)
-                .expect("assignment param validated")
-                .data_type();
+        for (param_name, expr) in assignment_exprs {
+            let spec = param_specs
+                .get(&param_name)
+                .expect("assignment param validated");
+            let target_type = spec.default.data_type();
+            let sharing = spec.sharing;
             specs.push(
-                PhysicalScalarExpressionSpec::new(
-                    format!("assign_{}", assignment.param_name),
-                    expr,
-                )
-                .with_expected_type(target_type)
-                .with_nullable_cast(),
+                PhysicalScalarExpressionSpec::new(format!("assign_{param_name}"), expr)
+                    .with_expected_type(target_type)
+                    .with_nullable_cast(),
             );
             assignments.push(CompiledParamAssignment {
-                param_name: assignment.param_name.clone(),
+                param_name,
+                sharing,
             });
         }
         let program = CompiledScalarExpressionProgram::compile(
@@ -181,7 +202,7 @@ impl CompiledChartEventBinding {
                 .with_placeholder_columns(placeholder_columns),
         )
         .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
-        let event_stream_config = event_stream_config_for_binding(binding, ctx, default_params)?;
+        let event_stream_config = event_stream_config_for_binding(binding, ctx, param_specs)?;
 
         Ok(Self {
             binding_index,
@@ -190,6 +211,7 @@ impl CompiledChartEventBinding {
             filter_count,
             assignments,
             evaluation_mode: binding.evaluation_mode,
+            interaction_requests,
         })
     }
 }
@@ -197,8 +219,10 @@ impl CompiledChartEventBinding {
 #[derive(Default)]
 struct ChartEventBindingState {
     active_start: Option<Instant>,
-    start_params: Option<IndexMap<String, ScalarValue>>,
-    previous_params: Option<IndexMap<String, ScalarValue>>,
+    start_params: Option<ScopedParamStoreSnapshot>,
+    previous_params: Option<ScopedParamStoreSnapshot>,
+    start_scope: Option<EvaluatedInteractionScope>,
+    previous_scope: Option<EvaluatedInteractionScope>,
 }
 
 struct ChartEventBindingHandler {
@@ -226,26 +250,124 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
     ) -> UpdateStatus {
         let mut app = state.runtime.lock().await;
         let eval_start = Instant::now();
-        let current_params = app.session.params().clone();
-        let (start_params, previous_params) = {
+
+        let requests = &self.runtime.interaction_requests;
+        let required_channels = requests.all_channels();
+        let routing_enabled = !requests.is_empty();
+
+        // Route the current event position to a coordinate scope.
+        let current_scope: Option<EvaluatedInteractionScope> = if routing_enabled {
+            match route_interaction_scope(
+                &app.last_interaction_state.scopes,
+                event.position(),
+                &required_channels,
+            ) {
+                InteractionRoute::Scope(scope) => Some(scope.clone()),
+                InteractionRoute::None | InteractionRoute::Ambiguous => None,
+            }
+        } else {
+            None
+        };
+
+        // Freeze scoped params and the start scope at a new gesture start.
+        {
             let mut binding_state = self
                 .state
                 .lock()
                 .expect("chart event binding lock poisoned");
-            update_binding_gesture_state(&mut binding_state, context, &current_params);
+            match &context.start_event {
+                Some(start) if binding_state.active_start != Some(start.instant) => {
+                    binding_state.active_start = Some(start.instant);
+                    binding_state.start_params = Some(app.session.snapshot_scoped_params());
+                    binding_state.start_scope = if routing_enabled {
+                        match route_interaction_scope(
+                            &app.last_interaction_state.scopes,
+                            start.event.position(),
+                            &required_channels,
+                        ) {
+                            InteractionRoute::Scope(scope) => Some(scope.clone()),
+                            InteractionRoute::None | InteractionRoute::Ambiguous => None,
+                        }
+                    } else {
+                        None
+                    };
+                    binding_state.previous_params = None;
+                    binding_state.previous_scope = None;
+                }
+                None => {
+                    binding_state.active_start = None;
+                    binding_state.start_params = None;
+                    binding_state.start_scope = None;
+                }
+                _ => {}
+            }
+        }
+
+        let (start_snapshot, previous_snapshot, start_scope, previous_scope) = {
+            let binding_state = self
+                .state
+                .lock()
+                .expect("chart event binding lock poisoned");
             (
                 binding_state.start_params.clone(),
                 binding_state.previous_params.clone(),
+                binding_state.start_scope.clone(),
+                binding_state.previous_scope.clone(),
             )
         };
+
+        // Resolve effective params for the current/start/previous scopes.
+        let current_owner_paths = current_scope
+            .as_ref()
+            .map(|scope| scope.sharing_owner_paths.clone())
+            .unwrap_or_default();
+        let current_params = app
+            .session
+            .effective_params_for_owner_paths(&current_owner_paths);
+        let start_params = start_snapshot.as_ref().map(|snapshot| {
+            let owner_paths = start_scope
+                .as_ref()
+                .map(|scope| scope.sharing_owner_paths.clone())
+                .unwrap_or_default();
+            app.session
+                .effective_params_from_snapshot(snapshot, &owner_paths)
+        });
+        let previous_params = previous_snapshot.as_ref().map(|snapshot| {
+            let owner_paths = previous_scope
+                .as_ref()
+                .map(|scope| scope.sharing_owner_paths.clone())
+                .unwrap_or_default();
+            app.session
+                .effective_params_from_snapshot(snapshot, &owner_paths)
+        });
+
+        // Derive requested coordinate/domain columns from the routed scopes.
+        let interaction_values = compute_interaction_values(
+            requests,
+            event.position(),
+            context
+                .start_event
+                .as_ref()
+                .and_then(|s| s.event.position()),
+            context
+                .previous_event
+                .as_ref()
+                .and_then(|p| p.event.position()),
+            current_scope.as_ref(),
+            start_scope.as_ref(),
+            previous_scope.as_ref(),
+        );
 
         let batch = match event_record_batch(
             self.runtime.program.schema().clone(),
             event,
             context,
-            &current_params,
-            start_params.as_ref(),
-            previous_params.as_ref(),
+            EventBatchInputs {
+                current_params: &current_params,
+                start_params: start_params.as_ref(),
+                previous_params: previous_params.as_ref(),
+                interaction_values: &interaction_values,
+            },
         ) {
             Ok(batch) => batch,
             Err(err) => {
@@ -286,15 +408,45 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
         }
         app.event_metrics.filter_passes += 1;
 
-        let mut patch = IndexMap::new();
+        let mut patch: Vec<ScopedParamAssignment> = Vec::new();
         for (assignment, value) in self
             .runtime
             .assignments
             .iter()
             .zip(values[self.runtime.filter_count..].iter())
         {
-            if app.session.params().get(&assignment.param_name) != Some(value) {
-                patch.insert(assignment.param_name.clone(), value.clone());
+            // Derived interaction columns are null when the gesture has no routed
+            // scope (e.g. a drag that started outside any plot area). Such an
+            // assignment evaluates to a null or null-element value; writing it
+            // would corrupt the target param, so treat it as a no-op.
+            if !assignment_value_is_writable(value) {
+                tracing::debug!(
+                    target: "avenger_chart_app::event_binding",
+                    binding = self.runtime.binding_index,
+                    param = %assignment.param_name,
+                    "skipping null/degenerate assignment value"
+                );
+                continue;
+            }
+            let Some(owner_path) =
+                assignment_owner_path(assignment.sharing, current_scope.as_ref())
+            else {
+                // Non-shared param with no routed scope: skip rather than write
+                // to the wrong owner.
+                tracing::debug!(
+                    target: "avenger_chart_app::event_binding",
+                    binding = self.runtime.binding_index,
+                    param = %assignment.param_name,
+                    "skipping scoped assignment with no routed scope"
+                );
+                continue;
+            };
+            if current_params.get(&assignment.param_name) != Some(value) {
+                patch.push(ScopedParamAssignment {
+                    name: assignment.param_name.clone(),
+                    owner_path,
+                    value: value.clone(),
+                });
             }
         }
 
@@ -302,7 +454,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
         if !patch.is_empty() {
             app.event_metrics.param_patch_events += 1;
             app.event_metrics.params_patched += patch.len();
-            app.session.apply_param_patch(patch);
+            app.session.apply_scoped_param_patch(patch);
         }
         if self.runtime.assignments.is_empty()
             && self.runtime.evaluation_mode == ChartEventEvaluationMode::Exact
@@ -337,7 +489,8 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                 .state
                 .lock()
                 .expect("chart event binding lock poisoned");
-            binding_state.previous_params = Some(app.session.params().clone());
+            binding_state.previous_params = Some(app.session.snapshot_scoped_params());
+            binding_state.previous_scope = current_scope.clone();
         }
 
         UpdateStatus {
@@ -370,21 +523,194 @@ impl EventStreamHandler<ChartAppState> for ChartEventExactOnlyHandler {
     }
 }
 
-fn update_binding_gesture_state(
-    state: &mut ChartEventBindingState,
-    context: &EventStreamContext,
-    current_params: &IndexMap<String, ScalarValue>,
-) {
-    if let Some(start) = &context.start_event {
-        if state.active_start != Some(start.instant) {
-            state.active_start = Some(start.instant);
-            state.start_params = Some(current_params.clone());
-            state.previous_params = None;
+/// Whether an assignment's evaluated value is safe to write to a param.
+///
+/// Derived interaction columns are null when a gesture has no routed scope, which
+/// makes domain-list expressions evaluate to a null or null-element list. Writing
+/// those would corrupt the target param (and can fail downstream scale building),
+/// so they are treated as no-ops, matching the "null derived columns => no-op"
+/// contract.
+fn assignment_value_is_writable(value: &ScalarValue) -> bool {
+    use datafusion::arrow::array::Array;
+    match value {
+        ScalarValue::Null => false,
+        ScalarValue::List(array) => {
+            if array.is_empty() || array.is_null(0) {
+                return false;
+            }
+            let elements = array.value(0);
+            elements.len() >= 2 && elements.null_count() == 0
         }
-    } else {
-        state.active_start = None;
-        state.start_params = None;
+        ScalarValue::LargeList(array) => {
+            if array.is_empty() || array.is_null(0) {
+                return false;
+            }
+            let elements = array.value(0);
+            elements.len() >= 2 && elements.null_count() == 0
+        }
+        ScalarValue::FixedSizeList(array) => {
+            if array.is_empty() || array.is_null(0) {
+                return false;
+            }
+            let elements = array.value(0);
+            elements.null_count() == 0
+        }
+        other => !other.is_null(),
     }
+}
+
+/// Resolve the owner path an assignment should write, given the routed scope.
+///
+/// `Shared` params always write the root path. Non-shared params require a
+/// routed scope; without one, returns `None` so the caller skips the write.
+fn assignment_owner_path(
+    sharing: Sharing,
+    scope: Option<&EvaluatedInteractionScope>,
+) -> Option<Vec<ScalarValue>> {
+    let level = sharing.to_level();
+    if level == u8::MAX {
+        return Some(Vec::new());
+    }
+    match scope {
+        Some(scope) => Some(
+            scope
+                .sharing_owner_paths
+                .get(&level)
+                .cloned()
+                .unwrap_or_default(),
+        ),
+        None => None,
+    }
+}
+
+/// Invert a scene-space point through a scope's coordinate transform.
+fn invert_scene_point(
+    scope: &EvaluatedInteractionScope,
+    scene_point: [f32; 2],
+    channels: &[&str],
+) -> Option<IndexMap<String, ScalarValue>> {
+    let local_point = [
+        scene_point[0] - scope.bounds.x,
+        scene_point[1] - scope.bounds.y,
+    ];
+    scope
+        .coord_transform
+        .invert_interaction_point(InteractionPointInversionRequest {
+            local_point,
+            plot_area_width: scope.plot_area_width,
+            plot_area_height: scope.plot_area_height,
+            channels,
+            scales: &scope.scales,
+        })
+        .ok()
+}
+
+/// Build a two-element `List(Float64)` domain scalar.
+fn domain_list_scalar(min: f32, max: f32) -> ScalarValue {
+    ScalarValue::List(ScalarValue::new_list(
+        &[
+            ScalarValue::Float64(Some(min as f64)),
+            ScalarValue::Float64(Some(max as f64)),
+        ],
+        &DataType::Float64,
+        true,
+    ))
+}
+
+/// Compute the requested derived coordinate/domain columns from routed scopes.
+#[allow(clippy::too_many_arguments)]
+fn compute_interaction_values(
+    requests: &InteractionColumnRequests,
+    current_point: Option<[f32; 2]>,
+    start_point: Option<[f32; 2]>,
+    previous_point: Option<[f32; 2]>,
+    current_scope: Option<&EvaluatedInteractionScope>,
+    start_scope: Option<&EvaluatedInteractionScope>,
+    previous_scope: Option<&EvaluatedInteractionScope>,
+) -> HashMap<String, ScalarValue> {
+    let mut values = HashMap::new();
+
+    let fill_coords = |values: &mut HashMap<String, ScalarValue>,
+                       channels: &std::collections::BTreeSet<String>,
+                       point: Option<[f32; 2]>,
+                       scope: Option<&EvaluatedInteractionScope>,
+                       name_fn: fn(&str) -> String| {
+        if channels.is_empty() {
+            return;
+        }
+        let (Some(point), Some(scope)) = (point, scope) else {
+            return;
+        };
+        let channel_refs: Vec<&str> = channels.iter().map(String::as_str).collect();
+        if let Some(inverted) = invert_scene_point(scope, point, &channel_refs) {
+            for channel in channels {
+                if let Some(value) = inverted.get(channel) {
+                    values.insert(name_fn(channel), value.clone());
+                }
+            }
+        }
+    };
+
+    fill_coords(
+        &mut values,
+        &requests.current_data,
+        current_point,
+        current_scope,
+        event::event_coord_column_name,
+    );
+    fill_coords(
+        &mut values,
+        &requests.start_data,
+        start_point,
+        start_scope,
+        event::start_coord_column_name,
+    );
+    // event_at_start uses the CURRENT point through the FROZEN start scope.
+    fill_coords(
+        &mut values,
+        &requests.event_at_start_data,
+        current_point,
+        start_scope,
+        event::event_at_start_coord_column_name,
+    );
+    fill_coords(
+        &mut values,
+        &requests.previous_data,
+        previous_point,
+        previous_scope,
+        event::previous_coord_column_name,
+    );
+
+    let fill_domains = |values: &mut HashMap<String, ScalarValue>,
+                        channels: &std::collections::BTreeSet<String>,
+                        scope: Option<&EvaluatedInteractionScope>,
+                        name_fn: fn(&str) -> String| {
+        let Some(scope) = scope else {
+            return;
+        };
+        for channel in channels {
+            if let Some(scale) = scope.scales.get(channel)
+                && let Ok((min, max)) = scale.numeric_interval_domain()
+            {
+                values.insert(name_fn(channel), domain_list_scalar(min, max));
+            }
+        }
+    };
+
+    fill_domains(
+        &mut values,
+        &requests.current_domain,
+        current_scope,
+        event::event_domain_column_name,
+    );
+    fill_domains(
+        &mut values,
+        &requests.start_domain,
+        start_scope,
+        event::start_domain_column_name,
+    );
+
+    values
 }
 
 fn filters_pass(values: &[ScalarValue]) -> bool {
@@ -394,10 +720,71 @@ fn filters_pass(values: &[ScalarValue]) -> bool {
     })
 }
 
+/// Result of routing a pointer event against interaction scopes.
+#[allow(dead_code)]
+pub(crate) enum InteractionRoute<'a> {
+    /// No event position, or no scope contained the point / supported the channels.
+    None,
+    /// A unique scope was selected.
+    Scope(&'a EvaluatedInteractionScope),
+    /// Multiple equal-priority scopes matched; coordinate columns stay null.
+    Ambiguous,
+}
+
+fn scope_contains_point(scope: &EvaluatedInteractionScope, point: [f32; 2]) -> bool {
+    let bounds = &scope.bounds;
+    point[0] >= bounds.x
+        && point[0] <= bounds.x + bounds.width
+        && point[1] >= bounds.y
+        && point[1] <= bounds.y + bounds.height
+}
+
+fn scope_area(scope: &EvaluatedInteractionScope) -> f32 {
+    scope.bounds.width * scope.bounds.height
+}
+
+/// Route a pointer position to the unique smallest-area coordinate scope that
+/// contains it and supports every requested channel.
+///
+/// Returns `None` when the event has no position or nothing matches, and
+/// `Ambiguous` when multiple equal-smallest-area scopes match.
+#[allow(dead_code)]
+pub(crate) fn route_interaction_scope<'a>(
+    scopes: &'a [EvaluatedInteractionScope],
+    point: Option<[f32; 2]>,
+    required_channels: &std::collections::BTreeSet<String>,
+) -> InteractionRoute<'a> {
+    let Some(point) = point else {
+        return InteractionRoute::None;
+    };
+    let mut candidates: Vec<&EvaluatedInteractionScope> = scopes
+        .iter()
+        .filter(|scope| {
+            scope_contains_point(scope, point)
+                && required_channels
+                    .iter()
+                    .all(|channel| scope.channels.iter().any(|c| c == channel))
+        })
+        .collect();
+    if candidates.is_empty() {
+        return InteractionRoute::None;
+    }
+    candidates.sort_by(|a, b| scope_area(a).total_cmp(&scope_area(b)));
+    let smallest = scope_area(candidates[0]);
+    let tied = candidates
+        .iter()
+        .filter(|scope| (scope_area(scope) - smallest).abs() < f32::EPSILON)
+        .count();
+    if tied > 1 {
+        return InteractionRoute::Ambiguous;
+    }
+    InteractionRoute::Scope(candidates[0])
+}
+
 fn event_stream_config_for_binding(
     binding: &ChartEventBinding,
     ctx: &SessionContext,
-    default_params: &IndexMap<String, ScalarValue>,
+    param_specs: &IndexMap<String, CompiledParamSpec>,
 ) -> Result<EventStreamConfig, AvengerAppError> {
     let mut config = EventStreamConfig {
         types: vec![SceneGraphEventType::from(binding.event_type)],
@@ -412,14 +799,14 @@ fn event_stream_config_for_binding(
                 None,
                 false,
                 ctx,
-                default_params,
+                param_specs,
             )?),
             Box::new(stream_config_for_chart_stream(
                 &between.end,
                 None,
                 false,
                 ctx,
-                default_params,
+                param_specs,
             )?),
         ));
     }
@@ -431,7 +818,7 @@ fn stream_config_for_chart_stream(
     throttle: Option<u64>,
     consume: bool,
     ctx: &SessionContext,
-    default_params: &IndexMap<String, ScalarValue>,
+    param_specs: &IndexMap<String, CompiledParamSpec>,
 ) -> Result<EventStreamConfig, AvengerAppError> {
     let mut config = EventStreamConfig {
         types: stream
@@ -453,7 +840,7 @@ fn stream_config_for_chart_stream(
         config.filter = Some(vec![compile_low_level_stream_filter(
             stream,
             ctx,
-            default_params,
+            param_specs,
         )?]);
     }
     Ok(config)
@@ -462,9 +849,12 @@ fn stream_config_for_chart_stream(
 fn compile_low_level_stream_filter(
     stream: &ChartEventStream,
     ctx: &SessionContext,
-    _default_params: &IndexMap<String, ScalarValue>,
+    _param_specs: &IndexMap<String, CompiledParamSpec>,
 ) -> Result<EventStreamFilter, AvengerAppError> {
-    let schema = event_schema(&IndexMap::new());
+    let schema = event_schema(
+        &IndexMap::new(),
+        &event::InteractionColumnRequests::default(),
+    );
     let allowed_columns = schema
         .fields()
         .iter()
@@ -498,13 +888,17 @@ fn compile_low_level_stream_filter(
     );
     Ok(EventStreamFilter::context(move |event, context, _rtree| {
         let params = IndexMap::new();
+        let interaction_values = HashMap::new();
         let batch = match event_record_batch(
             program.schema().clone(),
             event,
             context,
-            &params,
-            None,
-            None,
+            EventBatchInputs {
+                current_params: &params,
+                start_params: None,
+                previous_params: None,
+                interaction_values: &interaction_values,
+            },
         ) {
             Ok(batch) => batch,
             Err(_) => return false,
@@ -516,7 +910,10 @@ fn compile_low_level_stream_filter(
     }))
 }
 
-fn event_schema(default_params: &IndexMap<String, ScalarValue>) -> Arc<Schema> {
+fn event_schema(
+    param_specs: &IndexMap<String, CompiledParamSpec>,
+    interaction: &event::InteractionColumnRequests,
+) -> Arc<Schema> {
     let mut fields = vec![
         Field::new(event::EVENT_TYPE_FIELD, DataType::Utf8, true),
         Field::new(event::EVENT_X_FIELD, DataType::Float64, true),
@@ -546,8 +943,8 @@ fn event_schema(default_params: &IndexMap<String, ScalarValue>) -> Arc<Schema> {
         Field::new(event::ELAPSED_MS_FIELD, DataType::Float64, true),
         Field::new(event::PREVIOUS_ELAPSED_MS_FIELD, DataType::Float64, true),
     ];
-    for (name, value) in default_params {
-        let data_type = value.data_type();
+    for (name, spec) in param_specs {
+        let data_type = spec.default.data_type();
         fields.push(Field::new(
             event::param_column_name(name),
             data_type.clone(),
@@ -564,16 +961,69 @@ fn event_schema(default_params: &IndexMap<String, ScalarValue>) -> Arc<Schema> {
             true,
         ));
     }
+
+    // Derived coordinate columns invert to a single channel value (Float64).
+    for channel in interaction.current_data.iter() {
+        fields.push(Field::new(
+            event::event_coord_column_name(channel),
+            DataType::Float64,
+            true,
+        ));
+    }
+    for channel in interaction.start_data.iter() {
+        fields.push(Field::new(
+            event::start_coord_column_name(channel),
+            DataType::Float64,
+            true,
+        ));
+    }
+    for channel in interaction.event_at_start_data.iter() {
+        fields.push(Field::new(
+            event::event_at_start_coord_column_name(channel),
+            DataType::Float64,
+            true,
+        ));
+    }
+    for channel in interaction.previous_data.iter() {
+        fields.push(Field::new(
+            event::previous_coord_column_name(channel),
+            DataType::Float64,
+            true,
+        ));
+    }
+    // Derived domain columns are two-element numeric lists.
+    let domain_list_type = DataType::List(Arc::new(Field::new("item", DataType::Float64, true)));
+    for channel in interaction.current_domain.iter() {
+        fields.push(Field::new(
+            event::event_domain_column_name(channel),
+            domain_list_type.clone(),
+            true,
+        ));
+    }
+    for channel in interaction.start_domain.iter() {
+        fields.push(Field::new(
+            event::start_domain_column_name(channel),
+            domain_list_type.clone(),
+            true,
+        ));
+    }
+
     schema_from_fields(fields)
+}
+
+/// Pre-resolved inputs for building a one-row event batch.
+struct EventBatchInputs<'a> {
+    current_params: &'a IndexMap<String, ScalarValue>,
+    start_params: Option<&'a IndexMap<String, ScalarValue>>,
+    previous_params: Option<&'a IndexMap<String, ScalarValue>>,
+    interaction_values: &'a HashMap<String, ScalarValue>,
 }
 
 fn event_record_batch(
     schema: Arc<Schema>,
     event: &SceneGraphEvent,
     context: &EventStreamContext,
-    current_params: &IndexMap<String, ScalarValue>,
-    start_params: Option<&IndexMap<String, ScalarValue>>,
-    previous_params: Option<&IndexMap<String, ScalarValue>>,
+    inputs: EventBatchInputs<'_>,
 ) -> Result<RecordBatch, DataFusionError> {
     let mut values = HashMap::new();
     push_event_values(&mut values, event, "");
@@ -595,18 +1045,22 @@ fn event_record_batch(
             ScalarValue::Float64(Some(duration_ms(current.instant, previous.instant))),
         );
     }
-    for (name, value) in current_params {
+    for (name, value) in inputs.current_params {
         values.insert(event::param_column_name(name), value.clone());
     }
-    if let Some(start_params) = start_params {
+    if let Some(start_params) = inputs.start_params {
         for (name, value) in start_params {
             values.insert(event::start_param_column_name(name), value.clone());
         }
     }
-    if let Some(previous_params) = previous_params {
+    if let Some(previous_params) = inputs.previous_params {
         for (name, value) in previous_params {
             values.insert(event::previous_param_column_name(name), value.clone());
         }
+    }
+    // Derived interaction columns are filled by name; absent columns become null.
+    for (name, value) in inputs.interaction_values {
+        values.insert(name.clone(), value.clone());
     }
     one_row_batch_from_scalars(schema, &values)
 }
@@ -830,13 +1284,354 @@ fn duration_ms(current: Instant, previous: Instant) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
+    use avenger_chart::layout::LayoutBounds;
     use avenger_chart::prelude::*;
+    use avenger_chart::render::{InteractionScopeId, InteractionScopeKind};
     use avenger_eventstream::{
         scene::{SceneCursorMovedEvent, SceneMouseDownEvent},
         window::{CanvasResizeEvent, MouseButton},
     };
 
     use super::*;
+
+    fn coord_scope(
+        id: usize,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        channels: &[&str],
+    ) -> EvaluatedInteractionScope {
+        EvaluatedInteractionScope {
+            id: InteractionScopeId(id),
+            kind: InteractionScopeKind::Coordinate,
+            bounds: LayoutBounds {
+                x,
+                y,
+                width,
+                height,
+            },
+            plot_area_width: width,
+            plot_area_height: height,
+            facet_path: Vec::new(),
+            coord_node_path: Vec::new(),
+            coord_transform: Box::new(Cartesian),
+            channels: channels.iter().map(|c| c.to_string()).collect(),
+            scales: HashMap::new(),
+            sharing_owner_paths: HashMap::new(),
+        }
+    }
+
+    fn channel_set(channels: &[&str]) -> BTreeSet<String> {
+        channels.iter().map(|c| c.to_string()).collect()
+    }
+
+    #[test]
+    fn route_returns_none_for_point_outside_scope() {
+        let scopes = vec![coord_scope(0, 50.0, 40.0, 300.0, 200.0, &["x", "y"])];
+        let channels = channel_set(&["x", "y"]);
+        assert!(matches!(
+            route_interaction_scope(&scopes, Some([100.0, 100.0]), &channels),
+            InteractionRoute::Scope(_)
+        ));
+        assert!(matches!(
+            route_interaction_scope(&scopes, Some([10.0, 10.0]), &channels),
+            InteractionRoute::None
+        ));
+        assert!(matches!(
+            route_interaction_scope(&scopes, None, &channels),
+            InteractionRoute::None
+        ));
+    }
+
+    #[test]
+    fn route_requires_all_channels_supported() {
+        let scopes = vec![coord_scope(0, 0.0, 0.0, 100.0, 100.0, &["x"])];
+        // The scope only supports x, so a binding needing y must not match it.
+        assert!(matches!(
+            route_interaction_scope(&scopes, Some([10.0, 10.0]), &channel_set(&["x", "y"])),
+            InteractionRoute::None
+        ));
+    }
+
+    #[test]
+    fn route_picks_smallest_area_scope() {
+        let scopes = vec![
+            coord_scope(0, 0.0, 0.0, 400.0, 400.0, &["x", "y"]),
+            coord_scope(1, 50.0, 50.0, 100.0, 100.0, &["x", "y"]),
+        ];
+        match route_interaction_scope(&scopes, Some([100.0, 100.0]), &channel_set(&["x"])) {
+            InteractionRoute::Scope(scope) => assert_eq!(scope.id, InteractionScopeId(1)),
+            _ => panic!("expected the smaller nested scope to win"),
+        }
+    }
+
+    #[test]
+    fn route_is_ambiguous_for_equal_area_overlap() {
+        let scopes = vec![
+            coord_scope(0, 0.0, 0.0, 100.0, 100.0, &["x", "y"]),
+            coord_scope(1, 0.0, 0.0, 100.0, 100.0, &["x", "y"]),
+        ];
+        assert!(matches!(
+            route_interaction_scope(&scopes, Some([50.0, 50.0]), &channel_set(&["x"])),
+            InteractionRoute::Ambiguous
+        ));
+    }
+
+    fn x_pan_binding() -> ChartEventBinding {
+        let dx = event::event_at_start_data("x") - event::start_data("x");
+        ChartEventBinding::on(ChartEventType::CursorMoved)
+            .between(
+                ChartEventStream::on(ChartEventType::MouseDown)
+                    .filter(event::button().eq(lit("left"))),
+                ChartEventStream::on(ChartEventType::MouseUp),
+            )
+            .set_param(
+                "x_domain",
+                event::domain_interval(
+                    event::domain_start(event::start_domain("x")) - dx.clone(),
+                    event::domain_end(event::start_domain("x")) - dx,
+                ),
+            )
+            .preview()
+            .settle_exact()
+    }
+
+    async fn pan_state_and_handler() -> (ChartAppState, ChartEventBindingHandler) {
+        let ctx = SessionContext::new();
+        let x_domain = Param::raw_domain("x_domain");
+        let raw = x_domain.expr();
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (0.0, 0.0), (10.0, 10.0)) AS t(x, y)")
+            .await
+            .expect("data");
+        let binding = x_pan_binding();
+        let compiled = Plot::<Cartesian>::new()
+            .canvas_size(400.0, 300.0)
+            .data(df)
+            .add_param(x_domain.clone())
+            .mark(
+                Symbol::new()
+                    .x_with(col("x"), move |c| {
+                        c.scale_with::<Linear>(move |s| {
+                            s.raw_domain(raw.clone()).nice(false).zero(false)
+                        })
+                    })
+                    .y(col("y"))
+                    .size(20.0),
+            )
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile pan plot");
+        let policy = compiled.resize_policy();
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+        )
+        .expect("compile binding runtime");
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        (state, handler)
+    }
+
+    fn drag_x_domain_value(value: Option<&ScalarValue>) -> [f32; 2] {
+        use avenger_chart_core::ScalarValueHelpers;
+        match value {
+            Some(scalar) => scalar
+                .as_f32x2()
+                .expect("x_domain should be a 2-element list"),
+            None => panic!("x_domain missing"),
+        }
+    }
+
+    async fn pan_move(
+        state: &mut ChartAppState,
+        handler: &ChartEventBindingHandler,
+        gesture_instant: Instant,
+        start_pos: [f32; 2],
+        current_pos: [f32; 2],
+    ) -> UpdateStatus {
+        let start_event = EventStreamEventSnapshot {
+            event: SceneGraphEvent::MouseDown(SceneMouseDownEvent {
+                position: start_pos,
+                button: MouseButton::Left,
+                mark_instance: None,
+                modifiers: Default::default(),
+            }),
+            mark_instance: None,
+            instant: gesture_instant,
+        };
+        let context = EventStreamContext {
+            mark_instance: None,
+            current_event: None,
+            start_event: Some(start_event),
+            previous_event: None,
+        };
+        handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: current_pos,
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &context,
+                state,
+                &empty_rtree(),
+            )
+            .await
+    }
+
+    #[tokio::test]
+    async fn root_pan_updates_x_domain_param() {
+        use avenger_app::app::SceneGraphBuilder;
+
+        let (mut state, handler) = pan_state_and_handler().await;
+        // First evaluation populates the interaction scope.
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial build");
+        let scopes = state.interaction_scopes().await;
+        assert_eq!(
+            scopes.len(),
+            1,
+            "root Cartesian plot should export one scope"
+        );
+        let bounds = scopes[0].bounds;
+        let cx = bounds.x + bounds.width * 0.5;
+        let cy = bounds.y + bounds.height * 0.5;
+
+        let status = pan_move(
+            &mut state,
+            &handler,
+            Instant::now(),
+            [cx, cy],
+            [cx + 40.0, cy],
+        )
+        .await;
+        assert!(status.rerender, "a drag inside the plot should rerender");
+
+        let params = state.params().await;
+        let domain = drag_x_domain_value(params.get("x_domain"));
+        // Dragging the pointer to the right pans the view right, so the domain
+        // shifts left (toward negative) from the inferred [0, 10].
+        assert!(
+            domain[0] < 0.0 && domain[1] < 10.0,
+            "expected a left-shifted domain, got {domain:?}"
+        );
+        // The re-evaluation with the new raw domain should succeed.
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("preview build after pan");
+    }
+
+    #[tokio::test]
+    async fn root_pan_outside_plot_is_noop() {
+        use avenger_app::app::SceneGraphBuilder;
+
+        let (mut state, handler) = pan_state_and_handler().await;
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial build");
+        let bounds = state.interaction_scopes().await[0].bounds;
+        let default_domain = state.params().await.get("x_domain").cloned();
+
+        // Start the gesture well outside the plot area: the start point routes to
+        // no scope, so the derived start-domain columns are null. This must not
+        // corrupt the domain param or crash a subsequent build.
+        let outside = [bounds.x - 80.0, bounds.y - 80.0];
+        let status = pan_move(
+            &mut state,
+            &handler,
+            Instant::now(),
+            outside,
+            [outside[0] + 40.0, outside[1]],
+        )
+        .await;
+        assert!(!status.rerender, "an outside-start drag should be a no-op");
+        assert_eq!(
+            state.params().await.get("x_domain"),
+            default_domain.as_ref(),
+            "x_domain must be unchanged after an outside-start drag"
+        );
+        // A subsequent build must still succeed (no degenerate raw domain).
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("build after outside drag");
+    }
+
+    #[tokio::test]
+    async fn root_pan_preview_moves_match_single_move() {
+        use avenger_app::app::SceneGraphBuilder;
+
+        // One continuous gesture: three preview moves with a rebuild between each
+        // (as a real preview loop would do). The shared gesture instant keeps the
+        // start scope/domain frozen even as the raw-domain param changes.
+        let (mut multi_state, multi_handler) = pan_state_and_handler().await;
+        crate::ChartSceneGraphBuilder
+            .build(&mut multi_state)
+            .await
+            .expect("multi initial build");
+        let bounds = multi_state.interaction_scopes().await[0].bounds;
+        let cx = bounds.x + bounds.width * 0.5;
+        let cy = bounds.y + bounds.height * 0.5;
+        let gesture = Instant::now();
+        for offset in [10.0_f32, 25.0, 50.0] {
+            pan_move(
+                &mut multi_state,
+                &multi_handler,
+                gesture,
+                [cx, cy],
+                [cx + offset, cy],
+            )
+            .await;
+            // Rebuild in Preview mode, updating last_interaction_state with the
+            // shifted domain. The frozen start scope must avoid feedback.
+            crate::ChartSceneGraphBuilder
+                .build(&mut multi_state)
+                .await
+                .expect("preview build");
+        }
+        let multi_domain = drag_x_domain_value(multi_state.params().await.get("x_domain"));
+
+        // A fresh single-move gesture straight to the final position.
+        let (mut single_state, single_handler) = pan_state_and_handler().await;
+        crate::ChartSceneGraphBuilder
+            .build(&mut single_state)
+            .await
+            .expect("single initial build");
+        pan_move(
+            &mut single_state,
+            &single_handler,
+            Instant::now(),
+            [cx, cy],
+            [cx + 50.0, cy],
+        )
+        .await;
+        let single_domain = drag_x_domain_value(single_state.params().await.get("x_domain"));
+
+        // Because each preview move recomputes from the frozen start domain and
+        // start scale, the cumulative gesture (even with rebuilds) matches a
+        // single move to the same final position. This proves start framing does
+        // not feed back as the raw domain updates during the drag.
+        assert!(
+            (multi_domain[0] - single_domain[0]).abs() < 1e-3,
+            "multi {multi_domain:?} vs single {single_domain:?}"
+        );
+        assert!((multi_domain[1] - single_domain[1]).abs() < 1e-3);
+    }
 
     fn empty_rtree() -> SceneGraphRTree {
         use avenger_scenegraph::scene_graph::SceneGraph;
@@ -875,7 +1670,7 @@ mod tests {
             0,
             compiled.event_bindings().first().unwrap(),
             &ctx,
-            compiled.get_default_params(),
+            compiled.param_specs(),
         )
         .expect("compile binding runtime");
         ChartEventBindingHandler {
@@ -974,10 +1769,9 @@ mod tests {
         let handler = handler_for_binding(binding).await;
         {
             let mut binding_state = handler.state.lock().unwrap();
-            binding_state.previous_params = Some(IndexMap::from([(
-                "width".to_string(),
-                ScalarValue::Float64(Some(640.0)),
-            )]));
+            binding_state.previous_params = Some(ScopedParamStoreSnapshot::from_root_params(
+                IndexMap::from([("width".to_string(), ScalarValue::Float64(Some(640.0)))]),
+            ));
         }
         let now = Instant::now();
         let previous_event = EventStreamEventSnapshot {
@@ -1118,7 +1912,7 @@ mod tests {
             0,
             compiled.event_bindings().first().unwrap(),
             &ctx,
-            compiled.get_default_params(),
+            compiled.param_specs(),
         ) {
             Ok(_) => panic!("param columns should be rejected in low-level filters"),
             Err(err) => err,
@@ -1128,5 +1922,85 @@ mod tests {
             err.to_string()
                 .contains("Unknown physical scalar expression column")
         );
+    }
+
+    #[tokio::test]
+    async fn binding_with_coordinate_helper_adds_derived_schema_column() {
+        let x_domain = Param::raw_domain("x_domain");
+        let raw = x_domain.expr();
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .set_param(
+                &x_domain,
+                event::domain_interval(
+                    event::domain_start(raw.clone()) - event::event_at_start_data("x"),
+                    event::domain_end(raw) - event::event_at_start_data("x"),
+                ),
+            )
+            .preview();
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .add_param(x_domain.clone())
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+        )
+        .expect("compile binding runtime");
+
+        let has_column = |name: &str| {
+            runtime
+                .program
+                .schema()
+                .fields()
+                .iter()
+                .any(|f| f.name() == name)
+        };
+        assert!(
+            has_column("__event_at_start_coord_x"),
+            "expected derived event_at_start coord column in schema"
+        );
+        assert!(
+            runtime
+                .interaction_requests
+                .event_at_start_data
+                .contains("x")
+        );
+    }
+
+    #[tokio::test]
+    async fn binding_without_coordinate_helpers_adds_no_derived_columns() {
+        let binding = ChartEventBinding::on(ChartEventType::CanvasResize)
+            .set_param("width", event::canvas_width())
+            .preview();
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .add_param(Param::new("width", ScalarValue::Float64(Some(640.0))))
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+        )
+        .expect("compile binding runtime");
+
+        assert!(runtime.interaction_requests.is_empty());
+        let has_derived = runtime.program.schema().fields().iter().any(|f| {
+            f.name().starts_with("__event_coord_")
+                || f.name().starts_with("__start_coord_")
+                || f.name().starts_with("__event_at_start_coord_")
+                || f.name().starts_with("__previous_coord_")
+                || f.name().starts_with("__event_domain_")
+                || f.name().starts_with("__start_domain_")
+        });
+        assert!(!has_derived, "expected no derived interaction columns");
     }
 }

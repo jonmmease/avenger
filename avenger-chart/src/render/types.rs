@@ -1,7 +1,9 @@
 //! Core types for rendering pipeline
 
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
+use avenger_chart_core::CoordinateSystemTransform;
+use avenger_scales::scales::ConfiguredScale;
 use datafusion::common::ScalarValue;
 
 pub use avenger_chart_legend::{LegendMeasurement, LegendMeasurements};
@@ -599,10 +601,74 @@ impl LayoutSolution {
     }
 }
 
+/// Identifies one evaluated interaction scope within an `EvaluatedPlot`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct InteractionScopeId(pub usize);
+
+/// What kind of interaction surface a scope represents.
+///
+/// V1 only produces `Coordinate` scopes for Cartesian plot areas. `Container`
+/// is reserved for future facet-title/slot tools that will reuse this layer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InteractionScopeKind {
+    Coordinate,
+    Container,
+}
+
+/// A measured interaction scope exported from final plot/facet layout.
+///
+/// Bounds are in scene/canvas coordinates. Scales and the coordinate transform
+/// let the runtime invert pointer positions back into data/domain space.
+#[derive(Clone)]
+pub struct EvaluatedInteractionScope {
+    pub id: InteractionScopeId,
+    pub kind: InteractionScopeKind,
+    /// Scope bounds in scene/canvas coordinates.
+    pub bounds: LayoutBounds,
+    pub plot_area_width: f32,
+    pub plot_area_height: f32,
+    /// Full physical facet path for this scope (empty at the root).
+    pub facet_path: Vec<ScalarValue>,
+    /// Facet coord-node path for this scope (empty at the root).
+    pub coord_node_path: Vec<usize>,
+    /// Coordinate transform used to invert local points for this scope.
+    pub coord_transform: Box<dyn CoordinateSystemTransform>,
+    /// Coordinate channels this scope can invert.
+    pub channels: Vec<String>,
+    /// Configured scales keyed by coordinate channel.
+    pub scales: HashMap<String, ConfiguredScale>,
+    /// Logical sharing-owner paths keyed by sharing level for this scope.
+    pub sharing_owner_paths: HashMap<u8, Vec<ScalarValue>>,
+}
+
+impl std::fmt::Debug for EvaluatedInteractionScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EvaluatedInteractionScope")
+            .field("id", &self.id)
+            .field("kind", &self.kind)
+            .field("bounds", &self.bounds)
+            .field("plot_area_width", &self.plot_area_width)
+            .field("plot_area_height", &self.plot_area_height)
+            .field("facet_path", &self.facet_path)
+            .field("coord_node_path", &self.coord_node_path)
+            .field("channels", &self.channels)
+            .field("sharing_owner_paths", &self.sharing_owner_paths)
+            .finish_non_exhaustive()
+    }
+}
+
+/// All interaction scopes produced by one evaluation.
+#[derive(Clone, Debug, Default)]
+pub struct EvaluatedInteractionState {
+    pub scopes: Vec<EvaluatedInteractionScope>,
+}
+
 /// Result of evaluating a plot to scene graph components
 pub struct EvaluatedPlot {
     /// The complete scene graph ready for rendering
     pub scene_graph: SceneGraph,
     /// Spatial index for efficient hit testing
     pub rtree: Option<SceneGraphRTree>,
+    /// Interaction scopes for event routing and coordinate inversion.
+    pub interaction: EvaluatedInteractionState,
 }

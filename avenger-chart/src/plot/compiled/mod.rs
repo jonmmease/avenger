@@ -29,8 +29,8 @@ use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 use avenger_chart_core::{
-    AvengerChartError, AxisSpec, CompiledGuide, CompiledMark, CompiledSubplotChildPlot,
-    CompiledSubplotPayload, CoordMeasurement, CoordinateSystemTransform,
+    AvengerChartError, AxisSpec, CompiledGuide, CompiledMark, CompiledParamSpec,
+    CompiledSubplotChildPlot, CompiledSubplotPayload, CoordMeasurement, CoordinateSystemTransform,
     EvaluationContext as CoreEvaluationContext, Legend, ScaleRangeBinding, SerializableDataFrame,
     SerializableScalarMap, Theme, channel::strip_trailing_numbers,
 };
@@ -88,7 +88,9 @@ pub(crate) use self::mark_data_runtime::{
     LogicalMarkDataRequest, MarkDataRequest, PreparedMarkData, prepare_logical_mark_data,
     prepare_mark_data as prepare_mark_data_runtime,
 };
-pub use self::session::{EvaluationRequest, PlotSession};
+pub use self::session::{
+    EvaluationRequest, PlotSession, ScopedParamAssignment, ScopedParamStoreSnapshot,
+};
 pub(crate) use self::session::{
     GuideOverflowCacheHandle, LegendMeasurementCacheHandle, ScaleDomainCacheHandle,
     TextMeasurementCacheHandle, TextMeasurementCacheKey,
@@ -143,6 +145,13 @@ pub struct CompiledPlot {
     #[serde_as(as = "FromInto<SerializableScalarMap>")]
     pub(crate) default_params: IndexMap<String, ScalarValue>,
 
+    /// Param specs (name, default, sharing scope) keyed by name in declaration order.
+    ///
+    /// This is the source of truth for parameter sharing. `default_params` is
+    /// derived from it and retained for the existing flat-map accessors.
+    #[serde(default)]
+    pub(crate) param_specs: IndexMap<String, CompiledParamSpec>,
+
     /// Plot-level event bindings for chart apps.
     #[serde(default)]
     pub(crate) event_bindings: Vec<ChartEventBinding>,
@@ -179,6 +188,11 @@ impl CompiledPlot {
     /// Get default parameter values
     pub fn get_default_params(&self) -> &IndexMap<String, ScalarValue> {
         &self.default_params
+    }
+
+    /// Get the param specs (name, default, sharing) in declaration order.
+    pub fn param_specs(&self) -> &IndexMap<String, CompiledParamSpec> {
+        &self.param_specs
     }
 
     /// Get plot-level event bindings.
@@ -464,4 +478,11 @@ pub struct PlotComponents {
 
     /// Debug marks (layout visualization) - these are in absolute canvas coordinates
     pub debug_marks: Vec<avenger_scenegraph::marks::mark::SceneMark>,
+
+    /// Interaction scopes produced by this plot, in local scene coordinates.
+    ///
+    /// Container renderers (facets, concat, positioned subplots) translate child
+    /// scope bounds by the same origin used for the child scene group, the same
+    /// way they translate child scene marks.
+    pub interaction_scopes: Vec<crate::render::EvaluatedInteractionScope>,
 }

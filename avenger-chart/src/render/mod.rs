@@ -12,9 +12,11 @@ pub mod wgpu;
 pub use canvas::CanvasExt;
 pub use context::{EvaluationContext, RenderContext, RenderState};
 pub use types::{
-    CoordinationCheckpoint, EvaluatedPlot, EvaluationMetrics, EvaluationMode, EvaluationOptions,
-    FacetLayoutMetrics, FacetLayoutRefinement, FacetSubtreeCheckpoint, FacetSubtreeSelector,
-    FacetSubtreeSnapshot, LayoutDebugOverlayMode, LayoutSnapshot, LayoutSolution,
-    LegendMeasurements, PreviewProfileFallbackReason, RefinementCheckpoint, WholeChartSnapshot,
+    CoordinationCheckpoint, EvaluatedInteractionScope, EvaluatedInteractionState, EvaluatedPlot,
+    EvaluationMetrics, EvaluationMode, EvaluationOptions, FacetLayoutMetrics,
+    FacetLayoutRefinement, FacetSubtreeCheckpoint, FacetSubtreeSelector, FacetSubtreeSnapshot,
+    InteractionScopeId, InteractionScopeKind, LayoutDebugOverlayMode, LayoutSnapshot,
+    LayoutSolution, LegendMeasurements, PreviewProfileFallbackReason, RefinementCheckpoint,
+    WholeChartSnapshot,
 };
 pub use wgpu::WgpuRenderer;

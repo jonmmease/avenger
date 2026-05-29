@@ -15,7 +15,9 @@ use avenger_app::{
 use avenger_chart::{
     layout::{ChartResizeAxisPolicy, ChartResizePolicy},
     plot::{CompiledPlot, EvaluationRequest, PlotSession},
-    render::{EvaluationMetrics, EvaluationMode},
+    render::{
+        EvaluatedInteractionScope, EvaluatedInteractionState, EvaluationMetrics, EvaluationMode,
+    },
 };
 use avenger_eventstream::{
     manager::EventStreamHandler,
@@ -129,6 +131,9 @@ struct ChartAppRuntime {
     last_scene_size: Option<[f32; 2]>,
     accepted_resize_count: usize,
     event_metrics: ChartEventMetrics,
+    /// Interaction scopes from the most recent evaluation, used to route pointer
+    /// events to coordinate scopes for inversion.
+    last_interaction_state: EvaluatedInteractionState,
 }
 
 impl ChartAppState {
@@ -152,6 +157,7 @@ impl ChartAppState {
                 last_scene_size: None,
                 accepted_resize_count: 0,
                 event_metrics: ChartEventMetrics::default(),
+                last_interaction_state: EvaluatedInteractionState::default(),
             })),
         }
     }
@@ -182,6 +188,16 @@ impl ChartAppState {
 
     pub async fn event_metrics(&self) -> ChartEventMetrics {
         self.runtime.lock().await.event_metrics.clone()
+    }
+
+    /// Interaction scopes from the most recent evaluation (for tests/diagnostics).
+    pub async fn interaction_scopes(&self) -> Vec<EvaluatedInteractionScope> {
+        self.runtime
+            .lock()
+            .await
+            .last_interaction_state
+            .scopes
+            .clone()
     }
 }
 
@@ -283,6 +299,7 @@ impl SceneGraphBuilder<ChartAppState> for ChartSceneGraphBuilder {
         runtime.last_metrics = Some(metrics);
         runtime.last_evaluation_elapsed = Some(elapsed);
         runtime.last_scene_size = Some(scene_size);
+        runtime.last_interaction_state = evaluated.interaction;
         Ok(evaluated.scene_graph)
     }
 }
@@ -395,7 +412,7 @@ pub async fn chart_avenger_app(
     event_streams.extend(event_streams_for_bindings(
         &resize_bindings,
         ctx.as_ref(),
-        compiled_plot.get_default_params(),
+        compiled_plot.param_specs(),
     )?);
     let session = Arc::new(compiled_plot).instantiate(ctx);
     let exact_on_resize_settle = options.exact_on_resize_settle;

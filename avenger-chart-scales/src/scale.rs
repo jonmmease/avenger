@@ -323,8 +323,17 @@ async fn apply_raw_domain_override(
         return Ok(fallback_domain.clone());
     }
 
-    let [start, end] = raw_value.as_f32x2()?;
-    Ok(Arc::new(Float32Array::from(vec![start, end])) as ArrayRef)
+    // A raw-domain override produced by interaction expressions can contain null
+    // or non-finite elements (e.g. when a pan gesture's start point routed to no
+    // coordinate scope, leaving the derived start-domain columns null). Treat any
+    // such degenerate override as "no override" and fall back to the inferred or
+    // explicit domain rather than failing the whole evaluation.
+    match raw_value.as_f32x2() {
+        Ok([start, end]) if start.is_finite() && end.is_finite() && start != end => {
+            Ok(Arc::new(Float32Array::from(vec![start, end])) as ArrayRef)
+        }
+        _ => Ok(fallback_domain.clone()),
+    }
 }
 
 fn scalar_value_is_null(value: &ScalarValue) -> bool {
@@ -612,6 +621,50 @@ mod tests {
         let scale = Scale::<Linear>::new()
             .domain_interval(lit(0.0), lit(10.0))
             .raw_domain(lit(ScalarValue::Null))
+            .range_interval(lit(0.0), lit(100.0))
+            .nice(false);
+
+        let configured = scale
+            .create_configured_scale(400.0, 300.0, &ctx, &params)
+            .await
+            .unwrap();
+
+        assert_interval(configured.numeric_interval_domain().unwrap(), (0.0, 10.0));
+    }
+
+    #[tokio::test]
+    async fn raw_domain_with_null_elements_uses_default_domain() {
+        // A pan gesture that started outside any coordinate scope produces a
+        // domain list with null elements. This must fall back to the inferred
+        // domain rather than failing evaluation.
+        let ctx = SessionContext::new();
+        let params = IndexMap::new();
+        let scale = Scale::<Linear>::new()
+            .domain_interval(lit(0.0), lit(10.0))
+            .raw_domain(make_array(vec![
+                lit(ScalarValue::Float64(None)),
+                lit(ScalarValue::Float64(None)),
+            ]))
+            .range_interval(lit(0.0), lit(100.0))
+            .nice(false);
+
+        let configured = scale
+            .create_configured_scale(400.0, 300.0, &ctx, &params)
+            .await
+            .unwrap();
+
+        assert_interval(configured.numeric_interval_domain().unwrap(), (0.0, 10.0));
+    }
+
+    #[tokio::test]
+    async fn raw_domain_zero_width_uses_default_domain() {
+        // A degenerate (zero-width) raw domain must fall back rather than produce
+        // a divide-by-zero scale.
+        let ctx = SessionContext::new();
+        let params = IndexMap::new();
+        let scale = Scale::<Linear>::new()
+            .domain_interval(lit(0.0), lit(10.0))
+            .raw_domain(make_array(vec![lit(5.0), lit(5.0)]))
             .range_interval(lit(0.0), lit(100.0))
             .nice(false);
 

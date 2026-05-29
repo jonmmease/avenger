@@ -72,10 +72,11 @@ use crate::{
         FacetRuntimeSizingPolicy, FacetSubtreeSnapshotCapture,
     },
     render::{
-        CoordinationCheckpoint, EvaluatedPlot, EvaluationContext, EvaluationMetrics,
-        EvaluationOptions, FacetSubtreeCheckpoint, FacetSubtreeSelector, FacetSubtreeSnapshot,
-        LayoutDebugOverlayMode, LayoutSnapshot, LayoutSolution, PreviewProfileFallbackReason,
-        RefinementCheckpoint, RenderContext, WholeChartSnapshot,
+        CoordinationCheckpoint, EvaluatedInteractionScope, EvaluatedInteractionState,
+        EvaluatedPlot, EvaluationContext, EvaluationMetrics, EvaluationOptions,
+        FacetSubtreeCheckpoint, FacetSubtreeSelector, FacetSubtreeSnapshot, InteractionScopeId,
+        InteractionScopeKind, LayoutDebugOverlayMode, LayoutSnapshot, LayoutSolution,
+        PreviewProfileFallbackReason, RefinementCheckpoint, RenderContext, WholeChartSnapshot,
         debug::{FrameDebugOverlay, create_debug_layout_rects, create_debug_overlay_rects},
     },
     scales::ConfiguredScaleWithSpec,
@@ -4323,6 +4324,20 @@ impl CompiledPlot {
         let subtitle_mark_count = subtitle_marks.len();
         let debug_mark_count = debug_marks.len();
 
+        // Export a coordinate interaction scope when this coordinate system can
+        // invert pointer positions. Bounds are local to this plot's scene group;
+        // container renderers translate child scopes the same way they translate
+        // child scene marks. The root plot's local bounds are already scene-space.
+        let interaction_scopes = self.build_coordinate_interaction_scopes(
+            plot_bounds_struct,
+            plot_area_width,
+            plot_area_height,
+            &merged_scales,
+            facet_path,
+            eval_ctx.facet_coord_node_path().to_vec(),
+            HashMap::new(),
+        );
+
         let components = PlotComponents {
             data_marks,
             guide_marks,
@@ -4334,6 +4349,7 @@ impl CompiledPlot {
             size: canvas_size,
             size_is_canvas: !dimensions_are_plot_area,
             debug_marks,
+            interaction_scopes,
         };
         let build_elapsed = build_start.elapsed();
         eval_ctx.record_build_plot_components_duration(build_elapsed);
@@ -4360,6 +4376,56 @@ impl CompiledPlot {
         Ok(components)
     }
 
+    /// Build coordinate interaction scopes for this plot's coordinate system.
+    ///
+    /// Returns an empty vector unless the coordinate transform declares
+    /// interaction-invertible channels and a configured scale exists for every
+    /// requested channel. `bounds` are in this plot's local scene coordinates.
+    #[allow(clippy::too_many_arguments)]
+    fn build_coordinate_interaction_scopes(
+        &self,
+        bounds: LayoutBounds,
+        plot_area_width: f32,
+        plot_area_height: f32,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        facet_path: &[ScalarValue],
+        coord_node_path: Vec<usize>,
+        sharing_owner_paths: HashMap<u8, Vec<ScalarValue>>,
+    ) -> Vec<EvaluatedInteractionScope> {
+        let channels = self.coord_transform.interaction_invertible_channels();
+        if channels.is_empty() {
+            return Vec::new();
+        }
+        let mut channel_scales = HashMap::new();
+        for (scale_name, scale) in scales {
+            let coord = self
+                .scale_to_coord_channel
+                .get(scale_name)
+                .map(String::as_str)
+                .unwrap_or_else(|| avenger_chart_core::channel::strip_trailing_numbers(scale_name));
+            if channels.contains(&coord) {
+                channel_scales.insert(coord.to_string(), scale.configured().clone());
+            }
+        }
+        // Only export a scope when every requested channel has a configured scale.
+        if !channels.iter().all(|ch| channel_scales.contains_key(*ch)) {
+            return Vec::new();
+        }
+        vec![EvaluatedInteractionScope {
+            id: InteractionScopeId(0),
+            kind: InteractionScopeKind::Coordinate,
+            bounds,
+            plot_area_width,
+            plot_area_height,
+            facet_path: facet_path.to_vec(),
+            coord_node_path,
+            coord_transform: self.coord_transform.clone(),
+            channels: channels.iter().map(|channel| channel.to_string()).collect(),
+            scales: channel_scales,
+            sharing_owner_paths,
+        }]
+    }
+
     pub(crate) fn components_to_evaluated_plot(
         &self,
         eval_ctx: &EvaluationContext,
@@ -4369,6 +4435,15 @@ impl CompiledPlot {
         let convert_start = Instant::now();
         let plot_bounds = components.plot_bounds;
         let (final_width, final_height) = components.size;
+
+        // Assign stable ids to the exported interaction scopes.
+        let mut interaction_scopes = components.interaction_scopes;
+        for (index, scope) in interaction_scopes.iter_mut().enumerate() {
+            scope.id = InteractionScopeId(index);
+        }
+        let interaction = EvaluatedInteractionState {
+            scopes: interaction_scopes,
+        };
 
         let data_marks_group = SceneGroup {
             origin: [plot_bounds.x, plot_bounds.y],
@@ -4424,6 +4499,7 @@ impl CompiledPlot {
         let evaluated = EvaluatedPlot {
             scene_graph,
             rtree: Some(rtree),
+            interaction,
         };
         let convert_elapsed = convert_start.elapsed();
         eval_ctx.record_components_to_evaluated_plot_duration(convert_elapsed);
@@ -4561,6 +4637,7 @@ impl CompiledPlot {
     }
 
     fn pad_facet_subtree_snapshot(evaluated: EvaluatedPlot) -> EvaluatedPlot {
+        let mut interaction = evaluated.interaction;
         let original_scene = evaluated.scene_graph;
         let original_width = original_scene.width.max(1.0);
         let original_height = original_scene.height.max(1.0);
@@ -4597,9 +4674,15 @@ impl CompiledPlot {
             origin: [0.0, 0.0],
         };
         let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
+        // Shift interaction scope bounds to match the repositioned snapshot content.
+        for scope in interaction.scopes.iter_mut() {
+            scope.bounds.x += shift_x;
+            scope.bounds.y += shift_y;
+        }
         EvaluatedPlot {
             scene_graph,
             rtree: Some(rtree),
+            interaction,
         }
     }
 
