@@ -19,8 +19,9 @@ use avenger_scenegraph::{
     scene_graph::SceneGraph,
 };
 use image::imageops::crop_imm;
+use itertools::izip;
 use wgpu::{
-    Adapter, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer,
+    Adapter, BindGroup, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer,
     CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, LoadOp, MapMode, Operations,
     Origin3d, PowerPreference, Queue, RenderPassColorAttachment, RenderPassDescriptor,
     RequestAdapterError, RequestAdapterOptions, StoreOp, Surface, SurfaceConfiguration,
@@ -34,9 +35,9 @@ use crate::{
     error::AvengerWgpuError,
     marks::{
         instanced_mark::{InstancedMarkFingerprint, InstancedMarkRenderer},
-        multi::{MultiMarkRenderResources, MultiMarkRenderer},
+        multi::{is_axis_aligned_angle, MultiMarkRenderResources, MultiMarkRenderer},
         symbol::SymbolShader,
-        text::TextAtlasBuilderTrait,
+        text::{TextAtlasBuilderTrait, TextAtlasRegistration, TextInstance},
     },
     zindex_layers::compute_zindex_layers,
 };
@@ -113,6 +114,11 @@ pub trait Canvas {
     fn sample_count(&self) -> u32;
 
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer;
+
+    /// The text atlas shared by every multi-renderer on this canvas. Glyphs are
+    /// registered into it during the set_scene mark walk, and it is built + uploaded
+    /// once per frame at render time.
+    fn text_atlas_builder(&mut self) -> &mut dyn TextAtlasBuilderTrait;
 
     fn get_instanced_renderer(&mut self, fingerprint: u64) -> Option<Arc<InstancedMarkRenderer>>;
 
@@ -251,8 +257,68 @@ pub trait Canvas {
         origin: [f32; 2],
         group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
+        // Register every glyph run into the shared (per-canvas) text atlas. This
+        // mirrors the loop that previously lived in `MultiMarkRenderer::add_text_mark`;
+        // only the location of the call moved (the register_text math is unchanged), so
+        // glyph bitmaps and baked UVs — and therefore rendered pixels — are identical.
+        let dimensions = self.dimensions();
+        let text_atlas_builder = self.text_atlas_builder();
+        let registrations: Vec<TextAtlasRegistration> = izip!(
+            mark.text_iter(),
+            mark.x_iter(),
+            mark.y_iter(),
+            mark.color_iter(),
+            mark.align_iter(),
+            mark.angle_iter(),
+            mark.baseline_iter(),
+            mark.font_iter(),
+            mark.font_size_iter(),
+            mark.font_weight_iter(),
+            mark.font_style_iter(),
+            mark.limit_iter(),
+        )
+        .map(
+            |(
+                text,
+                x,
+                y,
+                color,
+                align,
+                angle,
+                baseline,
+                font,
+                font_size,
+                font_weight,
+                font_style,
+                limit,
+            )| {
+                let use_nearest_filter = is_axis_aligned_angle(*angle);
+                let instance = TextInstance {
+                    text,
+                    position: [*x + origin[0], *y + origin[1]],
+                    color: &color.color_or_transparent(),
+                    align,
+                    angle: *angle,
+                    baseline,
+                    font,
+                    font_size: *font_size,
+                    font_weight,
+                    font_style,
+                    limit: *limit,
+                    use_nearest_filter,
+                };
+                text_atlas_builder.register_text(instance, dimensions)
+            },
+        )
+        .collect::<Result<Vec<_>, AvengerWgpuError>>()?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+
+        // The two borrows above (`text_atlas_builder`) and below (`get_multi_renderer`)
+        // are sequential — `registrations` is owned — so there is no borrow conflict.
         self.get_multi_renderer()
-            .add_text_mark(mark, origin, group_clip)?;
+            .add_text_registrations(registrations, group_clip, mark.clip)?;
         Ok(())
     }
 
@@ -409,6 +475,39 @@ pub(crate) fn make_background_command<C: Canvas>(
     background_encoder.finish()
 }
 
+/// Construct a text atlas builder, shared by a single canvas across all of its
+/// multi-renderers. This mirrors the construction logic that previously lived in
+/// `MultiMarkRenderer::new`: honor a caller-supplied `text_builder_ctor`, otherwise
+/// fall back to the cosmic-text rasterizer (native), the html-canvas rasterizer
+/// (wasm), or the null builder (text disabled).
+pub(crate) fn make_text_atlas_builder(
+    text_builder_ctor: &Option<TextBuildCtor>,
+) -> Box<dyn TextAtlasBuilderTrait> {
+    if let Some(text_builder_ctor) = text_builder_ctor {
+        text_builder_ctor()
+    } else {
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "cosmic-text")] {
+                use crate::marks::text::TextAtlasBuilder;
+                use std::sync::Arc;
+                let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(
+                    avenger_text::rasterization::cosmic::CosmicTextRasterizer::<crate::marks::text::GlyphBBoxAndAtlasCoords>::new())
+                ));
+            } else if #[cfg(target_arch = "wasm32")] {
+                use crate::marks::text::TextAtlasBuilder;
+                use std::sync::Arc;
+                let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(
+                    avenger_text::rasterization::html_canvas::HtmlCanvasTextRasterizer::<crate::marks::text::GlyphBBoxAndAtlasCoords>::new())
+                ));
+            } else {
+                use crate::marks::text::NullTextAtlasBuilder;
+                let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(NullTextAtlasBuilder);
+            }
+        };
+        inner_text_atlas_builder
+    }
+}
+
 pub(crate) fn make_wgpu_instance() -> wgpu::Instance {
     wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: wgpu::Backends::all(),
@@ -514,6 +613,8 @@ pub struct WindowCanvas<'window> {
     multi_render_resources: MultiMarkRenderResources,
     config: CanvasConfig,
     frame_overlay: Option<CanvasFrameOverlay>,
+    // Text atlas shared by all multi-renderers; built + uploaded once per frame.
+    text_atlas_builder: Box<dyn TextAtlasBuilderTrait>,
 
     // Order of properties determines drop order.
     // Device must be dropped after the buffers and textures associated with marks
@@ -584,6 +685,8 @@ impl WindowCanvas<'_> {
         let multi_render_resources =
             MultiMarkRenderResources::new(&device, surface_format, sample_count);
 
+        let text_atlas_builder = make_text_atlas_builder(&config.text_builder_ctor);
+
         Ok(Self {
             surface,
             device,
@@ -600,6 +703,7 @@ impl WindowCanvas<'_> {
             multi_render_resources,
             config,
             frame_overlay: None,
+            text_atlas_builder,
         })
     }
 
@@ -681,6 +785,7 @@ impl WindowCanvas<'_> {
         render_target_extent: Extent3d,
         texture_view: &TextureView,
         resolve_target: Option<&TextureView>,
+        text_bind_groups: &[BindGroup],
     ) -> Result<Option<CommandBuffer>, AvengerWgpuError> {
         let Some(overlay) = self.frame_overlay else {
             return Ok(None);
@@ -743,10 +848,11 @@ impl WindowCanvas<'_> {
             zindex: None,
         };
 
-        let mut renderer =
-            MultiMarkRenderer::new(self.dimensions, self.config.text_builder_ctor.clone());
+        let mut renderer = MultiMarkRenderer::new(self.dimensions);
         renderer.add_rect_mark(&mark, [0.0, 0.0], &Clip::None)?;
 
+        // The overlay has no text, but `render_with_resources` indexes
+        // `text_bind_groups[0]`; reuse the frame's shared text bind groups.
         Ok(Some(renderer.render_with_resources(
             &self.device,
             &self.queue,
@@ -754,6 +860,7 @@ impl WindowCanvas<'_> {
             texture_view,
             resolve_target,
             &self.multi_render_resources,
+            text_bind_groups,
         )))
     }
 
@@ -801,6 +908,18 @@ impl WindowCanvas<'_> {
         let texture_format = self.texture_format();
         let multi_render_resources = self.multi_render_resources.clone();
 
+        // Build the shared text atlas bind groups ONCE per frame (instead of once per
+        // multi-renderer). Every renderer this frame registered into the same atlas, so
+        // these bind groups are page-correct for all of them.
+        let (text_atlas_size, text_atlas_images) = self.text_atlas_builder.build();
+        let text_bind_groups = MultiMarkRenderer::make_text_bind_groups_dual_sampler(
+            &self.device,
+            &self.queue,
+            self.multi_render_resources.text_layout(),
+            text_atlas_size,
+            &text_atlas_images,
+        );
+
         // Render marks by layer
         for (min_z, max_z) in layers {
             for mark in &mut self.marks {
@@ -838,6 +957,7 @@ impl WindowCanvas<'_> {
                                     &self.multisampled_framebuffer,
                                     Some(&view),
                                     &multi_render_resources,
+                                    &text_bind_groups,
                                 )
                             } else {
                                 renderer.render_with_resources(
@@ -847,6 +967,7 @@ impl WindowCanvas<'_> {
                                     &view,
                                     None,
                                     &multi_render_resources,
+                                    &text_bind_groups,
                                 )
                             }
                         }
@@ -863,6 +984,7 @@ impl WindowCanvas<'_> {
                 render_target_extent,
                 &self.multisampled_framebuffer,
                 Some(&view),
+                &text_bind_groups,
             )?;
             tracing::trace!(
                 target: "avenger_wgpu::resize",
@@ -872,8 +994,13 @@ impl WindowCanvas<'_> {
             command
         } else {
             let overlay_start = Instant::now();
-            let command =
-                self.make_frame_overlay_command(texture_format, render_target_extent, &view, None)?;
+            let command = self.make_frame_overlay_command(
+                texture_format,
+                render_target_extent,
+                &view,
+                None,
+                &text_bind_groups,
+            )?;
             tracing::trace!(
                 target: "avenger_wgpu::resize",
                 overlay_command_ms = overlay_start.elapsed().as_secs_f64() * 1000.0,
@@ -933,9 +1060,11 @@ impl Canvas for WindowCanvas<'_> {
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
         self.multi_renderers
             .entry(self.current_zindex)
-            .or_insert_with(|| {
-                MultiMarkRenderer::new(self.dimensions, self.config.text_builder_ctor.clone())
-            })
+            .or_insert_with(|| MultiMarkRenderer::new(self.dimensions))
+    }
+
+    fn text_atlas_builder(&mut self) -> &mut dyn TextAtlasBuilderTrait {
+        &mut *self.text_atlas_builder
     }
 
     fn get_instanced_renderer(&mut self, fingerprint: u64) -> Option<Arc<InstancedMarkRenderer>> {
@@ -981,6 +1110,11 @@ impl Canvas for WindowCanvas<'_> {
             }
         }
         self.multi_renderers = recycled;
+
+        // Reset the shared text atlas so each frame starts clean (matches the old
+        // per-renderer reset-per-frame semantics). `TextAtlasBuilder` has no reset
+        // method, so replace it with a fresh builder via the same ctor.
+        self.text_atlas_builder = make_text_atlas_builder(&self.config.text_builder_ctor);
     }
 
     fn device(&self) -> &Device {
@@ -1025,6 +1159,8 @@ pub struct PngCanvas {
     instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
     multi_render_resources: MultiMarkRenderResources,
     config: CanvasConfig,
+    // Text atlas shared by all multi-renderers; built + uploaded once per frame.
+    text_atlas_builder: Box<dyn TextAtlasBuilderTrait>,
 
     // The order of properties in a struct is the order in which items are dropped.
     // wgpu seems to require that the device be dropped last, otherwise there is a resouce
@@ -1095,6 +1231,8 @@ impl PngCanvas {
         let multi_render_resources =
             MultiMarkRenderResources::new(&device, texture_format, sample_count);
 
+        let text_atlas_builder = make_text_atlas_builder(&config.text_builder_ctor);
+
         Ok(Self {
             device,
             queue,
@@ -1113,6 +1251,7 @@ impl PngCanvas {
             instanced_renderers: HashMap::new(),
             multi_render_resources,
             config,
+            text_atlas_builder,
         })
     }
 
@@ -1162,6 +1301,18 @@ impl PngCanvas {
             depth_or_array_layers: 1,
         };
 
+        // Build the shared text atlas bind groups ONCE per frame (instead of once per
+        // multi-renderer). Every renderer this frame registered into the same atlas, so
+        // these bind groups are page-correct for all of them.
+        let (text_atlas_size, text_atlas_images) = self.text_atlas_builder.build();
+        let text_bind_groups = MultiMarkRenderer::make_text_bind_groups_dual_sampler(
+            &self.device,
+            &self.queue,
+            self.multi_render_resources.text_layout(),
+            text_atlas_size,
+            &text_atlas_images,
+        );
+
         // Render marks by layer
         let command_build_start = Instant::now();
         for (min_z, max_z) in layers {
@@ -1200,6 +1351,7 @@ impl PngCanvas {
                                     &self.multisampled_framebuffer,
                                     Some(&self.texture_view),
                                     &multi_render_resources,
+                                    &text_bind_groups,
                                 )
                             } else {
                                 renderer.render_with_resources(
@@ -1209,6 +1361,7 @@ impl PngCanvas {
                                     &self.texture_view,
                                     None,
                                     &multi_render_resources,
+                                    &text_bind_groups,
                                 )
                             }
                         }
@@ -1332,9 +1485,11 @@ impl Canvas for PngCanvas {
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
         self.multi_renderers
             .entry(self.current_zindex)
-            .or_insert_with(|| {
-                MultiMarkRenderer::new(self.dimensions, self.config.text_builder_ctor.clone())
-            })
+            .or_insert_with(|| MultiMarkRenderer::new(self.dimensions))
+    }
+
+    fn text_atlas_builder(&mut self) -> &mut dyn TextAtlasBuilderTrait {
+        &mut *self.text_atlas_builder
     }
 
     fn get_instanced_renderer(&mut self, fingerprint: u64) -> Option<Arc<InstancedMarkRenderer>> {
@@ -1380,6 +1535,10 @@ impl Canvas for PngCanvas {
             }
         }
         self.multi_renderers = recycled;
+
+        // Reset the shared text atlas so each frame starts clean (matches the old
+        // per-renderer reset-per-frame semantics).
+        self.text_atlas_builder = make_text_atlas_builder(&self.config.text_builder_ctor);
     }
 
     fn device(&self) -> &Device {

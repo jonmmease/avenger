@@ -10,11 +10,15 @@ use wgpu::{
 use crate::{
     canvas::{
         create_multisampled_framebuffer, get_supported_sample_count, make_background_command,
-        make_wgpu_adapter, request_wgpu_device, Canvas, CanvasConfig, CanvasDimensionUtils,
-        MarkRenderer,
+        make_text_atlas_builder, make_wgpu_adapter, request_wgpu_device, Canvas, CanvasConfig,
+        CanvasDimensionUtils, MarkRenderer,
     },
     error::AvengerWgpuError,
-    marks::{instanced_mark::InstancedMarkRenderer, multi::MultiMarkRenderer},
+    marks::{
+        instanced_mark::InstancedMarkRenderer,
+        multi::{MultiMarkRenderResources, MultiMarkRenderer},
+        text::TextAtlasBuilderTrait,
+    },
 };
 
 pub struct HtmlCanvasCanvas<'window> {
@@ -24,7 +28,10 @@ pub struct HtmlCanvasCanvas<'window> {
     marks: Vec<MarkRenderer>,
     multi_renderer: Option<MultiMarkRenderer>,
     instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
+    multi_render_resources: MultiMarkRenderResources,
     config: CanvasConfig,
+    // Text atlas shared by all multi-renderers; built + uploaded once per frame.
+    text_atlas_builder: Box<dyn TextAtlasBuilderTrait>,
 
     // The order of properties determines that drop order and device must be dropped after
     // the buffers and textures associated with marks.
@@ -82,6 +89,11 @@ impl<'window> HtmlCanvasCanvas<'window> {
             sample_count,
         );
 
+        let multi_render_resources =
+            MultiMarkRenderResources::new(&device, surface_format, sample_count);
+
+        let text_atlas_builder = make_text_atlas_builder(&config.text_builder_ctor);
+
         Ok(Self {
             surface,
             device,
@@ -93,7 +105,9 @@ impl<'window> HtmlCanvasCanvas<'window> {
             marks: Vec::new(),
             multi_renderer: None,
             instanced_renderers: HashMap::new(),
+            multi_render_resources,
             config,
+            text_atlas_builder,
         })
     }
 
@@ -129,7 +143,6 @@ impl<'window> HtmlCanvasCanvas<'window> {
             make_background_command(self, &view, None)
         };
         let mut commands = vec![background_command];
-        let texture_format = self.texture_format();
         let render_target_extent = if self.sample_count > 1 {
             Extent3d {
                 width: self.surface_config.width,
@@ -139,6 +152,19 @@ impl<'window> HtmlCanvasCanvas<'window> {
         } else {
             output_extent
         };
+
+        // Build the shared text atlas bind groups ONCE per frame (instead of once per
+        // multi-renderer). Every renderer this frame registered into the same atlas, so
+        // these bind groups are page-correct for all of them.
+        let (text_atlas_size, text_atlas_images) = self.text_atlas_builder.build();
+        let text_bind_groups = MultiMarkRenderer::make_text_bind_groups_dual_sampler(
+            &self.device,
+            &self.queue,
+            self.multi_render_resources.text_layout(),
+            text_atlas_size,
+            &text_atlas_images,
+        );
+
         for mark in &mut self.marks {
             let command = match mark {
                 MarkRenderer::Instanced {
@@ -160,24 +186,24 @@ impl<'window> HtmlCanvasCanvas<'window> {
                 }
                 MarkRenderer::Multi(renderer) => {
                     if self.sample_count > 1 {
-                        renderer.render(
+                        renderer.render_with_resources(
                             &self.device,
                             &self.queue,
-                            texture_format,
-                            self.sample_count,
                             render_target_extent,
                             &self.multisampled_framebuffer,
                             Some(&view),
+                            &self.multi_render_resources,
+                            &text_bind_groups,
                         )
                     } else {
-                        renderer.render(
+                        renderer.render_with_resources(
                             &self.device,
                             &self.queue,
-                            texture_format,
-                            self.sample_count,
                             render_target_extent,
                             &view,
                             None,
+                            &self.multi_render_resources,
+                            &text_bind_groups,
                         )
                     }
                 }
@@ -196,12 +222,13 @@ impl<'window> HtmlCanvasCanvas<'window> {
 impl<'window> Canvas for HtmlCanvasCanvas<'window> {
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
         if self.multi_renderer.is_none() {
-            self.multi_renderer = Some(MultiMarkRenderer::new(
-                self.dimensions,
-                self.config.text_builder_ctor.clone(),
-            ));
+            self.multi_renderer = Some(MultiMarkRenderer::new(self.dimensions));
         }
         self.multi_renderer.as_mut().unwrap()
+    }
+
+    fn text_atlas_builder(&mut self) -> &mut dyn TextAtlasBuilderTrait {
+        &mut *self.text_atlas_builder
     }
 
     fn add_instanced_mark_renderer(
@@ -232,6 +259,10 @@ impl<'window> Canvas for HtmlCanvasCanvas<'window> {
         self.get_multi_renderer().clear();
         self.marks.clear();
         self.instanced_renderers.clear();
+
+        // Reset the shared text atlas so each frame starts clean (matches the old
+        // per-renderer reset-per-frame semantics).
+        self.text_atlas_builder = make_text_atlas_builder(&self.config.text_builder_ctor);
     }
 
     fn device(&self) -> &Device {

@@ -10,7 +10,7 @@ use avenger_common::{
 use avenger_scenegraph::marks::{
     arc::SceneArcMark, area::SceneAreaMark, group::Clip, image::SceneImageMark,
     line::SceneLineMark, path::ScenePathMark, rect::SceneRectMark, rule::SceneRuleMark,
-    symbol::SceneSymbolMark, text::SceneTextMark, trail::SceneTrailMark,
+    symbol::SceneSymbolMark, trail::SceneTrailMark,
 };
 use etagere::euclid::UnknownUnit;
 use image::DynamicImage;
@@ -34,12 +34,10 @@ use wgpu::{
 };
 
 use crate::{
-    canvas::TextBuildCtor,
     error::AvengerWgpuError,
     marks::{
         gradient::{to_color_or_gradient_coord, GradientAtlasBuilder},
         image::ImageAtlasBuilder,
-        text::{TextAtlasBuilderTrait, TextInstance},
     },
 };
 
@@ -53,7 +51,7 @@ pub const TEXT_TEXTURE_NEAREST_CODE: f32 = -4.0;
 
 const NORMALIZED_SYMBOL_STROKE_WIDTH: f32 = 0.1;
 
-fn is_axis_aligned_angle(angle: f32) -> bool {
+pub(crate) fn is_axis_aligned_angle(angle: f32) -> bool {
     let normalized = angle.rem_euclid(360.0);
     (normalized < 0.001)
         || ((normalized - 90.0).abs() < 0.001)
@@ -114,7 +112,6 @@ pub struct MultiMarkRenderer {
     uniform: MultiUniform,
     gradient_atlas_builder: GradientAtlasBuilder,
     image_atlas_builder: ImageAtlasBuilder,
-    text_atlas_builder: Box<dyn TextAtlasBuilderTrait>,
     dimensions: CanvasDimensions,
 }
 
@@ -255,6 +252,12 @@ impl MultiMarkRenderResources {
         self.sample_count
     }
 
+    /// The bind-group layout for the (dual-sampler) text atlas pages. Exposed so the
+    /// canvas can build the shared text bind groups once per frame.
+    pub(crate) fn text_layout(&self) -> &BindGroupLayout {
+        &self.text_layout
+    }
+
     fn make_render_pipeline(
         device: &Device,
         texture_format: TextureFormat,
@@ -353,34 +356,7 @@ impl MultiMarkRenderResources {
 }
 
 impl MultiMarkRenderer {
-    pub fn new(
-        dimensions: CanvasDimensions,
-        text_atlas_builder_ctor: Option<TextBuildCtor>,
-    ) -> Self {
-        let text_atlas_builder = if let Some(text_atlas_builder_ctor) = text_atlas_builder_ctor {
-            text_atlas_builder_ctor()
-        } else {
-            cfg_if::cfg_if! {
-                if #[cfg(feature = "cosmic-text")] {
-                    use crate::marks::text::TextAtlasBuilder;
-                    use std::sync::Arc;
-                    let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(
-                        avenger_text::rasterization::cosmic::CosmicTextRasterizer::<crate::marks::text::GlyphBBoxAndAtlasCoords>::new())
-                    ));
-                } else if #[cfg(target_arch = "wasm32")] {
-                    use crate::marks::text::TextAtlasBuilder;
-                    use std::sync::Arc;
-                    let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(
-                        avenger_text::rasterization::html_canvas::HtmlCanvasTextRasterizer::<crate::marks::text::GlyphBBoxAndAtlasCoords>::new())
-                    ));
-                } else {
-                    use crate::marks::text::NullTextAtlasBuilder;
-                    let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(NullTextAtlasBuilder);
-                }
-            };
-            inner_text_atlas_builder
-        };
-
+    pub fn new(dimensions: CanvasDimensions) -> Self {
         Self {
             verts_inds: vec![],
             clip_verts_inds: vec![],
@@ -393,7 +369,6 @@ impl MultiMarkRenderer {
             },
             gradient_atlas_builder: GradientAtlasBuilder::new(),
             image_atlas_builder: ImageAtlasBuilder::new(),
-            text_atlas_builder,
         }
     }
 
@@ -1310,72 +1285,29 @@ impl MultiMarkRenderer {
         Ok(())
     }
 
+    /// Build mark batches from glyph registrations produced by the shared text atlas.
+    ///
+    /// The glyph-registration step (rasterizing + allocating atlas slots) lives on the
+    /// `Canvas` so that a single text atlas is shared across all multi-renderers. This
+    /// method consumes the resulting per-page [`TextAtlasRegistration`]s and turns them
+    /// into [`MultiMarkBatch`]es, exactly as the old `add_text_mark` did.
+    ///
+    /// `clip` is the inherited group clip and `mark_clip` is the text mark's own
+    /// `clip` flag; both are needed to reproduce `clip.maybe_clip(mark.clip)` and
+    /// `add_clip_path(clip, mark.clip)`.
     #[tracing::instrument(skip_all)]
-    pub fn add_text_mark(
+    pub fn add_text_registrations(
         &mut self,
-        mark: &SceneTextMark,
-        origin: [f32; 2],
+        registrations: Vec<crate::marks::text::TextAtlasRegistration>,
         clip: &Clip,
+        mark_clip: bool,
     ) -> Result<(), AvengerWgpuError> {
-        let registrations = izip!(
-            mark.text_iter(),
-            mark.x_iter(),
-            mark.y_iter(),
-            mark.color_iter(),
-            mark.align_iter(),
-            mark.angle_iter(),
-            mark.baseline_iter(),
-            mark.font_iter(),
-            mark.font_size_iter(),
-            mark.font_weight_iter(),
-            mark.font_style_iter(),
-            mark.limit_iter(),
-        )
-        .map(
-            |(
-                text,
-                x,
-                y,
-                color,
-                align,
-                angle,
-                baseline,
-                font,
-                font_size,
-                font_weight,
-                font_style,
-                limit,
-            )| {
-                let use_nearest_filter = is_axis_aligned_angle(*angle);
-                let instance = TextInstance {
-                    text,
-                    position: [*x + origin[0], *y + origin[1]],
-                    color: &color.color_or_transparent(),
-                    align,
-                    angle: *angle,
-                    baseline,
-                    font,
-                    font_size: *font_size,
-                    font_weight,
-                    font_style,
-                    limit: *limit,
-                    use_nearest_filter,
-                };
-                self.text_atlas_builder
-                    .register_text(instance, self.dimensions)
-            },
-        )
-        .collect::<Result<Vec<_>, AvengerWgpuError>>()?
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
-
         // Construct batches, one batch per text atlas index
         let start_ind = self.num_indices() as u32;
         let mut next_batch = MultiMarkBatch {
             indices_range: start_ind..start_ind,
-            clip: clip.maybe_clip(mark.clip),
-            clip_indices_range: self.add_clip_path(clip, mark.clip)?,
+            clip: clip.maybe_clip(mark_clip),
+            clip_indices_range: self.add_clip_path(clip, mark_clip)?,
             image_atlas_index: None,
             gradient_atlas_index: None,
             text_atlas_index: None,
@@ -1398,8 +1330,8 @@ impl MultiMarkRenderer {
                 // Initialize new next_batch and swap to avoid extra mem copy
                 let mut full_batch = MultiMarkBatch {
                     indices_range: start_ind..(start_ind + inds.len() as u32),
-                    clip: clip.maybe_clip(mark.clip),
-                    clip_indices_range: self.add_clip_path(clip, mark.clip)?,
+                    clip: clip.maybe_clip(mark_clip),
+                    clip_indices_range: self.add_clip_path(clip, mark_clip)?,
                     image_atlas_index: None,
                     gradient_atlas_index: None,
                     text_atlas_index: Some(atlas_index),
@@ -1428,6 +1360,7 @@ impl MultiMarkRenderer {
     }
 
     #[tracing::instrument(skip_all)]
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &self,
         device: &Device,
@@ -1437,6 +1370,7 @@ impl MultiMarkRenderer {
         render_target_extent: Extent3d,
         texture_view: &TextureView,
         resolve_target: Option<&TextureView>,
+        text_bind_groups: &[BindGroup],
     ) -> CommandBuffer {
         let resources = MultiMarkRenderResources::new(device, texture_format, sample_count);
         self.render_with_resources(
@@ -1446,10 +1380,12 @@ impl MultiMarkRenderer {
             texture_view,
             resolve_target,
             &resources,
+            text_bind_groups,
         )
     }
 
     #[tracing::instrument(skip_all)]
+    #[allow(clippy::too_many_arguments)]
     pub fn render_with_resources(
         &self,
         device: &Device,
@@ -1458,6 +1394,7 @@ impl MultiMarkRenderer {
         texture_view: &TextureView,
         resolve_target: Option<&TextureView>,
         resources: &MultiMarkRenderResources,
+        text_bind_groups: &[BindGroup],
     ) -> CommandBuffer {
         let timing_enabled =
             tracing::enabled!(target: "avenger_wgpu::render_breakdown", tracing::Level::DEBUG);
@@ -1507,15 +1444,8 @@ impl MultiMarkRenderer {
         );
         let image_setup_us = checkpoint_us(&mut checkpoint);
 
-        // Text Textures with dual samplers (Linear and Nearest)
-        let (text_texture_size, text_images) = self.text_atlas_builder.build();
-        let text_bind_groups = Self::make_text_bind_groups_dual_sampler(
-            device,
-            queue,
-            &resources.text_layout,
-            text_texture_size,
-            &text_images,
-        );
+        // Text textures are built once per frame and shared across all multi-renderers;
+        // the canvas builds them and passes the bind groups in via `text_bind_groups`.
         let text_setup_us = checkpoint_us(&mut checkpoint);
 
         let uses_stencil = self.num_clip_indices() > 0;
@@ -1741,7 +1671,7 @@ impl MultiMarkRenderer {
                 clip_index_count = num_clip_inds,
                 gradient_atlas_count = grad_images.len(),
                 image_atlas_count = image_images.len(),
-                text_atlas_count = text_images.len(),
+                text_atlas_count = text_bind_groups.len(),
                 uses_stencil,
                 "wgpu.render.renderer"
             );
@@ -1750,7 +1680,7 @@ impl MultiMarkRenderer {
         mark_encoder.finish()
     }
 
-    fn make_text_bind_groups_dual_sampler(
+    pub(crate) fn make_text_bind_groups_dual_sampler(
         device: &Device,
         queue: &Queue,
         texture_bind_group_layout: &BindGroupLayout,

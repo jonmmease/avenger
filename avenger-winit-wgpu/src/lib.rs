@@ -354,6 +354,11 @@ where
     stale_canvas_resize_count: usize,
     pending_canvas_resize: Option<CanvasResizeEvent>,
 
+    /// Phase 7 re-baseline: instant of the previous rendered frame (native only),
+    /// used to log inter-frame delta / fps alongside surface_render_ms.
+    #[cfg(not(target_arch = "wasm32"))]
+    last_redraw: Option<StdInstant>,
+
     #[cfg(not(target_arch = "wasm32"))]
     tokio_runtime: tokio::runtime::Runtime,
 }
@@ -417,6 +422,8 @@ where
             coalesced_event_count: 0,
             stale_canvas_resize_count: 0,
             pending_canvas_resize: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            last_redraw: None,
             #[cfg(not(target_arch = "wasm32"))]
             tokio_runtime,
         };
@@ -865,6 +872,8 @@ where
                 }
                 WindowEvent::RedrawRequested => {
                     let mut rendered = false;
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let render_start = StdInstant::now();
                     if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
                         canvas.update();
 
@@ -872,6 +881,12 @@ where
                             Ok(_) => {
                                 self.render_pending = false;
                                 rendered = true;
+                                // Phase 7 re-baseline: optional continuous render loop to
+                                // measure steady-state surface-draw cost / render-only fps.
+                                #[cfg(not(target_arch = "wasm32"))]
+                                if std::env::var_os("AVENGER_FORCE_REDRAW_LOOP").is_some() {
+                                    canvas.window().request_redraw();
+                                }
                             }
                             Err(AvengerWgpuError::SurfaceError(err)) => match err {
                                 wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
@@ -893,6 +908,23 @@ where
                         }
                     }
                     if rendered {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            let surface_render_ms =
+                                render_start.elapsed().as_secs_f64() * 1000.0;
+                            let now = StdInstant::now();
+                            let frame_dt_ms = self
+                                .last_redraw
+                                .map(|t| now.duration_since(t).as_secs_f64() * 1000.0);
+                            self.last_redraw = Some(now);
+                            tracing::debug!(
+                                target: "avenger_winit_wgpu::resize",
+                                surface_render_ms,
+                                frame_dt_ms = frame_dt_ms.unwrap_or(0.0),
+                                fps = frame_dt_ms.map(|dt| 1000.0 / dt).unwrap_or(0.0),
+                                "winit.redraw render"
+                            );
+                        }
                         self.dispatch_pending_canvas_resize();
                     }
                 }
