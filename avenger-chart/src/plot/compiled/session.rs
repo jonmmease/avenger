@@ -4175,6 +4175,108 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn facet_wrap_free_pans_only_active_cell() -> Result<(), AvengerChartError> {
+        // A wrap facet is physically laid out as hidden row bands but has a single
+        // logical facet level. `Free` must still target one wrapped cell, and
+        // `Level(1)` must collapse to the whole wrap group (root), never an
+        // internal physical wrap row.
+        use crate::render::EvaluatedInteractionScope;
+        let ctx = Arc::new(SessionContext::new());
+        let x_domain = Param::raw_domain("x_domain");
+        let raw = x_domain.expr();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('A', 0.0, 0.0), ('A', 10.0, 1.0),
+                    ('B', 0.0, 2.0), ('B', 10.0, 3.0),
+                    ('C', 0.0, 4.0), ('C', 10.0, 5.0),
+                    ('D', 0.0, 6.0), ('D', 10.0, 7.0)
+                ) AS t(group_name, x, y)",
+            )
+            .await?;
+        let leaf = Plot::<Cartesian>::new().mark(
+            Symbol::new()
+                .x_with(col("x"), move |c| {
+                    c.scale_with::<Linear>(move |s| {
+                        s.raw_domain(raw.clone()).nice(false).zero(false)
+                    })
+                    .free_scale()
+                })
+                .y(col("y"))
+                .size(20.0),
+        );
+        let compiled = Arc::new(
+            Plot::<FacetWrap>::new()
+                .add_param_with_sharing(x_domain.clone(), Sharing::Free)
+                .canvas_size(640.0, 480.0)
+                .data(df)
+                .mark(Subplot::new(leaf).wrap_with(col("group_name"), |c| c.columns(lit(2))))
+                .compile(&ctx)
+                .await?,
+        );
+        let mut session = compiled.instantiate(ctx);
+
+        // Warm exact frame populates the scopes and layout profile.
+        let warm = session.evaluate(EvaluationRequest::new().exact()).await?;
+        assert_eq!(warm.interaction.scopes.len(), 4, "four wrapped cells");
+
+        let cell_has = |scope: &EvaluatedInteractionScope, value: &str| {
+            scope
+                .facet_path
+                .iter()
+                .any(|component| matches!(component, ScalarValue::Utf8(Some(v)) if v == value))
+        };
+        let cell_a = warm
+            .interaction
+            .scopes
+            .iter()
+            .find(|scope| cell_has(scope, "A"))
+            .expect("cell A scope")
+            .clone();
+
+        // Level(1) for a wrap cell collapses to the whole group (root), proving it
+        // never targets an internal physical wrap row.
+        assert_eq!(
+            cell_a.sharing_owner_paths.get(&1),
+            Some(&Vec::new()),
+            "FacetWrap Level(1) owner must be the root wrap group, not a physical row"
+        );
+
+        // Pan only cell A by writing at its Free (level 0) owner path — exactly
+        // what the app router would compute.
+        let free_owner = cell_a
+            .sharing_owner_paths
+            .get(&0)
+            .cloned()
+            .expect("level 0 owner path present");
+        assert!(
+            !free_owner.is_empty(),
+            "Free owner path for a wrap cell must be the cell's own path, not root"
+        );
+        session.apply_scoped_param_patch(vec![ScopedParamAssignment {
+            name: "x_domain".to_string(),
+            owner_path: free_owner,
+            value: list_domain(2.0, 8.0),
+        }]);
+
+        let exact = session.evaluate(EvaluationRequest::new().exact()).await?;
+        for scope in &exact.interaction.scopes {
+            let domain = scope
+                .scales
+                .get("x")
+                .expect("scope has x scale")
+                .numeric_interval_domain()
+                .expect("x domain is numeric");
+            if cell_has(scope, "A") {
+                assert_override(domain, (2.0, 8.0), "wrap Free cell A (panned)");
+            } else {
+                assert_inferred(domain, (0.0, 10.0), "wrap Free other cell (inferred)");
+            }
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn incompatible_free_param_for_shared_scale_errors_on_compile() {
         // A `Free` raw-domain param feeding a `Shared` scale is ambiguous and must
         // be rejected at compile time (validation item A).
