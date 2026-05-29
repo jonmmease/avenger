@@ -33,7 +33,7 @@ use serde_with::{FromInto, serde_as};
 use std::{
     future::Future,
     pin::Pin,
-    sync::{Arc, LazyLock, Mutex},
+    sync::{Arc, Mutex},
 };
 use tracing::trace;
 
@@ -248,25 +248,14 @@ async fn build_one_facet_cell(
 
 /// Execute the per-cell builds, returning results in input order.
 ///
-/// On native multi-thread runtimes each cell runs as an independent `tokio` task
-/// (true parallelism). On a single-threaded runtime — including wasm, which only
-/// ever has one thread — `tokio::spawn` would still run cooperatively, but to
-/// avoid depending on a spawn-capable runtime there at all, wasm falls back to a
-/// plain sequential await. Either way the output is identical and ordered.
-/// Escape hatch / A-B diagnostic: force the sequential build path even on a
-/// multi-thread runtime so parallel-vs-sequential cost can be compared on the
-/// same binary. Read once.
-#[cfg(not(target_arch = "wasm32"))]
-static FORCE_SEQUENTIAL_FACET_BUILDS: LazyLock<bool> =
-    LazyLock::new(|| std::env::var_os("AVENGER_FACET_SEQUENTIAL").is_some());
-
+/// On a native multi-thread runtime each cell runs as an independent `tokio`
+/// task (true parallelism). On wasm — which only ever has one thread — we avoid
+/// depending on a spawn-capable runtime and await the builds sequentially.
+/// Either way the output is identical and ordered.
 #[cfg(not(target_arch = "wasm32"))]
 async fn run_facet_cell_builds(
     tasks: Vec<FacetCellBuildTask>,
 ) -> Result<Vec<PlotComponents>, AvengerChartError> {
-    if *FORCE_SEQUENTIAL_FACET_BUILDS {
-        return run_facet_cell_builds_sequential(tasks).await;
-    }
     let handles: Vec<_> = tasks
         .into_iter()
         .map(|task| tokio::spawn(build_one_facet_cell(task)))
@@ -282,12 +271,6 @@ async fn run_facet_cell_builds(
 
 #[cfg(target_arch = "wasm32")]
 async fn run_facet_cell_builds(
-    tasks: Vec<FacetCellBuildTask>,
-) -> Result<Vec<PlotComponents>, AvengerChartError> {
-    run_facet_cell_builds_sequential(tasks).await
-}
-
-async fn run_facet_cell_builds_sequential(
     tasks: Vec<FacetCellBuildTask>,
 ) -> Result<Vec<PlotComponents>, AvengerChartError> {
     let mut built = Vec::with_capacity(tasks.len());
