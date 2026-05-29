@@ -54,3 +54,15 @@ required-features = ["winit-wgpu"]
 [[example]]
 name = "cartesian_facet_pan"
 required-features = ["winit-wgpu"]
+
+[[example]]
+name = "cartesian_facet_pan_free"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "cartesian_row_facet_pan"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "cartesian_nested_facet_pan"
+required-features = ["winit-wgpu"]
