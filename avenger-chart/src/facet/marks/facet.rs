@@ -14,7 +14,7 @@ use crate::plot::compiled::{
     ComponentsMeasurement, PlotComponents, compiled_subplot_payload_child_plot,
     compiled_subplot_payload_child_plot_arc,
 };
-use crate::render::{EvaluationContext, RenderContext};
+use crate::render::{EvaluationContext, EvaluationMetrics, RenderContext};
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, ChannelValue, ColumnDimensionConfig, CompiledDataContext,
     CompiledMark, CompiledMarkCore, CompiledMarkState, CompiledSubplotPayload, CoordinateGuide,
@@ -30,7 +30,11 @@ use datafusion::{dataframe::DataFrame, prelude::SessionContext, scalar::ScalarVa
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::{
+    future::Future,
+    pin::Pin,
+    sync::{Arc, Mutex},
+};
 use tracing::trace;
 
 fn default_true() -> bool {
@@ -132,6 +136,21 @@ async fn build_one_facet_cell(
         is_terminal_cell,
     } = task;
 
+    // Install a per-task-local metrics collector so the many `record_*` calls
+    // during this build hit an uncontended mutex; fold it into the shared parent
+    // collector with a single lock at the end. When metrics are disabled this is
+    // a no-op and the original (parent) context is used unchanged. For nested
+    // facets each level installs its own local and merges into its parent's
+    // local, so every delta is summed exactly once.
+    let parent_metrics = cell_eval_ctx.evaluation_metrics.clone();
+    let local_metrics = parent_metrics
+        .as_ref()
+        .map(|_| Arc::new(Mutex::new(EvaluationMetrics::default())));
+    let cell_eval_ctx = match &local_metrics {
+        Some(local) => cell_eval_ctx.with_evaluation_metrics(local.clone()),
+        None => cell_eval_ctx,
+    };
+
     let cached_profile = if is_terminal_cell {
         cell_eval_ctx.layout_profile().and_then(|profile| {
             let source_measurement = profile.facet_cell_measurement(
@@ -154,7 +173,7 @@ async fn build_one_facet_cell(
         None
     };
 
-    if let Some((source_measurement, cached_components)) = cached_profile {
+    let components = if let Some((source_measurement, cached_components)) = cached_profile {
         match Box::pin(subplot.build_plot_components_reusing_data_marks(
             &cell_eval_ctx,
             &source_measurement,
@@ -168,33 +187,43 @@ async fn build_one_facet_cell(
         {
             Some(components) => {
                 cell_eval_ctx.record_preview_data_mark_reuse();
-                Ok(components)
+                components
             }
             None => {
                 cell_eval_ctx.record_preview_data_mark_reuse_miss();
-                Ok(Box::pin(subplot.build_plot_components(
+                Box::pin(subplot.build_plot_components(
                     &cell_eval_ctx,
                     &measurement,
                     Some(&data_override),
                     true,
                     &full_path,
                 ))
-                .await?)
+                .await?
             }
         }
     } else {
         if is_terminal_cell && cell_eval_ctx.layout_profile().is_some() {
             cell_eval_ctx.record_preview_data_mark_reuse_miss();
         }
-        Ok(Box::pin(subplot.build_plot_components(
+        Box::pin(subplot.build_plot_components(
             &cell_eval_ctx,
             &measurement,
             Some(&data_override),
             true,
             &full_path,
         ))
-        .await?)
+        .await?
+    };
+
+    if let (Some(parent), Some(local)) = (parent_metrics, local_metrics) {
+        let local = local.lock().expect("evaluation metrics lock poisoned");
+        parent
+            .lock()
+            .expect("evaluation metrics lock poisoned")
+            .merge_from(&local);
     }
+
+    Ok(components)
 }
 
 /// Execute the per-cell builds, returning results in input order.
@@ -208,6 +237,12 @@ async fn build_one_facet_cell(
 async fn run_facet_cell_builds(
     tasks: Vec<FacetCellBuildTask>,
 ) -> Result<Vec<PlotComponents>, AvengerChartError> {
+    // Escape hatch / A-B diagnostic: force the sequential path even on a
+    // multi-thread runtime so parallel-vs-sequential cost can be compared on the
+    // same binary.
+    if std::env::var_os("AVENGER_FACET_SEQUENTIAL").is_some() {
+        return run_facet_cell_builds_sequential(tasks).await;
+    }
     let handles: Vec<_> = tasks
         .into_iter()
         .map(|task| tokio::spawn(build_one_facet_cell(task)))
@@ -223,6 +258,12 @@ async fn run_facet_cell_builds(
 
 #[cfg(target_arch = "wasm32")]
 async fn run_facet_cell_builds(
+    tasks: Vec<FacetCellBuildTask>,
+) -> Result<Vec<PlotComponents>, AvengerChartError> {
+    run_facet_cell_builds_sequential(tasks).await
+}
+
+async fn run_facet_cell_builds_sequential(
     tasks: Vec<FacetCellBuildTask>,
 ) -> Result<Vec<PlotComponents>, AvengerChartError> {
     let mut built = Vec::with_capacity(tasks.len());

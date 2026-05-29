@@ -226,6 +226,18 @@ pub struct EvaluationMetrics {
 }
 
 impl EvaluationMetrics {
+    /// Accumulate another metrics record's counters and timings into `self`.
+    ///
+    /// Used to fold a per-task-local metrics collector (e.g. one installed for a
+    /// parallel facet-cell build) back into the shared parent collector with a
+    /// single lock, instead of locking the shared collector on every `record_*`.
+    /// `mode` is intentionally not merged (it describes the run, not a delta).
+    pub(crate) fn merge_from(&mut self, other: &EvaluationMetrics) {
+        self.facet_layout.merge_from(&other.facet_layout);
+        self.pipeline.merge_from(&other.pipeline);
+        self.timings.merge_from(&other.timings);
+    }
+
     pub(crate) fn record_preview_attempt_duration(&mut self, duration: Duration) {
         self.timings.preview_attempt_us += duration_micros_u64(duration);
     }
@@ -452,6 +464,18 @@ pub struct EvaluationTimingMetrics {
     pub components_to_evaluated_plot_us: u64,
 }
 
+impl EvaluationTimingMetrics {
+    pub(crate) fn merge_from(&mut self, other: &EvaluationTimingMetrics) {
+        self.preview_attempt_us += other.preview_attempt_us;
+        self.preview_structure_reflow_us += other.preview_structure_reflow_us;
+        self.measure_cells_overflow_probe_us += other.measure_cells_overflow_probe_us;
+        self.refresh_reused_profile_layout_us += other.refresh_reused_profile_layout_us;
+        self.guide_overflow_measure_us += other.guide_overflow_measure_us;
+        self.build_plot_components_us += other.build_plot_components_us;
+        self.components_to_evaluated_plot_us += other.components_to_evaluated_plot_us;
+    }
+}
+
 pub(crate) fn duration_micros_u64(duration: Duration) -> u64 {
     duration.as_micros().min(u128::from(u64::MAX)) as u64
 }
@@ -536,6 +560,48 @@ pub struct EvaluationPipelineMetrics {
     pub mark_data_scalar_collects: usize,
 }
 
+impl EvaluationPipelineMetrics {
+    pub(crate) fn merge_from(&mut self, other: &EvaluationPipelineMetrics) {
+        self.facet_tree_builds += other.facet_tree_builds;
+        self.facet_semantic_cache_hits += other.facet_semantic_cache_hits;
+        self.facet_semantic_cache_misses += other.facet_semantic_cache_misses;
+        self.facet_scale_precompute_cache_hits += other.facet_scale_precompute_cache_hits;
+        self.facet_scale_precompute_cache_misses += other.facet_scale_precompute_cache_misses;
+        self.scale_builder_builds += other.scale_builder_builds;
+        self.scale_domain_cache_hits += other.scale_domain_cache_hits;
+        self.scale_domain_cache_misses += other.scale_domain_cache_misses;
+        self.scale_domain_collects += other.scale_domain_collects;
+        self.guide_overflow_cache_hits += other.guide_overflow_cache_hits;
+        self.guide_overflow_cache_misses += other.guide_overflow_cache_misses;
+        self.guide_overflow_measure_calls += other.guide_overflow_measure_calls;
+        self.legend_plan_builds += other.legend_plan_builds;
+        self.legend_measurements += other.legend_measurements;
+        self.legend_measurement_cache_hits += other.legend_measurement_cache_hits;
+        self.legend_measurement_cache_misses += other.legend_measurement_cache_misses;
+        self.text_measurement_cache_hits += other.text_measurement_cache_hits;
+        self.text_measurement_cache_misses += other.text_measurement_cache_misses;
+        self.preview_profile_reuses += other.preview_profile_reuses;
+        self.preview_profile_misses += other.preview_profile_misses;
+        self.preview_fallbacks += other.preview_fallbacks;
+        self.preview_profile_fallback_reasons
+            .extend(other.preview_profile_fallback_reasons.iter().cloned());
+        self.preview_structure_reflow_reuses += other.preview_structure_reflow_reuses;
+        self.preview_structure_reflow_misses += other.preview_structure_reflow_misses;
+        self.preview_data_mark_reuses += other.preview_data_mark_reuses;
+        self.preview_data_mark_reuse_misses += other.preview_data_mark_reuse_misses;
+        self.facet_cell_measurement_profile_reuses += other.facet_cell_measurement_profile_reuses;
+        self.facet_cell_measurement_profile_misses += other.facet_cell_measurement_profile_misses;
+        self.facet_cell_measurement_profile_chrome_refreshes +=
+            other.facet_cell_measurement_profile_chrome_refreshes;
+        self.facet_cells_built += other.facet_cells_built;
+        self.skipped_component_measure_calls += other.skipped_component_measure_calls;
+        self.mark_data_collects += other.mark_data_collects;
+        self.mark_data_full_collects += other.mark_data_full_collects;
+        self.mark_data_array_collects += other.mark_data_array_collects;
+        self.mark_data_scalar_collects += other.mark_data_scalar_collects;
+    }
+}
+
 /// Opt-in counters for recursive facet layout measurement diagnostics.
 #[doc(hidden)]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -558,6 +624,34 @@ pub struct FacetLayoutMetrics {
     pub refinement_converged: bool,
     /// Whether iterative facet refinement consumed the configured pass budget.
     pub refinement_hit_max_passes: bool,
+}
+
+impl FacetLayoutMetrics {
+    pub(crate) fn merge_from(&mut self, other: &FacetLayoutMetrics) {
+        self.plot_component_measure_calls += other.plot_component_measure_calls;
+        if self.plot_component_measure_calls_by_facet_depth.len()
+            < other.plot_component_measure_calls_by_facet_depth.len()
+        {
+            self.plot_component_measure_calls_by_facet_depth
+                .resize(other.plot_component_measure_calls_by_facet_depth.len(), 0);
+        }
+        for (slot, value) in self
+            .plot_component_measure_calls_by_facet_depth
+            .iter_mut()
+            .zip(other.plot_component_measure_calls_by_facet_depth.iter())
+        {
+            *slot += value;
+        }
+        self.facet_band_measure_runs += other.facet_band_measure_runs;
+        self.estimated_overflow_leaf_measure_count += other.estimated_overflow_leaf_measure_count;
+        self.estimated_overflow_non_leaf_aggregate_count +=
+            other.estimated_overflow_non_leaf_aggregate_count;
+        self.estimated_overflow_non_leaf_full_measure_count +=
+            other.estimated_overflow_non_leaf_full_measure_count;
+        self.refinement_pass_count += other.refinement_pass_count;
+        self.refinement_converged |= other.refinement_converged;
+        self.refinement_hit_max_passes |= other.refinement_hit_max_passes;
+    }
 }
 
 impl FacetLayoutMetrics {
