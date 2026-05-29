@@ -120,7 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         render_total += render_elapsed;
 
         println!(
-            "pan_replay seq={} mode=Preview scene={:.0}x{:.0} eval={:.2}ms set_scene={:.2}ms png_render={:.2}ms frame_total={:.2}ms cells_built={} preview_reuse={} data_reuse={} data_miss={} sb_builds={} sd_hit={} sd_miss={} sd_collects={} mark_collects={} guide_ms={:.2} probe_ms={:.2} build_ms={:.2}",
+            "pan_replay seq={} mode=Preview scene={:.0}x{:.0} eval={:.2}ms set_scene={:.2}ms png_render={:.2}ms frame_total={:.2}ms reflow_reuse={} preview_reuse={} cell_reuse={} data_reuse={} data_miss={} chrome={} guides={} guide_ms={:.2} probe_ms={:.2} build_ms={:.2}",
             idx + 1,
             evaluated.scene_graph.width,
             evaluated.scene_graph.height,
@@ -128,15 +128,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ms(set_scene_elapsed),
             ms(render_elapsed),
             ms(eval_elapsed + set_scene_elapsed + render_elapsed),
-            metrics.pipeline.facet_cells_built,
+            metrics.pipeline.preview_structure_reflow_reuses,
             metrics.pipeline.preview_profile_reuses,
+            metrics.pipeline.facet_cell_measurement_profile_reuses,
             metrics.pipeline.preview_data_mark_reuses,
             metrics.pipeline.preview_data_mark_reuse_misses,
-            metrics.pipeline.scale_builder_builds,
-            metrics.pipeline.scale_domain_cache_hits,
-            metrics.pipeline.scale_domain_cache_misses,
-            metrics.pipeline.scale_domain_collects,
-            metrics.pipeline.mark_data_collects,
+            metrics
+                .pipeline
+                .facet_cell_measurement_profile_chrome_refreshes,
+            metrics.pipeline.guide_overflow_measure_calls,
             us_to_ms(metrics.timings.guide_overflow_measure_us),
             us_to_ms(metrics.timings.measure_cells_overflow_probe_us),
             us_to_ms(metrics.timings.build_plot_components_us),
