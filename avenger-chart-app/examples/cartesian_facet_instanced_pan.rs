@@ -11,8 +11,10 @@
 //! instanced path (a combination not covered by the visual-regression suite).
 //!
 //! Drag with the left mouse button inside any cell to pan **all** cells together
-//! (x and y scales are globally shared). Per-frame render metrics are logged
-//! (`surface_render_ms`, and `avenger_wgpu` `command_count` at debug level).
+//! (x and y scales are globally shared). The pan binding stays in Preview mode
+//! after mouse-up so repeated drags are not blocked by a full Exact settle pass.
+//! Per-frame render metrics are logged (`surface_render_ms`, and `avenger_wgpu`
+//! `command_count` at debug level).
 //!
 //! Run with:
 //! ```bash
@@ -108,8 +110,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                 ev::interval_end(ev::start_domain("y")) - dy,
             ),
         )
-        .preview()
-        .settle_exact();
+        .preview();
 
     // Leaf scatter: 200 pts/cell (>= 100 ⇒ instanced path). x and y scales are
     // globally shared and read the shared raw-domain params, so dragging any
