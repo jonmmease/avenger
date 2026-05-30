@@ -78,3 +78,7 @@ required-features = ["winit-wgpu"]
 [[example]]
 name = "cartesian_facet_wrap_pan_shared_x"
 required-features = ["winit-wgpu"]
+
+[[example]]
+name = "cartesian_facet_instanced_pan"
+required-features = ["winit-wgpu"]
