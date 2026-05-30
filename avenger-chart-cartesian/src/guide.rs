@@ -399,8 +399,13 @@ impl CompiledGuide for CartesianGuide {
             }
         }
 
-        // Render each axis
-        for (channel, axis) in &all_axes {
+        // Render each axis in a deterministic (channel-sorted) order. `all_axes`
+        // is a HashMap whose iteration order is seeded per-eval, so pushing axis
+        // marks in that order made the scene-graph mark order nondeterministic
+        // across evaluations (e.g. x-axis vs y-axis gridline groups swapping).
+        let mut axis_entries: Vec<(&String, &CartesianAxis)> = all_axes.iter().collect();
+        axis_entries.sort_by(|a, b| a.0.cmp(b.0));
+        for (channel, axis) in axis_entries {
             if let Some(scale) = scales.get(channel) {
                 // Facets store channel sharing on the facet tree. Concat-like
                 // child-frame containers have no facet tree, so they use the

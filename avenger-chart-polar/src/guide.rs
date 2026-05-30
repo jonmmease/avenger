@@ -342,8 +342,13 @@ impl CompiledGuide for PolarGuide {
             }
         }
 
-        // Render each axis
-        for (channel, axis) in &all_axes {
+        // Render each axis in a deterministic (channel-sorted) order. `all_axes`
+        // is a HashMap whose iteration order is seeded per-eval, so extending
+        // marks in that order made the scene-graph mark order nondeterministic
+        // across evaluations (r vs theta axis groups swapping).
+        let mut axis_entries: Vec<(&String, &PolarAxis)> = all_axes.iter().collect();
+        axis_entries.sort_by(|a, b| a.0.cmp(b.0));
+        for (channel, axis) in axis_entries {
             if let Some(scale) = scales.get(channel) {
                 let axis_marks = axis
                     .evaluate(

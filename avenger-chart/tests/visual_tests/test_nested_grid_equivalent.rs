@@ -2366,7 +2366,9 @@ async fn test_three_level_nesting_shared_y() {
 /// Different X ranges per region demonstrate Free X sharing (each cell has own X domain)
 /// Different Y ranges per region demonstrate Level-based Y sharing
 async fn hierarchical_regional_data() -> datafusion::dataframe::DataFrame {
-    let ctx = SessionContext::new();
+    // EXPERIMENT(determinism): single partition for deterministic row order.
+    let cfg = datafusion::prelude::SessionConfig::new().with_target_partitions(1);
+    let ctx = SessionContext::new_with_config(cfg);
 
     // Create a dataset with clear regional differences in BOTH x and y
     let batch = datafusion::arrow::array::RecordBatch::try_from_iter(vec![
