@@ -66,3 +66,7 @@ required-features = []
 [[example]]
 name = "nested_facet_pan_png_replay"
 required-features = []
+
+[[example]]
+name = "facet_instanced_pan_png_replay"
+required-features = []
