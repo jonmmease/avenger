@@ -26,7 +26,10 @@ pub struct HtmlCanvasCanvas<'window> {
     surface_config: SurfaceConfiguration,
     dimensions: CanvasDimensions,
     marks: Vec<MarkRenderer>,
-    multi_renderer: Option<MultiMarkRenderer>,
+    // One shared multi-renderer; each run of multi-marks is recorded in `marks` as a
+    // batch range. `run_start` is the batch index where the current run began.
+    shared_multi: MultiMarkRenderer,
+    run_start: usize,
     instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
     multi_render_resources: MultiMarkRenderResources,
     config: CanvasConfig,
@@ -103,7 +106,8 @@ impl<'window> HtmlCanvasCanvas<'window> {
             surface_config,
             dimensions,
             marks: Vec::new(),
-            multi_renderer: None,
+            shared_multi: MultiMarkRenderer::new(dimensions),
+            run_start: 0,
             instanced_renderers: HashMap::new(),
             multi_render_resources,
             config,
@@ -131,11 +135,14 @@ impl<'window> HtmlCanvasCanvas<'window> {
             .texture
             .create_view(&TextureViewDescriptor::default());
 
-        // Commit open multi-renderer
-        if let Some(multi_renderer) = self.multi_renderer.take() {
-            self.marks
-                .push(MarkRenderer::Multi(Box::new(multi_renderer)));
+        // Commit the final run of multi-marks as a batch range into the shared renderer.
+        let end = self.shared_multi.batch_count();
+        if end > self.run_start {
+            self.marks.push(MarkRenderer::Multi {
+                batch_range: self.run_start..end,
+            });
         }
+        self.run_start = end;
 
         let background_command = if self.sample_count > 1 {
             make_background_command(self, &self.multisampled_framebuffer, Some(&view))
@@ -165,7 +172,16 @@ impl<'window> HtmlCanvasCanvas<'window> {
             &text_atlas_images,
         );
 
-        for mark in &mut self.marks {
+        // Prepare the single shared multi-renderer ONCE per frame; each run is encoded
+        // from this shared prep.
+        let prepared = self.shared_multi.prepare(
+            &self.device,
+            &self.queue,
+            render_target_extent,
+            &self.multi_render_resources,
+        );
+
+        for mark in &self.marks {
             let command = match mark {
                 MarkRenderer::Instanced {
                     renderer,
@@ -184,26 +200,28 @@ impl<'window> HtmlCanvasCanvas<'window> {
                         renderer.render(&self.device, &view, None, *x_adjustment, *y_adjustment)
                     }
                 }
-                MarkRenderer::Multi(renderer) => {
+                MarkRenderer::Multi { batch_range } => {
                     if self.sample_count > 1 {
-                        renderer.render_with_resources(
+                        self.shared_multi.encode_batch_range(
                             &self.device,
-                            &self.queue,
                             render_target_extent,
                             &self.multisampled_framebuffer,
                             Some(&view),
                             &self.multi_render_resources,
                             &text_bind_groups,
+                            &prepared,
+                            batch_range.clone(),
                         )
                     } else {
-                        renderer.render_with_resources(
+                        self.shared_multi.encode_batch_range(
                             &self.device,
-                            &self.queue,
                             render_target_extent,
                             &view,
                             None,
                             &self.multi_render_resources,
                             &text_bind_groups,
+                            &prepared,
+                            batch_range.clone(),
                         )
                     }
                 }
@@ -221,10 +239,7 @@ impl<'window> HtmlCanvasCanvas<'window> {
 
 impl<'window> Canvas for HtmlCanvasCanvas<'window> {
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
-        if self.multi_renderer.is_none() {
-            self.multi_renderer = Some(MultiMarkRenderer::new(self.dimensions));
-        }
-        self.multi_renderer.as_mut().unwrap()
+        &mut self.shared_multi
     }
 
     fn text_atlas_builder(&mut self) -> &mut dyn TextAtlasBuilderTrait {
@@ -238,10 +253,13 @@ impl<'window> Canvas for HtmlCanvasCanvas<'window> {
         x_adjustment: Option<avenger_common::types::LinearScaleAdjustment>,
         y_adjustment: Option<avenger_common::types::LinearScaleAdjustment>,
     ) {
-        if let Some(multi_renderer) = self.multi_renderer.take() {
-            self.marks
-                .push(MarkRenderer::Multi(Box::new(multi_renderer)));
+        let end = self.shared_multi.batch_count();
+        if end > self.run_start {
+            self.marks.push(MarkRenderer::Multi {
+                batch_range: self.run_start..end,
+            });
         }
+        self.run_start = end;
         self.instanced_renderers
             .insert(fingerprint, mark_renderer.clone());
         self.marks.push(MarkRenderer::Instanced {
@@ -256,7 +274,8 @@ impl<'window> Canvas for HtmlCanvasCanvas<'window> {
     }
 
     fn clear_mark_renderer(&mut self) {
-        self.get_multi_renderer().clear();
+        self.shared_multi.reset_for_frame(self.dimensions);
+        self.run_start = 0;
         self.marks.clear();
         self.instanced_renderers.clear();
 

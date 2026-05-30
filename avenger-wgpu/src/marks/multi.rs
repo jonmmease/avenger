@@ -105,6 +105,22 @@ pub struct MultiMarkBatch {
     pub text_atlas_index: Option<usize>,
 }
 
+/// Per-frame GPU resources for a `MultiMarkRenderer`, built once by `prepare()` and
+/// reused across any number of `encode_batch_range` calls. Splitting prepare from
+/// encode lets one shared renderer's geometry/atlas/uniform be uploaded a single
+/// time per frame while individual z-runs (batch ranges) are encoded separately and
+/// interleaved with instanced marks.
+pub(crate) struct PreparedMulti {
+    uniform_bind_group: BindGroup,
+    gradient_texture_bind_groups: Vec<BindGroup>,
+    image_texture_bind_groups: Vec<BindGroup>,
+    stencil_buffer: Option<wgpu::Texture>,
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    clip_vertex_buffer: wgpu::Buffer,
+    clip_index_buffer: wgpu::Buffer,
+}
+
 pub struct MultiMarkRenderer {
     verts_inds: Vec<(Vec<MultiVertex>, Vec<u32>)>,
     clip_verts_inds: Vec<(Vec<MultiVertex>, Vec<u32>)>,
@@ -392,6 +408,12 @@ impl MultiMarkRenderer {
 
     pub fn is_empty(&self) -> bool {
         self.verts_inds.is_empty() && self.clip_verts_inds.is_empty() && self.batches.is_empty()
+    }
+
+    /// Number of batches accumulated so far. Used by the canvas to record each
+    /// z-run as a half-open batch range into this shared renderer.
+    pub(crate) fn batch_count(&self) -> usize {
+        self.batches.len()
     }
 
     fn add_clip_path(
@@ -1382,6 +1404,282 @@ impl MultiMarkRenderer {
             &resources,
             text_bind_groups,
         )
+    }
+
+    /// Build the per-frame GPU resources (uniform, gradient/image atlas bind groups,
+    /// stencil buffer, and the flattened vertex/index/clip buffers) once, so a single
+    /// shared renderer's geometry/atlas/uniform are uploaded a single time per frame.
+    pub(crate) fn prepare(
+        &self,
+        device: &Device,
+        queue: &Queue,
+        render_target_extent: Extent3d,
+        resources: &MultiMarkRenderResources,
+    ) -> PreparedMulti {
+        // Uniforms
+        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Multi Uniform Buffer"),
+            contents: bytemuck::cast_slice(&[self.uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &resources.uniform_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+            label: Some("uniform_bind_group"),
+        });
+
+        // Gradient Textures
+        let (grad_texture_size, grad_images) = self.gradient_atlas_builder.build();
+        let gradient_texture_bind_groups = Self::make_texture_bind_groups(
+            device,
+            queue,
+            &resources.texture_layout,
+            grad_texture_size,
+            &grad_images,
+            wgpu::FilterMode::Nearest,
+            wgpu::FilterMode::Nearest,
+        );
+
+        // Image Textures
+        let (image_texture_size, image_images) = self.image_atlas_builder.build();
+        let image_texture_bind_groups = Self::make_texture_bind_groups(
+            device,
+            queue,
+            &resources.texture_layout,
+            image_texture_size,
+            &image_images,
+            wgpu::FilterMode::Linear,
+            wgpu::FilterMode::Linear,
+        );
+
+        // Stencil buffer is only needed if some batch uses a Path clip.
+        let uses_stencil = self.num_clip_indices() > 0;
+        let stencil_buffer = uses_stencil.then(|| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Stencil buffer"),
+                size: Extent3d {
+                    width: render_target_extent.width,
+                    height: render_target_extent.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: resources.sample_count(),
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Stencil8,
+                view_formats: &[],
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            })
+        });
+
+        // Flatten verts and inds
+        let num_verts: usize = self.verts_inds.iter().map(|(v, _)| v.len()).sum();
+        let num_inds: usize = self.verts_inds.iter().map(|(_, inds)| inds.len()).sum();
+        let mut verticies: Vec<MultiVertex> = Vec::with_capacity(num_verts);
+        let mut indices: Vec<u32> = Vec::with_capacity(num_inds);
+        for (vs, inds) in &self.verts_inds {
+            let offset = verticies.len() as u32;
+            indices.extend(inds.iter().map(|i| *i + offset));
+            verticies.extend(vs);
+        }
+
+        let num_clip_verts = self.clip_verts_inds.iter().map(|(v, _)| v.len()).sum();
+        let num_clip_inds = self
+            .clip_verts_inds
+            .iter()
+            .map(|(_, inds)| inds.len())
+            .sum();
+        let mut clip_verticies: Vec<MultiVertex> = Vec::with_capacity(num_clip_verts);
+        let mut clip_indices: Vec<u32> = Vec::with_capacity(num_clip_inds);
+        for (vs, inds) in &self.clip_verts_inds {
+            let offset = clip_verticies.len() as u32;
+            clip_indices.extend(inds.iter().map(|i| *i + offset));
+            clip_verticies.extend(vs);
+        }
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(verticies.as_slice()),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Index Buffer"),
+            contents: bytemuck::cast_slice(indices.as_slice()),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        let clip_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Clip Vertex Buffer"),
+            contents: bytemuck::cast_slice(clip_verticies.as_slice()),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let clip_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Clip Index Buffer"),
+            contents: bytemuck::cast_slice(clip_indices.as_slice()),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
+        PreparedMulti {
+            uniform_bind_group,
+            gradient_texture_bind_groups,
+            image_texture_bind_groups,
+            stencil_buffer,
+            vertex_buffer,
+            index_buffer,
+            clip_vertex_buffer,
+            clip_index_buffer,
+        }
+    }
+
+    /// Encode the draws for `self.batches[range]` into one command buffer, reusing the
+    /// shared `prepared` resources. One render pass is begun per batch (LoadOp::Load),
+    /// matching the legacy per-renderer behavior. `range_uses_stencil` is computed for
+    /// this range only, so a clip-free run renders exactly as its standalone renderer
+    /// did (non-stencil pipeline, no stencil attachment).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn encode_batch_range(
+        &self,
+        device: &Device,
+        render_target_extent: Extent3d,
+        texture_view: &TextureView,
+        resolve_target: Option<&TextureView>,
+        resources: &MultiMarkRenderResources,
+        text_bind_groups: &[BindGroup],
+        prepared: &PreparedMulti,
+        range: std::ops::Range<usize>,
+    ) -> CommandBuffer {
+        let range_uses_stencil = self.batches[range.clone()]
+            .iter()
+            .any(|b| b.clip_indices_range.is_some());
+
+        let mut mark_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Multi Mark Render Encoder"),
+        });
+
+        let depth_view = prepared
+            .stencil_buffer
+            .as_ref()
+            .map(|buffer| buffer.create_view(&Default::default()));
+        let depth_stencil_attachment =
+            depth_view
+                .as_ref()
+                .map(|view| wgpu::RenderPassDepthStencilAttachment {
+                    view,
+                    depth_ops: if cfg!(feature = "deno") {
+                        Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(0.0),
+                            store: wgpu::StoreOp::Discard,
+                        })
+                    } else {
+                        None
+                    },
+                    stencil_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                });
+        let render_pipeline = if range_uses_stencil {
+            &resources.stencil_render_pipeline
+        } else {
+            &resources.render_pipeline
+        };
+
+        if prepared.vertex_buffer.size() > 0 {
+            for batch in &self.batches[range] {
+                let mut render_pass = mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Multi Mark Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: texture_view,
+                        resolve_target,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: if range_uses_stencil {
+                        depth_stencil_attachment.clone()
+                    } else {
+                        None
+                    },
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+
+                render_pass.set_pipeline(render_pipeline);
+                render_pass.set_bind_group(0, &prepared.uniform_bind_group, &[]);
+                render_pass.set_bind_group(
+                    1,
+                    &prepared.gradient_texture_bind_groups[batch.gradient_atlas_index.unwrap_or(0)],
+                    &[],
+                );
+                render_pass.set_bind_group(
+                    2,
+                    &prepared.image_texture_bind_groups[batch.image_atlas_index.unwrap_or(0)],
+                    &[],
+                );
+                render_pass.set_bind_group(
+                    3,
+                    &text_bind_groups[batch.text_atlas_index.unwrap_or(0)],
+                    &[],
+                );
+                render_pass.set_vertex_buffer(0, prepared.vertex_buffer.slice(..));
+                render_pass
+                    .set_index_buffer(prepared.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+
+                if let Some(clip_inds_range) = &batch.clip_indices_range {
+                    render_pass.set_stencil_reference(1);
+                    render_pass.set_pipeline(&resources.stencil_pipeline);
+                    render_pass.set_vertex_buffer(0, prepared.clip_vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(
+                        prepared.clip_index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint32,
+                    );
+                    render_pass.draw_indexed(clip_inds_range.clone(), 0, 0..1);
+
+                    render_pass.set_pipeline(render_pipeline);
+                    render_pass.set_vertex_buffer(0, prepared.vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(
+                        prepared.index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint32,
+                    );
+                } else if range_uses_stencil {
+                    render_pass.set_stencil_reference(0);
+                }
+
+                if let Clip::Rect {
+                    x,
+                    y,
+                    width,
+                    height,
+                } = batch.clip
+                {
+                    let physical_x = (x * self.uniform.scale) as u32;
+                    let physical_y = (y * self.uniform.scale) as u32;
+                    let physical_width = (width * self.uniform.scale) as u32;
+                    let physical_height = (height * self.uniform.scale) as u32;
+
+                    let canvas_width = render_target_extent.width;
+                    let canvas_height = render_target_extent.height;
+
+                    let clamped_x = physical_x.min(canvas_width);
+                    let clamped_y = physical_y.min(canvas_height);
+                    let clamped_width = physical_width.min(canvas_width - clamped_x);
+                    let clamped_height = physical_height.min(canvas_height - clamped_y);
+
+                    render_pass.set_scissor_rect(
+                        clamped_x,
+                        clamped_y,
+                        clamped_width,
+                        clamped_height,
+                    );
+                }
+
+                render_pass.draw_indexed(batch.indices_range.clone(), 0, 0..1);
+            }
+        }
+
+        mark_encoder.finish()
     }
 
     #[tracing::instrument(skip_all)]

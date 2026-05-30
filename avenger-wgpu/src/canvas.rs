@@ -1,8 +1,4 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    sync::Arc,
-    time::Instant,
-};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use avenger_common::{
     canvas::CanvasDimensions,
@@ -48,7 +44,13 @@ pub enum MarkRenderer {
         x_adjustment: Option<LinearScaleAdjustment>,
         y_adjustment: Option<LinearScaleAdjustment>,
     },
-    Multi(Box<MultiMarkRenderer>),
+    /// A contiguous run of multi-marks at one z-index, stored as a half-open range
+    /// of batch indices into the canvas's single shared `MultiMarkRenderer`. The
+    /// renderer is prepared once per frame; each run is encoded via
+    /// `encode_batch_range`, preserving exact draw order and clipping.
+    Multi {
+        batch_range: std::ops::Range<usize>,
+    },
 }
 
 /// A mark renderer with its associated z-index
@@ -63,7 +65,7 @@ fn mark_renderer_counts(marks: &[ZIndexedMark]) -> (usize, usize) {
         .fold((0, 0), |(instanced_count, multi_count), mark| {
             match &mark.renderer {
                 MarkRenderer::Instanced { .. } => (instanced_count + 1, multi_count),
-                MarkRenderer::Multi(_) => (instanced_count, multi_count + 1),
+                MarkRenderer::Multi { .. } => (instanced_count, multi_count + 1),
             }
         })
 }
@@ -607,7 +609,11 @@ pub struct WindowCanvas<'window> {
     surface_config: SurfaceConfiguration,
     dimensions: CanvasDimensions,
     marks: Vec<ZIndexedMark>,
-    multi_renderers: BTreeMap<i32, MultiMarkRenderer>,
+    // All multi-marks accumulate into one shared renderer; each z-run is recorded
+    // in `marks` as a batch range. `run_start` is the batch index where the current
+    // (uncommitted) z-run began.
+    shared_multi: MultiMarkRenderer,
+    run_start: usize,
     current_zindex: i32,
     instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
     multi_render_resources: MultiMarkRenderResources,
@@ -697,7 +703,8 @@ impl WindowCanvas<'_> {
             dimensions,
             window,
             marks: Vec::new(),
-            multi_renderers: BTreeMap::new(),
+            shared_multi: MultiMarkRenderer::new(dimensions),
+            run_start: 0,
             current_zindex: 0,
             instanced_renderers: HashMap::new(),
             multi_render_resources,
@@ -720,15 +727,16 @@ impl WindowCanvas<'_> {
     }
 
     fn commit_all_multi_renderers(&mut self) {
-        for (zindex, multi_renderer) in std::mem::take(&mut self.multi_renderers) {
-            if multi_renderer.is_empty() {
-                continue;
-            }
+        let end = self.shared_multi.batch_count();
+        if end > self.run_start {
             self.marks.push(ZIndexedMark {
-                zindex,
-                renderer: MarkRenderer::Multi(Box::new(multi_renderer)),
+                zindex: self.current_zindex,
+                renderer: MarkRenderer::Multi {
+                    batch_range: self.run_start..end,
+                },
             });
         }
+        self.run_start = end;
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -920,11 +928,28 @@ impl WindowCanvas<'_> {
             &text_atlas_images,
         );
 
+        // Prepare the single shared multi-renderer ONCE per frame (uniform, gradient/
+        // image atlas bind groups, stencil buffer, combined vertex/index/clip buffers).
+        // Each z-run (a `MarkRenderer::Multi` batch range) is then encoded from this
+        // shared prep, so the 40-ish per-cell renderers' setup collapses to one.
+        let _prepare_start = Instant::now();
+        let prepared = self.shared_multi.prepare(
+            &self.device,
+            &self.queue,
+            render_target_extent,
+            &multi_render_resources,
+        );
+        tracing::debug!(
+            target: "avenger_wgpu::resize",
+            prepare_ms = _prepare_start.elapsed().as_secs_f64() * 1000.0,
+            "wgpu.prepare"
+        );
+
         // Render marks by layer
         for (min_z, max_z) in layers {
-            for mark in &mut self.marks {
+            for mark in &self.marks {
                 if mark.zindex >= min_z && mark.zindex <= max_z {
-                    let command = match &mut mark.renderer {
+                    let command = match &mark.renderer {
                         MarkRenderer::Instanced {
                             renderer,
                             x_adjustment,
@@ -948,26 +973,28 @@ impl WindowCanvas<'_> {
                                 )
                             }
                         }
-                        MarkRenderer::Multi(renderer) => {
+                        MarkRenderer::Multi { batch_range } => {
                             if self.sample_count > 1 {
-                                renderer.render_with_resources(
+                                self.shared_multi.encode_batch_range(
                                     &self.device,
-                                    &self.queue,
                                     render_target_extent,
                                     &self.multisampled_framebuffer,
                                     Some(&view),
                                     &multi_render_resources,
                                     &text_bind_groups,
+                                    &prepared,
+                                    batch_range.clone(),
                                 )
                             } else {
-                                renderer.render_with_resources(
+                                self.shared_multi.encode_batch_range(
                                     &self.device,
-                                    &self.queue,
                                     render_target_extent,
                                     &view,
                                     None,
                                     &multi_render_resources,
                                     &text_bind_groups,
+                                    &prepared,
+                                    batch_range.clone(),
                                 )
                             }
                         }
@@ -1045,12 +1072,16 @@ impl Canvas for WindowCanvas<'_> {
     }
 
     fn commit_multi_renderer_if_needed(&mut self, _new_zindex: i32) {
-        if let Some(multi_renderer) = self.multi_renderers.remove(&self.current_zindex) {
+        let end = self.shared_multi.batch_count();
+        if end > self.run_start {
             self.marks.push(ZIndexedMark {
                 zindex: self.current_zindex,
-                renderer: MarkRenderer::Multi(Box::new(multi_renderer)),
+                renderer: MarkRenderer::Multi {
+                    batch_range: self.run_start..end,
+                },
             });
         }
+        self.run_start = end;
     }
 
     fn get_current_zindex(&self) -> i32 {
@@ -1058,9 +1089,7 @@ impl Canvas for WindowCanvas<'_> {
     }
 
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
-        self.multi_renderers
-            .entry(self.current_zindex)
-            .or_insert_with(|| MultiMarkRenderer::new(self.dimensions))
+        &mut self.shared_multi
     }
 
     fn text_atlas_builder(&mut self) -> &mut dyn TextAtlasBuilderTrait {
@@ -1078,12 +1107,16 @@ impl Canvas for WindowCanvas<'_> {
         x_adjustment: Option<LinearScaleAdjustment>,
         y_adjustment: Option<LinearScaleAdjustment>,
     ) {
-        if let Some(multi_renderer) = self.multi_renderers.remove(&self.current_zindex) {
+        let end = self.shared_multi.batch_count();
+        if end > self.run_start {
             self.marks.push(ZIndexedMark {
                 zindex: self.current_zindex,
-                renderer: MarkRenderer::Multi(Box::new(multi_renderer)),
+                renderer: MarkRenderer::Multi {
+                    batch_range: self.run_start..end,
+                },
             });
         }
+        self.run_start = end;
         self.instanced_renderers
             .insert(fingerprint, mark_renderer.clone());
         self.marks.push(ZIndexedMark {
@@ -1097,19 +1130,11 @@ impl Canvas for WindowCanvas<'_> {
     }
 
     fn clear_mark_renderer(&mut self) {
-        let mut recycled = BTreeMap::new();
-        for (zindex, mut renderer) in std::mem::take(&mut self.multi_renderers) {
-            renderer.reset_for_frame(self.dimensions);
-            recycled.entry(zindex).or_insert(renderer);
-        }
-        for mark in self.marks.drain(..) {
-            if let MarkRenderer::Multi(renderer) = mark.renderer {
-                let mut renderer = *renderer;
-                renderer.reset_for_frame(self.dimensions);
-                recycled.entry(mark.zindex).or_insert(renderer);
-            }
-        }
-        self.multi_renderers = recycled;
+        // One shared multi-renderer per canvas: reset it in place each frame and
+        // clear the recorded z-run marks. (Instanced fingerprint cache is retained.)
+        self.shared_multi.reset_for_frame(self.dimensions);
+        self.run_start = 0;
+        self.marks.clear();
 
         // Reset the shared text atlas so each frame starts clean (matches the old
         // per-renderer reset-per-frame semantics). `TextAtlasBuilder` has no reset
@@ -1155,7 +1180,8 @@ pub struct PngCanvas {
     texture_size: Extent3d,
     padded_width: u32,
     padded_height: u32,
-    multi_renderers: BTreeMap<i32, MultiMarkRenderer>,
+    shared_multi: MultiMarkRenderer,
+    run_start: usize,
     instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
     multi_render_resources: MultiMarkRenderResources,
     config: CanvasConfig,
@@ -1246,7 +1272,8 @@ impl PngCanvas {
             padded_width,
             padded_height,
             marks: Vec::new(),
-            multi_renderers: BTreeMap::new(),
+            shared_multi: MultiMarkRenderer::new(dimensions),
+            run_start: 0,
             current_zindex: 0,
             instanced_renderers: HashMap::new(),
             multi_render_resources,
@@ -1256,15 +1283,16 @@ impl PngCanvas {
     }
 
     fn commit_all_multi_renderers(&mut self) {
-        for (zindex, multi_renderer) in std::mem::take(&mut self.multi_renderers) {
-            if multi_renderer.is_empty() {
-                continue;
-            }
+        let end = self.shared_multi.batch_count();
+        if end > self.run_start {
             self.marks.push(ZIndexedMark {
-                zindex,
-                renderer: MarkRenderer::Multi(Box::new(multi_renderer)),
+                zindex: self.current_zindex,
+                renderer: MarkRenderer::Multi {
+                    batch_range: self.run_start..end,
+                },
             });
         }
+        self.run_start = end;
     }
 
     #[tracing::instrument(skip_all)]
@@ -1313,12 +1341,29 @@ impl PngCanvas {
             &text_atlas_images,
         );
 
+        // Prepare the single shared multi-renderer ONCE per frame (uniform, gradient/
+        // image atlas bind groups, stencil buffer, combined vertex/index/clip buffers).
+        // Each z-run (a `MarkRenderer::Multi` batch range) is then encoded from this
+        // shared prep, so the 40-ish per-cell renderers' setup collapses to one.
+        let _prepare_start = Instant::now();
+        let prepared = self.shared_multi.prepare(
+            &self.device,
+            &self.queue,
+            render_target_extent,
+            &multi_render_resources,
+        );
+        tracing::debug!(
+            target: "avenger_wgpu::resize",
+            prepare_ms = _prepare_start.elapsed().as_secs_f64() * 1000.0,
+            "wgpu.prepare"
+        );
+
         // Render marks by layer
         let command_build_start = Instant::now();
         for (min_z, max_z) in layers {
-            for mark in &mut self.marks {
+            for mark in &self.marks {
                 if mark.zindex >= min_z && mark.zindex <= max_z {
-                    let command = match &mut mark.renderer {
+                    let command = match &mark.renderer {
                         MarkRenderer::Instanced {
                             renderer,
                             x_adjustment,
@@ -1342,26 +1387,28 @@ impl PngCanvas {
                                 )
                             }
                         }
-                        MarkRenderer::Multi(renderer) => {
+                        MarkRenderer::Multi { batch_range } => {
                             if self.sample_count > 1 {
-                                renderer.render_with_resources(
+                                self.shared_multi.encode_batch_range(
                                     &self.device,
-                                    &self.queue,
                                     render_target_extent,
                                     &self.multisampled_framebuffer,
                                     Some(&self.texture_view),
                                     &multi_render_resources,
                                     &text_bind_groups,
+                                    &prepared,
+                                    batch_range.clone(),
                                 )
                             } else {
-                                renderer.render_with_resources(
+                                self.shared_multi.encode_batch_range(
                                     &self.device,
-                                    &self.queue,
                                     render_target_extent,
                                     &self.texture_view,
                                     None,
                                     &multi_render_resources,
                                     &text_bind_groups,
+                                    &prepared,
+                                    batch_range.clone(),
                                 )
                             }
                         }
@@ -1470,12 +1517,16 @@ impl Canvas for PngCanvas {
     }
 
     fn commit_multi_renderer_if_needed(&mut self, _new_zindex: i32) {
-        if let Some(multi_renderer) = self.multi_renderers.remove(&self.current_zindex) {
+        let end = self.shared_multi.batch_count();
+        if end > self.run_start {
             self.marks.push(ZIndexedMark {
                 zindex: self.current_zindex,
-                renderer: MarkRenderer::Multi(Box::new(multi_renderer)),
+                renderer: MarkRenderer::Multi {
+                    batch_range: self.run_start..end,
+                },
             });
         }
+        self.run_start = end;
     }
 
     fn get_current_zindex(&self) -> i32 {
@@ -1483,9 +1534,7 @@ impl Canvas for PngCanvas {
     }
 
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
-        self.multi_renderers
-            .entry(self.current_zindex)
-            .or_insert_with(|| MultiMarkRenderer::new(self.dimensions))
+        &mut self.shared_multi
     }
 
     fn text_atlas_builder(&mut self) -> &mut dyn TextAtlasBuilderTrait {
@@ -1503,12 +1552,16 @@ impl Canvas for PngCanvas {
         x_adjustment: Option<LinearScaleAdjustment>,
         y_adjustment: Option<LinearScaleAdjustment>,
     ) {
-        if let Some(multi_renderer) = self.multi_renderers.remove(&self.current_zindex) {
+        let end = self.shared_multi.batch_count();
+        if end > self.run_start {
             self.marks.push(ZIndexedMark {
                 zindex: self.current_zindex,
-                renderer: MarkRenderer::Multi(Box::new(multi_renderer)),
+                renderer: MarkRenderer::Multi {
+                    batch_range: self.run_start..end,
+                },
             });
         }
+        self.run_start = end;
         self.instanced_renderers
             .insert(fingerprint, mark_renderer.clone());
         self.marks.push(ZIndexedMark {
@@ -1522,19 +1575,11 @@ impl Canvas for PngCanvas {
     }
 
     fn clear_mark_renderer(&mut self) {
-        let mut recycled = BTreeMap::new();
-        for (zindex, mut renderer) in std::mem::take(&mut self.multi_renderers) {
-            renderer.reset_for_frame(self.dimensions);
-            recycled.entry(zindex).or_insert(renderer);
-        }
-        for mark in self.marks.drain(..) {
-            if let MarkRenderer::Multi(renderer) = mark.renderer {
-                let mut renderer = *renderer;
-                renderer.reset_for_frame(self.dimensions);
-                recycled.entry(mark.zindex).or_insert(renderer);
-            }
-        }
-        self.multi_renderers = recycled;
+        // One shared multi-renderer per canvas: reset it in place each frame and
+        // clear the recorded z-run marks. (Instanced fingerprint cache is retained.)
+        self.shared_multi.reset_for_frame(self.dimensions);
+        self.run_start = 0;
+        self.marks.clear();
 
         // Reset the shared text atlas so each frame starts clean (matches the old
         // per-renderer reset-per-frame semantics).
