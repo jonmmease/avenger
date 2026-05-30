@@ -1633,7 +1633,10 @@ impl MultiMarkRenderer {
                 rp.set_stencil_reference(1);
                 rp.set_pipeline(&resources.stencil_pipeline);
                 rp.set_vertex_buffer(0, prepared.clip_vertex_buffer.slice(..));
-                rp.set_index_buffer(prepared.clip_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                rp.set_index_buffer(
+                    prepared.clip_index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
                 rp.draw_indexed(batch.clip_indices_range.clone().unwrap(), 0, 0..1);
                 rp.set_pipeline(&resources.stencil_render_pipeline);
                 rp.set_vertex_buffer(0, prepared.vertex_buffer.slice(..));

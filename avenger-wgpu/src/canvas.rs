@@ -48,9 +48,7 @@ pub enum MarkRenderer {
     /// of batch indices into the canvas's single shared `MultiMarkRenderer`. The
     /// renderer is prepared once per frame; consecutive runs are coalesced and
     /// encoded via `encode_multi_ranges`, preserving exact draw order and clipping.
-    Multi {
-        batch_range: std::ops::Range<usize>,
-    },
+    Multi { batch_range: std::ops::Range<usize> },
 }
 
 /// A mark renderer with its associated z-index

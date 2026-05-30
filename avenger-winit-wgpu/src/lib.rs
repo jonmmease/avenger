@@ -910,8 +910,7 @@ where
                     if rendered {
                         #[cfg(not(target_arch = "wasm32"))]
                         {
-                            let surface_render_ms =
-                                render_start.elapsed().as_secs_f64() * 1000.0;
+                            let surface_render_ms = render_start.elapsed().as_secs_f64() * 1000.0;
                             let now = StdInstant::now();
                             let frame_dt_ms = self
                                 .last_redraw

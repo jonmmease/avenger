@@ -39,9 +39,7 @@ fn main() {
     let avenger_app = tokio_runtime.block_on(build_app());
     let options = WinitWgpuAvengerAppOptions::new(2.0).window_attributes(
         WindowAttributes::default()
-            .with_title(
-                "avenger-chart 2×3 instanced facet — 200 pts/cell — drag to pan all cells",
-            )
+            .with_title("avenger-chart 2×3 instanced facet — 200 pts/cell — drag to pan all cells")
             .with_resizable(false),
     );
     let (mut app, event_loop) =
