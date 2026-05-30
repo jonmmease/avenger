@@ -119,7 +119,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         println!(
-            "instanced_pan_replay seq={} mode=Preview scene={:.0}x{:.0} eval={:.2}ms set_scene={:.2}ms png_render={:.2}ms frame_total={:.2}ms preview_reuse={} reflow_reuse={} cell_reuse={} data_reuse={} data_miss={} chrome={} guides={} guide_ms={:.2} probe_ms={:.2} build_ms={:.2}",
+            "instanced_pan_replay seq={} mode=Preview scene={:.0}x{:.0} eval={:.2}ms set_scene={:.2}ms png_render={:.2}ms frame_total={:.2}ms preview_reuse={} reflow_reuse={} cell_reuse={} data_reuse={} data_miss={} cells_built={} chrome={} guides={} scale_hits={} scale_misses={} scale_builds={} facet_tree_builds={} mark_collects={} guide_ms={:.2} probe_ms={:.2} build_ms={:.2} components_ms={:.2}",
             idx + 1,
             evaluated.scene_graph.width,
             evaluated.scene_graph.height,
@@ -132,13 +132,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             metrics.pipeline.facet_cell_measurement_profile_reuses,
             metrics.pipeline.preview_data_mark_reuses,
             metrics.pipeline.preview_data_mark_reuse_misses,
+            metrics.pipeline.facet_cells_built,
             metrics
                 .pipeline
                 .facet_cell_measurement_profile_chrome_refreshes,
             metrics.pipeline.guide_overflow_measure_calls,
+            metrics.pipeline.scale_domain_cache_hits,
+            metrics.pipeline.scale_domain_cache_misses,
+            metrics.pipeline.scale_builder_builds,
+            metrics.pipeline.facet_tree_builds,
+            metrics.pipeline.mark_data_collects,
             us_to_ms(metrics.timings.guide_overflow_measure_us),
             us_to_ms(metrics.timings.measure_cells_overflow_probe_us),
             us_to_ms(metrics.timings.build_plot_components_us),
+            us_to_ms(metrics.timings.components_to_evaluated_plot_us),
         );
     }
 

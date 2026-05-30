@@ -77,7 +77,8 @@ use crate::{
         EvaluatedPlot, EvaluationContext, EvaluationMetrics, EvaluationOptions,
         FacetSubtreeCheckpoint, FacetSubtreeSelector, FacetSubtreeSnapshot, InteractionScopeId,
         InteractionScopeKind, LayoutDebugOverlayMode, LayoutSnapshot, LayoutSolution,
-        PreviewProfileFallbackReason, RefinementCheckpoint, RenderContext, WholeChartSnapshot,
+        PreviewProfileFallbackReason, RefinementCheckpoint, RenderContext, RenderState,
+        WholeChartSnapshot,
         debug::{FrameDebugOverlay, create_debug_layout_rects, create_debug_overlay_rects},
     },
     scales::ConfiguredScaleWithSpec,
@@ -1614,6 +1615,13 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
         coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        if let Some(subplot) = facet_subplot_ref(mark) {
+            let render_state = RenderState::new(plot_width, plot_height, scales.clone());
+            let render_ctx =
+                RenderContext::new(eval_ctx, &render_state, facet_path, coord_measurement);
+            return subplot.render_with_context(&render_ctx).await;
+        }
+
         let prepared = self
             .prepare_mark_data(
                 mark,
@@ -1645,10 +1653,6 @@ impl CompiledPlot {
 
         if let Some(subplot) = mark.as_positioned_subplot() {
             return render_positioned_subplot_with_context(subplot, &render_ctx).await;
-        }
-
-        if let Some(subplot) = facet_subplot_ref(mark) {
-            return subplot.render_with_context(&render_ctx).await;
         }
 
         mark.render_from_data(

@@ -3968,6 +3968,10 @@ mod tests {
             first_metrics.pipeline.preview_data_mark_reuse_misses, 1,
             "only the top-level child-frame container should miss data-mark reuse"
         );
+        assert_eq!(
+            first_metrics.pipeline.mark_data_collects, 0,
+            "facet containers should render from measured facet state without collecting mark data"
+        );
 
         let mut second_patch = IndexMap::new();
         second_patch.insert("x_domain".to_string(), list_domain(3.0, 9.0));
@@ -3986,6 +3990,10 @@ mod tests {
         assert_eq!(
             second_metrics.pipeline.preview_data_mark_reuse_misses, 1,
             "steady pan preview should avoid per-cell data rebuilds"
+        );
+        assert_eq!(
+            second_metrics.pipeline.mark_data_collects, 0,
+            "steady pan preview should not collect mark data for facet container renderers"
         );
 
         let one_shot = compiled.evaluate(ctx.as_ref(), Some(second_patch)).await?;
