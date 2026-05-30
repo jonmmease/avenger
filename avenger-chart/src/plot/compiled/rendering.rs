@@ -320,6 +320,25 @@ fn retarget_linear_adjustment(
     }
 }
 
+fn retarget_symbol_position_axis(
+    values: &mut ScalarOrArray<f32>,
+    existing: &mut Option<LinearScaleAdjustment>,
+    adjustment: Option<LinearScaleAdjustment>,
+    fallback_scale: f32,
+) {
+    if let Some(adjustment) = adjustment {
+        if existing.is_some() {
+            retarget_linear_adjustment(existing, Some(adjustment), fallback_scale);
+        } else {
+            *existing = Some(adjustment);
+        }
+    } else if existing.is_some() {
+        retarget_linear_adjustment(existing, None, fallback_scale);
+    } else {
+        *values = scale_f32_values(values, fallback_scale);
+    }
+}
+
 fn retarget_clip_for_plot_area(
     clip: &Clip,
     scale_x: f32,
@@ -441,16 +460,18 @@ fn scale_scene_mark_for_plot_area(
         }
         SceneMark::Symbol(mark) => {
             let mut mark = mark.clone();
-            if mark.x_adjustment.is_some() {
-                retarget_linear_adjustment(&mut mark.x_adjustment, x_adjustment, scale_x);
-            } else {
-                mark.x = retarget_f32_values(&mark.x, x_adjustment, scale_x);
-            }
-            if mark.y_adjustment.is_some() {
-                retarget_linear_adjustment(&mut mark.y_adjustment, y_adjustment, scale_y);
-            } else {
-                mark.y = retarget_f32_values(&mark.y, y_adjustment, scale_y);
-            }
+            retarget_symbol_position_axis(
+                &mut mark.x,
+                &mut mark.x_adjustment,
+                x_adjustment,
+                scale_x,
+            );
+            retarget_symbol_position_axis(
+                &mut mark.y,
+                &mut mark.y_adjustment,
+                y_adjustment,
+                scale_y,
+            );
             Some(SceneMark::Symbol(mark))
         }
         SceneMark::Rect(mark) => {
@@ -535,9 +556,9 @@ fn retarget_cached_data_marks_for_plot_area(
     let scale_x = target_measurement.plot_area_width / source_plot_area_width;
     let scale_y = target_measurement.plot_area_height / source_plot_area_height;
     let x_adjustment =
-        scale_adjustment_between_measurements(source_measurement, target_measurement, "x");
+        scale_adjustment_between_measurements(source_measurement, target_measurement, "x")?;
     let y_adjustment =
-        scale_adjustment_between_measurements(source_measurement, target_measurement, "y");
+        scale_adjustment_between_measurements(source_measurement, target_measurement, "y")?;
     cached_components
         .data_marks
         .iter()
@@ -551,10 +572,17 @@ fn scale_adjustment_between_measurements(
     source_measurement: &ComponentsMeasurement,
     target_measurement: &ComponentsMeasurement,
     channel: &str,
-) -> Option<LinearScaleAdjustment> {
-    let from_scale = source_measurement.scales.get(channel)?.configured();
-    let to_scale = target_measurement.scales.get(channel)?.configured();
-    from_scale.adjust(to_scale).ok()
+) -> Option<Option<LinearScaleAdjustment>> {
+    match (
+        source_measurement.scales.get(channel),
+        target_measurement.scales.get(channel),
+    ) {
+        (Some(from_scale), Some(to_scale)) => Some(Some(
+            from_scale.configured().adjust(to_scale.configured()).ok()?,
+        )),
+        (None, None) => Some(None),
+        (Some(_), None) | (None, Some(_)) => None,
+    }
 }
 
 fn set_debug_side_overflow(layout: &mut FrameLayout, side: AxisPosition, total: f32) {

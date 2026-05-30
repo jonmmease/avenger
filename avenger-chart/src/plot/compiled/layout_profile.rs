@@ -14,7 +14,7 @@ use crate::{
     },
     plot::compiled::{
         CompiledPlot, ComponentsMeasurement, PlotComponents,
-        session::plot_dependency_param_fingerprint,
+        session::plot_profile_dependency_param_fingerprint,
     },
 };
 
@@ -75,7 +75,8 @@ impl LayoutProfileSnapshot {
         params: &IndexMap<String, ScalarValue>,
     ) -> Option<ComponentsMeasurement> {
         let logical_cell_path = facet_tree.logical_cell_key_for_path(full_path)?;
-        let dependency_params = plot_dependency_param_fingerprint(compiled_subplot, ctx, params);
+        let dependency_params =
+            plot_profile_dependency_param_fingerprint(compiled_subplot, ctx, params);
         let key = FacetCellProfileKey::new(
             logical_cell_path,
             compiled_subplot as *const _ as usize,
@@ -132,7 +133,8 @@ fn facet_cell_profile_key(
     params: &IndexMap<String, ScalarValue>,
 ) -> Option<FacetCellProfileKey> {
     let logical_cell_path = facet_tree.logical_cell_key_for_path(full_path)?;
-    let dependency_params = plot_dependency_param_fingerprint(compiled_subplot, ctx, params);
+    let dependency_params =
+        plot_profile_dependency_param_fingerprint(compiled_subplot, ctx, params);
     Some(FacetCellProfileKey::new(
         logical_cell_path,
         compiled_subplot as *const _ as usize,
@@ -196,8 +198,11 @@ impl FacetCellProfileIndex {
         params: &IndexMap<String, ScalarValue>,
     ) {
         let compiled_subplot_ptr = facet_band.compiled_subplot.as_ref() as *const _ as usize;
-        let dependency_params =
-            plot_dependency_param_fingerprint(facet_band.compiled_subplot.as_ref(), ctx, params);
+        let dependency_params = plot_profile_dependency_param_fingerprint(
+            facet_band.compiled_subplot.as_ref(),
+            ctx,
+            params,
+        );
         for cell in &facet_band.cells {
             if facet_band_ref(cell.measurement.coord_measurement.as_ref()).is_some() {
                 self.collect_measurements_from_measurement(

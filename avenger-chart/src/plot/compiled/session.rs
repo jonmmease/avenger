@@ -1204,12 +1204,54 @@ fn facet_scale_precompute_dependency_params(
     names
 }
 
-pub(crate) fn plot_dependency_param_fingerprint(
+#[derive(Clone, Copy)]
+struct DependencyPlaceholderOptions {
+    include_raw_domain: bool,
+}
+
+impl DependencyPlaceholderOptions {
+    const ALL: Self = Self {
+        include_raw_domain: true,
+    };
+
+    // Facet cell profile keys intentionally ignore params that are used only as
+    // raw-domain scale overrides. Preview retargeting compares the cached and
+    // current scale objects directly, so these params should move marks through
+    // affine scale adjustments rather than invalidating the cached cell profile.
+    const PROFILE_KEY: Self = Self {
+        include_raw_domain: false,
+    };
+}
+
+pub(crate) fn plot_profile_dependency_param_fingerprint(
     plot: &CompiledPlot,
     ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
 ) -> Vec<(String, String)> {
-    facet_scale_precompute_dependency_params(plot, ctx, params)
+    plot_dependency_param_fingerprint_with_options(
+        plot,
+        ctx,
+        params,
+        DependencyPlaceholderOptions::PROFILE_KEY,
+    )
+}
+
+fn plot_dependency_param_fingerprint_with_options(
+    plot: &CompiledPlot,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+    options: DependencyPlaceholderOptions,
+) -> Vec<(String, String)> {
+    let all_param_names = params.keys().cloned().collect::<BTreeSet<_>>();
+    let mut names = BTreeSet::new();
+    collect_plot_dependency_placeholders_with_options(
+        plot,
+        ctx,
+        &mut names,
+        &all_param_names,
+        options,
+    );
+    names
         .into_iter()
         .map(|name| {
             let value = params
@@ -1281,12 +1323,34 @@ fn collect_plot_dependency_placeholders(
     names: &mut BTreeSet<String>,
     all_param_names: &BTreeSet<String>,
 ) {
+    collect_plot_dependency_placeholders_with_options(
+        plot,
+        ctx,
+        names,
+        all_param_names,
+        DependencyPlaceholderOptions::ALL,
+    );
+}
+
+fn collect_plot_dependency_placeholders_with_options(
+    plot: &CompiledPlot,
+    ctx: &SessionContext,
+    names: &mut BTreeSet<String>,
+    all_param_names: &BTreeSet<String>,
+    options: DependencyPlaceholderOptions,
+) {
     collect_plan_placeholders(plot.data.as_ref(), ctx, names, all_param_names);
-    collect_marks_dependency_placeholders(&plot.marks, ctx, names, all_param_names);
+    collect_marks_dependency_placeholders(&plot.marks, ctx, names, all_param_names, options);
     for scale_spec in plot.scale_specs.values() {
         match scale_spec {
             PlotScaleSpec::Local(config) => {
-                collect_scale_config_placeholders(config, ctx, names, all_param_names);
+                collect_scale_config_placeholders_with_options(
+                    config,
+                    ctx,
+                    names,
+                    all_param_names,
+                    options,
+                );
             }
         }
     }
@@ -1297,9 +1361,10 @@ fn collect_marks_dependency_placeholders(
     ctx: &SessionContext,
     names: &mut BTreeSet<String>,
     all_param_names: &BTreeSet<String>,
+    options: DependencyPlaceholderOptions,
 ) {
     for mark in compiled_marks {
-        collect_mark_dependency_placeholders(mark.as_ref(), ctx, names, all_param_names);
+        collect_mark_dependency_placeholders(mark.as_ref(), ctx, names, all_param_names, options);
     }
 }
 
@@ -1310,7 +1375,13 @@ fn collect_marks_direct_dependency_placeholders(
     all_param_names: &BTreeSet<String>,
 ) {
     for mark in compiled_marks {
-        collect_mark_direct_dependency_placeholders(mark.as_ref(), ctx, names, all_param_names);
+        collect_mark_direct_dependency_placeholders(
+            mark.as_ref(),
+            ctx,
+            names,
+            all_param_names,
+            DependencyPlaceholderOptions::ALL,
+        );
     }
 }
 
@@ -1319,29 +1390,38 @@ fn collect_mark_dependency_placeholders(
     ctx: &SessionContext,
     names: &mut BTreeSet<String>,
     all_param_names: &BTreeSet<String>,
+    options: DependencyPlaceholderOptions,
 ) {
-    collect_mark_direct_dependency_placeholders(mark, ctx, names, all_param_names);
+    collect_mark_direct_dependency_placeholders(mark, ctx, names, all_param_names, options);
 
     if let Some(facet_subplot) = facet_subplot_ref(mark) {
-        collect_facet_subplot_dependency_placeholders(facet_subplot, ctx, names, all_param_names);
+        collect_facet_subplot_dependency_placeholders(
+            facet_subplot,
+            ctx,
+            names,
+            all_param_names,
+            options,
+        );
     }
     if let Some(positioned_subplot) = mark.as_positioned_subplot() {
         if let Some(partition_expr) = positioned_subplot.partition_expr() {
             collect_expr_node_placeholders(Some(partition_expr), ctx, names, all_param_names);
         }
-        collect_plot_dependency_placeholders(
+        collect_plot_dependency_placeholders_with_options(
             compiled_subplot_payload_child_plot(positioned_subplot.payload()),
             ctx,
             names,
             all_param_names,
+            options,
         );
     }
     if let Some(concat_subplot) = concat::compiled_subplot(mark) {
-        collect_plot_dependency_placeholders(
+        collect_plot_dependency_placeholders_with_options(
             concat_subplot.compiled_subplot(),
             ctx,
             names,
             all_param_names,
+            options,
         );
     }
 }
@@ -1351,6 +1431,7 @@ fn collect_mark_direct_dependency_placeholders(
     ctx: &SessionContext,
     names: &mut BTreeSet<String>,
     all_param_names: &BTreeSet<String>,
+    options: DependencyPlaceholderOptions,
 ) {
     collect_plan_placeholders(
         mark.data_context().logical_plan_node(),
@@ -1363,7 +1444,13 @@ fn collect_mark_direct_dependency_placeholders(
             collect_expr_placeholders(&expr, names);
         }
         if let Some(config) = channel.get_scale_config() {
-            collect_scale_config_placeholders(config, ctx, names, all_param_names);
+            collect_scale_config_placeholders_with_options(
+                config,
+                ctx,
+                names,
+                all_param_names,
+                options,
+            );
         }
     }
 }
@@ -1373,24 +1460,27 @@ fn collect_facet_subplot_dependency_placeholders(
     ctx: &SessionContext,
     names: &mut BTreeSet<String>,
     all_param_names: &BTreeSet<String>,
+    options: DependencyPlaceholderOptions,
 ) {
     match facet_subplot {
         FacetSubplotRef::Row(mark) => {
             collect_expr_node_placeholders(mark.facet_order_expr(), ctx, names, all_param_names);
-            collect_plot_dependency_placeholders(
+            collect_plot_dependency_placeholders_with_options(
                 mark.compiled_subplot(),
                 ctx,
                 names,
                 all_param_names,
+                options,
             );
         }
         FacetSubplotRef::Col(mark) => {
             collect_expr_node_placeholders(mark.facet_order_expr(), ctx, names, all_param_names);
-            collect_plot_dependency_placeholders(
+            collect_plot_dependency_placeholders_with_options(
                 mark.compiled_subplot(),
                 ctx,
                 names,
                 all_param_names,
+                options,
             );
         }
         FacetSubplotRef::Wrap(mark) => {
@@ -1401,11 +1491,12 @@ fn collect_facet_subplot_dependency_placeholders(
                     collect_expr_node_placeholders(Some(&expr), ctx, names, all_param_names);
                 }
             }
-            collect_plot_dependency_placeholders(
+            collect_plot_dependency_placeholders_with_options(
                 mark.compiled_subplot(),
                 ctx,
                 names,
                 all_param_names,
+                options,
             );
         }
     }
@@ -1417,8 +1508,30 @@ fn collect_scale_config_placeholders(
     names: &mut BTreeSet<String>,
     all_param_names: &BTreeSet<String>,
 ) {
+    collect_scale_config_placeholders_with_options(
+        config,
+        ctx,
+        names,
+        all_param_names,
+        DependencyPlaceholderOptions::ALL,
+    );
+}
+
+fn collect_scale_config_placeholders_with_options(
+    config: &ScaleConfigSpec,
+    ctx: &SessionContext,
+    names: &mut BTreeSet<String>,
+    all_param_names: &BTreeSet<String>,
+    options: DependencyPlaceholderOptions,
+) {
     if let Maybe::Set(domain) = &config.domain {
-        collect_scale_domain_placeholders(domain, ctx, names, all_param_names);
+        collect_scale_domain_placeholders_with_options(
+            domain,
+            ctx,
+            names,
+            all_param_names,
+            options,
+        );
     }
     if let Maybe::Set(ordering) = &config.ordering
         && let Some(order_expr) = &ordering.order_expr
@@ -1430,13 +1543,16 @@ fn collect_scale_config_placeholders(
     }
 }
 
-fn collect_scale_domain_placeholders(
+fn collect_scale_domain_placeholders_with_options(
     domain: &ScaleDomain,
     ctx: &SessionContext,
     names: &mut BTreeSet<String>,
     all_param_names: &BTreeSet<String>,
+    options: DependencyPlaceholderOptions,
 ) {
-    collect_expr_node_placeholders(domain.raw_domain.as_ref(), ctx, names, all_param_names);
+    if options.include_raw_domain {
+        collect_expr_node_placeholders(domain.raw_domain.as_ref(), ctx, names, all_param_names);
+    }
     match &domain.default_domain {
         ScaleDefaultDomain::Interval(start, end) => {
             collect_expr_node_placeholders(Some(start), ctx, names, all_param_names);
@@ -3793,6 +3909,91 @@ mod tests {
                 "preview cell x domain should reflect the pan, got ({min}, {max})"
             );
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn faceted_preview_reuses_data_marks_across_repeated_shared_raw_domain_pan()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let x_domain = Param::raw_domain("x_domain");
+        let raw = x_domain.expr();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('A', 0.0, 0.0), ('A', 10.0, 10.0),
+                    ('B', 0.0, 1.0), ('B', 10.0, 9.0)
+                ) AS t(group_name, x, y)",
+            )
+            .await?;
+        let compiled = Arc::new(
+            Plot::<FacetColumn>::new()
+                .add_param(x_domain.clone())
+                .canvas_size(640.0, 320.0)
+                .data(df)
+                .mark(
+                    Subplot::new(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("x"), move |c| {
+                                    c.scale_with::<Linear>(move |s| {
+                                        s.raw_domain(raw.clone()).nice(false).zero(false)
+                                    })
+                                    .share_scale()
+                                })
+                                .y(col("y"))
+                                .size(20.0),
+                        ),
+                    )
+                    .column(col("group_name")),
+                )
+                .compile(&ctx)
+                .await?,
+        );
+        let mut session = compiled.clone().instantiate(ctx.clone());
+
+        session.evaluate(EvaluationRequest::new().exact()).await?;
+
+        let mut first_patch = IndexMap::new();
+        first_patch.insert("x_domain".to_string(), list_domain(2.0, 8.0));
+        let (_first, first_metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(first_patch))
+            .await?;
+        assert_eq!(first_metrics.pipeline.preview_profile_reuses, 1);
+        assert_eq!(
+            first_metrics.pipeline.preview_data_mark_reuses, 2,
+            "both facet cells should retarget exact data marks for the first raw-domain pan"
+        );
+        assert_eq!(
+            first_metrics.pipeline.preview_data_mark_reuse_misses, 1,
+            "only the top-level child-frame container should miss data-mark reuse"
+        );
+
+        let mut second_patch = IndexMap::new();
+        second_patch.insert("x_domain".to_string(), list_domain(3.0, 9.0));
+        let (second, second_metrics) = session
+            .evaluate_with_metrics(
+                EvaluationRequest::new()
+                    .preview()
+                    .param_patch(second_patch.clone()),
+            )
+            .await?;
+        assert_eq!(second_metrics.pipeline.preview_profile_reuses, 1);
+        assert_eq!(
+            second_metrics.pipeline.preview_data_mark_reuses, 2,
+            "raw-domain params should not invalidate terminal facet-cell data-mark profiles"
+        );
+        assert_eq!(
+            second_metrics.pipeline.preview_data_mark_reuse_misses, 1,
+            "steady pan preview should avoid per-cell data rebuilds"
+        );
+
+        let one_shot = compiled.evaluate(ctx.as_ref(), Some(second_patch)).await?;
+        assert_symbol_positions_close_with_tolerance(
+            &second.scene_graph,
+            &one_shot.scene_graph,
+            6.0,
+        );
         Ok(())
     }
 
