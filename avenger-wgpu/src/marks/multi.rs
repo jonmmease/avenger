@@ -106,7 +106,7 @@ pub struct MultiMarkBatch {
 }
 
 /// Per-frame GPU resources for a `MultiMarkRenderer`, built once by `prepare()` and
-/// reused across any number of `encode_batch_range` calls. Splitting prepare from
+/// reused across any number of `encode_multi_ranges` calls. Splitting prepare from
 /// encode lets one shared renderer's geometry/atlas/uniform be uploaded a single
 /// time per frame while individual z-runs (batch ranges) are encoded separately and
 /// interleaved with instanced marks.
@@ -1532,13 +1532,19 @@ impl MultiMarkRenderer {
         }
     }
 
-    /// Encode the draws for `self.batches[range]` into one command buffer, reusing the
-    /// shared `prepared` resources. One render pass is begun per batch (LoadOp::Load),
-    /// matching the legacy per-renderer behavior. `range_uses_stencil` is computed for
-    /// this range only, so a clip-free run renders exactly as its standalone renderer
-    /// did (non-stencil pipeline, no stencil attachment).
+    /// Encode the draws for a set of batch ranges (a contiguous run of multi-marks,
+    /// already in `(layer, document)` draw order) into one command buffer, **merging
+    /// render passes**: consecutive non-stencil batches share a single pass (scissor
+    /// and bind groups change between draws), and each Path/stencil-clipped batch gets
+    /// its own pass (so the per-pass `Clear(0)` stencil isolates it). This collapses
+    /// the naive ~one-pass-per-batch (and one MSAA resolve per pass) down to ~one pass
+    /// per stencil clip + one for everything else.
+    ///
+    /// Byte-identical to per-batch passes: same draw order under `LoadOp::Load`, same
+    /// per-batch scissor/stencil. The scissor is reset to full for `Clip::None` batches
+    /// so a shared pass matches a fresh per-batch pass's default-full scissor.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn encode_batch_range(
+    pub(crate) fn encode_multi_ranges(
         &self,
         device: &Device,
         render_target_extent: Extent3d,
@@ -1547,47 +1553,97 @@ impl MultiMarkRenderer {
         resources: &MultiMarkRenderResources,
         text_bind_groups: &[BindGroup],
         prepared: &PreparedMulti,
-        range: std::ops::Range<usize>,
+        ranges: &[std::ops::Range<usize>],
     ) -> CommandBuffer {
-        let range_uses_stencil = self.batches[range.clone()]
-            .iter()
-            .any(|b| b.clip_indices_range.is_some());
-
         let mut mark_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Multi Mark Render Encoder"),
         });
+
+        // Batch indices in draw order across all ranges.
+        let mut order: Vec<usize> = Vec::new();
+        for r in ranges {
+            order.extend(r.clone());
+        }
+        if order.is_empty() || prepared.vertex_buffer.size() == 0 {
+            return mark_encoder.finish();
+        }
 
         let depth_view = prepared
             .stencil_buffer
             .as_ref()
             .map(|buffer| buffer.create_view(&Default::default()));
-        let depth_stencil_attachment =
-            depth_view
-                .as_ref()
-                .map(|view| wgpu::RenderPassDepthStencilAttachment {
-                    view,
-                    depth_ops: if cfg!(feature = "deno") {
-                        Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(0.0),
-                            store: wgpu::StoreOp::Discard,
-                        })
-                    } else {
-                        None
-                    },
-                    stencil_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                });
-        let render_pipeline = if range_uses_stencil {
-            &resources.stencil_render_pipeline
-        } else {
-            &resources.render_pipeline
-        };
+        let scale = self.uniform.scale;
+        let cw = render_target_extent.width;
+        let ch = render_target_extent.height;
 
-        if prepared.vertex_buffer.size() > 0 {
-            for batch in &self.batches[range] {
-                let mut render_pass = mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        let mut i = 0usize;
+        while i < order.len() {
+            let bi = order[i];
+            if self.batches[bi].clip_indices_range.is_some() {
+                // Dedicated pass for a Path/stencil clip (fresh Clear(0) stencil).
+                let dsa = depth_view
+                    .as_ref()
+                    .map(|view| wgpu::RenderPassDepthStencilAttachment {
+                        view,
+                        depth_ops: if cfg!(feature = "deno") {
+                            Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(0.0),
+                                store: wgpu::StoreOp::Discard,
+                            })
+                        } else {
+                            None
+                        },
+                        stencil_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                    });
+                let batch = &self.batches[bi];
+                let mut rp = mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Multi Mark Render Pass (stencil)"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: texture_view,
+                        resolve_target,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: dsa,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+                rp.set_bind_group(0, &prepared.uniform_bind_group, &[]);
+                rp.set_bind_group(
+                    1,
+                    &prepared.gradient_texture_bind_groups[batch.gradient_atlas_index.unwrap_or(0)],
+                    &[],
+                );
+                rp.set_bind_group(
+                    2,
+                    &prepared.image_texture_bind_groups[batch.image_atlas_index.unwrap_or(0)],
+                    &[],
+                );
+                rp.set_bind_group(
+                    3,
+                    &text_bind_groups[batch.text_atlas_index.unwrap_or(0)],
+                    &[],
+                );
+                // Draw the clip shape into the stencil (ref 1), then the mark.
+                rp.set_stencil_reference(1);
+                rp.set_pipeline(&resources.stencil_pipeline);
+                rp.set_vertex_buffer(0, prepared.clip_vertex_buffer.slice(..));
+                rp.set_index_buffer(prepared.clip_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                rp.draw_indexed(batch.clip_indices_range.clone().unwrap(), 0, 0..1);
+                rp.set_pipeline(&resources.stencil_render_pipeline);
+                rp.set_vertex_buffer(0, prepared.vertex_buffer.slice(..));
+                rp.set_index_buffer(prepared.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                Self::apply_scissor(&mut rp, &batch.clip, scale, cw, ch);
+                rp.draw_indexed(batch.indices_range.clone(), 0, 0..1);
+                i += 1;
+            } else {
+                // One pass for a run of non-stencil batches.
+                let mut rp = mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Multi Mark Render Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: texture_view,
@@ -1597,89 +1653,66 @@ impl MultiMarkRenderer {
                             store: wgpu::StoreOp::Store,
                         },
                     })],
-                    depth_stencil_attachment: if range_uses_stencil {
-                        depth_stencil_attachment.clone()
-                    } else {
-                        None
-                    },
+                    depth_stencil_attachment: None,
                     occlusion_query_set: None,
                     timestamp_writes: None,
                 });
-
-                render_pass.set_pipeline(render_pipeline);
-                render_pass.set_bind_group(0, &prepared.uniform_bind_group, &[]);
-                render_pass.set_bind_group(
-                    1,
-                    &prepared.gradient_texture_bind_groups[batch.gradient_atlas_index.unwrap_or(0)],
-                    &[],
-                );
-                render_pass.set_bind_group(
-                    2,
-                    &prepared.image_texture_bind_groups[batch.image_atlas_index.unwrap_or(0)],
-                    &[],
-                );
-                render_pass.set_bind_group(
-                    3,
-                    &text_bind_groups[batch.text_atlas_index.unwrap_or(0)],
-                    &[],
-                );
-                render_pass.set_vertex_buffer(0, prepared.vertex_buffer.slice(..));
-                render_pass
-                    .set_index_buffer(prepared.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-
-                if let Some(clip_inds_range) = &batch.clip_indices_range {
-                    render_pass.set_stencil_reference(1);
-                    render_pass.set_pipeline(&resources.stencil_pipeline);
-                    render_pass.set_vertex_buffer(0, prepared.clip_vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(
-                        prepared.clip_index_buffer.slice(..),
-                        wgpu::IndexFormat::Uint32,
+                rp.set_pipeline(&resources.render_pipeline);
+                rp.set_bind_group(0, &prepared.uniform_bind_group, &[]);
+                rp.set_vertex_buffer(0, prepared.vertex_buffer.slice(..));
+                rp.set_index_buffer(prepared.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                while i < order.len() {
+                    let bi = order[i];
+                    let batch = &self.batches[bi];
+                    if batch.clip_indices_range.is_some() {
+                        break;
+                    }
+                    rp.set_bind_group(
+                        1,
+                        &prepared.gradient_texture_bind_groups
+                            [batch.gradient_atlas_index.unwrap_or(0)],
+                        &[],
                     );
-                    render_pass.draw_indexed(clip_inds_range.clone(), 0, 0..1);
-
-                    render_pass.set_pipeline(render_pipeline);
-                    render_pass.set_vertex_buffer(0, prepared.vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(
-                        prepared.index_buffer.slice(..),
-                        wgpu::IndexFormat::Uint32,
+                    rp.set_bind_group(
+                        2,
+                        &prepared.image_texture_bind_groups[batch.image_atlas_index.unwrap_or(0)],
+                        &[],
                     );
-                } else if range_uses_stencil {
-                    render_pass.set_stencil_reference(0);
+                    rp.set_bind_group(
+                        3,
+                        &text_bind_groups[batch.text_atlas_index.unwrap_or(0)],
+                        &[],
+                    );
+                    Self::apply_scissor(&mut rp, &batch.clip, scale, cw, ch);
+                    rp.draw_indexed(batch.indices_range.clone(), 0, 0..1);
+                    i += 1;
                 }
-
-                if let Clip::Rect {
-                    x,
-                    y,
-                    width,
-                    height,
-                } = batch.clip
-                {
-                    let physical_x = (x * self.uniform.scale) as u32;
-                    let physical_y = (y * self.uniform.scale) as u32;
-                    let physical_width = (width * self.uniform.scale) as u32;
-                    let physical_height = (height * self.uniform.scale) as u32;
-
-                    let canvas_width = render_target_extent.width;
-                    let canvas_height = render_target_extent.height;
-
-                    let clamped_x = physical_x.min(canvas_width);
-                    let clamped_y = physical_y.min(canvas_height);
-                    let clamped_width = physical_width.min(canvas_width - clamped_x);
-                    let clamped_height = physical_height.min(canvas_height - clamped_y);
-
-                    render_pass.set_scissor_rect(
-                        clamped_x,
-                        clamped_y,
-                        clamped_width,
-                        clamped_height,
-                    );
-                }
-
-                render_pass.draw_indexed(batch.indices_range.clone(), 0, 0..1);
             }
         }
 
         mark_encoder.finish()
+    }
+
+    /// Set the scissor rect for a batch's clip, resetting to the full target for
+    /// non-rect clips (so a shared render pass matches a fresh per-batch pass).
+    fn apply_scissor(rp: &mut wgpu::RenderPass<'_>, clip: &Clip, scale: f32, cw: u32, ch: u32) {
+        if let Clip::Rect {
+            x,
+            y,
+            width,
+            height,
+        } = clip
+        {
+            let px = (*x * scale) as u32;
+            let py = (*y * scale) as u32;
+            let pw = (*width * scale) as u32;
+            let ph = (*height * scale) as u32;
+            let cx = px.min(cw);
+            let cy = py.min(ch);
+            rp.set_scissor_rect(cx, cy, pw.min(cw - cx), ph.min(ch - cy));
+        } else {
+            rp.set_scissor_rect(0, 0, cw, ch);
+        }
     }
 
     #[tracing::instrument(skip_all)]

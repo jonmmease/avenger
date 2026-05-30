@@ -46,8 +46,8 @@ pub enum MarkRenderer {
     },
     /// A contiguous run of multi-marks at one z-index, stored as a half-open range
     /// of batch indices into the canvas's single shared `MultiMarkRenderer`. The
-    /// renderer is prepared once per frame; each run is encoded via
-    /// `encode_batch_range`, preserving exact draw order and clipping.
+    /// renderer is prepared once per frame; consecutive runs are coalesced and
+    /// encoded via `encode_multi_ranges`, preserving exact draw order and clipping.
     Multi {
         batch_range: std::ops::Range<usize>,
     },
@@ -946,16 +946,48 @@ impl WindowCanvas<'_> {
         );
 
         // Render marks by layer
+        // Coalesce consecutive multi-mark runs (in (layer, document) order) into one
+        // command buffer with merged render passes; instanced marks break a run and
+        // render on their own pipeline, interleaved.
+        let mut pending: Vec<std::ops::Range<usize>> = Vec::new();
         for (min_z, max_z) in layers {
             for mark in &self.marks {
                 if mark.zindex >= min_z && mark.zindex <= max_z {
-                    let command = match &mark.renderer {
+                    match &mark.renderer {
+                        MarkRenderer::Multi { batch_range } => pending.push(batch_range.clone()),
                         MarkRenderer::Instanced {
                             renderer,
                             x_adjustment,
                             y_adjustment,
                         } => {
-                            if self.sample_count > 1 {
+                            if !pending.is_empty() {
+                                let c = if self.sample_count > 1 {
+                                    self.shared_multi.encode_multi_ranges(
+                                        &self.device,
+                                        render_target_extent,
+                                        &self.multisampled_framebuffer,
+                                        Some(&view),
+                                        &multi_render_resources,
+                                        &text_bind_groups,
+                                        &prepared,
+                                        &pending,
+                                    )
+                                } else {
+                                    self.shared_multi.encode_multi_ranges(
+                                        &self.device,
+                                        render_target_extent,
+                                        &view,
+                                        None,
+                                        &multi_render_resources,
+                                        &text_bind_groups,
+                                        &prepared,
+                                        &pending,
+                                    )
+                                };
+                                commands.push(c);
+                                pending.clear();
+                            }
+                            let c = if self.sample_count > 1 {
                                 renderer.render(
                                     &self.device,
                                     &self.multisampled_framebuffer,
@@ -971,37 +1003,38 @@ impl WindowCanvas<'_> {
                                     *x_adjustment,
                                     *y_adjustment,
                                 )
-                            }
+                            };
+                            commands.push(c);
                         }
-                        MarkRenderer::Multi { batch_range } => {
-                            if self.sample_count > 1 {
-                                self.shared_multi.encode_batch_range(
-                                    &self.device,
-                                    render_target_extent,
-                                    &self.multisampled_framebuffer,
-                                    Some(&view),
-                                    &multi_render_resources,
-                                    &text_bind_groups,
-                                    &prepared,
-                                    batch_range.clone(),
-                                )
-                            } else {
-                                self.shared_multi.encode_batch_range(
-                                    &self.device,
-                                    render_target_extent,
-                                    &view,
-                                    None,
-                                    &multi_render_resources,
-                                    &text_bind_groups,
-                                    &prepared,
-                                    batch_range.clone(),
-                                )
-                            }
-                        }
-                    };
-                    commands.push(command);
+                    }
                 }
             }
+        }
+        if !pending.is_empty() {
+            let c = if self.sample_count > 1 {
+                self.shared_multi.encode_multi_ranges(
+                    &self.device,
+                    render_target_extent,
+                    &self.multisampled_framebuffer,
+                    Some(&view),
+                    &multi_render_resources,
+                    &text_bind_groups,
+                    &prepared,
+                    &pending,
+                )
+            } else {
+                self.shared_multi.encode_multi_ranges(
+                    &self.device,
+                    render_target_extent,
+                    &view,
+                    None,
+                    &multi_render_resources,
+                    &text_bind_groups,
+                    &prepared,
+                    &pending,
+                )
+            };
+            commands.push(c);
         }
 
         let frame_overlay_command = if self.sample_count > 1 {
@@ -1360,16 +1393,47 @@ impl PngCanvas {
 
         // Render marks by layer
         let command_build_start = Instant::now();
+        // Coalesce consecutive multi-mark runs into one command buffer with merged
+        // passes; instanced marks break a run, interleaved by (layer, document).
+        let mut pending: Vec<std::ops::Range<usize>> = Vec::new();
         for (min_z, max_z) in layers {
             for mark in &self.marks {
                 if mark.zindex >= min_z && mark.zindex <= max_z {
-                    let command = match &mark.renderer {
+                    match &mark.renderer {
+                        MarkRenderer::Multi { batch_range } => pending.push(batch_range.clone()),
                         MarkRenderer::Instanced {
                             renderer,
                             x_adjustment,
                             y_adjustment,
                         } => {
-                            if self.sample_count > 1 {
+                            if !pending.is_empty() {
+                                let c = if self.sample_count > 1 {
+                                    self.shared_multi.encode_multi_ranges(
+                                        &self.device,
+                                        render_target_extent,
+                                        &self.multisampled_framebuffer,
+                                        Some(&self.texture_view),
+                                        &multi_render_resources,
+                                        &text_bind_groups,
+                                        &prepared,
+                                        &pending,
+                                    )
+                                } else {
+                                    self.shared_multi.encode_multi_ranges(
+                                        &self.device,
+                                        render_target_extent,
+                                        &self.texture_view,
+                                        None,
+                                        &multi_render_resources,
+                                        &text_bind_groups,
+                                        &prepared,
+                                        &pending,
+                                    )
+                                };
+                                commands.push(c);
+                                pending.clear();
+                            }
+                            let c = if self.sample_count > 1 {
                                 renderer.render(
                                     &self.device,
                                     &self.multisampled_framebuffer,
@@ -1385,37 +1449,38 @@ impl PngCanvas {
                                     *x_adjustment,
                                     *y_adjustment,
                                 )
-                            }
+                            };
+                            commands.push(c);
                         }
-                        MarkRenderer::Multi { batch_range } => {
-                            if self.sample_count > 1 {
-                                self.shared_multi.encode_batch_range(
-                                    &self.device,
-                                    render_target_extent,
-                                    &self.multisampled_framebuffer,
-                                    Some(&self.texture_view),
-                                    &multi_render_resources,
-                                    &text_bind_groups,
-                                    &prepared,
-                                    batch_range.clone(),
-                                )
-                            } else {
-                                self.shared_multi.encode_batch_range(
-                                    &self.device,
-                                    render_target_extent,
-                                    &self.texture_view,
-                                    None,
-                                    &multi_render_resources,
-                                    &text_bind_groups,
-                                    &prepared,
-                                    batch_range.clone(),
-                                )
-                            }
-                        }
-                    };
-                    commands.push(command);
+                    }
                 }
             }
+        }
+        if !pending.is_empty() {
+            let c = if self.sample_count > 1 {
+                self.shared_multi.encode_multi_ranges(
+                    &self.device,
+                    render_target_extent,
+                    &self.multisampled_framebuffer,
+                    Some(&self.texture_view),
+                    &multi_render_resources,
+                    &text_bind_groups,
+                    &prepared,
+                    &pending,
+                )
+            } else {
+                self.shared_multi.encode_multi_ranges(
+                    &self.device,
+                    render_target_extent,
+                    &self.texture_view,
+                    None,
+                    &multi_render_resources,
+                    &text_bind_groups,
+                    &prepared,
+                    &pending,
+                )
+            };
+            commands.push(c);
         }
         let command_build_elapsed = command_build_start.elapsed();
         let command_count = commands.len();

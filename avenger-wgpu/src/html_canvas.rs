@@ -181,14 +181,45 @@ impl<'window> HtmlCanvasCanvas<'window> {
             &self.multi_render_resources,
         );
 
+        // Coalesce consecutive multi-mark runs (document order) into one command
+        // buffer with merged passes; instanced marks break a run.
+        let mut pending: Vec<std::ops::Range<usize>> = Vec::new();
         for mark in &self.marks {
-            let command = match mark {
+            match mark {
+                MarkRenderer::Multi { batch_range } => pending.push(batch_range.clone()),
                 MarkRenderer::Instanced {
                     renderer,
                     x_adjustment,
                     y_adjustment,
                 } => {
-                    if self.sample_count > 1 {
+                    if !pending.is_empty() {
+                        let c = if self.sample_count > 1 {
+                            self.shared_multi.encode_multi_ranges(
+                                &self.device,
+                                render_target_extent,
+                                &self.multisampled_framebuffer,
+                                Some(&view),
+                                &self.multi_render_resources,
+                                &text_bind_groups,
+                                &prepared,
+                                &pending,
+                            )
+                        } else {
+                            self.shared_multi.encode_multi_ranges(
+                                &self.device,
+                                render_target_extent,
+                                &view,
+                                None,
+                                &self.multi_render_resources,
+                                &text_bind_groups,
+                                &prepared,
+                                &pending,
+                            )
+                        };
+                        commands.push(c);
+                        pending.clear();
+                    }
+                    let c = if self.sample_count > 1 {
                         renderer.render(
                             &self.device,
                             &self.multisampled_framebuffer,
@@ -198,36 +229,36 @@ impl<'window> HtmlCanvasCanvas<'window> {
                         )
                     } else {
                         renderer.render(&self.device, &view, None, *x_adjustment, *y_adjustment)
-                    }
+                    };
+                    commands.push(c);
                 }
-                MarkRenderer::Multi { batch_range } => {
-                    if self.sample_count > 1 {
-                        self.shared_multi.encode_batch_range(
-                            &self.device,
-                            render_target_extent,
-                            &self.multisampled_framebuffer,
-                            Some(&view),
-                            &self.multi_render_resources,
-                            &text_bind_groups,
-                            &prepared,
-                            batch_range.clone(),
-                        )
-                    } else {
-                        self.shared_multi.encode_batch_range(
-                            &self.device,
-                            render_target_extent,
-                            &view,
-                            None,
-                            &self.multi_render_resources,
-                            &text_bind_groups,
-                            &prepared,
-                            batch_range.clone(),
-                        )
-                    }
-                }
+            }
+        }
+        if !pending.is_empty() {
+            let c = if self.sample_count > 1 {
+                self.shared_multi.encode_multi_ranges(
+                    &self.device,
+                    render_target_extent,
+                    &self.multisampled_framebuffer,
+                    Some(&view),
+                    &self.multi_render_resources,
+                    &text_bind_groups,
+                    &prepared,
+                    &pending,
+                )
+            } else {
+                self.shared_multi.encode_multi_ranges(
+                    &self.device,
+                    render_target_extent,
+                    &view,
+                    None,
+                    &self.multi_render_resources,
+                    &text_bind_groups,
+                    &prepared,
+                    &pending,
+                )
             };
-
-            commands.push(command);
+            commands.push(c);
         }
 
         self.queue.submit(commands);
