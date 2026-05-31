@@ -5675,7 +5675,7 @@ impl CompiledPlot {
             .any(|name| layout_size_params.contains(name));
         let can_reuse_profile_facet_tree = scoped_param_store.is_none()
             && !changed_params_touch_layout_size
-            && layout_profile.profile_dependencies_match(self, ctx, &profile_comparison_params);
+            && layout_profile.profile_dependencies_match(&profile_comparison_params);
         let facet_tree = if can_reuse_profile_facet_tree {
             if let Some(facet_tree) = layout_profile.facet_tree.clone() {
                 Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {

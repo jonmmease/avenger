@@ -80,12 +80,16 @@ impl LayoutProfileSnapshot {
 
     pub(crate) fn profile_dependencies_match(
         &self,
-        compiled_plot: &CompiledPlot,
-        ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
     ) -> bool {
-        self.profile_dependency_params
-            == plot_profile_dependency_param_fingerprint(compiled_plot, ctx, params)
+        self.profile_dependency_params.iter().all(|(name, value)| {
+            let current = params
+                .get(name)
+                .or_else(|| params.get(&format!("${name}")))
+                .map(|value| format!("{value:?}"))
+                .unwrap_or_else(|| "<missing>".to_string());
+            &current == value
+        })
     }
 
     pub(crate) fn facet_cell_measurement(
