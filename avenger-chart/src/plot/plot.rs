@@ -7,7 +7,7 @@ use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    AvengerChartError, AxisSpec, CompileContext, CompiledMark, CompiledMarkState,
+    AvengerChartError, AxisSpec, ChartTool, CompileContext, CompiledMark, CompiledMarkState,
     CompiledParamSpec, CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, IntoExpr,
     Legend, Mark, Param, Sharing, SubplotChildPlotSpec, Theme,
 };
@@ -17,7 +17,7 @@ use crate::{
     event::ChartEventBinding,
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint, SizeMode},
     serialization::serializable_expr_from_expr,
-    tools::{ChartTool, ToolCompileContext},
+    tools::ToolCompileContext,
 };
 
 use super::{

@@ -16,6 +16,7 @@ members = [
     "avenger-chart-marks",
     "avenger-chart-legend",
     "avenger-chart-scales",
+    "avenger-chart-tools",
     "avenger-chart-cartesian",
     "avenger-chart-polar",
     "avenger-chart",

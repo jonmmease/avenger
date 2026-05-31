@@ -523,6 +523,7 @@ dependencies = [
  "avenger-chart-marks",
  "avenger-chart-polar",
  "avenger-chart-scales",
+ "avenger-chart-tools",
  "avenger-common",
  "avenger-eventstream",
  "avenger-geometry",
@@ -764,6 +765,14 @@ dependencies = [
  "tokio",
  "tracing",
  "typetag",
+]
+
+[[package]]
+name = "avenger-chart-tools"
+version = "0.1.0"
+dependencies = [
+ "avenger-chart-core",
+ "datafusion",
 ]
 
 [[package]]

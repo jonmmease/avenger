@@ -1,0 +1,8 @@
+[package]
+name = "avenger-chart-tools"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+avenger-chart-core = { path = "../avenger-chart-core" }
+datafusion = { workspace = true }

@@ -22,6 +22,7 @@ pub mod datafusion_physical_eval;
 pub mod datafusion_utils;
 pub mod error;
 pub mod evaluation_context;
+pub mod event;
 pub mod expr_eval;
 pub mod facet_axis;
 pub mod facet_data_scope;
@@ -66,6 +67,7 @@ pub mod subplot_child_plot;
 pub mod theme;
 pub mod theme_context;
 pub mod title_spec;
+pub mod tools;
 pub mod zero_d;
 
 #[doc(hidden)]
@@ -117,6 +119,7 @@ pub use datafusion_utils::{
 };
 pub use error::AvengerChartError;
 pub use evaluation_context::{EvaluationContext, EvaluationDiagnostics};
+pub use event::*;
 pub use expr_eval::{
     evaluate_axis_position_expr, evaluate_bool_expr, evaluate_f32_expr, evaluate_f64_expr,
     evaluate_i32_expr, evaluate_legend_orientation_expr, evaluate_legend_position_expr,
@@ -203,4 +206,8 @@ pub use subplot_child_plot::{
 pub use theme::{AngleUnit, CssRgba, LengthUnit, Theme, ThemeValue};
 pub use theme_context::ThemeContext;
 pub use title_spec::{TitleAlign, TitleSpan};
+pub use tools::{
+    ChartTool, ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamExpansion,
+    ToolParamSharing, ToolScaleEdit,
+};
 pub use zero_d::ZeroDCoord;

@@ -32,7 +32,7 @@ use avenger_chart_core::{
     AvengerChartError, AxisSpec, CompiledGuide, CompiledMark, CompiledParamSpec,
     CompiledSubplotChildPlot, CompiledSubplotPayload, CoordMeasurement, CoordinateSystemTransform,
     EvaluationContext as CoreEvaluationContext, Legend, ScaleRangeBinding, SerializableDataFrame,
-    SerializableScalarMap, Theme, channel::strip_trailing_numbers,
+    SerializableScalarMap, Theme, ToolMetadata, channel::strip_trailing_numbers,
 };
 use avenger_chart_scales::{ConfiguredScaleWithSpec, PlotScaleSpec as ScaleSpec, ScaleBuilder};
 
@@ -43,7 +43,6 @@ use crate::{
         ContentAllocation, ContentLayout, ContentLayoutSolver, FrameAllocation, FrameDemand,
         LayoutSpec, SinglePlotContentMeasurement, SinglePlotContentSolver,
     },
-    tools::ToolMetadata,
 };
 
 pub use self::child_frame_container::ChildFrameContainerView;

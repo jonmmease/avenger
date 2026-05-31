@@ -19,23 +19,28 @@ flowchart TD
     CustomMark["custom mark crate"]
     CustomScale["custom scale crate"]
     CustomLegend["custom legend crate"]
+    CustomTool["custom tool crate"]
     CustomCoord["custom coordinate crate"]
     BuiltInScales["avenger-chart-scales\nbuilt-in peer"]
     BuiltInLegend["avenger-chart-legend\nbuilt-in peer"]
+    BuiltInTools["avenger-chart-tools\nbuilt-in peer"]
     BuiltInCoord["avenger-chart-cartesian / avenger-chart-polar\nbuilt-in peers"]
     Facade["avenger-chart facade"]
 
     Core --> CustomMark
     Core --> CustomScale
     Core --> CustomLegend
+    Core --> CustomTool
     Core --> CustomCoord
     RuntimeScale --> CustomScale
     Scene --> CustomMark
     Core --> BuiltInScales
     Core --> BuiltInLegend
+    Core --> BuiltInTools
     Core --> BuiltInCoord
     BuiltInScales --> Facade
     BuiltInLegend --> Facade
+    BuiltInTools --> Facade
     BuiltInCoord --> Facade
 ```
 
@@ -91,6 +96,17 @@ directly.
 
 The core legend contracts include `Legend`, `LegendChannel`, `ChannelInfo`,
 `MergeKey`, `ConfiguredScaleLegendExt`, and `DomainValues`.
+
+## Custom Tools
+
+External tool crates implement `ChartTool` from `avenger-chart-core`. A tool
+expands at chart compile time into generated params, `ChartEventBinding`
+values, `ToolScaleEdit` values, and optional `ToolMetadata`. The chart runtime
+then evaluates the expanded params and event bindings through the same path as
+author-written interactions.
+
+Built-in tools such as `PanScrollZoom` live in `avenger-chart-tools`; they are
+peers to custom tool crates.
 
 ## Custom Coordinate Systems
 

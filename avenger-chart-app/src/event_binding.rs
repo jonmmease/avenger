@@ -787,7 +787,7 @@ fn event_stream_config_for_binding(
     param_specs: &IndexMap<String, CompiledParamSpec>,
 ) -> Result<EventStreamConfig, AvengerAppError> {
     let mut config = EventStreamConfig {
-        types: vec![SceneGraphEventType::from(binding.event_type)],
+        types: vec![scene_event_type_from_chart(binding.event_type)],
         throttle: binding.throttle_ms,
         consume: binding.consume,
         ..Default::default()
@@ -823,7 +823,7 @@ fn stream_config_for_chart_stream(
     let mut config = EventStreamConfig {
         types: stream
             .event_type
-            .map(|event_type| vec![SceneGraphEventType::from(event_type)])
+            .map(|event_type| vec![scene_event_type_from_chart(event_type)])
             .unwrap_or_default(),
         source_group: stream.source_group.clone(),
         mark_paths: stream.mark_paths.clone(),
@@ -1256,25 +1256,47 @@ fn button_name(button: MouseButton) -> &'static str {
 }
 
 fn event_type_name(event_type: SceneGraphEventType) -> &'static str {
-    match ChartEventType::try_from(event_type) {
-        Ok(ChartEventType::MouseDown) => "mouse_down",
-        Ok(ChartEventType::MouseUp) => "mouse_up",
-        Ok(ChartEventType::Click) => "click",
-        Ok(ChartEventType::DoubleClick) => "double_click",
-        Ok(ChartEventType::MouseWheel) => "mouse_wheel",
-        Ok(ChartEventType::KeyPress) => "key_press",
-        Ok(ChartEventType::KeyRelease) => "key_release",
-        Ok(ChartEventType::CursorMoved) => "cursor_moved",
-        Ok(ChartEventType::MarkMouseEnter) => "mark_mouse_enter",
-        Ok(ChartEventType::MarkMouseLeave) => "mark_mouse_leave",
-        Ok(ChartEventType::WindowResize) => "window_resize",
-        Ok(ChartEventType::WindowResizeSettled) => "window_resize_settled",
-        Ok(ChartEventType::CanvasResize) => "canvas_resize",
-        Ok(ChartEventType::CanvasResizeSettled) => "canvas_resize_settled",
-        Ok(ChartEventType::WindowMoved) => "window_moved",
-        Ok(ChartEventType::WindowFocused) => "window_focused",
-        Ok(ChartEventType::WindowCloseRequested) => "window_close_requested",
-        Err(_) => "file_changed",
+    match event_type {
+        SceneGraphEventType::MouseDown => "mouse_down",
+        SceneGraphEventType::MouseUp => "mouse_up",
+        SceneGraphEventType::Click => "click",
+        SceneGraphEventType::DoubleClick => "double_click",
+        SceneGraphEventType::MouseWheel => "mouse_wheel",
+        SceneGraphEventType::KeyPress => "key_press",
+        SceneGraphEventType::KeyRelease => "key_release",
+        SceneGraphEventType::CursorMoved => "cursor_moved",
+        SceneGraphEventType::MarkMouseEnter => "mark_mouse_enter",
+        SceneGraphEventType::MarkMouseLeave => "mark_mouse_leave",
+        SceneGraphEventType::WindowResize => "window_resize",
+        SceneGraphEventType::WindowResizeSettled => "window_resize_settled",
+        SceneGraphEventType::CanvasResize => "canvas_resize",
+        SceneGraphEventType::CanvasResizeSettled => "canvas_resize_settled",
+        SceneGraphEventType::WindowMoved => "window_moved",
+        SceneGraphEventType::WindowFocused => "window_focused",
+        SceneGraphEventType::WindowCloseRequested => "window_close_requested",
+        SceneGraphEventType::FileChanged(_) => "file_changed",
+    }
+}
+
+fn scene_event_type_from_chart(event_type: ChartEventType) -> SceneGraphEventType {
+    match event_type {
+        ChartEventType::MouseDown => SceneGraphEventType::MouseDown,
+        ChartEventType::MouseUp => SceneGraphEventType::MouseUp,
+        ChartEventType::Click => SceneGraphEventType::Click,
+        ChartEventType::DoubleClick => SceneGraphEventType::DoubleClick,
+        ChartEventType::MouseWheel => SceneGraphEventType::MouseWheel,
+        ChartEventType::KeyPress => SceneGraphEventType::KeyPress,
+        ChartEventType::KeyRelease => SceneGraphEventType::KeyRelease,
+        ChartEventType::CursorMoved => SceneGraphEventType::CursorMoved,
+        ChartEventType::MarkMouseEnter => SceneGraphEventType::MarkMouseEnter,
+        ChartEventType::MarkMouseLeave => SceneGraphEventType::MarkMouseLeave,
+        ChartEventType::WindowResize => SceneGraphEventType::WindowResize,
+        ChartEventType::WindowResizeSettled => SceneGraphEventType::WindowResizeSettled,
+        ChartEventType::CanvasResize => SceneGraphEventType::CanvasResize,
+        ChartEventType::CanvasResizeSettled => SceneGraphEventType::CanvasResizeSettled,
+        ChartEventType::WindowMoved => SceneGraphEventType::WindowMoved,
+        ChartEventType::WindowFocused => SceneGraphEventType::WindowFocused,
+        ChartEventType::WindowCloseRequested => SceneGraphEventType::WindowCloseRequested,
     }
 }
 

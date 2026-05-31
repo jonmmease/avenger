@@ -3,7 +3,9 @@
 ## Current Foundation
 
 Avenger has a chart tool subsystem for packaging reusable interactions as
-ordinary chart primitives. Tools expand during `Plot::compile` into generated
+ordinary chart primitives. The contracts needed to implement tools live in
+`avenger-chart-core`; built-in tool implementations live in
+`avenger-chart-tools`. Tools expand during `Plot::compile` into generated
 params, scale edits, event bindings, and app-facing metadata. `CompiledPlot`
 stores only the expanded result, so `avenger-chart-app` continues to execute the
 same event-binding and `PlotSession` evaluation path used by hand-authored
@@ -20,7 +22,7 @@ let plot = Plot::<Cartesian>::new()
     .tool(PanScrollZoom::cartesian());
 ```
 
-The public expansion contracts are:
+The public expansion contracts in `avenger-chart-core` are:
 
 - `ChartTool`
 - `ToolExpansion`
@@ -44,9 +46,10 @@ The default `PanScrollZoom` id is `pan_scroll_zoom`.
 
 ## `PanScrollZoom`
 
-`PanScrollZoom` is the first built-in chart tool. It packages Cartesian drag-pan
-and wheel zoom by generating raw-domain params, installing those params on the
-target scales, and emitting DataFusion-backed event bindings.
+`PanScrollZoom` is the first built-in chart tool and lives in
+`avenger-chart-tools`. It packages Cartesian drag-pan and wheel zoom by
+generating raw-domain params, installing those params on the target scales, and
+emitting DataFusion-backed event bindings.
 
 Common options:
 
@@ -143,8 +146,9 @@ becoming part of the user's data mark tree.
 
 ## Crate Boundary
 
-V1 tools live in `avenger-chart`. A later `avenger-chart-tools` crate may become
-a peer built-in tool crate if the crate split makes that cleaner.
+The tool contracts live in `avenger-chart-core`. Built-in tools live in
+`avenger-chart-tools`, which is a peer to other built-in implementation crates
+such as `avenger-chart-scales` and `avenger-chart-legend`.
 
 Custom coordinate crates do not need `avenger-chart-cartesian` to participate in
 the generic event-binding substrate. A coordinate-aware navigation tool can
