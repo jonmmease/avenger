@@ -1,4 +1,4 @@
-//! Single-panel Cartesian pan/zoom stress example with 1M translucent circle symbols.
+//! Single-panel Cartesian pan/zoom stress example with 1M large translucent circle symbols.
 //!
 //! Drag with the left mouse button inside the plot area to pan. Scroll over the
 //! plot area to zoom around the pointer. The pan binding stays in Preview mode
@@ -36,7 +36,7 @@ fn main() {
     let avenger_app = tokio_runtime.block_on(build_app());
     let options = WinitWgpuAvengerAppOptions::new(2.0).window_attributes(
         WindowAttributes::default()
-            .with_title("avenger-chart 1M translucent circles - drag pan / scroll zoom")
+            .with_title("avenger-chart 1M large translucent circles - drag pan / scroll zoom")
             .with_resizable(false),
     );
     let (mut app, event_loop) =
@@ -77,7 +77,8 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                 })
                 .fill("#1f77b4")
                 .shape("circle")
-                .size(56.0)
+                .size(144.0)
+                .stroke_width(0.0)
                 .opacity(0.45),
         )
         .event_bindings([pan, zoom]);
