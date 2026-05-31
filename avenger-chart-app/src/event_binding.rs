@@ -115,6 +115,7 @@ struct CompiledChartEventBinding {
 struct CompiledParamAssignment {
     param_name: String,
     sharing: Sharing,
+    default_value: ScalarValue,
 }
 
 impl CompiledChartEventBinding {
@@ -191,6 +192,7 @@ impl CompiledChartEventBinding {
             assignments.push(CompiledParamAssignment {
                 param_name,
                 sharing,
+                default_value: spec.default.clone(),
             });
         }
         let program = CompiledScalarExpressionProgram::compile(
@@ -418,8 +420,9 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             // Derived interaction columns are null when the gesture has no routed
             // scope (e.g. a drag that started outside any plot area). Such an
             // assignment evaluates to a null or null-element value; writing it
-            // would corrupt the target param, so treat it as a no-op.
-            if !assignment_value_is_writable(value) {
+            // would corrupt the target param, so treat it as a no-op unless the
+            // binding intentionally writes the target's list-shaped default.
+            if !assignment_value_is_writable(value, &assignment.default_value) {
                 tracing::debug!(
                     target: "avenger_chart_app::event_binding",
                     binding = self.runtime.binding_index,
@@ -528,10 +531,19 @@ impl EventStreamHandler<ChartAppState> for ChartEventExactOnlyHandler {
 /// Derived interaction columns are null when a gesture has no routed scope, which
 /// makes domain-list expressions evaluate to a null or null-element list. Writing
 /// those would corrupt the target param (and can fail downstream scale building),
-/// so they are treated as no-ops, matching the "null derived columns => no-op"
-/// contract.
-fn assignment_value_is_writable(value: &ScalarValue) -> bool {
+/// so they are treated as no-ops unless the binding explicitly writes the
+/// param's list-shaped default value. Raw-domain reset bindings use that path to
+/// clear interaction domains back to the inferred/default scale domains.
+fn assignment_value_is_writable(value: &ScalarValue, default_value: &ScalarValue) -> bool {
     use datafusion::arrow::array::Array;
+    if value == default_value
+        && matches!(
+            default_value,
+            ScalarValue::List(_) | ScalarValue::LargeList(_) | ScalarValue::FixedSizeList(_)
+        )
+    {
+        return true;
+    }
     match value {
         ScalarValue::Null => false,
         ScalarValue::List(array) => {
@@ -1312,7 +1324,7 @@ mod tests {
     use avenger_chart::prelude::*;
     use avenger_chart::render::{InteractionScopeId, InteractionScopeKind};
     use avenger_eventstream::{
-        scene::{SceneCursorMovedEvent, SceneMouseDownEvent},
+        scene::{SceneCursorMovedEvent, SceneDoubleClickEvent, SceneMouseDownEvent},
         window::{CanvasResizeEvent, MouseButton},
     };
 
@@ -1399,6 +1411,22 @@ mod tests {
         assert!(matches!(
             route_interaction_scope(&scopes, Some([50.0, 50.0]), &channel_set(&["x"])),
             InteractionRoute::Ambiguous
+        ));
+    }
+
+    #[test]
+    fn assignment_writable_allows_raw_domain_default_reset() {
+        let default = Param::raw_domain("x_domain").default;
+        assert!(assignment_value_is_writable(&default, &default));
+    }
+
+    #[test]
+    fn assignment_writable_rejects_null_domain_list_unless_it_is_default() {
+        let null_domain = Param::raw_domain("x_domain").default;
+        let concrete_default = domain_list_scalar(0.0, 1.0);
+        assert!(!assignment_value_is_writable(
+            &null_domain,
+            &concrete_default
         ));
     }
 
@@ -1895,6 +1923,36 @@ mod tests {
         }
     }
 
+    async fn raw_domain_reset_state_and_handler() -> (ChartAppState, ChartEventBindingHandler) {
+        let ctx = SessionContext::new();
+        let x_domain = Param::raw_domain("x_domain");
+        let binding = ChartEventBinding::on(ChartEventType::DoubleClick)
+            .set_param(&x_domain, lit(x_domain.default.clone()))
+            .exact();
+        let compiled = Plot::<Cartesian>::new()
+            .canvas_size(400.0, 300.0)
+            .add_param(x_domain)
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile reset binding plot");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+        )
+        .expect("compile reset binding runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+        (state, handler)
+    }
+
     #[tokio::test]
     async fn event_binding_canvas_resize_updates_param() {
         let binding = ChartEventBinding::on(ChartEventType::CanvasResize)
@@ -1924,6 +1982,53 @@ mod tests {
         assert_eq!(metrics.event_batches_evaluated, 1);
         assert_eq!(metrics.param_patch_events, 1);
         assert_eq!(metrics.params_patched, 1);
+    }
+
+    #[tokio::test]
+    async fn event_binding_can_reset_raw_domain_to_default() {
+        let (mut state, handler) = raw_domain_reset_state_and_handler().await;
+        let default_domain = state
+            .params()
+            .await
+            .get("x_domain")
+            .cloned()
+            .expect("default x_domain param");
+        {
+            let mut runtime = state.runtime.lock().await;
+            runtime
+                .session
+                .apply_scoped_param_patch(vec![ScopedParamAssignment {
+                    name: "x_domain".to_string(),
+                    owner_path: Vec::new(),
+                    value: domain_list_scalar(2.0, 8.0),
+                }]);
+        }
+        assert_ne!(
+            state.params().await.get("x_domain"),
+            Some(&default_domain),
+            "test setup should install a concrete raw domain"
+        );
+
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::DoubleClick(SceneDoubleClickEvent {
+                    position: [10.0, 10.0],
+                    mark_instance: None,
+                    modifiers: ModifiersState::default(),
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+
+        assert!(status.rerender);
+        assert!(status.rebuild_geometry);
+        assert_eq!(
+            state.params().await.get("x_domain"),
+            Some(&default_domain),
+            "double-click reset should restore the raw-domain default"
+        );
     }
 
     #[tokio::test]

@@ -390,6 +390,7 @@ mod tests {
 
     use super::*;
     use crate::event as ev;
+    use crate::event::ChartEventType;
     use crate::prelude::*;
 
     async fn data(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
@@ -448,7 +449,13 @@ mod tests {
                 .param_specs()
                 .contains_key("__tool_pan_scroll_zoom__y_domain")
         );
-        assert_eq!(compiled.event_bindings().len(), 2);
+        assert_eq!(compiled.event_bindings().len(), 3);
+        assert!(
+            compiled
+                .event_bindings()
+                .iter()
+                .any(|binding| binding.event_type == ChartEventType::DoubleClick)
+        );
         assert_eq!(compiled.tool_metadata().len(), 1);
         assert!(raw_domain_debug(&compiled, "x").contains("__tool_pan_scroll_zoom__x_domain"));
         assert!(raw_domain_debug(&compiled, "y").contains("__tool_pan_scroll_zoom__y_domain"));

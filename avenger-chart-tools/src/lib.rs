@@ -199,6 +199,7 @@ impl ChartTool for PanScrollZoom {
                 self.consume_wheel,
             ));
         }
+        expansion = expansion.event_binding(reset_view_binding(&enabled.name, &channels));
 
         Ok(expansion)
     }
@@ -259,6 +260,19 @@ fn scroll_zoom_binding(
     binding
 }
 
+fn reset_view_binding(enabled_param: &str, channels: &[(String, Param)]) -> ChartEventBinding {
+    let mut binding = ChartEventBinding::on(ChartEventType::DoubleClick)
+        .filter(ev::param(enabled_param).eq(lit(true)))
+        .exact();
+
+    for (channel, param) in channels {
+        binding = binding.filter(ev::event_coord(channel).is_not_null());
+        binding = binding.set_param(param, lit(param.default.clone()));
+    }
+
+    binding
+}
+
 fn zoom_interval(channel: &str, factor: Expr) -> Expr {
     let domain = ev::event_domain(channel);
     let anchor = ev::event_coord(channel);
@@ -286,7 +300,7 @@ mod tests {
             .expect("expand");
 
         assert_eq!(expansion.params.len(), 3);
-        assert_eq!(expansion.event_bindings.len(), 2);
+        assert_eq!(expansion.event_bindings.len(), 3);
         assert_eq!(expansion.scale_edits.len(), 2);
         assert_eq!(expansion.metadata.len(), 1);
         assert!(
@@ -307,6 +321,17 @@ mod tests {
                 .iter()
                 .any(|p| p.param.name == "__tool_pan_scroll_zoom__y_domain")
         );
+        let reset = expansion
+            .event_bindings
+            .iter()
+            .find(|binding| binding.event_type == ChartEventType::DoubleClick)
+            .expect("double-click reset binding");
+        assert_eq!(reset.filters.len(), 3);
+        assert_eq!(reset.assignments.len(), 2);
+        assert_eq!(
+            reset.evaluation_mode,
+            avenger_chart_core::event::ChartEventEvaluationMode::Exact
+        );
     }
 
     #[test]
@@ -319,6 +344,13 @@ mod tests {
             .expect("expand");
 
         assert_eq!(expansion.params.len(), 2);
+        let reset = expansion
+            .event_bindings
+            .iter()
+            .find(|binding| binding.event_type == ChartEventType::DoubleClick)
+            .expect("double-click reset binding");
+        assert_eq!(reset.filters.len(), 2);
+        assert_eq!(reset.assignments.len(), 1);
         assert_eq!(expansion.scale_edits.len(), 1);
         assert!(
             expansion
