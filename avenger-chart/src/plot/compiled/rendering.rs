@@ -4567,6 +4567,7 @@ impl CompiledPlot {
         &self,
         eval_ctx: &EvaluationContext,
         components: PlotComponents,
+        build_scene_rtree: bool,
     ) -> EvaluatedPlot {
         let _span = tracing::debug_span!("components_to_evaluated_plot").entered();
         let convert_start = Instant::now();
@@ -4635,11 +4636,11 @@ impl CompiledPlot {
             origin: [0.0, 0.0],
         };
 
-        let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
+        let rtree = build_scene_rtree.then(|| SceneGraphRTree::from_scene_graph(&scene_graph));
 
         let evaluated = EvaluatedPlot {
             scene_graph,
-            rtree: Some(rtree),
+            rtree,
             interaction,
         };
         let convert_elapsed = convert_start.elapsed();
@@ -4773,7 +4774,7 @@ impl CompiledPlot {
             .await?;
         let evaluated = selected
             .plot
-            .components_to_evaluated_plot(eval_ctx, components);
+            .components_to_evaluated_plot(eval_ctx, components, true);
         Ok(Self::pad_facet_subtree_snapshot(evaluated))
     }
 
@@ -5435,7 +5436,8 @@ impl CompiledPlot {
         } else {
             None
         };
-        let evaluated = self.components_to_evaluated_plot(&eval_ctx, components);
+        let evaluated =
+            self.components_to_evaluated_plot(&eval_ctx, components, options.build_scene_rtree);
         let captured_facet_cell_profiles = facet_cell_rendered_components_capture
             .as_ref()
             .map(|capture| {
@@ -5923,7 +5925,8 @@ impl CompiledPlot {
             rendered_components,
             facet_cell_profiles,
         );
-        let evaluated = self.components_to_evaluated_plot(&eval_ctx, components);
+        let evaluated =
+            self.components_to_evaluated_plot(&eval_ctx, components, options.build_scene_rtree);
         let metrics = metrics
             .lock()
             .expect("evaluation metrics lock poisoned")
@@ -8196,6 +8199,7 @@ mod tests {
                         max_refinement_passes: 0,
                         overflow_growth_epsilon: 0.5,
                     },
+                    ..EvaluationOptions::default()
                 },
             )
             .await?;
@@ -8233,6 +8237,7 @@ mod tests {
                         max_refinement_passes: 0,
                         overflow_growth_epsilon: 0.5,
                     },
+                    ..EvaluationOptions::default()
                 },
             )
             .await?;
@@ -8250,6 +8255,7 @@ mod tests {
                         max_refinement_passes: 1,
                         overflow_growth_epsilon: 0.5,
                     },
+                    ..EvaluationOptions::default()
                 },
             )
             .await?;
@@ -8302,6 +8308,7 @@ mod tests {
                         max_refinement_passes: 0,
                         overflow_growth_epsilon: 0.5,
                     },
+                    ..EvaluationOptions::default()
                 },
             )
             .await?;
@@ -8319,6 +8326,7 @@ mod tests {
                         max_refinement_passes: 1,
                         overflow_growth_epsilon: 0.5,
                     },
+                    ..EvaluationOptions::default()
                 },
             )
             .await?;
@@ -8357,6 +8365,7 @@ mod tests {
                         max_refinement_passes: 1,
                         overflow_growth_epsilon: 0.5,
                     },
+                    ..EvaluationOptions::default()
                 },
             )
             .await?;
@@ -8385,6 +8394,7 @@ mod tests {
                         max_refinement_passes: 3,
                         overflow_growth_epsilon: 0.5,
                     },
+                    ..EvaluationOptions::default()
                 },
             )
             .await?;

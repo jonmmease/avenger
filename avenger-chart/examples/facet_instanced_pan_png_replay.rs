@@ -28,6 +28,7 @@ use std::{
 use avenger_chart::{
     plot::{EvaluationRequest, ScopedParamAssignment},
     prelude::*,
+    render::EvaluationOptions,
 };
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
@@ -59,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let (evaluated, metrics) = session
-        .evaluate_with_metrics(EvaluationRequest::new().exact())
+        .evaluate_with_metrics(no_scene_rtree_request(EvaluationRequest::new().exact()))
         .await?;
     render_png_frame(
         &mut canvas,
@@ -95,7 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let eval_start = Instant::now();
         let (evaluated, metrics) = session
-            .evaluate_with_metrics(EvaluationRequest::new().preview())
+            .evaluate_with_metrics(no_scene_rtree_request(EvaluationRequest::new().preview()))
             .await?;
         let eval_elapsed = eval_start.elapsed();
 
@@ -266,6 +267,13 @@ fn list_domain(min: f64, max: f64) -> ScalarValue {
         &DataType::Float64,
         true,
     ))
+}
+
+fn no_scene_rtree_request(request: EvaluationRequest) -> EvaluationRequest {
+    request.options(EvaluationOptions {
+        build_scene_rtree: false,
+        ..EvaluationOptions::default()
+    })
 }
 
 fn print_summary(

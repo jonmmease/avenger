@@ -174,6 +174,11 @@ pub struct EvaluationOptions {
     pub debug_layout_overlay: LayoutDebugOverlayMode,
     /// Controls optional facet layout refinement after the mandatory measure-once pass.
     pub facet_layout_refinement: FacetLayoutRefinement,
+    /// Whether to build a scene-graph R-tree in the returned `EvaluatedPlot`.
+    ///
+    /// App hosts that immediately build their own R-tree from the returned scene
+    /// graph can disable this to avoid duplicate interaction-index work.
+    pub build_scene_rtree: bool,
 }
 
 /// Controls optional repeated facet measurement/layout passes.
@@ -203,6 +208,7 @@ impl Default for EvaluationOptions {
             layout_snapshot: LayoutSnapshot::Final,
             debug_layout_overlay: LayoutDebugOverlayMode::Off,
             facet_layout_refinement: FacetLayoutRefinement::default(),
+            build_scene_rtree: true,
         }
     }
 }

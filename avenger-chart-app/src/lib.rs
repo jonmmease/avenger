@@ -17,6 +17,7 @@ use avenger_chart::{
     plot::{CompiledPlot, EvaluationRequest, PlotSession},
     render::{
         EvaluatedInteractionScope, EvaluatedInteractionState, EvaluationMetrics, EvaluationMode,
+        EvaluationOptions,
     },
 };
 use avenger_eventstream::{
@@ -218,11 +219,17 @@ impl SceneGraphBuilder<ChartAppState> for ChartSceneGraphBuilder {
             resize_seq = runtime.accepted_resize_count,
             "chart_app.scene_build start"
         );
-        let (evaluated, metrics) = runtime
-            .session
-            .evaluate_with_metrics(EvaluationRequest::new().mode(mode))
-            .await
-            .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
+        let (evaluated, metrics) =
+            runtime
+                .session
+                .evaluate_with_metrics(EvaluationRequest::new().mode(mode).options(
+                    EvaluationOptions {
+                        build_scene_rtree: false,
+                        ..EvaluationOptions::default()
+                    },
+                ))
+                .await
+                .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
         let elapsed = start.elapsed();
         let scene_size = [evaluated.scene_graph.width, evaluated.scene_graph.height];
 

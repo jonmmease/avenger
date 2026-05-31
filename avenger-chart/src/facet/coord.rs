@@ -2768,7 +2768,7 @@ async fn capture_estimated_overflow_probe_if_requested(
         full_path,
     ))
     .await?;
-    let evaluated = compiled_subplot.components_to_evaluated_plot(eval_ctx, components);
+    let evaluated = compiled_subplot.components_to_evaluated_plot(eval_ctx, components, true);
     let _ = eval_ctx.capture_facet_subtree_snapshot(&request, evaluated);
     Ok(())
 }
