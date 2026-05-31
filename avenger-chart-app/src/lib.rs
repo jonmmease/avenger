@@ -235,13 +235,15 @@ impl SceneGraphBuilder<ChartAppState> for ChartSceneGraphBuilder {
 
         if runtime.log_metrics {
             eprintln!(
-                "chart eval mode={:?} elapsed={:?} scene={:.1}x{:.1} preview_reuse={} reflow_reuse={} cell_reuse={} data_reuse={} data_miss={} chrome_refresh={} skipped_measures={} guide_measures={}",
+                "chart eval mode={:?} elapsed={:?} scene={:.1}x{:.1} preview_reuse={} reflow_reuse={} facet_tree_builds={} facet_tree_reuse={} cell_reuse={} data_reuse={} data_miss={} chrome_refresh={} skipped_measures={} guide_measures={}",
                 metrics.mode,
                 elapsed,
                 scene_size[0],
                 scene_size[1],
                 metrics.pipeline.preview_profile_reuses,
                 metrics.pipeline.preview_structure_reflow_reuses,
+                metrics.pipeline.facet_tree_builds,
+                metrics.pipeline.facet_tree_profile_reuses,
                 metrics.pipeline.facet_cell_measurement_profile_reuses,
                 metrics.pipeline.preview_data_mark_reuses,
                 metrics.pipeline.preview_data_mark_reuse_misses,

@@ -276,6 +276,10 @@ impl EvaluationMetrics {
         self.pipeline.facet_tree_builds += 1;
     }
 
+    pub(crate) fn record_facet_tree_profile_reuse(&mut self) {
+        self.pipeline.facet_tree_profile_reuses += 1;
+    }
+
     pub(crate) fn record_facet_semantic_cache_hits(&mut self, count: usize) {
         self.pipeline.facet_semantic_cache_hits += count;
     }
@@ -492,6 +496,9 @@ pub(crate) fn duration_micros_u64(duration: Duration) -> u64 {
 pub struct EvaluationPipelineMetrics {
     /// Number of times a top-level `EvaluatedFacetTree` was built.
     pub facet_tree_builds: usize,
+    /// Number of times Preview reused the facet tree stored in the current
+    /// layout profile because only raw-domain pan params changed.
+    pub facet_tree_profile_reuses: usize,
     /// Number of session semantic facet cache hits while building facet trees.
     pub facet_semantic_cache_hits: usize,
     /// Number of session semantic facet cache misses while building facet trees.
@@ -569,6 +576,7 @@ pub struct EvaluationPipelineMetrics {
 impl EvaluationPipelineMetrics {
     pub(crate) fn merge_from(&mut self, other: &EvaluationPipelineMetrics) {
         self.facet_tree_builds += other.facet_tree_builds;
+        self.facet_tree_profile_reuses += other.facet_tree_profile_reuses;
         self.facet_semantic_cache_hits += other.facet_semantic_cache_hits;
         self.facet_semantic_cache_misses += other.facet_semantic_cache_misses;
         self.facet_scale_precompute_cache_hits += other.facet_scale_precompute_cache_hits;

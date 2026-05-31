@@ -569,6 +569,22 @@ fn retarget_cached_data_marks_for_plot_area(
         .collect()
 }
 
+fn same_layout_extent(source: &ComponentsMeasurement, target: &ComponentsMeasurement) -> bool {
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() <= 0.01
+    }
+    let source_bounds = source.layout.plot_area_bounds();
+    let target_bounds = target.layout.plot_area_bounds();
+    close(source.plot_area_width, target.plot_area_width)
+        && close(source.plot_area_height, target.plot_area_height)
+        && close(source.canvas_size.0, target.canvas_size.0)
+        && close(source.canvas_size.1, target.canvas_size.1)
+        && close(source_bounds.x, target_bounds.x)
+        && close(source_bounds.y, target_bounds.y)
+        && close(source_bounds.width, target_bounds.width)
+        && close(source_bounds.height, target_bounds.height)
+}
+
 fn scale_adjustment_between_measurements(
     source_measurement: &ComponentsMeasurement,
     target_measurement: &ComponentsMeasurement,
@@ -4142,6 +4158,77 @@ impl CompiledPlot {
         .map(Some)
     }
 
+    pub(crate) fn build_plot_components_reusing_data_marks_and_chrome(
+        &self,
+        eval_ctx: &EvaluationContext,
+        source_measurement: &ComponentsMeasurement,
+        measurement: &ComponentsMeasurement,
+        dimensions_are_plot_area: bool,
+        facet_path: &[ScalarValue],
+        cached_components: &PlotComponents,
+    ) -> Result<Option<PlotComponents>, AvengerChartError> {
+        let build_start = Instant::now();
+        if !self.can_reuse_plot_components_data_marks_and_chrome(
+            source_measurement,
+            measurement,
+            dimensions_are_plot_area,
+        )? {
+            return Ok(None);
+        }
+
+        let Some(data_marks) = retarget_cached_data_marks_for_plot_area(
+            cached_components,
+            source_measurement,
+            measurement,
+        ) else {
+            return Ok(None);
+        };
+
+        let local_scope_bounds = LayoutBounds {
+            x: 0.0,
+            y: 0.0,
+            width: measurement.plot_area_width,
+            height: measurement.plot_area_height,
+        };
+        let sharing_owner_paths = self.interaction_sharing_owner_paths(eval_ctx, facet_path);
+        let interaction_scopes = self.build_coordinate_interaction_scopes(
+            local_scope_bounds,
+            measurement.plot_area_width,
+            measurement.plot_area_height,
+            &measurement.scales,
+            facet_path,
+            eval_ctx.facet_coord_node_path().to_vec(),
+            sharing_owner_paths,
+        );
+
+        let components = PlotComponents {
+            data_marks,
+            guide_marks: cached_components.guide_marks.clone(),
+            legend_marks: cached_components.legend_marks.clone(),
+            title_marks: cached_components.title_marks.clone(),
+            subtitle_marks: cached_components.subtitle_marks.clone(),
+            plot_bounds: local_scope_bounds,
+            clip: measurement.clip.clone(),
+            size: measurement.canvas_size,
+            size_is_canvas: false,
+            debug_marks: cached_components.debug_marks.clone(),
+            interaction_scopes,
+        };
+        eval_ctx.record_build_plot_components_duration(build_start.elapsed());
+        Ok(Some(components))
+    }
+
+    pub(crate) fn can_reuse_plot_components_data_marks_and_chrome(
+        &self,
+        source_measurement: &ComponentsMeasurement,
+        measurement: &ComponentsMeasurement,
+        dimensions_are_plot_area: bool,
+    ) -> Result<bool, AvengerChartError> {
+        Ok(dimensions_are_plot_area
+            && measurement.child_frame_container_view()?.is_none()
+            && same_layout_extent(source_measurement, measurement))
+    }
+
     async fn build_plot_components_internal(
         &self,
         eval_ctx: &EvaluationContext,
@@ -5453,8 +5540,9 @@ impl CompiledPlot {
             captured_facet_cell_profiles
         };
         let layout_profile = LayoutProfileSnapshot::new_with_components(
+            self,
             measurement,
-            Some(facet_tree.as_ref()),
+            Some(facet_tree.clone()),
             ctx,
             &eval_ctx.params,
             rendered_components,
@@ -5563,18 +5651,78 @@ impl CompiledPlot {
         .await?;
         let resolved_chart_sizing = self.resolve_chart_sizing(&evaluated_layout_spec)?;
 
-        Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
-            metrics.record_facet_tree_build();
-        });
         let wrap_layout_context =
             Self::facet_wrap_layout_context(&evaluated_layout_spec, resolved_chart_sizing);
-        let mut slot_cache = facet_semantic_cache
-            .lock()
-            .expect("facet semantic cache lock poisoned")
-            .clone();
-        let before = slot_cache.stats();
-        let facet_tree =
-            EvaluatedFacetTree::from_compiled_plot_with_params_wrap_layout_context_and_slot_cache(
+        let mut profile_comparison_params = merged_params.clone();
+        for dimension_param in ["width", "height"] {
+            if !profile_comparison_params.contains_key(dimension_param)
+                && let Some(previous_value) = layout_profile.measurement.params.get(dimension_param)
+            {
+                profile_comparison_params
+                    .insert(dimension_param.to_string(), previous_value.clone());
+            }
+        }
+        let changed_params = changed_param_names(
+            &layout_profile.measurement.params,
+            &profile_comparison_params,
+        );
+        let layout_size_params = layout_size_dependency_params(self, ctx, &merged_params);
+        let changed_params_are_layout_size_only = changed_params
+            .iter()
+            .all(|name| layout_size_params.contains(name));
+        let changed_params_touch_layout_size = changed_params
+            .iter()
+            .any(|name| layout_size_params.contains(name));
+        let can_reuse_profile_facet_tree = scoped_param_store.is_none()
+            && !changed_params_touch_layout_size
+            && layout_profile.profile_dependencies_match(self, ctx, &profile_comparison_params);
+        let facet_tree = if can_reuse_profile_facet_tree {
+            if let Some(facet_tree) = layout_profile.facet_tree.clone() {
+                Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                    metrics.record_facet_tree_profile_reuse();
+                });
+                facet_tree
+            } else {
+                Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                    metrics.record_facet_tree_build();
+                });
+                let mut slot_cache = facet_semantic_cache
+                    .lock()
+                    .expect("facet semantic cache lock poisoned")
+                    .clone();
+                let before = slot_cache.stats();
+                let tree = EvaluatedFacetTree::from_compiled_plot_with_params_wrap_layout_context_and_slot_cache(
+                    self,
+                    ctx,
+                    &merged_params,
+                    wrap_layout_context,
+                    &mut slot_cache,
+                )
+                .await?;
+                let after = slot_cache.stats();
+                Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                    metrics
+                        .record_facet_semantic_cache_hits(after.hits.saturating_sub(before.hits));
+                    metrics.record_facet_semantic_cache_misses(
+                        after.misses.saturating_sub(before.misses),
+                    );
+                });
+                facet_semantic_cache
+                    .lock()
+                    .expect("facet semantic cache lock poisoned")
+                    .merge_from(slot_cache);
+                Arc::new(tree)
+            }
+        } else {
+            Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                metrics.record_facet_tree_build();
+            });
+            let mut slot_cache = facet_semantic_cache
+                .lock()
+                .expect("facet semantic cache lock poisoned")
+                .clone();
+            let before = slot_cache.stats();
+            let tree = EvaluatedFacetTree::from_compiled_plot_with_params_wrap_layout_context_and_slot_cache(
                 self,
                 ctx,
                 &merged_params,
@@ -5582,18 +5730,22 @@ impl CompiledPlot {
                 &mut slot_cache,
             )
             .await?;
-        let after = slot_cache.stats();
-        Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
-            metrics.record_facet_semantic_cache_hits(after.hits.saturating_sub(before.hits));
-            metrics.record_facet_semantic_cache_misses(after.misses.saturating_sub(before.misses));
-        });
-        facet_semantic_cache
-            .lock()
-            .expect("facet semantic cache lock poisoned")
-            .merge_from(slot_cache);
+            let after = slot_cache.stats();
+            Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                metrics.record_facet_semantic_cache_hits(after.hits.saturating_sub(before.hits));
+                metrics
+                    .record_facet_semantic_cache_misses(after.misses.saturating_sub(before.misses));
+            });
+            facet_semantic_cache
+                .lock()
+                .expect("facet semantic cache lock poisoned")
+                .merge_from(slot_cache);
+            Arc::new(tree)
+        };
 
-        if !layout_profile.physical_structure_matches(&facet_tree) {
-            if facet_tree.has_wrap_levels() && layout_profile.logical_structure_matches(&facet_tree)
+        if !layout_profile.physical_structure_matches(facet_tree.as_ref()) {
+            if facet_tree.has_wrap_levels()
+                && layout_profile.logical_structure_matches(facet_tree.as_ref())
             {
                 if layout_profile.facet_cell_profile_count() == 0 {
                     Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
@@ -5663,7 +5815,7 @@ impl CompiledPlot {
 
         let measured_layout_spec = Self::layout_spec_for_resolved_chart_sizing(
             &evaluated_layout_spec,
-            &facet_tree,
+            facet_tree.as_ref(),
             resolved_chart_sizing,
         );
         let dimensions = Self::resolve_dimensions_from_spec(&measured_layout_spec);
@@ -5672,7 +5824,7 @@ impl CompiledPlot {
             self.get_theme(),
             Arc::new(ctx.clone()),
             merged_params,
-            Arc::new(facet_tree),
+            facet_tree.clone(),
         )
         .with_facet_data_root(dataframe_from_compiled_plot_data(&self.data, ctx)?)
         .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode())
@@ -5842,12 +5994,6 @@ impl CompiledPlot {
             metrics.record_skipped_component_measure_calls(1);
         });
 
-        let changed_params =
-            changed_param_names(&layout_profile.measurement.params, &eval_ctx.params);
-        let layout_size_params = layout_size_dependency_params(self, ctx, &eval_ctx.params);
-        let changed_params_are_layout_size_only = changed_params
-            .iter()
-            .all(|name| layout_size_params.contains(name));
         let can_reuse_top_level_data_marks = measurement.child_frame_container_view()?.is_none()
             && changed_params_are_layout_size_only;
         let components = if can_reuse_top_level_data_marks {
@@ -5917,14 +6063,19 @@ impl CompiledPlot {
         } else {
             None
         };
-        let preview_layout_profile = LayoutProfileSnapshot::new_with_components(
-            measurement.clone(),
-            Some(eval_ctx.facet_tree.as_ref()),
-            ctx,
-            &eval_ctx.params,
-            rendered_components,
-            facet_cell_profiles,
-        );
+        let preview_layout_profile = if can_reuse_profile_facet_tree {
+            None
+        } else {
+            Some(LayoutProfileSnapshot::new_with_components(
+                self,
+                measurement.clone(),
+                Some(eval_ctx.facet_tree.clone()),
+                ctx,
+                &eval_ctx.params,
+                rendered_components,
+                facet_cell_profiles,
+            ))
+        };
         let evaluated =
             self.components_to_evaluated_plot(&eval_ctx, components, options.build_scene_rtree);
         let metrics = metrics
@@ -5934,7 +6085,7 @@ impl CompiledPlot {
         Ok(PreviewLayoutProfileAttempt::reused(
             evaluated,
             metrics,
-            Some(preview_layout_profile),
+            preview_layout_profile,
         ))
     }
 }

@@ -3961,6 +3961,14 @@ mod tests {
             .await?;
         assert_eq!(first_metrics.pipeline.preview_profile_reuses, 1);
         assert_eq!(
+            first_metrics.pipeline.facet_tree_builds, 0,
+            "raw-domain-only Preview should reuse the profiled facet tree"
+        );
+        assert_eq!(
+            first_metrics.pipeline.facet_tree_profile_reuses, 1,
+            "raw-domain-only Preview should report facet tree profile reuse"
+        );
+        assert_eq!(
             first_metrics.pipeline.preview_data_mark_reuses, 2,
             "both facet cells should retarget exact data marks for the first raw-domain pan"
         );
@@ -3983,6 +3991,14 @@ mod tests {
             )
             .await?;
         assert_eq!(second_metrics.pipeline.preview_profile_reuses, 1);
+        assert_eq!(
+            second_metrics.pipeline.facet_tree_builds, 0,
+            "steady raw-domain Preview should keep reusing the profiled facet tree"
+        );
+        assert_eq!(
+            second_metrics.pipeline.facet_tree_profile_reuses, 1,
+            "steady raw-domain Preview should report facet tree profile reuse"
+        );
         assert_eq!(
             second_metrics.pipeline.preview_data_mark_reuses, 2,
             "raw-domain params should not invalidate terminal facet-cell data-mark profiles"

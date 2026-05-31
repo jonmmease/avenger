@@ -21,22 +21,25 @@ use crate::{
 #[derive(Clone)]
 pub(crate) struct LayoutProfileSnapshot {
     pub(crate) measurement: ComponentsMeasurement,
+    pub(crate) facet_tree: Option<Arc<EvaluatedFacetTree>>,
     pub(crate) physical_facet_tree_structure: Option<Vec<String>>,
     pub(crate) logical_facet_tree_structure: Option<Vec<String>>,
+    pub(crate) profile_dependency_params: Vec<(String, String)>,
     pub(crate) facet_cell_profiles: FacetCellProfileIndex,
     pub(crate) rendered_components: Option<PlotComponents>,
 }
 
 impl LayoutProfileSnapshot {
     pub(crate) fn new_with_components(
+        compiled_plot: &CompiledPlot,
         measurement: ComponentsMeasurement,
-        facet_tree: Option<&EvaluatedFacetTree>,
+        facet_tree: Option<Arc<EvaluatedFacetTree>>,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
         rendered_components: Option<PlotComponents>,
         mut facet_cell_profiles: FacetCellProfileIndex,
     ) -> Self {
-        if let Some(tree) = facet_tree {
+        if let Some(tree) = facet_tree.as_ref() {
             facet_cell_profiles.collect_measurements_from_measurement(
                 &measurement,
                 tree,
@@ -46,9 +49,18 @@ impl LayoutProfileSnapshot {
         }
         Self {
             measurement,
-            physical_facet_tree_structure: facet_tree.map(EvaluatedFacetTree::structure_cache_key),
+            facet_tree: facet_tree.clone(),
+            physical_facet_tree_structure: facet_tree
+                .as_ref()
+                .map(|tree| tree.structure_cache_key()),
             logical_facet_tree_structure: facet_tree
-                .map(EvaluatedFacetTree::logical_structure_cache_key),
+                .as_ref()
+                .map(|tree| tree.logical_structure_cache_key()),
+            profile_dependency_params: plot_profile_dependency_param_fingerprint(
+                compiled_plot,
+                ctx,
+                params,
+            ),
             facet_cell_profiles,
             rendered_components,
         }
@@ -64,6 +76,16 @@ impl LayoutProfileSnapshot {
         self.logical_facet_tree_structure
             .as_deref()
             .is_some_and(|expected| expected == facet_tree.logical_structure_cache_key().as_slice())
+    }
+
+    pub(crate) fn profile_dependencies_match(
+        &self,
+        compiled_plot: &CompiledPlot,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> bool {
+        self.profile_dependency_params
+            == plot_profile_dependency_param_fingerprint(compiled_plot, ctx, params)
     }
 
     pub(crate) fn facet_cell_measurement(

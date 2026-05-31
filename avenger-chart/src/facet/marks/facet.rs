@@ -174,17 +174,37 @@ async fn build_one_facet_cell(
     };
 
     let components = if let Some((source_measurement, cached_components)) = cached_profile {
-        match Box::pin(subplot.build_plot_components_reusing_data_marks(
-            &cell_eval_ctx,
-            &source_measurement,
-            &measurement,
-            Some(&data_override),
-            true,
-            &full_path,
-            &cached_components,
-        ))
-        .await?
-        {
+        let chrome_reuse_allowed = cell_eval_ctx.layout_profile().is_some_and(|profile| {
+            profile.physical_structure_matches(cell_eval_ctx.facet_tree.as_ref())
+        });
+        let reused_components = if chrome_reuse_allowed {
+            subplot.build_plot_components_reusing_data_marks_and_chrome(
+                &cell_eval_ctx,
+                &source_measurement,
+                &measurement,
+                true,
+                &full_path,
+                &cached_components,
+            )?
+        } else {
+            None
+        };
+        let reused_components = match reused_components {
+            Some(components) => Some(components),
+            None => {
+                Box::pin(subplot.build_plot_components_reusing_data_marks(
+                    &cell_eval_ctx,
+                    &source_measurement,
+                    &measurement,
+                    Some(&data_override),
+                    true,
+                    &full_path,
+                    &cached_components,
+                ))
+                .await?
+            }
+        };
+        match reused_components {
             Some(components) => {
                 cell_eval_ctx.record_preview_data_mark_reuse();
                 components
