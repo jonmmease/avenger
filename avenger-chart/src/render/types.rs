@@ -133,10 +133,10 @@ pub enum EvaluationMode {
     /// `PlotSession` disables optional facet refinement passes in this mode so
     /// the settled `Exact` evaluation can perform the slower convergence work.
     Preview,
-    /// Canonical evaluation while bypassing measurement-profile caches.
+    /// Canonical evaluation while bypassing reusable measurement/profile caches.
     ///
-    /// Phase 1 has no measurement-profile cache yet, so this also falls back to
-    /// exact evaluation while preserving the requested mode in metrics.
+    /// This is useful when a host wants a fresh settled measurement instead of
+    /// reusing guide, legend, text, or layout-profile state from the session.
     ForceRemeasure,
 }
 
@@ -155,14 +155,6 @@ pub enum PreviewProfileFallbackReason {
     /// A logical reflow was possible in principle, but no terminal cell profiles
     /// were available to reuse.
     MissingTerminalProfile,
-    /// Profile dependency parameters are known to be incompatible with the
-    /// current request.
-    IncompatibleParams,
-    /// Profile scale signatures are known to be incompatible with the current
-    /// request.
-    IncompatibleScales,
-    /// The profiled child structure is not supported by the current reuse path.
-    UnsupportedChildStructure,
 }
 
 /// Runtime evaluation options for selecting layout snapshots and debug overlays.
@@ -535,9 +527,9 @@ pub struct EvaluationPipelineMetrics {
     pub text_measurement_cache_hits: usize,
     /// Number of text layout measurement cache misses.
     pub text_measurement_cache_misses: usize,
-    /// Number of preview evaluations that reused a previous measurement profile.
+    /// Number of preview evaluations that reused a previous layout profile.
     pub preview_profile_reuses: usize,
-    /// Number of preview evaluations that could not reuse a previous measurement profile.
+    /// Number of preview evaluations that could not reuse a previous layout profile.
     pub preview_profile_misses: usize,
     /// Number of preview evaluations that fell back to exact measurement.
     pub preview_fallbacks: usize,
