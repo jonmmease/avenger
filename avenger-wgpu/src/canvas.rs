@@ -32,7 +32,7 @@ use crate::{
     marks::{
         instanced_mark::{InstancedMarkFingerprint, InstancedMarkRenderer},
         multi::{is_axis_aligned_angle, MultiMarkRenderResources, MultiMarkRenderer},
-        symbol::SymbolShader,
+        symbol::{is_circle_only_symbol_mark, CircleSymbolShader, SymbolShader},
         text::{TextAtlasBuilderTrait, TextAtlasRegistration, TextInstance},
     },
     zindex_layers::compute_zindex_layers,
@@ -189,13 +189,26 @@ pub trait Canvas {
         origin: [f32; 2],
         group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
-        if mark.len >= 100
-            && mark.gradients.is_empty()
-            && matches!(group_clip, Clip::None | Clip::Rect { .. })
-        {
+        if symbol_mark_is_instanced_eligible(mark, group_clip) {
             // Check if compatible renderer already exists
             let fingerprint = mark.instanced_fingerprint();
             let renderer = if let Some(renderer) = self.get_instanced_renderer(fingerprint) {
+                renderer
+            } else if is_circle_only_symbol_mark(mark) {
+                let shader = Box::new(CircleSymbolShader::from_symbol_mark(
+                    mark,
+                    self.dimensions(),
+                    origin,
+                ));
+
+                let renderer = Arc::new(InstancedMarkRenderer::new(
+                    self.device(),
+                    self.texture_format(),
+                    self.sample_count(),
+                    shader,
+                    group_clip.maybe_clip(mark.clip),
+                    self.dimensions().scale,
+                ));
                 renderer
             } else {
                 let shader = Box::new(SymbolShader::from_symbol_mark(
@@ -435,6 +448,78 @@ pub trait Canvas {
             "wgpu.set_scene"
         );
         Ok(())
+    }
+}
+
+fn symbol_mark_is_instanced_eligible(mark: &SceneSymbolMark, group_clip: &Clip) -> bool {
+    mark.len >= 100
+        && mark.gradients.is_empty()
+        && matches!(group_clip, Clip::None | Clip::Rect { .. })
+}
+
+#[cfg(test)]
+mod tests {
+    use avenger_common::types::{Gradient, GradientStop, LinearGradient};
+    use avenger_scenegraph::marks::{group::Clip, symbol::SceneSymbolMark};
+
+    use super::symbol_mark_is_instanced_eligible;
+
+    fn large_symbol_mark() -> SceneSymbolMark {
+        SceneSymbolMark {
+            len: 100,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn large_symbol_mark_with_no_clip_is_instanced_eligible() {
+        assert!(symbol_mark_is_instanced_eligible(
+            &large_symbol_mark(),
+            &Clip::None
+        ));
+    }
+
+    #[test]
+    fn stroked_symbol_mark_is_instanced_eligible() {
+        let mark = SceneSymbolMark {
+            stroke_width: Some(2.0),
+            ..large_symbol_mark()
+        };
+
+        assert!(symbol_mark_is_instanced_eligible(&mark, &Clip::None));
+    }
+
+    #[test]
+    fn gradient_symbol_mark_is_not_instanced_eligible() {
+        let mark = SceneSymbolMark {
+            gradients: vec![Gradient::LinearGradient(LinearGradient {
+                x0: 0.0,
+                y0: 0.0,
+                x1: 1.0,
+                y1: 1.0,
+                stops: vec![
+                    GradientStop {
+                        offset: 0.0,
+                        color: [0.0, 0.0, 0.0, 1.0],
+                    },
+                    GradientStop {
+                        offset: 1.0,
+                        color: [1.0, 1.0, 1.0, 1.0],
+                    },
+                ],
+            })],
+            ..large_symbol_mark()
+        };
+
+        assert!(!symbol_mark_is_instanced_eligible(&mark, &Clip::None));
+    }
+
+    #[test]
+    fn path_clipped_symbol_mark_is_not_instanced_eligible() {
+        assert!(!symbol_mark_is_instanced_eligible(
+            &large_symbol_mark(),
+            &Clip::Path(lyon::path::Path::default()),
+        ));
     }
 }
 

@@ -1,4 +1,4 @@
-//! Single-panel Cartesian pan/zoom stress example with 10M instanced symbols.
+//! Single-panel Cartesian pan/zoom stress example with 1M translucent circle symbols.
 //!
 //! Drag with the left mouse button inside the plot area to pan. Scroll over the
 //! plot area to zoom around the pointer. The pan binding stays in Preview mode
@@ -36,7 +36,7 @@ fn main() {
     let avenger_app = tokio_runtime.block_on(build_app());
     let options = WinitWgpuAvengerAppOptions::new(2.0).window_attributes(
         WindowAttributes::default()
-            .with_title("avenger-chart 10M instanced symbols - drag pan / scroll zoom")
+            .with_title("avenger-chart 1M translucent circles - drag pan / scroll zoom")
             .with_resizable(false),
     );
     let (mut app, event_loop) =
@@ -48,7 +48,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let ctx = Arc::new(SessionContext::new());
     let df = ctx
         .read_batch(make_points_batch())
-        .expect("read generated 10M points");
+        .expect("read generated 1M points");
 
     let x_domain = Param::raw_domain("x_domain");
     let y_domain = Param::raw_domain("y_domain");
@@ -76,7 +76,9 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                     })
                 })
                 .fill("#1f77b4")
-                .size(7.0),
+                .shape("circle")
+                .size(56.0)
+                .opacity(0.45),
         )
         .event_bindings([pan, zoom]);
 
@@ -96,7 +98,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 }
 
 fn make_points_batch() -> RecordBatch {
-    let columns = 10_000;
+    let columns = 1000;
     let rows = 1000;
     let point_count = columns * rows;
     let mut xs = Vec::with_capacity(point_count);
@@ -125,7 +127,7 @@ fn make_points_batch() -> RecordBatch {
             Arc::new(Float64Array::from(ys)),
         ],
     )
-    .expect("build generated 100k point batch")
+    .expect("build generated 1M point batch")
 }
 
 fn init_diagnostics() {
