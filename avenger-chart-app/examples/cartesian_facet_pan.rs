@@ -1,14 +1,15 @@
-//! Faceted Cartesian pan example (shared domains).
+//! Faceted Cartesian pan/zoom example (shared domains).
 //!
 //! A column-faceted scatter where the x and y scales are shared across all
 //! cells and read shared raw-domain params. Dragging with the left mouse button
-//! inside ANY cell pans EVERY cell together: the binding routes the pointer to
-//! the cell under it, inverts through that cell's scale, and writes the shared
-//! (root) domain params, so all cells re-render with the same new domain.
+//! or scrolling inside ANY cell pans/zooms EVERY cell together: the bindings
+//! route the pointer to the cell under it, invert through that cell's scale, and
+//! write the shared (root) domain params, so all cells re-render with the same
+//! new domain.
 //!
 //! This demonstrates the faceted scope-export + routing path with `Sharing`
-//! at the global (Shared) level. Per-cell independent panning (Free/Level
-//! sharing, where each column/row pans on its own) is future work.
+//! at the global (Shared) level. See `cartesian_facet_pan_free` for per-cell
+//! independent pan/zoom behavior.
 //!
 //! Run with:
 //! ```bash
@@ -17,14 +18,15 @@
 
 use std::sync::Arc;
 
-use avenger_chart::event::{self as ev, ChartEventBinding, ChartEventStream, ChartEventType};
 use avenger_chart::prelude::*;
 use avenger_chart_app::{
     ChartAppOptions, ChartResizeBinding, WinitWgpuAvengerApp, WinitWgpuAvengerAppOptions,
     chart_avenger_app,
 };
-use datafusion::prelude::{SessionContext, lit};
+use datafusion::prelude::SessionContext;
 use winit::window::WindowAttributes;
+
+mod common;
 
 fn main() {
     init_diagnostics();
@@ -34,7 +36,7 @@ fn main() {
     let avenger_app = tokio_runtime.block_on(build_app());
     let options = WinitWgpuAvengerAppOptions::new(2.0).window_attributes(
         WindowAttributes::default()
-            .with_title("avenger-chart faceted pan — drag any cell to pan all cells")
+            .with_title("avenger-chart faceted pan/zoom — drag or scroll any cell")
             .with_resizable(false),
     );
     let (mut app, event_loop) =
@@ -56,37 +58,14 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .expect("build data");
 
     // Shared raw-domain params: null by default (scales fall back to their
-    // shared inferred domains) until a pan writes a concrete domain.
+    // shared inferred domains) until an interaction writes a concrete domain.
     let x_domain = Param::raw_domain("x_domain");
     let y_domain = Param::raw_domain("y_domain");
     let x_raw = x_domain.expr();
     let y_raw = y_domain.expr();
 
-    // Pan delta in data space, measured through the frozen start scale.
-    let dx = ev::event_at_start_coord("x") - ev::start_coord("x");
-    let dy = ev::event_at_start_coord("y") - ev::start_coord("y");
-
-    let pan = ChartEventBinding::on(ChartEventType::CursorMoved)
-        .between(
-            ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
-            ChartEventStream::on(ChartEventType::MouseUp),
-        )
-        .set_param(
-            &x_domain,
-            ev::interval(
-                ev::interval_start(ev::start_domain("x")) - dx.clone(),
-                ev::interval_end(ev::start_domain("x")) - dx,
-            ),
-        )
-        .set_param(
-            &y_domain,
-            ev::interval(
-                ev::interval_start(ev::start_domain("y")) - dy.clone(),
-                ev::interval_end(ev::start_domain("y")) - dy,
-            ),
-        )
-        .preview()
-        .settle_exact();
+    let pan = common::cartesian_drag_pan_binding(&x_domain, &y_domain, true);
+    let zoom = common::cartesian_scroll_zoom_binding(&x_domain, &y_domain);
 
     // Leaf scatter: x and y scales are shared across cells and read the shared
     // raw-domain params.
@@ -110,7 +89,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .canvas_size(820.0, 360.0)
         .data(df)
         .mark(Subplot::new(leaf).column(col("group_name")))
-        .event_binding(pan);
+        .event_bindings([pan, zoom]);
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(

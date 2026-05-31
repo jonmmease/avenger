@@ -1,11 +1,11 @@
-//! Nested row × column faceted Cartesian pan with **`Level(1)` sharing**.
+//! Nested row × column faceted Cartesian pan/zoom with **`Level(1)` sharing**.
 //!
 //! A two-level facet (rows wrap columns) where the x and y raw-domain params are
 //! declared `Sharing::Level(1)` and the leaf scales are shared at `Level(1)`.
 //! `Level(1)` means "share one facet level up", which for a leaf cell at depth 2
-//! (`[row, column]`) is the ROW. So dragging with the left mouse button inside
-//! any cell pans EVERY cell in that cell's row together, while the other rows
-//! stay put.
+//! (`[row, column]`) is the ROW. So dragging with the left mouse button or
+//! scrolling inside any cell pans/zooms EVERY cell in that cell's row together,
+//! while the other rows stay put.
 //!
 //! This showcases the per-cell scoped-param resolution: the binding routes the
 //! pointer to the cell under it, reads that cell's `Level(1)` owner path (the
@@ -19,14 +19,15 @@
 
 use std::sync::Arc;
 
-use avenger_chart::event::{self as ev, ChartEventBinding, ChartEventStream, ChartEventType};
 use avenger_chart::prelude::*;
 use avenger_chart_app::{
     ChartAppOptions, ChartResizeBinding, WinitWgpuAvengerApp, WinitWgpuAvengerAppOptions,
     chart_avenger_app,
 };
-use datafusion::prelude::{SessionContext, lit};
+use datafusion::prelude::SessionContext;
 use winit::window::WindowAttributes;
+
+mod common;
 
 fn main() {
     init_diagnostics();
@@ -36,7 +37,7 @@ fn main() {
     let avenger_app = tokio_runtime.block_on(build_app());
     let options = WinitWgpuAvengerAppOptions::new(2.0).window_attributes(
         WindowAttributes::default()
-            .with_title("avenger-chart nested pan — drag a cell to pan its whole row (Level 1)")
+            .with_title("avenger-chart nested pan/zoom — drag or scroll a row-owned cell")
             .with_resizable(false),
     );
     let (mut app, event_loop) =
@@ -68,30 +69,8 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let x_raw = x_domain.expr();
     let y_raw = y_domain.expr();
 
-    let dx = ev::event_at_start_coord("x") - ev::start_coord("x");
-    let dy = ev::event_at_start_coord("y") - ev::start_coord("y");
-
-    let pan = ChartEventBinding::on(ChartEventType::CursorMoved)
-        .between(
-            ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
-            ChartEventStream::on(ChartEventType::MouseUp),
-        )
-        .set_param(
-            &x_domain,
-            ev::interval(
-                ev::interval_start(ev::start_domain("x")) - dx.clone(),
-                ev::interval_end(ev::start_domain("x")) - dx,
-            ),
-        )
-        .set_param(
-            &y_domain,
-            ev::interval(
-                ev::interval_start(ev::start_domain("y")) - dy.clone(),
-                ev::interval_end(ev::start_domain("y")) - dy,
-            ),
-        )
-        .preview()
-        .settle_exact();
+    let pan = common::cartesian_drag_pan_binding(&x_domain, &y_domain, true);
+    let zoom = common::cartesian_scroll_zoom_binding(&x_domain, &y_domain);
 
     // Leaf scatter: x and y scales are shared at Level(1) (per row) and read the
     // Level(1) raw-domain params.
@@ -118,7 +97,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .canvas_size(820.0, 520.0)
         .data(df)
         .mark(Subplot::new(columns).row(col("row_name")))
-        .event_binding(pan);
+        .event_bindings([pan, zoom]);
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(

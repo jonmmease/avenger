@@ -1,10 +1,9 @@
-//! Single-panel Cartesian pan example.
+//! Single-panel Cartesian pan/zoom example.
 //!
-//! Drag with the left mouse button inside the plot area to pan. The pan binding
-//! reads pointer positions in data coordinates, computes new raw x/y scale
-//! domains with ordinary DataFusion expressions, and writes them through scoped
-//! `set_param` assignments. Preview evaluation is used during the drag and an
-//! exact evaluation settles on release.
+//! Drag with the left mouse button inside the plot area to pan. Scroll over the
+//! plot area to zoom around the pointer. Both bindings compute new raw x/y scale
+//! domains with ordinary DataFusion expressions and write them through scoped
+//! `set_param` assignments.
 //!
 //! Run with:
 //! ```bash
@@ -13,14 +12,15 @@
 
 use std::sync::Arc;
 
-use avenger_chart::event::{self as ev, ChartEventBinding, ChartEventStream, ChartEventType};
 use avenger_chart::prelude::*;
 use avenger_chart_app::{
     ChartAppOptions, ChartResizeBinding, WinitWgpuAvengerApp, WinitWgpuAvengerAppOptions,
     chart_avenger_app,
 };
-use datafusion::prelude::{SessionContext, lit};
+use datafusion::prelude::SessionContext;
 use winit::window::WindowAttributes;
+
+mod common;
 
 fn main() {
     init_diagnostics();
@@ -30,7 +30,7 @@ fn main() {
     let avenger_app = tokio_runtime.block_on(build_app());
     let options = WinitWgpuAvengerAppOptions::new(2.0).window_attributes(
         WindowAttributes::default()
-            .with_title("avenger-chart Cartesian pan (drag with left mouse button)")
+            .with_title("avenger-chart Cartesian pan/zoom (drag to pan, scroll to zoom)")
             .with_resizable(false),
     );
     let (mut app, event_loop) =
@@ -57,38 +57,14 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .expect("build data");
 
     // Raw-domain params: null by default, so the scales fall back to their
-    // inferred domains until a pan gesture writes a concrete domain.
+    // inferred domains until an interaction writes a concrete domain.
     let x_domain = Param::raw_domain("x_domain");
     let y_domain = Param::raw_domain("y_domain");
     let x_raw = x_domain.expr();
     let y_raw = y_domain.expr();
 
-    // Pan delta in data space, measured through the frozen start scale so the
-    // gesture does not feed back as the raw domains update during the drag.
-    let dx = ev::event_at_start_coord("x") - ev::start_coord("x");
-    let dy = ev::event_at_start_coord("y") - ev::start_coord("y");
-
-    let pan = ChartEventBinding::on(ChartEventType::CursorMoved)
-        .between(
-            ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
-            ChartEventStream::on(ChartEventType::MouseUp),
-        )
-        .set_param(
-            &x_domain,
-            ev::interval(
-                ev::interval_start(ev::start_domain("x")) - dx.clone(),
-                ev::interval_end(ev::start_domain("x")) - dx,
-            ),
-        )
-        .set_param(
-            &y_domain,
-            ev::interval(
-                ev::interval_start(ev::start_domain("y")) - dy.clone(),
-                ev::interval_end(ev::start_domain("y")) - dy,
-            ),
-        )
-        .preview()
-        .settle_exact();
+    let pan = common::cartesian_drag_pan_binding(&x_domain, &y_domain, true);
+    let zoom = common::cartesian_scroll_zoom_binding(&x_domain, &y_domain);
 
     let plot = Plot::<Cartesian>::new()
         .add_param(x_domain.clone())
@@ -110,7 +86,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                 .fill(col("group_name"))
                 .size(120.0),
         )
-        .event_binding(pan);
+        .event_bindings([pan, zoom]);
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(

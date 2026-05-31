@@ -1,9 +1,10 @@
-//! Wrapped-facet Cartesian pan with **`Shared` sharing**.
+//! Wrapped-facet Cartesian pan/zoom with **`Shared` sharing**.
 //!
 //! A wrap facet lays out one subplot per category, flowing into a fixed grid of
 //! columns (here 3 across, so six categories wrap into 2 rows). The x and y
 //! scales are shared across every cell and read shared raw-domain params, so
-//! dragging with the left mouse button inside ANY cell pans EVERY cell together.
+//! dragging with the left mouse button or scrolling inside ANY cell pans/zooms
+//! EVERY cell together.
 //!
 //! Note on `FacetWrap` sharing: a wrap facet has a single *logical* facet level
 //! (the physical wrap rows have logical weight 0), so `Shared` and `Level(1)`
@@ -18,7 +19,6 @@
 
 use std::sync::Arc;
 
-use avenger_chart::event::{self as ev, ChartEventBinding, ChartEventStream, ChartEventType};
 use avenger_chart::prelude::*;
 use avenger_chart_app::{
     ChartAppOptions, ChartResizeBinding, WinitWgpuAvengerApp, WinitWgpuAvengerAppOptions,
@@ -26,6 +26,8 @@ use avenger_chart_app::{
 };
 use datafusion::prelude::{SessionContext, lit};
 use winit::window::WindowAttributes;
+
+mod common;
 
 fn main() {
     init_diagnostics();
@@ -35,7 +37,7 @@ fn main() {
     let avenger_app = tokio_runtime.block_on(build_app());
     let options = WinitWgpuAvengerAppOptions::new(2.0).window_attributes(
         WindowAttributes::default()
-            .with_title("avenger-chart wrap pan (Shared) — drag any cell to pan all cells")
+            .with_title("avenger-chart wrap pan/zoom (Shared) — drag or scroll any cell")
             .with_resizable(false),
     );
     let (mut app, event_loop) =
@@ -65,30 +67,8 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let x_raw = x_domain.expr();
     let y_raw = y_domain.expr();
 
-    let dx = ev::event_at_start_coord("x") - ev::start_coord("x");
-    let dy = ev::event_at_start_coord("y") - ev::start_coord("y");
-
-    let pan = ChartEventBinding::on(ChartEventType::CursorMoved)
-        .between(
-            ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
-            ChartEventStream::on(ChartEventType::MouseUp),
-        )
-        .set_param(
-            &x_domain,
-            ev::interval(
-                ev::interval_start(ev::start_domain("x")) - dx.clone(),
-                ev::interval_end(ev::start_domain("x")) - dx,
-            ),
-        )
-        .set_param(
-            &y_domain,
-            ev::interval(
-                ev::interval_start(ev::start_domain("y")) - dy.clone(),
-                ev::interval_end(ev::start_domain("y")) - dy,
-            ),
-        )
-        .preview()
-        .settle_exact();
+    let pan = common::cartesian_drag_pan_binding(&x_domain, &y_domain, true);
+    let zoom = common::cartesian_scroll_zoom_binding(&x_domain, &y_domain);
 
     let leaf = Plot::<Cartesian>::new().mark(
         Symbol::new()
@@ -110,7 +90,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .canvas_size(760.0, 480.0)
         .data(df)
         .mark(Subplot::new(leaf).wrap_with(col("group_name"), |c| c.columns(lit(3))))
-        .event_binding(pan);
+        .event_bindings([pan, zoom]);
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(

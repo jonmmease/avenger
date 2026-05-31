@@ -1,11 +1,12 @@
-//! Wrapped-facet Cartesian pan with **per-cell (`Free`) sharing**.
+//! Wrapped-facet Cartesian pan/zoom with **per-cell (`Free`) sharing**.
 //!
 //! A wrap facet lays out one subplot per category, flowing into a fixed grid of
 //! columns (here 3 across, so six categories wrap into 2 rows). The x and y
 //! raw-domain params are declared `Sharing::Free` and each cell's scales are
 //! `free_scale()` (independent per cell). Dragging with the left mouse button
-//! inside ONE cell pans ONLY that cell — the binding routes the pointer to the
-//! cell under it and writes the param at that cell's own owner path.
+//! or scrolling inside ONE cell pans/zooms ONLY that cell — the bindings route
+//! the pointer to the cell under it and write the param at that cell's own owner
+//! path.
 //!
 //! This is the per-cell counterpart to `cartesian_facet_wrap_pan` (Shared). It
 //! also demonstrates that `Free` resolves to a single wrapped cell even though a
@@ -19,7 +20,6 @@
 
 use std::sync::Arc;
 
-use avenger_chart::event::{self as ev, ChartEventBinding, ChartEventStream, ChartEventType};
 use avenger_chart::prelude::*;
 use avenger_chart_app::{
     ChartAppOptions, ChartResizeBinding, WinitWgpuAvengerApp, WinitWgpuAvengerAppOptions,
@@ -27,6 +27,8 @@ use avenger_chart_app::{
 };
 use datafusion::prelude::{SessionContext, lit};
 use winit::window::WindowAttributes;
+
+mod common;
 
 fn main() {
     init_diagnostics();
@@ -36,7 +38,7 @@ fn main() {
     let avenger_app = tokio_runtime.block_on(build_app());
     let options = WinitWgpuAvengerAppOptions::new(2.0).window_attributes(
         WindowAttributes::default()
-            .with_title("avenger-chart wrap pan (Free) — drag a cell to pan only that cell")
+            .with_title("avenger-chart wrap pan/zoom (Free) — drag or scroll one cell")
             .with_resizable(false),
     );
     let (mut app, event_loop) =
@@ -61,36 +63,14 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .expect("build data");
 
     // Per-cell raw-domain params: `Free` means each wrapped cell keeps its own
-    // copy until a pan writes a concrete domain for that cell.
+    // copy until an interaction writes a concrete domain for that cell.
     let x_domain = Param::raw_domain("x_domain");
     let y_domain = Param::raw_domain("y_domain");
     let x_raw = x_domain.expr();
     let y_raw = y_domain.expr();
 
-    let dx = ev::event_at_start_coord("x") - ev::start_coord("x");
-    let dy = ev::event_at_start_coord("y") - ev::start_coord("y");
-
-    let pan = ChartEventBinding::on(ChartEventType::CursorMoved)
-        .between(
-            ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
-            ChartEventStream::on(ChartEventType::MouseUp),
-        )
-        .set_param(
-            &x_domain,
-            ev::interval(
-                ev::interval_start(ev::start_domain("x")) - dx.clone(),
-                ev::interval_end(ev::start_domain("x")) - dx,
-            ),
-        )
-        .set_param(
-            &y_domain,
-            ev::interval(
-                ev::interval_start(ev::start_domain("y")) - dy.clone(),
-                ev::interval_end(ev::start_domain("y")) - dy,
-            ),
-        )
-        .preview()
-        .settle_exact();
+    let pan = common::cartesian_drag_pan_binding(&x_domain, &y_domain, true);
+    let zoom = common::cartesian_scroll_zoom_binding(&x_domain, &y_domain);
 
     // Leaf scatter: x and y scales are independent per cell (`free_scale`) and
     // read the per-cell raw-domain params.
@@ -114,7 +94,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .canvas_size(760.0, 480.0)
         .data(df)
         .mark(Subplot::new(leaf).wrap_with(col("group_name"), |c| c.columns(lit(3))))
-        .event_binding(pan);
+        .event_bindings([pan, zoom]);
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(

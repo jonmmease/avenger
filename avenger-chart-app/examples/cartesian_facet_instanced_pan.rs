@@ -1,4 +1,4 @@
-//! 2×3 faceted scatter with **instanced** symbol marks + pan.
+//! 2×3 faceted scatter with **instanced** symbol marks + pan/zoom.
 //!
 //! Each of the 6 facet cells holds **200 scatter points**. In `avenger-wgpu` a
 //! symbol mark renders through the GPU instanced path (`InstancedMarkRenderer`,
@@ -11,9 +11,10 @@
 //! instanced path (a combination not covered by the visual-regression suite).
 //!
 //! Drag with the left mouse button inside any cell to pan **all** cells together
-//! (x and y scales are globally shared). The pan binding stays in Preview mode
-//! after mouse-up so repeated drags are not blocked by a full Exact settle pass.
-//! Per-frame render metrics are logged (`surface_render_ms`, and `avenger_wgpu`
+//! and scroll inside any cell to zoom **all** cells around the pointer (x and y
+//! scales are globally shared). The interaction bindings stay in Preview mode so
+//! repeated drags/scrolls are not blocked by a full Exact settle pass. Per-frame
+//! render metrics are logged (`surface_render_ms`, and `avenger_wgpu`
 //! `command_count` at debug level).
 //!
 //! Run with:
@@ -24,7 +25,6 @@
 
 use std::sync::Arc;
 
-use avenger_chart::event::{self as ev, ChartEventBinding, ChartEventStream, ChartEventType};
 use avenger_chart::prelude::*;
 use avenger_chart_app::{
     ChartAppOptions, ChartResizeBinding, WinitWgpuAvengerApp, WinitWgpuAvengerAppOptions,
@@ -32,6 +32,8 @@ use avenger_chart_app::{
 };
 use datafusion::prelude::{SessionContext, lit};
 use winit::window::WindowAttributes;
+
+mod common;
 
 fn main() {
     init_diagnostics();
@@ -41,7 +43,7 @@ fn main() {
     let avenger_app = tokio_runtime.block_on(build_app());
     let options = WinitWgpuAvengerAppOptions::new(2.0).window_attributes(
         WindowAttributes::default()
-            .with_title("avenger-chart 2×3 instanced facet — 200 pts/cell — drag to pan all cells")
+            .with_title("avenger-chart 2×3 instanced facet — 200 pts/cell — drag pan / scroll zoom")
             .with_resizable(false),
     );
     let (mut app, event_loop) =
@@ -80,41 +82,19 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let ctx = Arc::new(SessionContext::new());
     let df = ctx.sql(&scatter_values_sql()).await.expect("build data");
 
-    // Globally shared raw-domain params: null until a pan writes a concrete
-    // domain, at which point every cell re-renders with the same new domain.
+    // Globally shared raw-domain params: null until an interaction writes a
+    // concrete domain, at which point every cell re-renders with that domain.
     let x_domain = Param::raw_domain("x_domain");
     let y_domain = Param::raw_domain("y_domain");
     let x_raw = x_domain.expr();
     let y_raw = y_domain.expr();
 
-    // Pan delta in data space, measured through the frozen start scale.
-    let dx = ev::event_at_start_coord("x") - ev::start_coord("x");
-    let dy = ev::event_at_start_coord("y") - ev::start_coord("y");
-
-    let pan = ChartEventBinding::on(ChartEventType::CursorMoved)
-        .between(
-            ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
-            ChartEventStream::on(ChartEventType::MouseUp),
-        )
-        .set_param(
-            &x_domain,
-            ev::interval(
-                ev::interval_start(ev::start_domain("x")) - dx.clone(),
-                ev::interval_end(ev::start_domain("x")) - dx,
-            ),
-        )
-        .set_param(
-            &y_domain,
-            ev::interval(
-                ev::interval_start(ev::start_domain("y")) - dy.clone(),
-                ev::interval_end(ev::start_domain("y")) - dy,
-            ),
-        )
-        .preview();
+    let pan = common::cartesian_drag_pan_binding(&x_domain, &y_domain, false);
+    let zoom = common::cartesian_scroll_zoom_binding(&x_domain, &y_domain);
 
     // Leaf scatter: 200 pts/cell (>= 100 ⇒ instanced path). x and y scales are
-    // globally shared and read the shared raw-domain params, so dragging any
-    // cell pans every cell.
+    // globally shared and read the shared raw-domain params, so interacting in
+    // any cell pans/zooms every cell.
     let leaf = Plot::<Cartesian>::new().mark(
         Symbol::new()
             .x_with(col("x"), move |c| {
@@ -136,7 +116,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .canvas_size(960.0, 640.0)
         .data(df)
         .mark(Subplot::new(leaf).wrap_with(col("group_name"), |c| c.columns(lit(3))))
-        .event_binding(pan);
+        .event_bindings([pan, zoom]);
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(
