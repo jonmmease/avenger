@@ -3969,6 +3969,13 @@ mod tests {
             "raw-domain-only Preview should report facet tree profile reuse"
         );
         assert_eq!(
+            first_metrics.pipeline.scale_domain_cache_hits
+                + first_metrics.pipeline.scale_domain_cache_misses
+                + first_metrics.pipeline.scale_builder_builds,
+            0,
+            "raw-domain-only facet Preview should reuse profiled root facet scales"
+        );
+        assert_eq!(
             first_metrics.pipeline.preview_data_mark_reuses, 2,
             "both facet cells should retarget exact data marks for the first raw-domain pan"
         );
@@ -3998,6 +4005,13 @@ mod tests {
         assert_eq!(
             second_metrics.pipeline.facet_tree_profile_reuses, 1,
             "steady raw-domain Preview should report facet tree profile reuse"
+        );
+        assert_eq!(
+            second_metrics.pipeline.scale_domain_cache_hits
+                + second_metrics.pipeline.scale_domain_cache_misses
+                + second_metrics.pipeline.scale_builder_builds,
+            0,
+            "steady raw-domain facet Preview should reuse profiled root facet scales"
         );
         assert_eq!(
             second_metrics.pipeline.preview_data_mark_reuses, 2,

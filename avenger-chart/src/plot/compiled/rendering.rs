@@ -5892,63 +5892,72 @@ impl CompiledPlot {
         }
         measurement.params = eval_ctx.params.clone();
 
-        let mut scale_eval_ctx = avenger_chart_core::EvaluationContext::new(
-            self.get_theme(),
-            Arc::new(ctx.clone()),
-            scale_domain_params.clone(),
-        )
-        .with_diagnostics(Arc::new(EvaluationMetricsDiagnostics::new(metrics.clone())));
-        let cache_key = self.top_level_scale_domain_cache_key(ctx, &scale_domain_params);
-        let cached_builder = {
-            scale_domain_cache
-                .lock()
-                .expect("scale-domain cache lock poisoned")
-                .get(&cache_key)
-        };
-        let scale_builder = if let Some(builder) = cached_builder {
-            Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
-                metrics.record_scale_domain_cache_hit();
-            });
-            builder
-        } else {
-            Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
-                metrics.record_scale_domain_cache_miss();
-                metrics.record_scale_builder_build();
-            });
-            let builder = Box::pin(build_scale_builder_from_marks(
-                &self.marks,
-                &self.scale_specs,
-                &self.coord_transform,
-                &self.data,
-                None,
-                &scale_eval_ctx,
-                self.get_theme().as_ref(),
-            ))
-            .await?;
-            scale_domain_cache
-                .lock()
-                .expect("scale-domain cache lock poisoned")
-                .insert(cache_key, builder.clone());
-            builder
-        };
-        scale_eval_ctx = scale_eval_ctx.with_params(eval_ctx.params.clone());
-        let scale_provider = DynamicScaleProvider {
-            builder: &scale_builder,
-            plot: self,
-        };
-        let mut refreshed_scales = scale_provider
-            .build_scales(
-                target_plot_area_width,
-                target_plot_area_height,
-                ctx,
-                &scale_eval_ctx.params,
+        let can_reuse_root_facet_scales =
+            matches!(resolved_chart_sizing, ResolvedChartSizing::FacetBand(_))
+                && can_reuse_profile_facet_tree
+                && !changed_params_touch_layout_size
+                && resolve_raw_domain_overrides(self, ctx, &eval_ctx.params)
+                    .await?
+                    .is_empty();
+        if !can_reuse_root_facet_scales {
+            let mut scale_eval_ctx = avenger_chart_core::EvaluationContext::new(
+                self.get_theme(),
+                Arc::new(ctx.clone()),
+                scale_domain_params.clone(),
             )
-            .await?;
-        crate::coords::apply_coord_measurement_scale_adjustments(
-            measurement.coord_measurement.as_ref(),
-            &mut refreshed_scales,
-        );
-        measurement.scales = refreshed_scales;
+            .with_diagnostics(Arc::new(EvaluationMetricsDiagnostics::new(metrics.clone())));
+            let cache_key = self.top_level_scale_domain_cache_key(ctx, &scale_domain_params);
+            let cached_builder = {
+                scale_domain_cache
+                    .lock()
+                    .expect("scale-domain cache lock poisoned")
+                    .get(&cache_key)
+            };
+            let scale_builder = if let Some(builder) = cached_builder {
+                Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                    metrics.record_scale_domain_cache_hit();
+                });
+                builder
+            } else {
+                Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                    metrics.record_scale_domain_cache_miss();
+                    metrics.record_scale_builder_build();
+                });
+                let builder = Box::pin(build_scale_builder_from_marks(
+                    &self.marks,
+                    &self.scale_specs,
+                    &self.coord_transform,
+                    &self.data,
+                    None,
+                    &scale_eval_ctx,
+                    self.get_theme().as_ref(),
+                ))
+                .await?;
+                scale_domain_cache
+                    .lock()
+                    .expect("scale-domain cache lock poisoned")
+                    .insert(cache_key, builder.clone());
+                builder
+            };
+            scale_eval_ctx = scale_eval_ctx.with_params(eval_ctx.params.clone());
+            let scale_provider = DynamicScaleProvider {
+                builder: &scale_builder,
+                plot: self,
+            };
+            let mut refreshed_scales = scale_provider
+                .build_scales(
+                    target_plot_area_width,
+                    target_plot_area_height,
+                    ctx,
+                    &scale_eval_ctx.params,
+                )
+                .await?;
+            crate::coords::apply_coord_measurement_scale_adjustments(
+                measurement.coord_measurement.as_ref(),
+                &mut refreshed_scales,
+            );
+            measurement.scales = refreshed_scales;
+        }
 
         match resolved_chart_sizing {
             ResolvedChartSizing::SinglePlot => {
