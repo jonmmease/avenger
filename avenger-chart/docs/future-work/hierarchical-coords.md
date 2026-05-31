@@ -79,4 +79,4 @@ is transform-first or coordinate-first, then record what became awkward.
 - How labels depend on the future [text-mark.md](text-mark.md) and adjustment
   work.
 - How color/size legends relate to internal hierarchy depth and leaf data.
-- Whether drill-down interaction is part of v1 or later controller work.
+- Whether drill-down interaction is part of v1 or later tool work.
