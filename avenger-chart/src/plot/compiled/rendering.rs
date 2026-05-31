@@ -5702,9 +5702,11 @@ impl CompiledPlot {
         let changed_params_touch_layout_size = changed_params
             .iter()
             .any(|name| layout_size_params.contains(name));
+        let profile_dependencies_match =
+            layout_profile.profile_dependencies_match(&profile_comparison_params);
         let can_reuse_profile_facet_tree = scoped_param_store.is_none()
             && !changed_params_touch_layout_size
-            && layout_profile.profile_dependencies_match(&profile_comparison_params);
+            && profile_dependencies_match;
         let facet_tree = if can_reuse_profile_facet_tree {
             if let Some(facet_tree) = layout_profile.facet_tree.clone() {
                 Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
@@ -6033,8 +6035,14 @@ impl CompiledPlot {
             metrics.record_skipped_component_measure_calls(1);
         });
 
+        // The profile dependency key intentionally excludes `raw_domain`
+        // placeholders. If those are the only non-size dependencies that changed,
+        // the cached data marks can be moved by affine scale adjustments instead
+        // of rebuilding mark data.
+        let changed_params_are_profile_retarget_only =
+            !changed_params_touch_layout_size && profile_dependencies_match;
         let can_reuse_top_level_data_marks = measurement.child_frame_container_view()?.is_none()
-            && changed_params_are_layout_size_only;
+            && (changed_params_are_layout_size_only || changed_params_are_profile_retarget_only);
         let components = if can_reuse_top_level_data_marks {
             if let Some(cached_components) = &layout_profile.rendered_components {
                 match Box::pin(self.build_plot_components_reusing_data_marks(
@@ -6079,7 +6087,7 @@ impl CompiledPlot {
             debug!(
                 ?changed_params,
                 ?layout_size_params,
-                "preview data-mark reuse skipped because changed params are not layout-size-only or the plot has child frames"
+                "preview data-mark reuse skipped because changed params require data rebuild or the plot has child frames"
             );
             Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
                 metrics.record_preview_data_mark_reuse_miss();

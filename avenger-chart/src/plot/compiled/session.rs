@@ -1933,6 +1933,57 @@ mod tests {
             .await
     }
 
+    async fn compile_raw_domain_param_preview_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let x_domain = Param::raw_domain("x_domain");
+        let raw = x_domain.expr();
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
+            .await?;
+        Plot::<Cartesian>::new()
+            .add_param(x_domain.clone())
+            .canvas_size(420.0, 320.0)
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x_with(col("x"), move |c| {
+                        c.scale_with::<Linear>(move |s| {
+                            s.raw_domain(raw.clone()).nice(false).zero(false)
+                        })
+                        .axis(|a| a.visible(false))
+                    })
+                    .y_with(col("y"), |c| c.axis(|a| a.visible(false)))
+                    .size(20.0),
+            )
+            .compile(ctx)
+            .await
+    }
+
+    fn count_symbol_scale_adjustments(scene: &SceneGraph) -> usize {
+        fn collect_from_mark(mark: &SceneMark, count: &mut usize) {
+            match mark {
+                SceneMark::Group(group) => {
+                    for child in &group.marks {
+                        collect_from_mark(child, count);
+                    }
+                }
+                SceneMark::Symbol(symbol) => {
+                    if symbol.x_adjustment.is_some() || symbol.y_adjustment.is_some() {
+                        *count += 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut count = 0;
+        for mark in &scene.marks {
+            collect_from_mark(mark, &mut count);
+        }
+        count
+    }
+
     async fn compile_legend_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
@@ -2648,7 +2699,61 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn plot_session_preview_rebuilds_data_marks_for_domain_param_change()
+    async fn plot_session_preview_reuses_data_marks_for_raw_domain_param_change()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_raw_domain_param_preview_plot(&ctx).await?);
+        let mut session = compiled.clone().instantiate(ctx.clone());
+
+        let (_evaluated, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            exact.facet_layout.plot_component_measure_calls > 0,
+            "warm exact evaluation should build the initial raw-domain measurement profile"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert("x_domain".to_string(), list_domain(2.0, 6.0));
+        let (evaluated, preview) = session
+            .evaluate_with_metrics(
+                EvaluationRequest::new()
+                    .preview()
+                    .param_patch(patch.clone()),
+            )
+            .await?;
+
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(preview.pipeline.preview_profile_reuses, 1);
+        assert_eq!(preview.pipeline.preview_profile_misses, 0);
+        assert_eq!(preview.pipeline.preview_fallbacks, 0);
+        assert_eq!(
+            preview.pipeline.preview_data_mark_reuses, 1,
+            "simple raw-domain Preview should retarget cached data marks"
+        );
+        assert_eq!(preview.pipeline.preview_data_mark_reuse_misses, 0);
+        assert_eq!(preview.facet_layout.plot_component_measure_calls, 0);
+        assert_eq!(
+            preview.pipeline.mark_data_collects, 0,
+            "simple raw-domain Preview should not recollect mark data"
+        );
+        assert!(
+            count_symbol_scale_adjustments(&evaluated.scene_graph) > 0,
+            "retargeted symbol marks should carry scale adjustments for the renderer"
+        );
+
+        let one_shot = compiled.evaluate(ctx.as_ref(), Some(patch)).await?;
+        assert_symbol_positions_close_with_tolerance(
+            &evaluated.scene_graph,
+            &one_shot.scene_graph,
+            6.0,
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_preview_rebuilds_data_marks_for_explicit_domain_param_change()
     -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(compile_pan_zoom_param_preview_plot(&ctx).await?);
