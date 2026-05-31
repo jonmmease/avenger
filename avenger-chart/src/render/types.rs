@@ -244,6 +244,46 @@ impl EvaluationMetrics {
         self.timings.preview_structure_reflow_us += duration_micros_u64(duration);
     }
 
+    pub(crate) fn record_preview_layout_setup_duration(&mut self, duration: Duration) {
+        self.timings.preview_layout_setup_us += duration_micros_u64(duration);
+    }
+
+    pub(crate) fn record_preview_measurement_clone_duration(&mut self, duration: Duration) {
+        self.timings.preview_measurement_clone_us += duration_micros_u64(duration);
+    }
+
+    pub(crate) fn record_preview_scale_refresh_duration(&mut self, duration: Duration) {
+        self.timings.preview_scale_refresh_us += duration_micros_u64(duration);
+    }
+
+    pub(crate) fn record_preview_scale_context_setup_duration(&mut self, duration: Duration) {
+        self.timings.preview_scale_context_setup_us += duration_micros_u64(duration);
+    }
+
+    pub(crate) fn record_preview_scale_cache_key_duration(&mut self, duration: Duration) {
+        self.timings.preview_scale_cache_key_us += duration_micros_u64(duration);
+    }
+
+    pub(crate) fn record_preview_scale_cache_lookup_duration(&mut self, duration: Duration) {
+        self.timings.preview_scale_cache_lookup_us += duration_micros_u64(duration);
+    }
+
+    pub(crate) fn record_preview_scale_build_duration(&mut self, duration: Duration) {
+        self.timings.preview_scale_build_us += duration_micros_u64(duration);
+    }
+
+    pub(crate) fn record_preview_scale_coord_adjust_duration(&mut self, duration: Duration) {
+        self.timings.preview_scale_coord_adjust_us += duration_micros_u64(duration);
+    }
+
+    pub(crate) fn record_preview_measurement_retarget_duration(&mut self, duration: Duration) {
+        self.timings.preview_measurement_retarget_us += duration_micros_u64(duration);
+    }
+
+    pub(crate) fn record_preview_facet_domain_override_duration(&mut self, duration: Duration) {
+        self.timings.preview_facet_domain_override_us += duration_micros_u64(duration);
+    }
+
     pub(crate) fn record_measure_cells_overflow_probe_duration(&mut self, duration: Duration) {
         self.timings.measure_cells_overflow_probe_us += duration_micros_u64(duration);
     }
@@ -454,6 +494,26 @@ pub struct EvaluationTimingMetrics {
     /// Time spent in logical structure reflow when a responsive facet wrap
     /// changes physical row/column layout but keeps the same logical cells.
     pub preview_structure_reflow_us: u64,
+    /// Time spent evaluating layout/sizing inputs while attempting Preview reuse.
+    pub preview_layout_setup_us: u64,
+    /// Time spent cloning the cached measurement before retargeting it.
+    pub preview_measurement_clone_us: u64,
+    /// Time spent refreshing configured scales for a reused Preview measurement.
+    pub preview_scale_refresh_us: u64,
+    /// Time spent constructing the lightweight core scale-evaluation context.
+    pub preview_scale_context_setup_us: u64,
+    /// Time spent building the top-level scale-domain cache key during Preview.
+    pub preview_scale_cache_key_us: u64,
+    /// Time spent looking up the cached scale-domain builder during Preview.
+    pub preview_scale_cache_lookup_us: u64,
+    /// Time spent constructing configured scales from cached domain artifacts.
+    pub preview_scale_build_us: u64,
+    /// Time spent applying coordinate measurement scale adjustments during Preview.
+    pub preview_scale_coord_adjust_us: u64,
+    /// Time spent retargeting the reused measurement to the requested plot area.
+    pub preview_measurement_retarget_us: u64,
+    /// Time spent applying active raw-domain overrides to reused facet cells.
+    pub preview_facet_domain_override_us: u64,
     /// Time spent probing facet cell overflow during facet-band measurement.
     pub measure_cells_overflow_probe_us: u64,
     /// Time spent refreshing guide/layout chrome on reused profile cells.
@@ -470,6 +530,16 @@ impl EvaluationTimingMetrics {
     pub(crate) fn merge_from(&mut self, other: &EvaluationTimingMetrics) {
         self.preview_attempt_us += other.preview_attempt_us;
         self.preview_structure_reflow_us += other.preview_structure_reflow_us;
+        self.preview_layout_setup_us += other.preview_layout_setup_us;
+        self.preview_measurement_clone_us += other.preview_measurement_clone_us;
+        self.preview_scale_refresh_us += other.preview_scale_refresh_us;
+        self.preview_scale_context_setup_us += other.preview_scale_context_setup_us;
+        self.preview_scale_cache_key_us += other.preview_scale_cache_key_us;
+        self.preview_scale_cache_lookup_us += other.preview_scale_cache_lookup_us;
+        self.preview_scale_build_us += other.preview_scale_build_us;
+        self.preview_scale_coord_adjust_us += other.preview_scale_coord_adjust_us;
+        self.preview_measurement_retarget_us += other.preview_measurement_retarget_us;
+        self.preview_facet_domain_override_us += other.preview_facet_domain_override_us;
         self.measure_cells_overflow_probe_us += other.measure_cells_overflow_probe_us;
         self.refresh_reused_profile_layout_us += other.refresh_reused_profile_layout_us;
         self.guide_overflow_measure_us += other.guide_overflow_measure_us;

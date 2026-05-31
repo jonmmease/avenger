@@ -79,16 +79,22 @@ pub(crate) fn new_plot_session_cache_handles() -> (
 /// Session-owned cache for scale-domain inference artifacts.
 #[derive(Default)]
 pub(crate) struct ScaleDomainCache {
-    builders: HashMap<ScaleDomainCacheKey, ScaleBuilder>,
+    builders: HashMap<ScaleDomainCacheKey, Arc<ScaleBuilder>>,
 }
 
 impl ScaleDomainCache {
-    pub(crate) fn get(&self, key: &ScaleDomainCacheKey) -> Option<ScaleBuilder> {
+    pub(crate) fn get(&self, key: &ScaleDomainCacheKey) -> Option<Arc<ScaleBuilder>> {
         self.builders.get(key).cloned()
     }
 
-    pub(crate) fn insert(&mut self, key: ScaleDomainCacheKey, builder: ScaleBuilder) {
-        self.builders.insert(key, builder);
+    pub(crate) fn insert(
+        &mut self,
+        key: ScaleDomainCacheKey,
+        builder: ScaleBuilder,
+    ) -> Arc<ScaleBuilder> {
+        let builder = Arc::new(builder);
+        self.builders.insert(key, builder.clone());
+        builder
     }
 }
 
@@ -2736,6 +2742,10 @@ mod tests {
         assert_eq!(
             preview.pipeline.mark_data_collects, 0,
             "simple raw-domain Preview should not recollect mark data"
+        );
+        assert_eq!(
+            preview.timings.preview_scale_refresh_us, 0,
+            "simple raw-domain Preview should patch cached scale domains instead of rebuilding scales"
         );
         assert!(
             count_symbol_scale_adjustments(&evaluated.scene_graph) > 0,

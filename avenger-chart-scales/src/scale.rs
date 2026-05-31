@@ -6,7 +6,9 @@ use avenger_chart_core::{
     AvengerChartError, DefaultLogicalExprNodeExt, Maybe, ScalarValueHelpers, Scale,
     ScaleDefaultDomain, ScaleDomain, ScaleRange, ScaleSpec, eval_to_scalars, params_to_datafusion,
 };
-use avenger_scales::scales::{ConfiguredScale, DomainKind, RangeKind, ScaleConfig, ScaleContext};
+use avenger_scales::scales::{
+    ConfiguredScale, DomainKind, RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
+};
 use datafusion::{
     arrow::array::{
         Array, ArrayRef, Date32Array, Date64Array, Float32Array, Float32Builder, ListBuilder,
@@ -294,12 +296,27 @@ impl<S: ScaleSpec> ScaleRuntimeExt for Scale<S> {
 async fn apply_raw_domain_override(
     fallback_domain: &ArrayRef,
     domain_spec: &ScaleDomain,
-    scale_impl: &dyn avenger_scales::scales::ScaleImpl,
+    scale_impl: &dyn ScaleImpl,
     ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
 ) -> Result<ArrayRef, AvengerChartError> {
+    if let Some((start, end)) =
+        resolve_raw_domain_override(domain_spec, scale_impl, ctx, params).await?
+    {
+        return Ok(Arc::new(Float32Array::from(vec![start, end])) as ArrayRef);
+    }
+
+    Ok(fallback_domain.clone())
+}
+
+pub(crate) async fn resolve_raw_domain_override(
+    domain_spec: &ScaleDomain,
+    scale_impl: &dyn ScaleImpl,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+) -> Result<Option<(f32, f32)>, AvengerChartError> {
     let Some(raw_domain) = &domain_spec.raw_domain else {
-        return Ok(fallback_domain.clone());
+        return Ok(None);
     };
 
     if scale_impl.domain_kind() != DomainKind::Numeric
@@ -320,7 +337,7 @@ async fn apply_raw_domain_override(
     };
 
     if scalar_value_is_null(raw_value) {
-        return Ok(fallback_domain.clone());
+        return Ok(None);
     }
 
     // A raw-domain override produced by interaction expressions can contain null
@@ -330,9 +347,9 @@ async fn apply_raw_domain_override(
     // explicit domain rather than failing the whole evaluation.
     match raw_value.as_f32x2() {
         Ok([start, end]) if start.is_finite() && end.is_finite() && start != end => {
-            Ok(Arc::new(Float32Array::from(vec![start, end])) as ArrayRef)
+            Ok(Some((start, end)))
         }
-        _ => Ok(fallback_domain.clone()),
+        _ => Ok(None),
     }
 }
 

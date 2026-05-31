@@ -2993,7 +2993,7 @@ impl CompiledPlot {
             };
             if let Some(builder) = cached_builder {
                 eval_ctx.record_scale_domain_cache_hit();
-                return Ok(builder);
+                return Ok((*builder).clone());
             }
             eval_ctx.record_scale_domain_cache_miss();
         }
@@ -5371,27 +5371,28 @@ impl CompiledPlot {
                 scale_domain_cache
                     .lock()
                     .expect("scale-domain cache lock poisoned")
-                    .insert(cache_key, builder.clone());
-                builder
+                    .insert(cache_key, builder)
             }
         } else {
             Self::record_evaluation_metric(&evaluation_metrics, |metrics| {
                 metrics.record_scale_builder_build();
             });
-            Box::pin(build_scale_builder_from_marks(
-                &self.marks,
-                &self.scale_specs,
-                &self.coord_transform,
-                &self.data,
-                None,
-                &scale_eval_ctx,
-                self.get_theme().as_ref(),
-            ))
-            .await?
+            Arc::new(
+                Box::pin(build_scale_builder_from_marks(
+                    &self.marks,
+                    &self.scale_specs,
+                    &self.coord_transform,
+                    &self.data,
+                    None,
+                    &scale_eval_ctx,
+                    self.get_theme().as_ref(),
+                ))
+                .await?,
+            )
         };
 
         let provider = DynamicScaleProvider {
-            builder: &scale_builder,
+            builder: scale_builder.as_ref(),
             plot: self,
         };
 
@@ -5663,6 +5664,7 @@ impl CompiledPlot {
         }
 
         let metrics = Arc::new(Mutex::new(EvaluationMetrics::default()));
+        let layout_setup_start = Instant::now();
         let merged_params = if let Some(provided) = params {
             let mut merged = self.default_params.clone();
             merged.extend(provided);
@@ -5707,6 +5709,9 @@ impl CompiledPlot {
         let can_reuse_profile_facet_tree = scoped_param_store.is_none()
             && !changed_params_touch_layout_size
             && profile_dependencies_match;
+        Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+            metrics.record_preview_layout_setup_duration(layout_setup_start.elapsed());
+        });
         let facet_tree = if can_reuse_profile_facet_tree {
             if let Some(facet_tree) = layout_profile.facet_tree.clone() {
                 Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
@@ -5876,7 +5881,11 @@ impl CompiledPlot {
             eval_ctx = eval_ctx.with_scoped_param_store(store);
         }
 
+        let measurement_clone_start = Instant::now();
         let mut measurement = layout_profile.measurement.clone();
+        Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+            metrics.record_preview_measurement_clone_duration(measurement_clone_start.elapsed());
+        });
         let old_canvas_size = measurement.canvas_size;
         // Plot-area-owned dimensions in a faceted layout spec are nominal
         // content-size constraints. If the constraint itself is unchanged,
@@ -5923,28 +5932,53 @@ impl CompiledPlot {
         }
         measurement.params = eval_ctx.params.clone();
 
+        let root_raw_domain_overrides = if has_raw_domain_scale(self) {
+            resolve_raw_domain_overrides(self, ctx, &eval_ctx.params).await?
+        } else {
+            HashMap::new()
+        };
+        let has_active_root_raw_domain_overrides = !root_raw_domain_overrides.is_empty();
+        let can_reuse_single_plot_raw_domain_scales =
+            matches!(resolved_chart_sizing, ResolvedChartSizing::SinglePlot)
+                && !changed_params_touch_layout_size
+                && has_active_root_raw_domain_overrides;
         let can_reuse_root_facet_scales =
             matches!(resolved_chart_sizing, ResolvedChartSizing::FacetBand(_))
                 && can_reuse_profile_facet_tree
                 && !changed_params_touch_layout_size
-                && (!has_raw_domain_scale(self)
-                    || resolve_raw_domain_overrides(self, ctx, &eval_ctx.params)
-                        .await?
-                        .is_empty());
-        if !can_reuse_root_facet_scales {
+                && (!has_raw_domain_scale(self) || has_active_root_raw_domain_overrides);
+        if can_reuse_single_plot_raw_domain_scales {
+            apply_domain_overrides_to_scales(&mut measurement.scales, &root_raw_domain_overrides);
+        } else if !can_reuse_root_facet_scales {
+            let scale_refresh_start = Instant::now();
+            let scale_context_setup_start = Instant::now();
             let mut scale_eval_ctx = avenger_chart_core::EvaluationContext::new(
                 self.get_theme(),
                 Arc::new(ctx.clone()),
                 scale_domain_params.clone(),
             )
             .with_diagnostics(Arc::new(EvaluationMetricsDiagnostics::new(metrics.clone())));
+            Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                metrics.record_preview_scale_context_setup_duration(
+                    scale_context_setup_start.elapsed(),
+                );
+            });
+            let scale_cache_key_start = Instant::now();
             let cache_key = self.top_level_scale_domain_cache_key(ctx, &scale_domain_params);
+            Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                metrics.record_preview_scale_cache_key_duration(scale_cache_key_start.elapsed());
+            });
+            let scale_cache_lookup_start = Instant::now();
             let cached_builder = {
                 scale_domain_cache
                     .lock()
                     .expect("scale-domain cache lock poisoned")
                     .get(&cache_key)
             };
+            Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                metrics
+                    .record_preview_scale_cache_lookup_duration(scale_cache_lookup_start.elapsed());
+            });
             let scale_builder = if let Some(builder) = cached_builder {
                 Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
                     metrics.record_scale_domain_cache_hit();
@@ -5968,14 +6002,14 @@ impl CompiledPlot {
                 scale_domain_cache
                     .lock()
                     .expect("scale-domain cache lock poisoned")
-                    .insert(cache_key, builder.clone());
-                builder
+                    .insert(cache_key, builder)
             };
             scale_eval_ctx = scale_eval_ctx.with_params(eval_ctx.params.clone());
             let scale_provider = DynamicScaleProvider {
-                builder: &scale_builder,
+                builder: scale_builder.as_ref(),
                 plot: self,
             };
+            let scale_build_start = Instant::now();
             let mut refreshed_scales = scale_provider
                 .build_scales(
                     target_plot_area_width,
@@ -5984,13 +6018,25 @@ impl CompiledPlot {
                     &scale_eval_ctx.params,
                 )
                 .await?;
+            Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                metrics.record_preview_scale_build_duration(scale_build_start.elapsed());
+            });
+            let scale_coord_adjust_start = Instant::now();
             crate::coords::apply_coord_measurement_scale_adjustments(
                 measurement.coord_measurement.as_ref(),
                 &mut refreshed_scales,
             );
+            Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                metrics
+                    .record_preview_scale_coord_adjust_duration(scale_coord_adjust_start.elapsed());
+            });
             measurement.scales = refreshed_scales;
+            Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                metrics.record_preview_scale_refresh_duration(scale_refresh_start.elapsed());
+            });
         }
 
+        let measurement_retarget_start = Instant::now();
         match resolved_chart_sizing {
             ResolvedChartSizing::SinglePlot => {
                 retarget_measurement_plot_area_no_remeasure(
@@ -6013,6 +6059,10 @@ impl CompiledPlot {
                 )?;
             }
         }
+        Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+            metrics
+                .record_preview_measurement_retarget_duration(measurement_retarget_start.elapsed());
+        });
         measurement.params = eval_ctx.params.clone();
 
         // The clone-and-retarget path above refreshes only the top-level scales.
@@ -6021,6 +6071,7 @@ impl CompiledPlot {
         // For Free/Level pans, each cell resolves its owner's param via the
         // scoped store + facet tree; for Shared (or no store) it reuses the
         // single global resolution.
+        let facet_domain_override_start = Instant::now();
         Self::apply_preview_facet_domain_overrides(
             &mut measurement,
             ctx,
@@ -6029,6 +6080,11 @@ impl CompiledPlot {
             eval_ctx.scoped_param_store.as_ref(),
         )
         .await?;
+        Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+            metrics.record_preview_facet_domain_override_duration(
+                facet_domain_override_start.elapsed(),
+            );
+        });
 
         Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
             metrics.record_preview_profile_reuse();

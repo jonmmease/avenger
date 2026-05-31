@@ -124,7 +124,7 @@ impl ChildFrameRuntime {
                 return Ok(PreparedChildFramePlot {
                     plot,
                     data_override,
-                    scale_builder: builder,
+                    scale_builder: (*builder).clone(),
                     local_domain_extents,
                     channel_domain_sharing_levels,
                 });

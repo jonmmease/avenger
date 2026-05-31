@@ -42,6 +42,7 @@ use crate::{
     ScaleRuntimeExt, ScaleSpec,
     domain::{ScaleDefaultDomain, ScaleDomain},
     domain_extent::SerializableDomainValue,
+    scale::resolve_raw_domain_override,
     serialization::LogicalExprNodeExt,
 };
 
@@ -727,6 +728,48 @@ impl ScaleBuilder {
                         })?;
 
                     let range_width = (range_max - range_min).abs();
+                    let mut raw_domain_spec = ScaleDomain::new_interval(lit(0.0_f64), lit(1.0_f64));
+                    raw_domain_spec.raw_domain = current_raw_domain(&scale, raw_domain.as_ref());
+                    if raw_domain_spec.raw_domain.is_some() {
+                        let scale_impl = scale.get_scale_impl_or_err()?;
+                        if let Some((raw_min, raw_max)) = resolve_raw_domain_override(
+                            &raw_domain_spec,
+                            scale_impl.as_ref(),
+                            ctx,
+                            params,
+                        )
+                        .await?
+                        {
+                            scale = scale.domain(ScaleDomain::new_interval(
+                                lit(raw_min as f64),
+                                lit(raw_max as f64),
+                            ));
+                            scale = scale.range_interval(lit(range_min), lit(range_max));
+                            scale = self.apply_default_range_if_needed(
+                                scale,
+                                channel_name,
+                                default_range_resolver,
+                                theme,
+                                params,
+                            );
+                            let configured = Box::pin(
+                                scale
+                                    .clone()
+                                    .create_configured_scale(width, height, ctx, params),
+                            )
+                            .await?;
+
+                            result.insert(
+                                channel_name.clone(),
+                                ConfiguredScaleWithSpec::with_range_binding(
+                                    scale,
+                                    configured,
+                                    range_binding,
+                                ),
+                            );
+                            continue;
+                        }
+                    }
 
                     // Recompute domain with new range_width using cached data
                     let (d_min, d_max) = compute_domain_from_data_with_padding_linear(
@@ -1069,6 +1112,50 @@ mod tests {
                 300.0,
                 &coord_ranges,
                 &scale_specs,
+                &no_default_range,
+                &Theme::light(),
+                &ctx,
+                &IndexMap::new(),
+            )
+            .await
+            .unwrap();
+
+        let x_scale = scales.get("x").unwrap();
+        let (d_min, d_max) = x_scale.configured().numeric_interval_domain().unwrap();
+        assert_eq!((d_min, d_max), (20.0, 40.0));
+    }
+
+    #[tokio::test]
+    async fn test_build_scales_radius_aware_with_raw_domain_override() {
+        let mut builder = ScaleBuilder::new();
+        builder.add_radius_aware(
+            "x".to_string(),
+            Box::new(Linear),
+            vec![0.0, 50.0, 100.0],
+            vec![500.0, 500.0, 500.0],
+            vec![500.0, 500.0, 500.0],
+            HashMap::new(),
+        );
+
+        let raw_domain = Scale::<Auto>::from_spec(Box::new(Linear))
+            .raw_domain(make_array(vec![lit(20.0), lit(40.0)]))
+            .get_domain()
+            .and_then(|domain| domain.raw_domain.clone());
+        builder.apply_raw_domain("x", raw_domain);
+
+        let mut coord_ranges = HashMap::new();
+        coord_ranges.insert(
+            "x".to_string(),
+            ScaleRangeBinding::fixed_interval(0.0, 400.0),
+        );
+
+        let ctx = SessionContext::new();
+        let scales = builder
+            .build_scales(
+                400.0,
+                300.0,
+                &coord_ranges,
+                &HashMap::new(),
                 &no_default_range,
                 &Theme::light(),
                 &ctx,

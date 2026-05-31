@@ -95,7 +95,7 @@ pub(crate) async fn build_scale_builder_from_marks_with_facet_scope(
         };
         if let Some(builder) = cached_builder {
             eval_ctx.record_scale_domain_cache_hit();
-            return Ok(builder);
+            return Ok((*builder).clone());
         }
         eval_ctx.record_scale_domain_cache_miss();
     }
