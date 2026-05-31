@@ -27,8 +27,6 @@ use avenger_chart_app::{
 use datafusion::prelude::{SessionContext, lit};
 use winit::window::WindowAttributes;
 
-mod common;
-
 fn main() {
     init_diagnostics();
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
@@ -61,36 +59,19 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .await
         .expect("build data");
 
-    // Shared raw-domain params across all wrapped cells.
-    let x_domain = Param::raw_domain("x_domain");
-    let y_domain = Param::raw_domain("y_domain");
-    let x_raw = x_domain.expr();
-    let y_raw = y_domain.expr();
-
-    let pan = common::cartesian_drag_pan_binding(&x_domain, &y_domain, true);
-    let zoom = common::cartesian_scroll_zoom_binding(&x_domain, &y_domain);
-
     let leaf = Plot::<Cartesian>::new().mark(
         Symbol::new()
-            .x_with(col("x"), move |c| {
-                c.scale_with::<Linear>(move |s| s.raw_domain(x_raw.clone()).nice(false).zero(false))
-                    .share_scale()
-            })
-            .y_with(col("y"), move |c| {
-                c.scale_with::<Linear>(move |s| s.raw_domain(y_raw.clone()).nice(false).zero(false))
-                    .share_scale()
-            })
+            .x_with(col("x"), |c| c.share_scale())
+            .y_with(col("y"), |c| c.share_scale())
             .fill(col("group_name"))
             .size(70.0),
     );
 
     let plot = Plot::<FacetWrap>::new()
-        .add_param(x_domain.clone())
-        .add_param(y_domain.clone())
         .canvas_size(760.0, 480.0)
         .data(df)
         .mark(Subplot::new(leaf).wrap_with(col("group_name"), |c| c.columns(lit(3))))
-        .event_bindings([pan, zoom]);
+        .tool(PanScrollZoom::cartesian().settle_exact(true));
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(

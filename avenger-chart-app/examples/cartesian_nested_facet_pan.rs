@@ -27,8 +27,6 @@ use avenger_chart_app::{
 use datafusion::prelude::SessionContext;
 use winit::window::WindowAttributes;
 
-mod common;
-
 fn main() {
     init_diagnostics();
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
@@ -61,29 +59,12 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .await
         .expect("build data");
 
-    // Level(1) raw-domain params: shared one facet level up. For a leaf cell at
-    // [row, column], the Level(1) owner is the row, so each row keeps its own
-    // copy and dragging one cell pans the whole row.
-    let x_domain = Param::raw_domain("x_domain");
-    let y_domain = Param::raw_domain("y_domain");
-    let x_raw = x_domain.expr();
-    let y_raw = y_domain.expr();
-
-    let pan = common::cartesian_drag_pan_binding(&x_domain, &y_domain, true);
-    let zoom = common::cartesian_scroll_zoom_binding(&x_domain, &y_domain);
-
-    // Leaf scatter: x and y scales are shared at Level(1) (per row) and read the
-    // Level(1) raw-domain params.
+    // Leaf scatter: x and y scales are shared at Level(1) (per row). The tool
+    // mirrors that sharing for the generated raw-domain params.
     let leaf = Plot::<Cartesian>::new().mark(
         Symbol::new()
-            .x_with(col("x"), move |c| {
-                c.scale_with::<Linear>(move |s| s.raw_domain(x_raw.clone()).nice(false).zero(false))
-                    .with_scale_sharing(Sharing::Level(1))
-            })
-            .y_with(col("y"), move |c| {
-                c.scale_with::<Linear>(move |s| s.raw_domain(y_raw.clone()).nice(false).zero(false))
-                    .with_scale_sharing(Sharing::Level(1))
-            })
+            .x_with(col("x"), |c| c.with_scale_sharing(Sharing::Level(1)))
+            .y_with(col("y"), |c| c.with_scale_sharing(Sharing::Level(1)))
             .fill(col("col_name"))
             .size(80.0),
     );
@@ -92,12 +73,10 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let columns = Plot::<FacetColumn>::new().mark(Subplot::new(leaf).column(col("col_name")));
 
     let plot = Plot::<FacetRow>::new()
-        .add_param_with_sharing(x_domain.clone(), Sharing::Level(1))
-        .add_param_with_sharing(y_domain.clone(), Sharing::Level(1))
         .canvas_size(820.0, 520.0)
         .data(df)
         .mark(Subplot::new(columns).row(col("row_name")))
-        .event_bindings([pan, zoom]);
+        .tool(PanScrollZoom::cartesian().settle_exact(true));
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(

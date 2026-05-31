@@ -9,7 +9,8 @@ use datafusion::{
 use serde::{Deserialize, Serialize};
 
 use avenger_chart_core::{
-    MarkRuntimeContext, RadiusExpression, ResolvedDomain, ScaleRange, ScaleTypePreference,
+    CompileContext, MarkRuntimeContext, RadiusExpression, ResolvedDomain, ScaleRange,
+    ScaleTypePreference,
 };
 
 use crate::{
@@ -20,7 +21,7 @@ use crate::{
     marks::{
         ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState,
         CompiledSubplotPayload, SubplotContainerCoordinateSystem, SubplotDataSource,
-        SubplotMarkCore, compile_subplot_payload,
+        SubplotMarkCore, compile_subplot_payload, compile_subplot_payload_with_context,
     },
     plot::{
         CompiledPlot,
@@ -43,6 +44,25 @@ impl SubplotContainerCoordinateSystem for HConcat {
             compile_subplot_payload(subplot, compiled_state, session_context).await?,
         )))
     }
+
+    async fn compile_subplot_mark_with_context(
+        subplot: &dyn SubplotMarkCore,
+        compiled_state: CompiledMarkState,
+        session_context: &SessionContext,
+        compile_context: Option<CompileContext<'_>>,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        subplot.validate_no_facet_channels("HConcat")?;
+
+        Ok(Arc::new(CompiledConcatSubplot::new(
+            compile_subplot_payload_with_context(
+                subplot,
+                compiled_state,
+                session_context,
+                compile_context,
+            )
+            .await?,
+        )))
+    }
 }
 
 #[async_trait::async_trait]
@@ -56,6 +76,25 @@ impl SubplotContainerCoordinateSystem for VConcat {
 
         Ok(Arc::new(CompiledConcatSubplot::new(
             compile_subplot_payload(subplot, compiled_state, session_context).await?,
+        )))
+    }
+
+    async fn compile_subplot_mark_with_context(
+        subplot: &dyn SubplotMarkCore,
+        compiled_state: CompiledMarkState,
+        session_context: &SessionContext,
+        compile_context: Option<CompileContext<'_>>,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        subplot.validate_no_facet_channels("VConcat")?;
+
+        Ok(Arc::new(CompiledConcatSubplot::new(
+            compile_subplot_payload_with_context(
+                subplot,
+                compiled_state,
+                session_context,
+                compile_context,
+            )
+            .await?,
         )))
     }
 }

@@ -24,7 +24,8 @@ pub use avenger_chart_core::{
     CompiledMarkCore, CompiledMarkState, CompiledSubplotChildPlot, CompiledSubplotPayload,
     ConditionalValue, DataContext, FacetDataScope, Mark, MarkState, RadiusExpression,
     SubplotChildPlotSpec, SubplotContainerCoordinateSystem, SubplotDataSource, SubplotMarkCore,
-    compile_subplot_payload, default_scale_type_for_data_type,
+    compile_subplot_payload, compile_subplot_payload_with_context,
+    default_scale_type_for_data_type,
 };
 pub use avenger_chart_marks::Subplot;
 pub use avenger_chart_polar::CompiledPolarSubplot;

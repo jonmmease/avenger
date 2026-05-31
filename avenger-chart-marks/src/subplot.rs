@@ -4,8 +4,8 @@ use datafusion::prelude::SessionContext;
 use datafusion_proto::protobuf::LogicalExprNode;
 
 use avenger_chart_core::{
-    AvengerChartError, ChannelValue, ColumnDimensionConfig, CompiledMark, CompiledMarkState,
-    CompiledSubplotChildPlot, CoordinateSystemCore, DataContext, FacetDataScope,
+    AvengerChartError, ChannelValue, ColumnDimensionConfig, CompileContext, CompiledMark,
+    CompiledMarkState, CompiledSubplotChildPlot, CoordinateSystemCore, DataContext, FacetDataScope,
     FacetDimensionConfig, FacetEmptyCellPolicy, FacetWrapColumnMode, Mark, MarkState,
     RowDimensionConfig, Sharing, SubplotChildPlotSpec, SubplotContainerCoordinateSystem,
     SubplotMarkCore,
@@ -317,6 +317,16 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         self.subplot.compile_boxed(session_context).await
     }
 
+    pub async fn compile_child_plot_with_context(
+        &self,
+        session_context: &SessionContext,
+        compile_context: Option<CompileContext<'_>>,
+    ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
+        self.subplot
+            .compile_boxed_with_context(session_context, compile_context)
+            .await
+    }
+
     #[doc(hidden)]
     pub fn with_channel_value(mut self, channel_name: &'static str, value: ChannelValue) -> Self {
         self.state.data = self.state.data.with_channel_value(channel_name, value);
@@ -460,6 +470,16 @@ impl<OuterC: CoordinateSystemCore> SubplotMarkCore for Subplot<OuterC> {
     ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
         self.subplot.compile_boxed(session_context).await
     }
+
+    async fn compile_child_plot_with_context(
+        &self,
+        session_context: &SessionContext,
+        compile_context: Option<CompileContext<'_>>,
+    ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
+        self.subplot
+            .compile_boxed_with_context(session_context, compile_context)
+            .await
+    }
 }
 
 #[async_trait::async_trait]
@@ -485,5 +505,15 @@ where
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
         C::compile_subplot_mark(self, compiled_state, session_context).await
+    }
+
+    async fn compile_with_context(
+        &self,
+        compiled_state: CompiledMarkState,
+        session_context: &SessionContext,
+        compile_context: Option<CompileContext<'_>>,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        C::compile_subplot_mark_with_context(self, compiled_state, session_context, compile_context)
+            .await
     }
 }

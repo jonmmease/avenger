@@ -7,9 +7,9 @@ use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    AvengerChartError, AxisSpec, CompiledMark, CompiledMarkState, CompiledParamSpec,
-    CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, IntoExpr, Legend, Mark, Param,
-    Sharing, SubplotChildPlotSpec, Theme,
+    AvengerChartError, AxisSpec, CompileContext, CompiledMark, CompiledMarkState,
+    CompiledParamSpec, CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, IntoExpr,
+    Legend, Mark, Param, Sharing, SubplotChildPlotSpec, Theme,
 };
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
 
@@ -17,6 +17,7 @@ use crate::{
     event::ChartEventBinding,
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint, SizeMode},
     serialization::serializable_expr_from_expr,
+    tools::{ChartTool, ToolCompileContext},
 };
 
 use super::{
@@ -60,6 +61,9 @@ pub struct Plot<C: CoordinateSystem> {
 
     /// Plot-level event bindings that patch params in chart apps
     pub(crate) event_bindings: Vec<ChartEventBinding>,
+
+    /// Authoring-time tools that expand during compilation.
+    pub(crate) tools: Vec<Arc<dyn ChartTool>>,
 }
 
 #[async_trait::async_trait]
@@ -81,6 +85,19 @@ where
     ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
         Ok(Arc::new(self.clone().compile(session_context).await?))
     }
+
+    async fn compile_boxed_with_context(
+        &self,
+        session_context: &datafusion::prelude::SessionContext,
+        compile_context: Option<CompileContext<'_>>,
+    ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
+        let tool_context = compile_context.and_then(ToolCompileContext::downcast);
+        Ok(Arc::new(
+            self.clone()
+                .compile_with_tool_context(session_context, tool_context, false)
+                .await?,
+        ))
+    }
 }
 
 impl<C: CoordinateSystem> Plot<C> {
@@ -98,6 +115,7 @@ impl<C: CoordinateSystem> Plot<C> {
             guide_config: None,
             param_specs: Vec::new(),
             event_bindings: Vec::new(),
+            tools: Vec::new(),
         }
     }
 }
@@ -120,6 +138,21 @@ impl<C: CoordinateSystem> Plot<C> {
         self,
         session_context: &datafusion::prelude::SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
+        let root_tool_context = ToolCompileContext::root();
+        self.compile_with_tool_context(session_context, Some(&root_tool_context), true)
+            .await
+    }
+
+    pub(crate) async fn compile_with_tool_context(
+        self,
+        session_context: &datafusion::prelude::SessionContext,
+        inherited_tool_context: Option<&ToolCompileContext>,
+        is_root: bool,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let tool_context =
+            ToolCompileContext::from_parent_with_tools(inherited_tool_context, &self.tools)?;
+        let erased_tool_context: CompileContext<'_> = &tool_context;
+
         for binding in &self.event_bindings {
             binding.validate()?;
         }
@@ -142,6 +175,15 @@ impl<C: CoordinateSystem> Plot<C> {
             );
         }
 
+        let coord_transform = self.coord_system.create_transform();
+        let scale_sharing = scale_domain_share_modes(&self.marks);
+        tool_context.apply_scale_edits(
+            coord_transform.as_ref(),
+            &scale_to_coord_channel,
+            &mut scale_specs,
+            &scale_sharing,
+        )?;
+
         // 2. Compile all marks. Aggregate channels are intentionally prepared at
         // runtime so faceted marks aggregate after mark-level data scope has been
         // resolved.
@@ -157,7 +199,9 @@ impl<C: CoordinateSystem> Plot<C> {
 
             let compiled_state =
                 CompiledMarkState::from_mark_state(mark_state, df_opt).with_mark_index(mark_index);
-            let compiled_mark = m.compile(compiled_state, session_context).await?;
+            let compiled_mark = m
+                .compile_with_context(compiled_state, session_context, Some(erased_tool_context))
+                .await?;
             compiled_marks.push(compiled_mark);
         }
 
@@ -197,7 +241,6 @@ impl<C: CoordinateSystem> Plot<C> {
         let compiled_guide = Arc::from(guide.build());
 
         // 4. Prepare serialized logical plan for plot-level data (for rebuilds)
-        let coord_transform = self.coord_system.create_transform();
         let data_plan_node = match &self.data {
             Some(df) => {
                 let plan = df.logical_plan().clone();
@@ -214,8 +257,18 @@ impl<C: CoordinateSystem> Plot<C> {
         // Build param specs (preserving declaration order) and reject duplicate
         // names regardless of whether they came from add_param or
         // add_param_with_sharing.
+        let mut param_source_specs = self.param_specs.clone();
+        let mut event_bindings = self.event_bindings.clone();
+        let mut tool_metadata = Vec::new();
+        if is_root {
+            let artifacts = tool_context.finalize_root()?;
+            param_source_specs.extend(artifacts.param_specs);
+            event_bindings.extend(artifacts.event_bindings);
+            tool_metadata.extend(artifacts.metadata);
+        }
+
         let mut param_specs: IndexMap<String, CompiledParamSpec> = IndexMap::new();
-        for spec in &self.param_specs {
+        for spec in &param_source_specs {
             if param_specs.contains_key(&spec.name) {
                 return Err(AvengerChartError::InvalidArgument(format!(
                     "Duplicate plot parameter '{}'",
@@ -248,7 +301,8 @@ impl<C: CoordinateSystem> Plot<C> {
             data: data_plan_node,
             default_params,
             param_specs,
-            event_bindings: self.event_bindings,
+            event_bindings,
+            tool_metadata,
         };
 
         // 6. Validate scoped raw-domain params are shared at least as broadly as
@@ -312,6 +366,22 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Add multiple plot-level event bindings.
     pub fn event_bindings(mut self, bindings: impl IntoIterator<Item = ChartEventBinding>) -> Self {
         self.event_bindings.extend(bindings);
+        self
+    }
+
+    /// Add an authoring-time chart tool.
+    pub fn tool<T: ChartTool>(mut self, tool: T) -> Self {
+        self.tools.push(Arc::new(tool));
+        self
+    }
+
+    /// Add multiple authoring-time chart tools of the same concrete type.
+    pub fn tools<T: ChartTool>(mut self, tools: impl IntoIterator<Item = T>) -> Self {
+        self.tools.extend(
+            tools
+                .into_iter()
+                .map(|tool| Arc::new(tool) as Arc<dyn ChartTool>),
+        );
         self
     }
 
@@ -417,4 +487,30 @@ impl<C: CoordinateSystem> Plot<C> {
             .clone()
             .unwrap_or_else(|| Arc::new(Theme::light()))
     }
+}
+
+fn scale_domain_share_modes<C: CoordinateSystem>(
+    marks: &[Arc<dyn Mark<C>>],
+) -> HashMap<String, Sharing> {
+    let mut result = HashMap::new();
+    for mark in marks {
+        for (channel_name, channel_value) in mark.data_context().channels() {
+            let Some(scale_name) = channel_value.get_scale_name(channel_name) else {
+                continue;
+            };
+            let sharing = channel_value
+                .get_share_mode()
+                .unwrap_or(Sharing::Free)
+                .to_normalized();
+            result
+                .entry(scale_name)
+                .and_modify(|existing: &mut Sharing| {
+                    if sharing.to_level() > existing.to_level() {
+                        *existing = sharing;
+                    }
+                })
+                .or_insert(sharing);
+        }
+    }
+    result
 }

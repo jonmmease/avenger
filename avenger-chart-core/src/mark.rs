@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{any::Any, sync::Arc};
 
 use datafusion::prelude::SessionContext;
 
@@ -6,6 +6,13 @@ use crate::{
     AvengerChartError, CompiledMark, CompiledMarkState, CoordinateSystemCore, DataContext,
     MarkState,
 };
+
+/// Erased compile-time context passed through subplot compilation.
+///
+/// The top-level chart crate uses this to let root-owned authoring features,
+/// such as tools, influence descendant child plots without making core depend
+/// on the concrete feature types.
+pub type CompileContext<'a> = &'a (dyn Any + Send + Sync);
 
 /// Core trait for all uncompiled mark types.
 #[async_trait::async_trait]
@@ -25,6 +32,16 @@ pub trait Mark<C: CoordinateSystemCore>: Send + Sync + 'static {
         compiled_state: CompiledMarkState,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError>;
+
+    /// Compile with an optional erased compile-time context.
+    async fn compile_with_context(
+        &self,
+        compiled_state: CompiledMarkState,
+        session_context: &SessionContext,
+        _compile_context: Option<CompileContext<'_>>,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        self.compile(compiled_state, session_context).await
+    }
 
     /// Compile without applying a transformed DataFrame.
     async fn compile_untransformed(

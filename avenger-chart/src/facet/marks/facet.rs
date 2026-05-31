@@ -16,13 +16,13 @@ use crate::plot::compiled::{
 };
 use crate::render::{EvaluationContext, EvaluationMetrics, RenderContext};
 use avenger_chart_core::{
-    AvengerChartError, ChannelDescriptor, ChannelValue, ColumnDimensionConfig, CompiledDataContext,
-    CompiledMark, CompiledMarkCore, CompiledMarkState, CompiledSubplotPayload, CoordinateGuide,
-    CoordinateSystemTransformCore, DefaultLogicalExprNodeExt, FacetAxis, FacetDimensionConfig,
-    FacetEmptyCellPolicy, FacetWrapColumnMode, MarkRuntimeContext, RowDimensionConfig,
-    ScaleTypePreference, SerializableExpr, Sharing, Size2D, SubplotContainerCoordinateSystem,
-    SubplotDataSource, SubplotMarkCore, WrapDimensionConfig, channel_value::expr_to_string,
-    default_scale_type_for_data_type,
+    AvengerChartError, ChannelDescriptor, ChannelValue, ColumnDimensionConfig, CompileContext,
+    CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState, CompiledSubplotPayload,
+    CoordinateGuide, CoordinateSystemTransformCore, DefaultLogicalExprNodeExt, FacetAxis,
+    FacetDimensionConfig, FacetEmptyCellPolicy, FacetWrapColumnMode, MarkRuntimeContext,
+    RowDimensionConfig, ScaleTypePreference, SerializableExpr, Sharing, Size2D,
+    SubplotContainerCoordinateSystem, SubplotDataSource, SubplotMarkCore, WrapDimensionConfig,
+    channel_value::expr_to_string, default_scale_type_for_data_type,
 };
 use avenger_chart_marks::Subplot;
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
@@ -703,6 +703,7 @@ fn facet_title_for_channel(
 async fn compile_facet_subplot_child(
     subplot: &dyn SubplotMarkCore,
     session_context: &SessionContext,
+    compile_context: Option<CompileContext<'_>>,
 ) -> Result<Arc<CompiledPlot>, AvengerChartError> {
     if subplot.has_plot_level_data() {
         return Err(AvengerChartError::InvalidArgument(
@@ -714,7 +715,7 @@ async fn compile_facet_subplot_child(
     }
 
     subplot
-        .compile_child_plot(session_context)
+        .compile_child_plot_with_context(session_context, compile_context)
         .await?
         .into_any_arc()
         .downcast::<CompiledPlot>()
@@ -797,35 +798,55 @@ impl SubplotContainerCoordinateSystem for FacetRow {
         compiled_state: CompiledMarkState,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        subplot.validate_no_channel(ColumnDimensionConfig::channel_name(), "FacetRow")?;
-        let compiled_subplot = compile_facet_subplot_child(subplot, session_context).await?;
-        let channel_name = RowDimensionConfig::channel_name();
-        let facet_title = facet_title_for_channel(
-            subplot.facet_row_title_config(),
-            channel_name,
-            &compiled_state,
-            session_context,
-        );
-
-        Ok(Arc::new(CompiledFacetRowSubplot {
-            payload: CompiledSubplotPayload::new(
-                compiled_state,
-                compiled_subplot,
-                subplot.label_config().map(ToOwned::to_owned),
-                subplot.key_config().map(ToOwned::to_owned),
-                SubplotDataSource::InheritParent,
-            ),
-            facet_title,
-            facet_slot_sharing: subplot.facet_row_slot_sharing_config(),
-            facet_position: subplot.facet_row_position_config().map(ToOwned::to_owned),
-            facet_guide_visible: subplot.facet_row_guide_visible_config().unwrap_or(true),
-            facet_empty_cell_policy: subplot
-                .facet_row_empty_cell_policy_config()
-                .unwrap_or_default(),
-            facet_order_expr: subplot.facet_row_order_expr_config().cloned(),
-            facet_order_descending: subplot.facet_row_order_descending_config(),
-        }))
+        compile_facet_row_subplot_mark(subplot, compiled_state, session_context, None).await
     }
+
+    async fn compile_subplot_mark_with_context(
+        subplot: &dyn SubplotMarkCore,
+        compiled_state: CompiledMarkState,
+        session_context: &SessionContext,
+        compile_context: Option<CompileContext<'_>>,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        compile_facet_row_subplot_mark(subplot, compiled_state, session_context, compile_context)
+            .await
+    }
+}
+
+async fn compile_facet_row_subplot_mark(
+    subplot: &dyn SubplotMarkCore,
+    compiled_state: CompiledMarkState,
+    session_context: &SessionContext,
+    compile_context: Option<CompileContext<'_>>,
+) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+    subplot.validate_no_channel(ColumnDimensionConfig::channel_name(), "FacetRow")?;
+    let compiled_subplot =
+        compile_facet_subplot_child(subplot, session_context, compile_context).await?;
+    let channel_name = RowDimensionConfig::channel_name();
+    let facet_title = facet_title_for_channel(
+        subplot.facet_row_title_config(),
+        channel_name,
+        &compiled_state,
+        session_context,
+    );
+
+    Ok(Arc::new(CompiledFacetRowSubplot {
+        payload: CompiledSubplotPayload::new(
+            compiled_state,
+            compiled_subplot,
+            subplot.label_config().map(ToOwned::to_owned),
+            subplot.key_config().map(ToOwned::to_owned),
+            SubplotDataSource::InheritParent,
+        ),
+        facet_title,
+        facet_slot_sharing: subplot.facet_row_slot_sharing_config(),
+        facet_position: subplot.facet_row_position_config().map(ToOwned::to_owned),
+        facet_guide_visible: subplot.facet_row_guide_visible_config().unwrap_or(true),
+        facet_empty_cell_policy: subplot
+            .facet_row_empty_cell_policy_config()
+            .unwrap_or_default(),
+        facet_order_expr: subplot.facet_row_order_expr_config().cloned(),
+        facet_order_descending: subplot.facet_row_order_descending_config(),
+    }))
 }
 
 impl CompiledMarkCore for CompiledFacetRowSubplot {
@@ -997,35 +1018,55 @@ impl SubplotContainerCoordinateSystem for FacetColumn {
         compiled_state: CompiledMarkState,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        subplot.validate_no_channel(RowDimensionConfig::channel_name(), "FacetColumn")?;
-        let compiled_subplot = compile_facet_subplot_child(subplot, session_context).await?;
-        let channel_name = ColumnDimensionConfig::channel_name();
-        let facet_title = facet_title_for_channel(
-            subplot.facet_col_title_config(),
-            channel_name,
-            &compiled_state,
-            session_context,
-        );
-
-        Ok(Arc::new(CompiledFacetColumnSubplot {
-            payload: CompiledSubplotPayload::new(
-                compiled_state,
-                compiled_subplot,
-                subplot.label_config().map(ToOwned::to_owned),
-                subplot.key_config().map(ToOwned::to_owned),
-                SubplotDataSource::InheritParent,
-            ),
-            facet_title,
-            facet_slot_sharing: subplot.facet_col_slot_sharing_config(),
-            facet_position: subplot.facet_col_position_config().map(ToOwned::to_owned),
-            facet_guide_visible: subplot.facet_col_guide_visible_config().unwrap_or(true),
-            facet_empty_cell_policy: subplot
-                .facet_col_empty_cell_policy_config()
-                .unwrap_or_default(),
-            facet_order_expr: subplot.facet_col_order_expr_config().cloned(),
-            facet_order_descending: subplot.facet_col_order_descending_config(),
-        }))
+        compile_facet_column_subplot_mark(subplot, compiled_state, session_context, None).await
     }
+
+    async fn compile_subplot_mark_with_context(
+        subplot: &dyn SubplotMarkCore,
+        compiled_state: CompiledMarkState,
+        session_context: &SessionContext,
+        compile_context: Option<CompileContext<'_>>,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        compile_facet_column_subplot_mark(subplot, compiled_state, session_context, compile_context)
+            .await
+    }
+}
+
+async fn compile_facet_column_subplot_mark(
+    subplot: &dyn SubplotMarkCore,
+    compiled_state: CompiledMarkState,
+    session_context: &SessionContext,
+    compile_context: Option<CompileContext<'_>>,
+) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+    subplot.validate_no_channel(RowDimensionConfig::channel_name(), "FacetColumn")?;
+    let compiled_subplot =
+        compile_facet_subplot_child(subplot, session_context, compile_context).await?;
+    let channel_name = ColumnDimensionConfig::channel_name();
+    let facet_title = facet_title_for_channel(
+        subplot.facet_col_title_config(),
+        channel_name,
+        &compiled_state,
+        session_context,
+    );
+
+    Ok(Arc::new(CompiledFacetColumnSubplot {
+        payload: CompiledSubplotPayload::new(
+            compiled_state,
+            compiled_subplot,
+            subplot.label_config().map(ToOwned::to_owned),
+            subplot.key_config().map(ToOwned::to_owned),
+            SubplotDataSource::InheritParent,
+        ),
+        facet_title,
+        facet_slot_sharing: subplot.facet_col_slot_sharing_config(),
+        facet_position: subplot.facet_col_position_config().map(ToOwned::to_owned),
+        facet_guide_visible: subplot.facet_col_guide_visible_config().unwrap_or(true),
+        facet_empty_cell_policy: subplot
+            .facet_col_empty_cell_policy_config()
+            .unwrap_or_default(),
+        facet_order_expr: subplot.facet_col_order_expr_config().cloned(),
+        facet_order_descending: subplot.facet_col_order_descending_config(),
+    }))
 }
 
 // ============================================================================
@@ -1201,6 +1242,7 @@ fn build_physical_wrap_subplot(
         default_params: compiled_subplot.default_params.clone(),
         param_specs: compiled_subplot.param_specs.clone(),
         event_bindings: Vec::new(),
+        tool_metadata: Vec::new(),
     }))
 }
 
@@ -1211,50 +1253,70 @@ impl SubplotContainerCoordinateSystem for FacetWrap {
         compiled_state: CompiledMarkState,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        subplot.validate_no_channel(RowDimensionConfig::channel_name(), "FacetWrap")?;
-        subplot.validate_no_channel(ColumnDimensionConfig::channel_name(), "FacetWrap")?;
-        let compiled_subplot = compile_facet_subplot_child(subplot, session_context).await?;
-        let channel_name = WrapDimensionConfig::channel_name();
-        let facet_title = facet_title_for_channel(
-            subplot.facet_wrap_title_config(),
-            channel_name,
-            &compiled_state,
-            session_context,
-        );
-        let facet_position = subplot.facet_wrap_position_config().map(ToOwned::to_owned);
-        let facet_guide_visible = subplot.facet_wrap_guide_visible_config().unwrap_or(true);
-        let facet_empty_cell_policy = subplot
-            .facet_wrap_empty_cell_policy_config()
-            .unwrap_or_default();
-        let physical_subplot = build_physical_wrap_subplot(
-            &compiled_state,
-            compiled_subplot.clone(),
-            facet_title.clone(),
-            facet_position.clone(),
-            facet_guide_visible,
-            facet_empty_cell_policy,
-            session_context,
-        )?;
-
-        Ok(Arc::new(CompiledFacetWrapSubplot {
-            payload: CompiledSubplotPayload::new(
-                compiled_state,
-                compiled_subplot,
-                subplot.label_config().map(ToOwned::to_owned),
-                subplot.key_config().map(ToOwned::to_owned),
-                SubplotDataSource::InheritParent,
-            ),
-            physical_subplot,
-            facet_title,
-            facet_slot_sharing: subplot.facet_wrap_slot_sharing_config(),
-            facet_position,
-            facet_guide_visible,
-            facet_empty_cell_policy,
-            facet_order_expr: subplot.facet_wrap_order_expr_config().cloned(),
-            facet_order_descending: subplot.facet_wrap_order_descending_config(),
-            facet_column_mode: subplot.facet_wrap_column_mode_config(),
-        }))
+        compile_facet_wrap_subplot_mark(subplot, compiled_state, session_context, None).await
     }
+
+    async fn compile_subplot_mark_with_context(
+        subplot: &dyn SubplotMarkCore,
+        compiled_state: CompiledMarkState,
+        session_context: &SessionContext,
+        compile_context: Option<CompileContext<'_>>,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        compile_facet_wrap_subplot_mark(subplot, compiled_state, session_context, compile_context)
+            .await
+    }
+}
+
+async fn compile_facet_wrap_subplot_mark(
+    subplot: &dyn SubplotMarkCore,
+    compiled_state: CompiledMarkState,
+    session_context: &SessionContext,
+    compile_context: Option<CompileContext<'_>>,
+) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+    subplot.validate_no_channel(RowDimensionConfig::channel_name(), "FacetWrap")?;
+    subplot.validate_no_channel(ColumnDimensionConfig::channel_name(), "FacetWrap")?;
+    let compiled_subplot =
+        compile_facet_subplot_child(subplot, session_context, compile_context).await?;
+    let channel_name = WrapDimensionConfig::channel_name();
+    let facet_title = facet_title_for_channel(
+        subplot.facet_wrap_title_config(),
+        channel_name,
+        &compiled_state,
+        session_context,
+    );
+    let facet_position = subplot.facet_wrap_position_config().map(ToOwned::to_owned);
+    let facet_guide_visible = subplot.facet_wrap_guide_visible_config().unwrap_or(true);
+    let facet_empty_cell_policy = subplot
+        .facet_wrap_empty_cell_policy_config()
+        .unwrap_or_default();
+    let physical_subplot = build_physical_wrap_subplot(
+        &compiled_state,
+        compiled_subplot.clone(),
+        facet_title.clone(),
+        facet_position.clone(),
+        facet_guide_visible,
+        facet_empty_cell_policy,
+        session_context,
+    )?;
+
+    Ok(Arc::new(CompiledFacetWrapSubplot {
+        payload: CompiledSubplotPayload::new(
+            compiled_state,
+            compiled_subplot,
+            subplot.label_config().map(ToOwned::to_owned),
+            subplot.key_config().map(ToOwned::to_owned),
+            SubplotDataSource::InheritParent,
+        ),
+        physical_subplot,
+        facet_title,
+        facet_slot_sharing: subplot.facet_wrap_slot_sharing_config(),
+        facet_position,
+        facet_guide_visible,
+        facet_empty_cell_policy,
+        facet_order_expr: subplot.facet_wrap_order_expr_config().cloned(),
+        facet_order_descending: subplot.facet_wrap_order_descending_config(),
+        facet_column_mode: subplot.facet_wrap_column_mode_config(),
+    }))
 }
 
 impl CompiledMarkCore for CompiledFacetWrapSubplot {

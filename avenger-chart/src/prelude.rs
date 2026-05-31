@@ -35,6 +35,10 @@ pub use crate::layout::{
 pub use crate::plot::{
     EvaluationRequest, Plot, PlotSession, PlotSubtitle, PlotTitle, TitleAlign, TitleSpan,
 };
+pub use crate::tools::{
+    ChartTool, PanScrollZoom, ToolExpansion, ToolExpansionContext, ToolMetadata,
+    ToolParamExpansion, ToolParamSharing, ToolScaleEdit,
+};
 
 // Re-export theme types
 pub use avenger_chart_core::Theme;

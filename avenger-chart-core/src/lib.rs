@@ -152,7 +152,7 @@ pub use legend_renderer::{
     LegendRendererSelection, MergeKey, compute_range_hash, helpers, normalize_expression,
 };
 pub use legend_spec::Legend;
-pub use mark::Mark;
+pub use mark::{CompileContext, Mark};
 pub use mark_channel_coercion::{
     apply_opacity_to_color, apply_opacity_to_color_channel, coerce_area_orientation_channel,
     coerce_bool_channel, coerce_bool_channel_with_renderer, coerce_channel, coerce_color_channel,
@@ -197,7 +197,8 @@ pub use subplot_child_plot::{
     CompiledPositionedSubplot, CompiledSubplotChildPlot, CompiledSubplotPayload,
     PositionedSubplotChannel, PositionedSubplotMarkCore, PositionedSubplotSpec,
     SubplotChildPlotSpec, SubplotContainerCoordinateSystem, SubplotDataSource, SubplotMarkCore,
-    compile_positioned_subplot_mark, compile_subplot_payload,
+    compile_positioned_subplot_mark, compile_positioned_subplot_mark_with_context,
+    compile_subplot_payload, compile_subplot_payload_with_context,
 };
 pub use theme::{AngleUnit, CssRgba, LengthUnit, Theme, ThemeValue};
 pub use theme_context::ThemeContext;

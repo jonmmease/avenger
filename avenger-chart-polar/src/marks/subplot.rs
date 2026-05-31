@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use avenger_chart_core::{
-    AvengerChartError, ChannelValue, CompiledMark, CompiledMarkState, CompiledPositionedSubplot,
-    Mark, PositionConfig, PositionedSubplotChannel, PositionedSubplotSpec,
-    SubplotContainerCoordinateSystem, SubplotMarkCore, compile_positioned_subplot_mark,
+    AvengerChartError, ChannelValue, CompileContext, CompiledMark, CompiledMarkState,
+    CompiledPositionedSubplot, Mark, PositionConfig, PositionedSubplotChannel,
+    PositionedSubplotSpec, SubplotContainerCoordinateSystem, SubplotMarkCore,
+    compile_positioned_subplot_mark, compile_positioned_subplot_mark_with_context,
 };
 use avenger_chart_marks::Subplot;
 use datafusion::prelude::SessionContext;
@@ -134,6 +135,30 @@ impl SubplotContainerCoordinateSystem for Polar {
                 ],
             )
             .with_partition_channel(POLAR_SUBPLOT_PARTITION_CHANNEL),
+        )
+        .await
+    }
+
+    async fn compile_subplot_mark_with_context(
+        subplot: &dyn SubplotMarkCore,
+        compiled_state: CompiledMarkState,
+        session_context: &SessionContext,
+        compile_context: Option<CompileContext<'_>>,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        compile_positioned_subplot_mark_with_context(
+            subplot,
+            compiled_state,
+            session_context,
+            PositionedSubplotSpec::new(
+                "Polar",
+                "polar_subplot",
+                vec![
+                    PositionedSubplotChannel::new("r", "r"),
+                    PositionedSubplotChannel::new("theta", "theta"),
+                ],
+            )
+            .with_partition_channel(POLAR_SUBPLOT_PARTITION_CHANNEL),
+            compile_context,
         )
         .await
     }

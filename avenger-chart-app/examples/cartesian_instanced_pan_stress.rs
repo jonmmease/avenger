@@ -26,8 +26,6 @@ use datafusion::{
 };
 use winit::window::WindowAttributes;
 
-mod common;
-
 fn main() {
     init_diagnostics();
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
@@ -50,38 +48,20 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .read_batch(make_points_batch())
         .expect("read generated 1M points");
 
-    let x_domain = Param::raw_domain("x_domain");
-    let y_domain = Param::raw_domain("y_domain");
-    let x_raw = x_domain.expr();
-    let y_raw = y_domain.expr();
-
-    let pan = common::cartesian_drag_pan_binding(&x_domain, &y_domain, false);
-    let zoom = common::cartesian_scroll_zoom_binding(&x_domain, &y_domain);
-
     let plot = Plot::<Cartesian>::new()
-        .add_param(x_domain.clone())
-        .add_param(y_domain.clone())
         .canvas_size(960.0, 640.0)
         .data(df)
         .mark(
             Symbol::new()
-                .x_with(col("x"), move |c| {
-                    c.scale_with::<Linear>(move |s| {
-                        s.raw_domain(x_raw.clone()).nice(false).zero(false)
-                    })
-                })
-                .y_with(col("y"), move |c| {
-                    c.scale_with::<Linear>(move |s| {
-                        s.raw_domain(y_raw.clone()).nice(false).zero(false)
-                    })
-                })
+                .x(col("x"))
+                .y(col("y"))
                 .fill("#1f77b4")
                 .shape("circle")
                 .size(144.0)
                 .stroke_width(0.0)
                 .opacity(0.45),
         )
-        .event_bindings([pan, zoom]);
+        .tool(PanScrollZoom::cartesian());
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(

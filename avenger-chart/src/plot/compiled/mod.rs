@@ -43,6 +43,7 @@ use crate::{
         ContentAllocation, ContentLayout, ContentLayoutSolver, FrameAllocation, FrameDemand,
         LayoutSpec, SinglePlotContentMeasurement, SinglePlotContentSolver,
     },
+    tools::ToolMetadata,
 };
 
 pub use self::child_frame_container::ChildFrameContainerView;
@@ -155,6 +156,10 @@ pub struct CompiledPlot {
     /// Plot-level event bindings for chart apps.
     #[serde(default)]
     pub(crate) event_bindings: Vec<ChartEventBinding>,
+
+    /// Metadata for tools that expanded into this compiled plot.
+    #[serde(default)]
+    pub(crate) tool_metadata: Vec<ToolMetadata>,
 }
 
 impl CompiledPlot {
@@ -198,6 +203,10 @@ impl CompiledPlot {
     /// Get plot-level event bindings.
     pub fn event_bindings(&self) -> &[ChartEventBinding] {
         &self.event_bindings
+    }
+
+    pub fn tool_metadata(&self) -> &[ToolMetadata] {
+        &self.tool_metadata
     }
 
     /// Get compiled mark renderers

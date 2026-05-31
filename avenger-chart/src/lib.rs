@@ -35,6 +35,7 @@ pub mod maybe;
 pub mod scales;
 pub mod serialization;
 pub mod theme;
+pub mod tools;
 pub mod utils;
 pub mod zerod;
 

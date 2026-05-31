@@ -33,8 +33,6 @@ use avenger_chart_app::{
 use datafusion::prelude::{SessionContext, lit};
 use winit::window::WindowAttributes;
 
-mod common;
-
 fn main() {
     init_diagnostics();
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
@@ -82,41 +80,22 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let ctx = Arc::new(SessionContext::new());
     let df = ctx.sql(&scatter_values_sql()).await.expect("build data");
 
-    // Globally shared raw-domain params: null until an interaction writes a
-    // concrete domain, at which point every cell re-renders with that domain.
-    let x_domain = Param::raw_domain("x_domain");
-    let y_domain = Param::raw_domain("y_domain");
-    let x_raw = x_domain.expr();
-    let y_raw = y_domain.expr();
-
-    let pan = common::cartesian_drag_pan_binding(&x_domain, &y_domain, false);
-    let zoom = common::cartesian_scroll_zoom_binding(&x_domain, &y_domain);
-
     // Leaf scatter: 200 pts/cell (>= 100 ⇒ instanced path). x and y scales are
-    // globally shared and read the shared raw-domain params, so interacting in
-    // any cell pans/zooms every cell.
+    // globally shared, so interacting in any cell pans/zooms every cell.
     let leaf = Plot::<Cartesian>::new().mark(
         Symbol::new()
-            .x_with(col("x"), move |c| {
-                c.scale_with::<Linear>(move |s| s.raw_domain(x_raw.clone()).nice(false).zero(false))
-                    .share_scale()
-            })
-            .y_with(col("y"), move |c| {
-                c.scale_with::<Linear>(move |s| s.raw_domain(y_raw.clone()).nice(false).zero(false))
-                    .share_scale()
-            })
+            .x_with(col("x"), |c| c.share_scale())
+            .y_with(col("y"), |c| c.share_scale())
             .fill(col("group_name"))
             .size(40.0),
     );
 
     // Wrap the 6 groups into a 3-column layout ⇒ a 2-row × 3-column grid.
     let plot = Plot::<FacetWrap>::new()
-        .add_param(x_domain.clone())
-        .add_param(y_domain.clone())
         .canvas_size(960.0, 640.0)
         .data(df)
         .mark(Subplot::new(leaf).wrap_with(col("group_name"), |c| c.columns(lit(3))))
-        .event_bindings([pan, zoom]);
+        .tool(PanScrollZoom::cartesian());
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(

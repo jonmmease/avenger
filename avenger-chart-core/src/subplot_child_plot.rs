@@ -14,11 +14,11 @@ use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 use crate::{
-    AvengerChartError, ChannelDescriptor, ColumnDimensionConfig, CompiledDataContext, CompiledMark,
-    CompiledMarkCore, CompiledMarkState, CoordinateSystem, CoordinateSystemTransformCore,
-    DataContext, DefaultLogicalExprNodeExt, FacetDimensionConfig, FacetEmptyCellPolicy,
-    FacetWrapColumnMode, MarkRuntimeContext, RadiusExpression, RowDimensionConfig,
-    SerializableExpr, Sharing, contains_aggregate,
+    AvengerChartError, ChannelDescriptor, ColumnDimensionConfig, CompileContext,
+    CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState, CoordinateSystem,
+    CoordinateSystemTransformCore, DataContext, DefaultLogicalExprNodeExt, FacetDimensionConfig,
+    FacetEmptyCellPolicy, FacetWrapColumnMode, MarkRuntimeContext, RadiusExpression,
+    RowDimensionConfig, SerializableExpr, Sharing, contains_aggregate,
 };
 
 /// Data source selected for a compiled subplot's child plot.
@@ -54,6 +54,14 @@ pub trait SubplotChildPlotSpec: Send + Sync {
         &self,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError>;
+
+    async fn compile_boxed_with_context(
+        &self,
+        session_context: &SessionContext,
+        _compile_context: Option<CompileContext<'_>>,
+    ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
+        self.compile_boxed(session_context).await
+    }
 }
 
 impl Clone for Box<dyn SubplotChildPlotSpec> {
@@ -178,6 +186,14 @@ pub trait SubplotMarkCore: Send + Sync {
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError>;
 
+    async fn compile_child_plot_with_context(
+        &self,
+        session_context: &SessionContext,
+        _compile_context: Option<CompileContext<'_>>,
+    ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
+        self.compile_child_plot(session_context).await
+    }
+
     fn validate_no_facet_channels(&self, outer_label: &str) -> Result<(), AvengerChartError> {
         for channel_name in [
             RowDimensionConfig::channel_name(),
@@ -222,6 +238,15 @@ pub trait SubplotContainerCoordinateSystem: CoordinateSystem + Sized {
         compiled_state: CompiledMarkState,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError>;
+
+    async fn compile_subplot_mark_with_context(
+        subplot: &dyn SubplotMarkCore,
+        compiled_state: CompiledMarkState,
+        session_context: &SessionContext,
+        _compile_context: Option<CompileContext<'_>>,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        Self::compile_subplot_mark(subplot, compiled_state, session_context).await
+    }
 }
 
 /// One source channel used to position child plot frames inside a coordinate system.
@@ -586,6 +611,30 @@ pub async fn compile_subplot_payload<S: SubplotMarkCore + ?Sized>(
     ))
 }
 
+pub async fn compile_subplot_payload_with_context<S: SubplotMarkCore + ?Sized>(
+    subplot: &S,
+    compiled_state: CompiledMarkState,
+    session_context: &SessionContext,
+    compile_context: Option<CompileContext<'_>>,
+) -> Result<CompiledSubplotPayload, AvengerChartError> {
+    let data_source = if subplot.has_plot_level_data() {
+        SubplotDataSource::ExplicitChild
+    } else {
+        SubplotDataSource::InheritParent
+    };
+    let compiled_subplot = subplot
+        .compile_child_plot_with_context(session_context, compile_context)
+        .await?;
+
+    Ok(CompiledSubplotPayload::new(
+        compiled_state,
+        compiled_subplot,
+        subplot.label_config().map(ToOwned::to_owned),
+        subplot.key_config().map(ToOwned::to_owned),
+        data_source,
+    ))
+}
+
 pub async fn compile_positioned_subplot_mark<S: SubplotMarkCore + ?Sized>(
     subplot: &S,
     compiled_state: CompiledMarkState,
@@ -604,6 +653,39 @@ pub async fn compile_positioned_subplot_mark<S: SubplotMarkCore + ?Sized>(
         .max(1.0);
     let payload = compile_subplot_payload(subplot, compiled_state, session_context).await?;
 
+    Ok(Arc::new(CompiledPositionedSubplot::new(
+        payload,
+        spec,
+        plot_width,
+        plot_height,
+        partition_expr,
+    )))
+}
+
+pub async fn compile_positioned_subplot_mark_with_context<S: SubplotMarkCore + ?Sized>(
+    subplot: &S,
+    compiled_state: CompiledMarkState,
+    session_context: &SessionContext,
+    spec: PositionedSubplotSpec,
+    compile_context: Option<CompileContext<'_>>,
+) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+    subplot.validate_no_facet_channels(&spec.outer_label)?;
+    let partition_expr = partition_expr_node(subplot, session_context, &spec)?;
+    let plot_width = subplot
+        .plot_width_config()
+        .unwrap_or(spec.default_plot_width)
+        .max(1.0);
+    let plot_height = subplot
+        .plot_height_config()
+        .unwrap_or(spec.default_plot_height)
+        .max(1.0);
+    let payload = compile_subplot_payload_with_context(
+        subplot,
+        compiled_state,
+        session_context,
+        compile_context,
+    )
+    .await?;
     Ok(Arc::new(CompiledPositionedSubplot::new(
         payload,
         spec,
