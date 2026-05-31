@@ -1,4 +1,4 @@
-//! Single-panel Cartesian pan/zoom stress example with 100k instanced symbols.
+//! Single-panel Cartesian pan/zoom stress example with 10M instanced symbols.
 //!
 //! Drag with the left mouse button inside the plot area to pan. Scroll over the
 //! plot area to zoom around the pointer. The pan binding stays in Preview mode
@@ -6,7 +6,7 @@
 //!
 //! Run with:
 //! ```bash
-//! cargo run -p avenger-chart-app --example cartesian_instanced_pan_100k --features winit-wgpu --release
+//! cargo run -p avenger-chart-app --example cartesian_instanced_pan_stress --features winit-wgpu --release
 //! ```
 
 use std::sync::Arc;
@@ -36,7 +36,7 @@ fn main() {
     let avenger_app = tokio_runtime.block_on(build_app());
     let options = WinitWgpuAvengerAppOptions::new(2.0).window_attributes(
         WindowAttributes::default()
-            .with_title("avenger-chart 100k instanced symbols - drag pan / scroll zoom")
+            .with_title("avenger-chart 10M instanced symbols - drag pan / scroll zoom")
             .with_resizable(false),
     );
     let (mut app, event_loop) =
@@ -48,7 +48,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let ctx = Arc::new(SessionContext::new());
     let df = ctx
         .read_batch(make_points_batch())
-        .expect("read generated 100k points");
+        .expect("read generated 10M points");
 
     let x_domain = Param::raw_domain("x_domain");
     let y_domain = Param::raw_domain("y_domain");
@@ -96,8 +96,8 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 }
 
 fn make_points_batch() -> RecordBatch {
-    let columns = 400;
-    let rows = 250;
+    let columns = 10_000;
+    let rows = 1000;
     let point_count = columns * rows;
     let mut xs = Vec::with_capacity(point_count);
     let mut ys = Vec::with_capacity(point_count);
