@@ -390,9 +390,15 @@ async fn resolve_raw_domain_overrides(
             continue;
         };
         let expr = raw_domain.to_expr(ctx)?;
-        let scalars = eval_to_scalars(vec![expr], Some(ctx), datafusion_params.as_ref()).await?;
-        let Some(raw_value) = scalars.first() else {
-            continue;
+        let raw_value = if let Some(value) = direct_param_value(&expr, params) {
+            value.clone()
+        } else {
+            let scalars =
+                eval_to_scalars(vec![expr], Some(ctx), datafusion_params.as_ref()).await?;
+            let Some(raw_value) = scalars.first() else {
+                continue;
+            };
+            raw_value.clone()
         };
         if let Ok([min, max]) = raw_value.as_f32x2()
             && min.is_finite()
@@ -403,6 +409,29 @@ async fn resolve_raw_domain_overrides(
         }
     }
     Ok(overrides)
+}
+
+fn direct_param_value<'a>(
+    expr: &datafusion::logical_expr::Expr,
+    params: &'a IndexMap<String, ScalarValue>,
+) -> Option<&'a ScalarValue> {
+    let datafusion::logical_expr::Expr::Placeholder(placeholder) = expr else {
+        return None;
+    };
+    params
+        .get(placeholder.id.trim_start_matches('$'))
+        .or_else(|| params.get(&placeholder.id))
+}
+
+fn has_raw_domain_scale(plot: &CompiledPlot) -> bool {
+    plot.scale_specs.values().any(|spec| {
+        let avenger_chart_scales::PlotScaleSpec::Local(config) = spec;
+        config
+            .domain
+            .as_option()
+            .and_then(|domain| domain.raw_domain.as_ref())
+            .is_some()
+    })
 }
 
 /// Apply resolved raw-domain overrides to a scale map, preserving ranges/options.
@@ -5896,9 +5925,10 @@ impl CompiledPlot {
             matches!(resolved_chart_sizing, ResolvedChartSizing::FacetBand(_))
                 && can_reuse_profile_facet_tree
                 && !changed_params_touch_layout_size
-                && resolve_raw_domain_overrides(self, ctx, &eval_ctx.params)
-                    .await?
-                    .is_empty();
+                && (!has_raw_domain_scale(self)
+                    || resolve_raw_domain_overrides(self, ctx, &eval_ctx.params)
+                        .await?
+                        .is_empty());
         if !can_reuse_root_facet_scales {
             let mut scale_eval_ctx = avenger_chart_core::EvaluationContext::new(
                 self.get_theme(),
