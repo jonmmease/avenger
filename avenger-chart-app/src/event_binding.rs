@@ -495,7 +495,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
 
         UpdateStatus {
             rerender: true,
-            rebuild_geometry: true,
+            rebuild_geometry: self.runtime.evaluation_mode == ChartEventEvaluationMode::Exact,
         }
     }
 }
@@ -1893,6 +1893,7 @@ mod tests {
             .await;
 
         assert!(status.rerender);
+        assert!(!status.rebuild_geometry);
         assert_eq!(
             state.params().await.get("width"),
             Some(&ScalarValue::Float64(Some(800.0)))
@@ -1945,6 +1946,7 @@ mod tests {
             )
             .await;
         assert!(status.rerender);
+        assert!(!status.rebuild_geometry);
         assert_eq!(
             state.params().await.get("width"),
             Some(&ScalarValue::Float64(Some(665.0)))
@@ -2078,6 +2080,7 @@ mod tests {
             .await;
 
         assert!(status.rerender);
+        assert!(status.rebuild_geometry);
         assert_eq!(
             state.runtime.lock().await.next_evaluation_mode,
             EvaluationMode::Exact
