@@ -69,7 +69,8 @@ flowchart TD
 - [compile-evaluate-render-pipeline.md](compile-evaluate-render-pipeline.md):
   the runtime path from `Plot` to `EvaluatedPlot`.
 - [plot-sessions-and-fast-evaluation.md](plot-sessions-and-fast-evaluation.md):
-  reusable `PlotSession` evaluation, cache families, preview mode, and metrics.
+  reusable `PlotSession` evaluation, cache families, Preview optimization,
+  raw-domain interaction retargeting, and metrics.
 - [chart-apps-and-interaction.md](chart-apps-and-interaction.md):
   `avenger-chart-app`, framed canvas resize, app event flow, and Winit/WGPU
   hosting.
