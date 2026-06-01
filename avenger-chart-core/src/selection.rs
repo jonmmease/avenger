@@ -157,7 +157,7 @@ impl Selection {
         x_channel: impl Into<String>,
         y_channel: impl Into<String>,
     ) -> Self {
-        Self::base(id).with_interval_xy(x_channel, y_channel)
+        Self::base(id).with_cartesian_interval(x_channel, y_channel)
     }
 
     pub fn interval_fields<X, Y>(id: impl Into<String>, x: (&str, X), y: (&str, Y)) -> Self
@@ -193,7 +193,7 @@ impl Selection {
         self
     }
 
-    fn with_interval_xy(
+    fn with_cartesian_interval(
         mut self,
         x_channel: impl Into<String>,
         y_channel: impl Into<String>,
