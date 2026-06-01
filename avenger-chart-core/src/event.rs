@@ -112,6 +112,8 @@ pub struct ChartEventParamAssignment {
     pub expr: LogicalExprNode,
     #[serde(default)]
     pub scope: ChartEventAssignmentScope,
+    #[serde(default)]
+    pub replace_scoped_values: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -239,6 +241,21 @@ impl ChartEventBinding {
             param_name: param.into_param_name(),
             expr: expr_node(expr.into_expr(), "event param assignment"),
             scope: ChartEventAssignmentScope::Current,
+            replace_scoped_values: false,
+        });
+        self
+    }
+
+    pub fn set_param_replacing_scopes(
+        mut self,
+        param: impl IntoParamName,
+        expr: impl IntoExpr,
+    ) -> Self {
+        self.assignments.push(ChartEventParamAssignment {
+            param_name: param.into_param_name(),
+            expr: expr_node(expr.into_expr(), "event param assignment"),
+            scope: ChartEventAssignmentScope::Current,
+            replace_scoped_values: true,
         });
         self
     }
@@ -252,6 +269,21 @@ impl ChartEventBinding {
             param_name: param.into_param_name(),
             expr: expr_node(expr.into_expr(), "event param assignment"),
             scope: ChartEventAssignmentScope::Start,
+            replace_scoped_values: false,
+        });
+        self
+    }
+
+    pub fn set_param_at_start_scope_replacing_scopes(
+        mut self,
+        param: impl IntoParamName,
+        expr: impl IntoExpr,
+    ) -> Self {
+        self.assignments.push(ChartEventParamAssignment {
+            param_name: param.into_param_name(),
+            expr: expr_node(expr.into_expr(), "event param assignment"),
+            scope: ChartEventAssignmentScope::Start,
+            replace_scoped_values: true,
         });
         self
     }

@@ -122,6 +122,7 @@ struct CompiledParamAssignment {
     sharing: Sharing,
     default_value: ScalarValue,
     scope: ChartEventAssignmentScope,
+    replace_scoped_values: bool,
 }
 
 impl CompiledChartEventBinding {
@@ -160,11 +161,16 @@ impl CompiledChartEventBinding {
                 .expr
                 .to_expr(ctx)
                 .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
-            assignment_exprs.push((assignment.param_name.clone(), expr, assignment.scope));
+            assignment_exprs.push((
+                assignment.param_name.clone(),
+                expr,
+                assignment.scope,
+                assignment.replace_scoped_values,
+            ));
         }
 
         let mut scan_exprs = filter_exprs.clone();
-        scan_exprs.extend(assignment_exprs.iter().map(|(_, expr, _)| expr.clone()));
+        scan_exprs.extend(assignment_exprs.iter().map(|(_, expr, _, _)| expr.clone()));
         let interaction_requests = event::scan_interaction_columns(&scan_exprs);
 
         let schema = event_schema(param_specs, &interaction_requests);
@@ -185,7 +191,7 @@ impl CompiledChartEventBinding {
         }
         let filter_count = specs.len();
         let mut assignments = Vec::new();
-        for (param_name, expr, scope) in assignment_exprs {
+        for (param_name, expr, scope, replace_scoped_values) in assignment_exprs {
             let spec = param_specs
                 .get(&param_name)
                 .expect("assignment param validated");
@@ -201,6 +207,7 @@ impl CompiledChartEventBinding {
                 sharing,
                 default_value: spec.default.clone(),
                 scope,
+                replace_scoped_values,
             });
         }
         let program = CompiledScalarExpressionProgram::compile(
@@ -462,11 +469,14 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             let comparison_params = app
                 .session
                 .effective_params_for_owner_paths(&comparison_owner_paths);
-            if comparison_params.get(&assignment.param_name) != Some(value) {
+            if assignment.replace_scoped_values
+                || comparison_params.get(&assignment.param_name) != Some(value)
+            {
                 patch.push(ScopedParamAssignment {
                     name: assignment.param_name.clone(),
                     owner_path,
                     value: value.clone(),
+                    replace_scoped_values: assignment.replace_scoped_values,
                 });
             }
         }
@@ -2654,6 +2664,7 @@ mod tests {
                     name: "x_domain".to_string(),
                     owner_path: Vec::new(),
                     value: domain_list_scalar(2.0, 8.0),
+                    replace_scoped_values: false,
                 }]);
         }
         assert_ne!(

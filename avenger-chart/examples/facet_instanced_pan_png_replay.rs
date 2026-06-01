@@ -86,11 +86,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 name: "x_domain".to_string(),
                 owner_path: Vec::new(),
                 value: list_domain(0.0 - shift, 10.0 - shift),
+                replace_scoped_values: false,
             },
             ScopedParamAssignment {
                 name: "y_domain".to_string(),
                 owner_path: Vec::new(),
                 value: list_domain(0.0 - shift * 0.8, 10.0 - shift * 0.8),
+                replace_scoped_values: false,
             },
         ]);
 

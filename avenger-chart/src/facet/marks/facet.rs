@@ -130,7 +130,7 @@ async fn build_one_facet_cell(
     let FacetCellBuildTask {
         subplot,
         cell_eval_ctx,
-        measurement,
+        mut measurement,
         data_override,
         full_path,
         is_terminal_cell,
@@ -150,6 +150,7 @@ async fn build_one_facet_cell(
         Some(local) => cell_eval_ctx.with_evaluation_metrics(local.clone()),
         None => cell_eval_ctx,
     };
+    refresh_measurement_params_for_cell(&mut measurement, &cell_eval_ctx);
 
     let cached_profile = if is_terminal_cell {
         cell_eval_ctx.layout_profile().and_then(|profile| {
@@ -264,6 +265,23 @@ async fn build_one_facet_cell(
     }
 
     Ok(components)
+}
+
+fn refresh_measurement_params_for_cell(
+    measurement: &mut ComponentsMeasurement,
+    cell_eval_ctx: &EvaluationContext,
+) {
+    let width = measurement.params.get("width").cloned();
+    let height = measurement.params.get("height").cloned();
+    let mut params = measurement.params.clone();
+    params.extend(cell_eval_ctx.params().clone());
+    if let Some(width) = width {
+        params.insert("width".to_string(), width);
+    }
+    if let Some(height) = height {
+        params.insert("height".to_string(), height);
+    }
+    measurement.params = params;
 }
 
 /// Execute the per-cell builds, returning results in input order.
@@ -414,7 +432,8 @@ async fn render_facet_band_with_placement(
                 facet_measurement.facet_depth,
                 cell.plan.value.clone(),
             ),
-        );
+        )
+        .with_scoped_cell_params(&cell.plan.full_path);
 
         let is_terminal_cell =
             facet_band_ref(cell.measurement.coord_measurement.as_ref()).is_none();

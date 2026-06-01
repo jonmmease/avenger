@@ -27,9 +27,26 @@ use crate::{
         CompiledPlot,
         compiled::{ChildFrameSharingLevel, compiled_subplot_payload_child_plot},
     },
-    render::RenderContext,
+    render::{EvaluationContext, RenderContext},
     theme::Theme,
 };
+
+fn refresh_measurement_params_for_child(
+    measurement: &mut crate::plot::compiled::ComponentsMeasurement,
+    eval_ctx: &EvaluationContext,
+) {
+    let width = measurement.params.get("width").cloned();
+    let height = measurement.params.get("height").cloned();
+    let mut params = measurement.params.clone();
+    params.extend(eval_ctx.params().clone());
+    if let Some(width) = width {
+        params.insert("width".to_string(), width);
+    }
+    if let Some(height) = height {
+        params.insert("height".to_string(), height);
+    }
+    measurement.params = params;
+}
 
 #[async_trait::async_trait]
 impl SubplotContainerCoordinateSystem for HConcat {
@@ -205,19 +222,41 @@ impl CompiledConcatSubplot {
                     self.key(),
                 ),
             };
-            let child_eval_ctx = context
+            let mut child_eval_ctx = context
                 .eval
                 .with_params(params)
                 .with_child_frame_sharing_level_appended(sharing_level);
+            let local_facet_path;
+            let child_facet_path = if let Some(facet_tree) = &child.local_facet_tree {
+                child_eval_ctx = child_eval_ctx
+                    .with_facet_tree(facet_tree.clone())
+                    .with_facet_data_root(child.facet_data_root.clone());
+                local_facet_path = Vec::new();
+                local_facet_path.as_slice()
+            } else {
+                context.facet_path
+            };
             let data_override = self.inherited_data_override(data, context)?;
-            let components = Box::pin(self.compiled_subplot().build_plot_components(
+            let mut child_measurement = child.measurement.clone();
+            refresh_measurement_params_for_child(&mut child_measurement, &child_eval_ctx);
+            let mut components = Box::pin(self.compiled_subplot().build_plot_components(
                 &child_eval_ctx,
-                &child.measurement,
+                &child_measurement,
                 data_override.as_ref(),
                 true,
-                context.facet_path,
+                child_facet_path,
             ))
             .await?;
+
+            let child_scopes = std::mem::take(&mut components.interaction_scopes);
+            if !child_scopes.is_empty() {
+                let translated = child_scopes.into_iter().map(|mut scope| {
+                    scope.bounds.x += render_placement.origin[0];
+                    scope.bounds.y += render_placement.origin[1];
+                    scope
+                });
+                context.eval.push_interaction_scopes(translated);
+            }
 
             let data_marks_group = SceneGroup {
                 origin: [0.0, 0.0],

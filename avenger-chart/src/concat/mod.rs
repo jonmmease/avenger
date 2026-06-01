@@ -26,6 +26,7 @@ use crate::{
         CoordinateSystemTransformCore, PlotGeometry, PointGeometry,
     },
     error::AvengerChartError,
+    facet::evaluated_facet_tree::EvaluatedFacetTree,
     guide::{
         CompiledGuide, CoordinateGuide, GuideSharingContext, GuideUpdate, OverflowSpaceRequirement,
     },
@@ -327,6 +328,8 @@ pub(crate) struct ConcatChildMeasurement {
     pub(crate) key: Option<String>,
     pub(crate) label: Option<String>,
     pub(crate) container_path: Vec<ContainerPathSegment>,
+    pub(crate) local_facet_tree: Option<Arc<EvaluatedFacetTree>>,
+    pub(crate) facet_data_root: Option<DataFrame>,
     pub(crate) measurement: ComponentsMeasurement,
 }
 
@@ -547,6 +550,8 @@ async fn measure_prepared_concat_child(
         key: prepared.key().map(ToOwned::to_owned),
         label: prepared.label().map(ToOwned::to_owned),
         container_path: prepared.container_path.clone(),
+        local_facet_tree: prepared.child_plot.local_facet_tree(),
+        facet_data_root: prepared.child_plot.facet_data_root(),
         measurement,
     })
 }
@@ -1315,6 +1320,55 @@ mod tests {
         let symbol = find_symbol_mark(child_group).expect("child subplot should render symbols");
 
         assert_eq!(symbol.len, 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn concat_child_rendering_preserves_nested_facet_child() -> Result<(), AvengerChartError>
+    {
+        let ctx = SessionContext::new();
+        let data = grouped_xy_dataframe(&ctx);
+        let facet_child = Plot::<FacetColumn>::new().data(data).mark(
+            Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))))
+                .column(col("group")),
+        );
+        let compiled = Plot::<HConcat>::new()
+            .canvas_size(500.0, 220.0)
+            .mark(Subplot::new(facet_child).key("faceted"))
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 500.0, 220.0, &ctx).await?;
+        let concat = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<ConcatCoordMeasurement>()
+            .expect("HConcat should measure as ConcatCoordMeasurement");
+        let facet = concat.children()[0]
+            .measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("child should measure as FacetBandCoordMeasurement");
+        assert_eq!(facet.cells.len(), 2);
+
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let group_names = evaluated.scene_graph.group_names();
+        let child_path = group_names
+            .get("concat_subplot_0_faceted")
+            .expect("nested facet subplot group should render");
+        let child_group = evaluated
+            .scene_graph
+            .get_mark(child_path)
+            .expect("nested facet group path should resolve");
+        let symbol = find_symbol_mark(child_group).expect("nested facet should render symbols");
+
+        assert_eq!(symbol.len, 2);
+        assert_eq!(
+            evaluated.interaction.scopes.len(),
+            2,
+            "nested facet coordinate scopes should propagate through concat"
+        );
         Ok(())
     }
 

@@ -432,8 +432,28 @@ impl EvaluatedFacetTree {
         wrap_layout_context: FacetWrapLayoutContext,
         slot_cache: &mut PartitionSlotCache,
     ) -> Result<Self, AvengerChartError> {
-        // Get the DataFrame from plot-level data or first mark with data
-        let df = get_dataframe_from_plot(plot, ctx);
+        Self::from_compiled_plot_with_params_data_override_wrap_layout_context_and_slot_cache(
+            plot,
+            ctx,
+            params,
+            None,
+            wrap_layout_context,
+            slot_cache,
+        )
+        .await
+    }
+
+    pub(crate) async fn from_compiled_plot_with_params_data_override_wrap_layout_context_and_slot_cache(
+        plot: &CompiledPlot,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+        data_override: Option<&DataFrame>,
+        wrap_layout_context: FacetWrapLayoutContext,
+        slot_cache: &mut PartitionSlotCache,
+    ) -> Result<Self, AvengerChartError> {
+        let df = data_override
+            .cloned()
+            .or_else(|| get_dataframe_from_plot(plot, ctx));
 
         let df = match df {
             Some(df) => df,
@@ -466,6 +486,20 @@ impl EvaluatedFacetTree {
             root,
             channel_domain_sharing_levels,
         ))
+    }
+
+    pub(crate) fn plot_contains_facet_mark(plot: &CompiledPlot) -> bool {
+        contains_facet_mark(&plot.marks)
+    }
+
+    pub(crate) fn data_root_for_plot(
+        plot: &CompiledPlot,
+        ctx: &SessionContext,
+        data_override: Option<&DataFrame>,
+    ) -> Option<DataFrame> {
+        data_override
+            .cloned()
+            .or_else(|| get_dataframe_from_plot(plot, ctx))
     }
 
     fn collect_reachable_paths(&self) -> Vec<Vec<ScalarValue>> {

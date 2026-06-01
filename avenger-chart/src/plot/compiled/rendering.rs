@@ -1706,6 +1706,30 @@ impl CompiledPlot {
             return subplot.render_with_context(&render_ctx).await;
         }
 
+        if let Some(subplot) = compiled_concat_subplot(mark) {
+            let prepared = self
+                .prepare_mark_data(
+                    mark,
+                    eval_ctx,
+                    scales,
+                    plot_width,
+                    plot_height,
+                    provided_plot_df,
+                    facet_path,
+                )
+                .await?;
+            let render_state = prepared
+                .as_ref()
+                .map(|prepared| prepared.render_state.clone())
+                .unwrap_or_else(|| RenderState::new(plot_width, plot_height, scales.clone()));
+            let render_ctx =
+                RenderContext::new(eval_ctx, &render_state, facet_path, coord_measurement);
+            let data_batch = prepared
+                .as_ref()
+                .and_then(|prepared| prepared.data_batch.as_ref());
+            return subplot.render_with_context(data_batch, &render_ctx).await;
+        }
+
         let prepared = self
             .prepare_mark_data(
                 mark,
@@ -1728,12 +1752,6 @@ impl CompiledPlot {
             facet_path,
             coord_measurement,
         );
-
-        if let Some(subplot) = compiled_concat_subplot(mark) {
-            return subplot
-                .render_with_context(prepared.data_batch.as_ref(), &render_ctx)
-                .await;
-        }
 
         if let Some(subplot) = mark.as_positioned_subplot() {
             return render_positioned_subplot_with_context(subplot, &render_ctx).await;

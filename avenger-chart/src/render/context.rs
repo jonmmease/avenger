@@ -329,6 +329,12 @@ impl EvaluationContext {
         ctx
     }
 
+    pub(crate) fn with_facet_tree(&self, facet_tree: Arc<EvaluatedFacetTree>) -> Self {
+        let mut ctx = self.clone();
+        ctx.facet_tree = facet_tree;
+        ctx
+    }
+
     /// Push interaction scopes into the current sink, if one is installed.
     pub(crate) fn push_interaction_scopes(
         &self,

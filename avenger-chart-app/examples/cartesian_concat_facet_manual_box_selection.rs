@@ -74,19 +74,19 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let faceted_leaf = Plot::<Cartesian>::new()
         .mark(selection_points(selected.clone(), 150.0))
         .mark(overlay);
-    let faceted = Plot::<FacetColumn>::new().mark(
+    let faceted = Plot::<FacetColumn>::new().data(df.clone()).mark(
         Subplot::new(faceted_leaf)
             .column(col("group_name"))
             .label("Draw selection here"),
     );
 
     let all_points = Plot::<Cartesian>::new()
+        .data(df)
         .title("Sibling view")
         .mark(selection_points(selected, 115.0));
 
     let plot = Plot::<HConcat>::new()
         .canvas_size(1120.0, 520.0)
-        .data(df)
         .add_selection(brush)
         .add_param_with_sharing(overlay_active.clone(), Sharing::Free)
         .add_param_with_sharing(brush_x0.clone(), Sharing::Free)
@@ -179,7 +179,7 @@ fn selection_start_binding(
         .filter(ev::event_coord("x").is_not_null())
         .filter(ev::event_coord("y").is_not_null())
         .filter(selectable_scope())
-        .set_param(active, lit(true))
+        .set_param_replacing_scopes(active, lit(true))
         .set_param(x0, ev::event_coord("x"))
         .set_param(y0, ev::event_coord("y"))
         .set_param(x1, ev::event_coord("x"))
@@ -236,7 +236,7 @@ fn selection_release_binding(active: &Param) -> ChartEventBinding {
 fn selection_clear_binding(active: &Param) -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::DoubleClick)
         .filter(selectable_scope())
-        .set_param(active, lit(false))
+        .set_param_replacing_scopes(active, lit(false))
         .set_selection("brush", SelectionUpdate::clear())
         .exact()
 }

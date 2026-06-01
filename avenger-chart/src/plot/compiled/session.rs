@@ -276,6 +276,7 @@ pub struct ScopedParamAssignment {
     pub name: String,
     pub owner_path: Vec<ScalarValue>,
     pub value: ScalarValue,
+    pub replace_scoped_values: bool,
 }
 
 /// Immutable snapshot of the scoped parameter store.
@@ -437,6 +438,13 @@ impl ScopedParamStore {
     /// Apply scoped assignments. Empty owner paths target root values.
     fn apply_scoped_patch(&mut self, patch: impl IntoIterator<Item = ScopedParamAssignment>) {
         for assignment in patch {
+            if assignment.replace_scoped_values {
+                let before = self.values.len();
+                self.values.retain(|key, _| key.name != assignment.name);
+                if self.values.len() != before {
+                    self.bump_revision(&assignment.name);
+                }
+            }
             let key = ScopedParamKey {
                 name: assignment.name.clone(),
                 owner_path: assignment.owner_path,
@@ -4180,6 +4188,7 @@ mod tests {
             name: "x_domain".to_string(),
             owner_path: owner_path.clone(),
             value: domain_value.clone(),
+            replace_scoped_values: false,
         }]);
 
         // Root remains the default; the scoped owner path sees the written value.
@@ -4320,6 +4329,7 @@ mod tests {
             name: "x_domain".to_string(),
             owner_path: vec![ScalarValue::Utf8(Some("A".to_string()))],
             value: list_domain(2.0, 8.0),
+            replace_scoped_values: false,
         }]);
 
         // Preview reuse exercises the per-cell override pass (C3).
@@ -4411,6 +4421,7 @@ mod tests {
             name: "x_domain".to_string(),
             owner_path: level1_owner.clone(),
             value: panned.clone(),
+            replace_scoped_values: false,
         }]);
         assert_eq!(
             store
@@ -4432,6 +4443,29 @@ mod tests {
                 .get("x_domain"),
             Some(&panned),
             "south row must not see north's pan"
+        );
+
+        let south_owner = tree.sharing_owner_path(&south_west, 1);
+        let south_panned = list_domain(4.0, 9.0);
+        store.apply_scoped_patch(vec![ScopedParamAssignment {
+            name: "x_domain".to_string(),
+            owner_path: south_owner,
+            value: south_panned.clone(),
+            replace_scoped_values: true,
+        }]);
+        assert_ne!(
+            store
+                .effective_params_for_cell(&tree, &north_west)
+                .get("x_domain"),
+            Some(&panned),
+            "replace_scoped_values clears the previous owner copy"
+        );
+        assert_eq!(
+            store
+                .effective_params_for_cell(&tree, &south_west)
+                .get("x_domain"),
+            Some(&south_panned),
+            "replace_scoped_values keeps the replacement owner copy"
         );
         Ok(())
     }
@@ -4493,6 +4527,7 @@ mod tests {
                 &DataType::Float64,
                 true,
             )),
+            replace_scoped_values: false,
         }]);
 
         // Assert via both the exact (fresh-measure, C2) and preview (reuse, C3)
@@ -4611,6 +4646,7 @@ mod tests {
             name: "x_domain".to_string(),
             owner_path: free_owner,
             value: list_domain(2.0, 8.0),
+            replace_scoped_values: false,
         }]);
 
         let exact = session.evaluate(EvaluationRequest::new().exact()).await?;
@@ -4708,11 +4744,13 @@ mod tests {
                 name: "x_domain".to_string(),
                 owner_path: Vec::new(),
                 value: list_domain(2.0, 8.0),
+                replace_scoped_values: false,
             },
             ScopedParamAssignment {
                 name: "y_domain".to_string(),
                 owner_path: a_free_owner,
                 value: list_domain(1.0, 5.0),
+                replace_scoped_values: false,
             },
         ]);
 

@@ -4,7 +4,7 @@
 //! should be placed. This module owns the common "measure this child plot as a
 //! frame" work that those containers should not duplicate.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{common::ScalarValue, dataframe::DataFrame};
 
@@ -12,6 +12,7 @@ use avenger_chart_core::SharingLevel;
 
 use crate::{
     error::AvengerChartError,
+    facet::evaluated_facet_tree::{EvaluatedFacetTree, FacetWrapLayoutContext},
     layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
     render::EvaluationContext,
     scales::{DomainExtent, ScaleBuilder},
@@ -86,6 +87,28 @@ impl ChildFrameRuntime {
             ChildFrameDataSelection::ExplicitChild => None,
             ChildFrameDataSelection::InheritParent => inherited_data.cloned(),
         };
+        let (local_facet_tree, facet_data_root) = if EvaluatedFacetTree::plot_contains_facet_mark(
+            plot,
+        ) {
+            let mut slot_cache = crate::partition::PartitionSlotCache::new();
+            let tree = EvaluatedFacetTree::from_compiled_plot_with_params_data_override_wrap_layout_context_and_slot_cache(
+                    plot,
+                    eval_ctx.session_context.as_ref(),
+                    eval_ctx.params(),
+                    data_override.as_ref(),
+                    FacetWrapLayoutContext::default(),
+                    &mut slot_cache,
+                )
+                .await?;
+            let facet_data_root = EvaluatedFacetTree::data_root_for_plot(
+                plot,
+                eval_ctx.session_context.as_ref(),
+                data_override.as_ref(),
+            );
+            (Some(Arc::new(tree)), facet_data_root)
+        } else {
+            (None, None)
+        };
         let cache_lookup = eval_ctx.scale_domain_cache().map(|cache| {
             let scope = ScaleDomainCacheScope::ChildFrame {
                 container_path: eval_ctx
@@ -124,6 +147,8 @@ impl ChildFrameRuntime {
                 return Ok(PreparedChildFramePlot {
                     plot,
                     data_override,
+                    local_facet_tree,
+                    facet_data_root,
                     scale_builder: (*builder).clone(),
                     local_domain_extents,
                     channel_domain_sharing_levels,
@@ -158,6 +183,8 @@ impl ChildFrameRuntime {
         Ok(PreparedChildFramePlot {
             plot,
             data_override,
+            local_facet_tree,
+            facet_data_root,
             scale_builder,
             local_domain_extents,
             channel_domain_sharing_levels,
@@ -209,6 +236,8 @@ impl ChildFrameRuntime {
 pub(crate) struct PreparedChildFramePlot<'a> {
     plot: &'a CompiledPlot,
     data_override: Option<DataFrame>,
+    local_facet_tree: Option<Arc<EvaluatedFacetTree>>,
+    facet_data_root: Option<DataFrame>,
     scale_builder: ScaleBuilder,
     local_domain_extents: HashMap<String, ChildFrameChannelDomainExtent>,
     channel_domain_sharing_levels: HashMap<String, SharingLevel>,
@@ -227,6 +256,14 @@ impl<'a> PreparedChildFramePlot<'a> {
         self.data_override.as_ref()
     }
 
+    pub(crate) fn local_facet_tree(&self) -> Option<Arc<EvaluatedFacetTree>> {
+        self.local_facet_tree.clone()
+    }
+
+    pub(crate) fn facet_data_root(&self) -> Option<DataFrame> {
+        self.facet_data_root.clone()
+    }
+
     pub(crate) async fn measure(
         &self,
         eval_ctx: &EvaluationContext,
@@ -234,9 +271,20 @@ impl<'a> PreparedChildFramePlot<'a> {
         facet_path: &[ScalarValue],
         domain_extents: &[&HashMap<String, DomainExtent>],
     ) -> Result<ComponentsMeasurement, AvengerChartError> {
+        let mut child_eval_ctx = eval_ctx.clone();
+        let local_facet_path;
+        let facet_path = if let Some(facet_tree) = &self.local_facet_tree {
+            child_eval_ctx = child_eval_ctx
+                .with_facet_tree(facet_tree.clone())
+                .with_facet_data_root(self.facet_data_root.clone());
+            local_facet_path = Vec::new();
+            local_facet_path.as_slice()
+        } else {
+            facet_path
+        };
         Box::pin(ChildFrameRuntime::new().measure_with_builder(
             self.plot,
-            eval_ctx,
+            &child_eval_ctx,
             layout_spec,
             &self.scale_builder,
             self.data_override.as_ref(),

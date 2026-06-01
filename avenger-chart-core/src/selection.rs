@@ -406,6 +406,7 @@ pub fn lower_selection_assignments(
             param_name: params.active.clone(),
             expr: expr_node(lit(false), "selection clear active"),
             scope: assignment.scope,
+            replace_scoped_values: false,
         }]),
         SelectionUpdateKind::Interval => {
             let Some(x_range) = &assignment.update.x_range else {
@@ -427,26 +428,31 @@ pub fn lower_selection_assignments(
                     param_name: params.active.clone(),
                     expr: expr_node(lit(true), "selection interval active"),
                     scope: assignment.scope,
+                    replace_scoped_values: false,
                 },
                 ChartEventParamAssignment {
                     param_name: params.x_min.clone(),
                     expr: expr_node(interval_start(x_expr.clone()), "selection x min"),
                     scope: assignment.scope,
+                    replace_scoped_values: false,
                 },
                 ChartEventParamAssignment {
                     param_name: params.x_max.clone(),
                     expr: expr_node(interval_end(x_expr), "selection x max"),
                     scope: assignment.scope,
+                    replace_scoped_values: false,
                 },
                 ChartEventParamAssignment {
                     param_name: params.y_min.clone(),
                     expr: expr_node(interval_start(y_expr.clone()), "selection y min"),
                     scope: assignment.scope,
+                    replace_scoped_values: false,
                 },
                 ChartEventParamAssignment {
                     param_name: params.y_max.clone(),
                     expr: expr_node(interval_end(y_expr), "selection y max"),
                     scope: assignment.scope,
+                    replace_scoped_values: false,
                 },
             ];
             if assignment.update.capture_facet_context {
@@ -458,6 +464,7 @@ pub fn lower_selection_assignments(
                             "selection facet context value",
                         ),
                         scope: assignment.scope,
+                        replace_scoped_values: false,
                     });
                 }
             }
