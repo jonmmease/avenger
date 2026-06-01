@@ -2,6 +2,7 @@ use std::ops::Not;
 
 use datafusion::{
     arrow::datatypes::DataType,
+    logical_expr::cast,
     logical_expr::expr::Placeholder,
     prelude::{Expr, SessionContext, col, lit},
     scalar::ScalarValue,
@@ -44,12 +45,22 @@ pub struct SelectionClauseMeta {
     pub kind: String,
 }
 
+#[serde_as]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SelectionFacetContextSpec {
+    pub id: String,
+    #[serde_as(as = "FromInto<SerializableExpr>")]
+    pub field_expr: LogicalExprNode,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Selection {
     pub id: String,
     pub resolution: SelectionResolution,
     pub empty: SelectionEmpty,
     pub dimensions: Vec<SelectionDimensionSpec>,
+    #[serde(default)]
+    pub facet_context: Vec<SelectionFacetContextSpec>,
 }
 
 impl Selection {
@@ -59,6 +70,7 @@ impl Selection {
             resolution: SelectionResolution::Single,
             empty: SelectionEmpty::None,
             dimensions: Vec::new(),
+            facet_context: Vec::new(),
         }
     }
 
@@ -107,8 +119,66 @@ impl Selection {
         self
     }
 
+    pub fn facet_context_field(mut self, id: impl Into<String>, expr: impl IntoExpr) -> Self {
+        self.facet_context.push(SelectionFacetContextSpec {
+            id: id.into(),
+            field_expr: expr_node(expr.into_expr(), "selection facet context field"),
+        });
+        self
+    }
+
+    pub fn predicate(&self) -> Expr {
+        let lowered = SelectionLoweredParams::with_facet_context(
+            &self.id,
+            self.facet_context.iter().map(|facet| facet.id.as_str()),
+        );
+        selection_predicate_expr(
+            param_expr(&lowered.active, DataType::Boolean).eq(lit(true)),
+            self.dimension_value_expr("x"),
+            self.dimension_value_expr("y"),
+            param_expr(&lowered.x_min, DataType::Float64),
+            param_expr(&lowered.x_max, DataType::Float64),
+            param_expr(&lowered.y_min, DataType::Float64),
+            param_expr(&lowered.y_max, DataType::Float64),
+            param_expr(&lowered.empty_selected, DataType::Boolean),
+            self.facet_context
+                .iter()
+                .zip(lowered.facet_values.iter())
+                .map(|(facet, param_name)| {
+                    let expr = facet
+                        .field_expr
+                        .to_expr(&SessionContext::new())
+                        .expect("selection facet context field expr deserializes");
+                    cast(expr, DataType::Utf8).eq(param_expr(param_name, DataType::Utf8))
+                })
+                .collect(),
+        )
+    }
+
+    fn dimension_value_expr(&self, id: &str) -> Expr {
+        self.dimensions
+            .iter()
+            .find(|dimension| dimension.id == id)
+            .and_then(|dimension| {
+                dimension
+                    .field_expr
+                    .as_ref()
+                    .and_then(|expr| expr.to_expr(&SessionContext::new()).ok())
+                    .or_else(|| {
+                        dimension
+                            .channel
+                            .as_ref()
+                            .map(|channel| col(format!(":{channel}")))
+                    })
+            })
+            .unwrap_or_else(|| col(format!(":{id}")))
+    }
+
     pub fn compile(&self) -> Result<CompiledSelectionSpec, AvengerChartError> {
         validate_selection_id(&self.id)?;
+        for facet in &self.facet_context {
+            validate_selection_id(&facet.id)?;
+        }
         if self.resolution != SelectionResolution::Single {
             return Err(AvengerChartError::InvalidArgument(format!(
                 "Selection '{}' uses an unsupported resolution",
@@ -126,7 +196,11 @@ impl Selection {
             resolution: self.resolution,
             empty: self.empty,
             dimensions: self.dimensions.clone(),
-            lowered_params: SelectionLoweredParams::new(&self.id),
+            facet_context: self.facet_context.clone(),
+            lowered_params: SelectionLoweredParams::with_facet_context(
+                &self.id,
+                self.facet_context.iter().map(|facet| facet.id.as_str()),
+            ),
         })
     }
 }
@@ -139,10 +213,15 @@ pub struct SelectionLoweredParams {
     pub x_max: String,
     pub y_min: String,
     pub y_max: String,
+    pub facet_values: Vec<String>,
 }
 
 impl SelectionLoweredParams {
     pub fn new(id: &str) -> Self {
+        Self::with_facet_context(id, std::iter::empty::<&str>())
+    }
+
+    pub fn with_facet_context<'a>(id: &str, facet_ids: impl IntoIterator<Item = &'a str>) -> Self {
         Self {
             active: selection_param_name(id, "active"),
             empty_selected: selection_param_name(id, "empty_selected"),
@@ -150,6 +229,10 @@ impl SelectionLoweredParams {
             x_max: selection_param_name(id, "x_max"),
             y_min: selection_param_name(id, "y_min"),
             y_max: selection_param_name(id, "y_max"),
+            facet_values: facet_ids
+                .into_iter()
+                .map(|facet_id| selection_param_name(id, &format!("facet_{facet_id}")))
+                .collect(),
         }
     }
 }
@@ -160,12 +243,14 @@ pub struct CompiledSelectionSpec {
     pub resolution: SelectionResolution,
     pub empty: SelectionEmpty,
     pub dimensions: Vec<SelectionDimensionSpec>,
+    #[serde(default)]
+    pub facet_context: Vec<SelectionFacetContextSpec>,
     pub lowered_params: SelectionLoweredParams,
 }
 
 impl CompiledSelectionSpec {
     pub fn hidden_param_specs(&self) -> Vec<CompiledParamSpec> {
-        vec![
+        let mut specs = vec![
             CompiledParamSpec::shared(&Param::new(
                 self.lowered_params.active.clone(),
                 ScalarValue::Boolean(Some(false)),
@@ -190,7 +275,11 @@ impl CompiledSelectionSpec {
                 self.lowered_params.y_max.clone(),
                 ScalarValue::Float64(None),
             )),
-        ]
+        ];
+        specs.extend(self.lowered_params.facet_values.iter().map(|param| {
+            CompiledParamSpec::shared(&Param::new(param.clone(), ScalarValue::Utf8(None)))
+        }));
+        specs
     }
 }
 
@@ -285,6 +374,7 @@ pub fn selection_predicate(id: impl AsRef<str>) -> Expr {
         param_expr(&lowered.y_min, DataType::Float64),
         param_expr(&lowered.y_max, DataType::Float64),
         param_expr(&lowered.empty_selected, DataType::Boolean),
+        Vec::new(),
     )
 }
 
@@ -332,7 +422,7 @@ pub fn lower_selection_assignments(
             };
             let x_expr = x_range.expr.to_expr(ctx)?;
             let y_expr = y_range.expr.to_expr(ctx)?;
-            Ok(vec![
+            let mut lowered = vec![
                 ChartEventParamAssignment {
                     param_name: params.active.clone(),
                     expr: expr_node(lit(true), "selection interval active"),
@@ -358,7 +448,20 @@ pub fn lower_selection_assignments(
                     expr: expr_node(interval_end(y_expr), "selection y max"),
                     scope: assignment.scope,
                 },
-            ])
+            ];
+            if assignment.update.capture_facet_context {
+                for (index, param_name) in params.facet_values.iter().enumerate() {
+                    lowered.push(ChartEventParamAssignment {
+                        param_name: param_name.clone(),
+                        expr: expr_node(
+                            crate::event::start_facet_value(index),
+                            "selection facet context value",
+                        ),
+                        scope: assignment.scope,
+                    });
+                }
+            }
+            Ok(lowered)
         }
     }
 }
@@ -372,13 +475,17 @@ fn selection_predicate_expr(
     y_min: Expr,
     y_max: Expr,
     empty_selected: Expr,
+    facet_context: Vec<Expr>,
 ) -> Expr {
-    let inside = x_value
+    let mut inside = x_value
         .clone()
         .gt_eq(x_min)
         .and(x_value.lt_eq(x_max))
         .and(y_value.clone().gt_eq(y_min))
         .and(y_value.lt_eq(y_max));
+    for facet_expr in facet_context {
+        inside = inside.and(facet_expr);
+    }
     active
         .clone()
         .and(inside)
@@ -475,5 +582,21 @@ mod tests {
     fn selection_predicate_serializes() {
         let expr = selection_predicate("brush");
         LogicalExprNode::from_expr(expr).expect("selection predicate serializes");
+    }
+
+    #[test]
+    fn facet_context_selection_compiles_hidden_params_and_predicate() {
+        let selection = Selection::single("brush")
+            .interval_xy("x", "y")
+            .facet_context_field("group_name", col("group_name"));
+        let compiled = selection.compile().expect("compile selection");
+        let params = compiled.hidden_param_specs();
+        assert_eq!(params.len(), 7);
+        assert_eq!(
+            params.last().unwrap().name,
+            "__selection_brush__facet_group_name"
+        );
+        LogicalExprNode::from_expr(selection.predicate())
+            .expect("facet-context selection predicate serializes");
     }
 }

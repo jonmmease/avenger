@@ -801,12 +801,16 @@ pub enum InteractionScopeKind {
 pub struct EvaluatedInteractionScope {
     pub id: InteractionScopeId,
     pub kind: InteractionScopeKind,
+    /// Stable content-derived id for this interaction scope.
+    pub scope_id: String,
     /// Scope bounds in scene/canvas coordinates.
     pub bounds: LayoutBounds,
     pub plot_area_width: f32,
     pub plot_area_height: f32,
     /// Full physical facet path for this scope (empty at the root).
     pub facet_path: Vec<ScalarValue>,
+    /// Logical facet values for this scope, excluding structural wrap rows.
+    pub logical_facet_values: Vec<ScalarValue>,
     /// Facet coord-node path for this scope (empty at the root).
     pub coord_node_path: Vec<usize>,
     /// Coordinate transform used to invert local points for this scope.
@@ -824,10 +828,12 @@ impl std::fmt::Debug for EvaluatedInteractionScope {
         f.debug_struct("EvaluatedInteractionScope")
             .field("id", &self.id)
             .field("kind", &self.kind)
+            .field("scope_id", &self.scope_id)
             .field("bounds", &self.bounds)
             .field("plot_area_width", &self.plot_area_width)
             .field("plot_area_height", &self.plot_area_height)
             .field("facet_path", &self.facet_path)
+            .field("logical_facet_values", &self.logical_facet_values)
             .field("coord_node_path", &self.coord_node_path)
             .field("channels", &self.channels)
             .field("sharing_owner_paths", &self.sharing_owner_paths)

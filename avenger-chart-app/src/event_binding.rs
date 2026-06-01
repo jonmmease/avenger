@@ -778,7 +778,87 @@ fn compute_interaction_values(
         event::start_domain_column_name,
     );
 
+    let fill_scope_values = |values: &mut HashMap<String, ScalarValue>,
+                             scope: Option<&EvaluatedInteractionScope>,
+                             plot_size: bool,
+                             scope_id: bool,
+                             facet_indices: &std::collections::BTreeSet<usize>,
+                             width_name: &str,
+                             height_name: &str,
+                             scope_id_name: &str,
+                             facet_name_fn: fn(usize) -> String| {
+        let Some(scope) = scope else {
+            return;
+        };
+        if plot_size {
+            values.insert(
+                width_name.to_string(),
+                ScalarValue::Float64(Some(scope.plot_area_width as f64)),
+            );
+            values.insert(
+                height_name.to_string(),
+                ScalarValue::Float64(Some(scope.plot_area_height as f64)),
+            );
+        }
+        if scope_id {
+            values.insert(
+                scope_id_name.to_string(),
+                ScalarValue::Utf8(Some(scope.scope_id.clone())),
+            );
+        }
+        for index in facet_indices {
+            if let Some(value) = scope.logical_facet_values.get(*index)
+                && let Some(value) = scalar_to_event_string(value)
+            {
+                values.insert(facet_name_fn(*index), ScalarValue::Utf8(Some(value)));
+            }
+        }
+    };
+
+    fill_scope_values(
+        &mut values,
+        current_scope,
+        requests.current_plot_size,
+        requests.current_scope_id,
+        &requests.current_facet_values,
+        event::EVENT_PLOT_WIDTH_FIELD,
+        event::EVENT_PLOT_HEIGHT_FIELD,
+        event::EVENT_SCOPE_ID_FIELD,
+        event::event_facet_value_column_name,
+    );
+    fill_scope_values(
+        &mut values,
+        start_scope,
+        requests.start_plot_size,
+        requests.start_scope_id,
+        &requests.start_facet_values,
+        event::START_PLOT_WIDTH_FIELD,
+        event::START_PLOT_HEIGHT_FIELD,
+        event::START_SCOPE_ID_FIELD,
+        event::start_facet_value_column_name,
+    );
+
     values
+}
+
+fn scalar_to_event_string(value: &ScalarValue) -> Option<String> {
+    match value {
+        ScalarValue::Utf8(Some(value))
+        | ScalarValue::LargeUtf8(Some(value))
+        | ScalarValue::Utf8View(Some(value)) => Some(value.clone()),
+        ScalarValue::Boolean(Some(value)) => Some(value.to_string()),
+        ScalarValue::Int8(Some(value)) => Some(value.to_string()),
+        ScalarValue::Int16(Some(value)) => Some(value.to_string()),
+        ScalarValue::Int32(Some(value)) => Some(value.to_string()),
+        ScalarValue::Int64(Some(value)) => Some(value.to_string()),
+        ScalarValue::UInt8(Some(value)) => Some(value.to_string()),
+        ScalarValue::UInt16(Some(value)) => Some(value.to_string()),
+        ScalarValue::UInt32(Some(value)) => Some(value.to_string()),
+        ScalarValue::UInt64(Some(value)) => Some(value.to_string()),
+        ScalarValue::Float32(Some(value)) => Some(value.to_string()),
+        ScalarValue::Float64(Some(value)) => Some(value.to_string()),
+        _ => None,
+    }
 }
 
 fn clamp_scene_point_to_scope(point: [f32; 2], scope: &EvaluatedInteractionScope) -> [f32; 2] {
@@ -1087,6 +1167,58 @@ fn event_schema(
         fields.push(Field::new(
             event::start_domain_column_name(channel),
             domain_list_type.clone(),
+            true,
+        ));
+    }
+    if interaction.current_plot_size {
+        fields.push(Field::new(
+            event::EVENT_PLOT_WIDTH_FIELD,
+            DataType::Float64,
+            true,
+        ));
+        fields.push(Field::new(
+            event::EVENT_PLOT_HEIGHT_FIELD,
+            DataType::Float64,
+            true,
+        ));
+    }
+    if interaction.start_plot_size {
+        fields.push(Field::new(
+            event::START_PLOT_WIDTH_FIELD,
+            DataType::Float64,
+            true,
+        ));
+        fields.push(Field::new(
+            event::START_PLOT_HEIGHT_FIELD,
+            DataType::Float64,
+            true,
+        ));
+    }
+    if interaction.current_scope_id {
+        fields.push(Field::new(
+            event::EVENT_SCOPE_ID_FIELD,
+            DataType::Utf8,
+            true,
+        ));
+    }
+    if interaction.start_scope_id {
+        fields.push(Field::new(
+            event::START_SCOPE_ID_FIELD,
+            DataType::Utf8,
+            true,
+        ));
+    }
+    for index in &interaction.current_facet_values {
+        fields.push(Field::new(
+            event::event_facet_value_column_name(*index),
+            DataType::Utf8,
+            true,
+        ));
+    }
+    for index in &interaction.start_facet_values {
+        fields.push(Field::new(
+            event::start_facet_value_column_name(*index),
+            DataType::Utf8,
             true,
         ));
     }
@@ -1414,6 +1546,7 @@ mod tests {
         EvaluatedInteractionScope {
             id: InteractionScopeId(id),
             kind: InteractionScopeKind::Coordinate,
+            scope_id: format!("test-scope-{id}"),
             bounds: LayoutBounds {
                 x,
                 y,
@@ -1423,6 +1556,7 @@ mod tests {
             plot_area_width: width,
             plot_area_height: height,
             facet_path: Vec::new(),
+            logical_facet_values: Vec::new(),
             coord_node_path: Vec::new(),
             coord_transform: Box::new(Cartesian),
             channels: channels.iter().map(|c| c.to_string()).collect(),
@@ -2405,6 +2539,101 @@ mod tests {
         assert_eq!(
             params.get("__selection_brush__x_max"),
             Some(&ScalarValue::Float64(Some(4.0)))
+        );
+    }
+
+    #[tokio::test]
+    async fn selection_update_captures_start_facet_context() {
+        let ctx = SessionContext::new();
+        let selection = Selection::single("brush")
+            .empty(SelectionEmpty::None)
+            .interval_xy("x", "y")
+            .facet_context_field("group_name", col("group_name"));
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .between(
+                ChartEventStream::on(ChartEventType::MouseDown)
+                    .filter(event::button().eq(lit("left"))),
+                ChartEventStream::on(ChartEventType::MouseUp),
+            )
+            .set_selection_at_start_scope(
+                "brush",
+                SelectionUpdate::interval_xy()
+                    .x_range(event::interval(lit(1.0), lit(4.0)))
+                    .y_range(event::interval(lit(2.0), lit(5.0)))
+                    .facet_context_from_start(),
+            )
+            .preview();
+        let compiled = Plot::<Cartesian>::new()
+            .canvas_size(400.0, 300.0)
+            .add_selection(selection)
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile faceted selection binding plot");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+            compiled.cursor_params(),
+        )
+        .expect("compile selection binding runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+        let mut scope = coord_scope(0, 0.0, 0.0, 100.0, 100.0, &["x", "y"]);
+        scope.logical_facet_values = vec![ScalarValue::Utf8(Some("Beta".to_string()))];
+        {
+            let mut app = state.runtime.lock().await;
+            app.last_interaction_state.scopes = vec![scope];
+        }
+        let now = Instant::now();
+        let start_event = EventStreamEventSnapshot {
+            event: SceneGraphEvent::MouseDown(SceneMouseDownEvent {
+                position: [20.0, 20.0],
+                button: MouseButton::Left,
+                mark_instance: None,
+                modifiers: Default::default(),
+            }),
+            mark_instance: None,
+            instant: now,
+        };
+        let context = EventStreamContext {
+            mark_instance: None,
+            current_event: None,
+            start_event: Some(start_event),
+            previous_event: None,
+        };
+
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: [50.0, 50.0],
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &context,
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+
+        assert!(
+            status.rerender,
+            "selection update should patch hidden params"
+        );
+        let params = state.params().await;
+        assert_eq!(
+            params.get("__selection_brush__active"),
+            Some(&ScalarValue::Boolean(Some(true)))
+        );
+        assert_eq!(
+            params.get("__selection_brush__facet_group_name"),
+            Some(&ScalarValue::Utf8(Some("Beta".to_string())))
         );
     }
 

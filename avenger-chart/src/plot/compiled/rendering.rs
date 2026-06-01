@@ -103,6 +103,32 @@ use super::{
     },
 };
 
+fn interaction_scope_content_id(
+    coord_node_path: &[usize],
+    logical_facet_values: &[ScalarValue],
+) -> String {
+    let coord_path = coord_node_path
+        .iter()
+        .map(|index| index.to_string())
+        .collect::<Vec<_>>()
+        .join(".");
+    let facet_path = logical_facet_values
+        .iter()
+        .map(scalar_value_for_scope_id)
+        .collect::<Vec<_>>()
+        .join("/");
+    format!("coord:{coord_path};facet:{facet_path}")
+}
+
+fn scalar_value_for_scope_id(value: &ScalarValue) -> String {
+    match value {
+        ScalarValue::Utf8(Some(value))
+        | ScalarValue::LargeUtf8(Some(value))
+        | ScalarValue::Utf8View(Some(value)) => value.clone(),
+        _ => value.to_string(),
+    }
+}
+
 #[derive(Clone, Debug)]
 struct RecursiveOverflowSnapshot {
     guide: OverflowSpaceRequirement,
@@ -4233,12 +4259,14 @@ impl CompiledPlot {
             height: measurement.plot_area_height,
         };
         let sharing_owner_paths = self.interaction_sharing_owner_paths(eval_ctx, facet_path);
+        let logical_facet_values = self.interaction_logical_facet_values(eval_ctx, facet_path);
         let interaction_scopes = self.build_coordinate_interaction_scopes(
             local_scope_bounds,
             measurement.plot_area_width,
             measurement.plot_area_height,
             &measurement.scales,
             facet_path,
+            logical_facet_values,
             eval_ctx.facet_coord_node_path().to_vec(),
             sharing_owner_paths,
         );
@@ -4565,12 +4593,14 @@ impl CompiledPlot {
             height: plot_area_height,
         };
         let sharing_owner_paths = self.interaction_sharing_owner_paths(eval_ctx, facet_path);
+        let logical_facet_values = self.interaction_logical_facet_values(eval_ctx, facet_path);
         interaction_scopes.extend(self.build_coordinate_interaction_scopes(
             local_scope_bounds,
             plot_area_width,
             plot_area_height,
             &merged_scales,
             facet_path,
+            logical_facet_values,
             eval_ctx.facet_coord_node_path().to_vec(),
             sharing_owner_paths,
         ));
@@ -4641,6 +4671,18 @@ impl CompiledPlot {
         owner_paths
     }
 
+    fn interaction_logical_facet_values(
+        &self,
+        eval_ctx: &EvaluationContext,
+        facet_path: &[ScalarValue],
+    ) -> Vec<ScalarValue> {
+        if facet_path.is_empty() {
+            Vec::new()
+        } else {
+            eval_ctx.facet_tree.logical_values_for_path(facet_path)
+        }
+    }
+
     /// Build coordinate interaction scopes for this plot's coordinate system.
     ///
     /// Returns an empty vector unless the coordinate transform declares
@@ -4655,6 +4697,7 @@ impl CompiledPlot {
         plot_area_height: f32,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         facet_path: &[ScalarValue],
+        logical_facet_values: Vec<ScalarValue>,
         coord_node_path: Vec<usize>,
         sharing_owner_paths: HashMap<u8, Vec<ScalarValue>>,
     ) -> Vec<EvaluatedInteractionScope> {
@@ -4677,13 +4720,16 @@ impl CompiledPlot {
         if !channels.iter().all(|ch| channel_scales.contains_key(*ch)) {
             return Vec::new();
         }
+        let scope_id = interaction_scope_content_id(&coord_node_path, &logical_facet_values);
         vec![EvaluatedInteractionScope {
             id: InteractionScopeId(0),
             kind: InteractionScopeKind::Coordinate,
+            scope_id,
             bounds,
             plot_area_width,
             plot_area_height,
             facet_path: facet_path.to_vec(),
+            logical_facet_values,
             coord_node_path,
             coord_transform: self.coord_transform.clone(),
             channels: channels.iter().map(|channel| channel.to_string()).collect(),

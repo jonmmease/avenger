@@ -86,3 +86,7 @@ required-features = ["winit-wgpu"]
 [[example]]
 name = "cartesian_manual_box_selection"
 required-features = ["winit-wgpu"]
+
+[[example]]
+name = "cartesian_concat_facet_manual_box_selection"
+required-features = ["winit-wgpu"]

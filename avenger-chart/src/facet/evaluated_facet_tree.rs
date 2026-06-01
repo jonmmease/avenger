@@ -686,6 +686,16 @@ impl EvaluatedFacetTree {
             .unwrap_or(path.len())
     }
 
+    pub(crate) fn logical_values_for_path(&self, path: &[ScalarValue]) -> Vec<ScalarValue> {
+        let Some(weights) = self.path_component_logical_weights(path) else {
+            return path.to_vec();
+        };
+        path.iter()
+            .zip(weights)
+            .filter_map(|(value, weight)| (weight > 0).then_some(value.clone()))
+            .collect()
+    }
+
     pub(crate) fn sharing_owner_path(
         &self,
         full_path: &[ScalarValue],

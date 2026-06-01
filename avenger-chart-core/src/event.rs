@@ -67,6 +67,14 @@ pub const EVENT_AT_START_CLIPPED_COORD_PREFIX: &str = "__event_at_start_clipped_
 pub const PREVIOUS_COORD_PREFIX: &str = "__previous_coord_";
 pub const EVENT_DOMAIN_PREFIX: &str = "__event_domain_";
 pub const START_DOMAIN_PREFIX: &str = "__start_domain_";
+pub const EVENT_PLOT_WIDTH_FIELD: &str = "__event_plot_width";
+pub const EVENT_PLOT_HEIGHT_FIELD: &str = "__event_plot_height";
+pub const START_PLOT_WIDTH_FIELD: &str = "__start_plot_width";
+pub const START_PLOT_HEIGHT_FIELD: &str = "__start_plot_height";
+pub const EVENT_SCOPE_ID_FIELD: &str = "__event_scope_id";
+pub const START_SCOPE_ID_FIELD: &str = "__start_scope_id";
+pub const EVENT_FACET_VALUE_PREFIX: &str = "__event_facet_value_";
+pub const START_FACET_VALUE_PREFIX: &str = "__start_facet_value_";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChartEventType {
@@ -497,6 +505,52 @@ pub fn start_domain(channel: &str) -> Expr {
     col(start_domain_column_name(channel))
 }
 
+/// Current routed plot-area width in scene pixels.
+pub fn event_plot_width() -> Expr {
+    col(EVENT_PLOT_WIDTH_FIELD)
+}
+
+/// Current routed plot-area height in scene pixels.
+pub fn event_plot_height() -> Expr {
+    col(EVENT_PLOT_HEIGHT_FIELD)
+}
+
+/// Frozen start routed plot-area width in scene pixels.
+pub fn start_plot_width() -> Expr {
+    col(START_PLOT_WIDTH_FIELD)
+}
+
+/// Frozen start routed plot-area height in scene pixels.
+pub fn start_plot_height() -> Expr {
+    col(START_PLOT_HEIGHT_FIELD)
+}
+
+/// Stable string id for the current routed interaction scope.
+pub fn event_scope_id() -> Expr {
+    col(EVENT_SCOPE_ID_FIELD)
+}
+
+/// Stable string id for the frozen start interaction scope.
+pub fn start_scope_id() -> Expr {
+    col(START_SCOPE_ID_FIELD)
+}
+
+/// Logical facet value at `index` for the current routed interaction scope.
+///
+/// Values are represented as UTF-8 strings so event bindings can capture them
+/// without needing to know the concrete partition value type.
+pub fn event_facet_value(index: usize) -> Expr {
+    col(event_facet_value_column_name(index))
+}
+
+/// Logical facet value at `index` for the frozen start interaction scope.
+///
+/// Values are represented as UTF-8 strings so event bindings can capture them
+/// without needing to know the concrete partition value type.
+pub fn start_facet_value(index: usize) -> Expr {
+    col(start_facet_value_column_name(index))
+}
+
 /// Build a two-element interval list `[min, max]` from scalar expressions.
 ///
 /// This is a plain array constructor; pair it with [`interval_start`] and
@@ -543,6 +597,14 @@ pub fn start_domain_column_name(channel: &str) -> String {
     format!("{START_DOMAIN_PREFIX}{channel}")
 }
 
+pub fn event_facet_value_column_name(index: usize) -> String {
+    format!("{EVENT_FACET_VALUE_PREFIX}{index}")
+}
+
+pub fn start_facet_value_column_name(index: usize) -> String {
+    format!("{START_FACET_VALUE_PREFIX}{index}")
+}
+
 pub fn param_column_name(param_name: &str) -> String {
     format!("{PARAM_PREFIX}{param_name}")
 }
@@ -567,6 +629,12 @@ pub struct InteractionColumnRequests {
     pub previous_coord: BTreeSet<String>,
     pub current_domain: BTreeSet<String>,
     pub start_domain: BTreeSet<String>,
+    pub current_plot_size: bool,
+    pub start_plot_size: bool,
+    pub current_scope_id: bool,
+    pub start_scope_id: bool,
+    pub current_facet_values: BTreeSet<usize>,
+    pub start_facet_values: BTreeSet<usize>,
 }
 
 impl InteractionColumnRequests {
@@ -578,6 +646,12 @@ impl InteractionColumnRequests {
             && self.previous_coord.is_empty()
             && self.current_domain.is_empty()
             && self.start_domain.is_empty()
+            && !self.current_plot_size
+            && !self.start_plot_size
+            && !self.current_scope_id
+            && !self.start_scope_id
+            && self.current_facet_values.is_empty()
+            && self.start_facet_values.is_empty()
     }
 
     /// Union of every coordinate channel referenced by any request kind.
@@ -611,6 +685,24 @@ impl InteractionColumnRequests {
             self.current_domain.insert(channel.to_string());
         } else if let Some(channel) = name.strip_prefix(START_DOMAIN_PREFIX) {
             self.start_domain.insert(channel.to_string());
+        } else if name == EVENT_PLOT_WIDTH_FIELD || name == EVENT_PLOT_HEIGHT_FIELD {
+            self.current_plot_size = true;
+        } else if name == START_PLOT_WIDTH_FIELD || name == START_PLOT_HEIGHT_FIELD {
+            self.start_plot_size = true;
+        } else if name == EVENT_SCOPE_ID_FIELD {
+            self.current_scope_id = true;
+        } else if name == START_SCOPE_ID_FIELD {
+            self.start_scope_id = true;
+        } else if let Some(index) = name
+            .strip_prefix(EVENT_FACET_VALUE_PREFIX)
+            .and_then(|s| s.parse::<usize>().ok())
+        {
+            self.current_facet_values.insert(index);
+        } else if let Some(index) = name
+            .strip_prefix(START_FACET_VALUE_PREFIX)
+            .and_then(|s| s.parse::<usize>().ok())
+        {
+            self.start_facet_values.insert(index);
         }
     }
 }
@@ -665,6 +757,9 @@ mod tests {
             start_domain_column_name("x"),
             "__start_domain_x".to_string()
         );
+        assert_eq!(event_plot_width(), col("__event_plot_width"));
+        assert_eq!(start_scope_id(), col("__start_scope_id"));
+        assert_eq!(event_facet_value(2), col("__event_facet_value_2"));
         // The public helper expressions reference those reserved columns.
         assert_eq!(event_coord("x"), col("__event_coord_x"));
         assert_eq!(start_domain("y"), col("__start_domain_y"));
@@ -688,11 +783,15 @@ mod tests {
             event_at_start_coord("x") - start_coord("x"),
             event_at_start_clipped_coord("y"),
             interval_start(start_domain("x")),
+            event_plot_width(),
+            start_facet_value(0),
         ]);
         assert!(requests.event_at_start_coord.contains("x"));
         assert!(requests.event_at_start_clipped_coord.contains("y"));
         assert!(requests.start_coord.contains("x"));
         assert!(requests.start_domain.contains("x"));
+        assert!(requests.current_plot_size);
+        assert!(requests.start_facet_values.contains(&0));
         assert!(requests.current_coord.is_empty());
         assert!(!requests.is_empty());
         assert!(requests.all_channels().contains("x"));
