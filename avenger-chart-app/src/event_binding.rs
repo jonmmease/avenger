@@ -41,6 +41,7 @@ use datafusion::{
         record_batch::RecordBatch,
     },
     error::DataFusionError,
+    logical_expr::Expr,
     prelude::SessionContext,
     scalar::ScalarValue,
 };
@@ -133,6 +134,30 @@ struct CompiledParamAssignment {
     replace_scoped_values: bool,
 }
 
+struct CompiledSelectionExpression {
+    name: String,
+    expr: Expr,
+    expected_type: DataType,
+}
+
+impl CompiledSelectionExpression {
+    fn float64(name: impl Into<String>, expr: Expr) -> Self {
+        Self {
+            name: name.into(),
+            expr,
+            expected_type: DataType::Float64,
+        }
+    }
+
+    fn utf8(name: impl Into<String>, expr: Expr) -> Self {
+        Self {
+            name: name.into(),
+            expr,
+            expected_type: DataType::Utf8,
+        }
+    }
+}
+
 struct CompiledSelectionAssignment {
     selection_id: String,
     sharing: Sharing,
@@ -150,6 +175,7 @@ enum CompiledSelectionOutput {
         geometry_column: Option<String>,
         geometry_fields: Vec<String>,
         value_start: usize,
+        clause_id_value_index: Option<usize>,
     },
 }
 
@@ -232,19 +258,29 @@ impl CompiledChartEventBinding {
                             .expr
                             .to_expr(ctx)
                             .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
-                        expressions
-                            .push(("x_min".to_string(), event::interval_start(x_range.clone())));
-                        expressions.push(("x_max".to_string(), event::interval_end(x_range)));
-                        expressions
-                            .push(("y_min".to_string(), event::interval_start(y_range.clone())));
-                        expressions.push(("y_max".to_string(), event::interval_end(y_range)));
+                        expressions.push(CompiledSelectionExpression::float64(
+                            "x_min",
+                            event::interval_start(x_range.clone()),
+                        ));
+                        expressions.push(CompiledSelectionExpression::float64(
+                            "x_max",
+                            event::interval_end(x_range),
+                        ));
+                        expressions.push(CompiledSelectionExpression::float64(
+                            "y_min",
+                            event::interval_start(y_range.clone()),
+                        ));
+                        expressions.push(CompiledSelectionExpression::float64(
+                            "y_max",
+                            event::interval_end(y_range),
+                        ));
                         let geometry_column =
                             clause.geometry.as_ref().map(|g| g.column_name.clone());
                         let mut geometry_fields = Vec::new();
                         if let Some(geometry) = clause.geometry {
                             for (field, expr) in geometry.fields {
                                 geometry_fields.push(field.clone());
-                                expressions.push((
+                                expressions.push(CompiledSelectionExpression::float64(
                                     format!("geometry_{field}"),
                                     expr.expr.to_expr(ctx).map_err(|err| {
                                         AvengerAppError::InternalError(err.to_string())
@@ -252,12 +288,21 @@ impl CompiledChartEventBinding {
                                 ));
                             }
                         }
+                        if let Some(clause_id) = clause.clause_id {
+                            expressions.push(CompiledSelectionExpression::utf8(
+                                "clause_id",
+                                clause_id.expr.to_expr(ctx).map_err(|err| {
+                                    AvengerAppError::InternalError(err.to_string())
+                                })?,
+                            ));
+                        }
                         CompiledSelectionOutput::Range2D {
                             x_field,
                             y_field,
                             geometry_column,
                             geometry_fields,
                             value_start: 0,
+                            clause_id_value_index: None,
                         }
                     }
                 },
@@ -277,7 +322,7 @@ impl CompiledChartEventBinding {
         let mut scan_exprs = filter_exprs.clone();
         scan_exprs.extend(assignment_exprs.iter().map(|(_, expr, _, _)| expr.clone()));
         for (_, _, _, _, _, _, exprs) in &selection_exprs {
-            scan_exprs.extend(exprs.iter().map(|(_, expr)| expr.clone()));
+            scan_exprs.extend(exprs.iter().map(|expr| expr.expr.clone()));
         }
         let mut interaction_requests = event::scan_interaction_columns(&scan_exprs);
         for (selection_id, sharing, scope, _, capture_facet_context, _, _) in &selection_exprs {
@@ -347,15 +392,21 @@ impl CompiledChartEventBinding {
                     geometry_column,
                     geometry_fields,
                     value_start: _,
+                    clause_id_value_index: _,
                 } => {
                     let value_start = specs.len().saturating_sub(filter_count);
-                    for (name, expr) in exprs {
+                    let mut clause_id_value_index = None;
+                    for selection_expr in exprs {
+                        let value_index = specs.len().saturating_sub(filter_count);
+                        if selection_expr.name == "clause_id" {
+                            clause_id_value_index = Some(value_index);
+                        }
                         specs.push(
                             PhysicalScalarExpressionSpec::new(
-                                format!("selection_{selection_id}_{name}"),
-                                expr,
+                                format!("selection_{}_{}", selection_id, selection_expr.name),
+                                selection_expr.expr,
                             )
-                            .with_expected_type(DataType::Float64)
+                            .with_expected_type(selection_expr.expected_type)
                             .with_nullable_cast(),
                         );
                     }
@@ -365,6 +416,7 @@ impl CompiledChartEventBinding {
                         geometry_column,
                         geometry_fields,
                         value_start,
+                        clause_id_value_index,
                     }
                 }
             };
@@ -405,6 +457,8 @@ impl CompiledChartEventBinding {
 #[derive(Default)]
 struct ChartEventBindingState {
     active_start: Option<Instant>,
+    next_start_event_id: u64,
+    active_start_event_id: Option<u64>,
     start_params: Option<ScopedParamStoreSnapshot>,
     previous_params: Option<ScopedParamStoreSnapshot>,
     start_scope: Option<EvaluatedInteractionScope>,
@@ -464,6 +518,8 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             match &context.start_event {
                 Some(start) if binding_state.active_start != Some(start.instant) => {
                     binding_state.active_start = Some(start.instant);
+                    binding_state.next_start_event_id += 1;
+                    binding_state.active_start_event_id = Some(binding_state.next_start_event_id);
                     binding_state.start_params = Some(app.session.snapshot_scoped_params());
                     binding_state.start_scope = if routing_enabled {
                         match route_interaction_scope(
@@ -482,6 +538,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                 }
                 None => {
                     binding_state.active_start = None;
+                    binding_state.active_start_event_id = None;
                     binding_state.start_params = None;
                     binding_state.start_scope = None;
                 }
@@ -489,7 +546,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             }
         }
 
-        let (start_snapshot, previous_snapshot, start_scope, previous_scope) = {
+        let (start_snapshot, previous_snapshot, start_scope, previous_scope, start_event_id) = {
             let binding_state = self
                 .state
                 .lock()
@@ -499,6 +556,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                 binding_state.previous_params.clone(),
                 binding_state.start_scope.clone(),
                 binding_state.previous_scope.clone(),
+                binding_state.active_start_event_id,
             )
         };
 
@@ -553,6 +611,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                 start_params: start_params.as_ref(),
                 previous_params: previous_params.as_ref(),
                 interaction_values: &interaction_values,
+                start_event_id,
             },
         ) {
             Ok(batch) => batch,
@@ -673,6 +732,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                     geometry_column,
                     geometry_fields,
                     value_start,
+                    clause_id_value_index,
                 } => {
                     let start = self.runtime.filter_count + *value_start;
                     let Some(values_for_selection) =
@@ -687,6 +747,18 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                     let x_max = values_for_selection[1].clone();
                     let y_min = values_for_selection[2].clone();
                     let y_max = values_for_selection[3].clone();
+                    let clause_id = if let Some(value_index) = clause_id_value_index {
+                        let Some(value) = values.get(self.runtime.filter_count + *value_index)
+                        else {
+                            continue;
+                        };
+                        if value.is_null() {
+                            continue;
+                        }
+                        selection_clause_id_from_scalar(value)
+                    } else {
+                        String::new()
+                    };
                     let geometry = geometry_column.as_ref().map(|column_name| {
                         let mut fields = IndexMap::new();
                         fields.insert("x_min".to_string(), x_min.clone());
@@ -710,7 +782,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                     };
                     let source_scope_id = assignment_scope.map(|scope| scope.scope_id.clone());
                     let clause = SelectionClause {
-                        clause_id: String::new(),
+                        clause_id,
                         source_scope_id,
                         predicate: SelectionPredicateSpec::Range2D {
                             x_field: x_field.clone(),
@@ -817,6 +889,15 @@ fn cursor_from_patch(
             }
             _ => None,
         })
+}
+
+fn selection_clause_id_from_scalar(value: &ScalarValue) -> String {
+    match value {
+        ScalarValue::Utf8(Some(value))
+        | ScalarValue::LargeUtf8(Some(value))
+        | ScalarValue::Utf8View(Some(value)) => value.clone(),
+        _ => value.to_string(),
+    }
 }
 
 fn record_event_eval_elapsed(metrics: &mut crate::ChartEventMetrics, start: Instant) {
@@ -1326,6 +1407,7 @@ fn compile_low_level_stream_filter(
                 start_params: None,
                 previous_params: None,
                 interaction_values: &interaction_values,
+                start_event_id: None,
             },
         ) {
             Ok(batch) => batch,
@@ -1480,6 +1562,13 @@ fn event_schema(
             true,
         ));
     }
+    if interaction.start_event_id {
+        fields.push(Field::new(
+            event::START_EVENT_ID_FIELD,
+            DataType::Utf8,
+            true,
+        ));
+    }
     for index in &interaction.current_facet_values {
         fields.push(Field::new(
             event::event_facet_value_column_name(*index),
@@ -1504,6 +1593,7 @@ struct EventBatchInputs<'a> {
     start_params: Option<&'a IndexMap<String, ScalarValue>>,
     previous_params: Option<&'a IndexMap<String, ScalarValue>>,
     interaction_values: &'a HashMap<String, ScalarValue>,
+    start_event_id: Option<u64>,
 }
 
 fn event_record_batch(
@@ -1519,6 +1609,12 @@ fn event_record_batch(
     }
     if let Some(previous) = &context.previous_event {
         push_snapshot_values(&mut values, previous, "previous");
+    }
+    if let Some(start_event_id) = inputs.start_event_id {
+        values.insert(
+            event::START_EVENT_ID_FIELD.to_string(),
+            ScalarValue::Utf8(Some(start_event_id.to_string())),
+        );
     }
     if let (Some(current), Some(start)) = (&context.current_event, &context.start_event) {
         values.insert(
@@ -2838,6 +2934,135 @@ mod tests {
             geometry.fields.get("x_min"),
             Some(&ScalarValue::Float64(Some(1.0)))
         );
+    }
+
+    #[tokio::test]
+    async fn additive_selection_uses_start_event_id_as_stable_clause_id() {
+        let ctx = SessionContext::new();
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .between(
+                ChartEventStream::on(ChartEventType::MouseDown)
+                    .filter(event::button().eq(lit("left"))),
+                ChartEventStream::on(ChartEventType::MouseUp),
+            )
+            .set_selection(
+                "brush",
+                SelectionUpdate::add_interval_xy()
+                    .clause_id(event::start_event_id())
+                    .x_range(event::interval(lit(1.0), event::x()))
+                    .y_range(event::interval(lit(2.0), event::y())),
+            )
+            .preview();
+        let compiled = Plot::<Cartesian>::new()
+            .add_selection(
+                Selection::single("brush")
+                    .empty(SelectionEmpty::None)
+                    .sharing(Sharing::Shared)
+                    .interval_xy("x", "y"),
+            )
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile additive selection binding plot");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+            compiled.selection_specs(),
+            compiled.cursor_params(),
+        )
+        .expect("compile additive selection binding runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+
+        let first_start = EventStreamEventSnapshot {
+            event: SceneGraphEvent::MouseDown(SceneMouseDownEvent {
+                position: [10.0, 10.0],
+                button: MouseButton::Left,
+                mark_instance: None,
+                modifiers: Default::default(),
+            }),
+            mark_instance: None,
+            instant: Instant::now(),
+        };
+        let first_context = EventStreamContext {
+            mark_instance: None,
+            current_event: None,
+            start_event: Some(first_start),
+            previous_event: None,
+        };
+        for position in [[20.0, 20.0], [30.0, 30.0]] {
+            let status = handler
+                .handle_with_context(
+                    &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                        position,
+                        mark_instance: None,
+                        modifiers: Default::default(),
+                    }),
+                    &first_context,
+                    &mut state,
+                    &empty_rtree(),
+                )
+                .await;
+            assert!(status.rerender);
+            assert!(!status.rebuild_geometry);
+        }
+        {
+            let runtime = state.runtime.lock().await;
+            let states = runtime.session.selection_states_for_diagnostics("brush");
+            assert_eq!(states.len(), 1);
+            assert_eq!(
+                states[0].1.clauses.len(),
+                1,
+                "same drag should update one additive clause"
+            );
+            assert_eq!(states[0].1.clauses[0].clause_id, "1");
+        }
+
+        let second_start = EventStreamEventSnapshot {
+            event: SceneGraphEvent::MouseDown(SceneMouseDownEvent {
+                position: [40.0, 40.0],
+                button: MouseButton::Left,
+                mark_instance: None,
+                modifiers: Default::default(),
+            }),
+            mark_instance: None,
+            instant: Instant::now(),
+        };
+        let second_context = EventStreamContext {
+            mark_instance: None,
+            current_event: None,
+            start_event: Some(second_start),
+            previous_event: None,
+        };
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: [50.0, 50.0],
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &second_context,
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+        assert!(status.rerender);
+        let runtime = state.runtime.lock().await;
+        let states = runtime.session.selection_states_for_diagnostics("brush");
+        assert_eq!(states.len(), 1);
+        assert_eq!(
+            states[0].1.clauses.len(),
+            2,
+            "new drag should append a second additive clause"
+        );
+        assert_eq!(states[0].1.clauses[1].clause_id, "2");
     }
 
     #[tokio::test]

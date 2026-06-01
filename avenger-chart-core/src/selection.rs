@@ -666,6 +666,8 @@ pub enum SelectionUpdateKind {
 pub struct SelectionUpdate {
     pub kind: SelectionUpdateKind,
     pub source: Option<String>,
+    #[serde(default)]
+    pub clause_id: Option<SelectionValueExpr>,
     pub x_range: Option<SelectionRangeExpr>,
     pub y_range: Option<SelectionRangeExpr>,
     pub capture_facet_context: bool,
@@ -678,6 +680,7 @@ impl SelectionUpdate {
         Self {
             kind: SelectionUpdateKind::Interval,
             source: None,
+            clause_id: None,
             x_range: None,
             y_range: None,
             capture_facet_context: false,
@@ -688,10 +691,18 @@ impl SelectionUpdate {
         }
     }
 
+    pub fn add_interval_xy() -> Self {
+        Self {
+            kind: SelectionUpdateKind::AddClause,
+            ..Self::interval_xy()
+        }
+    }
+
     pub fn clear() -> Self {
         Self {
             kind: SelectionUpdateKind::Clear,
             source: None,
+            clause_id: None,
             x_range: None,
             y_range: None,
             capture_facet_context: false,
@@ -704,6 +715,7 @@ impl SelectionUpdate {
         Self {
             kind: SelectionUpdateKind::ReplaceClause,
             source: None,
+            clause_id: None,
             x_range: None,
             y_range: None,
             capture_facet_context: clause.owner_facet_context_from_start,
@@ -716,6 +728,7 @@ impl SelectionUpdate {
         Self {
             kind: SelectionUpdateKind::AddClause,
             source: None,
+            clause_id: None,
             x_range: None,
             y_range: None,
             capture_facet_context: clause.owner_facet_context_from_start,
@@ -726,6 +739,11 @@ impl SelectionUpdate {
 
     pub fn source(mut self, source: impl Into<String>) -> Self {
         self.source = Some(source.into());
+        self
+    }
+
+    pub fn clause_id(mut self, expr: impl IntoExpr) -> Self {
+        self.clause_id = Some(SelectionValueExpr::new(expr));
         self
     }
 
@@ -750,7 +768,7 @@ impl SelectionUpdate {
     ) -> Result<Option<SelectionClauseUpdate>, AvengerChartError> {
         match self.kind {
             SelectionUpdateKind::Clear => Ok(None),
-            SelectionUpdateKind::ReplaceClause | SelectionUpdateKind::AddClause => self
+            SelectionUpdateKind::ReplaceClause => self
                 .clause
                 .clone()
                 .map(Ok)
@@ -760,7 +778,8 @@ impl SelectionUpdate {
                     ))
                 })
                 .map(Some),
-            SelectionUpdateKind::Interval => {
+            SelectionUpdateKind::AddClause if self.clause.is_some() => Ok(self.clause.clone()),
+            SelectionUpdateKind::Interval | SelectionUpdateKind::AddClause => {
                 let Some(x_range) = &self.x_range else {
                     return Err(AvengerChartError::InvalidArgument(
                         "Interval selection update is missing an x range".to_string(),
@@ -801,7 +820,7 @@ impl SelectionUpdate {
                         interval_end(y_range.expr.to_expr(&SessionContext::new())?),
                     );
                 Ok(Some(SelectionClauseUpdate {
-                    clause_id: None,
+                    clause_id: self.clause_id.clone(),
                     predicate,
                     geometry: Some(geometry),
                     owner_facet_context_from_start: self.capture_facet_context,

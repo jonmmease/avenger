@@ -91,7 +91,9 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .mark(overlay)
         .event_binding(cursor_binding(&cursor))
         .event_binding(selection_drag_binding(&cursor))
+        .event_binding(selection_add_drag_binding(&cursor))
         .event_binding(selection_release_binding())
+        .event_binding(selection_add_release_binding())
         .event_binding(selection_clear_binding());
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
@@ -131,13 +133,25 @@ fn selection_drag_binding(cursor: &Param) -> ChartEventBinding {
         .filter(ev::start_coord("y").is_not_null())
         .filter(ev::event_at_start_clipped_coord("x").is_not_null())
         .filter(ev::event_at_start_clipped_coord("y").is_not_null())
+        .filter(ev::shift().eq(lit(false)))
         .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
-        .set_selection_at_start_scope(
-            "brush",
-            SelectionUpdate::interval_xy()
-                .x_range(selection_interval("x"))
-                .y_range(selection_interval("y")),
+        .set_selection_at_start_scope("brush", replace_selection_update())
+        .preview()
+}
+
+fn selection_add_drag_binding(cursor: &Param) -> ChartEventBinding {
+    ChartEventBinding::on(ChartEventType::CursorMoved)
+        .between(
+            ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
+            ChartEventStream::on(ChartEventType::MouseUp),
         )
+        .filter(ev::start_coord("x").is_not_null())
+        .filter(ev::start_coord("y").is_not_null())
+        .filter(ev::event_at_start_clipped_coord("x").is_not_null())
+        .filter(ev::event_at_start_clipped_coord("y").is_not_null())
+        .filter(ev::shift().eq(lit(true)))
+        .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
+        .set_selection_at_start_scope("brush", add_selection_update())
         .preview()
 }
 
@@ -152,12 +166,24 @@ fn selection_release_binding() -> ChartEventBinding {
         .filter(ev::start_coord("y").is_not_null())
         .filter(ev::event_at_start_clipped_coord("x").is_not_null())
         .filter(ev::event_at_start_clipped_coord("y").is_not_null())
-        .set_selection_at_start_scope(
-            "brush",
-            SelectionUpdate::interval_xy()
-                .x_range(selection_interval("x"))
-                .y_range(selection_interval("y")),
+        .filter(ev::shift().eq(lit(false)))
+        .set_selection_at_start_scope("brush", replace_selection_update())
+        .exact()
+}
+
+fn selection_add_release_binding() -> ChartEventBinding {
+    ChartEventBinding::on(ChartEventType::MouseUp)
+        .between(
+            ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
+            ChartEventStream::on(ChartEventType::MouseUp),
         )
+        .emit_between_end_event()
+        .filter(ev::start_coord("x").is_not_null())
+        .filter(ev::start_coord("y").is_not_null())
+        .filter(ev::event_at_start_clipped_coord("x").is_not_null())
+        .filter(ev::event_at_start_clipped_coord("y").is_not_null())
+        .filter(ev::shift().eq(lit(true)))
+        .set_selection_at_start_scope("brush", add_selection_update())
         .exact()
 }
 
@@ -171,6 +197,19 @@ fn selection_interval(channel: &str) -> Expr {
     let start = ev::start_coord(channel);
     let end = ev::event_at_start_clipped_coord(channel);
     ev::interval(expr_min(start.clone(), end.clone()), expr_max(start, end))
+}
+
+fn replace_selection_update() -> SelectionUpdate {
+    SelectionUpdate::interval_xy()
+        .x_range(selection_interval("x"))
+        .y_range(selection_interval("y"))
+}
+
+fn add_selection_update() -> SelectionUpdate {
+    SelectionUpdate::add_interval_xy()
+        .clause_id(ev::start_event_id())
+        .x_range(selection_interval("x"))
+        .y_range(selection_interval("y"))
 }
 
 fn expr_min(a: Expr, b: Expr) -> Expr {

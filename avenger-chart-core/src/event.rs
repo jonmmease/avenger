@@ -44,6 +44,7 @@ pub const START_CANVAS_HEIGHT_FIELD: &str = "__start_canvas_height";
 pub const START_WINDOW_WIDTH_FIELD: &str = "__start_window_width";
 pub const START_WINDOW_HEIGHT_FIELD: &str = "__start_window_height";
 pub const START_TIME_MS_FIELD: &str = "__start_time_ms";
+pub const START_EVENT_ID_FIELD: &str = "__start_event_id";
 
 pub const PREVIOUS_X_FIELD: &str = "__previous_x";
 pub const PREVIOUS_Y_FIELD: &str = "__previous_y";
@@ -455,6 +456,10 @@ pub fn start_canvas_height() -> Expr {
     col(START_CANVAS_HEIGHT_FIELD)
 }
 
+pub fn start_event_id() -> Expr {
+    col(START_EVENT_ID_FIELD)
+}
+
 pub fn elapsed_ms() -> Expr {
     col(ELAPSED_MS_FIELD)
 }
@@ -665,6 +670,7 @@ pub struct InteractionColumnRequests {
     pub start_plot_size: bool,
     pub current_scope_id: bool,
     pub start_scope_id: bool,
+    pub start_event_id: bool,
     pub current_facet_values: BTreeSet<usize>,
     pub start_facet_values: BTreeSet<usize>,
 }
@@ -682,6 +688,7 @@ impl InteractionColumnRequests {
             && !self.start_plot_size
             && !self.current_scope_id
             && !self.start_scope_id
+            && !self.start_event_id
             && self.current_facet_values.is_empty()
             && self.start_facet_values.is_empty()
     }
@@ -725,6 +732,8 @@ impl InteractionColumnRequests {
             self.current_scope_id = true;
         } else if name == START_SCOPE_ID_FIELD {
             self.start_scope_id = true;
+        } else if name == START_EVENT_ID_FIELD {
+            self.start_event_id = true;
         } else if let Some(index) = name
             .strip_prefix(EVENT_FACET_VALUE_PREFIX)
             .and_then(|s| s.parse::<usize>().ok())
@@ -791,6 +800,7 @@ mod tests {
         );
         assert_eq!(event_plot_width(), col("__event_plot_width"));
         assert_eq!(start_scope_id(), col("__start_scope_id"));
+        assert_eq!(start_event_id(), col("__start_event_id"));
         assert_eq!(event_facet_value(2), col("__event_facet_value_2"));
         // The public helper expressions reference those reserved columns.
         assert_eq!(event_coord("x"), col("__event_coord_x"));
