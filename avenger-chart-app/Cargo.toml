@@ -24,6 +24,7 @@ avenger-winit-wgpu = { path = "../avenger-winit-wgpu", optional = true }
 async-trait = { workspace = true }
 cfg-if = { workspace = true, optional = true }
 datafusion = { workspace = true }
+datafusion-proto = "48.0.1"
 indexmap = { workspace = true }
 log = { workspace = true }
 tokio = { workspace = true, features = ["rt", "sync"] }

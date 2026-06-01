@@ -2,7 +2,7 @@ use indexmap::IndexMap;
 
 use datafusion::{dataframe::DataFrame, prelude::SessionContext};
 
-use crate::ChannelValue;
+use crate::{ChannelValue, SelectionClauseData};
 
 /// Stores a mark's data source and channel-to-expression mappings during construction
 /// This is the uncompiled version that holds a live DataFrame that can be transformed
@@ -10,6 +10,7 @@ use crate::ChannelValue;
 #[derive(Clone)]
 pub struct DataContext {
     dataframe: Option<DataFrame>,
+    selection_clauses: Option<SelectionClauseData>,
     channels: IndexMap<String, ChannelValue>,
 }
 
@@ -17,6 +18,7 @@ impl Default for DataContext {
     fn default() -> Self {
         Self {
             dataframe: None,
+            selection_clauses: None,
             channels: IndexMap::new(),
         }
     }
@@ -26,6 +28,15 @@ impl DataContext {
     pub fn new(dataframe: DataFrame) -> Self {
         Self {
             dataframe: Some(dataframe),
+            selection_clauses: None,
+            channels: IndexMap::new(),
+        }
+    }
+
+    pub fn selection_clauses(data: SelectionClauseData) -> Self {
+        Self {
+            dataframe: None,
+            selection_clauses: Some(data),
             channels: IndexMap::new(),
         }
     }
@@ -43,6 +54,10 @@ impl DataContext {
     /// Take ownership of the DataFrame, leaving None in its place
     pub fn take_dataframe(&mut self) -> Option<DataFrame> {
         self.dataframe.take()
+    }
+
+    pub fn selection_clause_data(&self) -> Option<&SelectionClauseData> {
+        self.selection_clauses.as_ref()
     }
 
     pub fn with_channel_value(mut self, channel: &str, value: ChannelValue) -> Self {

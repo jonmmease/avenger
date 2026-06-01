@@ -49,6 +49,13 @@ macro_rules! impl_mark_base {
                 self
             }
 
+            /// Render this mark from a virtual selection-clause dataset.
+            pub fn selection_clauses(mut self, data: $crate::SelectionClauseData) -> Self {
+                self.state.data = $crate::DataContext::selection_clauses(data);
+                self.state.data_mode = $crate::MarkDataMode::Inherit;
+                self
+            }
+
             /// Prevent this mark's channels from contributing to inferred scale domains.
             pub fn exclude_from_scale_domains(mut self) -> Self {
                 self.state.exclude_from_scale_domains = true;

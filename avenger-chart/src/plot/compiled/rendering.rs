@@ -97,11 +97,19 @@ use super::{
     session::{
         FacetScalePrecomputeCacheHandle, FacetSemanticCacheHandle, GuideOverflowCacheHandle,
         LegendMeasurementCacheHandle, ScaleDomainCacheHandle, ScaleDomainCacheScope,
-        ScopedParamStore, TextMeasurementCacheHandle, changed_param_names,
-        layout_size_dependency_params, new_plot_session_cache_handles,
-        scale_domain_cache_key_for_parts_with_scope,
+        ScopedParamStore, ScopedSelectionStore, SelectionRevisionFingerprint,
+        TextMeasurementCacheHandle, changed_param_names, layout_size_dependency_params,
+        new_plot_session_cache_handles, scale_domain_cache_key_for_parts_with_scope,
     },
 };
+
+fn selection_revision_fingerprint(
+    store: Option<&ScopedSelectionStore>,
+) -> SelectionRevisionFingerprint {
+    store
+        .map(ScopedSelectionStore::revision_fingerprint)
+        .unwrap_or_default()
+}
 
 fn interaction_scope_content_id(
     coord_node_path: &[usize],
@@ -5248,6 +5256,7 @@ impl CompiledPlot {
                 Some(legend_measurement_cache),
                 Some(text_measurement_cache),
                 None,
+                None,
             ),
         )
         .await?;
@@ -5266,6 +5275,7 @@ impl CompiledPlot {
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
         scoped_param_store: Option<Arc<ScopedParamStore>>,
+        scoped_selection_store: Option<Arc<ScopedSelectionStore>>,
     ) -> Result<
         (
             EvaluatedPlot,
@@ -5288,6 +5298,7 @@ impl CompiledPlot {
             text_measurement_cache,
             None,
             scoped_param_store,
+            scoped_selection_store,
         ))
         .await?;
         let metrics = metrics
@@ -5311,6 +5322,7 @@ impl CompiledPlot {
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
         layout_profile: Option<Arc<LayoutProfileSnapshot>>,
         scoped_param_store: Option<Arc<ScopedParamStore>>,
+        scoped_selection_store: Option<Arc<ScopedSelectionStore>>,
     ) -> Result<EvaluationOutcome, AvengerChartError> {
         // Merge provided params with defaults
         let merged_params = if let Some(provided) = params {
@@ -5526,6 +5538,11 @@ impl CompiledPlot {
         if let Some(store) = scoped_param_store {
             eval_ctx = eval_ctx.with_scoped_param_store(store);
         }
+        let selection_revision_fingerprint =
+            selection_revision_fingerprint(scoped_selection_store.as_deref());
+        if let Some(store) = &scoped_selection_store {
+            eval_ctx = eval_ctx.with_scoped_selection_store(store.clone());
+        }
         if let Some(metrics) = evaluation_metrics {
             eval_ctx = eval_ctx.with_evaluation_metrics(metrics);
         }
@@ -5652,6 +5669,7 @@ impl CompiledPlot {
             Some(facet_tree.clone()),
             ctx,
             &eval_ctx.params,
+            selection_revision_fingerprint,
             rendered_components,
             facet_cell_profiles,
         );
@@ -5732,6 +5750,7 @@ impl CompiledPlot {
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
         scoped_param_store: Option<Arc<ScopedParamStore>>,
+        scoped_selection_store: Option<Arc<ScopedSelectionStore>>,
     ) -> Result<PreviewLayoutProfileAttempt, AvengerChartError> {
         tracing::debug!(target: "avenger_chart::resize", "plot_session.preview_attempt start");
         if options.layout_snapshot != LayoutSnapshot::Final {
@@ -5742,6 +5761,8 @@ impl CompiledPlot {
 
         let metrics = Arc::new(Mutex::new(EvaluationMetrics::default()));
         let layout_setup_start = Instant::now();
+        let current_selection_revision_fingerprint =
+            selection_revision_fingerprint(scoped_selection_store.as_deref());
         let merged_params = if let Some(provided) = params {
             let mut merged = self.default_params.clone();
             merged.extend(provided);
@@ -5885,6 +5906,7 @@ impl CompiledPlot {
                     text_measurement_cache,
                     Some(Arc::new(layout_profile.clone())),
                     scoped_param_store.clone(),
+                    scoped_selection_store.clone(),
                 ))
                 .await?;
                 let reflow_elapsed = reflow_start.elapsed();
@@ -5956,6 +5978,9 @@ impl CompiledPlot {
             );
         if let Some(store) = scoped_param_store {
             eval_ctx = eval_ctx.with_scoped_param_store(store);
+        }
+        if let Some(store) = &scoped_selection_store {
+            eval_ctx = eval_ctx.with_scoped_selection_store(store.clone());
         }
 
         let measurement_clone_start = Instant::now();
@@ -6174,7 +6199,10 @@ impl CompiledPlot {
         // of rebuilding mark data.
         let changed_params_are_profile_retarget_only =
             !changed_params_touch_layout_size && profile_dependencies_match;
+        let selection_revisions_match =
+            layout_profile.selection_revision_fingerprint == current_selection_revision_fingerprint;
         let can_reuse_top_level_data_marks = measurement.child_frame_container_view()?.is_none()
+            && selection_revisions_match
             && (changed_params_are_layout_size_only || changed_params_are_profile_retarget_only);
         let components = if can_reuse_top_level_data_marks {
             if let Some(cached_components) = &layout_profile.rendered_components {
@@ -6252,6 +6280,7 @@ impl CompiledPlot {
                 Some(eval_ctx.facet_tree.clone()),
                 ctx,
                 &eval_ctx.params,
+                current_selection_revision_fingerprint,
                 rendered_components,
                 facet_cell_profiles,
             ))

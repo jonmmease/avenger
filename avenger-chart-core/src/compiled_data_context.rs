@@ -5,7 +5,7 @@ use serde_with::{FromInto, serde_as};
 use datafusion::{dataframe::DataFrame, prelude::SessionContext};
 use datafusion_proto::protobuf::LogicalPlanNode;
 
-use crate::{ChannelValue, LogicalPlanNodeExt, SerializableDataFrame};
+use crate::{ChannelValue, LogicalPlanNodeExt, SelectionClauseData, SerializableDataFrame};
 
 /// Compiled version of DataContext - stores serialized LogicalPlanNode
 /// This is created during plot compilation and is immutable thereafter
@@ -14,6 +14,7 @@ use crate::{ChannelValue, LogicalPlanNodeExt, SerializableDataFrame};
 pub struct CompiledDataContext {
     #[serde_as(as = "Option<FromInto<SerializableDataFrame>>")]
     logical_plan: Option<LogicalPlanNode>,
+    selection_clauses: Option<SelectionClauseData>,
     channels: IndexMap<String, ChannelValue>,
 }
 
@@ -28,6 +29,18 @@ impl CompiledDataContext {
         };
         Self {
             logical_plan,
+            selection_clauses: None,
+            channels,
+        }
+    }
+
+    pub fn new_selection_clauses(
+        selection_clauses: SelectionClauseData,
+        channels: IndexMap<String, ChannelValue>,
+    ) -> Self {
+        Self {
+            logical_plan: None,
+            selection_clauses: Some(selection_clauses),
             channels,
         }
     }
@@ -39,6 +52,7 @@ impl CompiledDataContext {
     ) -> Self {
         Self {
             logical_plan,
+            selection_clauses: None,
             channels,
         }
     }
@@ -46,6 +60,10 @@ impl CompiledDataContext {
     /// Get the serialized LogicalPlanNode directly without deserialization
     pub fn logical_plan_node(&self) -> Option<&LogicalPlanNode> {
         self.logical_plan.as_ref()
+    }
+
+    pub fn selection_clause_data(&self) -> Option<&SelectionClauseData> {
+        self.selection_clauses.as_ref()
     }
 
     /// Get the DataFrame using the provided SessionContext

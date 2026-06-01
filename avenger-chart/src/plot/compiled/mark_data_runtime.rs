@@ -12,9 +12,9 @@ use std::{
 use avenger_common::types::ColorOrGradient;
 use datafusion::{
     arrow::{
-        array::Int32Array,
+        array::{ArrayRef, Int32Array, StructArray, new_empty_array},
         compute::concat_batches,
-        datatypes::{DataType, Field, Schema},
+        datatypes::{DataType, Field, FieldRef, Schema},
         record_batch::RecordBatch,
     },
     common::{DFSchema, ScalarValue},
@@ -22,12 +22,14 @@ use datafusion::{
     logical_expr::{EmptyRelation, Expr, LogicalPlan, lit, when},
     prelude::SessionContext,
 };
+use datafusion_common::tree_node::{Transformed, TreeNode};
 use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    EvaluationContext, MarkDataMode, color::parse_color_string, contains_aggregate,
-    params_to_datafusion,
+    CompiledSelectionSpec, MarkDataMode, SelectionClause, SelectionCombine, SelectionGeometryValue,
+    SelectionPredicateSpec, color::parse_color_string, contains_aggregate, params_to_datafusion,
+    selection_id_from_predicate_placeholder,
 };
 
 use crate::{
@@ -38,7 +40,7 @@ use crate::{
     error::AvengerChartError,
     facet::data_scope::{FacetDataScopeContext, inherited_data_for_scope},
     marks::CompiledMark,
-    render::{EvaluationMetrics, RenderState},
+    render::{EvaluationContext, EvaluationMetrics, RenderState},
     scales::{ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec},
     serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
 };
@@ -149,6 +151,312 @@ fn validate_runtime_aggregate_channels(
     Ok(())
 }
 
+fn expand_selection_predicates_in_channels(
+    channels: IndexMap<String, ChannelValue>,
+    eval_ctx: &EvaluationContext,
+) -> Result<IndexMap<String, ChannelValue>, AvengerChartError> {
+    if eval_ctx.scoped_selection_store.is_none() {
+        return Ok(channels);
+    }
+    let ctx = eval_ctx.session_context.as_ref();
+    let mut updated = IndexMap::new();
+    for (name, value) in channels {
+        let mapped = match value {
+            ChannelValue::Scaled {
+                expr,
+                scale_name,
+                band,
+                scale_config,
+                legend_config,
+                share_mode,
+            } => {
+                let expanded = expand_selection_predicates(expr.to_expr(ctx)?, eval_ctx)?;
+                ChannelValue::Scaled {
+                    expr: LogicalExprNode::from_expr(expanded)?,
+                    scale_name,
+                    band,
+                    scale_config,
+                    legend_config,
+                    share_mode,
+                }
+            }
+            ChannelValue::Value { expr } => {
+                let expanded = expand_selection_predicates(expr.to_expr(ctx)?, eval_ctx)?;
+                ChannelValue::Value {
+                    expr: LogicalExprNode::from_expr(expanded)?,
+                }
+            }
+            ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                legend_config,
+                share_mode,
+            } => {
+                let expanded_conditions = conditions
+                    .into_iter()
+                    .map(|(condition, value)| {
+                        let condition =
+                            expand_selection_predicates(condition.to_expr(ctx)?, eval_ctx)?;
+                        let value = match value {
+                            ConditionalValue::Scaled { expr } => ConditionalValue::Scaled {
+                                expr: LogicalExprNode::from_expr(expand_selection_predicates(
+                                    expr.to_expr(ctx)?,
+                                    eval_ctx,
+                                )?)?,
+                            },
+                            ConditionalValue::Value { expr } => ConditionalValue::Value {
+                                expr: LogicalExprNode::from_expr(expand_selection_predicates(
+                                    expr.to_expr(ctx)?,
+                                    eval_ctx,
+                                )?)?,
+                            },
+                        };
+                        Ok::<_, AvengerChartError>((LogicalExprNode::from_expr(condition)?, value))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let expanded_otherwise = match otherwise {
+                    ConditionalValue::Scaled { expr } => ConditionalValue::Scaled {
+                        expr: LogicalExprNode::from_expr(expand_selection_predicates(
+                            expr.to_expr(ctx)?,
+                            eval_ctx,
+                        )?)?,
+                    },
+                    ConditionalValue::Value { expr } => ConditionalValue::Value {
+                        expr: LogicalExprNode::from_expr(expand_selection_predicates(
+                            expr.to_expr(ctx)?,
+                            eval_ctx,
+                        )?)?,
+                    },
+                };
+                ChannelValue::Conditional {
+                    conditions: expanded_conditions,
+                    otherwise: expanded_otherwise,
+                    scale_config,
+                    legend_config,
+                    share_mode,
+                }
+            }
+        };
+        updated.insert(name, mapped);
+    }
+    Ok(updated)
+}
+
+fn expand_selection_predicates(
+    expr: Expr,
+    eval_ctx: &EvaluationContext,
+) -> Result<Expr, AvengerChartError> {
+    let ctx = eval_ctx.session_context.as_ref();
+    expr.transform(|candidate| {
+        if let Expr::Placeholder(placeholder) = &candidate
+            && let Some(selection_id) = selection_id_from_predicate_placeholder(&placeholder.id)
+        {
+            let replacement = selection_predicate_expr(selection_id, eval_ctx, ctx)
+                .map_err(|err| datafusion::error::DataFusionError::Plan(err.to_string()))?;
+            return Ok(Transformed::yes(replacement));
+        }
+        Ok(Transformed::no(candidate))
+    })
+    .map(|transformed| transformed.data)
+    .map_err(AvengerChartError::DataFusionError)
+}
+
+fn selection_predicate_expr(
+    selection_id: &str,
+    eval_ctx: &EvaluationContext,
+    ctx: &SessionContext,
+) -> Result<Expr, AvengerChartError> {
+    let Some(selection_store) = eval_ctx.scoped_selection_store.as_ref() else {
+        return Ok(lit(false));
+    };
+    let Some(spec) = selection_store.specs().get(selection_id) else {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Selection predicate references unknown selection '{selection_id}'"
+        )));
+    };
+    let clauses = selection_store
+        .states_for_selection(selection_id)
+        .into_iter()
+        .flat_map(|(_, state)| state.clauses.iter())
+        .collect::<Vec<_>>();
+    if clauses.is_empty() {
+        return Ok(lit(matches!(
+            spec.empty,
+            avenger_chart_core::SelectionEmpty::All
+        )));
+    }
+    let mut exprs = clauses
+        .into_iter()
+        .map(|clause| clause_predicate_expr(spec, clause, ctx));
+    let mut result = exprs.next().transpose()?.unwrap_or_else(|| lit(false));
+    for expr in exprs {
+        result = match spec.combine {
+            SelectionCombine::Union => result.or(expr?),
+            SelectionCombine::Intersect => result.and(expr?),
+        };
+    }
+    Ok(result)
+}
+
+fn clause_predicate_expr(
+    spec: &CompiledSelectionSpec,
+    clause: &SelectionClause,
+    ctx: &SessionContext,
+) -> Result<Expr, AvengerChartError> {
+    match &clause.predicate {
+        SelectionPredicateSpec::Range2D {
+            x_field,
+            y_field,
+            x_min,
+            x_max,
+            y_min,
+            y_max,
+        } => {
+            let x = x_field.to_expr(ctx)?;
+            let y = y_field.to_expr(ctx)?;
+            let mut expr = x
+                .clone()
+                .gt_eq(lit(x_min.clone()))
+                .and(x.lt_eq(lit(x_max.clone())))
+                .and(y.clone().gt_eq(lit(y_min.clone())))
+                .and(y.lt_eq(lit(y_max.clone())));
+            for (index, value) in clause.owner_facet_values.iter().enumerate() {
+                if let Some(facet) = spec.facet_context.get(index) {
+                    expr = expr.and(facet.field_expr.to_expr(ctx)?.eq(lit(value.clone())));
+                }
+            }
+            Ok(expr)
+        }
+    }
+}
+
+fn selection_clause_dataframe(
+    data: &avenger_chart_core::SelectionClauseData,
+    facet_data_scope: Option<FacetDataScopeContext<'_>>,
+    eval_ctx: &EvaluationContext,
+) -> Result<DataFrame, AvengerChartError> {
+    let ctx = eval_ctx.session_context.as_ref();
+    let Some(selection_store) = eval_ctx.scoped_selection_store.as_ref() else {
+        let schema = selection_clause_schema(None);
+        return Ok(ctx.read_batch(RecordBatch::new_empty(schema))?);
+    };
+    let spec = selection_store.specs().get(&data.selection_id);
+    let schema = selection_clause_schema(spec);
+    let mut clauses = selection_store
+        .states_for_selection(&data.selection_id)
+        .into_iter()
+        .flat_map(|(_, state)| state.clauses.iter())
+        .collect::<Vec<_>>();
+    if data.matching_current_facet {
+        clauses.retain(|clause| {
+            facet_data_scope
+                .map(|scope| owner_path_matches_cell(&clause.owner_path, scope.full_path))
+                .unwrap_or_else(|| clause.owner_path.is_empty())
+        });
+    }
+    let batch = selection_clause_batch(schema, spec, &data.selection_id, &clauses)?;
+    Ok(ctx.read_batch(batch)?)
+}
+
+fn owner_path_matches_cell(owner_path: &[ScalarValue], cell_path: &[ScalarValue]) -> bool {
+    owner_path.len() <= cell_path.len()
+        && owner_path
+            .iter()
+            .zip(cell_path)
+            .all(|(owner, cell)| owner == cell)
+}
+
+fn selection_clause_schema(spec: Option<&CompiledSelectionSpec>) -> Arc<Schema> {
+    let mut fields = vec![
+        Field::new("selection_id", DataType::Utf8, false),
+        Field::new("clause_id", DataType::Utf8, false),
+        Field::new("source_scope_id", DataType::Utf8, true),
+    ];
+    if let Some(spec) = spec {
+        fields.extend(
+            spec.geometry_schema
+                .fields
+                .iter()
+                .map(|field| field.to_field_ref().as_ref().clone()),
+        );
+    }
+    Arc::new(Schema::new(fields))
+}
+
+fn selection_clause_batch(
+    schema: Arc<Schema>,
+    spec: Option<&CompiledSelectionSpec>,
+    selection_id: &str,
+    clauses: &[&SelectionClause],
+) -> Result<RecordBatch, AvengerChartError> {
+    if clauses.is_empty() {
+        return Ok(RecordBatch::new_empty(schema));
+    }
+    let mut columns: Vec<ArrayRef> = Vec::new();
+    columns.push(ScalarValue::iter_to_array(
+        clauses
+            .iter()
+            .map(|_| ScalarValue::Utf8(Some(selection_id.to_string()))),
+    )?);
+    columns.push(ScalarValue::iter_to_array(
+        clauses
+            .iter()
+            .map(|clause| ScalarValue::Utf8(Some(clause.clause_id.clone()))),
+    )?);
+    columns.push(ScalarValue::iter_to_array(
+        clauses
+            .iter()
+            .map(|clause| ScalarValue::Utf8(clause.source_scope_id.clone())),
+    )?);
+    if let Some(spec) = spec {
+        for field in &spec.geometry_schema.fields {
+            let field = field.to_field_ref();
+            let data_type = field.data_type().clone();
+            let scalars = clauses
+                .iter()
+                .map(|clause| geometry_scalar_for_field(&field, clause.geometry.as_ref()))
+                .collect::<Result<Vec<_>, _>>()?;
+            if scalars.is_empty() {
+                columns.push(new_empty_array(&data_type));
+            } else {
+                columns.push(ScalarValue::iter_to_array(scalars)?);
+            }
+        }
+    }
+    Ok(RecordBatch::try_new(schema, columns)?)
+}
+
+fn geometry_scalar_for_field(
+    field: &FieldRef,
+    geometry: Option<&SelectionGeometryValue>,
+) -> Result<ScalarValue, AvengerChartError> {
+    let data_type = field.data_type();
+    let Some(geometry) = geometry.filter(|geometry| geometry.column_name.as_str() == field.name())
+    else {
+        return Ok(ScalarValue::try_new_null(data_type)?);
+    };
+    let DataType::Struct(fields) = data_type else {
+        return Ok(ScalarValue::try_new_null(data_type)?);
+    };
+    let arrays = fields
+        .iter()
+        .map(|child| {
+            let scalar = geometry
+                .fields
+                .get(child.name())
+                .cloned()
+                .unwrap_or_else(|| ScalarValue::try_new_null(child.data_type()).unwrap());
+            scalar.to_array_of_size(1)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ScalarValue::Struct(Arc::new(StructArray::new(
+        fields.clone(),
+        arrays,
+        None,
+    ))))
+}
+
 fn dataframe_for_mark(
     mark: &dyn CompiledMark,
     plot_data: Option<&LogicalPlanNode>,
@@ -156,7 +464,12 @@ fn dataframe_for_mark(
     facet_data_scope: Option<FacetDataScopeContext<'_>>,
     channels: &IndexMap<String, ChannelValue>,
     ctx: &SessionContext,
+    eval_ctx: &EvaluationContext,
 ) -> Result<Option<DataFrame>, AvengerChartError> {
+    if let Some(selection_clauses) = mark.data_context().selection_clause_data() {
+        return selection_clause_dataframe(selection_clauses, facet_data_scope, eval_ctx).map(Some);
+    }
+
     if mark.state().data_mode == MarkDataMode::Unit {
         return Ok(None);
     }
@@ -205,7 +518,11 @@ pub(crate) async fn prepare_logical_mark_data(
     request: LogicalMarkDataRequest<'_>,
 ) -> Result<PreparedLogicalMarkData, AvengerChartError> {
     let ctx = request.eval_ctx.session_context.as_ref();
-    let channels = resolve_all_channel_refs(request.mark.data_context().channels(), ctx)?;
+    let channels = expand_selection_predicates_in_channels(
+        request.mark.data_context().channels().clone(),
+        request.eval_ctx,
+    )?;
+    let channels = resolve_all_channel_refs(&channels, ctx)?;
     let dataframe = dataframe_for_mark(
         request.mark,
         request.plot_data,
@@ -213,6 +530,7 @@ pub(crate) async fn prepare_logical_mark_data(
         request.facet_data_scope,
         &channels,
         ctx,
+        request.eval_ctx,
     )?;
 
     if !aggregate_channels_need_preparation(&channels, ctx) {
@@ -576,10 +894,13 @@ mod tests {
         theme::Theme,
         zerod::ZeroDCoord,
     };
-    use avenger_chart_core::EvaluationContext;
-
     fn eval_context(session: Arc<SessionContext>) -> EvaluationContext {
-        EvaluationContext::new(Arc::new(Theme::light()), session, IndexMap::new())
+        EvaluationContext::new(
+            Arc::new(Theme::light()),
+            session,
+            IndexMap::new(),
+            Arc::new(EvaluatedFacetTree::empty()),
+        )
     }
 
     fn xy_dataframe(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {

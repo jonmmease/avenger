@@ -14,7 +14,7 @@ use crate::{
     },
     plot::compiled::{
         CompiledPlot, ComponentsMeasurement, PlotComponents,
-        session::plot_profile_dependency_param_fingerprint,
+        session::{SelectionRevisionFingerprint, plot_profile_dependency_param_fingerprint},
     },
 };
 
@@ -25,6 +25,7 @@ pub(crate) struct LayoutProfileSnapshot {
     pub(crate) physical_facet_tree_structure: Option<Vec<String>>,
     pub(crate) logical_facet_tree_structure: Option<Vec<String>>,
     pub(crate) profile_dependency_params: Vec<(String, String)>,
+    pub(crate) selection_revision_fingerprint: SelectionRevisionFingerprint,
     pub(crate) facet_cell_profiles: FacetCellProfileIndex,
     pub(crate) rendered_components: Option<PlotComponents>,
 }
@@ -36,6 +37,7 @@ impl LayoutProfileSnapshot {
         facet_tree: Option<Arc<EvaluatedFacetTree>>,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
+        selection_revision_fingerprint: SelectionRevisionFingerprint,
         rendered_components: Option<PlotComponents>,
         mut facet_cell_profiles: FacetCellProfileIndex,
     ) -> Self {
@@ -61,6 +63,7 @@ impl LayoutProfileSnapshot {
                 ctx,
                 params,
             ),
+            selection_revision_fingerprint,
             facet_cell_profiles,
             rendered_components,
         }
@@ -103,7 +106,7 @@ impl LayoutProfileSnapshot {
         let logical_cell_path = facet_tree.logical_cell_key_for_path(full_path)?;
         let dependency_params =
             plot_profile_dependency_param_fingerprint(compiled_subplot, ctx, params);
-        let key = FacetCellProfileKey::new(
+        let key = FacetCellProfileKey::measurement(
             logical_cell_path,
             compiled_subplot as *const _ as usize,
             dependency_params,
@@ -122,8 +125,16 @@ impl LayoutProfileSnapshot {
         compiled_subplot: &CompiledPlot,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
+        selection_revision_fingerprint: SelectionRevisionFingerprint,
     ) -> Option<PlotComponents> {
-        let key = facet_cell_profile_key(facet_tree, full_path, compiled_subplot, ctx, params)?;
+        let key = facet_cell_rendered_components_profile_key(
+            facet_tree,
+            full_path,
+            compiled_subplot,
+            ctx,
+            params,
+            selection_revision_fingerprint,
+        )?;
         self.facet_cell_profiles.rendered_components(&key)
     }
 }
@@ -135,10 +146,11 @@ pub(crate) struct FacetCellProfileKey {
     logical_cell_path: Vec<String>,
     compiled_subplot_ptr: usize,
     dependency_params: Vec<(String, String)>,
+    selection_revision_fingerprint: SelectionRevisionFingerprint,
 }
 
 impl FacetCellProfileKey {
-    pub(crate) fn new(
+    pub(crate) fn measurement(
         logical_cell_path: Vec<String>,
         compiled_subplot_ptr: usize,
         dependency_params: Vec<(String, String)>,
@@ -147,24 +159,41 @@ impl FacetCellProfileKey {
             logical_cell_path,
             compiled_subplot_ptr,
             dependency_params,
+            selection_revision_fingerprint: Vec::new(),
+        }
+    }
+
+    pub(crate) fn rendered_components(
+        logical_cell_path: Vec<String>,
+        compiled_subplot_ptr: usize,
+        dependency_params: Vec<(String, String)>,
+        selection_revision_fingerprint: SelectionRevisionFingerprint,
+    ) -> Self {
+        Self {
+            logical_cell_path,
+            compiled_subplot_ptr,
+            dependency_params,
+            selection_revision_fingerprint,
         }
     }
 }
 
-fn facet_cell_profile_key(
+fn facet_cell_rendered_components_profile_key(
     facet_tree: &EvaluatedFacetTree,
     full_path: &[ScalarValue],
     compiled_subplot: &CompiledPlot,
     ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
+    selection_revision_fingerprint: SelectionRevisionFingerprint,
 ) -> Option<FacetCellProfileKey> {
     let logical_cell_path = facet_tree.logical_cell_key_for_path(full_path)?;
     let dependency_params =
         plot_profile_dependency_param_fingerprint(compiled_subplot, ctx, params);
-    Some(FacetCellProfileKey::new(
+    Some(FacetCellProfileKey::rendered_components(
         logical_cell_path,
         compiled_subplot as *const _ as usize,
         dependency_params,
+        selection_revision_fingerprint,
     ))
 }
 
@@ -244,7 +273,7 @@ impl FacetCellProfileIndex {
             else {
                 continue;
             };
-            let key = FacetCellProfileKey::new(
+            let key = FacetCellProfileKey::measurement(
                 logical_cell_path,
                 compiled_subplot_ptr,
                 dependency_params.clone(),
@@ -260,11 +289,17 @@ impl FacetCellProfileIndex {
         compiled_subplot: &CompiledPlot,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
+        selection_revision_fingerprint: SelectionRevisionFingerprint,
         components: PlotComponents,
     ) {
-        if let Some(key) =
-            facet_cell_profile_key(facet_tree, full_path, compiled_subplot, ctx, params)
-        {
+        if let Some(key) = facet_cell_rendered_components_profile_key(
+            facet_tree,
+            full_path,
+            compiled_subplot,
+            ctx,
+            params,
+            selection_revision_fingerprint,
+        ) {
             self.profiles.entry(key).or_default().rendered_components = Some(components);
         }
     }

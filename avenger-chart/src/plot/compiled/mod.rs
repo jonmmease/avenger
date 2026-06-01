@@ -91,10 +91,11 @@ pub(crate) use self::mark_data_runtime::{
 };
 pub use self::session::{
     EvaluationRequest, PlotSession, ScopedParamAssignment, ScopedParamStoreSnapshot,
+    ScopedSelectionAssignment,
 };
 pub(crate) use self::session::{
     GuideOverflowCacheHandle, LegendMeasurementCacheHandle, ScaleDomainCacheHandle,
-    ScopedParamStore, TextMeasurementCacheHandle, TextMeasurementCacheKey,
+    ScopedParamStore, ScopedSelectionStore, TextMeasurementCacheHandle, TextMeasurementCacheKey,
 };
 
 use super::title::{PlotSubtitle, PlotTitle};

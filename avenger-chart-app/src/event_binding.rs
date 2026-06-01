@@ -10,13 +10,17 @@ use avenger_chart::{
         self, ChartEventAssignmentScope, ChartEventBinding, ChartEventEvaluationMode,
         ChartEventStream, ChartEventType, InteractionColumnRequests,
     },
-    plot::{CompiledPlot, ScopedParamAssignment, ScopedParamStoreSnapshot},
+    plot::{
+        CompiledPlot, ScopedParamAssignment, ScopedParamStoreSnapshot, ScopedSelectionAssignment,
+    },
     render::{EvaluatedInteractionScope, EvaluationMode},
     serialization::LogicalExprNodeExt,
 };
 use avenger_chart_core::{
-    CompiledParamSpec, CompiledScalarExpressionProgram, InteractionPointInversionRequest,
-    PhysicalScalarExpressionSpec, PhysicalScalarProgramOptions, PlaceholderColumn, Sharing,
+    CompiledParamSpec, CompiledScalarExpressionProgram, CompiledSelectionSpec,
+    InteractionPointInversionRequest, PhysicalScalarExpressionSpec, PhysicalScalarProgramOptions,
+    PlaceholderColumn, SelectionClause, SelectionGeometryValue, SelectionPredicateSpec,
+    SelectionPredicateUpdate, SelectionStateUpdate, SelectionUpdateKind, Sharing,
     collect_placeholder_ids, one_row_batch_from_scalars, schema_from_fields,
 };
 use avenger_common::cursor::CursorStyle;
@@ -58,6 +62,7 @@ pub(crate) fn event_streams_for_plot_bindings(
         compiled_plot.event_bindings(),
         ctx,
         compiled_plot.param_specs(),
+        compiled_plot.selection_specs(),
         compiled_plot.cursor_params(),
     )
 }
@@ -66,6 +71,7 @@ pub(crate) fn event_streams_for_bindings(
     bindings: &[ChartEventBinding],
     ctx: &SessionContext,
     param_specs: &IndexMap<String, CompiledParamSpec>,
+    selection_specs: &IndexMap<String, CompiledSelectionSpec>,
     cursor_params: &[String],
 ) -> Result<
     Vec<(
@@ -81,6 +87,7 @@ pub(crate) fn event_streams_for_bindings(
             binding,
             ctx,
             param_specs,
+            selection_specs,
             cursor_params,
         )?);
         streams.push((
@@ -112,6 +119,7 @@ struct CompiledChartEventBinding {
     program: CompiledScalarExpressionProgram,
     filter_count: usize,
     assignments: Vec<CompiledParamAssignment>,
+    selection_assignments: Vec<CompiledSelectionAssignment>,
     evaluation_mode: ChartEventEvaluationMode,
     interaction_requests: InteractionColumnRequests,
     cursor_params: Arc<HashSet<String>>,
@@ -125,12 +133,33 @@ struct CompiledParamAssignment {
     replace_scoped_values: bool,
 }
 
+struct CompiledSelectionAssignment {
+    selection_id: String,
+    sharing: Sharing,
+    scope: ChartEventAssignmentScope,
+    kind: SelectionUpdateKind,
+    capture_facet_context: bool,
+    output: CompiledSelectionOutput,
+}
+
+enum CompiledSelectionOutput {
+    Clear,
+    Range2D {
+        x_field: datafusion_proto::protobuf::LogicalExprNode,
+        y_field: datafusion_proto::protobuf::LogicalExprNode,
+        geometry_column: Option<String>,
+        geometry_fields: Vec<String>,
+        value_start: usize,
+    },
+}
+
 impl CompiledChartEventBinding {
     fn compile(
         binding_index: usize,
         binding: &ChartEventBinding,
         ctx: &SessionContext,
         param_specs: &IndexMap<String, CompiledParamSpec>,
+        selection_specs: &IndexMap<String, CompiledSelectionSpec>,
         cursor_params: &[String],
     ) -> Result<Self, AvengerAppError> {
         binding
@@ -141,6 +170,14 @@ impl CompiledChartEventBinding {
                 return Err(AvengerAppError::InternalError(format!(
                     "Chart event binding assigns unknown param '{}'",
                     assignment.param_name
+                )));
+            }
+        }
+        for assignment in &binding.selection_assignments {
+            if !selection_specs.contains_key(&assignment.selection_id) {
+                return Err(AvengerAppError::InternalError(format!(
+                    "Chart event binding updates unknown selection '{}'",
+                    assignment.selection_id
                 )));
             }
         }
@@ -168,10 +205,98 @@ impl CompiledChartEventBinding {
                 assignment.replace_scoped_values,
             ));
         }
+        let mut selection_exprs = Vec::new();
+        for assignment in &binding.selection_assignments {
+            let selection = selection_specs
+                .get(&assignment.selection_id)
+                .expect("selection assignment validated");
+            let clause_update = assignment
+                .update
+                .as_clause_update(selection)
+                .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
+            let mut expressions = Vec::new();
+            let output = match (&assignment.update.kind, clause_update) {
+                (SelectionUpdateKind::Clear, _) => CompiledSelectionOutput::Clear,
+                (_, Some(clause)) => match clause.predicate {
+                    SelectionPredicateUpdate::Range2D {
+                        x_field,
+                        y_field,
+                        x_range,
+                        y_range,
+                    } => {
+                        let x_range = x_range
+                            .expr
+                            .to_expr(ctx)
+                            .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
+                        let y_range = y_range
+                            .expr
+                            .to_expr(ctx)
+                            .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
+                        expressions
+                            .push(("x_min".to_string(), event::interval_start(x_range.clone())));
+                        expressions.push(("x_max".to_string(), event::interval_end(x_range)));
+                        expressions
+                            .push(("y_min".to_string(), event::interval_start(y_range.clone())));
+                        expressions.push(("y_max".to_string(), event::interval_end(y_range)));
+                        let geometry_column =
+                            clause.geometry.as_ref().map(|g| g.column_name.clone());
+                        let mut geometry_fields = Vec::new();
+                        if let Some(geometry) = clause.geometry {
+                            for (field, expr) in geometry.fields {
+                                geometry_fields.push(field.clone());
+                                expressions.push((
+                                    format!("geometry_{field}"),
+                                    expr.expr.to_expr(ctx).map_err(|err| {
+                                        AvengerAppError::InternalError(err.to_string())
+                                    })?,
+                                ));
+                            }
+                        }
+                        CompiledSelectionOutput::Range2D {
+                            x_field,
+                            y_field,
+                            geometry_column,
+                            geometry_fields,
+                            value_start: 0,
+                        }
+                    }
+                },
+                (_, None) => CompiledSelectionOutput::Clear,
+            };
+            selection_exprs.push((
+                assignment.selection_id.clone(),
+                selection.sharing,
+                assignment.scope,
+                assignment.update.kind.clone(),
+                assignment.update.capture_facet_context,
+                output,
+                expressions,
+            ));
+        }
 
         let mut scan_exprs = filter_exprs.clone();
         scan_exprs.extend(assignment_exprs.iter().map(|(_, expr, _, _)| expr.clone()));
-        let interaction_requests = event::scan_interaction_columns(&scan_exprs);
+        for (_, _, _, _, _, _, exprs) in &selection_exprs {
+            scan_exprs.extend(exprs.iter().map(|(_, expr)| expr.clone()));
+        }
+        let mut interaction_requests = event::scan_interaction_columns(&scan_exprs);
+        for (selection_id, sharing, scope, _, capture_facet_context, _, _) in &selection_exprs {
+            if sharing.to_level() != u8::MAX {
+                match scope {
+                    ChartEventAssignmentScope::Current => {
+                        interaction_requests.current_scope_id = true;
+                    }
+                    ChartEventAssignmentScope::Start => {
+                        interaction_requests.start_scope_id = true;
+                    }
+                }
+            }
+            if *capture_facet_context && let Some(selection) = selection_specs.get(selection_id) {
+                for index in 0..selection.facet_context.len() {
+                    interaction_requests.start_facet_values.insert(index);
+                }
+            }
+        }
 
         let schema = event_schema(param_specs, &interaction_requests);
         let allowed_columns = schema
@@ -210,6 +335,48 @@ impl CompiledChartEventBinding {
                 replace_scoped_values,
             });
         }
+        let mut selection_assignments = Vec::new();
+        for (selection_id, sharing, scope, kind, capture_facet_context, output, exprs) in
+            selection_exprs
+        {
+            let output = match output {
+                CompiledSelectionOutput::Clear => CompiledSelectionOutput::Clear,
+                CompiledSelectionOutput::Range2D {
+                    x_field,
+                    y_field,
+                    geometry_column,
+                    geometry_fields,
+                    value_start: _,
+                } => {
+                    let value_start = specs.len().saturating_sub(filter_count);
+                    for (name, expr) in exprs {
+                        specs.push(
+                            PhysicalScalarExpressionSpec::new(
+                                format!("selection_{selection_id}_{name}"),
+                                expr,
+                            )
+                            .with_expected_type(DataType::Float64)
+                            .with_nullable_cast(),
+                        );
+                    }
+                    CompiledSelectionOutput::Range2D {
+                        x_field,
+                        y_field,
+                        geometry_column,
+                        geometry_fields,
+                        value_start,
+                    }
+                }
+            };
+            selection_assignments.push(CompiledSelectionAssignment {
+                selection_id,
+                sharing,
+                scope,
+                kind,
+                capture_facet_context,
+                output,
+            });
+        }
         let program = CompiledScalarExpressionProgram::compile(
             ctx,
             schema,
@@ -227,6 +394,7 @@ impl CompiledChartEventBinding {
             program,
             filter_count,
             assignments,
+            selection_assignments,
             evaluation_mode: binding.evaluation_mode,
             interaction_requests,
             cursor_params: Arc::new(cursor_params.iter().cloned().collect()),
@@ -481,6 +649,94 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             }
         }
 
+        let mut selection_patch: Vec<ScopedSelectionAssignment> = Vec::new();
+        for assignment in &self.runtime.selection_assignments {
+            let assignment_scope = match assignment.scope {
+                ChartEventAssignmentScope::Current => current_scope.as_ref(),
+                ChartEventAssignmentScope::Start => start_scope.as_ref(),
+            };
+            let Some(owner_path) = assignment_owner_path(assignment.sharing, assignment_scope)
+            else {
+                tracing::debug!(
+                    target: "avenger_chart_app::event_binding",
+                    binding = self.runtime.binding_index,
+                    selection = %assignment.selection_id,
+                    "skipping scoped selection assignment with no routed scope"
+                );
+                continue;
+            };
+            let update = match &assignment.output {
+                CompiledSelectionOutput::Clear => SelectionStateUpdate::Clear,
+                CompiledSelectionOutput::Range2D {
+                    x_field,
+                    y_field,
+                    geometry_column,
+                    geometry_fields,
+                    value_start,
+                } => {
+                    let start = self.runtime.filter_count + *value_start;
+                    let Some(values_for_selection) =
+                        values.get(start..start + 4 + geometry_fields.len())
+                    else {
+                        continue;
+                    };
+                    if values_for_selection.iter().any(|value| value.is_null()) {
+                        continue;
+                    }
+                    let x_min = values_for_selection[0].clone();
+                    let x_max = values_for_selection[1].clone();
+                    let y_min = values_for_selection[2].clone();
+                    let y_max = values_for_selection[3].clone();
+                    let geometry = geometry_column.as_ref().map(|column_name| {
+                        let mut fields = IndexMap::new();
+                        fields.insert("x_min".to_string(), x_min.clone());
+                        fields.insert("x_max".to_string(), x_max.clone());
+                        fields.insert("y_min".to_string(), y_min.clone());
+                        fields.insert("y_max".to_string(), y_max.clone());
+                        for (field, value) in
+                            geometry_fields.iter().zip(values_for_selection[4..].iter())
+                        {
+                            fields.insert(field.clone(), value.clone());
+                        }
+                        SelectionGeometryValue {
+                            column_name: column_name.clone(),
+                            fields,
+                        }
+                    });
+                    let owner_facet_values = if assignment.capture_facet_context {
+                        owner_path.clone()
+                    } else {
+                        Vec::new()
+                    };
+                    let source_scope_id = assignment_scope.map(|scope| scope.scope_id.clone());
+                    let clause = SelectionClause {
+                        clause_id: String::new(),
+                        source_scope_id,
+                        predicate: SelectionPredicateSpec::Range2D {
+                            x_field: x_field.clone(),
+                            y_field: y_field.clone(),
+                            x_min,
+                            x_max,
+                            y_min,
+                            y_max,
+                        },
+                        geometry,
+                        owner_path: owner_path.clone(),
+                        owner_facet_values,
+                    };
+                    match assignment.kind {
+                        SelectionUpdateKind::AddClause => SelectionStateUpdate::AddClause(clause),
+                        _ => SelectionStateUpdate::ReplaceClause(clause),
+                    }
+                }
+            };
+            selection_patch.push(ScopedSelectionAssignment {
+                selection_id: assignment.selection_id.clone(),
+                owner_path,
+                update,
+            });
+        }
+
         let cursor = cursor_from_patch(&patch, &self.runtime.cursor_params);
         let visual_patch_count = patch
             .iter()
@@ -492,6 +748,12 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             app.event_metrics.params_patched += patch.len();
             app.session.apply_scoped_param_patch(patch);
         }
+        let selection_changed = if selection_patch.is_empty() {
+            false
+        } else {
+            app.session.apply_scoped_selection_patch(selection_patch)
+        };
+        should_rerender |= selection_changed;
         if self.runtime.assignments.is_empty()
             && self.runtime.evaluation_mode == ChartEventEvaluationMode::Exact
         {
@@ -1755,6 +2017,7 @@ mod tests {
             &compiled.event_bindings()[binding_index],
             ctx,
             compiled.param_specs(),
+            compiled.selection_specs(),
             compiled.cursor_params(),
         )
         .expect("compile binding runtime");
@@ -1861,6 +2124,7 @@ mod tests {
             &compiled.event_bindings()[release_index],
             &ctx,
             compiled.param_specs(),
+            compiled.selection_specs(),
             compiled.cursor_params(),
         )
         .expect("compile release binding runtime");
@@ -1869,6 +2133,7 @@ mod tests {
             &compiled.event_bindings()[reset_index],
             &ctx,
             compiled.param_specs(),
+            compiled.selection_specs(),
             compiled.cursor_params(),
         )
         .expect("compile reset binding runtime");
@@ -2359,6 +2624,7 @@ mod tests {
             compiled.event_bindings().first().unwrap(),
             &ctx,
             compiled.param_specs(),
+            compiled.selection_specs(),
             compiled.cursor_params(),
         )
         .expect("compile binding runtime");
@@ -2386,6 +2652,7 @@ mod tests {
             compiled.event_bindings().first().unwrap(),
             &ctx,
             compiled.param_specs(),
+            compiled.selection_specs(),
             compiled.cursor_params(),
         )
         .expect("compile reset binding runtime");
@@ -2450,6 +2717,7 @@ mod tests {
             compiled.event_bindings().first().unwrap(),
             &ctx,
             compiled.param_specs(),
+            compiled.selection_specs(),
             compiled.cursor_params(),
         )
         .expect("compile cursor binding runtime");
@@ -2484,7 +2752,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn selection_update_lowers_to_hidden_param_patch() {
+    async fn selection_update_writes_selection_state() {
         let ctx = SessionContext::new();
         let binding = ChartEventBinding::on(ChartEventType::CanvasResize)
             .set_selection(
@@ -2498,6 +2766,7 @@ mod tests {
             .add_selection(
                 Selection::single("brush")
                     .empty(SelectionEmpty::None)
+                    .sharing(Sharing::Shared)
                     .interval_xy("x", "y"),
             )
             .event_binding(binding)
@@ -2505,7 +2774,7 @@ mod tests {
             .await
             .expect("compile selection binding plot");
         assert!(
-            compiled
+            !compiled
                 .param_specs()
                 .contains_key("__selection_brush__active")
         );
@@ -2514,6 +2783,7 @@ mod tests {
             compiled.event_bindings().first().unwrap(),
             &ctx,
             compiled.param_specs(),
+            compiled.selection_specs(),
             compiled.cursor_params(),
         )
         .expect("compile selection binding runtime");
@@ -2537,18 +2807,36 @@ mod tests {
             .await;
 
         assert!(status.rerender);
-        let params = state.params().await;
+        assert!(!status.rebuild_geometry);
+        let runtime = state.runtime.lock().await;
+        assert_eq!(runtime.next_evaluation_mode, EvaluationMode::Preview);
+        let states = runtime.session.selection_states_for_diagnostics("brush");
+        assert_eq!(states.len(), 1);
+        assert!(states[0].0.is_empty(), "top-level selection is root-owned");
+        let clauses = &states[0].1.clauses;
+        assert_eq!(clauses.len(), 1);
+        match &clauses[0].predicate {
+            SelectionPredicateSpec::Range2D {
+                x_min,
+                x_max,
+                y_min,
+                y_max,
+                ..
+            } => {
+                assert_eq!(x_min, &ScalarValue::Float64(Some(1.0)));
+                assert_eq!(x_max, &ScalarValue::Float64(Some(4.0)));
+                assert_eq!(y_min, &ScalarValue::Float64(Some(2.0)));
+                assert_eq!(y_max, &ScalarValue::Float64(Some(5.0)));
+            }
+        }
+        let geometry = clauses[0]
+            .geometry
+            .as_ref()
+            .expect("cartesian rect geometry");
+        assert_eq!(geometry.column_name, CARTESIAN_RECT_GEOMETRY_COLUMN);
         assert_eq!(
-            params.get("__selection_brush__active"),
-            Some(&ScalarValue::Boolean(Some(true)))
-        );
-        assert_eq!(
-            params.get("__selection_brush__x_min"),
+            geometry.fields.get("x_min"),
             Some(&ScalarValue::Float64(Some(1.0)))
-        );
-        assert_eq!(
-            params.get("__selection_brush__x_max"),
-            Some(&ScalarValue::Float64(Some(4.0)))
         );
     }
 
@@ -2585,6 +2873,7 @@ mod tests {
             compiled.event_bindings().first().unwrap(),
             &ctx,
             compiled.param_specs(),
+            compiled.selection_specs(),
             compiled.cursor_params(),
         )
         .expect("compile selection binding runtime");
@@ -2597,6 +2886,9 @@ mod tests {
         };
         let mut scope = coord_scope(0, 0.0, 0.0, 100.0, 100.0, &["x", "y"]);
         scope.logical_facet_values = vec![ScalarValue::Utf8(Some("Beta".to_string()))];
+        scope
+            .sharing_owner_paths
+            .insert(0, vec![ScalarValue::Utf8(Some("Beta".to_string()))]);
         {
             let mut app = state.runtime.lock().await;
             app.last_interaction_state.scopes = vec![scope];
@@ -2634,17 +2926,22 @@ mod tests {
 
         assert!(
             status.rerender,
-            "selection update should patch hidden params"
+            "selection update should mutate selection state"
         );
-        let params = state.params().await;
+        let runtime = state.runtime.lock().await;
+        let states = runtime.session.selection_states_for_diagnostics("brush");
+        assert_eq!(states.len(), 1);
         assert_eq!(
-            params.get("__selection_brush__active"),
-            Some(&ScalarValue::Boolean(Some(true)))
+            states[0].0,
+            vec![ScalarValue::Utf8(Some("Beta".to_string()))]
         );
+        let clauses = &states[0].1.clauses;
+        assert_eq!(clauses.len(), 1);
         assert_eq!(
-            params.get("__selection_brush__facet_group_name"),
-            Some(&ScalarValue::Utf8(Some("Beta".to_string())))
+            clauses[0].owner_facet_values,
+            vec![ScalarValue::Utf8(Some("Beta".to_string()))]
         );
+        assert_eq!(clauses[0].source_scope_id, Some("test-scope-0".to_string()));
     }
 
     #[tokio::test]
@@ -2901,6 +3198,7 @@ mod tests {
             compiled.event_bindings().first().unwrap(),
             &ctx,
             compiled.param_specs(),
+            compiled.selection_specs(),
             compiled.cursor_params(),
         ) {
             Ok(_) => panic!("param columns should be rejected in low-level filters"),
@@ -2938,6 +3236,7 @@ mod tests {
             compiled.event_bindings().first().unwrap(),
             &ctx,
             compiled.param_specs(),
+            compiled.selection_specs(),
             compiled.cursor_params(),
         )
         .expect("compile binding runtime");
@@ -2979,6 +3278,7 @@ mod tests {
             compiled.event_bindings().first().unwrap(),
             &ctx,
             compiled.param_specs(),
+            compiled.selection_specs(),
             compiled.cursor_params(),
         )
         .expect("compile binding runtime");

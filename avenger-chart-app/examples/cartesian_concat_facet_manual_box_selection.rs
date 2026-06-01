@@ -13,7 +13,10 @@ use avenger_chart_app::{
     ChartAppOptions, ChartResizeBinding, WinitWgpuAvengerApp, WinitWgpuAvengerAppOptions,
     chart_avenger_app,
 };
-use datafusion::prelude::{Expr, SessionContext, col, lit, when};
+use datafusion::{
+    common::Column,
+    prelude::{Expr, SessionContext, col, get_field, lit, when},
+};
 use winit::window::WindowAttributes;
 
 fn main() {
@@ -51,21 +54,16 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .facet_context_field("group_name", col("group_name"));
     let selected = brush.predicate();
 
-    let overlay_active = Param::new("brush_overlay_active", false);
-    let brush_x0 = Param::new("brush_x0", 0.0);
-    let brush_y0 = Param::new("brush_y0", 0.0);
-    let brush_x1 = Param::new("brush_x1", 0.0);
-    let brush_y1 = Param::new("brush_y1", 0.0);
     let cursor = Param::cursor("brush_cursor", CursorStyle::Default);
 
+    let rect = col(Column::new_unqualified(CARTESIAN_RECT_GEOMETRY_COLUMN));
     let overlay = Rect::<Cartesian>::new()
-        .unit_data()
+        .selection_clauses(brush.clauses().matching_current_facet())
         .exclude_from_scale_domains()
-        .visible(overlay_active.expr())
-        .x(brush_x0.expr())
-        .x2_with(brush_x1.expr(), |c| c.with_scale_name("x"))
-        .y(brush_y0.expr())
-        .y2_with(brush_y1.expr(), |c| c.with_scale_name("y"))
+        .x(get_field(rect.clone(), "x_min"))
+        .x2_with(get_field(rect.clone(), "x_max"), |c| c.with_scale_name("x"))
+        .y(get_field(rect.clone(), "y_min"))
+        .y2_with(get_field(rect, "y_max"), |c| c.with_scale_name("y"))
         .fill("rgba(37, 99, 235, 0.08)")
         .stroke("#2563eb")
         .stroke_width(1.5)
@@ -88,33 +86,14 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let plot = Plot::<HConcat>::new()
         .canvas_size(1120.0, 520.0)
         .add_selection(brush)
-        .add_param_with_sharing(overlay_active.clone(), Sharing::Free)
-        .add_param_with_sharing(brush_x0.clone(), Sharing::Free)
-        .add_param_with_sharing(brush_y0.clone(), Sharing::Free)
-        .add_param_with_sharing(brush_x1.clone(), Sharing::Free)
-        .add_param_with_sharing(brush_y1.clone(), Sharing::Free)
         .add_param(cursor.clone())
         .cursor_param(cursor.name.clone())
         .mark(Subplot::new(faceted).key("faceted").label("Faceted"))
         .mark(Subplot::new(all_points).key("all").label("All rows"))
         .event_binding(cursor_binding(&cursor))
-        .event_binding(selection_start_binding(
-            &overlay_active,
-            &brush_x0,
-            &brush_y0,
-            &brush_x1,
-            &brush_y1,
-        ))
-        .event_binding(selection_drag_binding(
-            &cursor,
-            &overlay_active,
-            &brush_x0,
-            &brush_y0,
-            &brush_x1,
-            &brush_y1,
-        ))
-        .event_binding(selection_release_binding(&overlay_active))
-        .event_binding(selection_clear_binding(&overlay_active));
+        .event_binding(selection_drag_binding(&cursor))
+        .event_binding(selection_release_binding())
+        .event_binding(selection_clear_binding());
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(
@@ -166,36 +145,7 @@ fn cursor_binding(cursor: &Param) -> ChartEventBinding {
         .preview()
 }
 
-#[allow(clippy::too_many_arguments)]
-fn selection_start_binding(
-    active: &Param,
-    x0: &Param,
-    y0: &Param,
-    x1: &Param,
-    y1: &Param,
-) -> ChartEventBinding {
-    ChartEventBinding::on(ChartEventType::MouseDown)
-        .filter(ev::button().eq(lit("left")))
-        .filter(ev::event_coord("x").is_not_null())
-        .filter(ev::event_coord("y").is_not_null())
-        .filter(selectable_scope())
-        .set_param_replacing_scopes(active, lit(true))
-        .set_param(x0, ev::event_coord("x"))
-        .set_param(y0, ev::event_coord("y"))
-        .set_param(x1, ev::event_coord("x"))
-        .set_param(y1, ev::event_coord("y"))
-        .preview()
-}
-
-#[allow(clippy::too_many_arguments)]
-fn selection_drag_binding(
-    cursor: &Param,
-    active: &Param,
-    x0: &Param,
-    y0: &Param,
-    x1: &Param,
-    y1: &Param,
-) -> ChartEventBinding {
+fn selection_drag_binding(cursor: &Param) -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::CursorMoved)
         .between(
             ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
@@ -207,16 +157,11 @@ fn selection_drag_binding(
         .filter(ev::event_at_start_clipped_coord("x").is_not_null())
         .filter(ev::event_at_start_clipped_coord("y").is_not_null())
         .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
-        .set_param_at_start_scope(active, lit(true))
-        .set_param_at_start_scope(x0, ev::start_coord("x"))
-        .set_param_at_start_scope(y0, ev::start_coord("y"))
-        .set_param_at_start_scope(x1, ev::event_at_start_clipped_coord("x"))
-        .set_param_at_start_scope(y1, ev::event_at_start_clipped_coord("y"))
         .set_selection_at_start_scope("brush", selection_update_from_drag())
         .preview()
 }
 
-fn selection_release_binding(active: &Param) -> ChartEventBinding {
+fn selection_release_binding() -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::MouseUp)
         .between(
             ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
@@ -228,15 +173,13 @@ fn selection_release_binding(active: &Param) -> ChartEventBinding {
         .filter(ev::start_coord("y").is_not_null())
         .filter(ev::event_at_start_clipped_coord("x").is_not_null())
         .filter(ev::event_at_start_clipped_coord("y").is_not_null())
-        .set_param_at_start_scope(active, lit(true))
         .set_selection_at_start_scope("brush", selection_update_from_drag())
         .exact()
 }
 
-fn selection_clear_binding(active: &Param) -> ChartEventBinding {
+fn selection_clear_binding() -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::DoubleClick)
         .filter(selectable_scope())
-        .set_param_replacing_scopes(active, lit(false))
         .set_selection("brush", SelectionUpdate::clear())
         .exact()
 }

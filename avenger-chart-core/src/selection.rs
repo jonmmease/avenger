@@ -1,8 +1,7 @@
-use std::ops::Not;
+use std::sync::Arc;
 
 use datafusion::{
-    arrow::datatypes::DataType,
-    logical_expr::cast,
+    arrow::datatypes::{DataType, Field, FieldRef, Fields},
     logical_expr::expr::Placeholder,
     prelude::{Expr, SessionContext, col, lit},
     scalar::ScalarValue,
@@ -14,7 +13,7 @@ use serde_with::{FromInto, serde_as};
 
 use crate::{
     AvengerChartError, CompiledParamSpec, DefaultLogicalExprNodeExt, IntoExpr, Param,
-    SerializableExpr,
+    SerializableDataType, SerializableExpr, Sharing,
     event::{
         ChartEventParamAssignment, ChartEventSelectionAssignment, interval_end, interval_start,
     },
@@ -29,6 +28,82 @@ pub enum SelectionResolution {
 pub enum SelectionEmpty {
     All,
     None,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SelectionCombine {
+    #[default]
+    Union,
+    Intersect,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SelectionGeometryFieldSpec {
+    pub name: String,
+    #[serde_as(as = "FromInto<SerializableDataType>")]
+    pub data_type: DataType,
+    pub nullable: bool,
+}
+
+impl SelectionGeometryFieldSpec {
+    pub fn to_field_ref(&self) -> FieldRef {
+        Arc::new(Field::new(
+            self.name.clone(),
+            self.data_type.clone(),
+            self.nullable,
+        ))
+    }
+}
+
+impl From<FieldRef> for SelectionGeometryFieldSpec {
+    fn from(field: FieldRef) -> Self {
+        Self {
+            name: field.name().clone(),
+            data_type: field.data_type().clone(),
+            nullable: field.is_nullable(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SelectionGeometrySchema {
+    #[serde(default)]
+    pub fields: Vec<SelectionGeometryFieldSpec>,
+}
+
+impl SelectionGeometrySchema {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn field(mut self, field: FieldRef) -> Self {
+        self.fields.push(field.into());
+        self
+    }
+
+    pub fn cartesian_rect() -> Self {
+        Self::new().field(cartesian_rect_field())
+    }
+
+    pub fn field_named(&self, name: &str) -> Option<&SelectionGeometryFieldSpec> {
+        self.fields.iter().find(|field| field.name == name)
+    }
+}
+
+pub const CARTESIAN_RECT_GEOMETRY_COLUMN: &str = "CartesianRect";
+
+pub fn cartesian_rect_field() -> FieldRef {
+    Arc::new(Field::new(
+        CARTESIAN_RECT_GEOMETRY_COLUMN,
+        DataType::Struct(Fields::from(vec![
+            Field::new("x_min", DataType::Float64, true),
+            Field::new("x_max", DataType::Float64, true),
+            Field::new("y_min", DataType::Float64, true),
+            Field::new("y_max", DataType::Float64, true),
+        ])),
+        true,
+    ))
 }
 
 #[serde_as]
@@ -58,17 +133,30 @@ pub struct Selection {
     pub id: String,
     pub resolution: SelectionResolution,
     pub empty: SelectionEmpty,
+    #[serde(default)]
+    pub combine: SelectionCombine,
+    #[serde(default = "default_selection_sharing")]
+    pub sharing: Sharing,
+    #[serde(default)]
+    pub geometry_schema: SelectionGeometrySchema,
     pub dimensions: Vec<SelectionDimensionSpec>,
     #[serde(default)]
     pub facet_context: Vec<SelectionFacetContextSpec>,
 }
 
 impl Selection {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self::single(id)
+    }
+
     pub fn single(id: impl Into<String>) -> Self {
         Self {
             id: id.into(),
             resolution: SelectionResolution::Single,
             empty: SelectionEmpty::None,
+            combine: SelectionCombine::Union,
+            sharing: Sharing::Free,
+            geometry_schema: SelectionGeometrySchema::default(),
             dimensions: Vec::new(),
             facet_context: Vec::new(),
         }
@@ -76,6 +164,21 @@ impl Selection {
 
     pub fn empty(mut self, empty: SelectionEmpty) -> Self {
         self.empty = empty;
+        self
+    }
+
+    pub fn combine(mut self, combine: SelectionCombine) -> Self {
+        self.combine = combine;
+        self
+    }
+
+    pub fn sharing(mut self, sharing: Sharing) -> Self {
+        self.sharing = sharing;
+        self
+    }
+
+    pub fn geometry(mut self, schema: SelectionGeometrySchema) -> Self {
+        self.geometry_schema = schema;
         self
     }
 
@@ -96,6 +199,13 @@ impl Selection {
                 field_expr: None,
             },
         ];
+        if self
+            .geometry_schema
+            .field_named(CARTESIAN_RECT_GEOMETRY_COLUMN)
+            .is_none()
+        {
+            self.geometry_schema = self.geometry_schema.field(cartesian_rect_field());
+        }
         self
     }
 
@@ -116,6 +226,13 @@ impl Selection {
                 field_expr: Some(expr_node(y.1.into_expr(), "selection y field")),
             },
         ];
+        if self
+            .geometry_schema
+            .field_named(CARTESIAN_RECT_GEOMETRY_COLUMN)
+            .is_none()
+        {
+            self.geometry_schema = self.geometry_schema.field(cartesian_rect_field());
+        }
         self
     }
 
@@ -128,34 +245,14 @@ impl Selection {
     }
 
     pub fn predicate(&self) -> Expr {
-        let lowered = SelectionLoweredParams::with_facet_context(
-            &self.id,
-            self.facet_context.iter().map(|facet| facet.id.as_str()),
-        );
-        selection_predicate_expr(
-            param_expr(&lowered.active, DataType::Boolean).eq(lit(true)),
-            self.dimension_value_expr("x"),
-            self.dimension_value_expr("y"),
-            param_expr(&lowered.x_min, DataType::Float64),
-            param_expr(&lowered.x_max, DataType::Float64),
-            param_expr(&lowered.y_min, DataType::Float64),
-            param_expr(&lowered.y_max, DataType::Float64),
-            param_expr(&lowered.empty_selected, DataType::Boolean),
-            self.facet_context
-                .iter()
-                .zip(lowered.facet_values.iter())
-                .map(|(facet, param_name)| {
-                    let expr = facet
-                        .field_expr
-                        .to_expr(&SessionContext::new())
-                        .expect("selection facet context field expr deserializes");
-                    cast(expr, DataType::Utf8).eq(param_expr(param_name, DataType::Utf8))
-                })
-                .collect(),
-        )
+        selection_predicate(&self.id)
     }
 
-    fn dimension_value_expr(&self, id: &str) -> Expr {
+    pub fn clauses(&self) -> SelectionClauseData {
+        selection_clauses(&self.id)
+    }
+
+    pub fn dimension_value_expr(&self, id: &str) -> Expr {
         self.dimensions
             .iter()
             .find(|dimension| dimension.id == id)
@@ -191,11 +288,15 @@ impl Selection {
                 self.id
             )));
         }
+        validate_geometry_schema(&self.id, &self.geometry_schema)?;
         Ok(CompiledSelectionSpec {
             id: self.id.clone(),
             resolution: self.resolution,
             empty: self.empty,
             dimensions: self.dimensions.clone(),
+            combine: self.combine,
+            sharing: self.sharing,
+            geometry_schema: self.geometry_schema.clone(),
             facet_context: self.facet_context.clone(),
             lowered_params: SelectionLoweredParams::with_facet_context(
                 &self.id,
@@ -203,6 +304,32 @@ impl Selection {
             ),
         })
     }
+}
+
+fn validate_geometry_schema(
+    selection_id: &str,
+    schema: &SelectionGeometrySchema,
+) -> Result<(), AvengerChartError> {
+    let mut names = std::collections::HashSet::new();
+    for field in &schema.fields {
+        if !names.insert(field.name.clone()) {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Selection '{selection_id}' declares duplicate geometry column '{}'",
+                field.name
+            )));
+        }
+        if !matches!(&field.data_type, DataType::Struct(_)) {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Selection '{selection_id}' geometry column '{}' must be an Arrow Struct",
+                field.name
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn default_selection_sharing() -> Sharing {
+    Sharing::Free
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -244,11 +371,36 @@ pub struct CompiledSelectionSpec {
     pub empty: SelectionEmpty,
     pub dimensions: Vec<SelectionDimensionSpec>,
     #[serde(default)]
+    pub combine: SelectionCombine,
+    #[serde(default = "default_selection_sharing")]
+    pub sharing: Sharing,
+    #[serde(default)]
+    pub geometry_schema: SelectionGeometrySchema,
+    #[serde(default)]
     pub facet_context: Vec<SelectionFacetContextSpec>,
     pub lowered_params: SelectionLoweredParams,
 }
 
 impl CompiledSelectionSpec {
+    pub fn dimension_value_expr(&self, id: &str) -> Expr {
+        self.dimensions
+            .iter()
+            .find(|dimension| dimension.id == id)
+            .and_then(|dimension| {
+                dimension
+                    .field_expr
+                    .as_ref()
+                    .and_then(|expr| expr.to_expr(&SessionContext::new()).ok())
+                    .or_else(|| {
+                        dimension
+                            .channel
+                            .as_ref()
+                            .map(|channel| col(format!(":{channel}")))
+                    })
+            })
+            .unwrap_or_else(|| col(format!(":{id}")))
+    }
+
     pub fn hidden_param_specs(&self) -> Vec<CompiledParamSpec> {
         let mut specs = vec![
             CompiledParamSpec::shared(&Param::new(
@@ -283,6 +435,27 @@ impl CompiledSelectionSpec {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SelectionClauseData {
+    pub selection_id: String,
+    #[serde(default)]
+    pub matching_current_facet: bool,
+}
+
+impl SelectionClauseData {
+    pub fn matching_current_facet(mut self) -> Self {
+        self.matching_current_facet = true;
+        self
+    }
+}
+
+pub fn selection_clauses(id: impl AsRef<str>) -> SelectionClauseData {
+    SelectionClauseData {
+        selection_id: id.as_ref().to_string(),
+        matching_current_facet: false,
+    }
+}
+
 #[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SelectionRangeExpr {
@@ -298,9 +471,194 @@ impl SelectionRangeExpr {
     }
 }
 
+#[serde_as]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SelectionValueExpr {
+    #[serde_as(as = "FromInto<SerializableExpr>")]
+    pub expr: LogicalExprNode,
+}
+
+impl SelectionValueExpr {
+    pub fn new(expr: impl IntoExpr) -> Self {
+        Self {
+            expr: expr_node(expr.into_expr(), "selection value"),
+        }
+    }
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum SelectionPredicateUpdate {
+    Range2D {
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        x_field: LogicalExprNode,
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        y_field: LogicalExprNode,
+        x_range: SelectionRangeExpr,
+        y_range: SelectionRangeExpr,
+    },
+}
+
+impl SelectionPredicateUpdate {
+    pub fn range_2d() -> SelectionRange2DUpdateBuilder {
+        SelectionRange2DUpdateBuilder::default()
+    }
+}
+
+#[derive(Default)]
+pub struct SelectionRange2DUpdateBuilder {
+    x_field: Option<LogicalExprNode>,
+    y_field: Option<LogicalExprNode>,
+    x_range: Option<SelectionRangeExpr>,
+    y_range: Option<SelectionRangeExpr>,
+}
+
+impl SelectionRange2DUpdateBuilder {
+    pub fn x_field(mut self, expr: impl IntoExpr) -> Self {
+        self.x_field = Some(expr_node(expr.into_expr(), "selection x predicate field"));
+        self
+    }
+
+    pub fn y_field(mut self, expr: impl IntoExpr) -> Self {
+        self.y_field = Some(expr_node(expr.into_expr(), "selection y predicate field"));
+        self
+    }
+
+    pub fn x_range(mut self, expr: impl IntoExpr) -> Self {
+        self.x_range = Some(SelectionRangeExpr::new(expr));
+        self
+    }
+
+    pub fn y_range(mut self, expr: impl IntoExpr) -> Self {
+        self.y_range = Some(SelectionRangeExpr::new(expr));
+        self
+    }
+
+    pub fn build(self) -> Result<SelectionPredicateUpdate, AvengerChartError> {
+        Ok(SelectionPredicateUpdate::Range2D {
+            x_field: self
+                .x_field
+                .unwrap_or_else(|| expr_node(col(":x"), "default selection x field")),
+            y_field: self
+                .y_field
+                .unwrap_or_else(|| expr_node(col(":y"), "default selection y field")),
+            x_range: self.x_range.ok_or_else(|| {
+                AvengerChartError::InvalidArgument(
+                    "Range2D selection predicate update requires an x range".to_string(),
+                )
+            })?,
+            y_range: self.y_range.ok_or_else(|| {
+                AvengerChartError::InvalidArgument(
+                    "Range2D selection predicate update requires a y range".to_string(),
+                )
+            })?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SelectionGeometryUpdate {
+    pub column_name: String,
+    #[serde(default)]
+    pub fields: IndexMap<String, SelectionValueExpr>,
+}
+
+impl SelectionGeometryUpdate {
+    pub fn new(column_name: impl Into<String>) -> Self {
+        Self {
+            column_name: column_name.into(),
+            fields: IndexMap::new(),
+        }
+    }
+
+    pub fn field(mut self, name: impl Into<String>, expr: impl IntoExpr) -> Self {
+        self.fields
+            .insert(name.into(), SelectionValueExpr::new(expr));
+        self
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SelectionClauseUpdate {
+    pub clause_id: Option<SelectionValueExpr>,
+    pub predicate: SelectionPredicateUpdate,
+    pub geometry: Option<SelectionGeometryUpdate>,
+    pub owner_facet_context_from_start: bool,
+}
+
+impl SelectionClauseUpdate {
+    pub fn new(predicate: SelectionPredicateUpdate) -> Self {
+        Self {
+            clause_id: None,
+            predicate,
+            geometry: None,
+            owner_facet_context_from_start: false,
+        }
+    }
+
+    pub fn clause_id(mut self, expr: impl IntoExpr) -> Self {
+        self.clause_id = Some(SelectionValueExpr::new(expr));
+        self
+    }
+
+    pub fn geometry(mut self, geometry: SelectionGeometryUpdate) -> Self {
+        self.geometry = Some(geometry);
+        self
+    }
+
+    pub fn owner_facet_context_from_start(mut self) -> Self {
+        self.owner_facet_context_from_start = true;
+        self
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum SelectionPredicateSpec {
+    Range2D {
+        x_field: LogicalExprNode,
+        y_field: LogicalExprNode,
+        x_min: ScalarValue,
+        x_max: ScalarValue,
+        y_min: ScalarValue,
+        y_max: ScalarValue,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SelectionGeometryValue {
+    pub column_name: String,
+    pub fields: IndexMap<String, ScalarValue>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SelectionClause {
+    pub clause_id: String,
+    pub source_scope_id: Option<String>,
+    pub predicate: SelectionPredicateSpec,
+    pub geometry: Option<SelectionGeometryValue>,
+    pub owner_path: Vec<ScalarValue>,
+    pub owner_facet_values: Vec<ScalarValue>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SelectionState {
+    pub id: String,
+    pub clauses: Vec<SelectionClause>,
+    pub revision: u64,
+}
+
+#[derive(Clone, Debug)]
+pub enum SelectionStateUpdate {
+    Clear,
+    ReplaceClause(SelectionClause),
+    AddClause(SelectionClause),
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SelectionUpdateKind {
     Interval,
+    ReplaceClause,
+    AddClause,
     Clear,
 }
 
@@ -312,6 +670,7 @@ pub struct SelectionUpdate {
     pub y_range: Option<SelectionRangeExpr>,
     pub capture_facet_context: bool,
     pub meta: Option<SelectionClauseMeta>,
+    pub clause: Option<SelectionClauseUpdate>,
 }
 
 impl SelectionUpdate {
@@ -325,6 +684,7 @@ impl SelectionUpdate {
             meta: Some(SelectionClauseMeta {
                 kind: "interval".to_string(),
             }),
+            clause: None,
         }
     }
 
@@ -336,6 +696,31 @@ impl SelectionUpdate {
             y_range: None,
             capture_facet_context: false,
             meta: None,
+            clause: None,
+        }
+    }
+
+    pub fn replace_clause(clause: SelectionClauseUpdate) -> Self {
+        Self {
+            kind: SelectionUpdateKind::ReplaceClause,
+            source: None,
+            x_range: None,
+            y_range: None,
+            capture_facet_context: clause.owner_facet_context_from_start,
+            meta: None,
+            clause: Some(clause),
+        }
+    }
+
+    pub fn add_clause(clause: SelectionClauseUpdate) -> Self {
+        Self {
+            kind: SelectionUpdateKind::AddClause,
+            source: None,
+            x_range: None,
+            y_range: None,
+            capture_facet_context: clause.owner_facet_context_from_start,
+            meta: None,
+            clause: Some(clause),
         }
     }
 
@@ -358,24 +743,87 @@ impl SelectionUpdate {
         self.capture_facet_context = true;
         self
     }
+
+    pub fn as_clause_update(
+        &self,
+        selection: &CompiledSelectionSpec,
+    ) -> Result<Option<SelectionClauseUpdate>, AvengerChartError> {
+        match self.kind {
+            SelectionUpdateKind::Clear => Ok(None),
+            SelectionUpdateKind::ReplaceClause | SelectionUpdateKind::AddClause => self
+                .clause
+                .clone()
+                .map(Ok)
+                .unwrap_or_else(|| {
+                    Err(AvengerChartError::InvalidArgument(
+                        "Selection clause update is missing its clause payload".to_string(),
+                    ))
+                })
+                .map(Some),
+            SelectionUpdateKind::Interval => {
+                let Some(x_range) = &self.x_range else {
+                    return Err(AvengerChartError::InvalidArgument(
+                        "Interval selection update is missing an x range".to_string(),
+                    ));
+                };
+                let Some(y_range) = &self.y_range else {
+                    return Err(AvengerChartError::InvalidArgument(
+                        "Interval selection update is missing a y range".to_string(),
+                    ));
+                };
+                let predicate = SelectionPredicateUpdate::Range2D {
+                    x_field: expr_node(
+                        selection.dimension_value_expr("x"),
+                        "selection interval x field",
+                    ),
+                    y_field: expr_node(
+                        selection.dimension_value_expr("y"),
+                        "selection interval y field",
+                    ),
+                    x_range: x_range.clone(),
+                    y_range: y_range.clone(),
+                };
+                let geometry = SelectionGeometryUpdate::new(CARTESIAN_RECT_GEOMETRY_COLUMN)
+                    .field(
+                        "x_min",
+                        interval_start(x_range.expr.to_expr(&SessionContext::new())?),
+                    )
+                    .field(
+                        "x_max",
+                        interval_end(x_range.expr.to_expr(&SessionContext::new())?),
+                    )
+                    .field(
+                        "y_min",
+                        interval_start(y_range.expr.to_expr(&SessionContext::new())?),
+                    )
+                    .field(
+                        "y_max",
+                        interval_end(y_range.expr.to_expr(&SessionContext::new())?),
+                    );
+                Ok(Some(SelectionClauseUpdate {
+                    clause_id: None,
+                    predicate,
+                    geometry: Some(geometry),
+                    owner_facet_context_from_start: self.capture_facet_context,
+                }))
+            }
+        }
+    }
 }
 
 pub fn selection_predicate(id: impl AsRef<str>) -> Expr {
-    let lowered = SelectionLoweredParams::new(id.as_ref());
-    let active = param_expr(&lowered.active, DataType::Boolean).eq(lit(true));
-    let x_value = col(":x");
-    let y_value = col(":y");
-    selection_predicate_expr(
-        active,
-        x_value,
-        y_value,
-        param_expr(&lowered.x_min, DataType::Float64),
-        param_expr(&lowered.x_max, DataType::Float64),
-        param_expr(&lowered.y_min, DataType::Float64),
-        param_expr(&lowered.y_max, DataType::Float64),
-        param_expr(&lowered.empty_selected, DataType::Boolean),
-        Vec::new(),
-    )
+    Expr::Placeholder(Placeholder {
+        id: selection_predicate_placeholder_id(id.as_ref()),
+        data_type: Some(DataType::Boolean),
+    })
+}
+
+pub fn selection_predicate_placeholder_id(id: &str) -> String {
+    format!("$__selection_predicate_{id}")
+}
+
+pub fn selection_id_from_predicate_placeholder(placeholder_id: &str) -> Option<&str> {
+    placeholder_id.strip_prefix("$__selection_predicate_")
 }
 
 pub fn compile_selections(
@@ -408,7 +856,9 @@ pub fn lower_selection_assignments(
             scope: assignment.scope,
             replace_scoped_values: false,
         }]),
-        SelectionUpdateKind::Interval => {
+        SelectionUpdateKind::Interval
+        | SelectionUpdateKind::ReplaceClause
+        | SelectionUpdateKind::AddClause => {
             let Some(x_range) = &assignment.update.x_range else {
                 return Err(AvengerChartError::InvalidArgument(format!(
                     "Selection update for '{}' is missing an x range",
@@ -471,39 +921,6 @@ pub fn lower_selection_assignments(
             Ok(lowered)
         }
     }
-}
-
-fn selection_predicate_expr(
-    active: Expr,
-    x_value: Expr,
-    y_value: Expr,
-    x_min: Expr,
-    x_max: Expr,
-    y_min: Expr,
-    y_max: Expr,
-    empty_selected: Expr,
-    facet_context: Vec<Expr>,
-) -> Expr {
-    let mut inside = x_value
-        .clone()
-        .gt_eq(x_min)
-        .and(x_value.lt_eq(x_max))
-        .and(y_value.clone().gt_eq(y_min))
-        .and(y_value.lt_eq(y_max));
-    for facet_expr in facet_context {
-        inside = inside.and(facet_expr);
-    }
-    active
-        .clone()
-        .and(inside)
-        .or(active.not().and(empty_selected))
-}
-
-fn param_expr(name: &str, data_type: DataType) -> Expr {
-    Expr::Placeholder(Placeholder {
-        id: format!("${name}"),
-        data_type: Some(data_type),
-    })
 }
 
 fn selection_param_name(id: &str, suffix: &str) -> String {

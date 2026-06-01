@@ -424,6 +424,7 @@ pub async fn chart_avenger_app(
         &resize_bindings,
         ctx.as_ref(),
         compiled_plot.param_specs(),
+        compiled_plot.selection_specs(),
         &[],
     )?);
     let session = Arc::new(compiled_plot).instantiate(ctx);

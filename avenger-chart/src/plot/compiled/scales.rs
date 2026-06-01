@@ -15,6 +15,8 @@ use avenger_chart_core::{
 use avenger_chart_scales::{PlotScaleSpec, PreparedScaleMark, ScaleBuilder};
 use avenger_scales::scales::ScaleImpl;
 
+use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
+
 use super::{
     LogicalMarkDataRequest, prepare_logical_mark_data,
     session::{ScaleDomainCacheScope, scale_domain_cache_key_for_parts_with_scope},
@@ -29,6 +31,12 @@ pub(crate) async fn build_scale_builder_from_marks(
     eval_ctx: &CoreEvaluationContext,
     theme: &Theme,
 ) -> Result<ScaleBuilder, AvengerChartError> {
+    let render_eval_ctx = crate::render::EvaluationContext::new(
+        eval_ctx.theme().clone(),
+        eval_ctx.session_context().clone(),
+        eval_ctx.params().clone(),
+        Arc::new(EvaluatedFacetTree::empty()),
+    );
     let mut prepared_marks = Vec::with_capacity(compiled_marks.len());
     for mark in compiled_marks {
         let prepared = Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {
@@ -36,7 +44,7 @@ pub(crate) async fn build_scale_builder_from_marks(
             plot_data: data.as_ref(),
             provided_plot_df: df_override.as_ref(),
             facet_data_scope: None,
-            eval_ctx,
+            eval_ctx: &render_eval_ctx,
         }))
         .await?;
         prepared_marks.push(PreparedScaleMark::new(

@@ -154,6 +154,11 @@ async fn build_one_facet_cell(
 
     let cached_profile = if is_terminal_cell {
         cell_eval_ctx.layout_profile().and_then(|profile| {
+            let selection_revision_fingerprint = cell_eval_ctx
+                .scoped_selection_store
+                .as_ref()
+                .map(|store| store.revision_fingerprint())
+                .unwrap_or_default();
             let source_measurement = profile.facet_cell_measurement(
                 cell_eval_ctx.facet_tree.as_ref(),
                 &full_path,
@@ -167,6 +172,7 @@ async fn build_one_facet_cell(
                 subplot.as_ref(),
                 cell_eval_ctx.session_context().as_ref(),
                 cell_eval_ctx.params(),
+                selection_revision_fingerprint,
             )?;
             Some((source_measurement, components))
         })
@@ -252,6 +258,11 @@ async fn build_one_facet_cell(
                 subplot.as_ref(),
                 cell_eval_ctx.session_context().as_ref(),
                 cell_eval_ctx.params(),
+                cell_eval_ctx
+                    .scoped_selection_store
+                    .as_ref()
+                    .map(|store| store.revision_fingerprint())
+                    .unwrap_or_default(),
                 components.clone(),
             );
     }

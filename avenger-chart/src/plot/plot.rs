@@ -10,7 +10,7 @@ use avenger_chart_core::{
     AvengerChartError, AxisSpec, ChartTool, CompileContext, CompiledMark, CompiledMarkState,
     CompiledParamSpec, CompiledSelectionSpec, CompiledSubplotChildPlot, CoordinateGuide,
     CoordinateSystem, IntoExpr, Legend, Mark, MarkDataMode, Param, Selection, Sharing,
-    SubplotChildPlotSpec, Theme, compile_selections, lower_selection_assignments,
+    SubplotChildPlotSpec, Theme, compile_selections,
 };
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
 
@@ -276,11 +276,7 @@ impl<C: CoordinateSystem> Plot<C> {
         // names regardless of whether they came from add_param or
         // add_param_with_sharing.
         let mut param_source_specs = self.param_specs.clone();
-        let mut event_bindings = lower_event_binding_selections(
-            &self.event_bindings,
-            &selection_specs,
-            session_context,
-        )?;
+        let mut event_bindings = self.event_bindings.clone();
         let cursor_params = self.cursor_params.clone();
         let mut tool_metadata = Vec::new();
         if is_root {
@@ -288,10 +284,6 @@ impl<C: CoordinateSystem> Plot<C> {
             param_source_specs.extend(artifacts.param_specs);
             event_bindings.extend(artifacts.event_bindings);
             tool_metadata.extend(artifacts.metadata);
-        }
-
-        for spec in selection_specs.values() {
-            param_source_specs.extend(spec.hidden_param_specs());
         }
 
         for binding in &event_bindings {
@@ -561,31 +553,4 @@ fn scale_domain_share_modes<C: CoordinateSystem>(
         }
     }
     result
-}
-
-fn lower_event_binding_selections(
-    bindings: &[ChartEventBinding],
-    selection_specs: &IndexMap<String, CompiledSelectionSpec>,
-    session_context: &datafusion::prelude::SessionContext,
-) -> Result<Vec<ChartEventBinding>, AvengerChartError> {
-    let mut lowered = Vec::with_capacity(bindings.len());
-    for binding in bindings {
-        let mut binding = binding.clone();
-        let selection_assignments = std::mem::take(&mut binding.selection_assignments);
-        for assignment in selection_assignments {
-            let Some(selection) = selection_specs.get(&assignment.selection_id) else {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "Chart event binding updates unknown selection '{}'",
-                    assignment.selection_id
-                )));
-            };
-            binding.assignments.extend(lower_selection_assignments(
-                &assignment,
-                selection,
-                session_context,
-            )?);
-        }
-        lowered.push(binding);
-    }
-    Ok(lowered)
 }
