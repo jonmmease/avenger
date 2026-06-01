@@ -1,5 +1,5 @@
 use avenger_app::app::AvengerApp;
-use avenger_common::{canvas::CanvasDimensions, time::Instant};
+use avenger_common::{canvas::CanvasDimensions, cursor::CursorStyle, time::Instant};
 use avenger_eventstream::window::{
     CanvasResizeEvent, WindowEvent as AvengerWindowEvent, WindowResizeEvent,
 };
@@ -466,26 +466,26 @@ where
                 let update_future = async move {
                     let update_result = app_clone
                         .borrow_mut()
-                        .update(&event_clone, Instant::now())
+                        .update_with_status(&event_clone, Instant::now())
                         .await;
 
                     match update_result {
-                        Ok(Some(scene_graph)) => {
-                            let mut canvas_borrowed = canvas_shared.borrow_mut();
-                            if let Some(canvas) = canvas_borrowed.as_mut() {
-                                if let Err(e) = install_scene_graph(
-                                    canvas,
-                                    &scene_graph,
-                                    window_scene_sizing,
-                                    scale,
-                                    None,
-                                ) {
-                                    log::error!("Failed to set scene: {:?}", e);
+                        Ok(update) => {
+                            if let Some(scene_graph) = update.scene_graph {
+                                let mut canvas_borrowed = canvas_shared.borrow_mut();
+                                if let Some(canvas) = canvas_borrowed.as_mut() {
+                                    if let Err(e) = install_scene_graph(
+                                        canvas,
+                                        &scene_graph,
+                                        window_scene_sizing,
+                                        scale,
+                                        None,
+                                    ) {
+                                        log::error!("Failed to set scene: {:?}", e);
+                                    }
                                 }
                             }
-                        }
-                        Ok(None) => {
-                            // No update needed
+                            let _ = update.status;
                         }
                         Err(e) => {
                             log::error!("Failed to update app: {:?}", e);
@@ -499,13 +499,16 @@ where
                 let scene_graph_opt = {
                     let mut app = self.avenger_app.borrow_mut();
                     self.tokio_runtime
-                        .block_on(app.update(&event, Instant::now()))
+                        .block_on(app.update_with_status(&event, Instant::now()))
                         .expect("Failed to update app")
                 };
                 let app_update_elapsed = app_update_start.elapsed();
-                let rerender = scene_graph_opt.is_some();
+                if let Some(cursor) = scene_graph_opt.status.cursor {
+                    self.set_cursor(cursor_style_to_winit(cursor));
+                }
+                let rerender = scene_graph_opt.scene_graph.is_some();
 
-                if let Some(scene_graph) = scene_graph_opt {
+                if let Some(scene_graph) = scene_graph_opt.scene_graph {
                     if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
                         let install_start = StdInstant::now();
                         install_scene_graph(
@@ -998,6 +1001,19 @@ fn logical_to_physical(value: f32, scale: f32) -> u32 {
     ((value * scale).round().max(1.0)) as u32
 }
 
+fn cursor_style_to_winit(style: CursorStyle) -> CursorIcon {
+    match style {
+        CursorStyle::Default => CursorIcon::Default,
+        CursorStyle::Crosshair => CursorIcon::Crosshair,
+        CursorStyle::Grab => CursorIcon::Grab,
+        CursorStyle::Grabbing => CursorIcon::Grabbing,
+        CursorStyle::ResizeHorizontal => CursorIcon::EwResize,
+        CursorStyle::ResizeVertical => CursorIcon::NsResize,
+        CursorStyle::ResizeNwSe => CursorIcon::NwseResize,
+        CursorStyle::ResizeNeSw => CursorIcon::NeswResize,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1052,6 +1068,39 @@ mod tests {
 
         let release = state.handle_mouse_input(ElementState::Released, MouseButton::Left);
         assert_eq!(release.resize_settled, Some([120.0, 100.0]));
+    }
+
+    #[test]
+    fn chart_cursor_styles_map_to_winit_icons() {
+        assert_eq!(
+            cursor_style_to_winit(CursorStyle::Default),
+            CursorIcon::Default
+        );
+        assert_eq!(
+            cursor_style_to_winit(CursorStyle::Crosshair),
+            CursorIcon::Crosshair
+        );
+        assert_eq!(cursor_style_to_winit(CursorStyle::Grab), CursorIcon::Grab);
+        assert_eq!(
+            cursor_style_to_winit(CursorStyle::Grabbing),
+            CursorIcon::Grabbing
+        );
+        assert_eq!(
+            cursor_style_to_winit(CursorStyle::ResizeHorizontal),
+            CursorIcon::EwResize
+        );
+        assert_eq!(
+            cursor_style_to_winit(CursorStyle::ResizeVertical),
+            CursorIcon::NsResize
+        );
+        assert_eq!(
+            cursor_style_to_winit(CursorStyle::ResizeNwSe),
+            CursorIcon::NwseResize
+        );
+        assert_eq!(
+            cursor_style_to_winit(CursorStyle::ResizeNeSw),
+            CursorIcon::NeswResize
+        );
     }
 }
 

@@ -18,6 +18,12 @@ pub trait SceneGraphBuilder<State: Clone + Send + Sync + 'static> {
 }
 
 #[derive(Clone)]
+pub struct AppUpdate {
+    pub scene_graph: Option<Arc<SceneGraph>>,
+    pub status: UpdateStatus,
+}
+
+#[derive(Clone)]
 pub struct AvengerApp<State>
 where
     State: Clone + Send + Sync + 'static,
@@ -78,6 +84,15 @@ where
         event: &WindowEvent,
         instant: Instant,
     ) -> Result<Option<Arc<SceneGraph>>, AvengerAppError> {
+        Ok(self.update_with_status(event, instant).await?.scene_graph)
+    }
+
+    /// Update the state of the app and return both scene and interaction status.
+    pub async fn update_with_status(
+        &mut self,
+        event: &WindowEvent,
+        instant: Instant,
+    ) -> Result<AppUpdate, AvengerAppError> {
         tracing::debug!(target: "avenger_app::resize", "app.update start");
         let update_start = StdInstant::now();
         let dispatch_start = StdInstant::now();
@@ -139,7 +154,10 @@ where
                 rerender = true,
                 "app.update complete"
             );
-            Ok(Some(self.scene_graph.clone()))
+            Ok(AppUpdate {
+                scene_graph: Some(self.scene_graph.clone()),
+                status: update_status,
+            })
         } else {
             tracing::debug!(
                 target: "avenger_app::resize",
@@ -147,7 +165,10 @@ where
                 rerender = false,
                 "app.update complete"
             );
-            Ok(None)
+            Ok(AppUpdate {
+                scene_graph: None,
+                status: update_status,
+            })
         }
     }
 

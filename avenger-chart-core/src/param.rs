@@ -2,6 +2,7 @@
 
 use std::fmt::Debug;
 
+use avenger_common::cursor::CursorStyle;
 use datafusion::{
     arrow::datatypes::DataType, logical_expr::expr::Placeholder, prelude::Expr, scalar::ScalarValue,
 };
@@ -37,6 +38,14 @@ impl Param {
         Self {
             name: name.into(),
             default: ScalarValue::new_null_list(DataType::Float64, true, 1),
+        }
+    }
+
+    /// Create a cursor parameter for app-interaction cursor state.
+    pub fn cursor<S: Into<String>>(name: S, default_cursor: CursorStyle) -> Self {
+        Self {
+            name: name.into(),
+            default: ScalarValue::Utf8(Some(default_cursor.as_str().to_string())),
         }
     }
 

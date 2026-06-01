@@ -30,9 +30,10 @@ use serde_with::{FromInto, serde_as};
 
 use avenger_chart_core::{
     AvengerChartError, AxisSpec, CompiledGuide, CompiledMark, CompiledParamSpec,
-    CompiledSubplotChildPlot, CompiledSubplotPayload, CoordMeasurement, CoordinateSystemTransform,
-    EvaluationContext as CoreEvaluationContext, Legend, ScaleRangeBinding, SerializableDataFrame,
-    SerializableScalarMap, Theme, ToolMetadata, channel::strip_trailing_numbers,
+    CompiledSelectionSpec, CompiledSubplotChildPlot, CompiledSubplotPayload, CoordMeasurement,
+    CoordinateSystemTransform, EvaluationContext as CoreEvaluationContext, Legend,
+    ScaleRangeBinding, SerializableDataFrame, SerializableScalarMap, Theme, ToolMetadata,
+    channel::strip_trailing_numbers,
 };
 use avenger_chart_scales::{ConfiguredScaleWithSpec, PlotScaleSpec as ScaleSpec, ScaleBuilder};
 
@@ -156,6 +157,14 @@ pub struct CompiledPlot {
     #[serde(default)]
     pub(crate) event_bindings: Vec<ChartEventBinding>,
 
+    /// Static selection specs registered by the author.
+    #[serde(default)]
+    pub(crate) selection_specs: IndexMap<String, CompiledSelectionSpec>,
+
+    /// Param names whose values drive app cursor state rather than visual output.
+    #[serde(default)]
+    pub(crate) cursor_params: Vec<String>,
+
     /// Metadata for tools that expanded into this compiled plot.
     #[serde(default)]
     pub(crate) tool_metadata: Vec<ToolMetadata>,
@@ -202,6 +211,14 @@ impl CompiledPlot {
     /// Get plot-level event bindings.
     pub fn event_bindings(&self) -> &[ChartEventBinding] {
         &self.event_bindings
+    }
+
+    pub fn selection_specs(&self) -> &IndexMap<String, CompiledSelectionSpec> {
+        &self.selection_specs
+    }
+
+    pub fn cursor_params(&self) -> &[String] {
+        &self.cursor_params
     }
 
     pub fn tool_metadata(&self) -> &[ToolMetadata] {

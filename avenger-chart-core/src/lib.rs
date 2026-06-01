@@ -60,6 +60,7 @@ pub mod scale_range;
 pub mod scale_range_binding;
 pub mod scale_spec;
 pub mod scale_type;
+pub mod selection;
 pub mod serialization;
 pub mod sharing;
 pub mod sharing_mode;
@@ -75,6 +76,7 @@ pub mod __private {
     pub use paste;
 }
 
+pub use avenger_common::cursor::CursorStyle;
 pub use axis::Axis;
 pub use axis_position::AxisPosition;
 pub use axis_spec::AxisSpec;
@@ -190,6 +192,11 @@ pub use scale_range_binding::{
 };
 pub use scale_spec::{Auto, ScaleSpec};
 pub use scale_type::{ScaleTypePreference, default_scale_type_for_data_type, is_continuous_scale};
+pub use selection::{
+    CompiledSelectionSpec, Selection, SelectionClauseMeta, SelectionDimensionSpec, SelectionEmpty,
+    SelectionResolution, SelectionUpdate, compile_selections, lower_selection_assignments,
+    selection_predicate,
+};
 pub use serialization::{
     DefaultLogicalExprNodeExt, LogicalPlanNodeExt, SerializableDataFrame, SerializableDataType,
     SerializableExpr, SerializableNestedScalarMap, SerializableScalar, SerializableScalarMap,

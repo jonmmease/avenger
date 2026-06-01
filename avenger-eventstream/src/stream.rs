@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use avenger_common::time::{Duration, Instant};
+use avenger_common::{
+    cursor::CursorStyle,
+    time::{Duration, Instant},
+};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::mark::MarkInstance;
 
@@ -153,6 +156,7 @@ pub struct EventStreamConfig {
 pub struct UpdateStatus {
     pub rerender: bool,
     pub rebuild_geometry: bool,
+    pub cursor: Option<CursorStyle>,
 }
 
 impl UpdateStatus {
@@ -160,6 +164,7 @@ impl UpdateStatus {
         UpdateStatus {
             rerender: self.rerender || other.rerender,
             rebuild_geometry: self.rebuild_geometry || other.rebuild_geometry,
+            cursor: other.cursor.or(self.cursor),
         }
     }
 }
@@ -363,5 +368,31 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
             }
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use avenger_common::cursor::CursorStyle;
+
+    use super::*;
+
+    #[test]
+    fn update_status_merge_prefers_newer_cursor() {
+        let first = UpdateStatus {
+            rerender: true,
+            rebuild_geometry: false,
+            cursor: Some(CursorStyle::Crosshair),
+        };
+        let second = UpdateStatus {
+            rerender: false,
+            rebuild_geometry: true,
+            cursor: Some(CursorStyle::Grab),
+        };
+
+        let merged = first.merge(&second);
+        assert!(merged.rerender);
+        assert!(merged.rebuild_geometry);
+        assert_eq!(merged.cursor, Some(CursorStyle::Grab));
     }
 }

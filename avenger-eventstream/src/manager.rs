@@ -523,6 +523,7 @@ mod tests {
             UpdateStatus {
                 rerender: true,
                 rebuild_geometry: false,
+                ..Default::default()
             }
         }
     }
@@ -541,6 +542,7 @@ mod tests {
             UpdateStatus {
                 rerender: true,
                 rebuild_geometry: false,
+                ..Default::default()
             }
         }
 

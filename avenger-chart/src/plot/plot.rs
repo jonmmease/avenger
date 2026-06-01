@@ -8,8 +8,9 @@ use indexmap::IndexMap;
 
 use avenger_chart_core::{
     AvengerChartError, AxisSpec, ChartTool, CompileContext, CompiledMark, CompiledMarkState,
-    CompiledParamSpec, CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, IntoExpr,
-    Legend, Mark, MarkDataMode, Param, Sharing, SubplotChildPlotSpec, Theme,
+    CompiledParamSpec, CompiledSelectionSpec, CompiledSubplotChildPlot, CoordinateGuide,
+    CoordinateSystem, IntoExpr, Legend, Mark, MarkDataMode, Param, Selection, Sharing,
+    SubplotChildPlotSpec, Theme, compile_selections, lower_selection_assignments,
 };
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
 
@@ -61,6 +62,12 @@ pub struct Plot<C: CoordinateSystem> {
 
     /// Plot-level event bindings that patch params in chart apps
     pub(crate) event_bindings: Vec<ChartEventBinding>,
+
+    /// Plot-level selections that event bindings can update and marks can read.
+    pub(crate) selections: Vec<Selection>,
+
+    /// Param names whose values drive app cursor state instead of chart visuals.
+    pub(crate) cursor_params: Vec<String>,
 
     /// Authoring-time tools that expand during compilation.
     pub(crate) tools: Vec<Arc<dyn ChartTool<C>>>,
@@ -115,6 +122,8 @@ impl<C: CoordinateSystem> Plot<C> {
             guide_config: None,
             param_specs: Vec::new(),
             event_bindings: Vec::new(),
+            selections: Vec::new(),
+            cursor_params: Vec::new(),
             tools: Vec::new(),
         }
     }
@@ -153,9 +162,8 @@ impl<C: CoordinateSystem> Plot<C> {
         let active_tool_expansions = tool_context.expand_local_tools(&self.tools)?;
         let erased_tool_context: CompileContext<'_> = &tool_context;
 
-        for binding in &self.event_bindings {
-            binding.validate()?;
-        }
+        let selection_specs: IndexMap<String, CompiledSelectionSpec> =
+            compile_selections(&self.selections)?;
 
         // Start with plot-level configurations
         let mut axis_specs: HashMap<String, AxisSpec> = HashMap::new();
@@ -268,13 +276,26 @@ impl<C: CoordinateSystem> Plot<C> {
         // names regardless of whether they came from add_param or
         // add_param_with_sharing.
         let mut param_source_specs = self.param_specs.clone();
-        let mut event_bindings = self.event_bindings.clone();
+        let mut event_bindings = lower_event_binding_selections(
+            &self.event_bindings,
+            &selection_specs,
+            session_context,
+        )?;
+        let cursor_params = self.cursor_params.clone();
         let mut tool_metadata = Vec::new();
         if is_root {
             let artifacts = tool_context.finalize_root()?;
             param_source_specs.extend(artifacts.param_specs);
             event_bindings.extend(artifacts.event_bindings);
             tool_metadata.extend(artifacts.metadata);
+        }
+
+        for spec in selection_specs.values() {
+            param_source_specs.extend(spec.hidden_param_specs());
+        }
+
+        for binding in &event_bindings {
+            binding.validate()?;
         }
 
         let mut param_specs: IndexMap<String, CompiledParamSpec> = IndexMap::new();
@@ -312,6 +333,8 @@ impl<C: CoordinateSystem> Plot<C> {
             default_params,
             param_specs,
             event_bindings,
+            selection_specs,
+            cursor_params,
             tool_metadata,
         };
 
@@ -376,6 +399,21 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Add multiple plot-level event bindings.
     pub fn event_bindings(mut self, bindings: impl IntoIterator<Item = ChartEventBinding>) -> Self {
         self.event_bindings.extend(bindings);
+        self
+    }
+
+    /// Register a plot-level selection.
+    pub fn add_selection(mut self, selection: Selection) -> Self {
+        self.selections.push(selection);
+        self
+    }
+
+    /// Mark a parameter as app cursor state.
+    ///
+    /// Event bindings may patch this param with `ev::cursor(...)`; chart apps
+    /// apply cursor-only patches without rebuilding the chart scene.
+    pub fn cursor_param(mut self, param: impl Into<String>) -> Self {
+        self.cursor_params.push(param.into());
         self
     }
 
@@ -523,4 +561,31 @@ fn scale_domain_share_modes<C: CoordinateSystem>(
         }
     }
     result
+}
+
+fn lower_event_binding_selections(
+    bindings: &[ChartEventBinding],
+    selection_specs: &IndexMap<String, CompiledSelectionSpec>,
+    session_context: &datafusion::prelude::SessionContext,
+) -> Result<Vec<ChartEventBinding>, AvengerChartError> {
+    let mut lowered = Vec::with_capacity(bindings.len());
+    for binding in bindings {
+        let mut binding = binding.clone();
+        let selection_assignments = std::mem::take(&mut binding.selection_assignments);
+        for assignment in selection_assignments {
+            let Some(selection) = selection_specs.get(&assignment.selection_id) else {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Chart event binding updates unknown selection '{}'",
+                    assignment.selection_id
+                )));
+            };
+            binding.assignments.extend(lower_selection_assignments(
+                &assignment,
+                selection,
+                session_context,
+            )?);
+        }
+        lowered.push(binding);
+    }
+    Ok(lowered)
 }

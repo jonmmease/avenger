@@ -19,6 +19,7 @@ use avenger_chart_core::{
     PhysicalScalarExpressionSpec, PhysicalScalarProgramOptions, PlaceholderColumn, Sharing,
     collect_placeholder_ids, one_row_batch_from_scalars, schema_from_fields,
 };
+use avenger_common::cursor::CursorStyle;
 use avenger_common::time::Instant;
 use avenger_eventstream::{
     manager::EventStreamHandler,
@@ -57,6 +58,7 @@ pub(crate) fn event_streams_for_plot_bindings(
         compiled_plot.event_bindings(),
         ctx,
         compiled_plot.param_specs(),
+        compiled_plot.cursor_params(),
     )
 }
 
@@ -64,6 +66,7 @@ pub(crate) fn event_streams_for_bindings(
     bindings: &[ChartEventBinding],
     ctx: &SessionContext,
     param_specs: &IndexMap<String, CompiledParamSpec>,
+    cursor_params: &[String],
 ) -> Result<
     Vec<(
         EventStreamConfig,
@@ -78,6 +81,7 @@ pub(crate) fn event_streams_for_bindings(
             binding,
             ctx,
             param_specs,
+            cursor_params,
         )?);
         streams.push((
             runtime.event_stream_config.clone(),
@@ -110,6 +114,7 @@ struct CompiledChartEventBinding {
     assignments: Vec<CompiledParamAssignment>,
     evaluation_mode: ChartEventEvaluationMode,
     interaction_requests: InteractionColumnRequests,
+    cursor_params: Arc<HashSet<String>>,
 }
 
 struct CompiledParamAssignment {
@@ -125,6 +130,7 @@ impl CompiledChartEventBinding {
         binding: &ChartEventBinding,
         ctx: &SessionContext,
         param_specs: &IndexMap<String, CompiledParamSpec>,
+        cursor_params: &[String],
     ) -> Result<Self, AvengerAppError> {
         binding
             .validate()
@@ -216,6 +222,7 @@ impl CompiledChartEventBinding {
             assignments,
             evaluation_mode: binding.evaluation_mode,
             interaction_requests,
+            cursor_params: Arc::new(cursor_params.iter().cloned().collect()),
         })
     }
 }
@@ -464,7 +471,12 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             }
         }
 
-        let mut should_rerender = !patch.is_empty();
+        let cursor = cursor_from_patch(&patch, &self.runtime.cursor_params);
+        let visual_patch_count = patch
+            .iter()
+            .filter(|assignment| !self.runtime.cursor_params.contains(&assignment.name))
+            .count();
+        let mut should_rerender = visual_patch_count > 0;
         if !patch.is_empty() {
             app.event_metrics.param_patch_events += 1;
             app.event_metrics.params_patched += patch.len();
@@ -480,7 +492,10 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                 app.event_metrics.unchanged_patch_skips += 1;
             }
             record_event_eval_elapsed(&mut app.event_metrics, eval_start);
-            return UpdateStatus::default();
+            return UpdateStatus {
+                cursor,
+                ..Default::default()
+            };
         }
         if matches!(event, SceneGraphEvent::CanvasResize(_)) {
             app.accepted_resize_count += 1;
@@ -510,8 +525,26 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
         UpdateStatus {
             rerender: true,
             rebuild_geometry: self.runtime.evaluation_mode == ChartEventEvaluationMode::Exact,
+            cursor,
+            ..Default::default()
         }
     }
+}
+
+fn cursor_from_patch(
+    patch: &[ScopedParamAssignment],
+    cursor_params: &HashSet<String>,
+) -> Option<CursorStyle> {
+    patch
+        .iter()
+        .rev()
+        .find(|assignment| cursor_params.contains(&assignment.name))
+        .and_then(|assignment| match &assignment.value {
+            ScalarValue::Utf8(Some(value)) | ScalarValue::LargeUtf8(Some(value)) => {
+                CursorStyle::from_name(value)
+            }
+            _ => None,
+        })
 }
 
 fn record_event_eval_elapsed(metrics: &mut crate::ChartEventMetrics, start: Instant) {
@@ -533,6 +566,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventExactOnlyHandler {
         UpdateStatus {
             rerender: true,
             rebuild_geometry: true,
+            ..Default::default()
         }
     }
 }
@@ -1577,6 +1611,7 @@ mod tests {
             &compiled.event_bindings()[binding_index],
             ctx,
             compiled.param_specs(),
+            compiled.cursor_params(),
         )
         .expect("compile binding runtime");
         ChartEventBindingHandler {
@@ -1682,6 +1717,7 @@ mod tests {
             &compiled.event_bindings()[release_index],
             &ctx,
             compiled.param_specs(),
+            compiled.cursor_params(),
         )
         .expect("compile release binding runtime");
         let reset_runtime = CompiledChartEventBinding::compile(
@@ -1689,6 +1725,7 @@ mod tests {
             &compiled.event_bindings()[reset_index],
             &ctx,
             compiled.param_specs(),
+            compiled.cursor_params(),
         )
         .expect("compile reset binding runtime");
         let policy = compiled.resize_policy();
@@ -2178,6 +2215,7 @@ mod tests {
             compiled.event_bindings().first().unwrap(),
             &ctx,
             compiled.param_specs(),
+            compiled.cursor_params(),
         )
         .expect("compile binding runtime");
         ChartEventBindingHandler {
@@ -2204,6 +2242,7 @@ mod tests {
             compiled.event_bindings().first().unwrap(),
             &ctx,
             compiled.param_specs(),
+            compiled.cursor_params(),
         )
         .expect("compile reset binding runtime");
         let policy = compiled.resize_policy();
@@ -2245,6 +2284,128 @@ mod tests {
         assert_eq!(metrics.event_batches_evaluated, 1);
         assert_eq!(metrics.param_patch_events, 1);
         assert_eq!(metrics.params_patched, 1);
+    }
+
+    #[tokio::test]
+    async fn cursor_only_patch_updates_cursor_without_rerender() {
+        let ctx = SessionContext::new();
+        let cursor = Param::cursor("cursor", CursorStyle::Default);
+        let compiled = Plot::<Cartesian>::new()
+            .add_param(cursor.clone())
+            .cursor_param(cursor.name.clone())
+            .event_binding(
+                ChartEventBinding::on(ChartEventType::CursorMoved)
+                    .set_param(&cursor, event::cursor(CursorStyle::Crosshair))
+                    .preview(),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile cursor binding plot");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+            compiled.cursor_params(),
+        )
+        .expect("compile cursor binding runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: [10.0, 20.0],
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+
+        assert_eq!(status.cursor, Some(CursorStyle::Crosshair));
+        assert!(!status.rerender);
+        assert!(!status.rebuild_geometry);
+        assert_eq!(
+            state.params().await.get("cursor"),
+            Some(&ScalarValue::Utf8(Some("crosshair".to_string())))
+        );
+    }
+
+    #[tokio::test]
+    async fn selection_update_lowers_to_hidden_param_patch() {
+        let ctx = SessionContext::new();
+        let binding = ChartEventBinding::on(ChartEventType::CanvasResize)
+            .set_selection(
+                "brush",
+                SelectionUpdate::interval_xy()
+                    .x_range(event::interval(lit(1.0), lit(4.0)))
+                    .y_range(event::interval(lit(2.0), lit(5.0))),
+            )
+            .preview();
+        let compiled = Plot::<Cartesian>::new()
+            .add_selection(
+                Selection::single("brush")
+                    .empty(SelectionEmpty::None)
+                    .interval_xy("x", "y"),
+            )
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile selection binding plot");
+        assert!(
+            compiled
+                .param_specs()
+                .contains_key("__selection_brush__active")
+        );
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+            compiled.cursor_params(),
+        )
+        .expect("compile selection binding runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CanvasResize(CanvasResizeEvent {
+                    size: [800.0, 400.0],
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+
+        assert!(status.rerender);
+        let params = state.params().await;
+        assert_eq!(
+            params.get("__selection_brush__active"),
+            Some(&ScalarValue::Boolean(Some(true)))
+        );
+        assert_eq!(
+            params.get("__selection_brush__x_min"),
+            Some(&ScalarValue::Float64(Some(1.0)))
+        );
+        assert_eq!(
+            params.get("__selection_brush__x_max"),
+            Some(&ScalarValue::Float64(Some(4.0)))
+        );
     }
 
     #[tokio::test]
@@ -2500,6 +2661,7 @@ mod tests {
             compiled.event_bindings().first().unwrap(),
             &ctx,
             compiled.param_specs(),
+            compiled.cursor_params(),
         ) {
             Ok(_) => panic!("param columns should be rejected in low-level filters"),
             Err(err) => err,
@@ -2536,6 +2698,7 @@ mod tests {
             compiled.event_bindings().first().unwrap(),
             &ctx,
             compiled.param_specs(),
+            compiled.cursor_params(),
         )
         .expect("compile binding runtime");
 
@@ -2576,6 +2739,7 @@ mod tests {
             compiled.event_bindings().first().unwrap(),
             &ctx,
             compiled.param_specs(),
+            compiled.cursor_params(),
         )
         .expect("compile binding runtime");
 

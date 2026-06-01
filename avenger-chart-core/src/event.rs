@@ -6,7 +6,11 @@
 
 use std::collections::BTreeSet;
 
-use crate::{AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, Param, SerializableExpr};
+use crate::{
+    AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, Param, SelectionUpdate,
+    SerializableExpr,
+};
+use avenger_common::cursor::CursorStyle;
 use datafusion::{
     functions_array::expr_fn::{array_element, make_array},
     logical_expr::expr::Placeholder,
@@ -102,6 +106,14 @@ pub struct ChartEventParamAssignment {
     pub scope: ChartEventAssignmentScope,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ChartEventSelectionAssignment {
+    pub selection_id: String,
+    pub update: SelectionUpdate,
+    #[serde(default)]
+    pub scope: ChartEventAssignmentScope,
+}
+
 #[serde_as]
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ChartEventStream {
@@ -161,6 +173,8 @@ pub struct ChartEventBinding {
     pub throttle_ms: Option<u64>,
     pub consume: bool,
     pub assignments: Vec<ChartEventParamAssignment>,
+    #[serde(default)]
+    pub selection_assignments: Vec<ChartEventSelectionAssignment>,
     pub evaluation_mode: ChartEventEvaluationMode,
     pub settle_exact: bool,
 }
@@ -174,6 +188,7 @@ impl ChartEventBinding {
             throttle_ms: None,
             consume: false,
             assignments: Vec::new(),
+            selection_assignments: Vec::new(),
             evaluation_mode: ChartEventEvaluationMode::Preview,
             settle_exact: false,
         }
@@ -230,6 +245,30 @@ impl ChartEventBinding {
             expr: expr_node(expr.into_expr(), "event param assignment"),
             scope: ChartEventAssignmentScope::Start,
         });
+        self
+    }
+
+    pub fn set_selection(mut self, selection: impl Into<String>, update: SelectionUpdate) -> Self {
+        self.selection_assignments
+            .push(ChartEventSelectionAssignment {
+                selection_id: selection.into(),
+                update,
+                scope: ChartEventAssignmentScope::Current,
+            });
+        self
+    }
+
+    pub fn set_selection_at_start_scope(
+        mut self,
+        selection: impl Into<String>,
+        update: SelectionUpdate,
+    ) -> Self {
+        self.selection_assignments
+            .push(ChartEventSelectionAssignment {
+                selection_id: selection.into(),
+                update,
+                scope: ChartEventAssignmentScope::Start,
+            });
         self
     }
 
@@ -354,6 +393,10 @@ pub fn alt() -> Expr {
 
 pub fn meta() -> Expr {
     col(EVENT_META_FIELD)
+}
+
+pub fn cursor(style: CursorStyle) -> Expr {
+    lit(style.as_str().to_string())
 }
 
 pub fn start_x() -> Expr {

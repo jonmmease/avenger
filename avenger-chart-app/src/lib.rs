@@ -363,6 +363,7 @@ impl EventStreamHandler<ChartAppState> for ChartResizeHandler {
         UpdateStatus {
             rerender: true,
             rebuild_geometry: true,
+            ..Default::default()
         }
     }
 }
@@ -402,6 +403,7 @@ impl EventStreamHandler<ChartAppState> for ChartResizeSettleHandler {
         UpdateStatus {
             rerender: true,
             rebuild_geometry: true,
+            ..Default::default()
         }
     }
 }
@@ -422,6 +424,7 @@ pub async fn chart_avenger_app(
         &resize_bindings,
         ctx.as_ref(),
         compiled_plot.param_specs(),
+        &[],
     )?);
     let session = Arc::new(compiled_plot).instantiate(ctx);
     let exact_on_resize_settle = options.exact_on_resize_settle;
