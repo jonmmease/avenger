@@ -1469,72 +1469,43 @@ mod tests {
         ));
     }
 
-    fn x_pan_binding() -> ChartEventBinding {
-        let dx = event::event_at_start_coord("x") - event::start_coord("x");
-        ChartEventBinding::on(ChartEventType::CursorMoved)
-            .between(
-                ChartEventStream::on(ChartEventType::MouseDown)
-                    .filter(event::button().eq(lit("left"))),
-                ChartEventStream::on(ChartEventType::MouseUp),
-            )
-            .set_param(
-                "x_domain",
-                event::interval(
-                    event::interval_start(event::start_domain("x")) - dx.clone(),
-                    event::interval_end(event::start_domain("x")) - dx,
-                ),
-            )
-            .preview()
-            .settle_exact()
-    }
-
     async fn pan_state_and_handler() -> (ChartAppState, ChartEventBindingHandler) {
         let ctx = SessionContext::new();
         let x_domain = Param::raw_domain("x_domain");
-        let raw = x_domain.expr();
         let df = ctx
             .sql("SELECT * FROM (VALUES (0.0, 0.0), (10.0, 10.0)) AS t(x, y)")
             .await
             .expect("data");
-        let binding = x_pan_binding();
         let compiled = Plot::<Cartesian>::new()
             .canvas_size(400.0, 300.0)
             .data(df)
-            .add_param(x_domain.clone())
             .mark(
                 Symbol::new()
-                    .x_with(col("x"), move |c| {
-                        c.scale_with::<Linear>(move |s| {
-                            s.raw_domain(raw.clone()).nice(false).zero(false)
-                        })
+                    .x_with(col("x"), |c| {
+                        c.scale_with::<Linear>(|s| s.nice(false).zero(false))
                     })
                     .y(col("y"))
                     .size(20.0),
             )
-            .event_binding(binding)
+            .tool(
+                PanScrollZoom::cartesian()
+                    .x_only()
+                    .x_domain_param(x_domain)
+                    .settle_exact(true),
+            )
             .compile(&ctx)
             .await
             .expect("compile pan plot");
         let policy = compiled.resize_policy();
-        let runtime = CompiledChartEventBinding::compile(
-            0,
-            compiled.event_bindings().first().unwrap(),
-            &ctx,
-            compiled.param_specs(),
-        )
-        .expect("compile binding runtime");
-        let handler = ChartEventBindingHandler {
-            runtime: Arc::new(runtime),
-            state: Mutex::new(ChartEventBindingState::default()),
-        };
+        let handler = compile_handler_for_event_type(&compiled, &ctx, ChartEventType::CursorMoved);
         let session = Arc::new(compiled).instantiate(Arc::new(ctx));
         let state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
         (state, handler)
     }
 
-    /// A two-column FacetColumn plot whose leaf x scale reads a Shared raw-domain
-    /// param, with the same x_pan_binding. A pan in any cell writes the Shared
-    /// (root) domain, so every cell pans together.
+    /// A two-column FacetColumn plot whose leaf tool installs an x raw-domain
+    /// param. A pan in any cell writes the param at the scale sharing owner, so
+    /// Shared pans every cell and Free pans only the active cell.
     async fn faceted_pan_state_and_handler() -> (ChartAppState, ChartEventBindingHandler) {
         faceted_pan_state_and_handler_with_sharing(Sharing::Shared).await
     }
@@ -1544,11 +1515,9 @@ mod tests {
     ) -> (ChartAppState, ChartEventBindingHandler) {
         let ctx = SessionContext::new();
         let x_domain = Param::raw_domain("x_domain");
-        let raw = x_domain.expr();
-        // A `Shared` param drives one root domain for all cells; a `Free` param
-        // pans only the cell under the pointer. Match the scale's `share_scale`
-        // to the param sharing so validation passes (param must be at least as
-        // broad as the scale it drives).
+        // A `Shared` scale drives one root domain for all cells; a `Free` scale
+        // pans only the cell under the pointer. The tool mirrors this sharing
+        // for its raw-domain param.
         let share_scale = sharing.to_level() == u8::MAX;
         let df = ctx
             .sql(
@@ -1559,46 +1528,61 @@ mod tests {
             )
             .await
             .expect("data");
-        let binding = x_pan_binding();
         let compiled = Plot::<FacetColumn>::new()
             .canvas_size(640.0, 320.0)
             .data(df)
-            .add_param_with_sharing(x_domain.clone(), sharing)
             .mark(
                 Subplot::new(
-                    Plot::<Cartesian>::new().mark(
-                        Symbol::new()
-                            .x_with(col("x"), move |c| {
-                                let c = c.scale_with::<Linear>(move |s| {
-                                    s.raw_domain(raw.clone()).nice(false).zero(false)
-                                });
-                                if share_scale { c.share_scale() } else { c }
-                            })
-                            .y(col("y"))
-                            .size(20.0),
-                    ),
+                    Plot::<Cartesian>::new()
+                        .mark(
+                            Symbol::new()
+                                .x_with(col("x"), move |c| {
+                                    let c = c.scale_with::<Linear>(|s| s.nice(false).zero(false));
+                                    if share_scale { c.share_scale() } else { c }
+                                })
+                                .y(col("y"))
+                                .size(20.0),
+                        )
+                        .tool(
+                            PanScrollZoom::cartesian()
+                                .x_only()
+                                .x_domain_param(x_domain)
+                                .settle_exact(true),
+                        ),
                 )
                 .column(col("group_name")),
             )
-            .event_binding(binding)
             .compile(&ctx)
             .await
             .expect("compile faceted pan plot");
         let policy = compiled.resize_policy();
-        let runtime = CompiledChartEventBinding::compile(
-            0,
-            compiled.event_bindings().first().unwrap(),
-            &ctx,
-            compiled.param_specs(),
-        )
-        .expect("compile binding runtime");
-        let handler = ChartEventBindingHandler {
-            runtime: Arc::new(runtime),
-            state: Mutex::new(ChartEventBindingState::default()),
-        };
+        let handler = compile_handler_for_event_type(&compiled, &ctx, ChartEventType::CursorMoved);
         let session = Arc::new(compiled).instantiate(Arc::new(ctx));
         let state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
         (state, handler)
+    }
+
+    fn compile_handler_for_event_type(
+        compiled: &CompiledPlot,
+        ctx: &SessionContext,
+        event_type: ChartEventType,
+    ) -> ChartEventBindingHandler {
+        let binding_index = compiled
+            .event_bindings()
+            .iter()
+            .position(|binding| binding.event_type == event_type)
+            .unwrap_or_else(|| panic!("missing {event_type:?} binding"));
+        let runtime = CompiledChartEventBinding::compile(
+            binding_index,
+            &compiled.event_bindings()[binding_index],
+            ctx,
+            compiled.param_specs(),
+        )
+        .expect("compile binding runtime");
+        ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        }
     }
 
     fn drag_x_domain_value(value: Option<&ScalarValue>) -> [f32; 2] {
