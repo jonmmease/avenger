@@ -1648,7 +1648,11 @@ mod tests {
             .await
     }
 
-    async fn box_zoom_state_and_release_handler() -> (ChartAppState, ChartEventBindingHandler) {
+    async fn box_zoom_state_and_handlers() -> (
+        ChartAppState,
+        ChartEventBindingHandler,
+        ChartEventBindingHandler,
+    ) {
         let ctx = SessionContext::new();
         let df = ctx
             .sql("SELECT * FROM (VALUES (0.0, 0.0), (10.0, 10.0)) AS t(x, y)")
@@ -1671,6 +1675,7 @@ mod tests {
             .compile(&ctx)
             .await
             .expect("compile box zoom plot");
+
         let release_index = compiled
             .event_bindings()
             .iter()
@@ -1681,21 +1686,44 @@ mod tests {
                     .any(|assignment| assignment.param_name == "__tool_box_zoom__x_domain")
             })
             .expect("release binding");
-        let runtime = CompiledChartEventBinding::compile(
+
+        let reset_index = compiled
+            .event_bindings()
+            .iter()
+            .position(|binding| binding.event_type == ChartEventType::DoubleClick)
+            .expect("reset binding");
+
+        let release_runtime = CompiledChartEventBinding::compile(
             release_index,
             &compiled.event_bindings()[release_index],
             &ctx,
             compiled.param_specs(),
         )
-        .expect("compile binding runtime");
+        .expect("compile release binding runtime");
+        let reset_runtime = CompiledChartEventBinding::compile(
+            reset_index,
+            &compiled.event_bindings()[reset_index],
+            &ctx,
+            compiled.param_specs(),
+        )
+        .expect("compile reset binding runtime");
         let policy = compiled.resize_policy();
-        let handler = ChartEventBindingHandler {
-            runtime: Arc::new(runtime),
+        let release_handler = ChartEventBindingHandler {
+            runtime: Arc::new(release_runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+        let reset_handler = ChartEventBindingHandler {
+            runtime: Arc::new(reset_runtime),
             state: Mutex::new(ChartEventBindingState::default()),
         };
         let session = Arc::new(compiled).instantiate(Arc::new(ctx));
         let state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
-        (state, handler)
+        (state, release_handler, reset_handler)
+    }
+
+    async fn box_zoom_state_and_release_handler() -> (ChartAppState, ChartEventBindingHandler) {
+        let (state, release_handler, _) = box_zoom_state_and_handlers().await;
+        (state, release_handler)
     }
 
     async fn box_zoom_release(
@@ -1826,6 +1854,82 @@ mod tests {
         assert!(
             y_domain[1] - y_domain[0] < 8.0,
             "y zoom interval should be narrower than the full domain: {y_domain:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn box_zoom_double_click_resets_raw_domain_params_to_default() {
+        use avenger_app::app::SceneGraphBuilder;
+
+        let (mut state, release_handler, reset_handler) = box_zoom_state_and_handlers().await;
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial build");
+        let scope = state.interaction_scopes().await[0].clone();
+        let bounds = scope.bounds;
+        let start = [
+            bounds.x + bounds.width * 0.25,
+            bounds.y + bounds.height * 0.75,
+        ];
+        let end = [
+            bounds.x + bounds.width * 0.75,
+            bounds.y + bounds.height * 0.25,
+        ];
+        let center = [
+            bounds.x + bounds.width * 0.5,
+            bounds.y + bounds.height * 0.5,
+        ];
+
+        let default_x = state
+            .params()
+            .await
+            .get("__tool_box_zoom__x_domain")
+            .cloned()
+            .expect("default x domain");
+        let default_y = state
+            .params()
+            .await
+            .get("__tool_box_zoom__y_domain")
+            .cloned()
+            .expect("default y domain");
+
+        let zoom_status =
+            box_zoom_release(&mut state, &release_handler, Instant::now(), start, end).await;
+        assert!(zoom_status.rerender, "release should zoom first");
+        assert_ne!(
+            state.params().await.get("__tool_box_zoom__x_domain"),
+            Some(&default_x),
+            "test setup should first move away from the default domain"
+        );
+
+        let reset_status = reset_handler
+            .handle_with_context(
+                &SceneGraphEvent::DoubleClick(SceneDoubleClickEvent {
+                    position: center,
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+        assert!(reset_status.rerender, "double-click should patch params");
+        assert!(
+            reset_status.rebuild_geometry,
+            "box zoom reset evaluates exactly"
+        );
+        let params = state.params().await;
+        assert_eq!(
+            params.get("__tool_box_zoom__x_domain"),
+            Some(&default_x),
+            "double-click reset should restore x raw-domain default"
+        );
+        assert_eq!(
+            params.get("__tool_box_zoom__y_domain"),
+            Some(&default_y),
+            "double-click reset should restore y raw-domain default"
         );
     }
 

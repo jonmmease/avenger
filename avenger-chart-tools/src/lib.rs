@@ -429,6 +429,7 @@ impl ChartTool<Cartesian> for BoxZoom {
                 &active,
                 &channels,
             ))
+            .event_binding(box_zoom_reset_binding(&enabled.name, &active, &channels))
             .mark(overlay)
             .metadata(
                 ToolMetadata::new(self.id.clone(), "Box Zoom").enabled_param(enabled.name.clone()),
@@ -535,6 +536,14 @@ fn box_zoom_release_binding(
     }
 
     binding
+}
+
+fn box_zoom_reset_binding(
+    enabled_param: &str,
+    active: &Param,
+    channels: &[(String, Param); 2],
+) -> ChartEventBinding {
+    reset_view_binding(enabled_param, channels).set_param(active, lit(false))
 }
 
 fn box_zoom_drag_start_stream(drag_button: &str) -> ChartEventStream {
@@ -742,7 +751,7 @@ mod tests {
             .expect("expand");
 
         assert_eq!(expansion.params.len(), 8);
-        assert_eq!(expansion.event_bindings.len(), 4);
+        assert_eq!(expansion.event_bindings.len(), 5);
         assert_eq!(expansion.scale_edits.len(), 2);
         assert_eq!(expansion.marks.len(), 1);
         assert_eq!(expansion.metadata.len(), 1);
@@ -765,6 +774,17 @@ mod tests {
                 .flat_map(|binding| binding.assignments.iter())
                 .any(|assignment| assignment.scope
                     == avenger_chart_core::event::ChartEventAssignmentScope::Start)
+        );
+        let reset = expansion
+            .event_bindings
+            .iter()
+            .find(|binding| binding.event_type == ChartEventType::DoubleClick)
+            .expect("double-click reset binding");
+        assert_eq!(reset.filters.len(), 3);
+        assert_eq!(reset.assignments.len(), 3);
+        assert_eq!(
+            reset.evaluation_mode,
+            avenger_chart_core::event::ChartEventEvaluationMode::Exact
         );
     }
 }
