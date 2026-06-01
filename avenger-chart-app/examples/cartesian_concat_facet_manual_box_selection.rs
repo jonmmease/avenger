@@ -48,9 +48,8 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .await
         .expect("build data");
 
-    let brush = Selection::single("brush")
-        .empty(SelectionEmpty::None)
-        .interval_xy("x", "y")
+    let brush = Selection::interval_xy("brush", "x", "y")
+        .empty_selects_nothing()
         .facet_context_field("group_name", col("group_name"));
     let selected = brush.predicate();
 
@@ -58,12 +57,12 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
     let rect = col(Column::new_unqualified(CARTESIAN_RECT_GEOMETRY_COLUMN));
     let overlay = Rect::<Cartesian>::new()
-        .selection_clauses(brush.clauses().matching_current_facet())
+        .selection_clause_dataset(brush.clause_dataset().matching_current_facet())
         .exclude_from_scale_domains()
         .x(get_field(rect.clone(), "x_min"))
-        .x2_with(get_field(rect.clone(), "x_max"), |c| c.with_scale_name("x"))
+        .x2(get_field(rect.clone(), "x_max"))
         .y(get_field(rect.clone(), "y_min"))
-        .y2_with(get_field(rect, "y_max"), |c| c.with_scale_name("y"))
+        .y2(get_field(rect, "y_max"))
         .fill("rgba(37, 99, 235, 0.08)")
         .stroke("#2563eb")
         .stroke_width(1.5)
@@ -162,19 +161,17 @@ fn selection_drag_binding(cursor: &Param) -> ChartEventBinding {
 }
 
 fn selection_release_binding() -> ChartEventBinding {
-    ChartEventBinding::on(ChartEventType::MouseUp)
-        .between(
-            ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
-            ChartEventStream::on(ChartEventType::MouseUp),
-        )
-        .emit_between_end_event()
-        .filter(selectable_start_scope())
-        .filter(ev::start_coord("x").is_not_null())
-        .filter(ev::start_coord("y").is_not_null())
-        .filter(ev::event_at_start_clipped_coord("x").is_not_null())
-        .filter(ev::event_at_start_clipped_coord("y").is_not_null())
-        .set_selection_at_start_scope("brush", selection_update_from_drag())
-        .exact()
+    ChartEventBinding::on_between_end(
+        ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
+        ChartEventStream::on(ChartEventType::MouseUp),
+    )
+    .filter(selectable_start_scope())
+    .filter(ev::start_coord("x").is_not_null())
+    .filter(ev::start_coord("y").is_not_null())
+    .filter(ev::event_at_start_clipped_coord("x").is_not_null())
+    .filter(ev::event_at_start_clipped_coord("y").is_not_null())
+    .set_selection_at_start_scope("brush", selection_update_from_drag())
+    .exact()
 }
 
 fn selection_clear_binding() -> ChartEventBinding {
@@ -185,28 +182,10 @@ fn selection_clear_binding() -> ChartEventBinding {
 }
 
 fn selection_update_from_drag() -> SelectionUpdate {
-    SelectionUpdate::interval_xy()
-        .x_range(selection_interval("x"))
-        .y_range(selection_interval("y"))
+    SelectionUpdate::replace_interval_xy()
+        .x_endpoints(ev::start_coord("x"), ev::event_at_start_clipped_coord("x"))
+        .y_endpoints(ev::start_coord("y"), ev::event_at_start_clipped_coord("y"))
         .facet_context_from_start()
-}
-
-fn selection_interval(channel: &str) -> Expr {
-    let start = ev::start_coord(channel);
-    let end = ev::event_at_start_clipped_coord(channel);
-    ev::interval(expr_min(start.clone(), end.clone()), expr_max(start, end))
-}
-
-fn expr_min(a: Expr, b: Expr) -> Expr {
-    when(a.clone().lt_eq(b.clone()), a)
-        .otherwise(b)
-        .expect("valid min case expression")
-}
-
-fn expr_max(a: Expr, b: Expr) -> Expr {
-    when(a.clone().gt_eq(b.clone()), a)
-        .otherwise(b)
-        .expect("valid max case expression")
 }
 
 fn init_diagnostics() {

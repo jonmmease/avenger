@@ -9,8 +9,8 @@ use std::{
 use avenger_chart_core::{
     ChannelInfo, CompiledParamSpec, CompiledSelectionSpec, DefaultLogicalExprNodeExt,
     FacetWrapColumnMode, LegendChannel, LegendPosition, LogicalPlanNodeExt, Maybe,
-    RadiusExpression, ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, SelectionResolution,
-    SelectionState, SelectionStateUpdate, SerializableExpr, Sharing,
+    RadiusExpression, ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, SelectionState,
+    SelectionStateUpdate, SerializableExpr, Sharing,
 };
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
 use avenger_scales::scales::ConfiguredScale;
@@ -616,26 +616,16 @@ impl ScopedSelectionStore {
     ) -> bool {
         let mut changed = false;
         for assignment in patch {
-            let Some(spec) = self.specs.get(&assignment.selection_id) else {
+            if !self.specs.contains_key(&assignment.selection_id) {
                 continue;
-            };
-            let resolution = spec.resolution;
+            }
             match assignment.update {
                 SelectionStateUpdate::Clear => {
-                    if matches!(resolution, SelectionResolution::Single) {
-                        let before = self.states.len();
-                        self.states
-                            .retain(|key, _| key.selection_id != assignment.selection_id);
-                        if self.states.len() != before {
-                            changed = true;
-                        }
-                    } else {
-                        let state =
-                            self.state_mut_for(&assignment.selection_id, assignment.owner_path);
-                        if !state.clauses.is_empty() {
-                            state.clauses.clear();
-                            changed = true;
-                        }
+                    let before = self.states.len();
+                    self.states
+                        .retain(|key, _| key.selection_id != assignment.selection_id);
+                    if self.states.len() != before {
+                        changed = true;
                     }
                 }
                 SelectionStateUpdate::ReplaceClause(mut clause) => {
@@ -643,16 +633,14 @@ impl ScopedSelectionStore {
                         clause.clause_id = self.next_clause_id(&assignment.selection_id);
                     }
                     clause.owner_path = assignment.owner_path.clone();
-                    if matches!(resolution, SelectionResolution::Single) {
-                        let target_owner_path = assignment.owner_path.clone();
-                        let before = self.states.len();
-                        self.states.retain(|key, _| {
-                            key.selection_id != assignment.selection_id
-                                || key.owner_path == target_owner_path
-                        });
-                        if self.states.len() != before {
-                            changed = true;
-                        }
+                    let target_owner_path = assignment.owner_path.clone();
+                    let before = self.states.len();
+                    self.states.retain(|key, _| {
+                        key.selection_id != assignment.selection_id
+                            || key.owner_path == target_owner_path
+                    });
+                    if self.states.len() != before {
+                        changed = true;
                     }
                     let state = self.state_mut_for(&assignment.selection_id, assignment.owner_path);
                     if state.clauses.len() != 1
@@ -2194,10 +2182,7 @@ mod tests {
     async fn compile_selection_preview_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let brush = Selection::single("brush")
-            .empty(SelectionEmpty::None)
-            .sharing(Sharing::Shared)
-            .interval_xy("x", "y");
+        let brush = Selection::interval_xy("brush", "x", "y").sharing(Sharing::Shared);
         let selected = brush.predicate();
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")

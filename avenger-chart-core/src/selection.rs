@@ -15,19 +15,15 @@ use crate::{
     AvengerChartError, CompiledParamSpec, DefaultLogicalExprNodeExt, IntoExpr, Param,
     SerializableDataType, SerializableExpr, Sharing,
     event::{
-        ChartEventParamAssignment, ChartEventSelectionAssignment, interval_end, interval_start,
+        ChartEventParamAssignment, ChartEventSelectionAssignment, interval_end, interval_ordered,
+        interval_start,
     },
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SelectionResolution {
-    Single,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SelectionEmpty {
-    All,
-    None,
+pub enum EmptySelectionBehavior {
+    SelectAll,
+    SelectNothing,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -131,8 +127,7 @@ pub struct SelectionFacetContextSpec {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Selection {
     pub id: String,
-    pub resolution: SelectionResolution,
-    pub empty: SelectionEmpty,
+    pub empty: EmptySelectionBehavior,
     #[serde(default)]
     pub combine: SelectionCombine,
     #[serde(default = "default_selection_sharing")]
@@ -145,15 +140,10 @@ pub struct Selection {
 }
 
 impl Selection {
-    pub fn new(id: impl Into<String>) -> Self {
-        Self::single(id)
-    }
-
-    pub fn single(id: impl Into<String>) -> Self {
+    fn base(id: impl Into<String>) -> Self {
         Self {
             id: id.into(),
-            resolution: SelectionResolution::Single,
-            empty: SelectionEmpty::None,
+            empty: EmptySelectionBehavior::SelectNothing,
             combine: SelectionCombine::Union,
             sharing: Sharing::Free,
             geometry_schema: SelectionGeometrySchema::default(),
@@ -162,8 +152,29 @@ impl Selection {
         }
     }
 
-    pub fn empty(mut self, empty: SelectionEmpty) -> Self {
-        self.empty = empty;
+    pub fn interval_xy(
+        id: impl Into<String>,
+        x_channel: impl Into<String>,
+        y_channel: impl Into<String>,
+    ) -> Self {
+        Self::base(id).with_interval_xy(x_channel, y_channel)
+    }
+
+    pub fn interval_fields<X, Y>(id: impl Into<String>, x: (&str, X), y: (&str, Y)) -> Self
+    where
+        X: IntoExpr,
+        Y: IntoExpr,
+    {
+        Self::base(id).with_interval_fields(x, y)
+    }
+
+    pub fn empty_selects_nothing(mut self) -> Self {
+        self.empty = EmptySelectionBehavior::SelectNothing;
+        self
+    }
+
+    pub fn empty_selects_all(mut self) -> Self {
+        self.empty = EmptySelectionBehavior::SelectAll;
         self
     }
 
@@ -182,7 +193,7 @@ impl Selection {
         self
     }
 
-    pub fn interval_xy(
+    fn with_interval_xy(
         mut self,
         x_channel: impl Into<String>,
         y_channel: impl Into<String>,
@@ -209,7 +220,7 @@ impl Selection {
         self
     }
 
-    pub fn interval_fields<X, Y>(mut self, x: (&str, X), y: (&str, Y)) -> Self
+    fn with_interval_fields<X, Y>(mut self, x: (&str, X), y: (&str, Y)) -> Self
     where
         X: IntoExpr,
         Y: IntoExpr,
@@ -245,11 +256,14 @@ impl Selection {
     }
 
     pub fn predicate(&self) -> Expr {
-        selection_predicate(&self.id)
+        selection_predicate_expr(&self.id)
     }
 
-    pub fn clauses(&self) -> SelectionClauseData {
-        selection_clauses(&self.id)
+    pub fn clause_dataset(&self) -> SelectionClauseDataset {
+        SelectionClauseDataset {
+            selection_id: self.id.clone(),
+            matching_current_facet: false,
+        }
     }
 
     pub fn dimension_value_expr(&self, id: &str) -> Expr {
@@ -276,12 +290,6 @@ impl Selection {
         for facet in &self.facet_context {
             validate_selection_id(&facet.id)?;
         }
-        if self.resolution != SelectionResolution::Single {
-            return Err(AvengerChartError::InvalidArgument(format!(
-                "Selection '{}' uses an unsupported resolution",
-                self.id
-            )));
-        }
         if self.dimensions.len() != 2 {
             return Err(AvengerChartError::InvalidArgument(format!(
                 "Selection '{}' must define exactly two interval dimensions",
@@ -291,7 +299,6 @@ impl Selection {
         validate_geometry_schema(&self.id, &self.geometry_schema)?;
         Ok(CompiledSelectionSpec {
             id: self.id.clone(),
-            resolution: self.resolution,
             empty: self.empty,
             dimensions: self.dimensions.clone(),
             combine: self.combine,
@@ -367,8 +374,7 @@ impl SelectionLoweredParams {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CompiledSelectionSpec {
     pub id: String,
-    pub resolution: SelectionResolution,
-    pub empty: SelectionEmpty,
+    pub empty: EmptySelectionBehavior,
     pub dimensions: Vec<SelectionDimensionSpec>,
     #[serde(default)]
     pub combine: SelectionCombine,
@@ -409,7 +415,10 @@ impl CompiledSelectionSpec {
             )),
             CompiledParamSpec::shared(&Param::new(
                 self.lowered_params.empty_selected.clone(),
-                ScalarValue::Boolean(Some(matches!(self.empty, SelectionEmpty::All))),
+                ScalarValue::Boolean(Some(matches!(
+                    self.empty,
+                    EmptySelectionBehavior::SelectAll
+                ))),
             )),
             CompiledParamSpec::shared(&Param::new(
                 self.lowered_params.x_min.clone(),
@@ -436,23 +445,16 @@ impl CompiledSelectionSpec {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SelectionClauseData {
+pub struct SelectionClauseDataset {
     pub selection_id: String,
     #[serde(default)]
     pub matching_current_facet: bool,
 }
 
-impl SelectionClauseData {
+impl SelectionClauseDataset {
     pub fn matching_current_facet(mut self) -> Self {
         self.matching_current_facet = true;
         self
-    }
-}
-
-pub fn selection_clauses(id: impl AsRef<str>) -> SelectionClauseData {
-    SelectionClauseData {
-        selection_id: id.as_ref().to_string(),
-        matching_current_facet: false,
     }
 }
 
@@ -656,7 +658,7 @@ pub enum SelectionStateUpdate {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SelectionUpdateKind {
-    Interval,
+    ReplaceInterval,
     ReplaceClause,
     AddClause,
     Clear,
@@ -676,9 +678,9 @@ pub struct SelectionUpdate {
 }
 
 impl SelectionUpdate {
-    pub fn interval_xy() -> Self {
+    pub fn replace_interval_xy() -> Self {
         Self {
-            kind: SelectionUpdateKind::Interval,
+            kind: SelectionUpdateKind::ReplaceInterval,
             source: None,
             clause_id: None,
             x_range: None,
@@ -694,7 +696,7 @@ impl SelectionUpdate {
     pub fn add_interval_xy() -> Self {
         Self {
             kind: SelectionUpdateKind::AddClause,
-            ..Self::interval_xy()
+            ..Self::replace_interval_xy()
         }
     }
 
@@ -757,6 +759,14 @@ impl SelectionUpdate {
         self
     }
 
+    pub fn x_endpoints(self, a: impl IntoExpr, b: impl IntoExpr) -> Self {
+        self.x_range(interval_ordered(a, b))
+    }
+
+    pub fn y_endpoints(self, a: impl IntoExpr, b: impl IntoExpr) -> Self {
+        self.y_range(interval_ordered(a, b))
+    }
+
     pub fn facet_context_from_start(mut self) -> Self {
         self.capture_facet_context = true;
         self
@@ -779,7 +789,7 @@ impl SelectionUpdate {
                 })
                 .map(Some),
             SelectionUpdateKind::AddClause if self.clause.is_some() => Ok(self.clause.clone()),
-            SelectionUpdateKind::Interval | SelectionUpdateKind::AddClause => {
+            SelectionUpdateKind::ReplaceInterval | SelectionUpdateKind::AddClause => {
                 let Some(x_range) = &self.x_range else {
                     return Err(AvengerChartError::InvalidArgument(
                         "Interval selection update is missing an x range".to_string(),
@@ -830,14 +840,14 @@ impl SelectionUpdate {
     }
 }
 
-pub fn selection_predicate(id: impl AsRef<str>) -> Expr {
+fn selection_predicate_expr(id: impl AsRef<str>) -> Expr {
     Expr::Placeholder(Placeholder {
         id: selection_predicate_placeholder_id(id.as_ref()),
         data_type: Some(DataType::Boolean),
     })
 }
 
-pub fn selection_predicate_placeholder_id(id: &str) -> String {
+fn selection_predicate_placeholder_id(id: &str) -> String {
     format!("$__selection_predicate_{id}")
 }
 
@@ -875,7 +885,7 @@ pub fn lower_selection_assignments(
             scope: assignment.scope,
             replace_scoped_values: false,
         }]),
-        SelectionUpdateKind::Interval
+        SelectionUpdateKind::ReplaceInterval
         | SelectionUpdateKind::ReplaceClause
         | SelectionUpdateKind::AddClause => {
             let Some(x_range) = &assignment.update.x_range else {
@@ -974,10 +984,8 @@ mod tests {
     };
 
     #[test]
-    fn single_interval_selection_compiles_hidden_params() {
-        let selection = Selection::single("brush")
-            .empty(SelectionEmpty::All)
-            .interval_xy("x", "y");
+    fn interval_selection_compiles_hidden_params() {
+        let selection = Selection::interval_xy("brush", "x", "y").empty_selects_all();
         let compiled = selection.compile().expect("compile selection");
         assert_eq!(compiled.id, "brush");
         assert_eq!(compiled.dimensions.len(), 2);
@@ -994,11 +1002,11 @@ mod tests {
     #[test]
     fn lower_interval_selection_update_to_param_assignments() {
         let ctx = SessionContext::new();
-        let selection = Selection::single("brush").interval_xy("x", "y");
+        let selection = Selection::interval_xy("brush", "x", "y");
         let compiled = selection.compile().expect("compile selection");
         let assignment = ChartEventSelectionAssignment {
             selection_id: "brush".to_string(),
-            update: SelectionUpdate::interval_xy()
+            update: SelectionUpdate::replace_interval_xy()
                 .x_range(event::interval(lit(1.0), lit(4.0)))
                 .y_range(event::interval(lit(2.0), lit(5.0))),
             scope: ChartEventAssignmentScope::Start,
@@ -1023,14 +1031,13 @@ mod tests {
 
     #[test]
     fn selection_predicate_serializes() {
-        let expr = selection_predicate("brush");
+        let expr = Selection::interval_xy("brush", "x", "y").predicate();
         LogicalExprNode::from_expr(expr).expect("selection predicate serializes");
     }
 
     #[test]
     fn facet_context_selection_compiles_hidden_params_and_predicate() {
-        let selection = Selection::single("brush")
-            .interval_xy("x", "y")
+        let selection = Selection::interval_xy("brush", "x", "y")
             .facet_context_field("group_name", col("group_name"));
         let compiled = selection.compile().expect("compile selection");
         let params = compiled.hidden_param_specs();
@@ -1041,5 +1048,11 @@ mod tests {
         );
         LogicalExprNode::from_expr(selection.predicate())
             .expect("facet-context selection predicate serializes");
+    }
+
+    #[test]
+    fn ordered_interval_expr_serializes() {
+        let expr = event::interval_ordered(lit(4.0), lit(1.0));
+        LogicalExprNode::from_expr(expr).expect("ordered interval serializes");
     }
 }

@@ -2853,17 +2853,16 @@ mod tests {
         let binding = ChartEventBinding::on(ChartEventType::CanvasResize)
             .set_selection(
                 "brush",
-                SelectionUpdate::interval_xy()
+                SelectionUpdate::replace_interval_xy()
                     .x_range(event::interval(lit(1.0), lit(4.0)))
                     .y_range(event::interval(lit(2.0), lit(5.0))),
             )
             .preview();
         let compiled = Plot::<Cartesian>::new()
             .add_selection(
-                Selection::single("brush")
-                    .empty(SelectionEmpty::None)
-                    .sharing(Sharing::Shared)
-                    .interval_xy("x", "y"),
+                Selection::interval_xy("brush", "x", "y")
+                    .empty_selects_nothing()
+                    .sharing(Sharing::Shared),
             )
             .event_binding(binding)
             .compile(&ctx)
@@ -2955,10 +2954,9 @@ mod tests {
             .preview();
         let compiled = Plot::<Cartesian>::new()
             .add_selection(
-                Selection::single("brush")
-                    .empty(SelectionEmpty::None)
-                    .sharing(Sharing::Shared)
-                    .interval_xy("x", "y"),
+                Selection::interval_xy("brush", "x", "y")
+                    .empty_selects_nothing()
+                    .sharing(Sharing::Shared),
             )
             .event_binding(binding)
             .compile(&ctx)
@@ -3068,9 +3066,8 @@ mod tests {
     #[tokio::test]
     async fn selection_update_captures_start_facet_context() {
         let ctx = SessionContext::new();
-        let selection = Selection::single("brush")
-            .empty(SelectionEmpty::None)
-            .interval_xy("x", "y")
+        let selection = Selection::interval_xy("brush", "x", "y")
+            .empty_selects_nothing()
             .facet_context_field("group_name", col("group_name"));
         let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
             .between(
@@ -3080,7 +3077,7 @@ mod tests {
             )
             .set_selection_at_start_scope(
                 "brush",
-                SelectionUpdate::interval_xy()
+                SelectionUpdate::replace_interval_xy()
                     .x_range(event::interval(lit(1.0), lit(4.0)))
                     .y_range(event::interval(lit(2.0), lit(5.0)))
                     .facet_context_from_start(),

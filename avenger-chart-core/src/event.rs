@@ -14,7 +14,7 @@ use avenger_common::cursor::CursorStyle;
 use datafusion::{
     functions_array::expr_fn::{array_element, make_array},
     logical_expr::expr::Placeholder,
-    prelude::{Expr, col, lit},
+    prelude::{Expr, col, lit, when},
 };
 use datafusion_common::tree_node::{TreeNode, TreeNodeRecursion};
 use datafusion_proto::protobuf::LogicalExprNode;
@@ -205,6 +205,27 @@ impl ChartEventBinding {
         }
     }
 
+    pub fn on_between_end(start: ChartEventStream, end: ChartEventStream) -> Self {
+        let event_type = end
+            .event_type
+            .expect("ChartEventBinding::on_between_end requires an end stream with an event type");
+        Self {
+            event_type,
+            filters: Vec::new(),
+            between: Some(ChartEventBetween {
+                start,
+                end,
+                emit_end_event: true,
+            }),
+            throttle_ms: None,
+            consume: false,
+            assignments: Vec::new(),
+            selection_assignments: Vec::new(),
+            evaluation_mode: ChartEventEvaluationMode::Preview,
+            settle_exact: false,
+        }
+    }
+
     pub fn filter(mut self, expr: impl IntoExpr) -> Self {
         self.filters
             .push(expr_node(expr.into_expr(), "event binding filter"));
@@ -217,13 +238,6 @@ impl ChartEventBinding {
             end,
             emit_end_event: false,
         });
-        self
-    }
-
-    pub fn emit_between_end_event(mut self) -> Self {
-        if let Some(between) = &mut self.between {
-            between.emit_end_event = true;
-        }
         self
     }
 
@@ -596,6 +610,20 @@ pub fn interval(min: impl IntoExpr, max: impl IntoExpr) -> Expr {
     make_array(vec![min.into_expr(), max.into_expr()])
 }
 
+/// Build a two-element interval list from unordered scalar endpoints.
+pub fn interval_ordered(a: impl IntoExpr, b: impl IntoExpr) -> Expr {
+    let a = a.into_expr();
+    let b = b.into_expr();
+    let is_ordered = a.clone().lt_eq(b.clone());
+    let min = when(is_ordered.clone(), a.clone())
+        .otherwise(b.clone())
+        .expect("valid ordered interval minimum expression");
+    let max = when(is_ordered, b)
+        .otherwise(a)
+        .expect("valid ordered interval maximum expression");
+    interval(min, max)
+}
+
 /// Extract the first element from a two-element interval list.
 pub fn interval_start(interval: impl IntoExpr) -> Expr {
     array_element(interval.into_expr(), lit(1_i64))
@@ -811,12 +839,30 @@ mod tests {
     fn interval_helpers_build_valid_expressions() {
         // interval builds a two-element list; interval_start/end index it.
         let interval_expr = interval(lit(2.0), lit(8.0));
+        let ordered_interval_expr = interval_ordered(lit(8.0), lit(2.0));
         let start = interval_start(start_domain("x"));
         let end = interval_end(start_domain("x"));
         // These must serialize as ordinary DataFusion expressions.
-        for expr in [interval_expr, start, end] {
+        for expr in [interval_expr, ordered_interval_expr, start, end] {
             LogicalExprNode::from_expr(expr).expect("interaction interval expr serializes");
         }
+    }
+
+    #[test]
+    fn on_between_end_builds_end_event_binding() {
+        let binding = ChartEventBinding::on_between_end(
+            ChartEventStream::on(ChartEventType::MouseDown),
+            ChartEventStream::on(ChartEventType::MouseUp),
+        );
+
+        assert_eq!(binding.event_type, ChartEventType::MouseUp);
+        assert!(
+            binding
+                .between
+                .as_ref()
+                .expect("between config")
+                .emit_end_event
+        );
     }
 
     #[test]

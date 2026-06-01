@@ -193,15 +193,14 @@ pub use scale_range_binding::{
 pub use scale_spec::{Auto, ScaleSpec};
 pub use scale_type::{ScaleTypePreference, default_scale_type_for_data_type, is_continuous_scale};
 pub use selection::{
-    CARTESIAN_RECT_GEOMETRY_COLUMN, CompiledSelectionSpec, Selection, SelectionClause,
-    SelectionClauseData, SelectionClauseMeta, SelectionClauseUpdate, SelectionCombine,
-    SelectionDimensionSpec, SelectionEmpty, SelectionFacetContextSpec, SelectionGeometryFieldSpec,
-    SelectionGeometrySchema, SelectionGeometryUpdate, SelectionGeometryValue,
-    SelectionPredicateSpec, SelectionPredicateUpdate, SelectionResolution, SelectionState,
+    CARTESIAN_RECT_GEOMETRY_COLUMN, CompiledSelectionSpec, EmptySelectionBehavior, Selection,
+    SelectionClause, SelectionClauseDataset, SelectionClauseMeta, SelectionClauseUpdate,
+    SelectionCombine, SelectionDimensionSpec, SelectionFacetContextSpec,
+    SelectionGeometryFieldSpec, SelectionGeometrySchema, SelectionGeometryUpdate,
+    SelectionGeometryValue, SelectionPredicateSpec, SelectionPredicateUpdate, SelectionState,
     SelectionStateUpdate, SelectionUpdate, SelectionUpdateKind, SelectionValueExpr,
-    cartesian_rect_field, compile_selections, lower_selection_assignments, selection_clauses,
-    selection_id_from_predicate_placeholder, selection_predicate,
-    selection_predicate_placeholder_id,
+    cartesian_rect_field, compile_selections, lower_selection_assignments,
+    selection_id_from_predicate_placeholder,
 };
 pub use serialization::{
     DefaultLogicalExprNodeExt, LogicalPlanNodeExt, SerializableDataFrame, SerializableDataType,

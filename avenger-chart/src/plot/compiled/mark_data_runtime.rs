@@ -283,7 +283,7 @@ fn selection_predicate_expr(
     if clauses.is_empty() {
         return Ok(lit(matches!(
             spec.empty,
-            avenger_chart_core::SelectionEmpty::All
+            avenger_chart_core::EmptySelectionBehavior::SelectAll
         )));
     }
     let mut exprs = clauses
@@ -332,7 +332,7 @@ fn clause_predicate_expr(
 }
 
 fn selection_clause_dataframe(
-    data: &avenger_chart_core::SelectionClauseData,
+    data: &avenger_chart_core::SelectionClauseDataset,
     facet_data_scope: Option<FacetDataScopeContext<'_>>,
     eval_ctx: &EvaluationContext,
 ) -> Result<DataFrame, AvengerChartError> {
@@ -466,8 +466,9 @@ fn dataframe_for_mark(
     ctx: &SessionContext,
     eval_ctx: &EvaluationContext,
 ) -> Result<Option<DataFrame>, AvengerChartError> {
-    if let Some(selection_clauses) = mark.data_context().selection_clause_data() {
-        return selection_clause_dataframe(selection_clauses, facet_data_scope, eval_ctx).map(Some);
+    if let Some(selection_clause_dataset) = mark.data_context().selection_clause_dataset() {
+        return selection_clause_dataframe(selection_clause_dataset, facet_data_scope, eval_ctx)
+            .map(Some);
     }
 
     if mark.state().data_mode == MarkDataMode::Unit {

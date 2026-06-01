@@ -5,7 +5,7 @@ use serde_with::{FromInto, serde_as};
 use datafusion::{dataframe::DataFrame, prelude::SessionContext};
 use datafusion_proto::protobuf::LogicalPlanNode;
 
-use crate::{ChannelValue, LogicalPlanNodeExt, SelectionClauseData, SerializableDataFrame};
+use crate::{ChannelValue, LogicalPlanNodeExt, SelectionClauseDataset, SerializableDataFrame};
 
 /// Compiled version of DataContext - stores serialized LogicalPlanNode
 /// This is created during plot compilation and is immutable thereafter
@@ -14,7 +14,7 @@ use crate::{ChannelValue, LogicalPlanNodeExt, SelectionClauseData, SerializableD
 pub struct CompiledDataContext {
     #[serde_as(as = "Option<FromInto<SerializableDataFrame>>")]
     logical_plan: Option<LogicalPlanNode>,
-    selection_clauses: Option<SelectionClauseData>,
+    selection_clause_dataset: Option<SelectionClauseDataset>,
     channels: IndexMap<String, ChannelValue>,
 }
 
@@ -29,18 +29,18 @@ impl CompiledDataContext {
         };
         Self {
             logical_plan,
-            selection_clauses: None,
+            selection_clause_dataset: None,
             channels,
         }
     }
 
-    pub fn new_selection_clauses(
-        selection_clauses: SelectionClauseData,
+    pub fn new_selection_clause_dataset(
+        selection_clause_dataset: SelectionClauseDataset,
         channels: IndexMap<String, ChannelValue>,
     ) -> Self {
         Self {
             logical_plan: None,
-            selection_clauses: Some(selection_clauses),
+            selection_clause_dataset: Some(selection_clause_dataset),
             channels,
         }
     }
@@ -52,7 +52,7 @@ impl CompiledDataContext {
     ) -> Self {
         Self {
             logical_plan,
-            selection_clauses: None,
+            selection_clause_dataset: None,
             channels,
         }
     }
@@ -62,8 +62,8 @@ impl CompiledDataContext {
         self.logical_plan.as_ref()
     }
 
-    pub fn selection_clause_data(&self) -> Option<&SelectionClauseData> {
-        self.selection_clauses.as_ref()
+    pub fn selection_clause_dataset(&self) -> Option<&SelectionClauseDataset> {
+        self.selection_clause_dataset.as_ref()
     }
 
     /// Get the DataFrame using the provided SessionContext

@@ -10,7 +10,7 @@ use avenger_chart_marks::Rect;
 use datafusion::{
     common::ScalarValue,
     functions::expr_fn::power,
-    prelude::{Expr, lit, when},
+    prelude::{Expr, lit},
 };
 
 #[derive(Clone, Debug)]
@@ -498,16 +498,14 @@ fn box_zoom_cancel_binding(
     min_size_px: f64,
     active: &Param,
 ) -> ChartEventBinding {
-    ChartEventBinding::on(ChartEventType::MouseUp)
-        .filter(ev::param(enabled_param).eq(lit(true)))
-        .filter(drag_distance_squared().lt(lit(min_size_px * min_size_px)))
-        .between(
-            box_zoom_drag_start_stream(drag_button),
-            box_zoom_drag_end_stream(drag_button),
-        )
-        .emit_between_end_event()
-        .set_param_at_start_scope(active, lit(false))
-        .preview()
+    ChartEventBinding::on_between_end(
+        box_zoom_drag_start_stream(drag_button),
+        box_zoom_drag_end_stream(drag_button),
+    )
+    .filter(ev::param(enabled_param).eq(lit(true)))
+    .filter(drag_distance_squared().lt(lit(min_size_px * min_size_px)))
+    .set_param_at_start_scope(active, lit(false))
+    .preview()
 }
 
 fn box_zoom_release_binding(
@@ -517,16 +515,14 @@ fn box_zoom_release_binding(
     active: &Param,
     channels: &[(String, Param); 2],
 ) -> ChartEventBinding {
-    let mut binding = ChartEventBinding::on(ChartEventType::MouseUp)
-        .filter(ev::param(enabled_param).eq(lit(true)))
-        .filter(drag_distance_squared().gt_eq(lit(min_size_px * min_size_px)))
-        .between(
-            box_zoom_drag_start_stream(drag_button),
-            box_zoom_drag_end_stream(drag_button),
-        )
-        .emit_between_end_event()
-        .set_param_at_start_scope(active, lit(false))
-        .exact();
+    let mut binding = ChartEventBinding::on_between_end(
+        box_zoom_drag_start_stream(drag_button),
+        box_zoom_drag_end_stream(drag_button),
+    )
+    .filter(ev::param(enabled_param).eq(lit(true)))
+    .filter(drag_distance_squared().gt_eq(lit(min_size_px * min_size_px)))
+    .set_param_at_start_scope(active, lit(false))
+    .exact();
 
     for (channel, param) in channels {
         binding = binding
@@ -563,21 +559,10 @@ fn drag_distance_squared() -> Expr {
 }
 
 fn drag_domain_interval(channel: &str) -> Expr {
-    let start = ev::start_coord(channel);
-    let end = ev::event_at_start_clipped_coord(channel);
-    ev::interval(expr_min(start.clone(), end.clone()), expr_max(start, end))
-}
-
-fn expr_min(a: Expr, b: Expr) -> Expr {
-    when(a.clone().lt_eq(b.clone()), a)
-        .otherwise(b)
-        .expect("valid min case expression")
-}
-
-fn expr_max(a: Expr, b: Expr) -> Expr {
-    when(a.clone().gt_eq(b.clone()), a)
-        .otherwise(b)
-        .expect("valid max case expression")
+    ev::interval_ordered(
+        ev::start_coord(channel),
+        ev::event_at_start_clipped_coord(channel),
+    )
 }
 
 fn drag_pan_binding(

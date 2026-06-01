@@ -50,8 +50,11 @@ macro_rules! impl_mark_base {
             }
 
             /// Render this mark from a virtual selection-clause dataset.
-            pub fn selection_clauses(mut self, data: $crate::SelectionClauseData) -> Self {
-                self.state.data = $crate::DataContext::selection_clauses(data);
+            pub fn selection_clause_dataset(
+                mut self,
+                data: $crate::SelectionClauseDataset,
+            ) -> Self {
+                self.state.data = $crate::DataContext::selection_clause_dataset(data);
                 self.state.data_mode = $crate::MarkDataMode::Inherit;
                 self
             }
