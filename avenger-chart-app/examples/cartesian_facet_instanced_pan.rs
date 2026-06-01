@@ -82,20 +82,21 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
     // Leaf scatter: 200 pts/cell (>= 100 ⇒ instanced path). x and y scales are
     // globally shared, so interacting in any cell pans/zooms every cell.
-    let leaf = Plot::<Cartesian>::new().mark(
-        Symbol::new()
-            .x_with(col("x"), |c| c.share_scale())
-            .y_with(col("y"), |c| c.share_scale())
-            .fill(col("group_name"))
-            .size(40.0),
-    );
+    let leaf = Plot::<Cartesian>::new()
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |c| c.share_scale())
+                .y_with(col("y"), |c| c.share_scale())
+                .fill(col("group_name"))
+                .size(40.0),
+        )
+        .tool(PanScrollZoom::cartesian());
 
     // Wrap the 6 groups into a 3-column layout ⇒ a 2-row × 3-column grid.
     let plot = Plot::<FacetWrap>::new()
         .canvas_size(960.0, 640.0)
         .data(df)
-        .mark(Subplot::new(leaf).wrap_with(col("group_name"), |c| c.columns(lit(3))))
-        .tool(PanScrollZoom::cartesian());
+        .mark(Subplot::new(leaf).wrap_with(col("group_name"), |c| c.columns(lit(3))));
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(

@@ -1,14 +1,18 @@
-use crate::{AvengerChartError, Param, Sharing, event::ChartEventBinding};
+use std::sync::Arc;
+
+use crate::{
+    AvengerChartError, CoordinateSystemCore, Mark, Param, Sharing, event::ChartEventBinding,
+};
 use serde::{Deserialize, Serialize};
 
 /// Public trait for chart tools.
 ///
 /// Tools are authoring-time packages. During plot compilation they expand into
 /// ordinary chart params, scale edits, event bindings, and metadata.
-pub trait ChartTool: Send + Sync + 'static {
+pub trait ChartTool<C: CoordinateSystemCore>: Send + Sync + 'static {
     fn id(&self) -> &str;
 
-    fn expand(&self, ctx: ToolExpansionContext<'_>) -> Result<ToolExpansion, AvengerChartError>;
+    fn expand(&self, ctx: ToolExpansionContext<'_>) -> Result<ToolExpansion<C>, AvengerChartError>;
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -16,15 +20,39 @@ pub struct ToolExpansionContext<'a> {
     pub tool_id: &'a str,
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct ToolExpansion {
+pub struct ToolExpansion<C: CoordinateSystemCore> {
     pub params: Vec<ToolParamExpansion>,
     pub event_bindings: Vec<ChartEventBinding>,
     pub scale_edits: Vec<ToolScaleEdit>,
+    pub marks: Vec<Arc<dyn Mark<C>>>,
     pub metadata: Vec<ToolMetadata>,
 }
 
-impl ToolExpansion {
+impl<C: CoordinateSystemCore> Clone for ToolExpansion<C> {
+    fn clone(&self) -> Self {
+        Self {
+            params: self.params.clone(),
+            event_bindings: self.event_bindings.clone(),
+            scale_edits: self.scale_edits.clone(),
+            marks: self.marks.clone(),
+            metadata: self.metadata.clone(),
+        }
+    }
+}
+
+impl<C: CoordinateSystemCore> Default for ToolExpansion<C> {
+    fn default() -> Self {
+        Self {
+            params: Vec::new(),
+            event_bindings: Vec::new(),
+            scale_edits: Vec::new(),
+            marks: Vec::new(),
+            metadata: Vec::new(),
+        }
+    }
+}
+
+impl<C: CoordinateSystemCore> ToolExpansion<C> {
     pub fn new() -> Self {
         Self::default()
     }
@@ -41,6 +69,16 @@ impl ToolExpansion {
 
     pub fn scale_edit(mut self, edit: ToolScaleEdit) -> Self {
         self.scale_edits.push(edit);
+        self
+    }
+
+    pub fn mark(mut self, mark: impl Mark<C>) -> Self {
+        self.marks.push(Arc::new(mark));
+        self
+    }
+
+    pub fn mark_arc(mut self, mark: Arc<dyn Mark<C>>) -> Self {
+        self.marks.push(mark);
         self
     }
 

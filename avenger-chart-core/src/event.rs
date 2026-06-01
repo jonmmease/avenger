@@ -59,6 +59,7 @@ pub const PREVIOUS_PARAM_PREFIX: &str = "__previous_param_";
 pub const EVENT_COORD_PREFIX: &str = "__event_coord_";
 pub const START_COORD_PREFIX: &str = "__start_coord_";
 pub const EVENT_AT_START_COORD_PREFIX: &str = "__event_at_start_coord_";
+pub const EVENT_AT_START_CLIPPED_COORD_PREFIX: &str = "__event_at_start_clipped_coord_";
 pub const PREVIOUS_COORD_PREFIX: &str = "__previous_coord_";
 pub const EVENT_DOMAIN_PREFIX: &str = "__event_domain_";
 pub const START_DOMAIN_PREFIX: &str = "__start_domain_";
@@ -84,12 +85,21 @@ pub enum ChartEventType {
     WindowCloseRequested,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChartEventAssignmentScope {
+    #[default]
+    Current,
+    Start,
+}
+
 #[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChartEventParamAssignment {
     pub param_name: String,
     #[serde_as(as = "FromInto<SerializableExpr>")]
     pub expr: LogicalExprNode,
+    #[serde(default)]
+    pub scope: ChartEventAssignmentScope,
 }
 
 #[serde_as]
@@ -131,6 +141,8 @@ impl ChartEventStream {
 pub struct ChartEventBetween {
     pub start: ChartEventStream,
     pub end: ChartEventStream,
+    #[serde(default)]
+    pub emit_end_event: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -174,7 +186,18 @@ impl ChartEventBinding {
     }
 
     pub fn between(mut self, start: ChartEventStream, end: ChartEventStream) -> Self {
-        self.between = Some(ChartEventBetween { start, end });
+        self.between = Some(ChartEventBetween {
+            start,
+            end,
+            emit_end_event: false,
+        });
+        self
+    }
+
+    pub fn emit_between_end_event(mut self) -> Self {
+        if let Some(between) = &mut self.between {
+            between.emit_end_event = true;
+        }
         self
     }
 
@@ -192,6 +215,20 @@ impl ChartEventBinding {
         self.assignments.push(ChartEventParamAssignment {
             param_name: param.into_param_name(),
             expr: expr_node(expr.into_expr(), "event param assignment"),
+            scope: ChartEventAssignmentScope::Current,
+        });
+        self
+    }
+
+    pub fn set_param_at_start_scope(
+        mut self,
+        param: impl IntoParamName,
+        expr: impl IntoExpr,
+    ) -> Self {
+        self.assignments.push(ChartEventParamAssignment {
+            param_name: param.into_param_name(),
+            expr: expr_node(expr.into_expr(), "event param assignment"),
+            scope: ChartEventAssignmentScope::Start,
         });
         self
     }
@@ -397,6 +434,11 @@ pub fn event_at_start_coord(channel: &str) -> Expr {
     col(event_at_start_coord_column_name(channel))
 }
 
+/// Current event point clamped to the frozen start scope and inverted through it.
+pub fn event_at_start_clipped_coord(channel: &str) -> Expr {
+    col(event_at_start_clipped_coord_column_name(channel))
+}
+
 /// Previous event point inverted through the previous/current coordinate scope.
 pub fn previous_coord(channel: &str) -> Expr {
     col(previous_coord_column_name(channel))
@@ -442,6 +484,10 @@ pub fn event_at_start_coord_column_name(channel: &str) -> String {
     format!("{EVENT_AT_START_COORD_PREFIX}{channel}")
 }
 
+pub fn event_at_start_clipped_coord_column_name(channel: &str) -> String {
+    format!("{EVENT_AT_START_CLIPPED_COORD_PREFIX}{channel}")
+}
+
 pub fn previous_coord_column_name(channel: &str) -> String {
     format!("{PREVIOUS_COORD_PREFIX}{channel}")
 }
@@ -474,6 +520,7 @@ pub struct InteractionColumnRequests {
     pub current_coord: BTreeSet<String>,
     pub start_coord: BTreeSet<String>,
     pub event_at_start_coord: BTreeSet<String>,
+    pub event_at_start_clipped_coord: BTreeSet<String>,
     pub previous_coord: BTreeSet<String>,
     pub current_domain: BTreeSet<String>,
     pub start_domain: BTreeSet<String>,
@@ -484,6 +531,7 @@ impl InteractionColumnRequests {
         self.current_coord.is_empty()
             && self.start_coord.is_empty()
             && self.event_at_start_coord.is_empty()
+            && self.event_at_start_clipped_coord.is_empty()
             && self.previous_coord.is_empty()
             && self.current_domain.is_empty()
             && self.start_domain.is_empty()
@@ -495,6 +543,7 @@ impl InteractionColumnRequests {
         channels.extend(self.current_coord.iter().cloned());
         channels.extend(self.start_coord.iter().cloned());
         channels.extend(self.event_at_start_coord.iter().cloned());
+        channels.extend(self.event_at_start_clipped_coord.iter().cloned());
         channels.extend(self.previous_coord.iter().cloned());
         channels.extend(self.current_domain.iter().cloned());
         channels.extend(self.start_domain.iter().cloned());
@@ -504,7 +553,10 @@ impl InteractionColumnRequests {
     fn record_column(&mut self, name: &str) {
         // Most-specific prefixes first; the prefixes are mutually exclusive but
         // ordering keeps the intent explicit.
-        if let Some(channel) = name.strip_prefix(EVENT_AT_START_COORD_PREFIX) {
+        if let Some(channel) = name.strip_prefix(EVENT_AT_START_CLIPPED_COORD_PREFIX) {
+            self.event_at_start_clipped_coord
+                .insert(channel.to_string());
+        } else if let Some(channel) = name.strip_prefix(EVENT_AT_START_COORD_PREFIX) {
             self.event_at_start_coord.insert(channel.to_string());
         } else if let Some(channel) = name.strip_prefix(EVENT_COORD_PREFIX) {
             self.current_coord.insert(channel.to_string());
@@ -563,6 +615,10 @@ mod tests {
             "__event_at_start_coord_y".to_string()
         );
         assert_eq!(
+            event_at_start_clipped_coord_column_name("x"),
+            "__event_at_start_clipped_coord_x".to_string()
+        );
+        assert_eq!(
             start_domain_column_name("x"),
             "__start_domain_x".to_string()
         );
@@ -587,9 +643,11 @@ mod tests {
     fn scan_detects_requested_interaction_columns() {
         let requests = scan_interaction_columns(&[
             event_at_start_coord("x") - start_coord("x"),
+            event_at_start_clipped_coord("y"),
             interval_start(start_domain("x")),
         ]);
         assert!(requests.event_at_start_coord.contains("x"));
+        assert!(requests.event_at_start_clipped_coord.contains("y"));
         assert!(requests.start_coord.contains("x"));
         assert!(requests.start_domain.contains("x"));
         assert!(requests.current_coord.is_empty());

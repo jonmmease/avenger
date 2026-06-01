@@ -6,7 +6,7 @@ use datafusion_proto::protobuf::LogicalExprNode;
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, ColumnDimensionConfig, CompileContext, CompiledMark,
     CompiledMarkState, CompiledSubplotChildPlot, CoordinateSystemCore, DataContext, FacetDataScope,
-    FacetDimensionConfig, FacetEmptyCellPolicy, FacetWrapColumnMode, Mark, MarkState,
+    FacetDimensionConfig, FacetEmptyCellPolicy, FacetWrapColumnMode, Mark, MarkDataMode, MarkState,
     RowDimensionConfig, Sharing, SubplotChildPlotSpec, SubplotContainerCoordinateSystem,
     SubplotMarkCore,
 };
@@ -63,7 +63,10 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         Self {
             state: MarkState {
                 data: DataContext::default(),
+                data_mode: MarkDataMode::Inherit,
                 facet_data_scope: FacetDataScope::FILTERED,
+                exclude_from_scale_domains: false,
+                visible: None,
                 details: None,
                 zindex: None,
                 axis_configs: HashMap::new(),

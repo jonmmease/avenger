@@ -30,9 +30,10 @@ use tracing::trace;
 
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, CompiledMark, CoordinateSystemTransformCore,
-    EvaluationContext as CoreEvaluationContext, Maybe, RadiusExpression, ScaleOrderingSpec,
-    ScaleRange, Theme, array_value_to_f64, contains_aggregate, default_channel_value_for_eval,
-    params_to_datafusion, resolve_all_channel_refs, scalar_total_cmp, strip_trailing_numbers,
+    EvaluationContext as CoreEvaluationContext, MarkDataMode, Maybe, RadiusExpression,
+    ScaleOrderingSpec, ScaleRange, Theme, array_value_to_f64, contains_aggregate,
+    default_channel_value_for_eval, params_to_datafusion, resolve_all_channel_refs,
+    scalar_total_cmp, strip_trailing_numbers,
 };
 
 use crate::{
@@ -165,10 +166,13 @@ where
     let prepared_marks = compiled_marks
         .iter()
         .map(|mark| {
-            let dataframe = mark
-                .data_context()
-                .dataframe_with_context(ctx)
-                .or_else(|| inherited_df.clone());
+            let dataframe = if mark.state().data_mode == MarkDataMode::Unit {
+                None
+            } else {
+                mark.data_context()
+                    .dataframe_with_context(ctx)
+                    .or_else(|| inherited_df.clone())
+            };
             PreparedScaleMark::new(
                 mark.clone(),
                 dataframe,
@@ -826,6 +830,9 @@ async fn cache_domain_data(
     // If overrides didn't provide DomainExprs, fall back to collecting from marks
     if entries.is_empty() {
         for prepared in prepared_marks {
+            if prepared.mark.state().exclude_from_scale_domains {
+                continue;
+            }
             let mark = &prepared.mark;
             let df = if let Some(mark_df) = prepared
                 .dataframe

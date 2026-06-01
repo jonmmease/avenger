@@ -1,18 +1,12 @@
-//! Faceted Cartesian pan/zoom with **per-cell (`Free`) sharing**.
+//! Cartesian box-zoom example.
 //!
-//! A column-faceted scatter where the x and y raw-domain params are declared
-//! `Sharing::Free` and each cell's scales are `free_scale()` (independent per
-//! cell). Dragging with the left mouse button or scrolling inside ONE cell
-//! pans/zooms ONLY that cell: the bindings route the pointer to the cell under
-//! it, invert through that cell's scale, and write the param at the cell's own
-//! owner path, so the other cells keep their domains.
-//!
-//! Contrast this with `cartesian_facet_pan` (Shared), where dragging any cell
-//! pans every cell together.
+//! Drag a rectangle inside the plot to zoom both axes to the selected extent.
+//! Double-click reset is intentionally not included here; this example isolates
+//! the `BoxZoom` tool and its ordinary `Rect<Cartesian>` overlay mark.
 //!
 //! Run with:
 //! ```bash
-//! cargo run -p avenger-chart-app --example cartesian_facet_pan_free --features winit-wgpu --release
+//! cargo run -p avenger-chart-app --example cartesian_box_zoom --features winit-wgpu --release
 //! ```
 
 use std::sync::Arc;
@@ -33,7 +27,7 @@ fn main() {
     let avenger_app = tokio_runtime.block_on(build_app());
     let options = WinitWgpuAvengerAppOptions::new(2.0).window_attributes(
         WindowAttributes::default()
-            .with_title("avenger-chart per-cell pan/zoom — drag or scroll one cell")
+            .with_title("avenger-chart box zoom")
             .with_resizable(false),
     );
     let (mut app, event_loop) =
@@ -46,30 +40,25 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let df = ctx
         .sql(
             "SELECT * FROM (VALUES
-                ('A', 1.0, 2.0), ('A', 3.0, 4.5), ('A', 5.0, 3.2), ('A', 7.0, 6.1),
-                ('B', 2.0, 5.0), ('B', 4.0, 3.0), ('B', 6.0, 7.0), ('B', 8.0, 4.4),
-                ('C', 1.5, 3.5), ('C', 3.5, 6.0), ('C', 5.5, 2.5), ('C', 7.5, 5.5)
+                ('A', 1.0, 2.0), ('A', 2.0, 2.7), ('A', 3.0, 4.2), ('A', 4.0, 4.8),
+                ('B', 1.4, 5.5), ('B', 2.6, 4.9), ('B', 3.8, 6.8), ('B', 5.0, 7.2),
+                ('C', 2.0, 1.2), ('C', 3.2, 1.8), ('C', 4.4, 2.4), ('C', 5.6, 3.1)
             ) AS t(group_name, x, y)",
         )
         .await
         .expect("build data");
 
-    // Leaf scatter: x and y scales are independent per cell (`free_scale`).
-    // The tool mirrors that sharing for the generated raw-domain params.
-    let leaf = Plot::<Cartesian>::new()
+    let plot = Plot::<Cartesian>::new()
+        .canvas_size(640.0, 420.0)
+        .data(df)
         .mark(
             Symbol::new()
-                .x_with(col("x"), |c| c.free_scale())
-                .y_with(col("y"), |c| c.free_scale())
+                .x_with(col("x"), |c| c.share_scale())
+                .y_with(col("y"), |c| c.share_scale())
                 .fill(col("group_name"))
-                .size(80.0),
+                .size(90.0),
         )
-        .tool(PanScrollZoom::cartesian().settle_exact(true));
-
-    let plot = Plot::<FacetColumn>::new()
-        .canvas_size(820.0, 360.0)
-        .data(df)
-        .mark(Subplot::new(leaf).column(col("group_name")));
+        .tool(BoxZoom::cartesian());
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(

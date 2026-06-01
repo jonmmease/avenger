@@ -30,7 +30,7 @@ use tracing::{Level, debug, trace};
 
 use avenger_chart_core::{
     AxisPosition, FacetEmptyCellPolicy, LegendPosition, ScalarValueHelpers, eval_to_scalars,
-    evaluate_f32_expr, maybe::Maybe, params_to_datafusion,
+    evaluate_bool_expr, evaluate_f32_expr, maybe::Maybe, params_to_datafusion,
 };
 
 use crate::{
@@ -1660,6 +1660,19 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
         coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        if let Some(visible_expr) = &mark.state().visible {
+            let expr = visible_expr.to_expr(eval_ctx.session_context.as_ref())?;
+            let visible = if let Some(value) = direct_param_value(&expr, eval_ctx.params()) {
+                matches!(value, ScalarValue::Boolean(Some(true)))
+            } else {
+                evaluate_bool_expr(&expr, eval_ctx.session_context.as_ref(), eval_ctx.params())
+                    .await?
+            };
+            if !visible {
+                return Ok(vec![]);
+            }
+        }
+
         if let Some(subplot) = facet_subplot_ref(mark) {
             let render_state = RenderState::new(plot_width, plot_height, scales.clone());
             let render_ctx =

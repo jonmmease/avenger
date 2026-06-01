@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use avenger_app::error::AvengerAppError;
 use avenger_chart::{
     event::{
-        self, ChartEventBinding, ChartEventEvaluationMode, ChartEventStream, ChartEventType,
-        InteractionColumnRequests,
+        self, ChartEventAssignmentScope, ChartEventBinding, ChartEventEvaluationMode,
+        ChartEventStream, ChartEventType, InteractionColumnRequests,
     },
     plot::{CompiledPlot, ScopedParamAssignment, ScopedParamStoreSnapshot},
     render::{EvaluatedInteractionScope, EvaluationMode},
@@ -116,6 +116,7 @@ struct CompiledParamAssignment {
     param_name: String,
     sharing: Sharing,
     default_value: ScalarValue,
+    scope: ChartEventAssignmentScope,
 }
 
 impl CompiledChartEventBinding {
@@ -153,11 +154,11 @@ impl CompiledChartEventBinding {
                 .expr
                 .to_expr(ctx)
                 .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
-            assignment_exprs.push((assignment.param_name.clone(), expr));
+            assignment_exprs.push((assignment.param_name.clone(), expr, assignment.scope));
         }
 
         let mut scan_exprs = filter_exprs.clone();
-        scan_exprs.extend(assignment_exprs.iter().map(|(_, expr)| expr.clone()));
+        scan_exprs.extend(assignment_exprs.iter().map(|(_, expr, _)| expr.clone()));
         let interaction_requests = event::scan_interaction_columns(&scan_exprs);
 
         let schema = event_schema(param_specs, &interaction_requests);
@@ -178,7 +179,7 @@ impl CompiledChartEventBinding {
         }
         let filter_count = specs.len();
         let mut assignments = Vec::new();
-        for (param_name, expr) in assignment_exprs {
+        for (param_name, expr, scope) in assignment_exprs {
             let spec = param_specs
                 .get(&param_name)
                 .expect("assignment param validated");
@@ -193,6 +194,7 @@ impl CompiledChartEventBinding {
                 param_name,
                 sharing,
                 default_value: spec.default.clone(),
+                scope,
             });
         }
         let program = CompiledScalarExpressionProgram::compile(
@@ -431,8 +433,11 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                 );
                 continue;
             }
-            let Some(owner_path) =
-                assignment_owner_path(assignment.sharing, current_scope.as_ref())
+            let assignment_scope = match assignment.scope {
+                ChartEventAssignmentScope::Current => current_scope.as_ref(),
+                ChartEventAssignmentScope::Start => start_scope.as_ref(),
+            };
+            let Some(owner_path) = assignment_owner_path(assignment.sharing, assignment_scope)
             else {
                 // Non-shared param with no routed scope: skip rather than write
                 // to the wrong owner.
@@ -444,7 +449,13 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                 );
                 continue;
             };
-            if current_params.get(&assignment.param_name) != Some(value) {
+            let comparison_owner_paths = assignment_scope
+                .map(|scope| scope.sharing_owner_paths.clone())
+                .unwrap_or_default();
+            let comparison_params = app
+                .session
+                .effective_params_for_owner_paths(&comparison_owner_paths);
+            if comparison_params.get(&assignment.param_name) != Some(value) {
                 patch.push(ScopedParamAssignment {
                     name: assignment.param_name.clone(),
                     owner_path,
@@ -685,6 +696,17 @@ fn compute_interaction_values(
         start_scope,
         event::event_at_start_coord_column_name,
     );
+    let current_point_clipped_to_start = match (current_point, start_scope) {
+        (Some(point), Some(scope)) => Some(clamp_scene_point_to_scope(point, scope)),
+        _ => None,
+    };
+    fill_coords(
+        &mut values,
+        &requests.event_at_start_clipped_coord,
+        current_point_clipped_to_start,
+        start_scope,
+        event::event_at_start_clipped_coord_column_name,
+    );
     fill_coords(
         &mut values,
         &requests.previous_coord,
@@ -723,6 +745,13 @@ fn compute_interaction_values(
     );
 
     values
+}
+
+fn clamp_scene_point_to_scope(point: [f32; 2], scope: &EvaluatedInteractionScope) -> [f32; 2] {
+    [
+        point[0].clamp(scope.bounds.x, scope.bounds.x + scope.bounds.width),
+        point[1].clamp(scope.bounds.y, scope.bounds.y + scope.bounds.height),
+    ]
 }
 
 fn filters_pass(values: &[ScalarValue]) -> bool {
@@ -805,6 +834,7 @@ fn event_stream_config_for_binding(
         ..Default::default()
     };
     if let Some(between) = &binding.between {
+        config.emit_between_end_event = between.emit_end_event;
         config.between = Some((
             Box::new(stream_config_for_chart_stream(
                 &between.start,
@@ -992,6 +1022,13 @@ fn event_schema(
     for channel in interaction.event_at_start_coord.iter() {
         fields.push(Field::new(
             event::event_at_start_coord_column_name(channel),
+            DataType::Float64,
+            true,
+        ));
+    }
+    for channel in interaction.event_at_start_clipped_coord.iter() {
+        fields.push(Field::new(
+            event::event_at_start_clipped_coord_column_name(channel),
             DataType::Float64,
             true,
         ));
@@ -1324,7 +1361,9 @@ mod tests {
     use avenger_chart::prelude::*;
     use avenger_chart::render::{InteractionScopeId, InteractionScopeKind};
     use avenger_eventstream::{
-        scene::{SceneCursorMovedEvent, SceneDoubleClickEvent, SceneMouseDownEvent},
+        scene::{
+            SceneCursorMovedEvent, SceneDoubleClickEvent, SceneMouseDownEvent, SceneMouseUpEvent,
+        },
         window::{CanvasResizeEvent, MouseButton},
     };
 
@@ -1609,6 +1648,94 @@ mod tests {
             .await
     }
 
+    async fn box_zoom_state_and_release_handler() -> (ChartAppState, ChartEventBindingHandler) {
+        let ctx = SessionContext::new();
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (0.0, 0.0), (10.0, 10.0)) AS t(x, y)")
+            .await
+            .expect("data");
+        let compiled = Plot::<Cartesian>::new()
+            .canvas_size(400.0, 300.0)
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x_with(col("x"), |c| {
+                        c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                    })
+                    .y_with(col("y"), |c| {
+                        c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                    })
+                    .size(20.0),
+            )
+            .tool(BoxZoom::cartesian())
+            .compile(&ctx)
+            .await
+            .expect("compile box zoom plot");
+        let release_index = compiled
+            .event_bindings()
+            .iter()
+            .position(|binding| {
+                binding
+                    .assignments
+                    .iter()
+                    .any(|assignment| assignment.param_name == "__tool_box_zoom__x_domain")
+            })
+            .expect("release binding");
+        let runtime = CompiledChartEventBinding::compile(
+            release_index,
+            &compiled.event_bindings()[release_index],
+            &ctx,
+            compiled.param_specs(),
+        )
+        .expect("compile binding runtime");
+        let policy = compiled.resize_policy();
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        (state, handler)
+    }
+
+    async fn box_zoom_release(
+        state: &mut ChartAppState,
+        handler: &ChartEventBindingHandler,
+        gesture_instant: Instant,
+        start_pos: [f32; 2],
+        end_pos: [f32; 2],
+    ) -> UpdateStatus {
+        let start_event = EventStreamEventSnapshot {
+            event: SceneGraphEvent::MouseDown(SceneMouseDownEvent {
+                position: start_pos,
+                button: MouseButton::Left,
+                mark_instance: None,
+                modifiers: Default::default(),
+            }),
+            mark_instance: None,
+            instant: gesture_instant,
+        };
+        let context = EventStreamContext {
+            mark_instance: None,
+            current_event: None,
+            start_event: Some(start_event),
+            previous_event: None,
+        };
+        handler
+            .handle_with_context(
+                &SceneGraphEvent::MouseUp(SceneMouseUpEvent {
+                    position: end_pos,
+                    button: MouseButton::Left,
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &context,
+                state,
+                &empty_rtree(),
+            )
+            .await
+    }
+
     #[tokio::test]
     async fn root_pan_updates_x_domain_param() {
         use avenger_app::app::SceneGraphBuilder;
@@ -1652,6 +1779,54 @@ mod tests {
             .build(&mut state)
             .await
             .expect("preview build after pan");
+    }
+
+    #[tokio::test]
+    async fn box_zoom_release_sets_raw_domain_params_to_drag_extents() {
+        use avenger_app::app::SceneGraphBuilder;
+
+        let (mut state, handler) = box_zoom_state_and_release_handler().await;
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial build");
+        let scope = state.interaction_scopes().await[0].clone();
+        let bounds = scope.bounds;
+        let start = [
+            bounds.x + bounds.width * 0.25,
+            bounds.y + bounds.height * 0.75,
+        ];
+        let end = [
+            bounds.x + bounds.width * 0.75,
+            bounds.y + bounds.height * 0.25,
+        ];
+
+        let status = box_zoom_release(&mut state, &handler, Instant::now(), start, end).await;
+        assert!(status.rerender, "release should patch raw domains");
+        assert!(
+            status.rebuild_geometry,
+            "box zoom release evaluates exactly"
+        );
+
+        let params = state.params().await;
+        let x_domain = drag_x_domain_value(params.get("__tool_box_zoom__x_domain"));
+        let y_domain = drag_x_domain_value(params.get("__tool_box_zoom__y_domain"));
+        assert!(
+            x_domain[0] > -0.1 && x_domain[1] < 10.1 && x_domain[0] < x_domain[1],
+            "x domain should be the dragged interval, got {x_domain:?}"
+        );
+        assert!(
+            y_domain[0] > -0.1 && y_domain[1] < 10.1 && y_domain[0] < y_domain[1],
+            "y domain should be the dragged interval, got {y_domain:?}"
+        );
+        assert!(
+            x_domain[1] - x_domain[0] < 8.0,
+            "x zoom interval should be narrower than the full domain: {x_domain:?}"
+        );
+        assert!(
+            y_domain[1] - y_domain[0] < 8.0,
+            "y zoom interval should be narrower than the full domain: {y_domain:?}"
+        );
     }
 
     #[tokio::test]

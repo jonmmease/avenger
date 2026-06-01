@@ -624,6 +624,18 @@ mod tests {
         }
     }
 
+    fn drag_end_emit_stream_config() -> EventStreamConfig {
+        EventStreamConfig {
+            types: vec![SceneGraphEventType::MouseUp],
+            between: Some((
+                Box::new(left_mouse_down_config()),
+                Box::new(left_mouse_up_config()),
+            )),
+            emit_between_end_event: true,
+            ..Default::default()
+        }
+    }
+
     async fn dispatch_cursor(
         manager: &mut EventStreamManager<TestState>,
         position: [f32; 2],
@@ -724,6 +736,39 @@ mod tests {
         assert_eq!(second_start.event.position(), Some([10.0, 20.0]));
         let previous = contexts[1].previous_event.as_ref().expect("previous event");
         assert_eq!(previous.event.position(), Some([15.0, 22.0]));
+    }
+
+    #[tokio::test]
+    async fn between_stream_can_emit_matching_end_event_with_start_context() {
+        let state = TestState::default();
+        let events = state.events.clone();
+        let contexts = state.contexts.clone();
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            drag_end_emit_stream_config(),
+            Arc::new(ContextRecordingHandler),
+        );
+
+        let start = Instant::now();
+        dispatch_cursor(&mut manager, [10.0, 20.0], start).await;
+        dispatch_left_mouse(&mut manager, ElementState::Pressed, start).await;
+        dispatch_cursor(&mut manager, [15.0, 25.0], start + Duration::from_millis(1)).await;
+        dispatch_left_mouse(
+            &mut manager,
+            ElementState::Released,
+            start + Duration::from_millis(2),
+        )
+        .await;
+
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0], SceneGraphEvent::MouseUp(_)));
+        assert_eq!(events[0].position(), Some([15.0, 25.0]));
+
+        let contexts = contexts.lock().unwrap();
+        assert_eq!(contexts.len(), 1);
+        let start_event = contexts[0].start_event.as_ref().expect("start event");
+        assert_eq!(start_event.event.position(), Some([10.0, 20.0]));
     }
 
     #[tokio::test]

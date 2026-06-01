@@ -14,7 +14,10 @@ macro_rules! impl_mark_base {
                 Self {
                     state: $crate::MarkState {
                         data: $crate::DataContext::default(),
+                        data_mode: $crate::MarkDataMode::Inherit,
                         facet_data_scope: $crate::FacetDataScope::FILTERED,
+                        exclude_from_scale_domains: false,
+                        visible: None,
                         details: None,
                         zindex: None,
                         axis_configs: std::collections::HashMap::new(),
@@ -36,6 +39,28 @@ macro_rules! impl_mark_base {
             /// Set explicit data for this mark.
             pub fn data(mut self, dataframe: datafusion::dataframe::DataFrame) -> Self {
                 self.state.data = $crate::DataContext::new(dataframe);
+                self.state.data_mode = $crate::MarkDataMode::Inherit;
+                self
+            }
+
+            /// Render this mark once without inheriting plot or facet data.
+            pub fn unit_data(mut self) -> Self {
+                self.state.data_mode = $crate::MarkDataMode::Unit;
+                self
+            }
+
+            /// Prevent this mark's channels from contributing to inferred scale domains.
+            pub fn exclude_from_scale_domains(mut self) -> Self {
+                self.state.exclude_from_scale_domains = true;
+                self
+            }
+
+            /// Toggle rendering of this mark with a scalar boolean expression.
+            pub fn visible(mut self, visible: impl $crate::IntoExpr) -> Self {
+                self.state.visible = Some(
+                    $crate::DefaultLogicalExprNodeExt::from_default_expr(visible.into_expr())
+                        .expect("Failed to serialize mark visible expr"),
+                );
                 self
             }
 

@@ -61,13 +61,15 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
     // Leaf scatter: x and y scales are shared at Level(1) (per row). The tool
     // mirrors that sharing for the generated raw-domain params.
-    let leaf = Plot::<Cartesian>::new().mark(
-        Symbol::new()
-            .x_with(col("x"), |c| c.with_scale_sharing(Sharing::Level(1)))
-            .y_with(col("y"), |c| c.with_scale_sharing(Sharing::Level(1)))
-            .fill(col("col_name"))
-            .size(80.0),
-    );
+    let leaf = Plot::<Cartesian>::new()
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |c| c.with_scale_sharing(Sharing::Level(1)))
+                .y_with(col("y"), |c| c.with_scale_sharing(Sharing::Level(1)))
+                .fill(col("col_name"))
+                .size(80.0),
+        )
+        .tool(PanScrollZoom::cartesian().settle_exact(true));
 
     // Inner: facet leaf by column. Outer: facet that by row.
     let columns = Plot::<FacetColumn>::new().mark(Subplot::new(leaf).column(col("col_name")));
@@ -75,8 +77,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let plot = Plot::<FacetRow>::new()
         .canvas_size(820.0, 520.0)
         .data(df)
-        .mark(Subplot::new(columns).row(col("row_name")))
-        .tool(PanScrollZoom::cartesian().settle_exact(true));
+        .mark(Subplot::new(columns).row(col("row_name")));
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(

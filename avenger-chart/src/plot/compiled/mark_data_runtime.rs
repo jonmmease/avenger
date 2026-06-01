@@ -26,7 +26,8 @@ use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    EvaluationContext, color::parse_color_string, contains_aggregate, params_to_datafusion,
+    EvaluationContext, MarkDataMode, color::parse_color_string, contains_aggregate,
+    params_to_datafusion,
 };
 
 use crate::{
@@ -156,6 +157,10 @@ fn dataframe_for_mark(
     channels: &IndexMap<String, ChannelValue>,
     ctx: &SessionContext,
 ) -> Result<Option<DataFrame>, AvengerChartError> {
+    if mark.state().data_mode == MarkDataMode::Unit {
+        return Ok(None);
+    }
+
     if let Some(mark_df) = mark.data_context().dataframe_with_context(ctx) {
         return Ok(Some(mark_df));
     }

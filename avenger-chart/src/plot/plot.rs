@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use avenger_chart_core::{
     AvengerChartError, AxisSpec, ChartTool, CompileContext, CompiledMark, CompiledMarkState,
     CompiledParamSpec, CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, IntoExpr,
-    Legend, Mark, Param, Sharing, SubplotChildPlotSpec, Theme,
+    Legend, Mark, MarkDataMode, Param, Sharing, SubplotChildPlotSpec, Theme,
 };
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
 
@@ -63,7 +63,7 @@ pub struct Plot<C: CoordinateSystem> {
     pub(crate) event_bindings: Vec<ChartEventBinding>,
 
     /// Authoring-time tools that expand during compilation.
-    pub(crate) tools: Vec<Arc<dyn ChartTool>>,
+    pub(crate) tools: Vec<Arc<dyn ChartTool<C>>>,
 }
 
 #[async_trait::async_trait]
@@ -149,8 +149,8 @@ impl<C: CoordinateSystem> Plot<C> {
         inherited_tool_context: Option<&ToolCompileContext>,
         is_root: bool,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let tool_context =
-            ToolCompileContext::from_parent_with_tools(inherited_tool_context, &self.tools)?;
+        let tool_context = ToolCompileContext::from_parent(inherited_tool_context);
+        let active_tool_expansions = tool_context.expand_local_tools(&self.tools)?;
         let erased_tool_context: CompileContext<'_> = &tool_context;
 
         for binding in &self.event_bindings {
@@ -163,8 +163,13 @@ impl<C: CoordinateSystem> Plot<C> {
         let mut scale_specs: HashMap<String, ScaleSpec> = self.scale_specs.clone();
         let mut scale_to_coord_channel: HashMap<String, String> = HashMap::new();
 
+        let mut marks = self.marks;
+        for active in &active_tool_expansions {
+            marks.extend(active.expansion.marks.iter().cloned());
+        }
+
         // 1. Extract and merge channel configs from all marks with proper SessionContext
-        for mark in &self.marks {
+        for mark in &marks {
             crate::plot::channel::extract_channel_configs(
                 mark.as_ref(),
                 session_context,
@@ -176,8 +181,9 @@ impl<C: CoordinateSystem> Plot<C> {
         }
 
         let coord_transform = self.coord_system.create_transform();
-        let scale_sharing = scale_domain_share_modes(&self.marks);
+        let scale_sharing = scale_domain_share_modes(&marks);
         tool_context.apply_scale_edits(
+            &active_tool_expansions,
             coord_transform.as_ref(),
             &scale_to_coord_channel,
             &mut scale_specs,
@@ -188,14 +194,18 @@ impl<C: CoordinateSystem> Plot<C> {
         // runtime so faceted marks aggregate after mark-level data scope has been
         // resolved.
         let mut compiled_marks: Vec<Arc<dyn CompiledMark>> = Vec::new();
-        for (mark_index, m) in self.marks.iter().enumerate() {
+        for (mark_index, m) in marks.iter().enumerate() {
             let mark_state = m.state();
             // Get the DataFrame (or use plot-level data)
-            let df_opt = mark_state
-                .data
-                .dataframe()
-                .cloned()
-                .or_else(|| self.data.clone());
+            let df_opt = if mark_state.data_mode == MarkDataMode::Unit {
+                None
+            } else {
+                mark_state
+                    .data
+                    .dataframe()
+                    .cloned()
+                    .or_else(|| self.data.clone())
+            };
 
             let compiled_state =
                 CompiledMarkState::from_mark_state(mark_state, df_opt).with_mark_index(mark_index);
@@ -370,17 +380,17 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Add an authoring-time chart tool.
-    pub fn tool<T: ChartTool>(mut self, tool: T) -> Self {
+    pub fn tool<T: ChartTool<C>>(mut self, tool: T) -> Self {
         self.tools.push(Arc::new(tool));
         self
     }
 
     /// Add multiple authoring-time chart tools of the same concrete type.
-    pub fn tools<T: ChartTool>(mut self, tools: impl IntoIterator<Item = T>) -> Self {
+    pub fn tools<T: ChartTool<C>>(mut self, tools: impl IntoIterator<Item = T>) -> Self {
         self.tools.extend(
             tools
                 .into_iter()
-                .map(|tool| Arc::new(tool) as Arc<dyn ChartTool>),
+                .map(|tool| Arc::new(tool) as Arc<dyn ChartTool<C>>),
         );
         self
     }

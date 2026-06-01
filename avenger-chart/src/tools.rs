@@ -6,8 +6,8 @@ use std::{
 };
 
 use avenger_chart_core::{
-    Auto, AvengerChartError, ChartEventBinding, CompiledParamSpec, CoordinateSystemTransform,
-    DefaultLogicalExprNodeExt, Param, Scale, Sharing,
+    Auto, AvengerChartError, ChartEventBinding, CompiledParamSpec, CoordinateSystemCore,
+    CoordinateSystemTransform, DefaultLogicalExprNodeExt, Param, Scale, Sharing,
 };
 use avenger_chart_scales::PlotScaleSpec;
 use datafusion::prelude::lit;
@@ -18,32 +18,32 @@ pub use avenger_chart_core::{
     ChartTool, ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamExpansion,
     ToolParamSharing, ToolScaleEdit,
 };
-pub use avenger_chart_tools::PanScrollZoom;
+pub use avenger_chart_tools::{BoxZoom, PanScrollZoom};
 
 pub(crate) struct ToolCompileContext {
     state: Arc<Mutex<ToolCompileState>>,
-    active: Arc<Vec<ActiveToolExpansion>>,
 }
 
 impl ToolCompileContext {
     pub(crate) fn root() -> Self {
         Self {
             state: Arc::new(Mutex::new(ToolCompileState::default())),
-            active: Arc::new(Vec::new()),
         }
     }
 
-    pub(crate) fn from_parent_with_tools(
-        parent: Option<&ToolCompileContext>,
-        tools: &[Arc<dyn ChartTool>],
-    ) -> Result<Self, AvengerChartError> {
-        let state = parent
-            .map(|ctx| ctx.state.clone())
-            .unwrap_or_else(|| Arc::new(Mutex::new(ToolCompileState::default())));
-        let mut active = parent
-            .map(|ctx| ctx.active.as_ref().clone())
-            .unwrap_or_default();
+    pub(crate) fn from_parent(parent: Option<&ToolCompileContext>) -> Self {
+        Self {
+            state: parent
+                .map(|ctx| ctx.state.clone())
+                .unwrap_or_else(|| Arc::new(Mutex::new(ToolCompileState::default()))),
+        }
+    }
 
+    pub(crate) fn expand_local_tools<C: CoordinateSystemCore>(
+        &self,
+        tools: &[Arc<dyn ChartTool<C>>],
+    ) -> Result<Vec<ActiveToolExpansion<C>>, AvengerChartError> {
+        let mut active = Vec::new();
         for tool in tools {
             let id = tool.id().to_string();
             validate_tool_id(&id)?;
@@ -52,25 +52,22 @@ impl ToolCompileContext {
                 id: id.clone(),
                 expansion: expansion.clone(),
             };
-            state
+            self.state
                 .lock()
                 .expect("tool compile state lock poisoned")
                 .register_expansion(&id, &expansion)?;
             active.push(active_expansion);
         }
-
-        Ok(Self {
-            state,
-            active: Arc::new(active),
-        })
+        Ok(active)
     }
 
     pub(crate) fn downcast(ctx: avenger_chart_core::CompileContext<'_>) -> Option<&Self> {
         ctx.downcast_ref::<Self>()
     }
 
-    pub(crate) fn apply_scale_edits(
+    pub(crate) fn apply_scale_edits<C: CoordinateSystemCore>(
         &self,
+        active_expansions: &[ActiveToolExpansion<C>],
         coord_transform: &dyn CoordinateSystemTransform,
         scale_to_coord_channel: &HashMap<String, String>,
         scale_specs: &mut HashMap<String, PlotScaleSpec>,
@@ -81,7 +78,7 @@ impl ToolCompileContext {
             return Ok(());
         }
 
-        for active in self.active.iter() {
+        for active in active_expansions {
             for edit in &active.expansion.scale_edits {
                 match edit {
                     ToolScaleEdit::RawDomain {
@@ -140,9 +137,9 @@ impl ToolCompileContext {
 }
 
 #[derive(Clone)]
-struct ActiveToolExpansion {
+pub(crate) struct ActiveToolExpansion<C: CoordinateSystemCore> {
     id: String,
-    expansion: ToolExpansion,
+    pub(crate) expansion: ToolExpansion<C>,
 }
 
 #[derive(Default)]
@@ -155,10 +152,10 @@ struct ToolCompileState {
 }
 
 impl ToolCompileState {
-    fn register_expansion(
+    fn register_expansion<C: CoordinateSystemCore>(
         &mut self,
         id: &str,
-        expansion: &ToolExpansion,
+        expansion: &ToolExpansion<C>,
     ) -> Result<(), AvengerChartError> {
         if !self.tool_ids.insert(id.to_string()) {
             return Err(AvengerChartError::InvalidArgument(format!(
@@ -386,6 +383,7 @@ fn describe_sharing(sharing: Sharing) -> String {
 mod tests {
     use avenger_chart_core::DefaultLogicalExprNodeExt;
     use avenger_chart_scales::Linear;
+    use avenger_scenegraph::marks::mark::SceneMark;
     use datafusion::prelude::{SessionContext, col, lit};
 
     use super::*;
@@ -420,6 +418,14 @@ mod tests {
             "{:?}",
             raw.to_expr(&SessionContext::new()).expect("raw expr")
         )
+    }
+
+    fn total_symbol_len(mark: &SceneMark) -> usize {
+        match mark {
+            SceneMark::Group(group) => group.marks.iter().map(total_symbol_len).sum(),
+            SceneMark::Symbol(symbol) => symbol.len as usize,
+            _ => 0,
+        }
     }
 
     #[tokio::test]
@@ -462,18 +468,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn root_tool_reaches_faceted_cartesian_leaf_and_mirrors_shared_scale() {
+    async fn leaf_tool_inside_facet_column_mirrors_shared_scale() {
         let ctx = SessionContext::new();
         let df = data(&ctx).await;
-        let leaf = Plot::<Cartesian>::new().mark(
-            Symbol::new()
-                .x_with(col("x"), |c| c.share_scale())
-                .y_with(col("y"), |c| c.free_scale()),
-        );
+        let leaf = Plot::<Cartesian>::new()
+            .mark(
+                Symbol::new()
+                    .x_with(col("x"), |c| c.share_scale())
+                    .y_with(col("y"), |c| c.free_scale()),
+            )
+            .tool(PanScrollZoom::cartesian());
         let compiled = Plot::<FacetColumn>::new()
             .data(df)
             .mark(Subplot::new(leaf).column(col("group_name")))
-            .tool(PanScrollZoom::cartesian())
             .compile(&ctx)
             .await
             .expect("compile");
@@ -489,18 +496,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn root_tool_reaches_facet_wrap_cartesian_leaf() {
+    async fn leaf_tool_inside_facet_wrap_compiles() {
         let ctx = SessionContext::new();
         let df = data(&ctx).await;
-        let leaf = Plot::<Cartesian>::new().mark(
-            Symbol::new()
-                .x_with(col("x"), |c| c.share_scale())
-                .y_with(col("y"), |c| c.share_scale()),
-        );
+        let leaf = Plot::<Cartesian>::new()
+            .mark(
+                Symbol::new()
+                    .x_with(col("x"), |c| c.share_scale())
+                    .y_with(col("y"), |c| c.share_scale()),
+            )
+            .tool(PanScrollZoom::cartesian());
         let compiled = Plot::<FacetWrap>::new()
             .data(df)
             .mark(Subplot::new(leaf).wrap(col("group_name")))
-            .tool(PanScrollZoom::cartesian())
             .compile(&ctx)
             .await
             .expect("compile");
@@ -513,19 +521,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn root_tool_reaches_nested_row_column_leaf_with_level_sharing() {
+    async fn leaf_tool_inside_nested_row_column_uses_level_sharing() {
         let ctx = SessionContext::new();
         let df = data(&ctx).await;
-        let leaf = Plot::<Cartesian>::new().mark(
-            Symbol::new()
-                .x_with(col("x"), |c| c.with_scale_sharing(Sharing::Level(1)))
-                .y_with(col("y"), |c| c.with_scale_sharing(Sharing::Level(1))),
-        );
+        let leaf = Plot::<Cartesian>::new()
+            .mark(
+                Symbol::new()
+                    .x_with(col("x"), |c| c.with_scale_sharing(Sharing::Level(1)))
+                    .y_with(col("y"), |c| c.with_scale_sharing(Sharing::Level(1))),
+            )
+            .tool(PanScrollZoom::cartesian());
         let column = Plot::<FacetColumn>::new().mark(Subplot::new(leaf).column(col("group_name")));
         let compiled = Plot::<FacetRow>::new()
             .data(df)
             .mark(Subplot::new(column).row(col("group_name")))
-            .tool(PanScrollZoom::cartesian())
             .compile(&ctx)
             .await
             .expect("compile");
@@ -543,7 +552,7 @@ mod tests {
     #[derive(Clone)]
     struct CustomXTool;
 
-    impl ChartTool for CustomXTool {
+    impl ChartTool<Cartesian> for CustomXTool {
         fn id(&self) -> &str {
             "custom_x"
         }
@@ -551,7 +560,7 @@ mod tests {
         fn expand(
             &self,
             _ctx: ToolExpansionContext<'_>,
-        ) -> Result<ToolExpansion, AvengerChartError> {
+        ) -> Result<ToolExpansion<Cartesian>, AvengerChartError> {
             let param = Param::raw_domain("__tool_custom_x__x_domain");
             Ok(ToolExpansion::new()
                 .param(param.clone(), ToolParamSharing::mirror_scale("x"))
@@ -583,6 +592,92 @@ mod tests {
         );
         assert_eq!(compiled.event_bindings().len(), 1);
         assert!(raw_domain_debug(&compiled, "x").contains("__tool_custom_x__x_domain"));
+    }
+
+    #[tokio::test]
+    async fn box_zoom_cartesian_injects_unit_rect_mark_and_raw_domains() {
+        let ctx = SessionContext::new();
+        let df = data(&ctx).await;
+        let compiled = Plot::<Cartesian>::new()
+            .data(df)
+            .mark(Symbol::new().x(col("x")).y(col("y")))
+            .tool(BoxZoom::cartesian())
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        assert!(
+            compiled
+                .param_specs()
+                .contains_key("__tool_box_zoom__active")
+        );
+        assert!(
+            compiled
+                .param_specs()
+                .contains_key("__tool_box_zoom__x_domain")
+        );
+        assert_eq!(compiled.event_bindings().len(), 4);
+        assert!(
+            compiled
+                .marks()
+                .iter()
+                .any(|mark| mark.mark_type() == "rect")
+        );
+        assert!(raw_domain_debug(&compiled, "x").contains("__tool_box_zoom__x_domain"));
+        assert!(raw_domain_debug(&compiled, "y").contains("__tool_box_zoom__y_domain"));
+    }
+
+    #[tokio::test]
+    async fn unit_data_mark_renders_once_without_inherited_rows() {
+        let ctx = SessionContext::new();
+        let df = data(&ctx).await;
+        let compiled = Plot::<Cartesian>::new()
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .unit_data()
+                    .x_with(lit(10.0), |c| c.no_scale())
+                    .y_with(lit(10.0), |c| c.no_scale()),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+        let symbol_count: usize = evaluated
+            .scene_graph
+            .marks
+            .iter()
+            .map(total_symbol_len)
+            .sum();
+        assert_eq!(symbol_count, 1);
+    }
+
+    #[tokio::test]
+    async fn visible_false_suppresses_mark_rendering() {
+        let ctx = SessionContext::new();
+        let df = data(&ctx).await;
+        let compiled = Plot::<Cartesian>::new()
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .unit_data()
+                    .x_with(lit(10.0), |c| c.no_scale())
+                    .y_with(lit(10.0), |c| c.no_scale())
+                    .visible(lit(false)),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+        let symbol_count: usize = evaluated
+            .scene_graph
+            .marks
+            .iter()
+            .map(total_symbol_len)
+            .sum();
+        assert_eq!(symbol_count, 0);
     }
 
     #[tokio::test]

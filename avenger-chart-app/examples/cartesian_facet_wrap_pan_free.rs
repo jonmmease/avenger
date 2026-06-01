@@ -62,19 +62,20 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
     // Leaf scatter: x and y scales are independent per cell (`free_scale`).
     // The tool mirrors that sharing for the generated raw-domain params.
-    let leaf = Plot::<Cartesian>::new().mark(
-        Symbol::new()
-            .x_with(col("x"), |c| c.free_scale())
-            .y_with(col("y"), |c| c.free_scale())
-            .fill(col("group_name"))
-            .size(70.0),
-    );
+    let leaf = Plot::<Cartesian>::new()
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |c| c.free_scale())
+                .y_with(col("y"), |c| c.free_scale())
+                .fill(col("group_name"))
+                .size(70.0),
+        )
+        .tool(PanScrollZoom::cartesian().settle_exact(true));
 
     let plot = Plot::<FacetWrap>::new()
         .canvas_size(760.0, 480.0)
         .data(df)
-        .mark(Subplot::new(leaf).wrap_with(col("group_name"), |c| c.columns(lit(3))))
-        .tool(PanScrollZoom::cartesian().settle_exact(true));
+        .mark(Subplot::new(leaf).wrap_with(col("group_name"), |c| c.columns(lit(3))));
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(

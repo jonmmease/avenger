@@ -138,6 +138,10 @@ pub struct EventStreamConfig {
     /// and before the end stream has been triggered will be included
     pub between: Option<(Box<EventStreamConfig>, Box<EventStreamConfig>)>,
 
+    /// If true, the matching between end event is emitted once with the frozen
+    /// start event context before the between state is cleared.
+    pub emit_between_end_event: bool,
+
     /// If specified, only events associated with the specified mark paths will be included
     pub mark_paths: Option<Vec<Vec<usize>>>,
 
@@ -231,6 +235,8 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
             .as_ref()
             .and_then(|between| between.start_event.clone());
 
+        let mut end_event_context = None;
+
         // Handle between state
         if let Some(between) = &mut self.between_state {
             if between.start_event.is_none() {
@@ -256,9 +262,20 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
                 );
                 if between.end_stream.matches_event(event, &context, rtree) {
                     between.start_event = None;
-                    return None;
+                    if self.config.emit_between_end_event {
+                        end_event_context = Some(context);
+                    } else {
+                        return None;
+                    }
                 }
             }
+        }
+
+        if let Some(context) = end_event_context {
+            if self.matches_event(event, &context, rtree) && self.should_handle_event(now) {
+                return Some(context);
+            }
+            return None;
         }
 
         let context = EventStreamContext::new(
