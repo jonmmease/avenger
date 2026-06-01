@@ -2182,7 +2182,7 @@ mod tests {
     async fn compile_selection_preview_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let brush = Selection::cartesian_interval("brush", "x", "y").sharing(Sharing::Shared);
+        let brush = Selection::cartesian_interval("brush").sharing(Sharing::Shared);
         let selected = brush.predicate();
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")

@@ -49,7 +49,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .await
         .expect("build data");
 
-    let brush = Selection::cartesian_interval("brush", "x", "y").empty_selects_nothing();
+    let brush = Selection::cartesian_interval("brush").empty_selects_nothing();
     let selected = brush.predicate();
 
     let cursor = Param::cursor("brush_cursor", CursorStyle::Default);

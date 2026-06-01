@@ -48,7 +48,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .await
         .expect("build data");
 
-    let brush = Selection::cartesian_interval("brush", "x", "y")
+    let brush = Selection::cartesian_interval("brush")
         .empty_selects_nothing()
         .facet_context_field("group_name", col("group_name"));
     let selected = brush.predicate();

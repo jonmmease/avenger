@@ -2860,7 +2860,7 @@ mod tests {
             .preview();
         let compiled = Plot::<Cartesian>::new()
             .add_selection(
-                Selection::cartesian_interval("brush", "x", "y")
+                Selection::cartesian_interval("brush")
                     .empty_selects_nothing()
                     .sharing(Sharing::Shared),
             )
@@ -2954,7 +2954,7 @@ mod tests {
             .preview();
         let compiled = Plot::<Cartesian>::new()
             .add_selection(
-                Selection::cartesian_interval("brush", "x", "y")
+                Selection::cartesian_interval("brush")
                     .empty_selects_nothing()
                     .sharing(Sharing::Shared),
             )
@@ -3066,7 +3066,7 @@ mod tests {
     #[tokio::test]
     async fn selection_update_captures_start_facet_context() {
         let ctx = SessionContext::new();
-        let selection = Selection::cartesian_interval("brush", "x", "y")
+        let selection = Selection::cartesian_interval("brush")
             .empty_selects_nothing()
             .facet_context_field("group_name", col("group_name"));
         let binding = ChartEventBinding::on(ChartEventType::CursorMoved)

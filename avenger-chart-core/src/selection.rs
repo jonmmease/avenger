@@ -152,12 +152,8 @@ impl Selection {
         }
     }
 
-    pub fn cartesian_interval(
-        id: impl Into<String>,
-        x_channel: impl Into<String>,
-        y_channel: impl Into<String>,
-    ) -> Self {
-        Self::base(id).with_cartesian_interval(x_channel, y_channel)
+    pub fn cartesian_interval(id: impl Into<String>) -> Self {
+        Self::base(id).with_cartesian_interval("x", "y")
     }
 
     pub fn interval_fields<X, Y>(id: impl Into<String>, x: (&str, X), y: (&str, Y)) -> Self
@@ -191,6 +187,10 @@ impl Selection {
     pub fn geometry(mut self, schema: SelectionGeometrySchema) -> Self {
         self.geometry_schema = schema;
         self
+    }
+
+    pub fn channels(self, x_channel: impl Into<String>, y_channel: impl Into<String>) -> Self {
+        self.with_cartesian_interval(x_channel, y_channel)
     }
 
     fn with_cartesian_interval(
@@ -985,7 +985,7 @@ mod tests {
 
     #[test]
     fn interval_selection_compiles_hidden_params() {
-        let selection = Selection::cartesian_interval("brush", "x", "y").empty_selects_all();
+        let selection = Selection::cartesian_interval("brush").empty_selects_all();
         let compiled = selection.compile().expect("compile selection");
         assert_eq!(compiled.id, "brush");
         assert_eq!(compiled.dimensions.len(), 2);
@@ -1002,7 +1002,7 @@ mod tests {
     #[test]
     fn lower_interval_selection_update_to_param_assignments() {
         let ctx = SessionContext::new();
-        let selection = Selection::cartesian_interval("brush", "x", "y");
+        let selection = Selection::cartesian_interval("brush");
         let compiled = selection.compile().expect("compile selection");
         let assignment = ChartEventSelectionAssignment {
             selection_id: "brush".to_string(),
@@ -1031,13 +1031,13 @@ mod tests {
 
     #[test]
     fn selection_predicate_serializes() {
-        let expr = Selection::cartesian_interval("brush", "x", "y").predicate();
+        let expr = Selection::cartesian_interval("brush").predicate();
         LogicalExprNode::from_expr(expr).expect("selection predicate serializes");
     }
 
     #[test]
     fn facet_context_selection_compiles_hidden_params_and_predicate() {
-        let selection = Selection::cartesian_interval("brush", "x", "y")
+        let selection = Selection::cartesian_interval("brush")
             .facet_context_field("group_name", col("group_name"));
         let compiled = selection.compile().expect("compile selection");
         let params = compiled.hidden_param_specs();
@@ -1048,6 +1048,15 @@ mod tests {
         );
         LogicalExprNode::from_expr(selection.predicate())
             .expect("facet-context selection predicate serializes");
+    }
+
+    #[test]
+    fn cartesian_interval_channels_can_be_overridden() {
+        let selection = Selection::cartesian_interval("brush").channels("x2", "y2");
+        let compiled = selection.compile().expect("compile selection");
+
+        assert_eq!(compiled.dimension_value_expr("x"), col(":x2"));
+        assert_eq!(compiled.dimension_value_expr("y"), col(":y2"));
     }
 
     #[test]
