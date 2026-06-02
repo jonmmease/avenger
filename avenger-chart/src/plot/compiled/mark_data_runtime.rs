@@ -359,6 +359,44 @@ fn selection_clause_dataframe(
     Ok(ctx.read_batch(batch)?)
 }
 
+fn store_dataframe(
+    data: &avenger_chart_core::StoreData,
+    facet_data_scope: Option<FacetDataScopeContext<'_>>,
+    eval_ctx: &EvaluationContext,
+) -> Result<DataFrame, AvengerChartError> {
+    let ctx = eval_ctx.session_context.as_ref();
+    let Some(store_state) = eval_ctx.scoped_store_state.as_ref() else {
+        return Ok(empty_dataframe(ctx));
+    };
+    let sharing_owner_paths = store_data_sharing_owner_paths(eval_ctx, facet_data_scope);
+    let batch = store_state.materialize_store_data(data, &sharing_owner_paths)?;
+    Ok(ctx.read_batch(batch)?)
+}
+
+fn store_data_sharing_owner_paths(
+    eval_ctx: &EvaluationContext,
+    facet_data_scope: Option<FacetDataScopeContext<'_>>,
+) -> HashMap<u8, Vec<ScalarValue>> {
+    let Some(scope) = facet_data_scope else {
+        return HashMap::new();
+    };
+    if scope.full_path.is_empty() {
+        return HashMap::new();
+    }
+    let logical_depth = eval_ctx.facet_tree.logical_depth_for_path(scope.full_path);
+    let mut owner_paths = HashMap::new();
+    for level in 0..=logical_depth.min(u8::MAX as usize) {
+        let level = level as u8;
+        owner_paths.insert(
+            level,
+            eval_ctx
+                .facet_tree
+                .sharing_owner_path(scope.full_path, level),
+        );
+    }
+    owner_paths
+}
+
 fn owner_path_matches_cell(owner_path: &[ScalarValue], cell_path: &[ScalarValue]) -> bool {
     owner_path.len() <= cell_path.len()
         && owner_path
@@ -469,6 +507,9 @@ fn dataframe_for_mark(
     if let Some(selection_clause_dataset) = mark.data_context().selection_clause_dataset() {
         return selection_clause_dataframe(selection_clause_dataset, facet_data_scope, eval_ctx)
             .map(Some);
+    }
+    if let Some(store_data) = mark.data_context().store_data() {
+        return store_dataframe(store_data, facet_data_scope, eval_ctx).map(Some);
     }
 
     if mark.state().data_mode == MarkDataMode::Unit {
@@ -879,7 +920,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        cartesian::{Cartesian, CartesianSymbolPositionChannels},
+        cartesian::{Cartesian, CartesianRectPositionChannels, CartesianSymbolPositionChannels},
         concat::HConcat,
         error::AvengerChartError,
         facet::{
@@ -889,12 +930,20 @@ mod tests {
             marks::facet::{FacetColumnSubplotChannels, FacetRowSubplotChannels},
         },
         marks::{ChannelValue, Mark, Subplot, symbol::Symbol},
-        plot::Plot,
+        plot::{
+            Plot,
+            compiled::session::{ScopedStoreAssignment, ScopedStoreState, StoreStateUpdate},
+        },
         scales::{Linear, Scale, ScaleRangeBinding, ScaleSpec},
         serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
         theme::Theme,
         zerod::ZeroDCoord,
     };
+    use avenger_chart_core::{
+        STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN, STORE_REVISION_COLUMN, Sharing, Store,
+        StoreData, StoreRowValue,
+    };
+    use avenger_chart_marks::Rect;
     fn eval_context(session: Arc<SessionContext>) -> EvaluationContext {
         EvaluationContext::new(
             Arc::new(Theme::light()),
@@ -1010,6 +1059,46 @@ mod tests {
         let schema = batches[0].schema();
         let batch = concat_batches(&schema, &batches)?;
         Ok(values_as_f64(&batch, channel))
+    }
+
+    async fn collect_prepared_dataframe(
+        prepared: PreparedLogicalMarkData,
+    ) -> Result<RecordBatch, AvengerChartError> {
+        let dataframe = prepared.dataframe.expect("prepared dataframe");
+        let batches = dataframe.collect().await?;
+        Ok(concat_batches(&batches[0].schema(), &batches)?)
+    }
+
+    fn brush_store_state(sharing: Sharing) -> Result<ScopedStoreState, AvengerChartError> {
+        let spec = Store::empty("brush_boxes")
+            .field("id", DataType::Utf8, false)
+            .field("x_min", DataType::Float64, false)
+            .field("x_max", DataType::Float64, false)
+            .primary_key(["id"])
+            .sharing(sharing)
+            .compile()?;
+        let mut specs = IndexMap::new();
+        specs.insert(spec.name.clone(), spec);
+        Ok(ScopedStoreState::new(specs))
+    }
+
+    fn brush_row(id: &str, x_min: f64, x_max: f64) -> StoreRowValue {
+        IndexMap::from([
+            ("id".to_string(), ScalarValue::Utf8(Some(id.to_string()))),
+            ("x_min".to_string(), ScalarValue::Float64(Some(x_min))),
+            ("x_max".to_string(), ScalarValue::Float64(Some(x_max))),
+        ])
+    }
+
+    fn replace_store_rows(
+        owner_path: Vec<ScalarValue>,
+        rows: Vec<StoreRowValue>,
+    ) -> ScopedStoreAssignment {
+        ScopedStoreAssignment {
+            store_name: "brush_boxes".to_string(),
+            owner_path,
+            update: StoreStateUpdate::ReplaceRows { rows },
+        }
     }
 
     #[tokio::test]
@@ -1139,6 +1228,167 @@ mod tests {
         assert!(data_batch.column_by_name("x").is_some());
         assert!(data_batch.column_by_name("y").is_some());
         assert_eq!(prepared.scalar_batch.num_rows(), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn prepare_logical_mark_data_reads_store_data_rows() -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let mut store_state = brush_store_state(Sharing::Shared)?;
+        store_state.apply_scoped_patch([replace_store_rows(
+            Vec::new(),
+            vec![brush_row("a", 1.0, 2.0), brush_row("b", 3.0, 4.0)],
+        )])?;
+        let mark = Symbol::<Cartesian>::new()
+            .data_store(StoreData::new("brush_boxes").root())
+            .with_channel_value("x", value_channel(col("x_min")))
+            .y(0.5);
+        let compiled_mark = mark.compile_untransformed(&session).await?;
+
+        let eval_ctx =
+            eval_context(session.clone()).with_scoped_store_state(Arc::new(store_state.clone()));
+        let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
+            mark: compiled_mark.as_ref(),
+            plot_data: None,
+            provided_plot_df: None,
+            facet_data_scope: None,
+            eval_ctx: &eval_ctx,
+        })
+        .await?;
+        let values = prepared_channel_values(prepared.clone(), &session, "x").await?;
+        assert_eq!(values, vec![1.0, 3.0]);
+
+        let batch = collect_prepared_dataframe(prepared).await?;
+        assert_eq!(batch.num_rows(), 2);
+        assert!(batch.column_by_name(STORE_NAME_COLUMN).is_some());
+        assert!(batch.column_by_name(STORE_OWNER_KEY_COLUMN).is_some());
+        assert!(batch.column_by_name(STORE_REVISION_COLUMN).is_some());
+
+        store_state.apply_scoped_patch([replace_store_rows(
+            Vec::new(),
+            vec![brush_row("c", 5.0, 6.0)],
+        )])?;
+        let eval_ctx = eval_context(session.clone()).with_scoped_store_state(Arc::new(store_state));
+        let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
+            mark: compiled_mark.as_ref(),
+            plot_data: None,
+            provided_plot_df: None,
+            facet_data_scope: None,
+            eval_ctx: &eval_ctx,
+        })
+        .await?;
+        let values = prepared_channel_values(prepared, &session, "x").await?;
+        assert_eq!(values, vec![5.0]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn prepare_mark_data_renders_rect_rows_from_store_data() -> Result<(), AvengerChartError>
+    {
+        let session = Arc::new(SessionContext::new());
+        let mut store_state = brush_store_state(Sharing::Shared)?;
+        store_state.apply_scoped_patch([replace_store_rows(
+            Vec::new(),
+            vec![brush_row("a", 1.0, 2.0), brush_row("b", 3.0, 4.0)],
+        )])?;
+        let eval_ctx = eval_context(session.clone()).with_scoped_store_state(Arc::new(store_state));
+        let mark = Rect::<Cartesian>::new()
+            .data_store(StoreData::new("brush_boxes").root())
+            .x_with(col("x_min"), |c| c.no_scale())
+            .x2_with(col("x_max"), |c| c.no_scale())
+            .y_with(lit(0.0), |c| c.no_scale())
+            .y2_with(lit(1.0), |c| c.no_scale());
+        let compiled_mark = mark.compile_untransformed(&session).await?;
+
+        let prepared = prepare_mark_data(MarkDataRequest {
+            mark: compiled_mark.as_ref(),
+            plot_data: None,
+            provided_plot_df: None,
+            facet_data_scope: None,
+            prepared_logical: None,
+            eval_ctx: &eval_ctx,
+            evaluation_metrics: None,
+            scales: &HashMap::new(),
+            plot_width: 100.0,
+            plot_height: 100.0,
+        })
+        .await?
+        .expect("prepared rect data");
+
+        let data_batch = prepared.data_batch.expect("rect array data");
+        assert_eq!(data_batch.num_rows(), 2);
+        assert_eq!(values_as_f64(&data_batch, "x"), vec![1.0, 3.0]);
+        assert_eq!(values_as_f64(&data_batch, "x2"), vec![2.0, 4.0]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn store_data_current_root_and_all_scopes_respect_facet_owner()
+    -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let root_df = scoped_facet_dataframe(&session).await;
+        let facet_tree = scoped_facet_tree(root_df.clone(), &session).await?;
+        let north_west = vec![
+            ScalarValue::Utf8(Some("North".to_string())),
+            ScalarValue::Utf8(Some("West".to_string())),
+        ];
+        let north_east = vec![
+            ScalarValue::Utf8(Some("North".to_string())),
+            ScalarValue::Utf8(Some("East".to_string())),
+        ];
+        let north_west_owner = facet_tree.sharing_owner_path(&north_west, 0);
+        let north_east_owner = facet_tree.sharing_owner_path(&north_east, 0);
+
+        let mut store_state = brush_store_state(Sharing::Free)?;
+        store_state.apply_scoped_patch([
+            replace_store_rows(Vec::new(), vec![brush_row("root", 100.0, 101.0)]),
+            replace_store_rows(north_west_owner, vec![brush_row("nw", 1.0, 2.0)]),
+            replace_store_rows(north_east_owner, vec![brush_row("ne", 10.0, 11.0)]),
+        ])?;
+        let eval_ctx = eval_context(session.clone())
+            .with_facet_tree(Arc::new(facet_tree.clone()))
+            .with_scoped_store_state(Arc::new(store_state));
+
+        let values_for_scope = |store_data: StoreData| {
+            let session = session.clone();
+            let eval_ctx = eval_ctx.clone();
+            let facet_tree = facet_tree.clone();
+            let root_df = root_df.clone();
+            let north_west = north_west.clone();
+            async move {
+                let mark = Symbol::<Cartesian>::new()
+                    .data_store(store_data)
+                    .with_channel_value("x", value_channel(col("x_min")))
+                    .y(0.5);
+                let compiled_mark = mark.compile_untransformed(&session).await?;
+                let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
+                    mark: compiled_mark.as_ref(),
+                    plot_data: None,
+                    provided_plot_df: None,
+                    facet_data_scope: Some(FacetDataScopeContext::new(
+                        &facet_tree,
+                        Some(&root_df),
+                        &north_west,
+                    )),
+                    eval_ctx: &eval_ctx,
+                })
+                .await?;
+                prepared_channel_values(prepared, &session, "x").await
+            }
+        };
+
+        assert_eq!(
+            values_for_scope(StoreData::new("brush_boxes")).await?,
+            vec![1.0]
+        );
+        assert_eq!(
+            values_for_scope(StoreData::new("brush_boxes").root()).await?,
+            vec![100.0]
+        );
+        assert_eq!(
+            values_for_scope(StoreData::new("brush_boxes").all_scopes()).await?,
+            vec![100.0, 1.0, 10.0]
+        );
         Ok(())
     }
 

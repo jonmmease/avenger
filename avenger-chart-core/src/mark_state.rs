@@ -75,6 +75,8 @@ impl CompiledMarkState {
                 selection_clause_dataset.clone(),
                 state.data.channels().clone(),
             )
+        } else if let Some(store_data) = state.data.store_data_ref() {
+            CompiledDataContext::new_store_data(store_data.clone(), state.data.channels().clone())
         } else {
             CompiledDataContext::new(transformed_df, state.data.channels().clone())
         };

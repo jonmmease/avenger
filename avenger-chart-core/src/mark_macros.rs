@@ -43,6 +43,13 @@ macro_rules! impl_mark_base {
                 self
             }
 
+            /// Set this mark's data source to rows from a mutable chart store.
+            pub fn data_store(mut self, data: $crate::StoreData) -> Self {
+                self.state.data = $crate::DataContext::store_data(data);
+                self.state.data_mode = $crate::MarkDataMode::Inherit;
+                self
+            }
+
             /// Render this mark once without inheriting plot or facet data.
             pub fn unit_data(mut self) -> Self {
                 self.state.data_mode = $crate::MarkDataMode::Unit;

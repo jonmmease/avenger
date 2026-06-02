@@ -32,7 +32,7 @@ use crate::{
     plot::compiled::{
         FacetCellRenderedComponentsProfileCapture, GuideOverflowCacheHandle, LayoutProfileSnapshot,
         LegendMeasurementCacheHandle, ScaleDomainCacheHandle, ScopedParamStore,
-        ScopedSelectionStore, TextMeasurementCacheHandle,
+        ScopedSelectionStore, ScopedStoreState, TextMeasurementCacheHandle,
     },
     render::types::{
         EvaluatedInteractionScope, EvaluatedPlot, EvaluationMetrics, FacetLayoutRefinement,
@@ -281,6 +281,8 @@ pub struct EvaluationContext {
     pub(crate) scoped_param_store: Option<Arc<ScopedParamStore>>,
     /// Optional session-owned selection state store.
     pub(crate) scoped_selection_store: Option<Arc<ScopedSelectionStore>>,
+    /// Optional session-owned mutable store state.
+    pub(crate) scoped_store_state: Option<Arc<ScopedStoreState>>,
 }
 
 impl EvaluationContext {
@@ -315,6 +317,7 @@ impl EvaluationContext {
             interaction_scope_sink: None,
             scoped_param_store: None,
             scoped_selection_store: None,
+            scoped_store_state: None,
         }
     }
 
@@ -359,6 +362,12 @@ impl EvaluationContext {
     pub(crate) fn with_scoped_selection_store(&self, store: Arc<ScopedSelectionStore>) -> Self {
         let mut ctx = self.clone();
         ctx.scoped_selection_store = Some(store);
+        ctx
+    }
+
+    pub(crate) fn with_scoped_store_state(&self, store: Arc<ScopedStoreState>) -> Self {
+        let mut ctx = self.clone();
+        ctx.scoped_store_state = Some(store);
         ctx
     }
 
@@ -423,6 +432,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 
@@ -455,6 +465,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 
@@ -492,6 +503,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 
@@ -536,6 +548,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 
@@ -567,6 +580,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 
@@ -602,6 +616,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 
@@ -637,6 +652,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 
@@ -668,6 +684,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 
@@ -706,6 +723,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 
@@ -749,6 +767,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 
@@ -800,6 +819,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 
@@ -833,6 +853,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 
@@ -864,6 +885,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 
@@ -899,6 +921,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 
@@ -937,6 +960,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 
@@ -972,6 +996,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 
@@ -1007,6 +1032,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 
@@ -1043,6 +1069,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 
@@ -1083,6 +1110,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 
@@ -1116,6 +1144,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 
@@ -1164,6 +1193,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 
@@ -1200,6 +1230,7 @@ impl EvaluationContext {
             interaction_scope_sink: self.interaction_scope_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
         }
     }
 

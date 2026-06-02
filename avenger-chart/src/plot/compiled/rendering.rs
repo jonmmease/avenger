@@ -97,9 +97,10 @@ use super::{
     session::{
         FacetScalePrecomputeCacheHandle, FacetSemanticCacheHandle, GuideOverflowCacheHandle,
         LegendMeasurementCacheHandle, ScaleDomainCacheHandle, ScaleDomainCacheScope,
-        ScopedParamStore, ScopedSelectionStore, SelectionRevisionFingerprint,
-        TextMeasurementCacheHandle, changed_param_names, layout_size_dependency_params,
-        new_plot_session_cache_handles, scale_domain_cache_key_for_parts_with_scope,
+        ScopedParamStore, ScopedSelectionStore, ScopedStoreState, SelectionRevisionFingerprint,
+        StoreRevisionFingerprint, TextMeasurementCacheHandle, changed_param_names,
+        layout_size_dependency_params, new_plot_session_cache_handles,
+        scale_domain_cache_key_for_parts_with_scope,
     },
 };
 
@@ -108,6 +109,12 @@ fn selection_revision_fingerprint(
 ) -> SelectionRevisionFingerprint {
     store
         .map(ScopedSelectionStore::revision_fingerprint)
+        .unwrap_or_default()
+}
+
+fn store_revision_fingerprint(store: Option<&ScopedStoreState>) -> StoreRevisionFingerprint {
+    store
+        .map(ScopedStoreState::revision_fingerprint)
         .unwrap_or_default()
 }
 
@@ -5257,6 +5264,7 @@ impl CompiledPlot {
                 Some(text_measurement_cache),
                 None,
                 None,
+                Some(Arc::new(ScopedStoreState::new(self.store_specs.clone()))),
             ),
         )
         .await?;
@@ -5276,6 +5284,7 @@ impl CompiledPlot {
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
         scoped_param_store: Option<Arc<ScopedParamStore>>,
         scoped_selection_store: Option<Arc<ScopedSelectionStore>>,
+        scoped_store_state: Option<Arc<ScopedStoreState>>,
     ) -> Result<
         (
             EvaluatedPlot,
@@ -5299,6 +5308,7 @@ impl CompiledPlot {
             None,
             scoped_param_store,
             scoped_selection_store,
+            scoped_store_state,
         ))
         .await?;
         let metrics = metrics
@@ -5323,6 +5333,7 @@ impl CompiledPlot {
         layout_profile: Option<Arc<LayoutProfileSnapshot>>,
         scoped_param_store: Option<Arc<ScopedParamStore>>,
         scoped_selection_store: Option<Arc<ScopedSelectionStore>>,
+        scoped_store_state: Option<Arc<ScopedStoreState>>,
     ) -> Result<EvaluationOutcome, AvengerChartError> {
         // Merge provided params with defaults
         let merged_params = if let Some(provided) = params {
@@ -5540,8 +5551,12 @@ impl CompiledPlot {
         }
         let selection_revision_fingerprint =
             selection_revision_fingerprint(scoped_selection_store.as_deref());
+        let store_revision_fingerprint = store_revision_fingerprint(scoped_store_state.as_deref());
         if let Some(store) = &scoped_selection_store {
             eval_ctx = eval_ctx.with_scoped_selection_store(store.clone());
+        }
+        if let Some(store) = &scoped_store_state {
+            eval_ctx = eval_ctx.with_scoped_store_state(store.clone());
         }
         if let Some(metrics) = evaluation_metrics {
             eval_ctx = eval_ctx.with_evaluation_metrics(metrics);
@@ -5670,6 +5685,7 @@ impl CompiledPlot {
             ctx,
             &eval_ctx.params,
             selection_revision_fingerprint,
+            store_revision_fingerprint,
             rendered_components,
             facet_cell_profiles,
         );
@@ -5751,6 +5767,7 @@ impl CompiledPlot {
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
         scoped_param_store: Option<Arc<ScopedParamStore>>,
         scoped_selection_store: Option<Arc<ScopedSelectionStore>>,
+        scoped_store_state: Option<Arc<ScopedStoreState>>,
     ) -> Result<PreviewLayoutProfileAttempt, AvengerChartError> {
         tracing::debug!(target: "avenger_chart::resize", "plot_session.preview_attempt start");
         if options.layout_snapshot != LayoutSnapshot::Final {
@@ -5763,6 +5780,8 @@ impl CompiledPlot {
         let layout_setup_start = Instant::now();
         let current_selection_revision_fingerprint =
             selection_revision_fingerprint(scoped_selection_store.as_deref());
+        let current_store_revision_fingerprint =
+            store_revision_fingerprint(scoped_store_state.as_deref());
         let merged_params = if let Some(provided) = params {
             let mut merged = self.default_params.clone();
             merged.extend(provided);
@@ -5907,6 +5926,7 @@ impl CompiledPlot {
                     Some(Arc::new(layout_profile.clone())),
                     scoped_param_store.clone(),
                     scoped_selection_store.clone(),
+                    scoped_store_state.clone(),
                 ))
                 .await?;
                 let reflow_elapsed = reflow_start.elapsed();
@@ -5981,6 +6001,9 @@ impl CompiledPlot {
         }
         if let Some(store) = &scoped_selection_store {
             eval_ctx = eval_ctx.with_scoped_selection_store(store.clone());
+        }
+        if let Some(store) = &scoped_store_state {
+            eval_ctx = eval_ctx.with_scoped_store_state(store.clone());
         }
 
         let measurement_clone_start = Instant::now();
@@ -6201,8 +6224,11 @@ impl CompiledPlot {
             !changed_params_touch_layout_size && profile_dependencies_match;
         let selection_revisions_match =
             layout_profile.selection_revision_fingerprint == current_selection_revision_fingerprint;
+        let store_revisions_match =
+            layout_profile.store_revision_fingerprint == current_store_revision_fingerprint;
         let can_reuse_top_level_data_marks = measurement.child_frame_container_view()?.is_none()
             && selection_revisions_match
+            && store_revisions_match
             && (changed_params_are_layout_size_only || changed_params_are_profile_retarget_only);
         let components = if can_reuse_top_level_data_marks {
             if let Some(cached_components) = &layout_profile.rendered_components {
@@ -6281,6 +6307,7 @@ impl CompiledPlot {
                 ctx,
                 &eval_ctx.params,
                 current_selection_revision_fingerprint,
+                current_store_revision_fingerprint,
                 rendered_components,
                 facet_cell_profiles,
             ))

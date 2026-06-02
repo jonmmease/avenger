@@ -9,8 +9,9 @@ use std::{
 use avenger_chart_core::{
     ChannelInfo, CompiledParamSpec, CompiledSelectionSpec, CompiledStoreSpec,
     DefaultLogicalExprNodeExt, FacetWrapColumnMode, LegendChannel, LegendPosition,
-    LogicalPlanNodeExt, Maybe, RadiusExpression, ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain,
-    SelectionState, SelectionStateUpdate, SerializableExpr, Sharing, StoreRowValue,
+    LogicalPlanNodeExt, Maybe, RadiusExpression, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN,
+    STORE_REVISION_COLUMN, ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, SelectionState,
+    SelectionStateUpdate, SerializableExpr, Sharing, StoreData, StoreDataScope, StoreRowValue,
 };
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
 use avenger_scales::scales::ConfiguredScale;
@@ -19,6 +20,11 @@ use avenger_text::{
     types::{FontStyle, FontWeight},
 };
 use datafusion::{
+    arrow::{
+        array::new_empty_array,
+        datatypes::{DataType, Field, Schema},
+        record_batch::RecordBatch,
+    },
     common::ScalarValue,
     dataframe::DataFrame,
     logical_expr::{Expr, LogicalPlan},
@@ -59,6 +65,7 @@ pub(crate) type GuideOverflowCacheHandle = Arc<Mutex<GuideOverflowCache>>;
 pub(crate) type LegendMeasurementCacheHandle = Arc<Mutex<LegendMeasurementCache>>;
 pub(crate) type TextMeasurementCacheHandle = Arc<Mutex<TextMeasurementCache>>;
 pub(crate) type SelectionRevisionFingerprint = Vec<(String, u64)>;
+pub(crate) type StoreRevisionFingerprint = Vec<(String, Vec<String>, u64)>;
 
 pub(crate) fn new_plot_session_cache_handles() -> (
     ScaleDomainCacheHandle,
@@ -752,15 +759,23 @@ struct MutableStoreTable {
     revision: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct StoreMaterializationKey {
+    store_name: String,
+    scope: StoreDataScope,
+    instances: Vec<(Vec<ScalarValue>, u64)>,
+}
+
 /// Session-owned table state for sharing-scoped stores.
 #[derive(Clone, Debug)]
 pub(crate) struct ScopedStoreState {
     specs: IndexMap<String, CompiledStoreSpec>,
     instances: IndexMap<ScopedStoreKey, MutableStoreTable>,
+    materialized_cache: Arc<Mutex<HashMap<StoreMaterializationKey, RecordBatch>>>,
 }
 
 impl ScopedStoreState {
-    fn new(specs: IndexMap<String, CompiledStoreSpec>) -> Self {
+    pub(crate) fn new(specs: IndexMap<String, CompiledStoreSpec>) -> Self {
         let mut instances = IndexMap::new();
         for (store_name, spec) in &specs {
             let rows = spec
@@ -774,7 +789,11 @@ impl ScopedStoreState {
                 MutableStoreTable { rows, revision: 0 },
             );
         }
-        Self { specs, instances }
+        Self {
+            specs,
+            instances,
+            materialized_cache: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 
     fn owner_path_for_store(
@@ -799,7 +818,146 @@ impl ScopedStoreState {
             .collect()
     }
 
-    fn apply_scoped_patch(
+    pub(crate) fn revision_fingerprint(&self) -> StoreRevisionFingerprint {
+        let mut fingerprint = self
+            .instances
+            .iter()
+            .map(|(key, table)| {
+                (
+                    key.store_name.clone(),
+                    key.owner_path
+                        .iter()
+                        .map(|value| format!("{value:?}"))
+                        .collect::<Vec<_>>(),
+                    table.revision,
+                )
+            })
+            .collect::<Vec<_>>();
+        fingerprint.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+        fingerprint
+    }
+
+    pub(crate) fn materialize_store_data(
+        &self,
+        data: &StoreData,
+        sharing_owner_paths: &HashMap<u8, Vec<ScalarValue>>,
+    ) -> Result<RecordBatch, AvengerChartError> {
+        let spec = self.specs.get(&data.store_name).ok_or_else(|| {
+            AvengerChartError::InvalidArgument(format!(
+                "StoreData references unknown store '{}'",
+                data.store_name
+            ))
+        })?;
+        let instances = match data.scope {
+            StoreDataScope::CurrentOwner => {
+                let owner_path = self
+                    .owner_path_for_store(&data.store_name, sharing_owner_paths)
+                    .unwrap_or_default();
+                let rows = self
+                    .instances
+                    .get(&ScopedStoreKey {
+                        store_name: data.store_name.clone(),
+                        owner_path: owner_path.clone(),
+                    })
+                    .map(|table| (table.rows.clone(), table.revision))
+                    .unwrap_or_else(|| (Vec::new(), 0));
+                vec![(owner_path, rows.0, rows.1)]
+            }
+            StoreDataScope::Root => {
+                let owner_path = Vec::new();
+                let rows = self
+                    .instances
+                    .get(&ScopedStoreKey {
+                        store_name: data.store_name.clone(),
+                        owner_path: owner_path.clone(),
+                    })
+                    .map(|table| (table.rows.clone(), table.revision))
+                    .unwrap_or_else(|| (Vec::new(), 0));
+                vec![(owner_path, rows.0, rows.1)]
+            }
+            StoreDataScope::AllOwners => self
+                .instances
+                .iter()
+                .filter_map(|(key, table)| {
+                    (key.store_name == data.store_name).then_some((
+                        key.owner_path.clone(),
+                        table.rows.clone(),
+                        table.revision,
+                    ))
+                })
+                .collect::<Vec<_>>(),
+        };
+
+        let cache_key = StoreMaterializationKey {
+            store_name: data.store_name.clone(),
+            scope: data.scope,
+            instances: instances
+                .iter()
+                .map(|(owner_path, _rows, revision)| (owner_path.clone(), *revision))
+                .collect(),
+        };
+        if let Some(cached) = self
+            .materialized_cache
+            .lock()
+            .expect("store materialization cache lock poisoned")
+            .get(&cache_key)
+            .cloned()
+        {
+            return Ok(cached);
+        }
+
+        let schema = store_data_schema(spec);
+        let total_rows: usize = instances.iter().map(|(_, rows, _)| rows.len()).sum();
+        let batch = if total_rows == 0 {
+            let columns = schema
+                .fields()
+                .iter()
+                .map(|field| new_empty_array(field.data_type()))
+                .collect::<Vec<_>>();
+            RecordBatch::try_new(schema, columns)?
+        } else {
+            let mut columns = Vec::with_capacity(schema.fields().len());
+            for field in &spec.fields {
+                let values = instances
+                    .iter()
+                    .flat_map(|(_, rows, _)| rows.iter())
+                    .map(|row| {
+                        row.get(&field.name).cloned().unwrap_or_else(|| {
+                            ScalarValue::try_new_null(&field.data_type)
+                                .expect("compiled store field should have a valid null scalar")
+                        })
+                    });
+                columns.push(ScalarValue::iter_to_array(values)?);
+            }
+            columns.push(ScalarValue::iter_to_array(instances.iter().flat_map(
+                |(_, rows, _)| {
+                    rows.iter()
+                        .map(|_| ScalarValue::Utf8(Some(data.store_name.clone())))
+                },
+            ))?);
+            columns.push(ScalarValue::iter_to_array(instances.iter().flat_map(
+                |(owner_path, rows, _)| {
+                    let owner_key = store_owner_key(owner_path);
+                    rows.iter()
+                        .map(move |_| ScalarValue::Utf8(Some(owner_key.clone())))
+                },
+            ))?);
+            columns.push(ScalarValue::iter_to_array(instances.iter().flat_map(
+                |(_, rows, revision)| {
+                    rows.iter()
+                        .map(move |_| ScalarValue::UInt64(Some(*revision)))
+                },
+            ))?);
+            RecordBatch::try_new(schema, columns)?
+        };
+        self.materialized_cache
+            .lock()
+            .expect("store materialization cache lock poisoned")
+            .insert(cache_key, batch.clone());
+        Ok(batch)
+    }
+
+    pub(crate) fn apply_scoped_patch(
         &mut self,
         patch: impl IntoIterator<Item = ScopedStoreAssignment>,
     ) -> Result<bool, AvengerChartError> {
@@ -827,6 +985,29 @@ impl ScopedStoreState {
         }
         Ok(any_changed)
     }
+}
+
+fn store_data_schema(spec: &CompiledStoreSpec) -> Arc<Schema> {
+    let mut fields = spec
+        .fields
+        .iter()
+        .map(|field| Field::new(field.name.clone(), field.data_type.clone(), field.nullable))
+        .collect::<Vec<_>>();
+    fields.push(Field::new(STORE_NAME_COLUMN, DataType::Utf8, false));
+    fields.push(Field::new(STORE_OWNER_KEY_COLUMN, DataType::Utf8, false));
+    fields.push(Field::new(STORE_REVISION_COLUMN, DataType::UInt64, false));
+    Arc::new(Schema::new(fields))
+}
+
+fn store_owner_key(owner_path: &[ScalarValue]) -> String {
+    if owner_path.is_empty() {
+        return String::new();
+    }
+    owner_path
+        .iter()
+        .map(|value| format!("{value:?}"))
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn apply_store_update(
@@ -1337,6 +1518,10 @@ impl PlotSession {
             .then(|| Arc::new(self.scoped_selections.clone()))
     }
 
+    fn scoped_store_state_handle(&self) -> Option<Arc<ScopedStoreState>> {
+        (!self.scoped_stores.specs.is_empty()).then(|| Arc::new(self.scoped_stores.clone()))
+    }
+
     pub async fn evaluate(
         &mut self,
         request: EvaluationRequest,
@@ -1355,6 +1540,7 @@ impl PlotSession {
         let use_measurement_profile_caches = mode != EvaluationMode::ForceRemeasure;
         let scoped_store = self.scoped_param_store_handle();
         let selection_store = self.scoped_selection_store_handle();
+        let store_state = self.scoped_store_state_handle();
 
         if mode == EvaluationMode::Preview {
             let mut preview_fallback_reasons = Vec::new();
@@ -1377,6 +1563,7 @@ impl PlotSession {
                         use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
                         scoped_store.clone(),
                         selection_store.clone(),
+                        store_state.clone(),
                     )
                     .await?;
                 preview_attempt_duration += preview_attempt_start.elapsed();
@@ -1413,6 +1600,7 @@ impl PlotSession {
                     use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
                     scoped_store.clone(),
                     selection_store.clone(),
+                    store_state.clone(),
                 )
                 .await?;
             metrics.mode = mode;
@@ -1454,6 +1642,7 @@ impl PlotSession {
                 use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
                 scoped_store,
                 selection_store,
+                store_state,
             )
             .await?;
         metrics.mode = mode;

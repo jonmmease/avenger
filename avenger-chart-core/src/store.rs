@@ -308,7 +308,7 @@ pub fn validate_store_name(name: &str) -> Result<(), AvengerChartError> {
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum StoreDataScope {
     #[default]
     CurrentOwner,
