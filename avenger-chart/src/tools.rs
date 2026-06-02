@@ -6,8 +6,9 @@ use std::{
 };
 
 use avenger_chart_core::{
-    Auto, AvengerChartError, ChartEventBinding, CompiledParamSpec, CoordinateSystemCore,
-    CoordinateSystemTransform, DefaultLogicalExprNodeExt, Param, Scale, Sharing,
+    Auto, AvengerChartError, ChartEventBinding, CompiledParamSpec, CompiledStoreSpec,
+    CoordinateSystemCore, CoordinateSystemTransform, DefaultLogicalExprNodeExt, Param, Scale,
+    Sharing, Store,
 };
 use avenger_chart_scales::PlotScaleSpec;
 use datafusion::prelude::lit;
@@ -59,6 +60,14 @@ impl ToolCompileContext {
             active.push(active_expansion);
         }
         Ok(active)
+    }
+
+    pub(crate) fn register_local_stores(&self, stores: &[Store]) -> Result<(), AvengerChartError> {
+        let mut state = self.state.lock().expect("tool compile state lock poisoned");
+        for store in stores {
+            state.register_store(store.compile()?)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn downcast(ctx: avenger_chart_core::CompileContext<'_>) -> Option<&Self> {
@@ -146,6 +155,7 @@ pub(crate) struct ActiveToolExpansion<C: CoordinateSystemCore> {
 struct ToolCompileState {
     tool_ids: HashSet<String>,
     params: IndexMap<String, GeneratedParamState>,
+    stores: IndexMap<String, CompiledStoreSpec>,
     event_bindings: Vec<ChartEventBinding>,
     metadata: Vec<ToolMetadata>,
     expected_targets: BTreeMap<(String, String, String), usize>,
@@ -166,6 +176,9 @@ impl ToolCompileState {
         for param in &expansion.params {
             self.register_param(param)?;
         }
+        for store in &expansion.stores {
+            self.register_store(store.compile()?)?;
+        }
         for edit in &expansion.scale_edits {
             let ToolScaleEdit::RawDomain {
                 channel,
@@ -179,6 +192,17 @@ impl ToolCompileState {
         self.event_bindings
             .extend(expansion.event_bindings.iter().cloned());
         self.metadata.extend(expansion.metadata.iter().cloned());
+        Ok(())
+    }
+
+    fn register_store(&mut self, spec: CompiledStoreSpec) -> Result<(), AvengerChartError> {
+        if self.stores.contains_key(&spec.name) {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Store '{}' was declared more than once",
+                spec.name
+            )));
+        }
+        self.stores.insert(spec.name.clone(), spec);
         Ok(())
     }
 
@@ -303,6 +327,7 @@ impl ToolCompileState {
         }
         Ok(ToolArtifacts {
             param_specs,
+            store_specs: self.stores.values().cloned().collect(),
             event_bindings: self.event_bindings.clone(),
             metadata: self.metadata.clone(),
         })
@@ -318,6 +343,7 @@ struct GeneratedParamState {
 
 pub(crate) struct ToolArtifacts {
     pub param_specs: Vec<CompiledParamSpec>,
+    pub store_specs: Vec<CompiledStoreSpec>,
     pub event_bindings: Vec<ChartEventBinding>,
     pub metadata: Vec<ToolMetadata>,
 }

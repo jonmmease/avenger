@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use avenger_chart_core::{
     AvengerChartError, AxisSpec, ChartTool, CompileContext, CompiledMark, CompiledMarkState,
     CompiledParamSpec, CompiledSelectionSpec, CompiledSubplotChildPlot, CoordinateGuide,
-    CoordinateSystem, IntoExpr, Legend, Mark, MarkDataMode, Param, Selection, Sharing,
+    CoordinateSystem, IntoExpr, Legend, Mark, MarkDataMode, Param, Selection, Sharing, Store,
     SubplotChildPlotSpec, Theme, compile_selections,
 };
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
@@ -65,6 +65,9 @@ pub struct Plot<C: CoordinateSystem> {
 
     /// Plot-level selections that event bindings can update and marks can read.
     pub(crate) selections: Vec<Selection>,
+
+    /// Plot-level stores that event bindings can mutate and marks can read.
+    pub(crate) stores: Vec<Store>,
 
     /// Param names whose values drive app cursor state instead of chart visuals.
     pub(crate) cursor_params: Vec<String>,
@@ -123,6 +126,7 @@ impl<C: CoordinateSystem> Plot<C> {
             param_specs: Vec::new(),
             event_bindings: Vec::new(),
             selections: Vec::new(),
+            stores: Vec::new(),
             cursor_params: Vec::new(),
             tools: Vec::new(),
         }
@@ -160,6 +164,7 @@ impl<C: CoordinateSystem> Plot<C> {
     ) -> Result<CompiledPlot, AvengerChartError> {
         let tool_context = ToolCompileContext::from_parent(inherited_tool_context);
         let active_tool_expansions = tool_context.expand_local_tools(&self.tools)?;
+        tool_context.register_local_stores(&self.stores)?;
         let erased_tool_context: CompileContext<'_> = &tool_context;
 
         let selection_specs: IndexMap<String, CompiledSelectionSpec> =
@@ -276,12 +281,14 @@ impl<C: CoordinateSystem> Plot<C> {
         // names regardless of whether they came from add_param or
         // add_param_with_sharing.
         let mut param_source_specs = self.param_specs.clone();
+        let mut store_source_specs = Vec::new();
         let mut event_bindings = self.event_bindings.clone();
         let cursor_params = self.cursor_params.clone();
         let mut tool_metadata = Vec::new();
         if is_root {
             let artifacts = tool_context.finalize_root()?;
             param_source_specs.extend(artifacts.param_specs);
+            store_source_specs.extend(artifacts.store_specs);
             event_bindings.extend(artifacts.event_bindings);
             tool_metadata.extend(artifacts.metadata);
         }
@@ -307,6 +314,17 @@ impl<C: CoordinateSystem> Plot<C> {
             .map(|spec| (spec.name.clone(), spec.default.clone()))
             .collect();
 
+        let mut store_specs = IndexMap::new();
+        for spec in store_source_specs {
+            if store_specs.contains_key(&spec.name) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Duplicate plot store '{}'",
+                    spec.name
+                )));
+            }
+            store_specs.insert(spec.name.clone(), spec);
+        }
+
         // 5. Build CompiledPlot (we do not store a persistent ScaleBuilder; it is
         // rebuilt per evaluation using current params for correctness.)
         let compiled = CompiledPlot {
@@ -324,6 +342,7 @@ impl<C: CoordinateSystem> Plot<C> {
             data: data_plan_node,
             default_params,
             param_specs,
+            store_specs,
             event_bindings,
             selection_specs,
             cursor_params,
@@ -397,6 +416,18 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Register a plot-level selection.
     pub fn add_selection(mut self, selection: Selection) -> Self {
         self.selections.push(selection);
+        self
+    }
+
+    /// Register a plot-level mutable store.
+    pub fn add_store(mut self, store: Store) -> Self {
+        self.stores.push(store);
+        self
+    }
+
+    /// Register multiple plot-level mutable stores.
+    pub fn add_stores(mut self, stores: impl IntoIterator<Item = Store>) -> Self {
+        self.stores.extend(stores);
         self
     }
 

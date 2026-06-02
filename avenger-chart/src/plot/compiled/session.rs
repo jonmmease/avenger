@@ -7,10 +7,10 @@ use std::{
 };
 
 use avenger_chart_core::{
-    ChannelInfo, CompiledParamSpec, CompiledSelectionSpec, DefaultLogicalExprNodeExt,
-    FacetWrapColumnMode, LegendChannel, LegendPosition, LogicalPlanNodeExt, Maybe,
-    RadiusExpression, ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, SelectionState,
-    SelectionStateUpdate, SerializableExpr, Sharing,
+    ChannelInfo, CompiledParamSpec, CompiledSelectionSpec, CompiledStoreSpec,
+    DefaultLogicalExprNodeExt, FacetWrapColumnMode, LegendChannel, LegendPosition,
+    LogicalPlanNodeExt, Maybe, RadiusExpression, ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain,
+    SelectionState, SelectionStateUpdate, SerializableExpr, Sharing, StoreRowValue,
 };
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
 use avenger_scales::scales::ConfiguredScale;
@@ -708,6 +708,67 @@ fn selection_clause_equivalent(
     format!("{existing:?}") == format!("{next:?}")
 }
 
+/// Identifies one scoped copy of a mutable store at a specific facet owner path.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct ScopedStoreKey {
+    store_name: String,
+    owner_path: Vec<ScalarValue>,
+}
+
+#[derive(Clone, Debug)]
+struct MutableStoreTable {
+    rows: Vec<StoreRowValue>,
+    revision: u64,
+}
+
+/// Session-owned table state for sharing-scoped stores.
+#[derive(Clone, Debug)]
+pub(crate) struct ScopedStoreState {
+    specs: IndexMap<String, CompiledStoreSpec>,
+    instances: IndexMap<ScopedStoreKey, MutableStoreTable>,
+}
+
+impl ScopedStoreState {
+    fn new(specs: IndexMap<String, CompiledStoreSpec>) -> Self {
+        let mut instances = IndexMap::new();
+        for (store_name, spec) in &specs {
+            let rows = spec
+                .initial_rows()
+                .expect("compiled store initial rows should already be validated");
+            instances.insert(
+                ScopedStoreKey {
+                    store_name: store_name.clone(),
+                    owner_path: Vec::new(),
+                },
+                MutableStoreTable { rows, revision: 0 },
+            );
+        }
+        Self { specs, instances }
+    }
+
+    fn owner_path_for_store(
+        &self,
+        store_name: &str,
+        sharing_owner_paths: &HashMap<u8, Vec<ScalarValue>>,
+    ) -> Option<Vec<ScalarValue>> {
+        let spec = self.specs.get(store_name)?;
+        Some(owner_path_for_sharing(spec.sharing, sharing_owner_paths))
+    }
+
+    fn rows_for_store(&self, store_name: &str) -> Vec<(&[ScalarValue], &[StoreRowValue], u64)> {
+        self.instances
+            .iter()
+            .filter_map(|(key, table)| {
+                (key.store_name == store_name).then_some((
+                    key.owner_path.as_slice(),
+                    table.rows.as_slice(),
+                    table.revision,
+                ))
+            })
+            .collect()
+    }
+}
+
 /// Request object for evaluating a `PlotSession`.
 #[derive(Clone, Debug)]
 pub struct EvaluationRequest {
@@ -788,6 +849,7 @@ pub struct PlotSession {
     ctx: Arc<SessionContext>,
     scoped_params: ScopedParamStore,
     scoped_selections: ScopedSelectionStore,
+    scoped_stores: ScopedStoreState,
     /// Cached root (owner path `[]`) effective param map for `params()`.
     root_cache: IndexMap<String, ScalarValue>,
     last_request: Option<EvaluationRequestSummary>,
@@ -809,6 +871,7 @@ impl PlotSession {
         scoped_params.set_root_params(program.get_default_params().clone());
         let root_cache = scoped_params.root_effective_params();
         let scoped_selections = ScopedSelectionStore::new(program.selection_specs().clone());
+        let scoped_stores = ScopedStoreState::new(program.store_specs().clone());
         let (
             scale_domain_cache,
             facet_semantic_cache,
@@ -822,6 +885,7 @@ impl PlotSession {
             ctx,
             scoped_params,
             scoped_selections,
+            scoped_stores,
             root_cache,
             last_request: None,
             layout_profile: None,
@@ -899,6 +963,28 @@ impl PlotSession {
             .into_iter()
             .map(|(owner_path, state)| (owner_path.to_vec(), state.clone()))
             .collect()
+    }
+
+    #[doc(hidden)]
+    pub fn store_rows_for_diagnostics(
+        &self,
+        store_name: &str,
+    ) -> Vec<(Vec<ScalarValue>, Vec<StoreRowValue>)> {
+        self.scoped_stores
+            .rows_for_store(store_name)
+            .into_iter()
+            .map(|(owner_path, rows, _revision)| (owner_path.to_vec(), rows.to_vec()))
+            .collect()
+    }
+
+    #[doc(hidden)]
+    pub fn store_owner_path_for_diagnostics(
+        &self,
+        store_name: &str,
+        sharing_owner_paths: &HashMap<u8, Vec<ScalarValue>>,
+    ) -> Option<Vec<ScalarValue>> {
+        self.scoped_stores
+            .owner_path_for_store(store_name, sharing_owner_paths)
     }
 
     /// Snapshot the entire scoped parameter store for gesture freezing.
@@ -4520,6 +4606,89 @@ mod tests {
         names.insert("x_domain".to_string());
         let fingerprint = session.scoped_fingerprint_for_names(&names);
         assert!(!fingerprint.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stores_seed_initial_rows_and_resolve_owner_paths() -> Result<(), AvengerChartError> {
+        use std::sync::Arc;
+
+        use datafusion::arrow::{
+            array::{Float64Array, StringArray},
+            datatypes::{DataType, Field, Schema},
+            record_batch::RecordBatch,
+        };
+
+        let ctx = Arc::new(SessionContext::new());
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("id", DataType::Utf8, false),
+                Field::new("x0", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(StringArray::from(vec!["box-a"])),
+                Arc::new(Float64Array::from(vec![1.5])),
+            ],
+        )
+        .unwrap();
+        let compiled = Arc::new(
+            Plot::<Cartesian>::new()
+                .add_store(
+                    Store::from_record_batch("brush_boxes", batch)
+                        .primary_key(["id"])
+                        .sharing(Sharing::Level(1)),
+                )
+                .compile(&ctx)
+                .await?,
+        );
+
+        assert_eq!(compiled.store_specs().len(), 1);
+        let session = compiled.instantiate(ctx);
+        let diagnostics = session.store_rows_for_diagnostics("brush_boxes");
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].0, Vec::<ScalarValue>::new());
+        assert_eq!(diagnostics[0].1.len(), 1);
+        assert_eq!(
+            diagnostics[0].1[0].get("id"),
+            Some(&ScalarValue::Utf8(Some("box-a".to_string())))
+        );
+        assert_eq!(
+            diagnostics[0].1[0].get("x0"),
+            Some(&ScalarValue::Float64(Some(1.5)))
+        );
+
+        let owner_path = vec![ScalarValue::Utf8(Some("row-a".to_string()))];
+        let mut owner_paths = HashMap::new();
+        owner_paths.insert(1u8, owner_path.clone());
+        assert_eq!(
+            session.store_owner_path_for_diagnostics("brush_boxes", &owner_paths),
+            Some(owner_path)
+        );
+        assert_eq!(
+            session.store_owner_path_for_diagnostics("brush_boxes", &HashMap::new()),
+            Some(Vec::new())
+        );
+        assert_eq!(
+            session.store_owner_path_for_diagnostics("missing", &owner_paths),
+            None
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn duplicate_store_names_error() -> Result<(), AvengerChartError> {
+        use datafusion::arrow::datatypes::DataType;
+
+        let ctx = SessionContext::new();
+        let result = Plot::<Cartesian>::new()
+            .add_store(Store::empty("brush").field("id", DataType::Utf8, false))
+            .add_store(Store::empty("brush").field("id", DataType::Utf8, false))
+            .compile(&ctx)
+            .await;
+        let Err(err) = result else {
+            panic!("duplicate store names should error");
+        };
+        assert!(format!("{err:?}").contains("declared more than once"));
         Ok(())
     }
 

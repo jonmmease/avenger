@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    AvengerChartError, CoordinateSystemCore, Mark, Param, Sharing, event::ChartEventBinding,
+    AvengerChartError, CoordinateSystemCore, Mark, Param, Sharing, Store, event::ChartEventBinding,
 };
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +22,7 @@ pub struct ToolExpansionContext<'a> {
 
 pub struct ToolExpansion<C: CoordinateSystemCore> {
     pub params: Vec<ToolParamExpansion>,
+    pub stores: Vec<Store>,
     pub event_bindings: Vec<ChartEventBinding>,
     pub scale_edits: Vec<ToolScaleEdit>,
     pub marks: Vec<Arc<dyn Mark<C>>>,
@@ -32,6 +33,7 @@ impl<C: CoordinateSystemCore> Clone for ToolExpansion<C> {
     fn clone(&self) -> Self {
         Self {
             params: self.params.clone(),
+            stores: self.stores.clone(),
             event_bindings: self.event_bindings.clone(),
             scale_edits: self.scale_edits.clone(),
             marks: self.marks.clone(),
@@ -44,6 +46,7 @@ impl<C: CoordinateSystemCore> Default for ToolExpansion<C> {
     fn default() -> Self {
         Self {
             params: Vec::new(),
+            stores: Vec::new(),
             event_bindings: Vec::new(),
             scale_edits: Vec::new(),
             marks: Vec::new(),
@@ -59,6 +62,11 @@ impl<C: CoordinateSystemCore> ToolExpansion<C> {
 
     pub fn param(mut self, param: Param, sharing: ToolParamSharing) -> Self {
         self.params.push(ToolParamExpansion { param, sharing });
+        self
+    }
+
+    pub fn store(mut self, store: Store) -> Self {
+        self.stores.push(store);
         self
     }
 

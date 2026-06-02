@@ -30,9 +30,9 @@ use serde_with::{FromInto, serde_as};
 
 use avenger_chart_core::{
     AvengerChartError, AxisSpec, CompiledGuide, CompiledMark, CompiledParamSpec,
-    CompiledSelectionSpec, CompiledSubplotChildPlot, CompiledSubplotPayload, CoordMeasurement,
-    CoordinateSystemTransform, EvaluationContext as CoreEvaluationContext, Legend,
-    ScaleRangeBinding, SerializableDataFrame, SerializableScalarMap, Theme, ToolMetadata,
+    CompiledSelectionSpec, CompiledStoreSpec, CompiledSubplotChildPlot, CompiledSubplotPayload,
+    CoordMeasurement, CoordinateSystemTransform, EvaluationContext as CoreEvaluationContext,
+    Legend, ScaleRangeBinding, SerializableDataFrame, SerializableScalarMap, Theme, ToolMetadata,
     channel::strip_trailing_numbers,
 };
 use avenger_chart_scales::{ConfiguredScaleWithSpec, PlotScaleSpec as ScaleSpec, ScaleBuilder};
@@ -154,6 +154,10 @@ pub struct CompiledPlot {
     #[serde(default)]
     pub(crate) param_specs: IndexMap<String, CompiledParamSpec>,
 
+    /// Store specs keyed by name in declaration order.
+    #[serde(default)]
+    pub(crate) store_specs: IndexMap<String, CompiledStoreSpec>,
+
     /// Plot-level event bindings for chart apps.
     #[serde(default)]
     pub(crate) event_bindings: Vec<ChartEventBinding>,
@@ -207,6 +211,10 @@ impl CompiledPlot {
     /// Get the param specs (name, default, sharing) in declaration order.
     pub fn param_specs(&self) -> &IndexMap<String, CompiledParamSpec> {
         &self.param_specs
+    }
+
+    pub fn store_specs(&self) -> &IndexMap<String, CompiledStoreSpec> {
+        &self.store_specs
     }
 
     /// Get plot-level event bindings.
