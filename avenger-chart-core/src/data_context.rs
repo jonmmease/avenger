@@ -2,7 +2,7 @@ use indexmap::IndexMap;
 
 use datafusion::{dataframe::DataFrame, prelude::SessionContext};
 
-use crate::{ChannelValue, SelectionClauseDataset, StoreData};
+use crate::{ChannelValue, StoreData};
 
 /// Stores a mark's data source and channel-to-expression mappings during construction
 /// This is the uncompiled version that holds a live DataFrame that can be transformed
@@ -10,7 +10,6 @@ use crate::{ChannelValue, SelectionClauseDataset, StoreData};
 #[derive(Clone)]
 pub struct DataContext {
     dataframe: Option<DataFrame>,
-    selection_clause_dataset: Option<SelectionClauseDataset>,
     store_data: Option<StoreData>,
     channels: IndexMap<String, ChannelValue>,
 }
@@ -19,7 +18,6 @@ impl Default for DataContext {
     fn default() -> Self {
         Self {
             dataframe: None,
-            selection_clause_dataset: None,
             store_data: None,
             channels: IndexMap::new(),
         }
@@ -30,16 +28,6 @@ impl DataContext {
     pub fn new(dataframe: DataFrame) -> Self {
         Self {
             dataframe: Some(dataframe),
-            selection_clause_dataset: None,
-            store_data: None,
-            channels: IndexMap::new(),
-        }
-    }
-
-    pub fn selection_clause_dataset(data: SelectionClauseDataset) -> Self {
-        Self {
-            dataframe: None,
-            selection_clause_dataset: Some(data),
             store_data: None,
             channels: IndexMap::new(),
         }
@@ -48,7 +36,6 @@ impl DataContext {
     pub fn store_data(data: StoreData) -> Self {
         Self {
             dataframe: None,
-            selection_clause_dataset: None,
             store_data: Some(data),
             channels: IndexMap::new(),
         }
@@ -67,10 +54,6 @@ impl DataContext {
     /// Take ownership of the DataFrame, leaving None in its place
     pub fn take_dataframe(&mut self) -> Option<DataFrame> {
         self.dataframe.take()
-    }
-
-    pub fn selection_clause_dataset_ref(&self) -> Option<&SelectionClauseDataset> {
-        self.selection_clause_dataset.as_ref()
     }
 
     pub fn store_data_ref(&self) -> Option<&StoreData> {

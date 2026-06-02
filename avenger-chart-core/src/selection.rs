@@ -334,13 +334,6 @@ impl Selection {
         selection_predicate_expr(&self.id)
     }
 
-    pub fn clause_dataset(&self) -> SelectionClauseDataset {
-        SelectionClauseDataset {
-            selection_id: self.id.clone(),
-            matching_current_facet: false,
-        }
-    }
-
     pub fn compile(&self) -> Result<CompiledSelectionSpec, AvengerChartError> {
         validate_selection_id(&self.id)?;
         for facet in &self.facet_context {
@@ -459,20 +452,6 @@ impl CompiledSelectionSpec {
                     })
             })
             .unwrap_or_else(|| col(format!(":{id}")))
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SelectionClauseDataset {
-    pub selection_id: String,
-    #[serde(default)]
-    pub matching_current_facet: bool,
-}
-
-impl SelectionClauseDataset {
-    pub fn matching_current_facet(mut self) -> Self {
-        self.matching_current_facet = true;
-        self
     }
 }
 

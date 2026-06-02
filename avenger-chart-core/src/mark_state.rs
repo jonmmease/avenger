@@ -69,13 +69,7 @@ pub struct CompiledMarkState {
 impl CompiledMarkState {
     /// Convert MarkState to CompiledMarkState with an optional serialized DataFrame.
     pub fn from_mark_state(state: &MarkState, transformed_df: Option<DataFrame>) -> Self {
-        let data = if let Some(selection_clause_dataset) = state.data.selection_clause_dataset_ref()
-        {
-            CompiledDataContext::new_selection_clause_dataset(
-                selection_clause_dataset.clone(),
-                state.data.channels().clone(),
-            )
-        } else if let Some(store_data) = state.data.store_data_ref() {
+        let data = if let Some(store_data) = state.data.store_data_ref() {
             CompiledDataContext::new_store_data(store_data.clone(), state.data.channels().clone())
         } else {
             CompiledDataContext::new(transformed_df, state.data.channels().clone())

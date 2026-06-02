@@ -12,9 +12,9 @@ use std::{
 use avenger_common::types::ColorOrGradient;
 use datafusion::{
     arrow::{
-        array::{ArrayRef, Int32Array, StructArray, new_empty_array},
+        array::Int32Array,
         compute::concat_batches,
-        datatypes::{DataType, Field, FieldRef, Schema},
+        datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
     common::{DFSchema, ScalarValue},
@@ -27,9 +27,9 @@ use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    CompiledSelectionSpec, MarkDataMode, SelectionClause, SelectionCombine, SelectionGeometryValue,
-    SelectionPredicateSpec, SelectionSourceSpec, StoreRowValue, color::parse_color_string,
-    contains_aggregate, params_to_datafusion, selection_id_from_predicate_placeholder,
+    CompiledSelectionSpec, MarkDataMode, SelectionClause, SelectionCombine, SelectionPredicateSpec,
+    SelectionSourceSpec, StoreRowValue, color::parse_color_string, contains_aggregate,
+    params_to_datafusion, selection_id_from_predicate_placeholder,
 };
 
 use crate::{
@@ -409,34 +409,6 @@ fn clause_predicate_expr(
     }
 }
 
-fn selection_clause_dataframe(
-    data: &avenger_chart_core::SelectionClauseDataset,
-    facet_data_scope: Option<FacetDataScopeContext<'_>>,
-    eval_ctx: &EvaluationContext,
-) -> Result<DataFrame, AvengerChartError> {
-    let ctx = eval_ctx.session_context.as_ref();
-    let Some(selection_store) = eval_ctx.scoped_selection_store.as_ref() else {
-        let schema = selection_clause_schema(None);
-        return Ok(ctx.read_batch(RecordBatch::new_empty(schema))?);
-    };
-    let spec = selection_store.specs().get(&data.selection_id);
-    let schema = selection_clause_schema(spec);
-    let mut clauses = selection_store
-        .states_for_selection(&data.selection_id)
-        .into_iter()
-        .flat_map(|(_, state)| state.clauses.iter())
-        .collect::<Vec<_>>();
-    if data.matching_current_facet {
-        clauses.retain(|clause| {
-            facet_data_scope
-                .map(|scope| owner_path_matches_cell(&clause.owner_path, scope.full_path))
-                .unwrap_or_else(|| clause.owner_path.is_empty())
-        });
-    }
-    let batch = selection_clause_batch(schema, spec, &data.selection_id, &clauses)?;
-    Ok(ctx.read_batch(batch)?)
-}
-
 fn store_dataframe(
     data: &avenger_chart_core::StoreData,
     facet_data_scope: Option<FacetDataScopeContext<'_>>,
@@ -475,104 +447,6 @@ fn store_data_sharing_owner_paths(
     owner_paths
 }
 
-fn owner_path_matches_cell(owner_path: &[ScalarValue], cell_path: &[ScalarValue]) -> bool {
-    owner_path.len() <= cell_path.len()
-        && owner_path
-            .iter()
-            .zip(cell_path)
-            .all(|(owner, cell)| owner == cell)
-}
-
-fn selection_clause_schema(spec: Option<&CompiledSelectionSpec>) -> Arc<Schema> {
-    let mut fields = vec![
-        Field::new("selection_id", DataType::Utf8, false),
-        Field::new("clause_id", DataType::Utf8, false),
-        Field::new("source_scope_id", DataType::Utf8, true),
-    ];
-    if let Some(spec) = spec {
-        fields.extend(
-            spec.geometry_schema
-                .fields
-                .iter()
-                .map(|field| field.to_field_ref().as_ref().clone()),
-        );
-    }
-    Arc::new(Schema::new(fields))
-}
-
-fn selection_clause_batch(
-    schema: Arc<Schema>,
-    spec: Option<&CompiledSelectionSpec>,
-    selection_id: &str,
-    clauses: &[&SelectionClause],
-) -> Result<RecordBatch, AvengerChartError> {
-    if clauses.is_empty() {
-        return Ok(RecordBatch::new_empty(schema));
-    }
-    let mut columns: Vec<ArrayRef> = Vec::new();
-    columns.push(ScalarValue::iter_to_array(
-        clauses
-            .iter()
-            .map(|_| ScalarValue::Utf8(Some(selection_id.to_string()))),
-    )?);
-    columns.push(ScalarValue::iter_to_array(
-        clauses
-            .iter()
-            .map(|clause| ScalarValue::Utf8(Some(clause.clause_id.clone()))),
-    )?);
-    columns.push(ScalarValue::iter_to_array(
-        clauses
-            .iter()
-            .map(|clause| ScalarValue::Utf8(clause.source_scope_id.clone())),
-    )?);
-    if let Some(spec) = spec {
-        for field in &spec.geometry_schema.fields {
-            let field = field.to_field_ref();
-            let data_type = field.data_type().clone();
-            let scalars = clauses
-                .iter()
-                .map(|clause| geometry_scalar_for_field(&field, clause.geometry.as_ref()))
-                .collect::<Result<Vec<_>, _>>()?;
-            if scalars.is_empty() {
-                columns.push(new_empty_array(&data_type));
-            } else {
-                columns.push(ScalarValue::iter_to_array(scalars)?);
-            }
-        }
-    }
-    Ok(RecordBatch::try_new(schema, columns)?)
-}
-
-fn geometry_scalar_for_field(
-    field: &FieldRef,
-    geometry: Option<&SelectionGeometryValue>,
-) -> Result<ScalarValue, AvengerChartError> {
-    let data_type = field.data_type();
-    let Some(geometry) = geometry.filter(|geometry| geometry.column_name.as_str() == field.name())
-    else {
-        return Ok(ScalarValue::try_new_null(data_type)?);
-    };
-    let DataType::Struct(fields) = data_type else {
-        return Ok(ScalarValue::try_new_null(data_type)?);
-    };
-    let arrays = fields
-        .iter()
-        .map(|child| {
-            let scalar = geometry
-                .fields
-                .get(child.name())
-                .cloned()
-                .unwrap_or_else(|| ScalarValue::try_new_null(child.data_type()).unwrap());
-            scalar.to_array_of_size(1)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(ScalarValue::Struct(Arc::new(StructArray::new(
-        fields.clone(),
-        arrays,
-        None,
-    ))))
-}
-
 fn dataframe_for_mark(
     mark: &dyn CompiledMark,
     plot_data: Option<&LogicalPlanNode>,
@@ -582,10 +456,6 @@ fn dataframe_for_mark(
     ctx: &SessionContext,
     eval_ctx: &EvaluationContext,
 ) -> Result<Option<DataFrame>, AvengerChartError> {
-    if let Some(selection_clause_dataset) = mark.data_context().selection_clause_dataset() {
-        return selection_clause_dataframe(selection_clause_dataset, facet_data_scope, eval_ctx)
-            .map(Some);
-    }
     if let Some(store_data) = mark.data_context().store_data() {
         return store_dataframe(store_data, facet_data_scope, eval_ctx).map(Some);
     }

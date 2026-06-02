@@ -195,10 +195,10 @@ pub use scale_spec::{Auto, ScaleSpec};
 pub use scale_type::{ScaleTypePreference, default_scale_type_for_data_type, is_continuous_scale};
 pub use selection::{
     CARTESIAN_RECT_GEOMETRY_COLUMN, CompiledSelectionSpec, EmptySelectionBehavior, Selection,
-    SelectionClause, SelectionClauseDataset, SelectionClauseMeta, SelectionClauseUpdate,
-    SelectionCombine, SelectionDimensionSpec, SelectionFacetContextSpec,
-    SelectionGeometryFieldSpec, SelectionGeometrySchema, SelectionGeometryUpdate,
-    SelectionGeometryValue, SelectionPredicateSpec, SelectionPredicateUpdate, SelectionSource,
+    SelectionClause, SelectionClauseMeta, SelectionClauseUpdate, SelectionCombine,
+    SelectionDimensionSpec, SelectionFacetContextSpec, SelectionGeometryFieldSpec,
+    SelectionGeometrySchema, SelectionGeometryUpdate, SelectionGeometryValue,
+    SelectionPredicateSpec, SelectionPredicateUpdate, SelectionSource,
     SelectionSourceDimensionSpec, SelectionSourceSpec, SelectionState, SelectionStateUpdate,
     SelectionUpdate, SelectionUpdateKind, SelectionValueExpr, cartesian_rect_field,
     compile_selections, selection_id_from_predicate_placeholder,

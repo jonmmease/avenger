@@ -5,9 +5,7 @@ use serde_with::{FromInto, serde_as};
 use datafusion::{dataframe::DataFrame, prelude::SessionContext};
 use datafusion_proto::protobuf::LogicalPlanNode;
 
-use crate::{
-    ChannelValue, LogicalPlanNodeExt, SelectionClauseDataset, SerializableDataFrame, StoreData,
-};
+use crate::{ChannelValue, LogicalPlanNodeExt, SerializableDataFrame, StoreData};
 
 /// Compiled version of DataContext - stores serialized LogicalPlanNode
 /// This is created during plot compilation and is immutable thereafter
@@ -16,7 +14,6 @@ use crate::{
 pub struct CompiledDataContext {
     #[serde_as(as = "Option<FromInto<SerializableDataFrame>>")]
     logical_plan: Option<LogicalPlanNode>,
-    selection_clause_dataset: Option<SelectionClauseDataset>,
     store_data: Option<StoreData>,
     channels: IndexMap<String, ChannelValue>,
 }
@@ -32,19 +29,6 @@ impl CompiledDataContext {
         };
         Self {
             logical_plan,
-            selection_clause_dataset: None,
-            store_data: None,
-            channels,
-        }
-    }
-
-    pub fn new_selection_clause_dataset(
-        selection_clause_dataset: SelectionClauseDataset,
-        channels: IndexMap<String, ChannelValue>,
-    ) -> Self {
-        Self {
-            logical_plan: None,
-            selection_clause_dataset: Some(selection_clause_dataset),
             store_data: None,
             channels,
         }
@@ -53,7 +37,6 @@ impl CompiledDataContext {
     pub fn new_store_data(store_data: StoreData, channels: IndexMap<String, ChannelValue>) -> Self {
         Self {
             logical_plan: None,
-            selection_clause_dataset: None,
             store_data: Some(store_data),
             channels,
         }
@@ -66,7 +49,6 @@ impl CompiledDataContext {
     ) -> Self {
         Self {
             logical_plan,
-            selection_clause_dataset: None,
             store_data: None,
             channels,
         }
@@ -75,10 +57,6 @@ impl CompiledDataContext {
     /// Get the serialized LogicalPlanNode directly without deserialization
     pub fn logical_plan_node(&self) -> Option<&LogicalPlanNode> {
         self.logical_plan.as_ref()
-    }
-
-    pub fn selection_clause_dataset(&self) -> Option<&SelectionClauseDataset> {
-        self.selection_clause_dataset.as_ref()
     }
 
     pub fn store_data(&self) -> Option<&StoreData> {
