@@ -12,7 +12,7 @@ use avenger_chart::{
     },
     plot::{
         CompiledPlot, ScopedParamAssignment, ScopedParamStoreSnapshot, ScopedStoreAssignment,
-        StoreStateUpdate,
+        SelectionAssignment, SelectionStateUpdate, StoreStateUpdate,
     },
     render::{EvaluatedInteractionScope, EvaluationMode},
     serialization::LogicalExprNodeExt,
@@ -20,8 +20,11 @@ use avenger_chart::{
 use avenger_chart_core::{
     CompiledParamSpec, CompiledScalarExpressionProgram, CompiledSelectionSpec, CompiledStoreSpec,
     InteractionPointInversionRequest, PhysicalScalarExpressionSpec, PhysicalScalarProgramOptions,
-    PlaceholderColumn, Sharing, StoreFieldPatch, StoreKey, StoreRow, StoreRowValue, StoreUpdate,
-    StoreValueExpr, collect_placeholder_ids, one_row_batch_from_scalars, schema_from_fields,
+    PlaceholderColumn, ResolvedSelectionClauseScope, SelectionClause, SelectionClauseUpdate,
+    SelectionFacetContextValue, SelectionIntervalDimensionUpdate, SelectionIntervalDimensionValue,
+    SelectionPredicateSpec, SelectionPredicateUpdate, SelectionUpdate, SelectionValueExpr, Sharing,
+    StoreFieldPatch, StoreKey, StoreRow, StoreRowValue, StoreUpdate, StoreValueExpr,
+    collect_placeholder_ids, one_row_batch_from_scalars, schema_from_fields,
 };
 use avenger_common::cursor::CursorStyle;
 use avenger_common::time::Instant;
@@ -124,6 +127,7 @@ struct CompiledChartEventBinding {
     filter_count: usize,
     assignments: Vec<CompiledParamAssignment>,
     store_assignments: Vec<CompiledStoreAssignment>,
+    selection_assignments: Vec<CompiledSelectionAssignment>,
     evaluation_mode: ChartEventEvaluationMode,
     interaction_requests: InteractionColumnRequests,
     scope_target: Option<ChartEventScopeTarget>,
@@ -177,6 +181,57 @@ struct CompiledStoreRow {
     fields: Vec<(String, usize)>,
 }
 
+#[derive(Clone)]
+struct CompiledSelectionAssignment {
+    selection_id: String,
+    spec: CompiledSelectionSpec,
+    scope: ChartEventAssignmentScope,
+    update: CompiledSelectionUpdate,
+}
+
+#[derive(Clone)]
+enum CompiledSelectionUpdate {
+    Clear,
+    ClearInScope {
+        scope: Sharing,
+    },
+    ReplaceAllClauses {
+        clauses: Vec<CompiledSelectionClause>,
+    },
+    ReplaceClausesInScope {
+        scope: Sharing,
+        clauses: Vec<CompiledSelectionClause>,
+    },
+    UpsertClauses {
+        clauses: Vec<CompiledSelectionClause>,
+    },
+    DeleteClauses {
+        ids: Vec<usize>,
+    },
+}
+
+#[derive(Clone)]
+struct CompiledSelectionClause {
+    id: usize,
+    facet_scope: Sharing,
+    predicate: CompiledSelectionPredicate,
+}
+
+#[derive(Clone)]
+enum CompiledSelectionPredicate {
+    Interval {
+        dimensions: Vec<CompiledSelectionIntervalDimension>,
+    },
+}
+
+#[derive(Clone)]
+struct CompiledSelectionIntervalDimension {
+    id: String,
+    field_expr: datafusion_proto::protobuf::LogicalExprNode,
+    min: usize,
+    max: usize,
+}
+
 struct StoreExpressionAssignment {
     store_name: String,
     sharing: Sharing,
@@ -218,13 +273,59 @@ struct StoreExpressionField {
     expected_type: DataType,
 }
 
+struct SelectionExpressionAssignment {
+    selection_id: String,
+    spec: CompiledSelectionSpec,
+    scope: ChartEventAssignmentScope,
+    update: SelectionExpressionUpdate,
+}
+
+enum SelectionExpressionUpdate {
+    Clear,
+    ClearInScope {
+        scope: Sharing,
+    },
+    ReplaceAllClauses {
+        clauses: Vec<SelectionExpressionClause>,
+    },
+    ReplaceClausesInScope {
+        scope: Sharing,
+        clauses: Vec<SelectionExpressionClause>,
+    },
+    UpsertClauses {
+        clauses: Vec<SelectionExpressionClause>,
+    },
+    DeleteClauses {
+        ids: Vec<Expr>,
+    },
+}
+
+struct SelectionExpressionClause {
+    id: Expr,
+    facet_scope: Sharing,
+    predicate: SelectionExpressionPredicate,
+}
+
+enum SelectionExpressionPredicate {
+    Interval {
+        dimensions: Vec<SelectionExpressionIntervalDimension>,
+    },
+}
+
+struct SelectionExpressionIntervalDimension {
+    id: String,
+    field_expr: datafusion_proto::protobuf::LogicalExprNode,
+    min: Expr,
+    max: Expr,
+}
+
 impl CompiledChartEventBinding {
     fn compile(
         binding_index: usize,
         binding: &ChartEventBinding,
         ctx: &SessionContext,
         param_specs: &IndexMap<String, CompiledParamSpec>,
-        _selection_specs: &IndexMap<String, CompiledSelectionSpec>,
+        selection_specs: &IndexMap<String, CompiledSelectionSpec>,
         store_specs: &IndexMap<String, CompiledStoreSpec>,
         cursor_params: &[String],
     ) -> Result<Self, AvengerAppError> {
@@ -244,6 +345,14 @@ impl CompiledChartEventBinding {
                 return Err(AvengerAppError::InternalError(format!(
                     "Chart event binding updates unknown store '{}'",
                     assignment.store_name
+                )));
+            }
+        }
+        for assignment in &binding.selection_assignments {
+            if !selection_specs.contains_key(&assignment.selection_id) {
+                return Err(AvengerAppError::InternalError(format!(
+                    "Chart event binding updates unknown selection '{}'",
+                    assignment.selection_id
                 )));
             }
         }
@@ -284,15 +393,42 @@ impl CompiledChartEventBinding {
                 update: compile_store_expression_update(store, &assignment.update, ctx)?,
             });
         }
+        let mut selection_exprs = Vec::new();
+        for assignment in &binding.selection_assignments {
+            let spec = selection_specs
+                .get(&assignment.selection_id)
+                .expect("selection assignment validated");
+            selection_exprs.push(SelectionExpressionAssignment {
+                selection_id: assignment.selection_id.clone(),
+                spec: spec.clone(),
+                scope: assignment.scope,
+                update: compile_selection_expression_update(&assignment.update, ctx)?,
+            });
+        }
 
         let mut scan_exprs = filter_exprs.clone();
         scan_exprs.extend(assignment_exprs.iter().map(|(_, expr, _, _)| expr.clone()));
         for assignment in &store_exprs {
             scan_exprs.extend(store_expression_update_exprs(&assignment.update));
         }
+        for assignment in &selection_exprs {
+            scan_exprs.extend(selection_expression_update_exprs(&assignment.update));
+        }
         let mut interaction_requests = event::scan_interaction_columns(&scan_exprs);
         for assignment in &store_exprs {
             if assignment.sharing.to_level() != u8::MAX {
+                match assignment.scope {
+                    ChartEventAssignmentScope::Current => {
+                        interaction_requests.current_scope_id = true;
+                    }
+                    ChartEventAssignmentScope::Start => {
+                        interaction_requests.start_scope_id = true;
+                    }
+                }
+            }
+        }
+        for assignment in &selection_exprs {
+            if selection_update_needs_scope(&assignment.update) {
                 match assignment.scope {
                     ChartEventAssignmentScope::Current => {
                         interaction_requests.current_scope_id = true;
@@ -357,6 +493,21 @@ impl CompiledChartEventBinding {
                 update,
             });
         }
+        let mut selection_assignments = Vec::new();
+        for assignment in selection_exprs {
+            let update = append_selection_expression_update_specs(
+                &assignment.selection_id,
+                assignment.update,
+                &mut specs,
+                filter_count,
+            );
+            selection_assignments.push(CompiledSelectionAssignment {
+                selection_id: assignment.selection_id,
+                spec: assignment.spec,
+                scope: assignment.scope,
+                update,
+            });
+        }
         let program = CompiledScalarExpressionProgram::compile(
             ctx,
             schema,
@@ -375,6 +526,7 @@ impl CompiledChartEventBinding {
             filter_count,
             assignments,
             store_assignments,
+            selection_assignments,
             evaluation_mode: binding.evaluation_mode,
             interaction_requests,
             scope_target: binding.scope_target.clone(),
@@ -603,6 +755,307 @@ fn append_store_row_specs(
         fields.push((field.name, value_index));
     }
     CompiledStoreRow { fields }
+}
+
+fn compile_selection_expression_update(
+    update: &SelectionUpdate,
+    ctx: &SessionContext,
+) -> Result<SelectionExpressionUpdate, AvengerAppError> {
+    Ok(match update {
+        SelectionUpdate::Clear => SelectionExpressionUpdate::Clear,
+        SelectionUpdate::ClearInScope { scope } => {
+            SelectionExpressionUpdate::ClearInScope { scope: *scope }
+        }
+        SelectionUpdate::ReplaceAllClauses { clauses } => {
+            SelectionExpressionUpdate::ReplaceAllClauses {
+                clauses: compile_selection_clauses(clauses, ctx)?,
+            }
+        }
+        SelectionUpdate::ReplaceClausesInScope { scope, clauses } => {
+            SelectionExpressionUpdate::ReplaceClausesInScope {
+                scope: *scope,
+                clauses: compile_selection_clauses(clauses, ctx)?,
+            }
+        }
+        SelectionUpdate::UpsertClauses { clauses } => SelectionExpressionUpdate::UpsertClauses {
+            clauses: compile_selection_clauses(clauses, ctx)?,
+        },
+        SelectionUpdate::DeleteClauses { ids } => SelectionExpressionUpdate::DeleteClauses {
+            ids: ids
+                .iter()
+                .map(|id| selection_value_expr_to_expr(id, ctx))
+                .collect::<Result<Vec<_>, _>>()?,
+        },
+    })
+}
+
+fn compile_selection_clauses(
+    clauses: &[SelectionClauseUpdate],
+    ctx: &SessionContext,
+) -> Result<Vec<SelectionExpressionClause>, AvengerAppError> {
+    clauses
+        .iter()
+        .map(|clause| compile_selection_clause(clause, ctx))
+        .collect()
+}
+
+fn compile_selection_clause(
+    clause: &SelectionClauseUpdate,
+    ctx: &SessionContext,
+) -> Result<SelectionExpressionClause, AvengerAppError> {
+    Ok(SelectionExpressionClause {
+        id: selection_value_expr_to_expr(&clause.id, ctx)?,
+        facet_scope: clause.facet_scope,
+        predicate: compile_selection_predicate_update(&clause.predicate, ctx)?,
+    })
+}
+
+fn compile_selection_predicate_update(
+    update: &SelectionPredicateUpdate,
+    ctx: &SessionContext,
+) -> Result<SelectionExpressionPredicate, AvengerAppError> {
+    Ok(match update {
+        SelectionPredicateUpdate::Interval { dimensions } => {
+            SelectionExpressionPredicate::Interval {
+                dimensions: dimensions
+                    .iter()
+                    .map(|dimension| compile_selection_interval_dimension(dimension, ctx))
+                    .collect::<Result<Vec<_>, _>>()?,
+            }
+        }
+    })
+}
+
+fn compile_selection_interval_dimension(
+    dimension: &SelectionIntervalDimensionUpdate,
+    ctx: &SessionContext,
+) -> Result<SelectionExpressionIntervalDimension, AvengerAppError> {
+    Ok(SelectionExpressionIntervalDimension {
+        id: dimension.id.clone(),
+        field_expr: dimension.field_expr.clone(),
+        min: selection_value_expr_to_expr(&dimension.min, ctx)?,
+        max: selection_value_expr_to_expr(&dimension.max, ctx)?,
+    })
+}
+
+fn selection_value_expr_to_expr(
+    value: &SelectionValueExpr,
+    ctx: &SessionContext,
+) -> Result<Expr, AvengerAppError> {
+    value
+        .expr
+        .to_expr(ctx)
+        .map_err(|err| AvengerAppError::InternalError(err.to_string()))
+}
+
+fn selection_expression_update_exprs(update: &SelectionExpressionUpdate) -> Vec<Expr> {
+    let mut exprs = Vec::new();
+    collect_selection_expression_update_exprs(update, &mut exprs);
+    exprs
+}
+
+fn collect_selection_expression_update_exprs(
+    update: &SelectionExpressionUpdate,
+    exprs: &mut Vec<Expr>,
+) {
+    match update {
+        SelectionExpressionUpdate::Clear | SelectionExpressionUpdate::ClearInScope { .. } => {}
+        SelectionExpressionUpdate::ReplaceAllClauses { clauses }
+        | SelectionExpressionUpdate::ReplaceClausesInScope { clauses, .. }
+        | SelectionExpressionUpdate::UpsertClauses { clauses } => {
+            for clause in clauses {
+                collect_selection_clause_exprs(clause, exprs);
+            }
+        }
+        SelectionExpressionUpdate::DeleteClauses { ids } => {
+            exprs.extend(ids.iter().cloned());
+        }
+    }
+}
+
+fn collect_selection_clause_exprs(clause: &SelectionExpressionClause, exprs: &mut Vec<Expr>) {
+    exprs.push(clause.id.clone());
+    match &clause.predicate {
+        SelectionExpressionPredicate::Interval { dimensions } => {
+            for dimension in dimensions {
+                exprs.push(dimension.min.clone());
+                exprs.push(dimension.max.clone());
+            }
+        }
+    }
+}
+
+fn selection_update_needs_scope(update: &SelectionExpressionUpdate) -> bool {
+    match update {
+        SelectionExpressionUpdate::Clear => false,
+        SelectionExpressionUpdate::ClearInScope { scope } => scope.to_level() != u8::MAX,
+        SelectionExpressionUpdate::ReplaceAllClauses { clauses }
+        | SelectionExpressionUpdate::UpsertClauses { clauses } => clauses
+            .iter()
+            .any(|clause| clause.facet_scope.to_level() != u8::MAX),
+        SelectionExpressionUpdate::ReplaceClausesInScope { scope, clauses } => {
+            scope.to_level() != u8::MAX
+                || clauses
+                    .iter()
+                    .any(|clause| clause.facet_scope.to_level() != u8::MAX)
+        }
+        SelectionExpressionUpdate::DeleteClauses { .. } => false,
+    }
+}
+
+fn append_selection_expression_update_specs(
+    selection_id: &str,
+    update: SelectionExpressionUpdate,
+    specs: &mut Vec<PhysicalScalarExpressionSpec>,
+    filter_count: usize,
+) -> CompiledSelectionUpdate {
+    match update {
+        SelectionExpressionUpdate::Clear => CompiledSelectionUpdate::Clear,
+        SelectionExpressionUpdate::ClearInScope { scope } => {
+            CompiledSelectionUpdate::ClearInScope { scope }
+        }
+        SelectionExpressionUpdate::ReplaceAllClauses { clauses } => {
+            CompiledSelectionUpdate::ReplaceAllClauses {
+                clauses: append_selection_clause_specs(
+                    selection_id,
+                    "replace",
+                    clauses,
+                    specs,
+                    filter_count,
+                ),
+            }
+        }
+        SelectionExpressionUpdate::ReplaceClausesInScope { scope, clauses } => {
+            CompiledSelectionUpdate::ReplaceClausesInScope {
+                scope,
+                clauses: append_selection_clause_specs(
+                    selection_id,
+                    "replace_scope",
+                    clauses,
+                    specs,
+                    filter_count,
+                ),
+            }
+        }
+        SelectionExpressionUpdate::UpsertClauses { clauses } => {
+            CompiledSelectionUpdate::UpsertClauses {
+                clauses: append_selection_clause_specs(
+                    selection_id,
+                    "upsert",
+                    clauses,
+                    specs,
+                    filter_count,
+                ),
+            }
+        }
+        SelectionExpressionUpdate::DeleteClauses { ids } => {
+            CompiledSelectionUpdate::DeleteClauses {
+                ids: ids
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, expr)| {
+                        append_selection_value_spec(
+                            selection_id,
+                            &format!("delete_{index}"),
+                            expr,
+                            specs,
+                            filter_count,
+                        )
+                    })
+                    .collect(),
+            }
+        }
+    }
+}
+
+fn append_selection_clause_specs(
+    selection_id: &str,
+    prefix: &str,
+    clauses: Vec<SelectionExpressionClause>,
+    specs: &mut Vec<PhysicalScalarExpressionSpec>,
+    filter_count: usize,
+) -> Vec<CompiledSelectionClause> {
+    clauses
+        .into_iter()
+        .enumerate()
+        .map(|(index, clause)| {
+            append_selection_clause_spec(
+                selection_id,
+                &format!("{prefix}_{index}"),
+                clause,
+                specs,
+                filter_count,
+            )
+        })
+        .collect()
+}
+
+fn append_selection_clause_spec(
+    selection_id: &str,
+    prefix: &str,
+    clause: SelectionExpressionClause,
+    specs: &mut Vec<PhysicalScalarExpressionSpec>,
+    filter_count: usize,
+) -> CompiledSelectionClause {
+    let id = append_selection_value_spec(
+        selection_id,
+        &format!("{prefix}_id"),
+        clause.id,
+        specs,
+        filter_count,
+    );
+    let predicate = match clause.predicate {
+        SelectionExpressionPredicate::Interval { dimensions } => {
+            CompiledSelectionPredicate::Interval {
+                dimensions: dimensions
+                    .into_iter()
+                    .enumerate()
+                    .map(|(dimension_index, dimension)| {
+                        let min = append_selection_value_spec(
+                            selection_id,
+                            &format!("{prefix}_{dimension_index}_min"),
+                            dimension.min,
+                            specs,
+                            filter_count,
+                        );
+                        let max = append_selection_value_spec(
+                            selection_id,
+                            &format!("{prefix}_{dimension_index}_max"),
+                            dimension.max,
+                            specs,
+                            filter_count,
+                        );
+                        CompiledSelectionIntervalDimension {
+                            id: dimension.id,
+                            field_expr: dimension.field_expr,
+                            min,
+                            max,
+                        }
+                    })
+                    .collect(),
+            }
+        }
+    };
+    CompiledSelectionClause {
+        id,
+        facet_scope: clause.facet_scope,
+        predicate,
+    }
+}
+
+fn append_selection_value_spec(
+    selection_id: &str,
+    name: &str,
+    expr: Expr,
+    specs: &mut Vec<PhysicalScalarExpressionSpec>,
+    filter_count: usize,
+) -> usize {
+    let value_index = specs.len().saturating_sub(filter_count);
+    specs.push(
+        PhysicalScalarExpressionSpec::new(format!("selection_{selection_id}_{name}"), expr)
+            .with_nullable_cast(),
+    );
+    value_index
 }
 
 #[derive(Default)]
@@ -900,6 +1353,33 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             });
         }
 
+        let mut selection_patch: Vec<SelectionAssignment> = Vec::new();
+        for assignment in &self.runtime.selection_assignments {
+            let assignment_scope = match assignment.scope {
+                ChartEventAssignmentScope::Current => current_scope.as_ref(),
+                ChartEventAssignmentScope::Start => start_scope.as_ref(),
+            };
+            let Some(update) = selection_state_update_from_values(
+                &assignment.update,
+                &assignment.spec,
+                &values,
+                self.runtime.filter_count,
+                assignment_scope,
+            ) else {
+                tracing::debug!(
+                    target: "avenger_chart_app::event_binding",
+                    binding = self.runtime.binding_index,
+                    selection = %assignment.selection_id,
+                    "skipping selection assignment with no routed scope or null values"
+                );
+                continue;
+            };
+            selection_patch.push(SelectionAssignment {
+                selection_id: assignment.selection_id.clone(),
+                update,
+            });
+        }
+
         let cursor = cursor_from_patch(&patch, &self.runtime.cursor_params);
         let visual_patch_count = patch
             .iter()
@@ -931,7 +1411,25 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                 }
             }
         };
+        let selection_changed = if selection_patch.is_empty() {
+            false
+        } else {
+            match app.session.apply_selection_patch(selection_patch) {
+                Ok(changed) => changed,
+                Err(err) => {
+                    app.event_metrics.evaluation_errors += 1;
+                    tracing::warn!(
+                        target: "avenger_chart_app::event_binding",
+                        binding = self.runtime.binding_index,
+                        error = %err,
+                        "failed to apply selection event patch"
+                    );
+                    false
+                }
+            }
+        };
         should_rerender |= store_changed;
+        should_rerender |= selection_changed;
         if self.runtime.assignments.is_empty()
             && self.runtime.evaluation_mode == ChartEventEvaluationMode::Exact
         {
@@ -1047,6 +1545,131 @@ fn store_row_from_values(
         out.insert(field.clone(), value);
     }
     Some(out)
+}
+
+fn selection_state_update_from_values(
+    update: &CompiledSelectionUpdate,
+    spec: &CompiledSelectionSpec,
+    values: &[ScalarValue],
+    filter_count: usize,
+    scope: Option<&EvaluatedInteractionScope>,
+) -> Option<SelectionStateUpdate> {
+    Some(match update {
+        CompiledSelectionUpdate::Clear => SelectionStateUpdate::Clear,
+        CompiledSelectionUpdate::ClearInScope {
+            scope: clause_scope,
+        } => SelectionStateUpdate::ClearInScope {
+            scope_owner_path: selection_owner_path(*clause_scope, scope)?,
+        },
+        CompiledSelectionUpdate::ReplaceAllClauses { clauses } => {
+            SelectionStateUpdate::ReplaceAllClauses {
+                clauses: selection_clauses_from_values(clauses, spec, values, filter_count, scope)?,
+            }
+        }
+        CompiledSelectionUpdate::ReplaceClausesInScope {
+            scope: replace_scope,
+            clauses,
+        } => SelectionStateUpdate::ReplaceClausesInScope {
+            scope_owner_path: selection_owner_path(*replace_scope, scope)?,
+            clauses: selection_clauses_from_values(clauses, spec, values, filter_count, scope)?,
+        },
+        CompiledSelectionUpdate::UpsertClauses { clauses } => SelectionStateUpdate::UpsertClauses {
+            clauses: selection_clauses_from_values(clauses, spec, values, filter_count, scope)?,
+        },
+        CompiledSelectionUpdate::DeleteClauses { ids } => SelectionStateUpdate::DeleteClauses {
+            ids: ids
+                .iter()
+                .map(|id| selection_clause_id_from_value(values.get(filter_count + *id)?))
+                .collect::<Option<Vec<_>>>()?,
+        },
+    })
+}
+
+fn selection_clauses_from_values(
+    clauses: &[CompiledSelectionClause],
+    spec: &CompiledSelectionSpec,
+    values: &[ScalarValue],
+    filter_count: usize,
+    scope: Option<&EvaluatedInteractionScope>,
+) -> Option<Vec<SelectionClause>> {
+    clauses
+        .iter()
+        .map(|clause| selection_clause_from_values(clause, spec, values, filter_count, scope))
+        .collect()
+}
+
+fn selection_clause_from_values(
+    clause: &CompiledSelectionClause,
+    spec: &CompiledSelectionSpec,
+    values: &[ScalarValue],
+    filter_count: usize,
+    scope: Option<&EvaluatedInteractionScope>,
+) -> Option<SelectionClause> {
+    let id = selection_clause_id_from_value(values.get(filter_count + clause.id)?)?;
+    let owner_path = selection_owner_path(clause.facet_scope, scope)?;
+    let facet_context = selection_facet_context_values(spec, &owner_path);
+    let predicate = match &clause.predicate {
+        CompiledSelectionPredicate::Interval { dimensions } => SelectionPredicateSpec::Interval {
+            dimensions: dimensions
+                .iter()
+                .map(|dimension| {
+                    let min = values.get(filter_count + dimension.min)?.clone();
+                    let max = values.get(filter_count + dimension.max)?.clone();
+                    Some(SelectionIntervalDimensionValue {
+                        id: dimension.id.clone(),
+                        field_expr: dimension.field_expr.clone(),
+                        min,
+                        max,
+                    })
+                })
+                .collect::<Option<Vec<_>>>()?,
+        },
+    };
+    Some(SelectionClause {
+        id,
+        scope: ResolvedSelectionClauseScope {
+            sharing: clause.facet_scope,
+            owner_path,
+        },
+        predicate,
+        facet_context,
+    })
+}
+
+fn selection_owner_path(
+    sharing: Sharing,
+    scope: Option<&EvaluatedInteractionScope>,
+) -> Option<Vec<ScalarValue>> {
+    assignment_owner_path(sharing, scope)
+}
+
+fn selection_facet_context_values(
+    spec: &CompiledSelectionSpec,
+    owner_path: &[ScalarValue],
+) -> Vec<SelectionFacetContextValue> {
+    spec.facet_context
+        .iter()
+        .zip(owner_path.iter())
+        .filter_map(|(facet, value)| {
+            (!value.is_null()).then(|| SelectionFacetContextValue {
+                id: facet.id.clone(),
+                value: value.clone(),
+            })
+        })
+        .collect()
+}
+
+fn selection_clause_id_from_value(value: &ScalarValue) -> Option<String> {
+    match value {
+        ScalarValue::Utf8(Some(value)) | ScalarValue::LargeUtf8(Some(value)) => Some(value.clone()),
+        ScalarValue::Null
+        | ScalarValue::Utf8(None)
+        | ScalarValue::LargeUtf8(None)
+        | ScalarValue::Binary(None)
+        | ScalarValue::LargeBinary(None)
+        | ScalarValue::FixedSizeBinary(_, None) => None,
+        other => Some(format!("{other:?}")),
+    }
 }
 
 fn record_event_eval_elapsed(metrics: &mut crate::ChartEventMetrics, start: Instant) {
@@ -3116,6 +3739,191 @@ mod tests {
         assert!(
             !second_status.rerender,
             "unchanged store rows should skip reevaluation"
+        );
+    }
+
+    #[tokio::test]
+    async fn selection_update_writes_selection_state() {
+        let ctx = SessionContext::new();
+        let binding = ChartEventBinding::on(ChartEventType::CanvasResize)
+            .set_selection(
+                "brush",
+                SelectionUpdate::replace_all_clauses([SelectionClauseUpdate::interval(lit(
+                    "active",
+                ))
+                .facet_scope(Sharing::Shared)
+                .dimension(col("x"))
+                .endpoints(event::canvas_width(), event::canvas_height())]),
+            )
+            .preview();
+        let compiled = Plot::<Cartesian>::new()
+            .add_selection(Selection::new("brush").empty_selects_nothing())
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile selection binding plot");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+            compiled.selection_specs(),
+            compiled.store_specs(),
+            compiled.cursor_params(),
+        )
+        .expect("compile selection binding runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CanvasResize(CanvasResizeEvent {
+                    size: [640.0, 360.0],
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+
+        assert!(status.rerender);
+        assert!(!status.rebuild_geometry);
+        {
+            let runtime = state.runtime.lock().await;
+            let clauses = runtime.session.selection_clauses_for_diagnostics("brush");
+            assert_eq!(clauses.len(), 1);
+            let clause = &clauses[0];
+            assert_eq!(clause.id, "active");
+            assert_eq!(clause.scope.sharing, Sharing::Shared);
+            assert!(clause.scope.owner_path.is_empty());
+            assert!(clause.facet_context.is_empty());
+            let SelectionPredicateSpec::Interval { dimensions } = &clause.predicate;
+            assert_eq!(dimensions.len(), 1);
+            assert_eq!(dimensions[0].id, "x");
+            assert_eq!(dimensions[0].min, ScalarValue::Float64(Some(640.0)));
+            assert_eq!(dimensions[0].max, ScalarValue::Float64(Some(360.0)));
+        }
+
+        let second_status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CanvasResize(CanvasResizeEvent {
+                    size: [640.0, 360.0],
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+        assert!(
+            !second_status.rerender,
+            "unchanged selection clauses should skip reevaluation"
+        );
+    }
+
+    #[tokio::test]
+    async fn faceted_selection_update_captures_start_scope() {
+        let ctx = SessionContext::new();
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .between(
+                ChartEventStream::on(ChartEventType::MouseDown)
+                    .filter(event::button().eq(lit("left"))),
+                ChartEventStream::on(ChartEventType::MouseUp),
+            )
+            .set_selection_at_start_scope(
+                "brush",
+                SelectionUpdate::replace_all_clauses([SelectionClauseUpdate::interval(lit(
+                    "active",
+                ))
+                .facet_scope(Sharing::Free)
+                .dimension(col("x"))
+                .endpoints(lit(1.0), lit(3.0))]),
+            )
+            .preview();
+        let compiled = Plot::<Cartesian>::new()
+            .canvas_size(400.0, 300.0)
+            .add_selection(
+                Selection::new("brush")
+                    .facet_context_field("group_name", col("group_name"))
+                    .empty_selects_nothing(),
+            )
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile faceted selection binding plot");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+            compiled.selection_specs(),
+            compiled.store_specs(),
+            compiled.cursor_params(),
+        )
+        .expect("compile selection binding runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+        let mut scope = coord_scope(0, 0.0, 0.0, 100.0, 100.0, &["x", "y"]);
+        let owner_path = vec![ScalarValue::Utf8(Some("Beta".to_string()))];
+        scope.sharing_owner_paths.insert(0, owner_path.clone());
+        {
+            let mut app = state.runtime.lock().await;
+            app.last_interaction_state.scopes = vec![scope];
+        }
+        let start_event = EventStreamEventSnapshot {
+            event: SceneGraphEvent::MouseDown(SceneMouseDownEvent {
+                position: [20.0, 20.0],
+                button: MouseButton::Left,
+                mark_instance: None,
+                modifiers: Default::default(),
+            }),
+            mark_instance: None,
+            instant: Instant::now(),
+        };
+        let context = EventStreamContext {
+            mark_instance: None,
+            current_event: None,
+            start_event: Some(start_event),
+            previous_event: None,
+        };
+
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: [500.0, 500.0],
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &context,
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+
+        assert!(
+            status.rerender,
+            "selection update should use the routed start scope"
+        );
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("brush");
+        assert_eq!(clauses.len(), 1);
+        let clause = &clauses[0];
+        assert_eq!(clause.scope.sharing, Sharing::Free);
+        assert_eq!(clause.scope.owner_path, owner_path);
+        assert_eq!(clause.facet_context.len(), 1);
+        assert_eq!(clause.facet_context[0].id, "group_name");
+        assert_eq!(
+            clause.facet_context[0].value,
+            ScalarValue::Utf8(Some("Beta".to_string()))
         );
     }
 

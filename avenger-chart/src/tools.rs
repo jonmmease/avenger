@@ -701,16 +701,8 @@ mod tests {
                 .field("y_min", DataType::Float64, false)
                 .field("y_max", DataType::Float64, false)
                 .primary_key(["id"]);
-            let selection = Selection::new("__tool_custom_selection__brush")
-                .source(
-                    SelectionSource::store("__tool_custom_selection__boxes")
-                        .interval()
-                        .dimension("x", col("x"))
-                        .bounds("x_min", "x_max")
-                        .dimension("y", col("y"))
-                        .bounds("y_min", "y_max"),
-                )
-                .empty_selects_nothing();
+            let selection =
+                Selection::new("__tool_custom_selection__brush").empty_selects_nothing();
             Ok(ToolExpansion::new().store(store).selection(selection))
         }
     }

@@ -7,7 +7,8 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, Param, SerializableExpr, StoreUpdate,
+    AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, Param, SelectionUpdate,
+    SerializableExpr, StoreUpdate,
 };
 use avenger_common::cursor::CursorStyle;
 use datafusion::{
@@ -126,6 +127,14 @@ pub struct ChartEventStoreAssignment {
     pub replace_scoped_values: bool,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ChartEventSelectionAssignment {
+    pub selection_id: String,
+    pub update: SelectionUpdate,
+    #[serde(default)]
+    pub scope: ChartEventAssignmentScope,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChartEventScopeTarget {
     pub coord_node_path_prefix: Vec<usize>,
@@ -192,6 +201,8 @@ pub struct ChartEventBinding {
     pub assignments: Vec<ChartEventParamAssignment>,
     #[serde(default)]
     pub store_assignments: Vec<ChartEventStoreAssignment>,
+    #[serde(default)]
+    pub selection_assignments: Vec<ChartEventSelectionAssignment>,
     pub evaluation_mode: ChartEventEvaluationMode,
     pub settle_exact: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -208,6 +219,7 @@ impl ChartEventBinding {
             consume: false,
             assignments: Vec::new(),
             store_assignments: Vec::new(),
+            selection_assignments: Vec::new(),
             evaluation_mode: ChartEventEvaluationMode::Preview,
             settle_exact: false,
             scope_target: None,
@@ -230,6 +242,7 @@ impl ChartEventBinding {
             consume: false,
             assignments: Vec::new(),
             store_assignments: Vec::new(),
+            selection_assignments: Vec::new(),
             evaluation_mode: ChartEventEvaluationMode::Preview,
             settle_exact: false,
             scope_target: None,
@@ -373,6 +386,38 @@ impl ChartEventBinding {
         self
     }
 
+    pub fn set_selection(mut self, selection: impl Into<String>, update: SelectionUpdate) -> Self {
+        self.selection_assignments
+            .push(ChartEventSelectionAssignment {
+                selection_id: selection.into(),
+                update,
+                scope: ChartEventAssignmentScope::Current,
+            });
+        self
+    }
+
+    pub fn set_selection_at_start_scope(
+        mut self,
+        selection: impl Into<String>,
+        update: SelectionUpdate,
+    ) -> Self {
+        self.selection_assignments
+            .push(ChartEventSelectionAssignment {
+                selection_id: selection.into(),
+                update,
+                scope: ChartEventAssignmentScope::Start,
+            });
+        self
+    }
+
+    pub fn clear_selection(self, selection: impl Into<String>) -> Self {
+        self.set_selection(selection, SelectionUpdate::clear())
+    }
+
+    pub fn clear_selection_at_start_scope(self, selection: impl Into<String>) -> Self {
+        self.set_selection_at_start_scope(selection, SelectionUpdate::clear())
+    }
+
     pub fn preview(mut self) -> Self {
         self.evaluation_mode = ChartEventEvaluationMode::Preview;
         self
@@ -395,6 +440,15 @@ impl ChartEventBinding {
                 return Err(AvengerChartError::InvalidArgument(format!(
                     "Chart event binding assigns param '{}' more than once",
                     assignment.param_name
+                )));
+            }
+        }
+        let mut selection_targets = std::collections::HashSet::new();
+        for assignment in &self.selection_assignments {
+            if !selection_targets.insert(assignment.selection_id.as_str()) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Chart event binding assigns selection '{}' more than once",
+                    assignment.selection_id
                 )));
             }
         }

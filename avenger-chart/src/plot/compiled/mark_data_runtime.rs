@@ -5,7 +5,7 @@
 //! handling between mark rendering and child-frame container measurement.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
 };
 
@@ -27,7 +27,7 @@ use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    CompiledSelectionSpec, MarkDataMode, SelectionCombine, SelectionSourceSpec, StoreRowValue,
+    CompiledSelectionSpec, MarkDataMode, SelectionClause, SelectionCombine, SelectionPredicateSpec,
     color::parse_color_string, contains_aggregate, params_to_datafusion,
     selection_id_from_predicate_placeholder,
 };
@@ -154,6 +154,7 @@ fn validate_runtime_aggregate_channels(
 fn expand_selection_predicates_in_channels(
     channels: IndexMap<String, ChannelValue>,
     eval_ctx: &EvaluationContext,
+    available_columns: Option<&HashSet<String>>,
 ) -> Result<IndexMap<String, ChannelValue>, AvengerChartError> {
     if eval_ctx.scoped_selection_store.is_none() {
         return Ok(channels);
@@ -170,7 +171,8 @@ fn expand_selection_predicates_in_channels(
                 legend_config,
                 share_mode,
             } => {
-                let expanded = expand_selection_predicates(expr.to_expr(ctx)?, eval_ctx)?;
+                let expanded =
+                    expand_selection_predicates(expr.to_expr(ctx)?, eval_ctx, available_columns)?;
                 ChannelValue::Scaled {
                     expr: LogicalExprNode::from_expr(expanded)?,
                     scale_name,
@@ -181,7 +183,8 @@ fn expand_selection_predicates_in_channels(
                 }
             }
             ChannelValue::Value { expr } => {
-                let expanded = expand_selection_predicates(expr.to_expr(ctx)?, eval_ctx)?;
+                let expanded =
+                    expand_selection_predicates(expr.to_expr(ctx)?, eval_ctx, available_columns)?;
                 ChannelValue::Value {
                     expr: LogicalExprNode::from_expr(expanded)?,
                 }
@@ -196,19 +199,24 @@ fn expand_selection_predicates_in_channels(
                 let expanded_conditions = conditions
                     .into_iter()
                     .map(|(condition, value)| {
-                        let condition =
-                            expand_selection_predicates(condition.to_expr(ctx)?, eval_ctx)?;
+                        let condition = expand_selection_predicates(
+                            condition.to_expr(ctx)?,
+                            eval_ctx,
+                            available_columns,
+                        )?;
                         let value = match value {
                             ConditionalValue::Scaled { expr } => ConditionalValue::Scaled {
                                 expr: LogicalExprNode::from_expr(expand_selection_predicates(
                                     expr.to_expr(ctx)?,
                                     eval_ctx,
+                                    available_columns,
                                 )?)?,
                             },
                             ConditionalValue::Value { expr } => ConditionalValue::Value {
                                 expr: LogicalExprNode::from_expr(expand_selection_predicates(
                                     expr.to_expr(ctx)?,
                                     eval_ctx,
+                                    available_columns,
                                 )?)?,
                             },
                         };
@@ -220,12 +228,14 @@ fn expand_selection_predicates_in_channels(
                         expr: LogicalExprNode::from_expr(expand_selection_predicates(
                             expr.to_expr(ctx)?,
                             eval_ctx,
+                            available_columns,
                         )?)?,
                     },
                     ConditionalValue::Value { expr } => ConditionalValue::Value {
                         expr: LogicalExprNode::from_expr(expand_selection_predicates(
                             expr.to_expr(ctx)?,
                             eval_ctx,
+                            available_columns,
                         )?)?,
                     },
                 };
@@ -246,14 +256,16 @@ fn expand_selection_predicates_in_channels(
 fn expand_selection_predicates(
     expr: Expr,
     eval_ctx: &EvaluationContext,
+    available_columns: Option<&HashSet<String>>,
 ) -> Result<Expr, AvengerChartError> {
     let ctx = eval_ctx.session_context.as_ref();
     expr.transform(|candidate| {
         if let Expr::Placeholder(placeholder) = &candidate
             && let Some(selection_id) = selection_id_from_predicate_placeholder(&placeholder.id)
         {
-            let replacement = selection_predicate_expr(selection_id, eval_ctx, ctx)
-                .map_err(|err| datafusion::error::DataFusionError::Plan(err.to_string()))?;
+            let replacement =
+                selection_predicate_expr(selection_id, eval_ctx, ctx, available_columns)
+                    .map_err(|err| datafusion::error::DataFusionError::Plan(err.to_string()))?;
             return Ok(Transformed::yes(replacement));
         }
         Ok(Transformed::no(candidate))
@@ -266,6 +278,7 @@ fn selection_predicate_expr(
     selection_id: &str,
     eval_ctx: &EvaluationContext,
     ctx: &SessionContext,
+    available_columns: Option<&HashSet<String>>,
 ) -> Result<Expr, AvengerChartError> {
     let Some(selection_store) = eval_ctx.scoped_selection_store.as_ref() else {
         return Ok(lit(false));
@@ -275,45 +288,19 @@ fn selection_predicate_expr(
             "Selection predicate references unknown selection '{selection_id}'"
         )));
     };
-    let Some(source) = &spec.source else {
-        return Err(AvengerChartError::InvalidArgument(format!(
-            "Selection predicate references selection '{selection_id}' without a predicate source"
-        )));
-    };
-    store_source_selection_predicate_expr(spec, source, eval_ctx, ctx)
-}
-
-fn store_source_selection_predicate_expr(
-    spec: &CompiledSelectionSpec,
-    source: &SelectionSourceSpec,
-    eval_ctx: &EvaluationContext,
-    ctx: &SessionContext,
-) -> Result<Expr, AvengerChartError> {
-    let Some(store_state) = eval_ctx.scoped_store_state.as_ref() else {
-        return Ok(lit(matches!(
-            spec.empty,
-            avenger_chart_core::EmptySelectionBehavior::SelectAll
-        )));
-    };
-    let rows = store_state
-        .row_values_for_store(&source.store_name)
-        .into_iter()
-        .flat_map(|(owner_path, rows)| {
-            rows.into_iter()
-                .map(move |row| (owner_path.clone(), row))
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-    if rows.is_empty() {
+    let clauses = selection_store
+        .clauses_for_selection(selection_id)
+        .unwrap_or_default();
+    if clauses.is_empty() {
         return Ok(lit(matches!(
             spec.empty,
             avenger_chart_core::EmptySelectionBehavior::SelectAll
         )));
     }
 
-    let mut exprs = rows.iter().map(|(owner_path, row)| {
-        store_source_row_predicate_expr(spec, source, owner_path, row, ctx)
-    });
+    let mut exprs = clauses
+        .iter()
+        .map(|clause| selection_clause_predicate_expr(spec, clause, ctx, available_columns));
     let mut result = exprs.next().transpose()?.unwrap_or_else(|| lit(false));
     for expr in exprs {
         result = match spec.combine {
@@ -324,38 +311,62 @@ fn store_source_selection_predicate_expr(
     Ok(result)
 }
 
-fn store_source_row_predicate_expr(
+fn selection_clause_predicate_expr(
     spec: &CompiledSelectionSpec,
-    source: &SelectionSourceSpec,
-    owner_path: &[ScalarValue],
-    row: &StoreRowValue,
+    clause: &SelectionClause,
     ctx: &SessionContext,
+    available_columns: Option<&HashSet<String>>,
 ) -> Result<Expr, AvengerChartError> {
-    let mut expr = lit(true);
-    for dimension in &source.dimensions {
-        let Some(min) = row.get(&dimension.min_field) else {
-            return Ok(lit(false));
-        };
-        let Some(max) = row.get(&dimension.max_field) else {
-            return Ok(lit(false));
-        };
-        if min.is_null() || max.is_null() {
-            return Ok(lit(false));
+    let mut expr = match &clause.predicate {
+        SelectionPredicateSpec::Interval { dimensions } => {
+            if dimensions.is_empty() {
+                return Ok(lit(false));
+            }
+            let mut expr = lit(true);
+            for dimension in dimensions {
+                if dimension.min.is_null() || dimension.max.is_null() {
+                    return Ok(lit(false));
+                }
+                let value = dimension.field_expr.to_expr(ctx)?;
+                if !expr_columns_are_available(&value, available_columns) {
+                    return Ok(lit(false));
+                }
+                expr = expr
+                    .and(value.clone().gt_eq(lit(dimension.min.clone())))
+                    .and(value.lt_eq(lit(dimension.max.clone())));
+            }
+            expr
         }
-        let value = dimension.field_expr.to_expr(ctx)?;
-        expr = expr
-            .and(value.clone().gt_eq(lit(min.clone())))
-            .and(value.lt_eq(lit(max.clone())));
-    }
-    for (index, value) in owner_path.iter().enumerate() {
-        if value.is_null() {
+    };
+    for facet_value in &clause.facet_context {
+        if facet_value.value.is_null() {
             continue;
         }
-        if let Some(facet) = spec.facet_context.get(index) {
-            expr = expr.and(facet.field_expr.to_expr(ctx)?.eq(lit(value.clone())));
+        if let Some(facet) = spec
+            .facet_context
+            .iter()
+            .find(|facet| facet.id == facet_value.id)
+        {
+            let facet_expr = facet.field_expr.to_expr(ctx)?;
+            if !expr_columns_are_available(&facet_expr, available_columns) {
+                return Ok(lit(false));
+            }
+            expr = expr.and(facet_expr.eq(lit(facet_value.value.clone())));
         }
     }
     Ok(expr)
+}
+
+fn expr_columns_are_available(expr: &Expr, available_columns: Option<&HashSet<String>>) -> bool {
+    let refs = expr.column_refs();
+    if refs.is_empty() {
+        return true;
+    }
+    let Some(available_columns) = available_columns else {
+        return false;
+    };
+    refs.into_iter()
+        .all(|column| available_columns.contains(column.name()))
 }
 
 fn store_dataframe(
@@ -457,11 +468,7 @@ pub(crate) async fn prepare_logical_mark_data(
     request: LogicalMarkDataRequest<'_>,
 ) -> Result<PreparedLogicalMarkData, AvengerChartError> {
     let ctx = request.eval_ctx.session_context.as_ref();
-    let channels = expand_selection_predicates_in_channels(
-        request.mark.data_context().channels().clone(),
-        request.eval_ctx,
-    )?;
-    let channels = resolve_all_channel_refs(&channels, ctx)?;
+    let channels = resolve_all_channel_refs(request.mark.data_context().channels(), ctx)?;
     let dataframe = dataframe_for_mark(
         request.mark,
         request.plot_data,
@@ -470,6 +477,18 @@ pub(crate) async fn prepare_logical_mark_data(
         &channels,
         ctx,
         request.eval_ctx,
+    )?;
+    let available_columns = dataframe.as_ref().map(|df| {
+        df.schema()
+            .fields()
+            .iter()
+            .map(|field| field.name().clone())
+            .collect::<HashSet<_>>()
+    });
+    let channels = expand_selection_predicates_in_channels(
+        channels,
+        request.eval_ctx,
+        available_columns.as_ref(),
     )?;
 
     if !aggregate_channels_need_preparation(&channels, ctx) {

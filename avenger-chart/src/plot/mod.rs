@@ -13,7 +13,7 @@ mod title;
 pub use avenger_chart_core::IntoExpr;
 pub use compiled::{
     CompiledPlot, EvaluationRequest, PlotSession, ScopedParamAssignment, ScopedParamStoreSnapshot,
-    ScopedStoreAssignment, StoreStateUpdate,
+    ScopedStoreAssignment, SelectionAssignment, SelectionStateUpdate, StoreStateUpdate,
 };
 pub use plot::Plot;
 

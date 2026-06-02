@@ -1,4 +1,6 @@
-use datafusion::{arrow::datatypes::DataType, logical_expr::expr::Placeholder, prelude::Expr};
+use datafusion::{
+    arrow::datatypes::DataType, logical_expr::expr::Placeholder, prelude::Expr, scalar::ScalarValue,
+};
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -28,68 +30,247 @@ pub struct SelectionFacetContextSpec {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SelectionSourceDimensionSpec {
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SelectionValueExpr {
+    #[serde_as(as = "FromInto<SerializableExpr>")]
+    pub expr: LogicalExprNode,
+}
+
+impl SelectionValueExpr {
+    pub fn new(expr: impl IntoExpr) -> Self {
+        Self {
+            expr: expr_node(expr.into_expr(), "selection value expression"),
+        }
+    }
+
+    pub fn to_expr(&self) -> Result<Expr, AvengerChartError> {
+        self.expr
+            .to_expr(&datafusion::prelude::SessionContext::new())
+    }
+}
+
+#[serde_as]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SelectionIntervalDimensionUpdate {
     pub id: String,
     #[serde_as(as = "FromInto<SerializableExpr>")]
     pub field_expr: LogicalExprNode,
-    pub min_field: String,
-    pub max_field: String,
+    pub min: SelectionValueExpr,
+    pub max: SelectionValueExpr,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SelectionSourceSpec {
-    pub store_name: String,
-    #[serde(default)]
-    pub dimensions: Vec<SelectionSourceDimensionSpec>,
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum SelectionPredicateUpdate {
+    Interval {
+        dimensions: Vec<SelectionIntervalDimensionUpdate>,
+    },
 }
 
-pub type SelectionSource = SelectionSourceSpec;
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SelectionClauseUpdate {
+    pub id: SelectionValueExpr,
+    #[serde(default = "default_clause_facet_scope")]
+    pub facet_scope: Sharing,
+    pub predicate: SelectionPredicateUpdate,
+}
 
-impl SelectionSourceSpec {
-    pub fn store(store_name: impl Into<String>) -> Self {
-        Self {
-            store_name: store_name.into(),
-            dimensions: Vec::new(),
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum SelectionUpdate {
+    Clear,
+    ClearInScope {
+        scope: Sharing,
+    },
+    ReplaceAllClauses {
+        clauses: Vec<SelectionClauseUpdate>,
+    },
+    ReplaceClausesInScope {
+        scope: Sharing,
+        clauses: Vec<SelectionClauseUpdate>,
+    },
+    UpsertClauses {
+        clauses: Vec<SelectionClauseUpdate>,
+    },
+    DeleteClauses {
+        ids: Vec<SelectionValueExpr>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResolvedSelectionClauseScope {
+    pub sharing: Sharing,
+    pub owner_path: Vec<ScalarValue>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SelectionFacetContextValue {
+    pub id: String,
+    pub value: ScalarValue,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SelectionIntervalDimensionValue {
+    pub id: String,
+    pub field_expr: LogicalExprNode,
+    pub min: ScalarValue,
+    pub max: ScalarValue,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum SelectionPredicateSpec {
+    Interval {
+        dimensions: Vec<SelectionIntervalDimensionValue>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SelectionClause {
+    pub id: String,
+    pub scope: ResolvedSelectionClauseScope,
+    pub predicate: SelectionPredicateSpec,
+    pub facet_context: Vec<SelectionFacetContextValue>,
+}
+
+impl SelectionUpdate {
+    pub fn clear() -> Self {
+        Self::Clear
+    }
+
+    pub fn clear_in_scope(scope: Sharing) -> Self {
+        Self::ClearInScope { scope }
+    }
+
+    pub fn replace_all_clauses<I, C>(clauses: I) -> Self
+    where
+        I: IntoIterator<Item = C>,
+        C: Into<SelectionClauseUpdate>,
+    {
+        Self::ReplaceAllClauses {
+            clauses: clauses.into_iter().map(Into::into).collect(),
         }
     }
 
-    pub fn interval(self) -> Self {
+    pub fn replace_clause(clause: impl Into<SelectionClauseUpdate>) -> Self {
+        Self::replace_all_clauses([clause])
+    }
+
+    pub fn replace_clauses_in_scope<I, C>(scope: Sharing, clauses: I) -> Self
+    where
+        I: IntoIterator<Item = C>,
+        C: Into<SelectionClauseUpdate>,
+    {
+        Self::ReplaceClausesInScope {
+            scope,
+            clauses: clauses.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn upsert_clauses<I, C>(clauses: I) -> Self
+    where
+        I: IntoIterator<Item = C>,
+        C: Into<SelectionClauseUpdate>,
+    {
+        Self::UpsertClauses {
+            clauses: clauses.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn upsert_clause(clause: impl Into<SelectionClauseUpdate>) -> Self {
+        Self::upsert_clauses([clause])
+    }
+
+    pub fn delete_clauses<I, E>(ids: I) -> Self
+    where
+        I: IntoIterator<Item = E>,
+        E: IntoExpr,
+    {
+        Self::DeleteClauses {
+            ids: ids.into_iter().map(SelectionValueExpr::new).collect(),
+        }
+    }
+}
+
+impl SelectionClauseUpdate {
+    pub fn interval(id: impl IntoExpr) -> SelectionIntervalClauseBuilder {
+        SelectionIntervalClauseBuilder {
+            update: Self {
+                id: SelectionValueExpr::new(id),
+                facet_scope: Sharing::Free,
+                predicate: SelectionPredicateUpdate::Interval {
+                    dimensions: Vec::new(),
+                },
+            },
+        }
+    }
+}
+
+pub struct SelectionIntervalClauseBuilder {
+    update: SelectionClauseUpdate,
+}
+
+impl SelectionIntervalClauseBuilder {
+    pub fn facet_scope(mut self, facet_scope: Sharing) -> Self {
+        self.update.facet_scope = facet_scope;
         self
     }
 
-    pub fn dimension(
+    pub fn dimension(self, field_expr: impl IntoExpr) -> SelectionIntervalDimensionBuilder {
+        let field_expr = field_expr.into_expr();
+        let id = interval_dimension_id_from_expr(&field_expr);
+        self.dimension_named(id, field_expr)
+    }
+
+    pub fn dimension_named(
         self,
         id: impl Into<String>,
         field_expr: impl IntoExpr,
-    ) -> SelectionSourceDimensionBuilder {
-        SelectionSourceDimensionBuilder {
-            source: self,
+    ) -> SelectionIntervalDimensionBuilder {
+        SelectionIntervalDimensionBuilder {
+            builder: self,
             id: id.into(),
-            field_expr: expr_node(field_expr.into_expr(), "selection source dimension field"),
+            field_expr: expr_node(field_expr.into_expr(), "selection interval dimension field"),
         }
+    }
+
+    pub fn build(self) -> SelectionClauseUpdate {
+        self.update
     }
 }
 
-pub struct SelectionSourceDimensionBuilder {
-    source: SelectionSourceSpec,
+fn interval_dimension_id_from_expr(expr: &Expr) -> String {
+    let id = expr.to_string();
+    if id.is_empty() {
+        "dimension".to_string()
+    } else {
+        id
+    }
+}
+
+impl From<SelectionIntervalClauseBuilder> for SelectionClauseUpdate {
+    fn from(builder: SelectionIntervalClauseBuilder) -> Self {
+        builder.build()
+    }
+}
+
+pub struct SelectionIntervalDimensionBuilder {
+    builder: SelectionIntervalClauseBuilder,
     id: String,
     field_expr: LogicalExprNode,
 }
 
-impl SelectionSourceDimensionBuilder {
-    pub fn bounds(
+impl SelectionIntervalDimensionBuilder {
+    pub fn endpoints(
         mut self,
-        min_field: impl Into<String>,
-        max_field: impl Into<String>,
-    ) -> SelectionSourceSpec {
-        self.source.dimensions.push(SelectionSourceDimensionSpec {
+        min: impl IntoExpr,
+        max: impl IntoExpr,
+    ) -> SelectionIntervalClauseBuilder {
+        let SelectionPredicateUpdate::Interval { dimensions } = &mut self.builder.update.predicate;
+        dimensions.push(SelectionIntervalDimensionUpdate {
             id: self.id,
             field_expr: self.field_expr,
-            min_field: min_field.into(),
-            max_field: max_field.into(),
+            min: SelectionValueExpr::new(min),
+            max: SelectionValueExpr::new(max),
         });
-        self.source
+        self.builder
     }
 }
 
@@ -99,10 +280,6 @@ pub struct Selection {
     pub empty: EmptySelectionBehavior,
     #[serde(default)]
     pub combine: SelectionCombine,
-    #[serde(default = "default_selection_sharing")]
-    pub sharing: Sharing,
-    #[serde(default)]
-    pub source: Option<SelectionSourceSpec>,
     #[serde(default)]
     pub facet_context: Vec<SelectionFacetContextSpec>,
 }
@@ -113,8 +290,6 @@ impl Selection {
             id: id.into(),
             empty: EmptySelectionBehavior::SelectNothing,
             combine: SelectionCombine::Union,
-            sharing: Sharing::Free,
-            source: None,
             facet_context: Vec::new(),
         }
     }
@@ -138,16 +313,6 @@ impl Selection {
         self
     }
 
-    pub fn sharing(mut self, sharing: Sharing) -> Self {
-        self.sharing = sharing;
-        self
-    }
-
-    pub fn source(mut self, source: SelectionSourceSpec) -> Self {
-        self.source = Some(source);
-        self
-    }
-
     pub fn facet_context_field(mut self, id: impl Into<String>, expr: impl IntoExpr) -> Self {
         self.facet_context.push(SelectionFacetContextSpec {
             id: id.into(),
@@ -165,54 +330,16 @@ impl Selection {
         for facet in &self.facet_context {
             validate_selection_id(&facet.id)?;
         }
-        let Some(source) = &self.source else {
-            return Err(AvengerChartError::InvalidArgument(format!(
-                "Selection '{}' must define a predicate source",
-                self.id
-            )));
-        };
-        validate_selection_source(&self.id, source)?;
         Ok(CompiledSelectionSpec {
             id: self.id.clone(),
             empty: self.empty,
             combine: self.combine,
-            sharing: self.sharing,
-            source: self.source.clone(),
             facet_context: self.facet_context.clone(),
         })
     }
 }
 
-fn validate_selection_source(
-    selection_id: &str,
-    source: &SelectionSourceSpec,
-) -> Result<(), AvengerChartError> {
-    crate::validate_store_name(&source.store_name)?;
-    if source.dimensions.is_empty() {
-        return Err(AvengerChartError::InvalidArgument(format!(
-            "Selection '{selection_id}' store source must define at least one dimension"
-        )));
-    }
-    let mut ids = std::collections::HashSet::new();
-    for dimension in &source.dimensions {
-        validate_selection_id(&dimension.id)?;
-        if !ids.insert(dimension.id.clone()) {
-            return Err(AvengerChartError::InvalidArgument(format!(
-                "Selection '{selection_id}' declares duplicate source dimension '{}'",
-                dimension.id
-            )));
-        }
-        if dimension.min_field.is_empty() || dimension.max_field.is_empty() {
-            return Err(AvengerChartError::InvalidArgument(format!(
-                "Selection '{selection_id}' source dimension '{}' must define non-empty bounds fields",
-                dimension.id
-            )));
-        }
-    }
-    Ok(())
-}
-
-fn default_selection_sharing() -> Sharing {
+fn default_clause_facet_scope() -> Sharing {
     Sharing::Free
 }
 
@@ -222,10 +349,6 @@ pub struct CompiledSelectionSpec {
     pub empty: EmptySelectionBehavior,
     #[serde(default)]
     pub combine: SelectionCombine,
-    #[serde(default = "default_selection_sharing")]
-    pub sharing: Sharing,
-    #[serde(default)]
-    pub source: Option<SelectionSourceSpec>,
     #[serde(default)]
     pub facet_context: Vec<SelectionFacetContextSpec>,
 }
@@ -293,43 +416,16 @@ mod tests {
     }
 
     #[test]
-    fn neutral_selection_requires_source() {
-        let err = Selection::new("brush")
-            .compile()
-            .expect_err("missing source");
-        assert!(format!("{err:?}").contains("must define a predicate source"));
-    }
-
-    #[test]
-    fn store_source_selection_compiles() {
-        let selection = Selection::new("brush")
-            .source(
-                SelectionSourceSpec::store("brush_boxes")
-                    .interval()
-                    .dimension("x", col("x"))
-                    .bounds("x_min", "x_max")
-                    .dimension("y", col("y"))
-                    .bounds("y_min", "y_max"),
-            )
-            .empty_selects_nothing();
+    fn neutral_selection_compiles_without_source() {
+        let selection = Selection::new("brush").empty_selects_nothing();
         let compiled = selection.compile().expect("compile selection");
-        let source = compiled.source.expect("selection source");
-        assert_eq!(source.store_name, "brush_boxes");
-        assert_eq!(source.dimensions.len(), 2);
-        assert_eq!(source.dimensions[0].min_field, "x_min");
         assert_eq!(compiled.empty, EmptySelectionBehavior::SelectNothing);
     }
 
     #[test]
     fn facet_context_selection_compiles_facet_spec_and_predicate() {
-        let selection = Selection::new("brush")
-            .source(
-                SelectionSourceSpec::store("brush_boxes")
-                    .interval()
-                    .dimension("x", col("x"))
-                    .bounds("x_min", "x_max"),
-            )
-            .facet_context_field("group_name", col("group_name"));
+        let selection =
+            Selection::new("brush").facet_context_field("group_name", col("group_name"));
         let compiled = selection.compile().expect("compile selection");
         assert_eq!(compiled.facet_context.len(), 1);
         assert_eq!(compiled.facet_context[0].id, "group_name");
@@ -341,5 +437,24 @@ mod tests {
     fn ordered_interval_expr_serializes() {
         let expr = event::interval_ordered(lit(4.0), lit(1.0));
         LogicalExprNode::from_expr(expr).expect("ordered interval serializes");
+    }
+
+    #[test]
+    fn interval_clause_update_builder_serializes() {
+        let clause = SelectionClauseUpdate::interval("active")
+            .facet_scope(Sharing::Level(1))
+            .dimension(col("x"))
+            .endpoints(lit(1.0), lit(2.0))
+            .dimension_named("vertical", col("y"))
+            .endpoints(lit(3.0), lit(4.0))
+            .build();
+        let json = serde_json::to_string(&clause).expect("serialize clause");
+        let restored: SelectionClauseUpdate =
+            serde_json::from_str(&json).expect("deserialize clause");
+        assert_eq!(restored.facet_scope, Sharing::Level(1));
+        let SelectionPredicateUpdate::Interval { dimensions } = restored.predicate;
+        assert_eq!(dimensions.len(), 2);
+        assert_eq!(dimensions[0].id, "x");
+        assert_eq!(dimensions[1].id, "vertical");
     }
 }

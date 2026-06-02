@@ -49,7 +49,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .expect("build data");
 
     let brush = Selection::new("brush")
-        .source(brush_selection_source())
         .empty_selects_nothing()
         .facet_context_field("group_name", col("group_name"));
     let selected = brush.predicate();
@@ -157,6 +156,7 @@ fn selection_drag_binding(cursor: &Param) -> ChartEventBinding {
         .filter(ev::event_at_start_clipped_coord("x").is_not_null())
         .filter(ev::event_at_start_clipped_coord("y").is_not_null())
         .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
+        .set_selection_at_start_scope("brush", replace_selection_update())
         .set_store_at_start_scope_replacing_scopes("brush_boxes", replace_store_update())
         .preview()
 }
@@ -171,6 +171,7 @@ fn selection_release_binding() -> ChartEventBinding {
     .filter(ev::start_coord("y").is_not_null())
     .filter(ev::event_at_start_clipped_coord("x").is_not_null())
     .filter(ev::event_at_start_clipped_coord("y").is_not_null())
+    .set_selection_at_start_scope("brush", replace_selection_update())
     .set_store_at_start_scope_replacing_scopes("brush_boxes", replace_store_update())
     .exact()
 }
@@ -178,17 +179,9 @@ fn selection_release_binding() -> ChartEventBinding {
 fn selection_clear_binding() -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::DoubleClick)
         .filter(selectable_scope())
+        .clear_selection("brush")
         .set_store_replacing_scopes("brush_boxes", StoreUpdate::clear())
         .exact()
-}
-
-fn brush_selection_source() -> SelectionSource {
-    SelectionSource::store("brush_boxes")
-        .interval()
-        .dimension("x", col("x"))
-        .bounds("x_min", "x_max")
-        .dimension("y", col("y"))
-        .bounds("y_min", "y_max")
 }
 
 fn brush_box_store(sharing: Sharing) -> Store {
@@ -200,6 +193,38 @@ fn brush_box_store(sharing: Sharing) -> Store {
         .field("y_max", DataType::Float64, false)
         .primary_key(["id"])
         .sharing(sharing)
+}
+
+fn brush_selection_clause(id: Expr) -> SelectionClauseUpdate {
+    SelectionClauseUpdate::interval(id)
+        .facet_scope(Sharing::Free)
+        .dimension(col("x"))
+        .endpoints(
+            ev::interval_start(ev::interval_ordered(
+                ev::start_coord("x"),
+                ev::event_at_start_clipped_coord("x"),
+            )),
+            ev::interval_end(ev::interval_ordered(
+                ev::start_coord("x"),
+                ev::event_at_start_clipped_coord("x"),
+            )),
+        )
+        .dimension(col("y"))
+        .endpoints(
+            ev::interval_start(ev::interval_ordered(
+                ev::start_coord("y"),
+                ev::event_at_start_clipped_coord("y"),
+            )),
+            ev::interval_end(ev::interval_ordered(
+                ev::start_coord("y"),
+                ev::event_at_start_clipped_coord("y"),
+            )),
+        )
+        .build()
+}
+
+fn replace_selection_update() -> SelectionUpdate {
+    SelectionUpdate::replace_all_clauses([brush_selection_clause(lit("active"))])
 }
 
 fn brush_box_row(id: Expr) -> StoreRow {

@@ -194,8 +194,10 @@ pub use scale_range_binding::{
 pub use scale_spec::{Auto, ScaleSpec};
 pub use scale_type::{ScaleTypePreference, default_scale_type_for_data_type, is_continuous_scale};
 pub use selection::{
-    CompiledSelectionSpec, EmptySelectionBehavior, Selection, SelectionCombine,
-    SelectionFacetContextSpec, SelectionSource, SelectionSourceDimensionSpec, SelectionSourceSpec,
+    CompiledSelectionSpec, EmptySelectionBehavior, ResolvedSelectionClauseScope, Selection,
+    SelectionClause, SelectionClauseUpdate, SelectionCombine, SelectionFacetContextSpec,
+    SelectionFacetContextValue, SelectionIntervalDimensionUpdate, SelectionIntervalDimensionValue,
+    SelectionPredicateSpec, SelectionPredicateUpdate, SelectionUpdate, SelectionValueExpr,
     compile_selections, selection_id_from_predicate_placeholder,
 };
 pub use serialization::{

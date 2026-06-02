@@ -51,13 +51,10 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .expect("build data");
 
     let free_brush = Selection::new("free_brush")
-        .source(brush_selection_source(FREE_STORE))
         .empty_selects_nothing()
         .facet_context_field("group_name", col("group_name"));
     let free_selected = free_brush.predicate();
-    let shared_brush = Selection::new("shared_brush")
-        .source(brush_selection_source(SHARED_STORE))
-        .empty_selects_nothing();
+    let shared_brush = Selection::new("shared_brush").empty_selects_nothing();
     let shared_selected = shared_brush.predicate();
     let cursor = Param::cursor("brush_cursor", CursorStyle::Default);
 
@@ -71,11 +68,29 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                 .column(col("group_name"))
                 .label("Store sharing: Free"),
         )
-        .event_binding(selection_drag_binding(&cursor, FREE_STORE))
-        .event_binding(selection_add_drag_binding(&cursor, FREE_STORE))
-        .event_binding(selection_release_binding(FREE_STORE))
-        .event_binding(selection_add_release_binding(FREE_STORE))
-        .event_binding(selection_clear_binding(FREE_STORE));
+        .event_binding(selection_drag_binding(
+            &cursor,
+            FREE_STORE,
+            "free_brush",
+            Sharing::Free,
+        ))
+        .event_binding(selection_add_drag_binding(
+            &cursor,
+            FREE_STORE,
+            "free_brush",
+            Sharing::Free,
+        ))
+        .event_binding(selection_release_binding(
+            FREE_STORE,
+            "free_brush",
+            Sharing::Free,
+        ))
+        .event_binding(selection_add_release_binding(
+            FREE_STORE,
+            "free_brush",
+            Sharing::Free,
+        ))
+        .event_binding(selection_clear_binding(FREE_STORE, "free_brush"));
 
     let shared_leaf = Plot::<Cartesian>::new()
         .mark(selection_points(shared_selected, "#d97706", 92.0))
@@ -87,11 +102,29 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                 .column(col("group_name"))
                 .label("Store sharing: Shared"),
         )
-        .event_binding(selection_drag_binding(&cursor, SHARED_STORE))
-        .event_binding(selection_add_drag_binding(&cursor, SHARED_STORE))
-        .event_binding(selection_release_binding(SHARED_STORE))
-        .event_binding(selection_add_release_binding(SHARED_STORE))
-        .event_binding(selection_clear_binding(SHARED_STORE));
+        .event_binding(selection_drag_binding(
+            &cursor,
+            SHARED_STORE,
+            "shared_brush",
+            Sharing::Shared,
+        ))
+        .event_binding(selection_add_drag_binding(
+            &cursor,
+            SHARED_STORE,
+            "shared_brush",
+            Sharing::Shared,
+        ))
+        .event_binding(selection_release_binding(
+            SHARED_STORE,
+            "shared_brush",
+            Sharing::Shared,
+        ))
+        .event_binding(selection_add_release_binding(
+            SHARED_STORE,
+            "shared_brush",
+            Sharing::Shared,
+        ))
+        .event_binding(selection_clear_binding(SHARED_STORE, "shared_brush"));
 
     let plot = Plot::<HConcat>::new()
         .canvas_size(1440.0, 520.0)
@@ -169,7 +202,12 @@ fn cursor_binding(cursor: &Param) -> ChartEventBinding {
         .preview()
 }
 
-fn selection_drag_binding(cursor: &Param, store_name: &str) -> ChartEventBinding {
+fn selection_drag_binding(
+    cursor: &Param,
+    store_name: &str,
+    selection_id: &str,
+    facet_scope: Sharing,
+) -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::CursorMoved)
         .between(
             ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
@@ -182,11 +220,17 @@ fn selection_drag_binding(cursor: &Param, store_name: &str) -> ChartEventBinding
         .filter(ev::event_at_start_clipped_coord("y").is_not_null())
         .filter(ev::shift().eq(lit(false)))
         .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
+        .set_selection_at_start_scope(selection_id, replace_selection_update(facet_scope))
         .set_store_at_start_scope_replacing_scopes(store_name, replace_store_update())
         .preview()
 }
 
-fn selection_add_drag_binding(cursor: &Param, store_name: &str) -> ChartEventBinding {
+fn selection_add_drag_binding(
+    cursor: &Param,
+    store_name: &str,
+    selection_id: &str,
+    facet_scope: Sharing,
+) -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::CursorMoved)
         .between(
             ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
@@ -199,11 +243,16 @@ fn selection_add_drag_binding(cursor: &Param, store_name: &str) -> ChartEventBin
         .filter(ev::event_at_start_clipped_coord("y").is_not_null())
         .filter(ev::shift().eq(lit(true)))
         .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
+        .set_selection_at_start_scope(selection_id, upsert_selection_update(facet_scope))
         .set_store_at_start_scope(store_name, upsert_store_update())
         .preview()
 }
 
-fn selection_release_binding(store_name: &str) -> ChartEventBinding {
+fn selection_release_binding(
+    store_name: &str,
+    selection_id: &str,
+    facet_scope: Sharing,
+) -> ChartEventBinding {
     ChartEventBinding::on_between_end(
         ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
         ChartEventStream::on(ChartEventType::MouseUp),
@@ -214,11 +263,16 @@ fn selection_release_binding(store_name: &str) -> ChartEventBinding {
     .filter(ev::event_at_start_clipped_coord("x").is_not_null())
     .filter(ev::event_at_start_clipped_coord("y").is_not_null())
     .filter(ev::shift().eq(lit(false)))
+    .set_selection_at_start_scope(selection_id, replace_selection_update(facet_scope))
     .set_store_at_start_scope_replacing_scopes(store_name, replace_store_update())
     .exact()
 }
 
-fn selection_add_release_binding(store_name: &str) -> ChartEventBinding {
+fn selection_add_release_binding(
+    store_name: &str,
+    selection_id: &str,
+    facet_scope: Sharing,
+) -> ChartEventBinding {
     ChartEventBinding::on_between_end(
         ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
         ChartEventStream::on(ChartEventType::MouseUp),
@@ -229,24 +283,17 @@ fn selection_add_release_binding(store_name: &str) -> ChartEventBinding {
     .filter(ev::event_at_start_clipped_coord("x").is_not_null())
     .filter(ev::event_at_start_clipped_coord("y").is_not_null())
     .filter(ev::shift().eq(lit(true)))
+    .set_selection_at_start_scope(selection_id, upsert_selection_update(facet_scope))
     .set_store_at_start_scope(store_name, upsert_store_update())
     .exact()
 }
 
-fn selection_clear_binding(store_name: &str) -> ChartEventBinding {
+fn selection_clear_binding(store_name: &str, selection_id: &str) -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::DoubleClick)
         .filter(selectable_scope())
+        .clear_selection(selection_id)
         .set_store_replacing_scopes(store_name, StoreUpdate::clear())
         .exact()
-}
-
-fn brush_selection_source(store_name: &str) -> SelectionSource {
-    SelectionSource::store(store_name)
-        .interval()
-        .dimension("x", col("x"))
-        .bounds("x_min", "x_max")
-        .dimension("y", col("y"))
-        .bounds("y_min", "y_max")
 }
 
 fn brush_box_store(name: &str, sharing: Sharing) -> Store {
@@ -258,6 +305,42 @@ fn brush_box_store(name: &str, sharing: Sharing) -> Store {
         .field("y_max", DataType::Float64, false)
         .primary_key(["id"])
         .sharing(sharing)
+}
+
+fn brush_selection_clause(id: Expr, facet_scope: Sharing) -> SelectionClauseUpdate {
+    SelectionClauseUpdate::interval(id)
+        .facet_scope(facet_scope)
+        .dimension(col("x"))
+        .endpoints(
+            ev::interval_start(ev::interval_ordered(
+                ev::start_coord("x"),
+                ev::event_at_start_clipped_coord("x"),
+            )),
+            ev::interval_end(ev::interval_ordered(
+                ev::start_coord("x"),
+                ev::event_at_start_clipped_coord("x"),
+            )),
+        )
+        .dimension(col("y"))
+        .endpoints(
+            ev::interval_start(ev::interval_ordered(
+                ev::start_coord("y"),
+                ev::event_at_start_clipped_coord("y"),
+            )),
+            ev::interval_end(ev::interval_ordered(
+                ev::start_coord("y"),
+                ev::event_at_start_clipped_coord("y"),
+            )),
+        )
+        .build()
+}
+
+fn replace_selection_update(facet_scope: Sharing) -> SelectionUpdate {
+    SelectionUpdate::replace_all_clauses([brush_selection_clause(lit("active"), facet_scope)])
+}
+
+fn upsert_selection_update(facet_scope: Sharing) -> SelectionUpdate {
+    SelectionUpdate::upsert_clauses([brush_selection_clause(ev::start_event_id(), facet_scope)])
 }
 
 fn brush_box_row(id: Expr) -> StoreRow {
