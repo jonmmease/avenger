@@ -198,9 +198,10 @@ pub use selection::{
     SelectionClause, SelectionClauseDataset, SelectionClauseMeta, SelectionClauseUpdate,
     SelectionCombine, SelectionDimensionSpec, SelectionFacetContextSpec,
     SelectionGeometryFieldSpec, SelectionGeometrySchema, SelectionGeometryUpdate,
-    SelectionGeometryValue, SelectionPredicateSpec, SelectionPredicateUpdate, SelectionState,
-    SelectionStateUpdate, SelectionUpdate, SelectionUpdateKind, SelectionValueExpr,
-    cartesian_rect_field, compile_selections, selection_id_from_predicate_placeholder,
+    SelectionGeometryValue, SelectionPredicateSpec, SelectionPredicateUpdate, SelectionSource,
+    SelectionSourceDimensionSpec, SelectionSourceSpec, SelectionState, SelectionStateUpdate,
+    SelectionUpdate, SelectionUpdateKind, SelectionValueExpr, cartesian_rect_field,
+    compile_selections, selection_id_from_predicate_placeholder,
 };
 pub use serialization::{
     DefaultLogicalExprNodeExt, LogicalPlanNodeExt, SerializableDataFrame, SerializableDataType,

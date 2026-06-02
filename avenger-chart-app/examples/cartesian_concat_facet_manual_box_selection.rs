@@ -48,7 +48,8 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .await
         .expect("build data");
 
-    let brush = Selection::cartesian_interval("brush")
+    let brush = Selection::new("brush")
+        .source(brush_selection_source())
         .empty_selects_nothing()
         .facet_context_field("group_name", col("group_name"));
     let selected = brush.predicate();
@@ -156,7 +157,6 @@ fn selection_drag_binding(cursor: &Param) -> ChartEventBinding {
         .filter(ev::event_at_start_clipped_coord("x").is_not_null())
         .filter(ev::event_at_start_clipped_coord("y").is_not_null())
         .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
-        .set_selection_at_start_scope("brush", selection_update_from_drag())
         .set_store_at_start_scope_replacing_scopes("brush_boxes", replace_store_update())
         .preview()
 }
@@ -171,7 +171,6 @@ fn selection_release_binding() -> ChartEventBinding {
     .filter(ev::start_coord("y").is_not_null())
     .filter(ev::event_at_start_clipped_coord("x").is_not_null())
     .filter(ev::event_at_start_clipped_coord("y").is_not_null())
-    .set_selection_at_start_scope("brush", selection_update_from_drag())
     .set_store_at_start_scope_replacing_scopes("brush_boxes", replace_store_update())
     .exact()
 }
@@ -179,9 +178,17 @@ fn selection_release_binding() -> ChartEventBinding {
 fn selection_clear_binding() -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::DoubleClick)
         .filter(selectable_scope())
-        .set_selection("brush", SelectionUpdate::clear())
         .set_store_replacing_scopes("brush_boxes", StoreUpdate::clear())
         .exact()
+}
+
+fn brush_selection_source() -> SelectionSource {
+    SelectionSource::store("brush_boxes")
+        .interval()
+        .dimension("x", col("x"))
+        .bounds("x_min", "x_max")
+        .dimension("y", col("y"))
+        .bounds("y_min", "y_max")
 }
 
 fn brush_box_store(sharing: Sharing) -> Store {
@@ -210,13 +217,6 @@ fn brush_box_row(id: Expr) -> StoreRow {
 
 fn replace_store_update() -> StoreUpdate {
     StoreUpdate::replace_rows([brush_box_row(lit("active"))])
-}
-
-fn selection_update_from_drag() -> SelectionUpdate {
-    SelectionUpdate::replace_interval_xy()
-        .x_endpoints(ev::start_coord("x"), ev::event_at_start_clipped_coord("x"))
-        .y_endpoints(ev::start_coord("y"), ev::event_at_start_clipped_coord("y"))
-        .facet_context_from_start()
 }
 
 fn init_diagnostics() {

@@ -121,6 +121,72 @@ pub struct SelectionFacetContextSpec {
     pub field_expr: LogicalExprNode,
 }
 
+#[serde_as]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SelectionSourceDimensionSpec {
+    pub id: String,
+    #[serde_as(as = "FromInto<SerializableExpr>")]
+    pub field_expr: LogicalExprNode,
+    pub min_field: String,
+    pub max_field: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SelectionSourceSpec {
+    pub store_name: String,
+    #[serde(default)]
+    pub dimensions: Vec<SelectionSourceDimensionSpec>,
+}
+
+pub type SelectionSource = SelectionSourceSpec;
+
+impl SelectionSourceSpec {
+    pub fn store(store_name: impl Into<String>) -> Self {
+        Self {
+            store_name: store_name.into(),
+            dimensions: Vec::new(),
+        }
+    }
+
+    pub fn interval(self) -> Self {
+        self
+    }
+
+    pub fn dimension(
+        self,
+        id: impl Into<String>,
+        field_expr: impl IntoExpr,
+    ) -> SelectionSourceDimensionBuilder {
+        SelectionSourceDimensionBuilder {
+            source: self,
+            id: id.into(),
+            field_expr: expr_node(field_expr.into_expr(), "selection source dimension field"),
+        }
+    }
+}
+
+pub struct SelectionSourceDimensionBuilder {
+    source: SelectionSourceSpec,
+    id: String,
+    field_expr: LogicalExprNode,
+}
+
+impl SelectionSourceDimensionBuilder {
+    pub fn bounds(
+        mut self,
+        min_field: impl Into<String>,
+        max_field: impl Into<String>,
+    ) -> SelectionSourceSpec {
+        self.source.dimensions.push(SelectionSourceDimensionSpec {
+            id: self.id,
+            field_expr: self.field_expr,
+            min_field: min_field.into(),
+            max_field: max_field.into(),
+        });
+        self.source
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Selection {
     pub id: String,
@@ -131,6 +197,8 @@ pub struct Selection {
     pub sharing: Sharing,
     #[serde(default)]
     pub geometry_schema: SelectionGeometrySchema,
+    #[serde(default)]
+    pub source: Option<SelectionSourceSpec>,
     pub dimensions: Vec<SelectionDimensionSpec>,
     #[serde(default)]
     pub facet_context: Vec<SelectionFacetContextSpec>,
@@ -144,9 +212,14 @@ impl Selection {
             combine: SelectionCombine::Union,
             sharing: Sharing::Free,
             geometry_schema: SelectionGeometrySchema::default(),
+            source: None,
             dimensions: Vec::new(),
             facet_context: Vec::new(),
         }
+    }
+
+    pub fn new(id: impl Into<String>) -> Self {
+        Self::base(id)
     }
 
     pub fn cartesian_interval(id: impl Into<String>) -> Self {
@@ -183,6 +256,11 @@ impl Selection {
 
     pub fn geometry(mut self, schema: SelectionGeometrySchema) -> Self {
         self.geometry_schema = schema;
+        self
+    }
+
+    pub fn source(mut self, source: SelectionSourceSpec) -> Self {
+        self.source = Some(source);
         self
     }
 
@@ -268,11 +346,14 @@ impl Selection {
         for facet in &self.facet_context {
             validate_selection_id(&facet.id)?;
         }
-        if self.dimensions.len() != 2 {
+        if self.source.is_none() && self.dimensions.len() != 2 {
             return Err(AvengerChartError::InvalidArgument(format!(
                 "Selection '{}' must define exactly two interval dimensions",
                 self.id
             )));
+        }
+        if let Some(source) = &self.source {
+            validate_selection_source(&self.id, source)?;
         }
         validate_geometry_schema(&self.id, &self.geometry_schema)?;
         Ok(CompiledSelectionSpec {
@@ -282,9 +363,39 @@ impl Selection {
             combine: self.combine,
             sharing: self.sharing,
             geometry_schema: self.geometry_schema.clone(),
+            source: self.source.clone(),
             facet_context: self.facet_context.clone(),
         })
     }
+}
+
+fn validate_selection_source(
+    selection_id: &str,
+    source: &SelectionSourceSpec,
+) -> Result<(), AvengerChartError> {
+    crate::validate_store_name(&source.store_name)?;
+    if source.dimensions.is_empty() {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Selection '{selection_id}' store source must define at least one dimension"
+        )));
+    }
+    let mut ids = std::collections::HashSet::new();
+    for dimension in &source.dimensions {
+        validate_selection_id(&dimension.id)?;
+        if !ids.insert(dimension.id.clone()) {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Selection '{selection_id}' declares duplicate source dimension '{}'",
+                dimension.id
+            )));
+        }
+        if dimension.min_field.is_empty() || dimension.max_field.is_empty() {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Selection '{selection_id}' source dimension '{}' must define non-empty bounds fields",
+                dimension.id
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn validate_geometry_schema(
@@ -324,6 +435,8 @@ pub struct CompiledSelectionSpec {
     pub sharing: Sharing,
     #[serde(default)]
     pub geometry_schema: SelectionGeometrySchema,
+    #[serde(default)]
+    pub source: Option<SelectionSourceSpec>,
     #[serde(default)]
     pub facet_context: Vec<SelectionFacetContextSpec>,
 }
@@ -853,6 +966,25 @@ mod tests {
     fn selection_predicate_serializes() {
         let expr = Selection::cartesian_interval("brush").predicate();
         LogicalExprNode::from_expr(expr).expect("selection predicate serializes");
+    }
+
+    #[test]
+    fn store_source_selection_compiles() {
+        let selection = Selection::new("brush")
+            .source(
+                SelectionSourceSpec::store("brush_boxes")
+                    .interval()
+                    .dimension("x", col("x"))
+                    .bounds("x_min", "x_max")
+                    .dimension("y", col("y"))
+                    .bounds("y_min", "y_max"),
+            )
+            .empty_selects_nothing();
+        let compiled = selection.compile().expect("compile selection");
+        let source = compiled.source.expect("selection source");
+        assert_eq!(source.store_name, "brush_boxes");
+        assert_eq!(source.dimensions.len(), 2);
+        assert_eq!(source.dimensions[0].min_field, "x_min");
     }
 
     #[test]

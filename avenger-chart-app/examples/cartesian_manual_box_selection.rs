@@ -49,7 +49,10 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .await
         .expect("build data");
 
-    let brush = Selection::cartesian_interval("brush").empty_selects_nothing();
+    let brush = Selection::new("brush")
+        .source(brush_selection_source())
+        .sharing(Sharing::Shared)
+        .empty_selects_nothing();
     let selected = brush.predicate();
 
     let cursor = Param::cursor("brush_cursor", CursorStyle::Default);
@@ -133,7 +136,6 @@ fn selection_drag_binding(cursor: &Param) -> ChartEventBinding {
         .filter(ev::event_at_start_clipped_coord("y").is_not_null())
         .filter(ev::shift().eq(lit(false)))
         .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
-        .set_selection_at_start_scope("brush", replace_selection_update())
         .set_store_at_start_scope_replacing_scopes("brush_boxes", replace_store_update())
         .preview()
 }
@@ -150,7 +152,6 @@ fn selection_add_drag_binding(cursor: &Param) -> ChartEventBinding {
         .filter(ev::event_at_start_clipped_coord("y").is_not_null())
         .filter(ev::shift().eq(lit(true)))
         .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
-        .set_selection_at_start_scope("brush", add_selection_update())
         .set_store_at_start_scope("brush_boxes", upsert_store_update())
         .preview()
 }
@@ -165,7 +166,6 @@ fn selection_release_binding() -> ChartEventBinding {
     .filter(ev::event_at_start_clipped_coord("x").is_not_null())
     .filter(ev::event_at_start_clipped_coord("y").is_not_null())
     .filter(ev::shift().eq(lit(false)))
-    .set_selection_at_start_scope("brush", replace_selection_update())
     .set_store_at_start_scope_replacing_scopes("brush_boxes", replace_store_update())
     .exact()
 }
@@ -180,16 +180,23 @@ fn selection_add_release_binding() -> ChartEventBinding {
     .filter(ev::event_at_start_clipped_coord("x").is_not_null())
     .filter(ev::event_at_start_clipped_coord("y").is_not_null())
     .filter(ev::shift().eq(lit(true)))
-    .set_selection_at_start_scope("brush", add_selection_update())
     .set_store_at_start_scope("brush_boxes", upsert_store_update())
     .exact()
 }
 
 fn selection_clear_binding() -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::DoubleClick)
-        .set_selection("brush", SelectionUpdate::clear())
         .set_store_replacing_scopes("brush_boxes", StoreUpdate::clear())
         .exact()
+}
+
+fn brush_selection_source() -> SelectionSource {
+    SelectionSource::store("brush_boxes")
+        .interval()
+        .dimension("x", col("x"))
+        .bounds("x_min", "x_max")
+        .dimension("y", col("y"))
+        .bounds("y_min", "y_max")
 }
 
 fn brush_box_store(sharing: Sharing) -> Store {
@@ -222,19 +229,6 @@ fn replace_store_update() -> StoreUpdate {
 
 fn upsert_store_update() -> StoreUpdate {
     StoreUpdate::upsert_rows([brush_box_row(ev::start_event_id())])
-}
-
-fn replace_selection_update() -> SelectionUpdate {
-    SelectionUpdate::replace_interval_xy()
-        .x_endpoints(ev::start_coord("x"), ev::event_at_start_clipped_coord("x"))
-        .y_endpoints(ev::start_coord("y"), ev::event_at_start_clipped_coord("y"))
-}
-
-fn add_selection_update() -> SelectionUpdate {
-    SelectionUpdate::add_interval_xy()
-        .clause_id(ev::start_event_id())
-        .x_endpoints(ev::start_coord("x"), ev::event_at_start_clipped_coord("x"))
-        .y_endpoints(ev::start_coord("y"), ev::event_at_start_clipped_coord("y"))
 }
 
 fn init_diagnostics() {

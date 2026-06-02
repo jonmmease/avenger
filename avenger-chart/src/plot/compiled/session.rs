@@ -819,6 +819,19 @@ impl ScopedStoreState {
             .collect()
     }
 
+    pub(crate) fn row_values_for_store(
+        &self,
+        store_name: &str,
+    ) -> Vec<(Vec<ScalarValue>, Vec<StoreRowValue>)> {
+        self.instances
+            .iter()
+            .filter_map(|(key, table)| {
+                (key.store_name == store_name)
+                    .then_some((key.owner_path.clone(), table.rows.clone()))
+            })
+            .collect()
+    }
+
     pub(crate) fn revision_fingerprint(&self) -> StoreRevisionFingerprint {
         let mut fingerprint = self
             .instances
@@ -2526,6 +2539,33 @@ mod tests {
         sizes
     }
 
+    fn collect_symbol_fills(scene: &SceneGraph) -> Vec<[f32; 4]> {
+        fn collect_from_mark(mark: &SceneMark, fills: &mut Vec<[f32; 4]>) {
+            match mark {
+                SceneMark::Group(group) => {
+                    for child in &group.marks {
+                        collect_from_mark(child, fills);
+                    }
+                }
+                SceneMark::Symbol(symbol) => {
+                    fills.extend(
+                        symbol
+                            .fill_vec()
+                            .into_iter()
+                            .map(|fill| fill.color_or_transparent()),
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        let mut fills = Vec::new();
+        for mark in &scene.marks {
+            collect_from_mark(mark, &mut fills);
+        }
+        fills
+    }
+
     fn assert_symbol_positions_close(actual: &SceneGraph, expected: &SceneGraph) {
         assert_symbol_positions_close_with_tolerance(actual, expected, 1.5);
     }
@@ -2779,6 +2819,55 @@ mod tests {
             .await?;
         Plot::<Cartesian>::new()
             .add_selection(brush)
+            .canvas_size(420.0, 320.0)
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x(col("x"))
+                    .y(col("y"))
+                    .fill_with(lit("#b8beca"), |c| {
+                        c.no_scale()
+                            .when_value(selected, lit("#2563eb"))
+                            .no_legend()
+                    })
+                    .size(20.0),
+            )
+            .compile(ctx)
+            .await
+    }
+
+    async fn compile_store_source_selection_preview_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        use datafusion::arrow::datatypes::DataType;
+
+        let brush = Selection::new("brush")
+            .source(
+                SelectionSource::store("brush_boxes")
+                    .interval()
+                    .dimension("x", col("x"))
+                    .bounds("x_min", "x_max")
+                    .dimension("y", col("y"))
+                    .bounds("y_min", "y_max"),
+            )
+            .sharing(Sharing::Shared)
+            .empty_selects_nothing();
+        let selected = brush.predicate();
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
+            .await?;
+        Plot::<Cartesian>::new()
+            .add_selection(brush)
+            .add_store(
+                Store::empty("brush_boxes")
+                    .field("id", DataType::Utf8, false)
+                    .field("x_min", DataType::Float64, false)
+                    .field("x_max", DataType::Float64, false)
+                    .field("y_min", DataType::Float64, false)
+                    .field("y_max", DataType::Float64, false)
+                    .primary_key(["id"])
+                    .sharing(Sharing::Shared),
+            )
             .canvas_size(420.0, 320.0)
             .data(df)
             .mark(
@@ -3754,6 +3843,59 @@ mod tests {
             "selection Preview should rebuild mark data while keeping layout locked"
         );
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_store_source_selection_predicate_uses_store_rows()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_store_source_selection_preview_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        let (_evaluated, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            exact.facet_layout.plot_component_measure_calls > 0,
+            "warm exact evaluation should build the initial measurement profile"
+        );
+
+        let mut row = StoreRowValue::new();
+        row.insert(
+            "id".to_string(),
+            ScalarValue::Utf8(Some("active".to_string())),
+        );
+        row.insert("x_min".to_string(), ScalarValue::Float64(Some(0.0)));
+        row.insert("x_max".to_string(), ScalarValue::Float64(Some(4.0)));
+        row.insert("y_min".to_string(), ScalarValue::Float64(Some(0.0)));
+        row.insert("y_max".to_string(), ScalarValue::Float64(Some(4.0)));
+        session.apply_scoped_store_patch(vec![ScopedStoreAssignment {
+            store_name: "brush_boxes".to_string(),
+            owner_path: Vec::new(),
+            replace_scoped_values: false,
+            update: StoreStateUpdate::ReplaceRows { rows: vec![row] },
+        }])?;
+
+        let (evaluated, preview) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview())
+            .await?;
+
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(preview.pipeline.preview_profile_reuses, 1);
+        assert_eq!(
+            preview.pipeline.preview_data_mark_reuses, 0,
+            "store revision changes must not reuse stale rendered data marks"
+        );
+        assert_eq!(preview.pipeline.preview_data_mark_reuse_misses, 1);
+        let blue_count = collect_symbol_fills(&evaluated.scene_graph)
+            .into_iter()
+            .filter(|color| color[2] > 0.8 && color[0] < 0.2)
+            .count();
+        assert_eq!(
+            blue_count, 2,
+            "two points should match the store-derived interval predicate"
+        );
         Ok(())
     }
 

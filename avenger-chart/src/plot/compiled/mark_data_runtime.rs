@@ -28,8 +28,8 @@ use indexmap::IndexMap;
 
 use avenger_chart_core::{
     CompiledSelectionSpec, MarkDataMode, SelectionClause, SelectionCombine, SelectionGeometryValue,
-    SelectionPredicateSpec, color::parse_color_string, contains_aggregate, params_to_datafusion,
-    selection_id_from_predicate_placeholder,
+    SelectionPredicateSpec, SelectionSourceSpec, StoreRowValue, color::parse_color_string,
+    contains_aggregate, params_to_datafusion, selection_id_from_predicate_placeholder,
 };
 
 use crate::{
@@ -275,6 +275,9 @@ fn selection_predicate_expr(
             "Selection predicate references unknown selection '{selection_id}'"
         )));
     };
+    if let Some(source) = &spec.source {
+        return store_source_selection_predicate_expr(spec, source, eval_ctx, ctx);
+    }
     let clauses = selection_store
         .states_for_selection(selection_id)
         .into_iter()
@@ -297,6 +300,81 @@ fn selection_predicate_expr(
         };
     }
     Ok(result)
+}
+
+fn store_source_selection_predicate_expr(
+    spec: &CompiledSelectionSpec,
+    source: &SelectionSourceSpec,
+    eval_ctx: &EvaluationContext,
+    ctx: &SessionContext,
+) -> Result<Expr, AvengerChartError> {
+    let Some(store_state) = eval_ctx.scoped_store_state.as_ref() else {
+        return Ok(lit(matches!(
+            spec.empty,
+            avenger_chart_core::EmptySelectionBehavior::SelectAll
+        )));
+    };
+    let rows = store_state
+        .row_values_for_store(&source.store_name)
+        .into_iter()
+        .flat_map(|(owner_path, rows)| {
+            rows.into_iter()
+                .map(move |row| (owner_path.clone(), row))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    if rows.is_empty() {
+        return Ok(lit(matches!(
+            spec.empty,
+            avenger_chart_core::EmptySelectionBehavior::SelectAll
+        )));
+    }
+
+    let mut exprs = rows.iter().map(|(owner_path, row)| {
+        store_source_row_predicate_expr(spec, source, owner_path, row, ctx)
+    });
+    let mut result = exprs.next().transpose()?.unwrap_or_else(|| lit(false));
+    for expr in exprs {
+        result = match spec.combine {
+            SelectionCombine::Union => result.or(expr?),
+            SelectionCombine::Intersect => result.and(expr?),
+        };
+    }
+    Ok(result)
+}
+
+fn store_source_row_predicate_expr(
+    spec: &CompiledSelectionSpec,
+    source: &SelectionSourceSpec,
+    owner_path: &[ScalarValue],
+    row: &StoreRowValue,
+    ctx: &SessionContext,
+) -> Result<Expr, AvengerChartError> {
+    let mut expr = lit(true);
+    for dimension in &source.dimensions {
+        let Some(min) = row.get(&dimension.min_field) else {
+            return Ok(lit(false));
+        };
+        let Some(max) = row.get(&dimension.max_field) else {
+            return Ok(lit(false));
+        };
+        if min.is_null() || max.is_null() {
+            return Ok(lit(false));
+        }
+        let value = dimension.field_expr.to_expr(ctx)?;
+        expr = expr
+            .and(value.clone().gt_eq(lit(min.clone())))
+            .and(value.lt_eq(lit(max.clone())));
+    }
+    for (index, value) in owner_path.iter().enumerate() {
+        if value.is_null() {
+            continue;
+        }
+        if let Some(facet) = spec.facet_context.get(index) {
+            expr = expr.and(facet.field_expr.to_expr(ctx)?.eq(lit(value.clone())));
+        }
+    }
+    Ok(expr)
 }
 
 fn clause_predicate_expr(
