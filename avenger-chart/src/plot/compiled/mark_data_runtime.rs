@@ -1138,7 +1138,7 @@ mod tests {
             vec![brush_row("a", 1.0, 2.0), brush_row("b", 3.0, 4.0)],
         )])?;
         let mark = Symbol::<Cartesian>::new()
-            .data_store(StoreData::new("brush_boxes").root())
+            .data_store(StoreData::new("brush_boxes"))
             .with_channel_value("x", value_channel(col("x_min")))
             .y(0.5);
         let compiled_mark = mark.compile_untransformed(&session).await?;
@@ -1191,7 +1191,7 @@ mod tests {
         )])?;
         let eval_ctx = eval_context(session.clone()).with_scoped_store_state(Arc::new(store_state));
         let mark = Rect::<Cartesian>::new()
-            .data_store(StoreData::new("brush_boxes").root())
+            .data_store(StoreData::new("brush_boxes"))
             .x_with(col("x_min"), |c| c.no_scale())
             .x2_with(col("x_max"), |c| c.no_scale())
             .y_with(lit(0.0), |c| c.no_scale())
@@ -1221,8 +1221,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn store_data_current_root_and_all_scopes_respect_facet_owner()
-    -> Result<(), AvengerChartError> {
+    async fn store_data_reads_owner_implied_by_store_sharing() -> Result<(), AvengerChartError> {
         let session = Arc::new(SessionContext::new());
         let root_df = scoped_facet_dataframe(&session).await;
         let facet_tree = scoped_facet_tree(root_df.clone(), &session).await?;
@@ -1237,25 +1236,34 @@ mod tests {
         let north_west_owner = facet_tree.sharing_owner_path(&north_west, 0);
         let north_east_owner = facet_tree.sharing_owner_path(&north_east, 0);
 
-        let mut store_state = brush_store_state(Sharing::Free)?;
-        store_state.apply_scoped_patch([
+        let mut free_store_state = brush_store_state(Sharing::Free)?;
+        free_store_state.apply_scoped_patch([
+            replace_store_rows(Vec::new(), vec![brush_row("root", 100.0, 101.0)]),
+            replace_store_rows(north_west_owner.clone(), vec![brush_row("nw", 1.0, 2.0)]),
+            replace_store_rows(north_east_owner.clone(), vec![brush_row("ne", 10.0, 11.0)]),
+        ])?;
+        let free_eval_ctx = eval_context(session.clone())
+            .with_facet_tree(Arc::new(facet_tree.clone()))
+            .with_scoped_store_state(Arc::new(free_store_state));
+
+        let mut shared_store_state = brush_store_state(Sharing::Shared)?;
+        shared_store_state.apply_scoped_patch([
             replace_store_rows(Vec::new(), vec![brush_row("root", 100.0, 101.0)]),
             replace_store_rows(north_west_owner, vec![brush_row("nw", 1.0, 2.0)]),
             replace_store_rows(north_east_owner, vec![brush_row("ne", 10.0, 11.0)]),
         ])?;
-        let eval_ctx = eval_context(session.clone())
+        let shared_eval_ctx = eval_context(session.clone())
             .with_facet_tree(Arc::new(facet_tree.clone()))
-            .with_scoped_store_state(Arc::new(store_state));
+            .with_scoped_store_state(Arc::new(shared_store_state));
 
-        let values_for_scope = |store_data: StoreData| {
+        let values_for_store = |eval_ctx: EvaluationContext| {
             let session = session.clone();
-            let eval_ctx = eval_ctx.clone();
             let facet_tree = facet_tree.clone();
             let root_df = root_df.clone();
             let north_west = north_west.clone();
             async move {
                 let mark = Symbol::<Cartesian>::new()
-                    .data_store(store_data)
+                    .data_store(StoreData::new("brush_boxes"))
                     .with_channel_value("x", value_channel(col("x_min")))
                     .y(0.5);
                 let compiled_mark = mark.compile_untransformed(&session).await?;
@@ -1275,18 +1283,8 @@ mod tests {
             }
         };
 
-        assert_eq!(
-            values_for_scope(StoreData::new("brush_boxes")).await?,
-            vec![1.0]
-        );
-        assert_eq!(
-            values_for_scope(StoreData::new("brush_boxes").root()).await?,
-            vec![100.0]
-        );
-        assert_eq!(
-            values_for_scope(StoreData::new("brush_boxes").all_scopes()).await?,
-            vec![100.0, 1.0, 10.0]
-        );
+        assert_eq!(values_for_store(free_eval_ctx).await?, vec![1.0]);
+        assert_eq!(values_for_store(shared_eval_ctx).await?, vec![100.0]);
         Ok(())
     }
 

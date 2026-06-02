@@ -11,7 +11,7 @@ use avenger_chart_core::{
     DefaultLogicalExprNodeExt, FacetWrapColumnMode, LegendChannel, LegendPosition,
     LogicalPlanNodeExt, Maybe, RadiusExpression, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN,
     STORE_REVISION_COLUMN, ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, SerializableExpr,
-    Sharing, StoreData, StoreDataScope, StoreRowValue,
+    Sharing, StoreData, StoreRowValue,
 };
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
 use avenger_scales::scales::ConfiguredScale;
@@ -616,7 +616,6 @@ struct MutableStoreTable {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct StoreMaterializationKey {
     store_name: String,
-    scope: StoreDataScope,
     instances: Vec<(Vec<ScalarValue>, u64)>,
 }
 
@@ -715,49 +714,21 @@ impl ScopedStoreState {
                 data.store_name
             ))
         })?;
-        let instances = match data.scope {
-            StoreDataScope::CurrentOwner => {
-                let owner_path = self
-                    .owner_path_for_store(&data.store_name, sharing_owner_paths)
-                    .unwrap_or_default();
-                let rows = self
-                    .instances
-                    .get(&ScopedStoreKey {
-                        store_name: data.store_name.clone(),
-                        owner_path: owner_path.clone(),
-                    })
-                    .map(|table| (table.rows.clone(), table.revision))
-                    .unwrap_or_else(|| (Vec::new(), 0));
-                vec![(owner_path, rows.0, rows.1)]
-            }
-            StoreDataScope::Root => {
-                let owner_path = Vec::new();
-                let rows = self
-                    .instances
-                    .get(&ScopedStoreKey {
-                        store_name: data.store_name.clone(),
-                        owner_path: owner_path.clone(),
-                    })
-                    .map(|table| (table.rows.clone(), table.revision))
-                    .unwrap_or_else(|| (Vec::new(), 0));
-                vec![(owner_path, rows.0, rows.1)]
-            }
-            StoreDataScope::AllOwners => self
-                .instances
-                .iter()
-                .filter_map(|(key, table)| {
-                    (key.store_name == data.store_name).then_some((
-                        key.owner_path.clone(),
-                        table.rows.clone(),
-                        table.revision,
-                    ))
-                })
-                .collect::<Vec<_>>(),
-        };
+        let owner_path = self
+            .owner_path_for_store(&data.store_name, sharing_owner_paths)
+            .unwrap_or_default();
+        let rows = self
+            .instances
+            .get(&ScopedStoreKey {
+                store_name: data.store_name.clone(),
+                owner_path: owner_path.clone(),
+            })
+            .map(|table| (table.rows.clone(), table.revision))
+            .unwrap_or_else(|| (Vec::new(), 0));
+        let instances = vec![(owner_path, rows.0, rows.1)];
 
         let cache_key = StoreMaterializationKey {
             store_name: data.store_name.clone(),
-            scope: data.scope,
             instances: instances
                 .iter()
                 .map(|(owner_path, _rows, revision)| (owner_path.clone(), *revision))

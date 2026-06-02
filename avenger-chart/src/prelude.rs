@@ -27,8 +27,8 @@ pub use crate::facet::coord::{FacetColumn, FacetRow, FacetWrap};
 pub use avenger_chart_cartesian::Cartesian;
 pub use avenger_chart_core::{
     CursorStyle, EmptySelectionBehavior, FacetEmptyCellPolicy, Selection, SelectionCombine,
-    SelectionSource, SelectionSourceSpec, Sharing, Store, StoreData, StoreDataScope,
-    StoreFieldPatch, StoreFieldRef, StoreKey, StoreRow, StoreUpdate, ZeroDCoord,
+    SelectionSource, SelectionSourceSpec, Sharing, Store, StoreData, StoreFieldPatch,
+    StoreFieldRef, StoreKey, StoreRow, StoreUpdate, ZeroDCoord,
 };
 pub use avenger_chart_polar::Polar;
 

@@ -308,48 +308,21 @@ pub fn validate_store_name(name: &str) -> Result<(), AvengerChartError> {
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum StoreDataScope {
-    #[default]
-    CurrentOwner,
-    Root,
-    AllOwners,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StoreData {
     pub store_name: String,
-    #[serde(default)]
-    pub scope: StoreDataScope,
 }
 
 impl StoreData {
     pub fn new(store_name: impl Into<String>) -> Self {
         Self {
             store_name: store_name.into(),
-            scope: StoreDataScope::CurrentOwner,
         }
-    }
-
-    pub fn current_scope(mut self) -> Self {
-        self.scope = StoreDataScope::CurrentOwner;
-        self
-    }
-
-    pub fn root(mut self) -> Self {
-        self.scope = StoreDataScope::Root;
-        self
-    }
-
-    pub fn all_scopes(mut self) -> Self {
-        self.scope = StoreDataScope::AllOwners;
-        self
     }
 
     pub fn field(&self, field: impl Into<String>) -> StoreFieldRef {
         StoreFieldRef {
             store_name: self.store_name.clone(),
-            scope: self.scope,
             field: field.into(),
         }
     }
@@ -358,7 +331,6 @@ impl StoreData {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StoreFieldRef {
     pub store_name: String,
-    pub scope: StoreDataScope,
     pub field: String,
 }
 

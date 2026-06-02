@@ -117,10 +117,12 @@ Rect::<Cartesian>::new()
     .y2(col("y_max"));
 ```
 
-`StoreData::new(name)` reads the store instance owned by the current logical
-scope. `StoreData::root()` reads the root/shared instance. `StoreData::all_scopes()`
-materializes all scoped instances and includes owner metadata, which is useful
-for diagnostics and cross-view predicate generation.
+`StoreData::new(name)` reads the store instance implied by that store's
+`Sharing`. A free store reads the current leaf facet owner's rows, a
+`Level(N)` store reads the current logical ancestor's rows, and a shared store
+reads the root rows. The mark data source does not carry an independent read
+scope; changing how store-backed chrome is replicated is done by changing the
+store's sharing level.
 
 When a mark requests store data, `PlotSession` materializes the relevant rows
 as an Arrow `RecordBatch` and exposes them to DataFusion as a queryable

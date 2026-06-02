@@ -207,9 +207,9 @@ pub use sharing::{CoordinationAxis, SharingLevel};
 pub use sharing_mode::Sharing;
 pub use store::{
     CompiledStoreSpec, STORE_METADATA_PREFIX, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN,
-    STORE_REVISION_COLUMN, Store, StoreData, StoreDataScope, StoreFieldPatch, StoreFieldRef,
-    StoreFieldSpec, StoreKey, StoreRow, StoreRowValue, StoreUpdate, StoreValueExpr,
-    store_placeholder_expr, validate_store_name,
+    STORE_REVISION_COLUMN, Store, StoreData, StoreFieldPatch, StoreFieldRef, StoreFieldSpec,
+    StoreKey, StoreRow, StoreRowValue, StoreUpdate, StoreValueExpr, store_placeholder_expr,
+    validate_store_name,
 };
 pub use subplot_child_plot::{
     CompiledPositionedSubplot, CompiledSubplotChildPlot, CompiledSubplotPayload,
