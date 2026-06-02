@@ -51,6 +51,7 @@ tool handles.
 - Large, database-backed mutable tables.
 - Arbitrary SQL mutation statements.
 - Joins between stores and source data during mutation.
+- Store joins or semi-join filters as public data-transform helpers.
 - Persistent stores across app launches.
 - Selection-aware query optimization or Mosaic-style pixel pre-aggregation.
 - Automatic conflict resolution across simultaneous app clients.
@@ -232,7 +233,9 @@ Initial values:
 ## Store Data Sources
 
 Replace the selection-specific data source escape hatch with a general store
-data source.
+data source. The public API should stay store-shaped rather than SQL-shaped;
+the implementation may expose the current store rows to DataFusion as a
+`MemTable` or registered `RecordBatch` relation when a query needs them.
 
 ```rust
 Rect::new()
@@ -276,6 +279,25 @@ addition to user schema columns:
 
 These metadata columns are reserved and cannot appear in authored store schemas.
 
+### DataFusion Relation Implementation
+
+Treat stores as session-owned mutable tables that are readable by DataFusion.
+The public API does not expose temporary table names or SQL CRUD. Instead:
+
+- `PlotSession` owns mutable row state and revision counters.
+- When a mark or transform requests `StoreData`, the session materializes the
+  requested scoped rows to a `RecordBatch`.
+- The evaluation path exposes that batch to DataFusion as a `MemTable`,
+  registered batch, or equivalent table provider for the duration of the query.
+- The materialized relation is cached by store name, owner-scope request, and
+  store revision so multiple marks can share it in one evaluation.
+
+This keeps mutation under Avenger's typed, serializable event-binding API while
+letting reads use the full DataFusion projection/filter/aggregate machinery.
+DataFusion 48 has `INSERT`/CTAS-oriented DML support, but `DELETE` and `UPDATE`
+are not supported by the provider trait or built-in sources. Therefore SQL DML
+should not be the public mutation contract.
+
 ## Runtime State
 
 Add a scoped store runtime next to scoped params and scoped selections:
@@ -314,6 +336,8 @@ Evaluation context:
 - `EvaluationContext` carries an optional `Arc<ScopedStoreState>` like scoped
   params/selections.
 - Mark data preparation includes store revision fingerprints in cache keys.
+- DataFusion store relations are rebuilt or reused lazily from store revisions,
+  not kept as global persistent SQL temp tables.
 
 ## Relationship To Selections
 
@@ -331,6 +355,58 @@ Phase 1 should not require rewriting selection predicates. The safe migration is
 In the final model, selections are not configured with coordinate systems or
 geometry schemas. A Cartesian box tool creates a keyed store of boxes and a
 neutral selection whose predicate is derived from those store rows.
+
+## Future Store Joins And Filters
+
+Do not implement store joins in V1, but design `StoreData` so it can support
+them cleanly. A store can act as a many-item filter when joined against an
+external table:
+
+```rust
+let selected_ids = Store::empty("selected_ids")
+    .field("id", DataType::Utf8, false)
+    .primary_key(["id"])
+    .sharing(Sharing::Shared);
+
+let highlighted = points
+    .clone()
+    .filter_in_store(col("id"), StoreData::new("selected_ids").field("id"));
+```
+
+Future ergonomic helpers can live on a `DataFrame` extension trait:
+
+```rust
+pub trait StoreDataFrameExt {
+    fn filter_in_store(
+        self,
+        value: impl IntoExpr,
+        store_field: StoreFieldRef,
+    ) -> Result<DataFrame, AvengerChartError>;
+
+    fn join_store(
+        self,
+        store: StoreData,
+        join_type: JoinType,
+        keys: impl IntoIterator<Item = (Expr, StoreFieldRef)>,
+    ) -> Result<DataFrame, AvengerChartError>;
+}
+```
+
+Those helpers should compile to store-aware logical placeholders rather than
+eagerly querying a live store, because store contents exist only in a
+`PlotSession`. During evaluation, the placeholders lower to ordinary DataFusion
+joins or semi-joins after the session exposes store rows as relations.
+
+Scoping follows `StoreData`:
+
+- `StoreData::new(name)` / current-owner scope joins against the store rows
+  owned by the current facet cell or logical owner.
+- `StoreData::new(name).shared()` joins against the root/shared instance.
+- `StoreData::new(name).all_scopes()` joins against all scoped instances and
+  preserves owner metadata columns.
+
+This future API should still avoid SQL CRUD. Querying stores as relations is a
+read concern; store mutation remains typed `StoreUpdate` operations.
 
 ## Box Selection Shape After Store Migration
 
@@ -490,4 +566,3 @@ Validation:
   keyed update/delete first and add predicate updates in Phase 2b.
 - Should stores be allowed at subplot roots? Recommendation: yes, same as
   params/tools, with root compilation collecting specs into the compiled plot.
-
