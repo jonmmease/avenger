@@ -21,6 +21,12 @@ use winit::window::WindowAttributes;
 const FREE_STORE: &str = "free_brush_boxes";
 const SHARED_STORE: &str = "shared_brush_boxes";
 
+#[derive(Clone, Copy)]
+enum PanelSide {
+    Left,
+    Right,
+}
+
 fn main() {
     init_diagnostics();
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
@@ -90,11 +96,31 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .mark(Subplot::new(free_facets).key("free"))
         .mark(Subplot::new(shared_facets).key("shared"))
         .event_binding(cursor_binding(&cursor))
-        .event_binding(selection_drag_binding(&cursor))
-        .event_binding(selection_add_drag_binding(&cursor))
-        .event_binding(selection_release_binding())
-        .event_binding(selection_add_release_binding())
-        .event_binding(selection_clear_binding());
+        .event_binding(selection_drag_binding(&cursor, FREE_STORE, PanelSide::Left))
+        .event_binding(selection_drag_binding(
+            &cursor,
+            SHARED_STORE,
+            PanelSide::Right,
+        ))
+        .event_binding(selection_add_drag_binding(
+            &cursor,
+            FREE_STORE,
+            PanelSide::Left,
+        ))
+        .event_binding(selection_add_drag_binding(
+            &cursor,
+            SHARED_STORE,
+            PanelSide::Right,
+        ))
+        .event_binding(selection_release_binding(FREE_STORE, PanelSide::Left))
+        .event_binding(selection_release_binding(SHARED_STORE, PanelSide::Right))
+        .event_binding(selection_add_release_binding(FREE_STORE, PanelSide::Left))
+        .event_binding(selection_add_release_binding(
+            SHARED_STORE,
+            PanelSide::Right,
+        ))
+        .event_binding(selection_clear_binding(FREE_STORE, PanelSide::Left))
+        .event_binding(selection_clear_binding(SHARED_STORE, PanelSide::Right));
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(
@@ -147,6 +173,22 @@ fn selectable_start_scope() -> Expr {
     ev::start_facet_value(0).is_not_null()
 }
 
+fn panel_filter(side: PanelSide) -> Expr {
+    let midpoint = ev::canvas_width() / lit(2.0);
+    match side {
+        PanelSide::Left => ev::x().lt(midpoint),
+        PanelSide::Right => ev::x().gt_eq(midpoint),
+    }
+}
+
+fn panel_start_filter(side: PanelSide) -> Expr {
+    let midpoint = ev::start_canvas_width() / lit(2.0);
+    match side {
+        PanelSide::Left => ev::start_x().lt(midpoint),
+        PanelSide::Right => ev::start_x().gt_eq(midpoint),
+    }
+}
+
 fn cursor_binding(cursor: &Param) -> ChartEventBinding {
     let over_selectable = ev::event_coord("x")
         .is_not_null()
@@ -160,79 +202,83 @@ fn cursor_binding(cursor: &Param) -> ChartEventBinding {
         .preview()
 }
 
-fn selection_drag_binding(cursor: &Param) -> ChartEventBinding {
+fn selection_drag_binding(cursor: &Param, store_name: &str, side: PanelSide) -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::CursorMoved)
         .between(
             ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
             ChartEventStream::on(ChartEventType::MouseUp),
         )
         .filter(selectable_start_scope())
+        .filter(panel_start_filter(side))
         .filter(ev::start_coord("x").is_not_null())
         .filter(ev::start_coord("y").is_not_null())
         .filter(ev::event_at_start_clipped_coord("x").is_not_null())
         .filter(ev::event_at_start_clipped_coord("y").is_not_null())
         .filter(ev::shift().eq(lit(false)))
         .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
-        .set_store_at_start_scope_replacing_scopes(FREE_STORE, replace_store_update())
-        .set_store_at_start_scope_replacing_scopes(SHARED_STORE, replace_store_update())
+        .set_store_at_start_scope_replacing_scopes(store_name, replace_store_update())
         .preview()
 }
 
-fn selection_add_drag_binding(cursor: &Param) -> ChartEventBinding {
+fn selection_add_drag_binding(
+    cursor: &Param,
+    store_name: &str,
+    side: PanelSide,
+) -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::CursorMoved)
         .between(
             ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
             ChartEventStream::on(ChartEventType::MouseUp),
         )
         .filter(selectable_start_scope())
+        .filter(panel_start_filter(side))
         .filter(ev::start_coord("x").is_not_null())
         .filter(ev::start_coord("y").is_not_null())
         .filter(ev::event_at_start_clipped_coord("x").is_not_null())
         .filter(ev::event_at_start_clipped_coord("y").is_not_null())
         .filter(ev::shift().eq(lit(true)))
         .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
-        .set_store_at_start_scope(FREE_STORE, upsert_store_update())
-        .set_store_at_start_scope(SHARED_STORE, upsert_store_update())
+        .set_store_at_start_scope(store_name, upsert_store_update())
         .preview()
 }
 
-fn selection_release_binding() -> ChartEventBinding {
+fn selection_release_binding(store_name: &str, side: PanelSide) -> ChartEventBinding {
     ChartEventBinding::on_between_end(
         ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
         ChartEventStream::on(ChartEventType::MouseUp),
     )
     .filter(selectable_start_scope())
+    .filter(panel_start_filter(side))
     .filter(ev::start_coord("x").is_not_null())
     .filter(ev::start_coord("y").is_not_null())
     .filter(ev::event_at_start_clipped_coord("x").is_not_null())
     .filter(ev::event_at_start_clipped_coord("y").is_not_null())
     .filter(ev::shift().eq(lit(false)))
-    .set_store_at_start_scope_replacing_scopes(FREE_STORE, replace_store_update())
-    .set_store_at_start_scope_replacing_scopes(SHARED_STORE, replace_store_update())
+    .set_store_at_start_scope_replacing_scopes(store_name, replace_store_update())
     .exact()
 }
 
-fn selection_add_release_binding() -> ChartEventBinding {
+fn selection_add_release_binding(store_name: &str, side: PanelSide) -> ChartEventBinding {
     ChartEventBinding::on_between_end(
         ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
         ChartEventStream::on(ChartEventType::MouseUp),
     )
     .filter(selectable_start_scope())
+    .filter(panel_start_filter(side))
     .filter(ev::start_coord("x").is_not_null())
     .filter(ev::start_coord("y").is_not_null())
     .filter(ev::event_at_start_clipped_coord("x").is_not_null())
     .filter(ev::event_at_start_clipped_coord("y").is_not_null())
     .filter(ev::shift().eq(lit(true)))
-    .set_store_at_start_scope(FREE_STORE, upsert_store_update())
-    .set_store_at_start_scope(SHARED_STORE, upsert_store_update())
+    .set_store_at_start_scope(store_name, upsert_store_update())
     .exact()
 }
 
-fn selection_clear_binding() -> ChartEventBinding {
+fn selection_clear_binding(store_name: &str, side: PanelSide) -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::DoubleClick)
         .filter(selectable_scope())
-        .set_store_replacing_scopes(FREE_STORE, StoreUpdate::clear())
-        .set_store_replacing_scopes(SHARED_STORE, StoreUpdate::clear())
+        .filter(panel_filter(side))
+        .set_store_replacing_scopes(store_name, StoreUpdate::clear())
         .exact()
 }
 
