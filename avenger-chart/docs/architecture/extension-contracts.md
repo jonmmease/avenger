@@ -101,12 +101,18 @@ The core legend contracts include `Legend`, `LegendChannel`, `ChannelInfo`,
 
 External tool crates implement `ChartTool` from `avenger-chart-core`. A tool
 expands at chart compile time into generated params, `ChartEventBinding`
-values, `ToolScaleEdit` values, and optional `ToolMetadata`. The chart runtime
-then evaluates the expanded params and event bindings through the same path as
-author-written interactions.
+values, `ToolScaleEdit` values, `Store` specs, `Selection` specs, ordinary
+marks, and optional `ToolMetadata`. The chart runtime then evaluates the
+expanded params, stores, selections, marks, and event bindings through the same
+path as author-written interactions.
 
 Built-in tools such as `PanScrollZoom` live in `avenger-chart-tools`; they are
 peers to custom tool crates.
+
+Tools should prefer public chart primitives for interaction chrome. For
+example, a box-selection tool expands into a keyed `Store` of box rows, a
+neutral `Selection` derived from that store, event bindings that mutate the
+store, and a `Rect` mark that reads `StoreData`.
 
 ## Custom Coordinate Systems
 

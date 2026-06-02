@@ -6,9 +6,9 @@ use std::{
 };
 
 use avenger_chart_core::{
-    Auto, AvengerChartError, ChartEventBinding, CompiledParamSpec, CompiledStoreSpec,
-    CoordinateSystemCore, CoordinateSystemTransform, DefaultLogicalExprNodeExt, Param, Scale,
-    Sharing, Store,
+    Auto, AvengerChartError, ChartEventBinding, CompiledParamSpec, CompiledSelectionSpec,
+    CompiledStoreSpec, CoordinateSystemCore, CoordinateSystemTransform, DefaultLogicalExprNodeExt,
+    Param, Scale, Selection, Sharing, Store,
 };
 use avenger_chart_scales::PlotScaleSpec;
 use datafusion::prelude::lit;
@@ -156,6 +156,7 @@ struct ToolCompileState {
     tool_ids: HashSet<String>,
     params: IndexMap<String, GeneratedParamState>,
     stores: IndexMap<String, CompiledStoreSpec>,
+    selections: IndexMap<String, CompiledSelectionSpec>,
     event_bindings: Vec<ChartEventBinding>,
     metadata: Vec<ToolMetadata>,
     expected_targets: BTreeMap<(String, String, String), usize>,
@@ -178,6 +179,9 @@ impl ToolCompileState {
         }
         for store in &expansion.stores {
             self.register_store(store.compile()?)?;
+        }
+        for selection in &expansion.selections {
+            self.register_selection(selection)?;
         }
         for edit in &expansion.scale_edits {
             let ToolScaleEdit::RawDomain {
@@ -203,6 +207,18 @@ impl ToolCompileState {
             )));
         }
         self.stores.insert(spec.name.clone(), spec);
+        Ok(())
+    }
+
+    fn register_selection(&mut self, selection: &Selection) -> Result<(), AvengerChartError> {
+        let spec = selection.compile()?;
+        if self.selections.contains_key(&spec.id) {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Selection '{}' was declared more than once",
+                spec.id
+            )));
+        }
+        self.selections.insert(spec.id.clone(), spec);
         Ok(())
     }
 
@@ -328,6 +344,7 @@ impl ToolCompileState {
         Ok(ToolArtifacts {
             param_specs,
             store_specs: self.stores.values().cloned().collect(),
+            selection_specs: self.selections.values().cloned().collect(),
             event_bindings: self.event_bindings.clone(),
             metadata: self.metadata.clone(),
         })
@@ -344,6 +361,7 @@ struct GeneratedParamState {
 pub(crate) struct ToolArtifacts {
     pub param_specs: Vec<CompiledParamSpec>,
     pub store_specs: Vec<CompiledStoreSpec>,
+    pub selection_specs: Vec<CompiledSelectionSpec>,
     pub event_bindings: Vec<ChartEventBinding>,
     pub metadata: Vec<ToolMetadata>,
 }
@@ -410,6 +428,7 @@ mod tests {
     use avenger_chart_core::DefaultLogicalExprNodeExt;
     use avenger_chart_scales::Linear;
     use avenger_scenegraph::marks::mark::SceneMark;
+    use datafusion::arrow::datatypes::DataType;
     use datafusion::prelude::{SessionContext, col, lit};
 
     use super::*;
@@ -620,6 +639,65 @@ mod tests {
         assert!(raw_domain_debug(&compiled, "x").contains("__tool_custom_x__x_domain"));
     }
 
+    #[derive(Clone)]
+    struct CustomSelectionTool;
+
+    impl ChartTool<Cartesian> for CustomSelectionTool {
+        fn id(&self) -> &str {
+            "custom_selection"
+        }
+
+        fn expand(
+            &self,
+            _ctx: ToolExpansionContext<'_>,
+        ) -> Result<ToolExpansion<Cartesian>, AvengerChartError> {
+            let store = Store::empty("__tool_custom_selection__boxes")
+                .field("id", DataType::Utf8, false)
+                .field("x_min", DataType::Float64, false)
+                .field("x_max", DataType::Float64, false)
+                .field("y_min", DataType::Float64, false)
+                .field("y_max", DataType::Float64, false)
+                .primary_key(["id"]);
+            let selection = Selection::new("__tool_custom_selection__brush")
+                .source(
+                    SelectionSource::store("__tool_custom_selection__boxes")
+                        .interval()
+                        .dimension("x", col("x"))
+                        .bounds("x_min", "x_max")
+                        .dimension("y", col("y"))
+                        .bounds("y_min", "y_max"),
+                )
+                .empty_selects_nothing();
+            Ok(ToolExpansion::new().store(store).selection(selection))
+        }
+    }
+
+    #[tokio::test]
+    async fn leaf_tool_inside_facet_can_expand_to_store_and_selection() {
+        let ctx = SessionContext::new();
+        let df = data(&ctx).await;
+        let leaf = Plot::<Cartesian>::new()
+            .mark(Symbol::new().x(col("x")).y(col("y")))
+            .tool(CustomSelectionTool);
+        let compiled = Plot::<FacetColumn>::new()
+            .data(df)
+            .mark(Subplot::new(leaf).column(col("group_name")))
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        assert!(
+            compiled
+                .store_specs()
+                .contains_key("__tool_custom_selection__boxes")
+        );
+        assert!(
+            compiled
+                .selection_specs()
+                .contains_key("__tool_custom_selection__brush")
+        );
+    }
+
     #[tokio::test]
     async fn box_zoom_cartesian_injects_unit_rect_mark_and_raw_domains() {
         let ctx = SessionContext::new();
@@ -642,7 +720,7 @@ mod tests {
                 .param_specs()
                 .contains_key("__tool_box_zoom__x_domain")
         );
-        assert_eq!(compiled.event_bindings().len(), 4);
+        assert_eq!(compiled.event_bindings().len(), 5);
         assert!(
             compiled
                 .marks()

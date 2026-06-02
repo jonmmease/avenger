@@ -17,6 +17,9 @@ agents. User-facing chart documentation lives in `avenger-chart/book/src`.
 - To work on interactive chart apps or resize behavior, read
   [chart-apps-and-interaction.md](chart-apps-and-interaction.md) and
   [plot-sessions-and-fast-evaluation.md](plot-sessions-and-fast-evaluation.md).
+- To work on interactive state, selections, or store-backed overlay marks, read
+  [stores-selections-and-interaction-state.md](stores-selections-and-interaction-state.md)
+  and [chart-apps-and-interaction.md](chart-apps-and-interaction.md).
 - To work on nested layout, read
   [layout-and-child-frames.md](layout-and-child-frames.md),
   [facet-system.md](facet-system.md), [concat-system.md](concat-system.md), and
@@ -40,6 +43,7 @@ flowchart TD
     Render["Scenegraph rendering\nPlotComponents, EvaluatedPlot"]
     Wgpu["Raster output\nWgpuRenderer, CanvasExt"]
     Apps["Interactive apps\navenger-chart-app, avenger-winit-wgpu"]
+    State["Interactive state\nstores, selections, event bindings"]
 
     Author --> Compile
     Compile --> Session
@@ -50,6 +54,7 @@ flowchart TD
     Layout --> Render
     Render --> Wgpu
     Session --> Apps
+    Session --> State
     Apps --> Wgpu
 
     Compile -. details .-> Marks["marks-and-channels.md"]
@@ -58,6 +63,7 @@ flowchart TD
     Coord -. details .-> Containers["facet-system.md / concat-system.md / positioned-subplots.md"]
     Render -. details .-> Rendering["rendering-and-scenegraph.md"]
     Apps -. details .-> AppDocs["chart-apps-and-interaction.md"]
+    State -. details .-> StateDocs["stores-selections-and-interaction-state.md"]
 ```
 
 ## Documents
@@ -74,6 +80,9 @@ flowchart TD
 - [chart-apps-and-interaction.md](chart-apps-and-interaction.md):
   `avenger-chart-app`, framed canvas resize, app event flow, and Winit/WGPU
   hosting.
+- [stores-selections-and-interaction-state.md](stores-selections-and-interaction-state.md):
+  mutable `Store` tables, store-backed marks, neutral `Selection` predicates,
+  sharing scope, and tool expansion shape for interaction state.
 - [marks-and-channels.md](marks-and-channels.md): mark traits, mark state,
   channel values, channel configs, and channel extraction.
 - [scales-domains-and-sharing.md](scales-domains-and-sharing.md): scale

@@ -167,7 +167,7 @@ impl<C: CoordinateSystem> Plot<C> {
         tool_context.register_local_stores(&self.stores)?;
         let erased_tool_context: CompileContext<'_> = &tool_context;
 
-        let selection_specs: IndexMap<String, CompiledSelectionSpec> =
+        let mut selection_specs: IndexMap<String, CompiledSelectionSpec> =
             compile_selections(&self.selections)?;
 
         // Start with plot-level configurations
@@ -289,6 +289,15 @@ impl<C: CoordinateSystem> Plot<C> {
             let artifacts = tool_context.finalize_root()?;
             param_source_specs.extend(artifacts.param_specs);
             store_source_specs.extend(artifacts.store_specs);
+            for spec in artifacts.selection_specs {
+                if selection_specs.contains_key(&spec.id) {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "Duplicate plot selection '{}'",
+                        spec.id
+                    )));
+                }
+                selection_specs.insert(spec.id.clone(), spec);
+            }
             event_bindings.extend(artifacts.event_bindings);
             tool_metadata.extend(artifacts.metadata);
         }

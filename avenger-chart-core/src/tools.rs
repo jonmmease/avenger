@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use crate::{
-    AvengerChartError, CoordinateSystemCore, Mark, Param, Sharing, Store, event::ChartEventBinding,
+    AvengerChartError, CoordinateSystemCore, Mark, Param, Selection, Sharing, Store,
+    event::ChartEventBinding,
 };
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +24,7 @@ pub struct ToolExpansionContext<'a> {
 pub struct ToolExpansion<C: CoordinateSystemCore> {
     pub params: Vec<ToolParamExpansion>,
     pub stores: Vec<Store>,
+    pub selections: Vec<Selection>,
     pub event_bindings: Vec<ChartEventBinding>,
     pub scale_edits: Vec<ToolScaleEdit>,
     pub marks: Vec<Arc<dyn Mark<C>>>,
@@ -34,6 +36,7 @@ impl<C: CoordinateSystemCore> Clone for ToolExpansion<C> {
         Self {
             params: self.params.clone(),
             stores: self.stores.clone(),
+            selections: self.selections.clone(),
             event_bindings: self.event_bindings.clone(),
             scale_edits: self.scale_edits.clone(),
             marks: self.marks.clone(),
@@ -47,6 +50,7 @@ impl<C: CoordinateSystemCore> Default for ToolExpansion<C> {
         Self {
             params: Vec::new(),
             stores: Vec::new(),
+            selections: Vec::new(),
             event_bindings: Vec::new(),
             scale_edits: Vec::new(),
             marks: Vec::new(),
@@ -67,6 +71,11 @@ impl<C: CoordinateSystemCore> ToolExpansion<C> {
 
     pub fn store(mut self, store: Store) -> Self {
         self.stores.push(store);
+        self
+    }
+
+    pub fn selection(mut self, selection: Selection) -> Self {
+        self.selections.push(selection);
         self
     }
 

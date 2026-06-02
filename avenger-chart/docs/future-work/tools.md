@@ -32,6 +32,10 @@ The public expansion contracts in `avenger-chart-core` are:
 - `ToolScaleEdit`
 - `ToolMetadata`
 
+Tool expansion can contribute params, stores, selections, event bindings, scale
+edits, ordinary marks, and metadata. Built-in interaction chrome should use
+those public primitives wherever possible.
+
 Tool ids must be globally unique in a compiled plot. Ids are non-empty ASCII
 identifier-like strings and may not contain periods. Generated names use the
 reserved tool namespace:
@@ -131,18 +135,20 @@ compiled plot.
 
 The same expansion substrate should support richer interactions:
 
-- Brush selection: generated start/current/end params plus an overlay rectangle.
+- Brush selection: a keyed `Store` of editable region rows, a neutral
+  `Selection` derived from that store, event bindings that mutate store rows,
+  and ordinary overlay marks that read `StoreData`.
 - Click selection: hit-test metadata patches a selected datum, group, or facet
-  path param.
+  path store or param.
 - Hover and tooltips: hover params drive tooltip marks or app UI.
-- Annotation drawing: drag state patches annotation params and overlay marks.
+- Annotation drawing: drag state patches annotation stores and overlay marks.
 - Reset/domain controls: app or chart controls patch tool-owned params back to
   null defaults.
 
-These tools need additional identity and overlay contracts before they become
+These tools need additional identity and editing contracts before they become
 implementation-ready. The key missing pieces are stable mark/datum identity,
-hit-test-to-data mapping, and overlay layers that render above the chart without
-becoming part of the user's data mark tree.
+hit-test-to-data mapping, and ergonomic event bindings for moving or resizing
+store-backed regions.
 
 ## Crate Boundary
 
