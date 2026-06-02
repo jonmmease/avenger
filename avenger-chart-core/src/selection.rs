@@ -3,7 +3,7 @@ use std::sync::Arc;
 use datafusion::{
     arrow::datatypes::{DataType, Field, FieldRef, Fields},
     logical_expr::expr::Placeholder,
-    prelude::{Expr, SessionContext, col, lit},
+    prelude::{Expr, SessionContext, col},
     scalar::ScalarValue,
 };
 use datafusion_proto::protobuf::LogicalExprNode;
@@ -12,12 +12,9 @@ use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 use crate::{
-    AvengerChartError, CompiledParamSpec, DefaultLogicalExprNodeExt, IntoExpr, Param,
-    SerializableDataType, SerializableExpr, Sharing,
-    event::{
-        ChartEventParamAssignment, ChartEventSelectionAssignment, interval_end, interval_ordered,
-        interval_start,
-    },
+    AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, SerializableDataType, SerializableExpr,
+    Sharing,
+    event::{interval_end, interval_ordered, interval_start},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -266,25 +263,6 @@ impl Selection {
         }
     }
 
-    pub fn dimension_value_expr(&self, id: &str) -> Expr {
-        self.dimensions
-            .iter()
-            .find(|dimension| dimension.id == id)
-            .and_then(|dimension| {
-                dimension
-                    .field_expr
-                    .as_ref()
-                    .and_then(|expr| expr.to_expr(&SessionContext::new()).ok())
-                    .or_else(|| {
-                        dimension
-                            .channel
-                            .as_ref()
-                            .map(|channel| col(format!(":{channel}")))
-                    })
-            })
-            .unwrap_or_else(|| col(format!(":{id}")))
-    }
-
     pub fn compile(&self) -> Result<CompiledSelectionSpec, AvengerChartError> {
         validate_selection_id(&self.id)?;
         for facet in &self.facet_context {
@@ -305,10 +283,6 @@ impl Selection {
             sharing: self.sharing,
             geometry_schema: self.geometry_schema.clone(),
             facet_context: self.facet_context.clone(),
-            lowered_params: SelectionLoweredParams::with_facet_context(
-                &self.id,
-                self.facet_context.iter().map(|facet| facet.id.as_str()),
-            ),
         })
     }
 }
@@ -340,38 +314,6 @@ fn default_selection_sharing() -> Sharing {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SelectionLoweredParams {
-    pub active: String,
-    pub empty_selected: String,
-    pub x_min: String,
-    pub x_max: String,
-    pub y_min: String,
-    pub y_max: String,
-    pub facet_values: Vec<String>,
-}
-
-impl SelectionLoweredParams {
-    pub fn new(id: &str) -> Self {
-        Self::with_facet_context(id, std::iter::empty::<&str>())
-    }
-
-    pub fn with_facet_context<'a>(id: &str, facet_ids: impl IntoIterator<Item = &'a str>) -> Self {
-        Self {
-            active: selection_param_name(id, "active"),
-            empty_selected: selection_param_name(id, "empty_selected"),
-            x_min: selection_param_name(id, "x_min"),
-            x_max: selection_param_name(id, "x_max"),
-            y_min: selection_param_name(id, "y_min"),
-            y_max: selection_param_name(id, "y_max"),
-            facet_values: facet_ids
-                .into_iter()
-                .map(|facet_id| selection_param_name(id, &format!("facet_{facet_id}")))
-                .collect(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CompiledSelectionSpec {
     pub id: String,
     pub empty: EmptySelectionBehavior,
@@ -384,7 +326,6 @@ pub struct CompiledSelectionSpec {
     pub geometry_schema: SelectionGeometrySchema,
     #[serde(default)]
     pub facet_context: Vec<SelectionFacetContextSpec>,
-    pub lowered_params: SelectionLoweredParams,
 }
 
 impl CompiledSelectionSpec {
@@ -405,42 +346,6 @@ impl CompiledSelectionSpec {
                     })
             })
             .unwrap_or_else(|| col(format!(":{id}")))
-    }
-
-    pub fn hidden_param_specs(&self) -> Vec<CompiledParamSpec> {
-        let mut specs = vec![
-            CompiledParamSpec::shared(&Param::new(
-                self.lowered_params.active.clone(),
-                ScalarValue::Boolean(Some(false)),
-            )),
-            CompiledParamSpec::shared(&Param::new(
-                self.lowered_params.empty_selected.clone(),
-                ScalarValue::Boolean(Some(matches!(
-                    self.empty,
-                    EmptySelectionBehavior::SelectAll
-                ))),
-            )),
-            CompiledParamSpec::shared(&Param::new(
-                self.lowered_params.x_min.clone(),
-                ScalarValue::Float64(None),
-            )),
-            CompiledParamSpec::shared(&Param::new(
-                self.lowered_params.x_max.clone(),
-                ScalarValue::Float64(None),
-            )),
-            CompiledParamSpec::shared(&Param::new(
-                self.lowered_params.y_min.clone(),
-                ScalarValue::Float64(None),
-            )),
-            CompiledParamSpec::shared(&Param::new(
-                self.lowered_params.y_max.clone(),
-                ScalarValue::Float64(None),
-            )),
-        ];
-        specs.extend(self.lowered_params.facet_values.iter().map(|param| {
-            CompiledParamSpec::shared(&Param::new(param.clone(), ScalarValue::Utf8(None)))
-        }));
-        specs
     }
 }
 
@@ -872,90 +777,6 @@ pub fn compile_selections(
     Ok(compiled)
 }
 
-pub fn lower_selection_assignments(
-    assignment: &ChartEventSelectionAssignment,
-    selection: &CompiledSelectionSpec,
-    ctx: &SessionContext,
-) -> Result<Vec<ChartEventParamAssignment>, AvengerChartError> {
-    let params = &selection.lowered_params;
-    match assignment.update.kind {
-        SelectionUpdateKind::Clear => Ok(vec![ChartEventParamAssignment {
-            param_name: params.active.clone(),
-            expr: expr_node(lit(false), "selection clear active"),
-            scope: assignment.scope,
-            replace_scoped_values: false,
-        }]),
-        SelectionUpdateKind::ReplaceInterval
-        | SelectionUpdateKind::ReplaceClause
-        | SelectionUpdateKind::AddClause => {
-            let Some(x_range) = &assignment.update.x_range else {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "Selection update for '{}' is missing an x range",
-                    assignment.selection_id
-                )));
-            };
-            let Some(y_range) = &assignment.update.y_range else {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "Selection update for '{}' is missing a y range",
-                    assignment.selection_id
-                )));
-            };
-            let x_expr = x_range.expr.to_expr(ctx)?;
-            let y_expr = y_range.expr.to_expr(ctx)?;
-            let mut lowered = vec![
-                ChartEventParamAssignment {
-                    param_name: params.active.clone(),
-                    expr: expr_node(lit(true), "selection interval active"),
-                    scope: assignment.scope,
-                    replace_scoped_values: false,
-                },
-                ChartEventParamAssignment {
-                    param_name: params.x_min.clone(),
-                    expr: expr_node(interval_start(x_expr.clone()), "selection x min"),
-                    scope: assignment.scope,
-                    replace_scoped_values: false,
-                },
-                ChartEventParamAssignment {
-                    param_name: params.x_max.clone(),
-                    expr: expr_node(interval_end(x_expr), "selection x max"),
-                    scope: assignment.scope,
-                    replace_scoped_values: false,
-                },
-                ChartEventParamAssignment {
-                    param_name: params.y_min.clone(),
-                    expr: expr_node(interval_start(y_expr.clone()), "selection y min"),
-                    scope: assignment.scope,
-                    replace_scoped_values: false,
-                },
-                ChartEventParamAssignment {
-                    param_name: params.y_max.clone(),
-                    expr: expr_node(interval_end(y_expr), "selection y max"),
-                    scope: assignment.scope,
-                    replace_scoped_values: false,
-                },
-            ];
-            if assignment.update.capture_facet_context {
-                for (index, param_name) in params.facet_values.iter().enumerate() {
-                    lowered.push(ChartEventParamAssignment {
-                        param_name: param_name.clone(),
-                        expr: expr_node(
-                            crate::event::start_facet_value(index),
-                            "selection facet context value",
-                        ),
-                        scope: assignment.scope,
-                        replace_scoped_values: false,
-                    });
-                }
-            }
-            Ok(lowered)
-        }
-    }
-}
-
-fn selection_param_name(id: &str, suffix: &str) -> String {
-    format!("__selection_{id}__{suffix}")
-}
-
 fn validate_selection_id(id: &str) -> Result<(), AvengerChartError> {
     if id.is_empty()
         || id.contains('.')
@@ -975,58 +796,57 @@ fn expr_node(expr: Expr, label: &str) -> LogicalExprNode {
 
 #[cfg(test)]
 mod tests {
-    use datafusion::prelude::SessionContext;
+    use datafusion::prelude::lit;
 
     use super::*;
-    use crate::{
-        event::{self, ChartEventAssignmentScope},
-        serialization::DefaultLogicalExprNodeExt,
-    };
+    use crate::event;
 
     #[test]
-    fn interval_selection_compiles_hidden_params() {
+    fn cartesian_interval_selection_compiles_spec() {
         let selection = Selection::cartesian_interval("brush").empty_selects_all();
         let compiled = selection.compile().expect("compile selection");
+
         assert_eq!(compiled.id, "brush");
         assert_eq!(compiled.dimensions.len(), 2);
-        let params = compiled.hidden_param_specs();
-        assert_eq!(params.len(), 6);
-        assert_eq!(params[0].name, "__selection_brush__active");
-        assert_eq!(
-            params[1].default,
-            ScalarValue::Boolean(Some(true)),
-            "empty/all is represented by the lowered empty-selected param"
-        );
+        assert_eq!(compiled.empty, EmptySelectionBehavior::SelectAll);
+        assert_eq!(compiled.dimension_value_expr("x"), col(":x"));
+        assert_eq!(compiled.dimension_value_expr("y"), col(":y"));
     }
 
     #[test]
-    fn lower_interval_selection_update_to_param_assignments() {
-        let ctx = SessionContext::new();
+    fn replace_interval_update_builds_clause_update() {
         let selection = Selection::cartesian_interval("brush");
         let compiled = selection.compile().expect("compile selection");
-        let assignment = ChartEventSelectionAssignment {
-            selection_id: "brush".to_string(),
-            update: SelectionUpdate::replace_interval_xy()
-                .x_range(event::interval(lit(1.0), lit(4.0)))
-                .y_range(event::interval(lit(2.0), lit(5.0))),
-            scope: ChartEventAssignmentScope::Start,
-        };
-        let lowered = lower_selection_assignments(&assignment, &compiled, &ctx).expect("lower");
-        assert_eq!(lowered.len(), 5);
-        assert!(
-            lowered
-                .iter()
-                .all(|a| a.scope == ChartEventAssignmentScope::Start)
-        );
-        assert_eq!(lowered[0].param_name, "__selection_brush__active");
-        assert_eq!(lowered[1].param_name, "__selection_brush__x_min");
-        assert_eq!(lowered[2].param_name, "__selection_brush__x_max");
-        for assignment in lowered {
-            assignment
-                .expr
-                .to_expr(&ctx)
-                .expect("lowered selection assignment expr deserializes");
+        let update = SelectionUpdate::replace_interval_xy()
+            .x_range(event::interval(lit(1.0), lit(4.0)))
+            .y_range(event::interval(lit(2.0), lit(5.0)))
+            .facet_context_from_start();
+        let clause = update
+            .as_clause_update(&compiled)
+            .expect("clause update")
+            .expect("non-clear update");
+
+        assert!(clause.owner_facet_context_from_start);
+        match clause.predicate {
+            SelectionPredicateUpdate::Range2D {
+                x_field, y_field, ..
+            } => {
+                assert_eq!(
+                    x_field.to_expr(&SessionContext::new()).expect("x field"),
+                    col(":x")
+                );
+                assert_eq!(
+                    y_field.to_expr(&SessionContext::new()).expect("y field"),
+                    col(":y")
+                );
+            }
         }
+        let geometry = clause.geometry.expect("cartesian rect geometry");
+        assert_eq!(geometry.column_name, CARTESIAN_RECT_GEOMETRY_COLUMN);
+        assert!(geometry.fields.contains_key("x_min"));
+        assert!(geometry.fields.contains_key("x_max"));
+        assert!(geometry.fields.contains_key("y_min"));
+        assert!(geometry.fields.contains_key("y_max"));
     }
 
     #[test]
@@ -1036,16 +856,12 @@ mod tests {
     }
 
     #[test]
-    fn facet_context_selection_compiles_hidden_params_and_predicate() {
+    fn facet_context_selection_compiles_facet_spec_and_predicate() {
         let selection = Selection::cartesian_interval("brush")
             .facet_context_field("group_name", col("group_name"));
         let compiled = selection.compile().expect("compile selection");
-        let params = compiled.hidden_param_specs();
-        assert_eq!(params.len(), 7);
-        assert_eq!(
-            params.last().unwrap().name,
-            "__selection_brush__facet_group_name"
-        );
+        assert_eq!(compiled.facet_context.len(), 1);
+        assert_eq!(compiled.facet_context[0].id, "group_name");
         LogicalExprNode::from_expr(selection.predicate())
             .expect("facet-context selection predicate serializes");
     }

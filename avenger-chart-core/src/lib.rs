@@ -199,8 +199,7 @@ pub use selection::{
     SelectionGeometryFieldSpec, SelectionGeometrySchema, SelectionGeometryUpdate,
     SelectionGeometryValue, SelectionPredicateSpec, SelectionPredicateUpdate, SelectionState,
     SelectionStateUpdate, SelectionUpdate, SelectionUpdateKind, SelectionValueExpr,
-    cartesian_rect_field, compile_selections, lower_selection_assignments,
-    selection_id_from_predicate_placeholder,
+    cartesian_rect_field, compile_selections, selection_id_from_predicate_placeholder,
 };
 pub use serialization::{
     DefaultLogicalExprNodeExt, LogicalPlanNodeExt, SerializableDataFrame, SerializableDataType,
