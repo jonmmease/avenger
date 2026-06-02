@@ -7,8 +7,7 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, Param, SelectionUpdate,
-    SerializableExpr, StoreUpdate,
+    AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, Param, SerializableExpr, StoreUpdate,
 };
 use avenger_common::cursor::CursorStyle;
 use datafusion::{
@@ -118,14 +117,6 @@ pub struct ChartEventParamAssignment {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ChartEventSelectionAssignment {
-    pub selection_id: String,
-    pub update: SelectionUpdate,
-    #[serde(default)]
-    pub scope: ChartEventAssignmentScope,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChartEventStoreAssignment {
     pub store_name: String,
     pub update: StoreUpdate,
@@ -195,8 +186,6 @@ pub struct ChartEventBinding {
     pub consume: bool,
     pub assignments: Vec<ChartEventParamAssignment>,
     #[serde(default)]
-    pub selection_assignments: Vec<ChartEventSelectionAssignment>,
-    #[serde(default)]
     pub store_assignments: Vec<ChartEventStoreAssignment>,
     pub evaluation_mode: ChartEventEvaluationMode,
     pub settle_exact: bool,
@@ -211,7 +200,6 @@ impl ChartEventBinding {
             throttle_ms: None,
             consume: false,
             assignments: Vec::new(),
-            selection_assignments: Vec::new(),
             store_assignments: Vec::new(),
             evaluation_mode: ChartEventEvaluationMode::Preview,
             settle_exact: false,
@@ -233,7 +221,6 @@ impl ChartEventBinding {
             throttle_ms: None,
             consume: false,
             assignments: Vec::new(),
-            selection_assignments: Vec::new(),
             store_assignments: Vec::new(),
             evaluation_mode: ChartEventEvaluationMode::Preview,
             settle_exact: false,
@@ -314,30 +301,6 @@ impl ChartEventBinding {
             scope: ChartEventAssignmentScope::Start,
             replace_scoped_values: true,
         });
-        self
-    }
-
-    pub fn set_selection(mut self, selection: impl Into<String>, update: SelectionUpdate) -> Self {
-        self.selection_assignments
-            .push(ChartEventSelectionAssignment {
-                selection_id: selection.into(),
-                update,
-                scope: ChartEventAssignmentScope::Current,
-            });
-        self
-    }
-
-    pub fn set_selection_at_start_scope(
-        mut self,
-        selection: impl Into<String>,
-        update: SelectionUpdate,
-    ) -> Self {
-        self.selection_assignments
-            .push(ChartEventSelectionAssignment {
-                selection_id: selection.into(),
-                update,
-                scope: ChartEventAssignmentScope::Start,
-            });
         self
     }
 

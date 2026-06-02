@@ -27,9 +27,9 @@ use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    CompiledSelectionSpec, MarkDataMode, SelectionClause, SelectionCombine, SelectionPredicateSpec,
-    SelectionSourceSpec, StoreRowValue, color::parse_color_string, contains_aggregate,
-    params_to_datafusion, selection_id_from_predicate_placeholder,
+    CompiledSelectionSpec, MarkDataMode, SelectionCombine, SelectionSourceSpec, StoreRowValue,
+    color::parse_color_string, contains_aggregate, params_to_datafusion,
+    selection_id_from_predicate_placeholder,
 };
 
 use crate::{
@@ -275,31 +275,12 @@ fn selection_predicate_expr(
             "Selection predicate references unknown selection '{selection_id}'"
         )));
     };
-    if let Some(source) = &spec.source {
-        return store_source_selection_predicate_expr(spec, source, eval_ctx, ctx);
-    }
-    let clauses = selection_store
-        .states_for_selection(selection_id)
-        .into_iter()
-        .flat_map(|(_, state)| state.clauses.iter())
-        .collect::<Vec<_>>();
-    if clauses.is_empty() {
-        return Ok(lit(matches!(
-            spec.empty,
-            avenger_chart_core::EmptySelectionBehavior::SelectAll
+    let Some(source) = &spec.source else {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Selection predicate references selection '{selection_id}' without a predicate source"
         )));
-    }
-    let mut exprs = clauses
-        .into_iter()
-        .map(|clause| clause_predicate_expr(spec, clause, ctx));
-    let mut result = exprs.next().transpose()?.unwrap_or_else(|| lit(false));
-    for expr in exprs {
-        result = match spec.combine {
-            SelectionCombine::Union => result.or(expr?),
-            SelectionCombine::Intersect => result.and(expr?),
-        };
-    }
-    Ok(result)
+    };
+    store_source_selection_predicate_expr(spec, source, eval_ctx, ctx)
 }
 
 fn store_source_selection_predicate_expr(
@@ -375,38 +356,6 @@ fn store_source_row_predicate_expr(
         }
     }
     Ok(expr)
-}
-
-fn clause_predicate_expr(
-    spec: &CompiledSelectionSpec,
-    clause: &SelectionClause,
-    ctx: &SessionContext,
-) -> Result<Expr, AvengerChartError> {
-    match &clause.predicate {
-        SelectionPredicateSpec::Range2D {
-            x_field,
-            y_field,
-            x_min,
-            x_max,
-            y_min,
-            y_max,
-        } => {
-            let x = x_field.to_expr(ctx)?;
-            let y = y_field.to_expr(ctx)?;
-            let mut expr = x
-                .clone()
-                .gt_eq(lit(x_min.clone()))
-                .and(x.lt_eq(lit(x_max.clone())))
-                .and(y.clone().gt_eq(lit(y_min.clone())))
-                .and(y.lt_eq(lit(y_max.clone())));
-            for (index, value) in clause.owner_facet_values.iter().enumerate() {
-                if let Some(facet) = spec.facet_context.get(index) {
-                    expr = expr.and(facet.field_expr.to_expr(ctx)?.eq(lit(value.clone())));
-                }
-            }
-            Ok(expr)
-        }
-    }
 }
 
 fn store_dataframe(

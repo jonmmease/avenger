@@ -26,11 +26,9 @@ pub use crate::event::{
 pub use crate::facet::coord::{FacetColumn, FacetRow, FacetWrap};
 pub use avenger_chart_cartesian::Cartesian;
 pub use avenger_chart_core::{
-    CARTESIAN_RECT_GEOMETRY_COLUMN, CursorStyle, EmptySelectionBehavior, FacetEmptyCellPolicy,
-    Selection, SelectionClauseUpdate, SelectionCombine, SelectionGeometrySchema,
-    SelectionGeometryUpdate, SelectionPredicateUpdate, SelectionSource, SelectionSourceSpec,
-    SelectionUpdate, Sharing, Store, StoreData, StoreDataScope, StoreFieldPatch, StoreFieldRef,
-    StoreKey, StoreRow, StoreUpdate, ZeroDCoord,
+    CursorStyle, EmptySelectionBehavior, FacetEmptyCellPolicy, Selection, SelectionCombine,
+    SelectionSource, SelectionSourceSpec, Sharing, Store, StoreData, StoreDataScope,
+    StoreFieldPatch, StoreFieldRef, StoreKey, StoreRow, StoreUpdate, ZeroDCoord,
 };
 pub use avenger_chart_polar::Polar;
 

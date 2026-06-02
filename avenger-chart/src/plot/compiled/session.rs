@@ -10,8 +10,8 @@ use avenger_chart_core::{
     ChannelInfo, CompiledParamSpec, CompiledSelectionSpec, CompiledStoreSpec,
     DefaultLogicalExprNodeExt, FacetWrapColumnMode, LegendChannel, LegendPosition,
     LogicalPlanNodeExt, Maybe, RadiusExpression, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN,
-    STORE_REVISION_COLUMN, ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, SelectionState,
-    SelectionStateUpdate, SerializableExpr, Sharing, StoreData, StoreDataScope, StoreRowValue,
+    STORE_REVISION_COLUMN, ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, SerializableExpr,
+    Sharing, StoreData, StoreDataScope, StoreRowValue,
 };
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
 use avenger_scales::scales::ConfiguredScale;
@@ -288,14 +288,6 @@ pub struct ScopedParamAssignment {
     pub replace_scoped_values: bool,
 }
 
-/// A single scoped selection write produced by an event binding.
-#[derive(Clone, Debug)]
-pub struct ScopedSelectionAssignment {
-    pub selection_id: String,
-    pub owner_path: Vec<ScalarValue>,
-    pub update: SelectionStateUpdate,
-}
-
 /// Immutable snapshot of the scoped parameter store.
 ///
 /// Captures both the root effective values and any facet-scoped overrides so a
@@ -550,30 +542,15 @@ impl ScopedParamStore {
     }
 }
 
-/// Identifies one scoped copy of a selection at a specific facet owner path.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct ScopedSelectionKey {
-    selection_id: String,
-    owner_path: Vec<ScalarValue>,
-}
-
-/// Session-owned store of sharing-scoped selection state.
+/// Session-owned registry of compiled selection specs.
 #[derive(Clone, Debug)]
 pub(crate) struct ScopedSelectionStore {
     specs: IndexMap<String, CompiledSelectionSpec>,
-    states: IndexMap<ScopedSelectionKey, SelectionState>,
-    revisions: IndexMap<String, u64>,
-    next_clause_id: u64,
 }
 
 impl ScopedSelectionStore {
     fn new(specs: IndexMap<String, CompiledSelectionSpec>) -> Self {
-        Self {
-            specs,
-            states: IndexMap::new(),
-            revisions: IndexMap::new(),
-            next_clause_id: 0,
-        }
+        Self { specs }
     }
 
     pub(crate) fn specs(&self) -> &IndexMap<String, CompiledSelectionSpec> {
@@ -584,135 +561,11 @@ impl ScopedSelectionStore {
         let mut fingerprint = self
             .specs
             .keys()
-            .map(|id| (id.clone(), self.revisions.get(id).copied().unwrap_or(0)))
+            .map(|id| (id.clone(), 0))
             .collect::<Vec<_>>();
         fingerprint.sort();
         fingerprint
     }
-
-    fn bump_revision(&mut self, id: &str) -> u64 {
-        let revision = self.revisions.entry(id.to_string()).or_insert(0);
-        *revision += 1;
-        *revision
-    }
-
-    fn next_clause_id(&mut self, selection_id: &str) -> String {
-        self.next_clause_id += 1;
-        format!("{selection_id}_clause_{}", self.next_clause_id)
-    }
-
-    fn state_mut_for(
-        &mut self,
-        selection_id: &str,
-        owner_path: Vec<ScalarValue>,
-    ) -> &mut SelectionState {
-        let key = ScopedSelectionKey {
-            selection_id: selection_id.to_string(),
-            owner_path,
-        };
-        self.states.entry(key).or_insert_with(|| SelectionState {
-            id: selection_id.to_string(),
-            clauses: Vec::new(),
-            revision: 0,
-        })
-    }
-
-    fn apply_scoped_patch(
-        &mut self,
-        patch: impl IntoIterator<Item = ScopedSelectionAssignment>,
-    ) -> bool {
-        let mut changed = false;
-        for assignment in patch {
-            if !self.specs.contains_key(&assignment.selection_id) {
-                continue;
-            }
-            match assignment.update {
-                SelectionStateUpdate::Clear => {
-                    let before = self.states.len();
-                    self.states
-                        .retain(|key, _| key.selection_id != assignment.selection_id);
-                    if self.states.len() != before {
-                        changed = true;
-                    }
-                }
-                SelectionStateUpdate::ReplaceClause(mut clause) => {
-                    if clause.clause_id.is_empty() {
-                        clause.clause_id = self.next_clause_id(&assignment.selection_id);
-                    }
-                    clause.owner_path = assignment.owner_path.clone();
-                    let target_owner_path = assignment.owner_path.clone();
-                    let before = self.states.len();
-                    self.states.retain(|key, _| {
-                        key.selection_id != assignment.selection_id
-                            || key.owner_path == target_owner_path
-                    });
-                    if self.states.len() != before {
-                        changed = true;
-                    }
-                    let state = self.state_mut_for(&assignment.selection_id, assignment.owner_path);
-                    if state.clauses.len() != 1
-                        || state.clauses.first().map(|c| &c.clause_id) != Some(&clause.clause_id)
-                        || !selection_clause_equivalent(state.clauses.first(), &clause)
-                    {
-                        state.clauses.clear();
-                        state.clauses.push(clause);
-                        changed = true;
-                    }
-                }
-                SelectionStateUpdate::AddClause(mut clause) => {
-                    if clause.clause_id.is_empty() {
-                        clause.clause_id = self.next_clause_id(&assignment.selection_id);
-                    }
-                    clause.owner_path = assignment.owner_path.clone();
-                    let state = self.state_mut_for(&assignment.selection_id, assignment.owner_path);
-                    if let Some(existing) = state
-                        .clauses
-                        .iter_mut()
-                        .find(|existing| existing.clause_id == clause.clause_id)
-                    {
-                        if !selection_clause_equivalent(Some(existing), &clause) {
-                            *existing = clause;
-                            changed = true;
-                        }
-                    } else {
-                        state.clauses.push(clause);
-                        changed = true;
-                    }
-                }
-            }
-            if changed {
-                let revision = self.bump_revision(&assignment.selection_id);
-                for (key, state) in &mut self.states {
-                    if key.selection_id == assignment.selection_id {
-                        state.revision = revision;
-                    }
-                }
-            }
-        }
-        changed
-    }
-
-    pub(crate) fn states_for_selection(
-        &self,
-        selection_id: &str,
-    ) -> Vec<(&[ScalarValue], &SelectionState)> {
-        self.states
-            .iter()
-            .filter_map(|(key, state)| {
-                (key.selection_id == selection_id).then_some((key.owner_path.as_slice(), state))
-            })
-            .collect()
-    }
-}
-
-fn selection_clause_equivalent(
-    existing: Option<&avenger_chart_core::SelectionClause>,
-    next: &avenger_chart_core::SelectionClause,
-) -> bool {
-    let Some(existing) = existing else {
-        return false;
-    };
-    format!("{existing:?}") == format!("{next:?}")
 }
 
 /// Identifies one scoped copy of a mutable store at a specific facet owner path.
@@ -1449,29 +1302,12 @@ impl PlotSession {
         }
     }
 
-    /// Apply scoped selection assignments produced by an event binding.
-    pub fn apply_scoped_selection_patch(&mut self, patch: Vec<ScopedSelectionAssignment>) -> bool {
-        self.scoped_selections.apply_scoped_patch(patch)
-    }
-
     /// Apply scoped mutable-store assignments produced by an event binding.
     pub fn apply_scoped_store_patch(
         &mut self,
         patch: Vec<ScopedStoreAssignment>,
     ) -> Result<bool, AvengerChartError> {
         self.scoped_stores.apply_scoped_patch(patch)
-    }
-
-    #[doc(hidden)]
-    pub fn selection_states_for_diagnostics(
-        &self,
-        selection_id: &str,
-    ) -> Vec<(Vec<ScalarValue>, SelectionState)> {
-        self.scoped_selections
-            .states_for_selection(selection_id)
-            .into_iter()
-            .map(|(owner_path, state)| (owner_path.to_vec(), state.clone()))
-            .collect()
     }
 
     #[doc(hidden)]
@@ -2478,7 +2314,6 @@ fn collect_expr_placeholders(expr: &Expr, names: &mut BTreeSet<String>) {
 
 #[cfg(test)]
 mod tests {
-    use avenger_chart_core::{SelectionClause, SelectionPredicateSpec};
     use avenger_scenegraph::{marks::mark::SceneMark, scene_graph::SceneGraph};
     use datafusion::{prelude::SessionContext, scalar::ScalarValue};
 
@@ -2809,35 +2644,15 @@ mod tests {
             .await
     }
 
-    async fn compile_selection_preview_plot(
-        ctx: &SessionContext,
-    ) -> Result<CompiledPlot, AvengerChartError> {
-        let brush = Selection::cartesian_interval("brush").sharing(Sharing::Shared);
-        let selected = brush.predicate();
-        let df = ctx
-            .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
-            .await?;
-        Plot::<Cartesian>::new()
-            .add_selection(brush)
-            .canvas_size(420.0, 320.0)
-            .data(df)
-            .mark(
-                Symbol::new()
-                    .x(col("x"))
-                    .y(col("y"))
-                    .fill_with(lit("#b8beca"), |c| {
-                        c.no_scale()
-                            .when_value(selected, lit("#2563eb"))
-                            .no_legend()
-                    })
-                    .size(20.0),
-            )
-            .compile(ctx)
-            .await
-    }
-
     async fn compile_store_source_selection_preview_plot(
         ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        compile_store_source_selection_preview_plot_with_combine(ctx, SelectionCombine::Union).await
+    }
+
+    async fn compile_store_source_selection_preview_plot_with_combine(
+        ctx: &SessionContext,
+        combine: SelectionCombine,
     ) -> Result<CompiledPlot, AvengerChartError> {
         use datafusion::arrow::datatypes::DataType;
 
@@ -2850,6 +2665,7 @@ mod tests {
                     .dimension("y", col("y"))
                     .bounds("y_min", "y_max"),
             )
+            .combine(combine)
             .sharing(Sharing::Shared)
             .empty_selects_nothing();
         let selected = brush.predicate();
@@ -2885,27 +2701,94 @@ mod tests {
             .await
     }
 
-    fn selection_clause_for_preview_test(
-        x_min: f64,
-        x_max: f64,
-        y_min: f64,
-        y_max: f64,
-    ) -> SelectionClause {
-        SelectionClause {
-            clause_id: String::new(),
-            source_scope_id: None,
-            predicate: SelectionPredicateSpec::Range2D {
-                x_field: LogicalExprNode::from_expr(col("x")).expect("serialize x field"),
-                y_field: LogicalExprNode::from_expr(col("y")).expect("serialize y field"),
-                x_min: ScalarValue::Float64(Some(x_min)),
-                x_max: ScalarValue::Float64(Some(x_max)),
-                y_min: ScalarValue::Float64(Some(y_min)),
-                y_max: ScalarValue::Float64(Some(y_max)),
-            },
-            geometry: None,
-            owner_path: Vec::new(),
-            owner_facet_values: Vec::new(),
-        }
+    async fn compile_store_source_selection_facet_context_plot(
+        ctx: &SessionContext,
+        store_sharing: Sharing,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        use datafusion::arrow::datatypes::DataType;
+
+        let brush = Selection::new("brush")
+            .source(
+                SelectionSource::store("brush_boxes")
+                    .interval()
+                    .dimension("x", col("x"))
+                    .bounds("x_min", "x_max")
+                    .dimension("y", col("y"))
+                    .bounds("y_min", "y_max"),
+            )
+            .facet_context_field("row_group", col("row_group"))
+            .facet_context_field("col_group", col("col_group"))
+            .empty_selects_nothing();
+        let selected = brush.predicate();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                ('North', 'West', 1.0, 1.0),
+                ('North', 'East', 1.5, 1.5),
+                ('South', 'West', 1.0, 1.0),
+                ('South', 'East', 1.5, 1.5)
+            ) AS t(row_group, col_group, x, y)",
+            )
+            .await?;
+        Plot::<Cartesian>::new()
+            .add_selection(brush)
+            .add_store(
+                Store::empty("brush_boxes")
+                    .field("id", DataType::Utf8, false)
+                    .field("x_min", DataType::Float64, false)
+                    .field("x_max", DataType::Float64, false)
+                    .field("y_min", DataType::Float64, false)
+                    .field("y_max", DataType::Float64, false)
+                    .primary_key(["id"])
+                    .sharing(store_sharing),
+            )
+            .canvas_size(420.0, 320.0)
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x(col("x"))
+                    .y(col("y"))
+                    .fill_with(lit("#b8beca"), |c| {
+                        c.no_scale()
+                            .when_value(selected, lit("#2563eb"))
+                            .no_legend()
+                    })
+                    .size(20.0),
+            )
+            .compile(ctx)
+            .await
+    }
+
+    fn brush_box_row(id: &str, x_min: f64, x_max: f64, y_min: f64, y_max: f64) -> StoreRowValue {
+        let mut row = StoreRowValue::new();
+        row.insert("id".to_string(), ScalarValue::Utf8(Some(id.to_string())));
+        row.insert("x_min".to_string(), ScalarValue::Float64(Some(x_min)));
+        row.insert("x_max".to_string(), ScalarValue::Float64(Some(x_max)));
+        row.insert("y_min".to_string(), ScalarValue::Float64(Some(y_min)));
+        row.insert("y_max".to_string(), ScalarValue::Float64(Some(y_max)));
+        row
+    }
+
+    async fn evaluate_blue_count_after_store_rows(
+        compiled: Arc<CompiledPlot>,
+        ctx: Arc<SessionContext>,
+        owner_path: Vec<ScalarValue>,
+        rows: Vec<StoreRowValue>,
+    ) -> Result<usize, AvengerChartError> {
+        let mut session = compiled.instantiate(ctx);
+        session.apply_scoped_store_patch(vec![ScopedStoreAssignment {
+            store_name: "brush_boxes".to_string(),
+            owner_path,
+            replace_scoped_values: false,
+            update: StoreStateUpdate::ReplaceRows { rows },
+        }])?;
+        let (evaluated, _metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        Ok(collect_symbol_fills(&evaluated.scene_graph)
+            .into_iter()
+            .filter(|color| color[2] > 0.8 && color[0] < 0.2)
+            .count())
     }
 
     fn count_symbol_scale_adjustments(scene: &SceneGraph) -> usize {
@@ -3797,56 +3680,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn plot_session_preview_rebuilds_data_marks_for_selection_change()
-    -> Result<(), AvengerChartError> {
-        let ctx = Arc::new(SessionContext::new());
-        let compiled = Arc::new(compile_selection_preview_plot(&ctx).await?);
-        let mut session = compiled.instantiate(ctx);
-
-        let (_evaluated, exact) = session
-            .evaluate_with_metrics(EvaluationRequest::new().exact())
-            .await?;
-        assert!(
-            exact.facet_layout.plot_component_measure_calls > 0,
-            "warm exact evaluation should build the initial measurement profile"
-        );
-
-        let selection_changed =
-            session.apply_scoped_selection_patch(vec![ScopedSelectionAssignment {
-                selection_id: "brush".to_string(),
-                owner_path: Vec::new(),
-                update: SelectionStateUpdate::ReplaceClause(selection_clause_for_preview_test(
-                    0.0, 4.0, 0.0, 4.0,
-                )),
-            }]);
-        assert!(
-            selection_changed,
-            "test setup should mutate selection state"
-        );
-
-        let (_evaluated, preview) = session
-            .evaluate_with_metrics(EvaluationRequest::new().preview())
-            .await?;
-
-        assert_eq!(preview.mode, EvaluationMode::Preview);
-        assert_eq!(preview.pipeline.preview_profile_reuses, 1);
-        assert_eq!(preview.pipeline.preview_profile_misses, 0);
-        assert_eq!(preview.pipeline.preview_fallbacks, 0);
-        assert_eq!(
-            preview.pipeline.preview_data_mark_reuses, 0,
-            "selection revision changes must not reuse stale rendered data marks"
-        );
-        assert_eq!(preview.pipeline.preview_data_mark_reuse_misses, 1);
-        assert_eq!(preview.facet_layout.plot_component_measure_calls, 0);
-        assert!(
-            preview.pipeline.mark_data_collects > 0,
-            "selection Preview should rebuild mark data while keeping layout locked"
-        );
-
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn plot_session_store_source_selection_predicate_uses_store_rows()
     -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
@@ -3895,6 +3728,107 @@ mod tests {
         assert_eq!(
             blue_count, 2,
             "two points should match the store-derived interval predicate"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn store_source_selection_union_and_intersection_use_store_rows()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let union_plot = Arc::new(
+            compile_store_source_selection_preview_plot_with_combine(&ctx, SelectionCombine::Union)
+                .await?,
+        );
+        let union_count = evaluate_blue_count_after_store_rows(
+            union_plot,
+            ctx.clone(),
+            Vec::new(),
+            vec![
+                brush_box_row("first", 0.0, 2.0, 0.0, 3.0),
+                brush_box_row("second", 7.0, 9.0, 4.0, 6.0),
+            ],
+        )
+        .await?;
+        assert_eq!(
+            union_count, 2,
+            "union should select points matching either interval row"
+        );
+
+        let intersect_plot = Arc::new(
+            compile_store_source_selection_preview_plot_with_combine(
+                &ctx,
+                SelectionCombine::Intersect,
+            )
+            .await?,
+        );
+        let intersect_count = evaluate_blue_count_after_store_rows(
+            intersect_plot,
+            ctx,
+            Vec::new(),
+            vec![
+                brush_box_row("wide", 0.0, 4.0, 0.0, 4.0),
+                brush_box_row("narrow", 2.5, 3.5, 2.5, 3.5),
+            ],
+        )
+        .await?;
+        assert_eq!(
+            intersect_count, 1,
+            "intersection should select only points matching every interval row"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn store_source_selection_owner_path_controls_facet_predicate_scope()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+
+        let free_plot =
+            Arc::new(compile_store_source_selection_facet_context_plot(&ctx, Sharing::Free).await?);
+        let free_count = evaluate_blue_count_after_store_rows(
+            free_plot,
+            ctx.clone(),
+            vec![
+                ScalarValue::Utf8(Some("North".to_string())),
+                ScalarValue::Utf8(Some("West".to_string())),
+            ],
+            vec![brush_box_row("free", 0.0, 2.0, 0.0, 2.0)],
+        )
+        .await?;
+        assert_eq!(
+            free_count, 1,
+            "free scoped selection should include the full facet owner path"
+        );
+
+        let row_level_plot = Arc::new(
+            compile_store_source_selection_facet_context_plot(&ctx, Sharing::Level(1)).await?,
+        );
+        let row_level_count = evaluate_blue_count_after_store_rows(
+            row_level_plot,
+            ctx.clone(),
+            vec![ScalarValue::Utf8(Some("North".to_string()))],
+            vec![brush_box_row("row", 0.0, 2.0, 0.0, 2.0)],
+        )
+        .await?;
+        assert_eq!(
+            row_level_count, 2,
+            "level-scoped selection should include only the captured ancestor path"
+        );
+
+        let shared_plot = Arc::new(
+            compile_store_source_selection_facet_context_plot(&ctx, Sharing::Shared).await?,
+        );
+        let shared_count = evaluate_blue_count_after_store_rows(
+            shared_plot,
+            ctx,
+            Vec::new(),
+            vec![brush_box_row("shared", 0.0, 2.0, 0.0, 2.0)],
+        )
+        .await?;
+        assert_eq!(
+            shared_count, 4,
+            "shared selection should omit facet predicates and apply globally"
         );
         Ok(())
     }

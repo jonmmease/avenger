@@ -279,7 +279,7 @@ pub struct EvaluationContext {
     /// When set, per-cell measurement resolves each cell's effective params from
     /// this store + the facet tree. `None` on the common (non-interactive) path.
     pub(crate) scoped_param_store: Option<Arc<ScopedParamStore>>,
-    /// Optional session-owned selection state store.
+    /// Optional session-owned compiled selection registry.
     pub(crate) scoped_selection_store: Option<Arc<ScopedSelectionStore>>,
     /// Optional session-owned mutable store state.
     pub(crate) scoped_store_state: Option<Arc<ScopedStoreState>>,
