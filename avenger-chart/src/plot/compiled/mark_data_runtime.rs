@@ -1097,6 +1097,7 @@ mod tests {
         ScopedStoreAssignment {
             store_name: "brush_boxes".to_string(),
             owner_path,
+            replace_scoped_values: false,
             update: StoreStateUpdate::ReplaceRows { rows },
         }
     }

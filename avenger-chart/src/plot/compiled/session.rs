@@ -750,6 +750,7 @@ pub enum StoreStateUpdate {
 pub struct ScopedStoreAssignment {
     pub store_name: String,
     pub owner_path: Vec<ScalarValue>,
+    pub replace_scoped_values: bool,
     pub update: StoreStateUpdate,
 }
 
@@ -966,6 +967,18 @@ impl ScopedStoreState {
             let Some(spec) = self.specs.get(&assignment.store_name).cloned() else {
                 continue;
             };
+            if assignment.replace_scoped_values {
+                let before = self.instances.len();
+                self.instances
+                    .retain(|key, _| key.store_name != assignment.store_name);
+                if self.instances.len() != before {
+                    any_changed = true;
+                    self.materialized_cache
+                        .lock()
+                        .expect("store materialization cache lock poisoned")
+                        .clear();
+                }
+            }
             let key = ScopedStoreKey {
                 store_name: assignment.store_name,
                 owner_path: assignment.owner_path,
@@ -5223,6 +5236,7 @@ mod tests {
         let changed = session.apply_scoped_store_patch(vec![ScopedStoreAssignment {
             store_name: "brush_boxes".to_string(),
             owner_path: owner_path.clone(),
+            replace_scoped_values: false,
             update: StoreStateUpdate::InsertRows {
                 rows: vec![brush_row("a", 1.0, None)],
             },
@@ -5244,6 +5258,7 @@ mod tests {
         session.apply_scoped_store_patch(vec![ScopedStoreAssignment {
             store_name: "brush_boxes".to_string(),
             owner_path: owner_path.clone(),
+            replace_scoped_values: false,
             update: StoreStateUpdate::UpsertRows {
                 rows: vec![
                     brush_row("a", 2.0, Some(4.0)),
@@ -5270,6 +5285,7 @@ mod tests {
         session.apply_scoped_store_patch(vec![ScopedStoreAssignment {
             store_name: "brush_boxes".to_string(),
             owner_path: owner_path.clone(),
+            replace_scoped_values: false,
             update: StoreStateUpdate::UpdateByKey {
                 key: key.clone(),
                 fields: patch,
@@ -5289,6 +5305,7 @@ mod tests {
         session.apply_scoped_store_patch(vec![ScopedStoreAssignment {
             store_name: "brush_boxes".to_string(),
             owner_path: owner_path.clone(),
+            replace_scoped_values: false,
             update: StoreStateUpdate::ToggleRows {
                 rows: vec![
                     brush_row("b", 9.0, Some(10.0)),
@@ -5317,11 +5334,13 @@ mod tests {
         session.apply_scoped_store_patch(vec![ScopedStoreAssignment {
             store_name: "brush_boxes".to_string(),
             owner_path: owner_path.clone(),
+            replace_scoped_values: false,
             update: StoreStateUpdate::DeleteByKey { key },
         }])?;
         let unchanged = session.apply_scoped_store_patch(vec![ScopedStoreAssignment {
             store_name: "brush_boxes".to_string(),
             owner_path: owner_path.clone(),
+            replace_scoped_values: false,
             update: StoreStateUpdate::Clear,
         }])?;
         assert!(unchanged, "clear should mutate non-empty scoped rows");
@@ -5344,6 +5363,7 @@ mod tests {
             ScopedStoreAssignment {
                 store_name: "brush_boxes".to_string(),
                 owner_path: owner_a.clone(),
+                replace_scoped_values: false,
                 update: StoreStateUpdate::ReplaceRows {
                     rows: vec![brush_row("a", 1.0, Some(2.0))],
                 },
@@ -5351,6 +5371,7 @@ mod tests {
             ScopedStoreAssignment {
                 store_name: "brush_boxes".to_string(),
                 owner_path: owner_b.clone(),
+                replace_scoped_values: false,
                 update: StoreStateUpdate::ReplaceRows {
                     rows: vec![brush_row("b", 3.0, Some(4.0))],
                 },
@@ -5359,6 +5380,7 @@ mod tests {
         session.apply_scoped_store_patch(vec![ScopedStoreAssignment {
             store_name: "brush_boxes".to_string(),
             owner_path: owner_a.clone(),
+            replace_scoped_values: false,
             update: StoreStateUpdate::Clear,
         }])?;
         let rows = session.store_rows_for_diagnostics("brush_boxes");

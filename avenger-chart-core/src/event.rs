@@ -131,6 +131,8 @@ pub struct ChartEventStoreAssignment {
     pub update: StoreUpdate,
     #[serde(default)]
     pub scope: ChartEventAssignmentScope,
+    #[serde(default)]
+    pub replace_scoped_values: bool,
 }
 
 #[serde_as]
@@ -344,6 +346,21 @@ impl ChartEventBinding {
             store_name: store.into(),
             update,
             scope: ChartEventAssignmentScope::Current,
+            replace_scoped_values: false,
+        });
+        self
+    }
+
+    pub fn set_store_replacing_scopes(
+        mut self,
+        store: impl Into<String>,
+        update: StoreUpdate,
+    ) -> Self {
+        self.store_assignments.push(ChartEventStoreAssignment {
+            store_name: store.into(),
+            update,
+            scope: ChartEventAssignmentScope::Current,
+            replace_scoped_values: true,
         });
         self
     }
@@ -357,6 +374,21 @@ impl ChartEventBinding {
             store_name: store.into(),
             update,
             scope: ChartEventAssignmentScope::Start,
+            replace_scoped_values: false,
+        });
+        self
+    }
+
+    pub fn set_store_at_start_scope_replacing_scopes(
+        mut self,
+        store: impl Into<String>,
+        update: StoreUpdate,
+    ) -> Self {
+        self.store_assignments.push(ChartEventStoreAssignment {
+            store_name: store.into(),
+            update,
+            scope: ChartEventAssignmentScope::Start,
+            replace_scoped_values: true,
         });
         self
     }

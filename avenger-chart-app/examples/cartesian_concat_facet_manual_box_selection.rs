@@ -14,8 +14,8 @@ use avenger_chart_app::{
     chart_avenger_app,
 };
 use datafusion::{
-    common::Column,
-    prelude::{Expr, SessionContext, col, get_field, lit, when},
+    arrow::datatypes::DataType,
+    prelude::{Expr, SessionContext, col, lit, when},
 };
 use winit::window::WindowAttributes;
 
@@ -55,14 +55,13 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
     let cursor = Param::cursor("brush_cursor", CursorStyle::Default);
 
-    let rect = col(Column::new_unqualified(CARTESIAN_RECT_GEOMETRY_COLUMN));
     let overlay = Rect::<Cartesian>::new()
-        .selection_clause_dataset(brush.clause_dataset().matching_current_facet())
+        .data_store(StoreData::new("brush_boxes"))
         .exclude_from_scale_domains()
-        .x(get_field(rect.clone(), "x_min"))
-        .x2(get_field(rect.clone(), "x_max"))
-        .y(get_field(rect.clone(), "y_min"))
-        .y2(get_field(rect, "y_max"))
+        .x(col("x_min"))
+        .x2(col("x_max"))
+        .y(col("y_min"))
+        .y2(col("y_max"))
         .fill("rgba(37, 99, 235, 0.08)")
         .stroke("#2563eb")
         .stroke_width(1.5)
@@ -84,6 +83,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
     let plot = Plot::<HConcat>::new()
         .canvas_size(1120.0, 520.0)
+        .add_store(brush_box_store(Sharing::Free))
         .add_selection(brush)
         .add_param(cursor.clone())
         .cursor_param(cursor.name.clone())
@@ -157,6 +157,7 @@ fn selection_drag_binding(cursor: &Param) -> ChartEventBinding {
         .filter(ev::event_at_start_clipped_coord("y").is_not_null())
         .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
         .set_selection_at_start_scope("brush", selection_update_from_drag())
+        .set_store_at_start_scope_replacing_scopes("brush_boxes", replace_store_update())
         .preview()
 }
 
@@ -171,6 +172,7 @@ fn selection_release_binding() -> ChartEventBinding {
     .filter(ev::event_at_start_clipped_coord("x").is_not_null())
     .filter(ev::event_at_start_clipped_coord("y").is_not_null())
     .set_selection_at_start_scope("brush", selection_update_from_drag())
+    .set_store_at_start_scope_replacing_scopes("brush_boxes", replace_store_update())
     .exact()
 }
 
@@ -178,7 +180,36 @@ fn selection_clear_binding() -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::DoubleClick)
         .filter(selectable_scope())
         .set_selection("brush", SelectionUpdate::clear())
+        .set_store_replacing_scopes("brush_boxes", StoreUpdate::clear())
         .exact()
+}
+
+fn brush_box_store(sharing: Sharing) -> Store {
+    Store::empty("brush_boxes")
+        .field("id", DataType::Utf8, false)
+        .field("x_min", DataType::Float64, false)
+        .field("x_max", DataType::Float64, false)
+        .field("y_min", DataType::Float64, false)
+        .field("y_max", DataType::Float64, false)
+        .primary_key(["id"])
+        .sharing(sharing)
+}
+
+fn brush_box_row(id: Expr) -> StoreRow {
+    let x_interval =
+        ev::interval_ordered(ev::start_coord("x"), ev::event_at_start_clipped_coord("x"));
+    let y_interval =
+        ev::interval_ordered(ev::start_coord("y"), ev::event_at_start_clipped_coord("y"));
+    StoreRow::new()
+        .field("id", id)
+        .field("x_min", ev::interval_start(x_interval.clone()))
+        .field("x_max", ev::interval_end(x_interval))
+        .field("y_min", ev::interval_start(y_interval.clone()))
+        .field("y_max", ev::interval_end(y_interval))
+}
+
+fn replace_store_update() -> StoreUpdate {
+    StoreUpdate::replace_rows([brush_box_row(lit("active"))])
 }
 
 fn selection_update_from_drag() -> SelectionUpdate {

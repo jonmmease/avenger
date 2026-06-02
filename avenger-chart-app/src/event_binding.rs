@@ -190,6 +190,7 @@ struct CompiledStoreAssignment {
     store_name: String,
     sharing: Sharing,
     scope: ChartEventAssignmentScope,
+    replace_scoped_values: bool,
     update: CompiledStoreUpdate,
 }
 
@@ -226,6 +227,7 @@ struct StoreExpressionAssignment {
     store_name: String,
     sharing: Sharing,
     scope: ChartEventAssignmentScope,
+    replace_scoped_values: bool,
     update: StoreExpressionUpdate,
 }
 
@@ -419,6 +421,7 @@ impl CompiledChartEventBinding {
                 store_name: assignment.store_name.clone(),
                 sharing: store.sharing,
                 scope: assignment.scope,
+                replace_scoped_values: assignment.replace_scoped_values,
                 update: compile_store_expression_update(store, &assignment.update, ctx)?,
             });
         }
@@ -560,6 +563,7 @@ impl CompiledChartEventBinding {
                 store_name: assignment.store_name,
                 sharing: assignment.sharing,
                 scope: assignment.scope,
+                replace_scoped_values: assignment.replace_scoped_values,
                 update,
             });
         }
@@ -1191,6 +1195,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             store_patch.push(ScopedStoreAssignment {
                 store_name: assignment.store_name.clone(),
                 owner_path,
+                replace_scoped_values: assignment.replace_scoped_values,
                 update,
             });
         }
@@ -3834,6 +3839,113 @@ mod tests {
             .find(|(path, _)| path.is_empty())
             .expect("root store rows");
         assert!(root_rows.1.is_empty(), "free store should not write root");
+    }
+
+    #[tokio::test]
+    async fn replacing_store_update_clears_previous_scoped_owners() {
+        use datafusion::arrow::datatypes::DataType;
+
+        let ctx = SessionContext::new();
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .between(
+                ChartEventStream::on(ChartEventType::MouseDown)
+                    .filter(event::button().eq(lit("left"))),
+                ChartEventStream::on(ChartEventType::MouseUp),
+            )
+            .set_store_at_start_scope_replacing_scopes(
+                "brush_boxes",
+                StoreUpdate::replace_rows([StoreRow::new()
+                    .field("id", lit("active"))
+                    .field("x_min", lit(1.0))]),
+            )
+            .preview();
+        let compiled = Plot::<Cartesian>::new()
+            .canvas_size(400.0, 300.0)
+            .add_store(
+                Store::empty("brush_boxes")
+                    .field("id", DataType::Utf8, false)
+                    .field("x_min", DataType::Float64, false)
+                    .primary_key(["id"])
+                    .sharing(Sharing::Free),
+            )
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile replacing store binding plot");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+            compiled.selection_specs(),
+            compiled.store_specs(),
+            compiled.cursor_params(),
+        )
+        .expect("compile store binding runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+
+        for (owner, start_x) in [("Beta", 20.0), ("Alpha", 40.0)] {
+            let mut scope = coord_scope(0, 0.0, 0.0, 100.0, 100.0, &["x", "y"]);
+            scope
+                .sharing_owner_paths
+                .insert(0, vec![ScalarValue::Utf8(Some(owner.to_string()))]);
+            {
+                let mut app = state.runtime.lock().await;
+                app.last_interaction_state.scopes = vec![scope];
+            }
+            let start_event = EventStreamEventSnapshot {
+                event: SceneGraphEvent::MouseDown(SceneMouseDownEvent {
+                    position: [start_x, 20.0],
+                    button: MouseButton::Left,
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                mark_instance: None,
+                instant: Instant::now(),
+            };
+            let context = EventStreamContext {
+                mark_instance: None,
+                current_event: None,
+                start_event: Some(start_event),
+                previous_event: None,
+            };
+            let status = handler
+                .handle_with_context(
+                    &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                        position: [50.0, 50.0],
+                        mark_instance: None,
+                        modifiers: Default::default(),
+                    }),
+                    &context,
+                    &mut state,
+                    &empty_rtree(),
+                )
+                .await;
+            assert!(status.rerender);
+        }
+
+        let runtime = state.runtime.lock().await;
+        let rows = runtime.session.store_rows_for_diagnostics("brush_boxes");
+        assert!(
+            rows.iter()
+                .all(|(path, _)| path != &vec![ScalarValue::Utf8(Some("Beta".to_string()))]),
+            "replacing store write should remove the old Beta owner rows"
+        );
+        let alpha_rows = rows
+            .iter()
+            .find(|(path, _)| path == &vec![ScalarValue::Utf8(Some("Alpha".to_string()))])
+            .expect("new Alpha owner rows");
+        assert_eq!(alpha_rows.1.len(), 1);
+        assert_eq!(
+            alpha_rows.1[0].get("x_min"),
+            Some(&ScalarValue::Float64(Some(1.0)))
+        );
     }
 
     #[tokio::test]
