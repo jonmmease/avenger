@@ -8,7 +8,7 @@ use avenger_app::error::AvengerAppError;
 use avenger_chart::{
     event::{
         self, ChartEventAssignmentScope, ChartEventBinding, ChartEventEvaluationMode,
-        ChartEventStream, ChartEventType, InteractionColumnRequests,
+        ChartEventScopeTarget, ChartEventStream, ChartEventType, InteractionColumnRequests,
     },
     plot::{
         CompiledPlot, ScopedParamAssignment, ScopedParamStoreSnapshot, ScopedStoreAssignment,
@@ -126,6 +126,8 @@ struct CompiledChartEventBinding {
     store_assignments: Vec<CompiledStoreAssignment>,
     evaluation_mode: ChartEventEvaluationMode,
     interaction_requests: InteractionColumnRequests,
+    scope_target: Option<ChartEventScopeTarget>,
+    scope_target_uses_start_scope: bool,
     cursor_params: Arc<HashSet<String>>,
 }
 
@@ -375,6 +377,8 @@ impl CompiledChartEventBinding {
             store_assignments,
             evaluation_mode: binding.evaluation_mode,
             interaction_requests,
+            scope_target: binding.scope_target.clone(),
+            scope_target_uses_start_scope: binding.between.is_some(),
             cursor_params: Arc::new(cursor_params.iter().cloned().collect()),
         })
     }
@@ -640,7 +644,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
 
         let requests = &self.runtime.interaction_requests;
         let required_channels = requests.all_channels();
-        let routing_enabled = !requests.is_empty();
+        let routing_enabled = !requests.is_empty() || self.runtime.scope_target.is_some();
 
         // Route the current event position to a coordinate scope.
         let current_scope: Option<EvaluatedInteractionScope> = if routing_enabled {
@@ -706,6 +710,16 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                 binding_state.active_start_event_id,
             )
         };
+
+        if !target_scope_matches(
+            self.runtime.scope_target.as_ref(),
+            self.runtime.scope_target_uses_start_scope,
+            current_scope.as_ref(),
+            start_scope.as_ref(),
+        ) {
+            record_event_eval_elapsed(&mut app.event_metrics, eval_start);
+            return UpdateStatus::default();
+        }
 
         // Resolve effective params for the current/start/previous scopes.
         let current_owner_paths = current_scope
@@ -1361,6 +1375,28 @@ fn filters_pass(values: &[ScalarValue]) -> bool {
         ScalarValue::Boolean(Some(value)) => *value,
         _ => false,
     })
+}
+
+fn target_scope_matches(
+    target: Option<&ChartEventScopeTarget>,
+    use_start_scope: bool,
+    current_scope: Option<&EvaluatedInteractionScope>,
+    start_scope: Option<&EvaluatedInteractionScope>,
+) -> bool {
+    let Some(target) = target else {
+        return true;
+    };
+    let scope = if use_start_scope {
+        start_scope
+    } else {
+        current_scope
+    };
+    let Some(scope) = scope else {
+        return false;
+    };
+    scope
+        .coord_node_path
+        .starts_with(&target.coord_node_path_prefix)
 }
 
 /// Result of routing a pointer event against interaction scopes.

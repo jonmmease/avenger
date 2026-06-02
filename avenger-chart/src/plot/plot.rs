@@ -165,6 +165,9 @@ impl<C: CoordinateSystem> Plot<C> {
         let tool_context = ToolCompileContext::from_parent(inherited_tool_context);
         let active_tool_expansions = tool_context.expand_local_tools(&self.tools)?;
         tool_context.register_local_stores(&self.stores)?;
+        if !is_root {
+            tool_context.register_local_event_bindings(&self.event_bindings)?;
+        }
         let erased_tool_context: CompileContext<'_> = &tool_context;
 
         let mut selection_specs: IndexMap<String, CompiledSelectionSpec> =
@@ -282,7 +285,11 @@ impl<C: CoordinateSystem> Plot<C> {
         // add_param_with_sharing.
         let mut param_source_specs = self.param_specs.clone();
         let mut store_source_specs = Vec::new();
-        let mut event_bindings = self.event_bindings.clone();
+        let mut event_bindings = if is_root {
+            self.event_bindings.clone()
+        } else {
+            Vec::new()
+        };
         let cursor_params = self.cursor_params.clone();
         let mut tool_metadata = Vec::new();
         if is_root {

@@ -23,12 +23,14 @@ pub use avenger_chart_tools::{BoxZoom, PanScrollZoom};
 
 pub(crate) struct ToolCompileContext {
     state: Arc<Mutex<ToolCompileState>>,
+    coord_node_path: Vec<usize>,
 }
 
 impl ToolCompileContext {
     pub(crate) fn root() -> Self {
         Self {
             state: Arc::new(Mutex::new(ToolCompileState::default())),
+            coord_node_path: Vec::new(),
         }
     }
 
@@ -37,6 +39,18 @@ impl ToolCompileContext {
             state: parent
                 .map(|ctx| ctx.state.clone())
                 .unwrap_or_else(|| Arc::new(Mutex::new(ToolCompileState::default()))),
+            coord_node_path: parent
+                .map(|ctx| ctx.coord_node_path.clone())
+                .unwrap_or_default(),
+        }
+    }
+
+    pub(crate) fn with_coord_node_path_appended(&self, child_index: usize) -> Self {
+        let mut coord_node_path = self.coord_node_path.clone();
+        coord_node_path.push(child_index);
+        Self {
+            state: self.state.clone(),
+            coord_node_path,
         }
     }
 
@@ -48,7 +62,8 @@ impl ToolCompileContext {
         for tool in tools {
             let id = tool.id().to_string();
             validate_tool_id(&id)?;
-            let expansion = tool.expand(ToolExpansionContext { tool_id: &id })?;
+            let mut expansion = tool.expand(ToolExpansionContext { tool_id: &id })?;
+            self.localize_event_bindings(&mut expansion.event_bindings);
             let active_expansion = ActiveToolExpansion {
                 id: id.clone(),
                 expansion: expansion.clone(),
@@ -60,6 +75,23 @@ impl ToolCompileContext {
             active.push(active_expansion);
         }
         Ok(active)
+    }
+
+    pub(crate) fn register_local_event_bindings(
+        &self,
+        bindings: &[ChartEventBinding],
+    ) -> Result<(), AvengerChartError> {
+        if bindings.is_empty() {
+            return Ok(());
+        }
+        let mut bindings = bindings.to_vec();
+        self.localize_event_bindings(&mut bindings);
+        self.state
+            .lock()
+            .expect("tool compile state lock poisoned")
+            .event_bindings
+            .extend(bindings);
+        Ok(())
     }
 
     pub(crate) fn register_local_stores(&self, stores: &[Store]) -> Result<(), AvengerChartError> {
@@ -142,6 +174,17 @@ impl ToolCompileContext {
             .lock()
             .expect("tool compile state lock poisoned")
             .finalize()
+    }
+
+    fn localize_event_bindings(&self, bindings: &mut [ChartEventBinding]) {
+        if self.coord_node_path.is_empty() {
+            return;
+        }
+        for binding in bindings {
+            *binding = binding
+                .clone()
+                .with_coord_node_path_target(self.coord_node_path.clone());
+        }
     }
 }
 

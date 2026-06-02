@@ -21,12 +21,6 @@ use winit::window::WindowAttributes;
 const FREE_STORE: &str = "free_brush_boxes";
 const SHARED_STORE: &str = "shared_brush_boxes";
 
-#[derive(Clone, Copy)]
-enum PanelSide {
-    Left,
-    Right,
-}
-
 fn main() {
     init_diagnostics();
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
@@ -70,20 +64,34 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let free_leaf = Plot::<Cartesian>::new()
         .mark(selection_points(free_selected, "#2563eb", 92.0))
         .mark(selection_overlay(StoreData::new(FREE_STORE), "#2563eb"));
-    let free_facets = Plot::<FacetColumn>::new().data(df.clone()).mark(
-        Subplot::new(free_leaf)
-            .column(col("group_name"))
-            .label("Store sharing: Free"),
-    );
+    let free_facets = Plot::<FacetColumn>::new()
+        .data(df.clone())
+        .mark(
+            Subplot::new(free_leaf)
+                .column(col("group_name"))
+                .label("Store sharing: Free"),
+        )
+        .event_binding(selection_drag_binding(&cursor, FREE_STORE))
+        .event_binding(selection_add_drag_binding(&cursor, FREE_STORE))
+        .event_binding(selection_release_binding(FREE_STORE))
+        .event_binding(selection_add_release_binding(FREE_STORE))
+        .event_binding(selection_clear_binding(FREE_STORE));
 
     let shared_leaf = Plot::<Cartesian>::new()
         .mark(selection_points(shared_selected, "#d97706", 92.0))
         .mark(selection_overlay(StoreData::new(SHARED_STORE), "#d97706"));
-    let shared_facets = Plot::<FacetColumn>::new().data(df).mark(
-        Subplot::new(shared_leaf)
-            .column(col("group_name"))
-            .label("Store sharing: Shared"),
-    );
+    let shared_facets = Plot::<FacetColumn>::new()
+        .data(df)
+        .mark(
+            Subplot::new(shared_leaf)
+                .column(col("group_name"))
+                .label("Store sharing: Shared"),
+        )
+        .event_binding(selection_drag_binding(&cursor, SHARED_STORE))
+        .event_binding(selection_add_drag_binding(&cursor, SHARED_STORE))
+        .event_binding(selection_release_binding(SHARED_STORE))
+        .event_binding(selection_add_release_binding(SHARED_STORE))
+        .event_binding(selection_clear_binding(SHARED_STORE));
 
     let plot = Plot::<HConcat>::new()
         .canvas_size(1440.0, 520.0)
@@ -95,32 +103,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .cursor_param(cursor.name.clone())
         .mark(Subplot::new(free_facets).key("free"))
         .mark(Subplot::new(shared_facets).key("shared"))
-        .event_binding(cursor_binding(&cursor))
-        .event_binding(selection_drag_binding(&cursor, FREE_STORE, PanelSide::Left))
-        .event_binding(selection_drag_binding(
-            &cursor,
-            SHARED_STORE,
-            PanelSide::Right,
-        ))
-        .event_binding(selection_add_drag_binding(
-            &cursor,
-            FREE_STORE,
-            PanelSide::Left,
-        ))
-        .event_binding(selection_add_drag_binding(
-            &cursor,
-            SHARED_STORE,
-            PanelSide::Right,
-        ))
-        .event_binding(selection_release_binding(FREE_STORE, PanelSide::Left))
-        .event_binding(selection_release_binding(SHARED_STORE, PanelSide::Right))
-        .event_binding(selection_add_release_binding(FREE_STORE, PanelSide::Left))
-        .event_binding(selection_add_release_binding(
-            SHARED_STORE,
-            PanelSide::Right,
-        ))
-        .event_binding(selection_clear_binding(FREE_STORE, PanelSide::Left))
-        .event_binding(selection_clear_binding(SHARED_STORE, PanelSide::Right));
+        .event_binding(cursor_binding(&cursor));
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(
@@ -173,22 +156,6 @@ fn selectable_start_scope() -> Expr {
     ev::start_facet_value(0).is_not_null()
 }
 
-fn panel_filter(side: PanelSide) -> Expr {
-    let midpoint = ev::canvas_width() / lit(2.0);
-    match side {
-        PanelSide::Left => ev::x().lt(midpoint),
-        PanelSide::Right => ev::x().gt_eq(midpoint),
-    }
-}
-
-fn panel_start_filter(side: PanelSide) -> Expr {
-    let midpoint = ev::start_canvas_width() / lit(2.0);
-    match side {
-        PanelSide::Left => ev::start_x().lt(midpoint),
-        PanelSide::Right => ev::start_x().gt_eq(midpoint),
-    }
-}
-
 fn cursor_binding(cursor: &Param) -> ChartEventBinding {
     let over_selectable = ev::event_coord("x")
         .is_not_null()
@@ -202,14 +169,13 @@ fn cursor_binding(cursor: &Param) -> ChartEventBinding {
         .preview()
 }
 
-fn selection_drag_binding(cursor: &Param, store_name: &str, side: PanelSide) -> ChartEventBinding {
+fn selection_drag_binding(cursor: &Param, store_name: &str) -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::CursorMoved)
         .between(
             ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
             ChartEventStream::on(ChartEventType::MouseUp),
         )
         .filter(selectable_start_scope())
-        .filter(panel_start_filter(side))
         .filter(ev::start_coord("x").is_not_null())
         .filter(ev::start_coord("y").is_not_null())
         .filter(ev::event_at_start_clipped_coord("x").is_not_null())
@@ -220,18 +186,13 @@ fn selection_drag_binding(cursor: &Param, store_name: &str, side: PanelSide) -> 
         .preview()
 }
 
-fn selection_add_drag_binding(
-    cursor: &Param,
-    store_name: &str,
-    side: PanelSide,
-) -> ChartEventBinding {
+fn selection_add_drag_binding(cursor: &Param, store_name: &str) -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::CursorMoved)
         .between(
             ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
             ChartEventStream::on(ChartEventType::MouseUp),
         )
         .filter(selectable_start_scope())
-        .filter(panel_start_filter(side))
         .filter(ev::start_coord("x").is_not_null())
         .filter(ev::start_coord("y").is_not_null())
         .filter(ev::event_at_start_clipped_coord("x").is_not_null())
@@ -242,13 +203,12 @@ fn selection_add_drag_binding(
         .preview()
 }
 
-fn selection_release_binding(store_name: &str, side: PanelSide) -> ChartEventBinding {
+fn selection_release_binding(store_name: &str) -> ChartEventBinding {
     ChartEventBinding::on_between_end(
         ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
         ChartEventStream::on(ChartEventType::MouseUp),
     )
     .filter(selectable_start_scope())
-    .filter(panel_start_filter(side))
     .filter(ev::start_coord("x").is_not_null())
     .filter(ev::start_coord("y").is_not_null())
     .filter(ev::event_at_start_clipped_coord("x").is_not_null())
@@ -258,13 +218,12 @@ fn selection_release_binding(store_name: &str, side: PanelSide) -> ChartEventBin
     .exact()
 }
 
-fn selection_add_release_binding(store_name: &str, side: PanelSide) -> ChartEventBinding {
+fn selection_add_release_binding(store_name: &str) -> ChartEventBinding {
     ChartEventBinding::on_between_end(
         ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
         ChartEventStream::on(ChartEventType::MouseUp),
     )
     .filter(selectable_start_scope())
-    .filter(panel_start_filter(side))
     .filter(ev::start_coord("x").is_not_null())
     .filter(ev::start_coord("y").is_not_null())
     .filter(ev::event_at_start_clipped_coord("x").is_not_null())
@@ -274,10 +233,9 @@ fn selection_add_release_binding(store_name: &str, side: PanelSide) -> ChartEven
     .exact()
 }
 
-fn selection_clear_binding(store_name: &str, side: PanelSide) -> ChartEventBinding {
+fn selection_clear_binding(store_name: &str) -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::DoubleClick)
         .filter(selectable_scope())
-        .filter(panel_filter(side))
         .set_store_replacing_scopes(store_name, StoreUpdate::clear())
         .exact()
 }

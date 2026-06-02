@@ -677,7 +677,8 @@ mod tests {
         plot::{
             CompiledPlot, Plot,
             compiled::{
-                CoordinationKind, CoordinationScopeKey, child_frame_container_view_from_concat,
+                CoordinationKind, CoordinationScopeKey, EvaluationRequest,
+                child_frame_container_view_from_concat,
                 container_label_items_from_child_frame_container,
                 scale_provider::DynamicScaleProvider, scales::build_scale_builder_from_marks,
             },
@@ -686,7 +687,7 @@ mod tests {
         scales::{Linear, LinearScaleExt, ScaleChannelConfig},
         zerod::ZeroDCoord,
     };
-    use avenger_chart_core::{CoordinationAxis, Sharing};
+    use avenger_chart_core::{ChartEventBinding, ChartEventType, CoordinationAxis, Sharing};
 
     async fn measurement_for_plot(
         compiled: &CompiledPlot,
@@ -941,6 +942,65 @@ mod tests {
         assert_eq!(label_items.len(), 2);
         assert_eq!(label_items[0].text, "Left");
         assert_eq!(label_items[1].text, "Right");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn hconcat_child_event_bindings_are_targeted_to_child_scopes()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let left = child_scatter_plot(xy_dataframe(&ctx, vec![1.0], vec![1.0]), false)
+            .event_binding(ChartEventBinding::on(ChartEventType::CursorMoved));
+        let right = child_scatter_plot(xy_dataframe(&ctx, vec![2.0], vec![2.0]), false)
+            .event_binding(ChartEventBinding::on(ChartEventType::CursorMoved));
+
+        let compiled = Plot::<HConcat>::new()
+            .mark(Subplot::new(left).key("left"))
+            .mark(Subplot::new(right).key("right"))
+            .compile(&ctx)
+            .await?;
+
+        let targets = compiled
+            .event_bindings()
+            .iter()
+            .map(|binding| {
+                binding
+                    .scope_target
+                    .as_ref()
+                    .map(|target| target.coord_node_path_prefix.clone())
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(targets, vec![Some(vec![0]), Some(vec![1])]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn hconcat_interaction_scopes_include_child_coord_path_prefixes()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let left = child_scatter_plot(xy_dataframe(&ctx, vec![1.0], vec![1.0]), false);
+        let right = child_scatter_plot(xy_dataframe(&ctx, vec![2.0], vec![2.0]), false);
+
+        let compiled = Arc::new(
+            Plot::<HConcat>::new()
+                .canvas_size(520.0, 240.0)
+                .mark(Subplot::new(left).key("left"))
+                .mark(Subplot::new(right).key("right"))
+                .compile(&ctx)
+                .await?,
+        );
+        let mut session = compiled.instantiate(ctx);
+        let evaluated = session.evaluate(EvaluationRequest::new().exact()).await?;
+        let mut paths = evaluated
+            .interaction
+            .scopes
+            .iter()
+            .map(|scope| scope.coord_node_path.clone())
+            .collect::<Vec<_>>();
+        paths.sort();
+
+        assert_eq!(paths, vec![vec![0], vec![1]]);
         Ok(())
     }
 

@@ -126,6 +126,11 @@ pub struct ChartEventStoreAssignment {
     pub replace_scoped_values: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChartEventScopeTarget {
+    pub coord_node_path_prefix: Vec<usize>,
+}
+
 #[serde_as]
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ChartEventStream {
@@ -189,6 +194,8 @@ pub struct ChartEventBinding {
     pub store_assignments: Vec<ChartEventStoreAssignment>,
     pub evaluation_mode: ChartEventEvaluationMode,
     pub settle_exact: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_target: Option<ChartEventScopeTarget>,
 }
 
 impl ChartEventBinding {
@@ -203,6 +210,7 @@ impl ChartEventBinding {
             store_assignments: Vec::new(),
             evaluation_mode: ChartEventEvaluationMode::Preview,
             settle_exact: false,
+            scope_target: None,
         }
     }
 
@@ -224,12 +232,21 @@ impl ChartEventBinding {
             store_assignments: Vec::new(),
             evaluation_mode: ChartEventEvaluationMode::Preview,
             settle_exact: false,
+            scope_target: None,
         }
     }
 
     pub fn filter(mut self, expr: impl IntoExpr) -> Self {
         self.filters
             .push(expr_node(expr.into_expr(), "event binding filter"));
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn with_coord_node_path_target(mut self, coord_node_path_prefix: Vec<usize>) -> Self {
+        self.scope_target = (!coord_node_path_prefix.is_empty()).then_some(ChartEventScopeTarget {
+            coord_node_path_prefix,
+        });
         self
     }
 

@@ -29,6 +29,7 @@ use crate::{
     },
     render::{EvaluationContext, RenderContext},
     theme::Theme,
+    tools::ToolCompileContext,
 };
 
 fn refresh_measurement_params_for_child(
@@ -69,6 +70,15 @@ impl SubplotContainerCoordinateSystem for HConcat {
         compile_context: Option<CompileContext<'_>>,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
         subplot.validate_no_facet_channels("HConcat")?;
+        let child_tool_context;
+        let compile_context =
+            if let Some(tool_context) = compile_context.and_then(ToolCompileContext::downcast) {
+                child_tool_context =
+                    tool_context.with_coord_node_path_appended(compiled_state.mark_index());
+                Some(&child_tool_context as CompileContext<'_>)
+            } else {
+                compile_context
+            };
 
         Ok(Arc::new(CompiledConcatSubplot::new(
             compile_subplot_payload_with_context(
@@ -103,6 +113,15 @@ impl SubplotContainerCoordinateSystem for VConcat {
         compile_context: Option<CompileContext<'_>>,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
         subplot.validate_no_facet_channels("VConcat")?;
+        let child_tool_context;
+        let compile_context =
+            if let Some(tool_context) = compile_context.and_then(ToolCompileContext::downcast) {
+                child_tool_context =
+                    tool_context.with_coord_node_path_appended(compiled_state.mark_index());
+                Some(&child_tool_context as CompileContext<'_>)
+            } else {
+                compile_context
+            };
 
         Ok(Arc::new(CompiledConcatSubplot::new(
             compile_subplot_payload_with_context(
@@ -251,6 +270,7 @@ impl CompiledConcatSubplot {
             let child_scopes = std::mem::take(&mut components.interaction_scopes);
             if !child_scopes.is_empty() {
                 let translated = child_scopes.into_iter().map(|mut scope| {
+                    scope.prepend_coord_node_path(self.child_index());
                     scope.bounds.x += render_placement.origin[0];
                     scope.bounds.y += render_placement.origin[1];
                     scope

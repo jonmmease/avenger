@@ -823,6 +823,40 @@ pub struct EvaluatedInteractionScope {
     pub sharing_owner_paths: HashMap<u8, Vec<ScalarValue>>,
 }
 
+impl EvaluatedInteractionScope {
+    pub(crate) fn prepend_coord_node_path(&mut self, child_index: usize) {
+        self.coord_node_path.insert(0, child_index);
+        self.scope_id =
+            interaction_scope_content_id(&self.coord_node_path, &self.logical_facet_values);
+    }
+}
+
+fn interaction_scope_content_id(
+    coord_node_path: &[usize],
+    logical_facet_values: &[ScalarValue],
+) -> String {
+    let coord_path = coord_node_path
+        .iter()
+        .map(|index| index.to_string())
+        .collect::<Vec<_>>()
+        .join(".");
+    let facet_path = logical_facet_values
+        .iter()
+        .map(scalar_value_for_scope_id)
+        .collect::<Vec<_>>()
+        .join("/");
+    format!("coord:{coord_path};facet:{facet_path}")
+}
+
+fn scalar_value_for_scope_id(value: &ScalarValue) -> String {
+    match value {
+        ScalarValue::Utf8(Some(value))
+        | ScalarValue::LargeUtf8(Some(value))
+        | ScalarValue::Utf8View(Some(value)) => value.clone(),
+        _ => value.to_string(),
+    }
+}
+
 impl std::fmt::Debug for EvaluatedInteractionScope {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EvaluatedInteractionScope")
