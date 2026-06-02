@@ -12,16 +12,18 @@ use avenger_chart::{
     },
     plot::{
         CompiledPlot, ScopedParamAssignment, ScopedParamStoreSnapshot, ScopedSelectionAssignment,
+        ScopedStoreAssignment, StoreStateUpdate,
     },
     render::{EvaluatedInteractionScope, EvaluationMode},
     serialization::LogicalExprNodeExt,
 };
 use avenger_chart_core::{
-    CompiledParamSpec, CompiledScalarExpressionProgram, CompiledSelectionSpec,
+    CompiledParamSpec, CompiledScalarExpressionProgram, CompiledSelectionSpec, CompiledStoreSpec,
     InteractionPointInversionRequest, PhysicalScalarExpressionSpec, PhysicalScalarProgramOptions,
     PlaceholderColumn, SelectionClause, SelectionGeometryValue, SelectionPredicateSpec,
-    SelectionPredicateUpdate, SelectionStateUpdate, SelectionUpdateKind, Sharing,
-    collect_placeholder_ids, one_row_batch_from_scalars, schema_from_fields,
+    SelectionPredicateUpdate, SelectionStateUpdate, SelectionUpdateKind, Sharing, StoreFieldPatch,
+    StoreKey, StoreRow, StoreRowValue, StoreUpdate, StoreValueExpr, collect_placeholder_ids,
+    one_row_batch_from_scalars, schema_from_fields,
 };
 use avenger_common::cursor::CursorStyle;
 use avenger_common::time::Instant;
@@ -64,6 +66,7 @@ pub(crate) fn event_streams_for_plot_bindings(
         ctx,
         compiled_plot.param_specs(),
         compiled_plot.selection_specs(),
+        compiled_plot.store_specs(),
         compiled_plot.cursor_params(),
     )
 }
@@ -73,6 +76,7 @@ pub(crate) fn event_streams_for_bindings(
     ctx: &SessionContext,
     param_specs: &IndexMap<String, CompiledParamSpec>,
     selection_specs: &IndexMap<String, CompiledSelectionSpec>,
+    store_specs: &IndexMap<String, CompiledStoreSpec>,
     cursor_params: &[String],
 ) -> Result<
     Vec<(
@@ -89,6 +93,7 @@ pub(crate) fn event_streams_for_bindings(
             ctx,
             param_specs,
             selection_specs,
+            store_specs,
             cursor_params,
         )?);
         streams.push((
@@ -121,6 +126,7 @@ struct CompiledChartEventBinding {
     filter_count: usize,
     assignments: Vec<CompiledParamAssignment>,
     selection_assignments: Vec<CompiledSelectionAssignment>,
+    store_assignments: Vec<CompiledStoreAssignment>,
     evaluation_mode: ChartEventEvaluationMode,
     interaction_requests: InteractionColumnRequests,
     cursor_params: Arc<HashSet<String>>,
@@ -179,6 +185,83 @@ enum CompiledSelectionOutput {
     },
 }
 
+#[derive(Clone)]
+struct CompiledStoreAssignment {
+    store_name: String,
+    sharing: Sharing,
+    scope: ChartEventAssignmentScope,
+    update: CompiledStoreUpdate,
+}
+
+#[derive(Clone)]
+enum CompiledStoreUpdate {
+    Clear,
+    ReplaceRows {
+        rows: Vec<CompiledStoreRow>,
+    },
+    InsertRows {
+        rows: Vec<CompiledStoreRow>,
+    },
+    UpsertRows {
+        rows: Vec<CompiledStoreRow>,
+    },
+    UpdateByKey {
+        key: CompiledStoreRow,
+        fields: CompiledStoreRow,
+    },
+    DeleteByKey {
+        key: CompiledStoreRow,
+    },
+    ToggleRows {
+        rows: Vec<CompiledStoreRow>,
+    },
+}
+
+#[derive(Clone)]
+struct CompiledStoreRow {
+    fields: Vec<(String, usize)>,
+}
+
+struct StoreExpressionAssignment {
+    store_name: String,
+    sharing: Sharing,
+    scope: ChartEventAssignmentScope,
+    update: StoreExpressionUpdate,
+}
+
+enum StoreExpressionUpdate {
+    Clear,
+    ReplaceRows {
+        rows: Vec<StoreExpressionRow>,
+    },
+    InsertRows {
+        rows: Vec<StoreExpressionRow>,
+    },
+    UpsertRows {
+        rows: Vec<StoreExpressionRow>,
+    },
+    UpdateByKey {
+        key: StoreExpressionRow,
+        fields: StoreExpressionRow,
+    },
+    DeleteByKey {
+        key: StoreExpressionRow,
+    },
+    ToggleRows {
+        rows: Vec<StoreExpressionRow>,
+    },
+}
+
+struct StoreExpressionRow {
+    fields: Vec<StoreExpressionField>,
+}
+
+struct StoreExpressionField {
+    name: String,
+    expr: Expr,
+    expected_type: DataType,
+}
+
 impl CompiledChartEventBinding {
     fn compile(
         binding_index: usize,
@@ -186,6 +269,7 @@ impl CompiledChartEventBinding {
         ctx: &SessionContext,
         param_specs: &IndexMap<String, CompiledParamSpec>,
         selection_specs: &IndexMap<String, CompiledSelectionSpec>,
+        store_specs: &IndexMap<String, CompiledStoreSpec>,
         cursor_params: &[String],
     ) -> Result<Self, AvengerAppError> {
         binding
@@ -204,6 +288,14 @@ impl CompiledChartEventBinding {
                 return Err(AvengerAppError::InternalError(format!(
                     "Chart event binding updates unknown selection '{}'",
                     assignment.selection_id
+                )));
+            }
+        }
+        for assignment in &binding.store_assignments {
+            if !store_specs.contains_key(&assignment.store_name) {
+                return Err(AvengerAppError::InternalError(format!(
+                    "Chart event binding updates unknown store '{}'",
+                    assignment.store_name
                 )));
             }
         }
@@ -318,11 +410,26 @@ impl CompiledChartEventBinding {
                 expressions,
             ));
         }
+        let mut store_exprs = Vec::new();
+        for assignment in &binding.store_assignments {
+            let store = store_specs
+                .get(&assignment.store_name)
+                .expect("store assignment validated");
+            store_exprs.push(StoreExpressionAssignment {
+                store_name: assignment.store_name.clone(),
+                sharing: store.sharing,
+                scope: assignment.scope,
+                update: compile_store_expression_update(store, &assignment.update, ctx)?,
+            });
+        }
 
         let mut scan_exprs = filter_exprs.clone();
         scan_exprs.extend(assignment_exprs.iter().map(|(_, expr, _, _)| expr.clone()));
         for (_, _, _, _, _, _, exprs) in &selection_exprs {
             scan_exprs.extend(exprs.iter().map(|expr| expr.expr.clone()));
+        }
+        for assignment in &store_exprs {
+            scan_exprs.extend(store_expression_update_exprs(&assignment.update));
         }
         let mut interaction_requests = event::scan_interaction_columns(&scan_exprs);
         for (selection_id, sharing, scope, _, capture_facet_context, _, _) in &selection_exprs {
@@ -339,6 +446,18 @@ impl CompiledChartEventBinding {
             if *capture_facet_context && let Some(selection) = selection_specs.get(selection_id) {
                 for index in 0..selection.facet_context.len() {
                     interaction_requests.start_facet_values.insert(index);
+                }
+            }
+        }
+        for assignment in &store_exprs {
+            if assignment.sharing.to_level() != u8::MAX {
+                match assignment.scope {
+                    ChartEventAssignmentScope::Current => {
+                        interaction_requests.current_scope_id = true;
+                    }
+                    ChartEventAssignmentScope::Start => {
+                        interaction_requests.start_scope_id = true;
+                    }
                 }
             }
         }
@@ -429,6 +548,21 @@ impl CompiledChartEventBinding {
                 output,
             });
         }
+        let mut store_assignments = Vec::new();
+        for assignment in store_exprs {
+            let update = append_store_expression_update_specs(
+                &assignment.store_name,
+                assignment.update,
+                &mut specs,
+                filter_count,
+            );
+            store_assignments.push(CompiledStoreAssignment {
+                store_name: assignment.store_name,
+                sharing: assignment.sharing,
+                scope: assignment.scope,
+                update,
+            });
+        }
         let program = CompiledScalarExpressionProgram::compile(
             ctx,
             schema,
@@ -447,11 +581,233 @@ impl CompiledChartEventBinding {
             filter_count,
             assignments,
             selection_assignments,
+            store_assignments,
             evaluation_mode: binding.evaluation_mode,
             interaction_requests,
             cursor_params: Arc::new(cursor_params.iter().cloned().collect()),
         })
     }
+}
+
+fn compile_store_expression_update(
+    store: &CompiledStoreSpec,
+    update: &StoreUpdate,
+    ctx: &SessionContext,
+) -> Result<StoreExpressionUpdate, AvengerAppError> {
+    Ok(match update {
+        StoreUpdate::Clear => StoreExpressionUpdate::Clear,
+        StoreUpdate::ReplaceRows { rows } => StoreExpressionUpdate::ReplaceRows {
+            rows: compile_store_rows(store, rows, ctx)?,
+        },
+        StoreUpdate::InsertRows { rows } => StoreExpressionUpdate::InsertRows {
+            rows: compile_store_rows(store, rows, ctx)?,
+        },
+        StoreUpdate::UpsertRows { rows } => {
+            ensure_store_update_has_key(store, "upsert_rows")?;
+            StoreExpressionUpdate::UpsertRows {
+                rows: compile_store_rows(store, rows, ctx)?,
+            }
+        }
+        StoreUpdate::UpdateByKey { key, fields } => {
+            ensure_store_update_has_key(store, "update_by_key")?;
+            StoreExpressionUpdate::UpdateByKey {
+                key: compile_store_key(store, key, ctx)?,
+                fields: compile_store_patch(store, fields, ctx)?,
+            }
+        }
+        StoreUpdate::DeleteByKey { key } => {
+            ensure_store_update_has_key(store, "delete_by_key")?;
+            StoreExpressionUpdate::DeleteByKey {
+                key: compile_store_key(store, key, ctx)?,
+            }
+        }
+        StoreUpdate::ToggleRows { rows } => {
+            ensure_store_update_has_key(store, "toggle_rows")?;
+            StoreExpressionUpdate::ToggleRows {
+                rows: compile_store_rows(store, rows, ctx)?,
+            }
+        }
+    })
+}
+
+fn ensure_store_update_has_key(store: &CompiledStoreSpec, op: &str) -> Result<(), AvengerAppError> {
+    if store.primary_key.is_empty() {
+        return Err(AvengerAppError::InternalError(format!(
+            "Store '{}' operation '{op}' requires a primary key",
+            store.name
+        )));
+    }
+    Ok(())
+}
+
+fn compile_store_rows(
+    store: &CompiledStoreSpec,
+    rows: &[StoreRow],
+    ctx: &SessionContext,
+) -> Result<Vec<StoreExpressionRow>, AvengerAppError> {
+    rows.iter()
+        .map(|row| compile_store_fields(store, &row.fields, ctx, "row"))
+        .collect()
+}
+
+fn compile_store_key(
+    store: &CompiledStoreSpec,
+    key: &StoreKey,
+    ctx: &SessionContext,
+) -> Result<StoreExpressionRow, AvengerAppError> {
+    for key_field in &store.primary_key {
+        if !key.fields.contains_key(key_field) {
+            return Err(AvengerAppError::InternalError(format!(
+                "Store '{}' key is missing primary-key field '{}'",
+                store.name, key_field
+            )));
+        }
+    }
+    compile_store_fields(store, &key.fields, ctx, "key")
+}
+
+fn compile_store_patch(
+    store: &CompiledStoreSpec,
+    patch: &StoreFieldPatch,
+    ctx: &SessionContext,
+) -> Result<StoreExpressionRow, AvengerAppError> {
+    compile_store_fields(store, &patch.fields, ctx, "field patch")
+}
+
+fn compile_store_fields(
+    store: &CompiledStoreSpec,
+    fields: &IndexMap<String, StoreValueExpr>,
+    ctx: &SessionContext,
+    context: &str,
+) -> Result<StoreExpressionRow, AvengerAppError> {
+    let mut compiled = Vec::new();
+    for (field_name, value_expr) in fields {
+        let field = store.field(field_name).ok_or_else(|| {
+            AvengerAppError::InternalError(format!(
+                "Store '{}' {context} references unknown field '{}'",
+                store.name, field_name
+            ))
+        })?;
+        let expr = value_expr
+            .expr
+            .to_expr(ctx)
+            .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
+        compiled.push(StoreExpressionField {
+            name: field_name.clone(),
+            expr,
+            expected_type: field.data_type.clone(),
+        });
+    }
+    Ok(StoreExpressionRow { fields: compiled })
+}
+
+fn store_expression_update_exprs(update: &StoreExpressionUpdate) -> Vec<Expr> {
+    let mut exprs = Vec::new();
+    collect_store_expression_update_exprs(update, &mut exprs);
+    exprs
+}
+
+fn collect_store_expression_update_exprs(update: &StoreExpressionUpdate, exprs: &mut Vec<Expr>) {
+    match update {
+        StoreExpressionUpdate::Clear => {}
+        StoreExpressionUpdate::ReplaceRows { rows }
+        | StoreExpressionUpdate::InsertRows { rows }
+        | StoreExpressionUpdate::UpsertRows { rows }
+        | StoreExpressionUpdate::ToggleRows { rows } => {
+            for row in rows {
+                collect_store_row_exprs(row, exprs);
+            }
+        }
+        StoreExpressionUpdate::UpdateByKey { key, fields } => {
+            collect_store_row_exprs(key, exprs);
+            collect_store_row_exprs(fields, exprs);
+        }
+        StoreExpressionUpdate::DeleteByKey { key } => collect_store_row_exprs(key, exprs),
+    }
+}
+
+fn collect_store_row_exprs(row: &StoreExpressionRow, exprs: &mut Vec<Expr>) {
+    exprs.extend(row.fields.iter().map(|field| field.expr.clone()));
+}
+
+fn append_store_expression_update_specs(
+    store_name: &str,
+    update: StoreExpressionUpdate,
+    specs: &mut Vec<PhysicalScalarExpressionSpec>,
+    filter_count: usize,
+) -> CompiledStoreUpdate {
+    match update {
+        StoreExpressionUpdate::Clear => CompiledStoreUpdate::Clear,
+        StoreExpressionUpdate::ReplaceRows { rows } => CompiledStoreUpdate::ReplaceRows {
+            rows: append_store_rows_specs(store_name, "replace", rows, specs, filter_count),
+        },
+        StoreExpressionUpdate::InsertRows { rows } => CompiledStoreUpdate::InsertRows {
+            rows: append_store_rows_specs(store_name, "insert", rows, specs, filter_count),
+        },
+        StoreExpressionUpdate::UpsertRows { rows } => CompiledStoreUpdate::UpsertRows {
+            rows: append_store_rows_specs(store_name, "upsert", rows, specs, filter_count),
+        },
+        StoreExpressionUpdate::UpdateByKey { key, fields } => CompiledStoreUpdate::UpdateByKey {
+            key: append_store_row_specs(store_name, "update_key", key, specs, filter_count),
+            fields: append_store_row_specs(
+                store_name,
+                "update_fields",
+                fields,
+                specs,
+                filter_count,
+            ),
+        },
+        StoreExpressionUpdate::DeleteByKey { key } => CompiledStoreUpdate::DeleteByKey {
+            key: append_store_row_specs(store_name, "delete_key", key, specs, filter_count),
+        },
+        StoreExpressionUpdate::ToggleRows { rows } => CompiledStoreUpdate::ToggleRows {
+            rows: append_store_rows_specs(store_name, "toggle", rows, specs, filter_count),
+        },
+    }
+}
+
+fn append_store_rows_specs(
+    store_name: &str,
+    prefix: &str,
+    rows: Vec<StoreExpressionRow>,
+    specs: &mut Vec<PhysicalScalarExpressionSpec>,
+    filter_count: usize,
+) -> Vec<CompiledStoreRow> {
+    rows.into_iter()
+        .enumerate()
+        .map(|(row_index, row)| {
+            append_store_row_specs(
+                store_name,
+                &format!("{prefix}_{row_index}"),
+                row,
+                specs,
+                filter_count,
+            )
+        })
+        .collect()
+}
+
+fn append_store_row_specs(
+    store_name: &str,
+    prefix: &str,
+    row: StoreExpressionRow,
+    specs: &mut Vec<PhysicalScalarExpressionSpec>,
+    filter_count: usize,
+) -> CompiledStoreRow {
+    let mut fields = Vec::new();
+    for field in row.fields {
+        let value_index = specs.len().saturating_sub(filter_count);
+        specs.push(
+            PhysicalScalarExpressionSpec::new(
+                format!("store_{}_{}_{}", store_name, prefix, field.name),
+                field.expr,
+            )
+            .with_expected_type(field.expected_type)
+            .with_nullable_cast(),
+        );
+        fields.push((field.name, value_index));
+    }
+    CompiledStoreRow { fields }
 }
 
 #[derive(Default)]
@@ -809,6 +1165,36 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             });
         }
 
+        let mut store_patch: Vec<ScopedStoreAssignment> = Vec::new();
+        for assignment in &self.runtime.store_assignments {
+            let assignment_scope = match assignment.scope {
+                ChartEventAssignmentScope::Current => current_scope.as_ref(),
+                ChartEventAssignmentScope::Start => start_scope.as_ref(),
+            };
+            let Some(owner_path) = assignment_owner_path(assignment.sharing, assignment_scope)
+            else {
+                tracing::debug!(
+                    target: "avenger_chart_app::event_binding",
+                    binding = self.runtime.binding_index,
+                    store = %assignment.store_name,
+                    "skipping scoped store assignment with no routed scope"
+                );
+                continue;
+            };
+            let Some(update) = store_state_update_from_values(
+                &assignment.update,
+                &values,
+                self.runtime.filter_count,
+            ) else {
+                continue;
+            };
+            store_patch.push(ScopedStoreAssignment {
+                store_name: assignment.store_name.clone(),
+                owner_path,
+                update,
+            });
+        }
+
         let cursor = cursor_from_patch(&patch, &self.runtime.cursor_params);
         let visual_patch_count = patch
             .iter()
@@ -826,6 +1212,27 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             app.session.apply_scoped_selection_patch(selection_patch)
         };
         should_rerender |= selection_changed;
+        let store_changed = if store_patch.is_empty() {
+            false
+        } else {
+            match app.session.apply_scoped_store_patch(store_patch) {
+                Ok(changed) => {
+                    app.event_metrics.store_patch_events += 1;
+                    changed
+                }
+                Err(err) => {
+                    app.event_metrics.evaluation_errors += 1;
+                    tracing::warn!(
+                        target: "avenger_chart_app::event_binding",
+                        binding = self.runtime.binding_index,
+                        error = %err,
+                        "failed to apply store event patch"
+                    );
+                    false
+                }
+            }
+        };
+        should_rerender |= store_changed;
         if self.runtime.assignments.is_empty()
             && self.runtime.evaluation_mode == ChartEventEvaluationMode::Exact
         {
@@ -898,6 +1305,58 @@ fn selection_clause_id_from_scalar(value: &ScalarValue) -> String {
         | ScalarValue::Utf8View(Some(value)) => value.clone(),
         _ => value.to_string(),
     }
+}
+
+fn store_state_update_from_values(
+    update: &CompiledStoreUpdate,
+    values: &[ScalarValue],
+    filter_count: usize,
+) -> Option<StoreStateUpdate> {
+    Some(match update {
+        CompiledStoreUpdate::Clear => StoreStateUpdate::Clear,
+        CompiledStoreUpdate::ReplaceRows { rows } => StoreStateUpdate::ReplaceRows {
+            rows: store_rows_from_values(rows, values, filter_count)?,
+        },
+        CompiledStoreUpdate::InsertRows { rows } => StoreStateUpdate::InsertRows {
+            rows: store_rows_from_values(rows, values, filter_count)?,
+        },
+        CompiledStoreUpdate::UpsertRows { rows } => StoreStateUpdate::UpsertRows {
+            rows: store_rows_from_values(rows, values, filter_count)?,
+        },
+        CompiledStoreUpdate::UpdateByKey { key, fields } => StoreStateUpdate::UpdateByKey {
+            key: store_row_from_values(key, values, filter_count)?,
+            fields: store_row_from_values(fields, values, filter_count)?,
+        },
+        CompiledStoreUpdate::DeleteByKey { key } => StoreStateUpdate::DeleteByKey {
+            key: store_row_from_values(key, values, filter_count)?,
+        },
+        CompiledStoreUpdate::ToggleRows { rows } => StoreStateUpdate::ToggleRows {
+            rows: store_rows_from_values(rows, values, filter_count)?,
+        },
+    })
+}
+
+fn store_rows_from_values(
+    rows: &[CompiledStoreRow],
+    values: &[ScalarValue],
+    filter_count: usize,
+) -> Option<Vec<StoreRowValue>> {
+    rows.iter()
+        .map(|row| store_row_from_values(row, values, filter_count))
+        .collect()
+}
+
+fn store_row_from_values(
+    row: &CompiledStoreRow,
+    values: &[ScalarValue],
+    filter_count: usize,
+) -> Option<StoreRowValue> {
+    let mut out = StoreRowValue::new();
+    for (field, value_index) in &row.fields {
+        let value = values.get(filter_count + *value_index)?.clone();
+        out.insert(field.clone(), value);
+    }
+    Some(out)
 }
 
 fn record_event_eval_elapsed(metrics: &mut crate::ChartEventMetrics, start: Instant) {
@@ -2114,6 +2573,7 @@ mod tests {
             ctx,
             compiled.param_specs(),
             compiled.selection_specs(),
+            compiled.store_specs(),
             compiled.cursor_params(),
         )
         .expect("compile binding runtime");
@@ -2221,6 +2681,7 @@ mod tests {
             &ctx,
             compiled.param_specs(),
             compiled.selection_specs(),
+            compiled.store_specs(),
             compiled.cursor_params(),
         )
         .expect("compile release binding runtime");
@@ -2230,6 +2691,7 @@ mod tests {
             &ctx,
             compiled.param_specs(),
             compiled.selection_specs(),
+            compiled.store_specs(),
             compiled.cursor_params(),
         )
         .expect("compile reset binding runtime");
@@ -2721,6 +3183,7 @@ mod tests {
             &ctx,
             compiled.param_specs(),
             compiled.selection_specs(),
+            compiled.store_specs(),
             compiled.cursor_params(),
         )
         .expect("compile binding runtime");
@@ -2749,6 +3212,7 @@ mod tests {
             &ctx,
             compiled.param_specs(),
             compiled.selection_specs(),
+            compiled.store_specs(),
             compiled.cursor_params(),
         )
         .expect("compile reset binding runtime");
@@ -2814,6 +3278,7 @@ mod tests {
             &ctx,
             compiled.param_specs(),
             compiled.selection_specs(),
+            compiled.store_specs(),
             compiled.cursor_params(),
         )
         .expect("compile cursor binding runtime");
@@ -2879,6 +3344,7 @@ mod tests {
             &ctx,
             compiled.param_specs(),
             compiled.selection_specs(),
+            compiled.store_specs(),
             compiled.cursor_params(),
         )
         .expect("compile selection binding runtime");
@@ -2936,6 +3402,101 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn store_update_writes_store_state() {
+        use datafusion::arrow::datatypes::DataType;
+
+        let ctx = SessionContext::new();
+        let binding = ChartEventBinding::on(ChartEventType::CanvasResize)
+            .set_store(
+                "brush_boxes",
+                StoreUpdate::replace_rows([StoreRow::new()
+                    .field("id", lit("active"))
+                    .field("x_min", event::canvas_width())
+                    .field("x_max", event::canvas_height())]),
+            )
+            .preview();
+        let compiled = Plot::<Cartesian>::new()
+            .add_store(
+                Store::empty("brush_boxes")
+                    .field("id", DataType::Utf8, false)
+                    .field("x_min", DataType::Float64, false)
+                    .field("x_max", DataType::Float64, false)
+                    .primary_key(["id"])
+                    .sharing(Sharing::Shared),
+            )
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile store binding plot");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+            compiled.selection_specs(),
+            compiled.store_specs(),
+            compiled.cursor_params(),
+        )
+        .expect("compile store binding runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CanvasResize(CanvasResizeEvent {
+                    size: [640.0, 360.0],
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+
+        assert!(status.rerender);
+        assert!(!status.rebuild_geometry);
+        {
+            let runtime = state.runtime.lock().await;
+            assert_eq!(runtime.event_metrics.store_patch_events, 1);
+            let rows = runtime.session.store_rows_for_diagnostics("brush_boxes");
+            assert_eq!(rows.len(), 1);
+            assert!(rows[0].0.is_empty(), "shared store is root-owned");
+            assert_eq!(rows[0].1.len(), 1);
+            assert_eq!(
+                rows[0].1[0].get("id"),
+                Some(&ScalarValue::Utf8(Some("active".to_string())))
+            );
+            assert_eq!(
+                rows[0].1[0].get("x_min"),
+                Some(&ScalarValue::Float64(Some(640.0)))
+            );
+            assert_eq!(
+                rows[0].1[0].get("x_max"),
+                Some(&ScalarValue::Float64(Some(360.0)))
+            );
+        }
+
+        let second_status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CanvasResize(CanvasResizeEvent {
+                    size: [640.0, 360.0],
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+        assert!(
+            !second_status.rerender,
+            "unchanged store rows should skip reevaluation"
+        );
+    }
+
+    #[tokio::test]
     async fn additive_selection_uses_start_event_id_as_stable_clause_id() {
         let ctx = SessionContext::new();
         let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
@@ -2968,6 +3529,7 @@ mod tests {
             &ctx,
             compiled.param_specs(),
             compiled.selection_specs(),
+            compiled.store_specs(),
             compiled.cursor_params(),
         )
         .expect("compile additive selection binding runtime");
@@ -3096,6 +3658,7 @@ mod tests {
             &ctx,
             compiled.param_specs(),
             compiled.selection_specs(),
+            compiled.store_specs(),
             compiled.cursor_params(),
         )
         .expect("compile selection binding runtime");
@@ -3164,6 +3727,113 @@ mod tests {
             vec![ScalarValue::Utf8(Some("Beta".to_string()))]
         );
         assert_eq!(clauses[0].source_scope_id, Some("test-scope-0".to_string()));
+    }
+
+    #[tokio::test]
+    async fn faceted_store_update_writes_start_scope() {
+        use datafusion::arrow::datatypes::DataType;
+
+        let ctx = SessionContext::new();
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .between(
+                ChartEventStream::on(ChartEventType::MouseDown)
+                    .filter(event::button().eq(lit("left"))),
+                ChartEventStream::on(ChartEventType::MouseUp),
+            )
+            .set_store_at_start_scope(
+                "brush_boxes",
+                StoreUpdate::replace_rows([StoreRow::new()
+                    .field("id", lit("active"))
+                    .field("x_min", lit(1.0))]),
+            )
+            .preview();
+        let compiled = Plot::<Cartesian>::new()
+            .canvas_size(400.0, 300.0)
+            .add_store(
+                Store::empty("brush_boxes")
+                    .field("id", DataType::Utf8, false)
+                    .field("x_min", DataType::Float64, false)
+                    .primary_key(["id"])
+                    .sharing(Sharing::Free),
+            )
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile store binding plot");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+            compiled.selection_specs(),
+            compiled.store_specs(),
+            compiled.cursor_params(),
+        )
+        .expect("compile store binding runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+        let mut scope = coord_scope(0, 0.0, 0.0, 100.0, 100.0, &["x", "y"]);
+        let owner_path = vec![ScalarValue::Utf8(Some("Beta".to_string()))];
+        scope.sharing_owner_paths.insert(0, owner_path.clone());
+        {
+            let mut app = state.runtime.lock().await;
+            app.last_interaction_state.scopes = vec![scope];
+        }
+        let start_event = EventStreamEventSnapshot {
+            event: SceneGraphEvent::MouseDown(SceneMouseDownEvent {
+                position: [20.0, 20.0],
+                button: MouseButton::Left,
+                mark_instance: None,
+                modifiers: Default::default(),
+            }),
+            mark_instance: None,
+            instant: Instant::now(),
+        };
+        let context = EventStreamContext {
+            mark_instance: None,
+            current_event: None,
+            start_event: Some(start_event),
+            previous_event: None,
+        };
+
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: [500.0, 500.0],
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &context,
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+
+        assert!(
+            status.rerender,
+            "store update should use the routed start scope"
+        );
+        let runtime = state.runtime.lock().await;
+        let rows = runtime.session.store_rows_for_diagnostics("brush_boxes");
+        let scoped = rows
+            .iter()
+            .find(|(path, _)| path == &owner_path)
+            .expect("start owner path rows");
+        assert_eq!(scoped.1.len(), 1);
+        assert_eq!(
+            scoped.1[0].get("id"),
+            Some(&ScalarValue::Utf8(Some("active".to_string())))
+        );
+        let root_rows = rows
+            .iter()
+            .find(|(path, _)| path.is_empty())
+            .expect("root store rows");
+        assert!(root_rows.1.is_empty(), "free store should not write root");
     }
 
     #[tokio::test]
@@ -3421,6 +4091,7 @@ mod tests {
             &ctx,
             compiled.param_specs(),
             compiled.selection_specs(),
+            compiled.store_specs(),
             compiled.cursor_params(),
         ) {
             Ok(_) => panic!("param columns should be rejected in low-level filters"),
@@ -3459,6 +4130,7 @@ mod tests {
             &ctx,
             compiled.param_specs(),
             compiled.selection_specs(),
+            compiled.store_specs(),
             compiled.cursor_params(),
         )
         .expect("compile binding runtime");
@@ -3501,6 +4173,7 @@ mod tests {
             &ctx,
             compiled.param_specs(),
             compiled.selection_specs(),
+            compiled.store_specs(),
             compiled.cursor_params(),
         )
         .expect("compile binding runtime");

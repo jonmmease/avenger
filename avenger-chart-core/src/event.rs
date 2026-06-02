@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 
 use crate::{
     AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, Param, SelectionUpdate,
-    SerializableExpr,
+    SerializableExpr, StoreUpdate,
 };
 use avenger_common::cursor::CursorStyle;
 use datafusion::{
@@ -125,6 +125,14 @@ pub struct ChartEventSelectionAssignment {
     pub scope: ChartEventAssignmentScope,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ChartEventStoreAssignment {
+    pub store_name: String,
+    pub update: StoreUpdate,
+    #[serde(default)]
+    pub scope: ChartEventAssignmentScope,
+}
+
 #[serde_as]
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ChartEventStream {
@@ -186,6 +194,8 @@ pub struct ChartEventBinding {
     pub assignments: Vec<ChartEventParamAssignment>,
     #[serde(default)]
     pub selection_assignments: Vec<ChartEventSelectionAssignment>,
+    #[serde(default)]
+    pub store_assignments: Vec<ChartEventStoreAssignment>,
     pub evaluation_mode: ChartEventEvaluationMode,
     pub settle_exact: bool,
 }
@@ -200,6 +210,7 @@ impl ChartEventBinding {
             consume: false,
             assignments: Vec::new(),
             selection_assignments: Vec::new(),
+            store_assignments: Vec::new(),
             evaluation_mode: ChartEventEvaluationMode::Preview,
             settle_exact: false,
         }
@@ -221,6 +232,7 @@ impl ChartEventBinding {
             consume: false,
             assignments: Vec::new(),
             selection_assignments: Vec::new(),
+            store_assignments: Vec::new(),
             evaluation_mode: ChartEventEvaluationMode::Preview,
             settle_exact: false,
         }
@@ -324,6 +336,28 @@ impl ChartEventBinding {
                 update,
                 scope: ChartEventAssignmentScope::Start,
             });
+        self
+    }
+
+    pub fn set_store(mut self, store: impl Into<String>, update: StoreUpdate) -> Self {
+        self.store_assignments.push(ChartEventStoreAssignment {
+            store_name: store.into(),
+            update,
+            scope: ChartEventAssignmentScope::Current,
+        });
+        self
+    }
+
+    pub fn set_store_at_start_scope(
+        mut self,
+        store: impl Into<String>,
+        update: StoreUpdate,
+    ) -> Self {
+        self.store_assignments.push(ChartEventStoreAssignment {
+            store_name: store.into(),
+            update,
+            scope: ChartEventAssignmentScope::Start,
+        });
         self
     }
 

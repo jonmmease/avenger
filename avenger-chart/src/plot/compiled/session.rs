@@ -715,6 +715,37 @@ pub(crate) struct ScopedStoreKey {
     owner_path: Vec<ScalarValue>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum StoreStateUpdate {
+    Clear,
+    ReplaceRows {
+        rows: Vec<StoreRowValue>,
+    },
+    InsertRows {
+        rows: Vec<StoreRowValue>,
+    },
+    UpsertRows {
+        rows: Vec<StoreRowValue>,
+    },
+    UpdateByKey {
+        key: StoreRowValue,
+        fields: StoreRowValue,
+    },
+    DeleteByKey {
+        key: StoreRowValue,
+    },
+    ToggleRows {
+        rows: Vec<StoreRowValue>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScopedStoreAssignment {
+    pub store_name: String,
+    pub owner_path: Vec<ScalarValue>,
+    pub update: StoreStateUpdate,
+}
+
 #[derive(Clone, Debug)]
 struct MutableStoreTable {
     rows: Vec<StoreRowValue>,
@@ -767,6 +798,269 @@ impl ScopedStoreState {
             })
             .collect()
     }
+
+    fn apply_scoped_patch(
+        &mut self,
+        patch: impl IntoIterator<Item = ScopedStoreAssignment>,
+    ) -> Result<bool, AvengerChartError> {
+        let mut any_changed = false;
+        for assignment in patch {
+            let Some(spec) = self.specs.get(&assignment.store_name).cloned() else {
+                continue;
+            };
+            let key = ScopedStoreKey {
+                store_name: assignment.store_name,
+                owner_path: assignment.owner_path,
+            };
+            let table = self
+                .instances
+                .entry(key)
+                .or_insert_with(|| MutableStoreTable {
+                    rows: Vec::new(),
+                    revision: 0,
+                });
+            let changed = apply_store_update(&spec, table, assignment.update)?;
+            if changed {
+                table.revision += 1;
+                any_changed = true;
+            }
+        }
+        Ok(any_changed)
+    }
+}
+
+fn apply_store_update(
+    spec: &CompiledStoreSpec,
+    table: &mut MutableStoreTable,
+    update: StoreStateUpdate,
+) -> Result<bool, AvengerChartError> {
+    match update {
+        StoreStateUpdate::Clear => {
+            if table.rows.is_empty() {
+                Ok(false)
+            } else {
+                table.rows.clear();
+                Ok(true)
+            }
+        }
+        StoreStateUpdate::ReplaceRows { rows } => {
+            let rows = normalize_store_rows(spec, rows)?;
+            spec.validate_rows(&rows)?;
+            if table.rows == rows {
+                Ok(false)
+            } else {
+                table.rows = rows;
+                Ok(true)
+            }
+        }
+        StoreStateUpdate::InsertRows { rows } => {
+            let rows = normalize_store_rows(spec, rows)?;
+            let mut combined = table.rows.clone();
+            combined.extend(rows);
+            spec.validate_rows(&combined)?;
+            if combined == table.rows {
+                Ok(false)
+            } else {
+                table.rows = combined;
+                Ok(true)
+            }
+        }
+        StoreStateUpdate::UpsertRows { rows } => {
+            ensure_keyed_store(spec, "upsert_rows")?;
+            let rows = normalize_store_rows(spec, rows)?;
+            let mut changed = false;
+            for row in rows {
+                let key = spec.primary_key_values(&row)?;
+                if let Some(existing) = table
+                    .rows
+                    .iter_mut()
+                    .find(|existing| spec.primary_key_values(existing).ok().as_ref() == Some(&key))
+                {
+                    if *existing != row {
+                        *existing = row;
+                        changed = true;
+                    }
+                } else {
+                    table.rows.push(row);
+                    changed = true;
+                }
+            }
+            spec.validate_rows(&table.rows)?;
+            Ok(changed)
+        }
+        StoreStateUpdate::UpdateByKey { key, fields } => {
+            ensure_keyed_store(spec, "update_by_key")?;
+            let key = normalize_store_key(spec, key)?;
+            let target_key = spec.primary_key_values(&key)?;
+            let fields = normalize_store_patch(spec, fields)?;
+            if let Some(index) = table.rows.iter().position(|existing| {
+                spec.primary_key_values(existing).ok().as_ref() == Some(&target_key)
+            }) {
+                let mut updated = table.rows[index].clone();
+                for (field, value) in fields {
+                    updated.insert(field, value);
+                }
+                let mut candidate_rows = table.rows.clone();
+                candidate_rows[index] = normalize_store_row(spec, updated)?;
+                spec.validate_rows(&candidate_rows)?;
+                if candidate_rows[index] != table.rows[index] {
+                    table.rows = candidate_rows;
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            } else {
+                Ok(false)
+            }
+        }
+        StoreStateUpdate::DeleteByKey { key } => {
+            ensure_keyed_store(spec, "delete_by_key")?;
+            let key = normalize_store_key(spec, key)?;
+            let target_key = spec.primary_key_values(&key)?;
+            let before = table.rows.len();
+            table.rows.retain(|existing| {
+                spec.primary_key_values(existing).ok().as_ref() != Some(&target_key)
+            });
+            Ok(table.rows.len() != before)
+        }
+        StoreStateUpdate::ToggleRows { rows } => {
+            ensure_keyed_store(spec, "toggle_rows")?;
+            let rows = normalize_store_rows(spec, rows)?;
+            let mut changed = false;
+            for row in rows {
+                let key = spec.primary_key_values(&row)?;
+                if let Some(index) = table.rows.iter().position(|existing| {
+                    spec.primary_key_values(existing).ok().as_ref() == Some(&key)
+                }) {
+                    table.rows.remove(index);
+                    changed = true;
+                } else {
+                    table.rows.push(row);
+                    changed = true;
+                }
+            }
+            spec.validate_rows(&table.rows)?;
+            Ok(changed)
+        }
+    }
+}
+
+fn ensure_keyed_store(spec: &CompiledStoreSpec, op: &str) -> Result<(), AvengerChartError> {
+    if spec.primary_key.is_empty() {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Store '{}' operation '{op}' requires a primary key",
+            spec.name
+        )));
+    }
+    Ok(())
+}
+
+fn normalize_store_rows(
+    spec: &CompiledStoreSpec,
+    rows: Vec<StoreRowValue>,
+) -> Result<Vec<StoreRowValue>, AvengerChartError> {
+    rows.into_iter()
+        .map(|row| normalize_store_row(spec, row))
+        .collect()
+}
+
+fn normalize_store_row(
+    spec: &CompiledStoreSpec,
+    row: StoreRowValue,
+) -> Result<StoreRowValue, AvengerChartError> {
+    validate_store_fields_exist(spec, row.keys())?;
+    let mut normalized = StoreRowValue::new();
+    for field in &spec.fields {
+        let value = match row.get(&field.name) {
+            Some(value) => value.clone(),
+            None if field.nullable => {
+                ScalarValue::try_new_null(&field.data_type).map_err(|err| {
+                    AvengerChartError::InternalError(format!(
+                        "Failed to create null value for store '{}' field '{}': {err}",
+                        spec.name, field.name
+                    ))
+                })?
+            }
+            None => {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Store '{}' row is missing non-nullable field '{}'",
+                    spec.name, field.name
+                )));
+            }
+        };
+        validate_store_value_type(spec, &field.name, &field.data_type, &value)?;
+        normalized.insert(field.name.clone(), value);
+    }
+    Ok(normalized)
+}
+
+fn normalize_store_key(
+    spec: &CompiledStoreSpec,
+    key: StoreRowValue,
+) -> Result<StoreRowValue, AvengerChartError> {
+    ensure_keyed_store(spec, "keyed operation")?;
+    validate_store_fields_exist(spec, key.keys())?;
+    for key_field in &spec.primary_key {
+        if !key.contains_key(key_field) {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Store '{}' key is missing primary-key field '{}'",
+                spec.name, key_field
+            )));
+        }
+    }
+    for (field_name, value) in &key {
+        let field = spec.field(field_name).expect("store field validated");
+        validate_store_value_type(spec, field_name, &field.data_type, value)?;
+    }
+    Ok(key)
+}
+
+fn normalize_store_patch(
+    spec: &CompiledStoreSpec,
+    patch: StoreRowValue,
+) -> Result<StoreRowValue, AvengerChartError> {
+    validate_store_fields_exist(spec, patch.keys())?;
+    for (field_name, value) in &patch {
+        let field = spec.field(field_name).expect("store field validated");
+        validate_store_value_type(spec, field_name, &field.data_type, value)?;
+    }
+    Ok(patch)
+}
+
+fn validate_store_fields_exist<'a>(
+    spec: &CompiledStoreSpec,
+    fields: impl IntoIterator<Item = &'a String>,
+) -> Result<(), AvengerChartError> {
+    for field in fields {
+        if spec.field(field).is_none() {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Store '{}' row references unknown field '{}'",
+                spec.name, field
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_store_value_type(
+    spec: &CompiledStoreSpec,
+    field_name: &str,
+    expected: &datafusion::arrow::datatypes::DataType,
+    value: &ScalarValue,
+) -> Result<(), AvengerChartError> {
+    if value.data_type() == *expected {
+        return Ok(());
+    }
+    if value.is_null() {
+        return Ok(());
+    }
+    Err(AvengerChartError::InvalidArgument(format!(
+        "Store '{}' field '{}' expected value type {:?}, got {:?}",
+        spec.name,
+        field_name,
+        expected,
+        value.data_type()
+    )))
 }
 
 /// Request object for evaluating a `PlotSession`.
@@ -951,6 +1245,14 @@ impl PlotSession {
     /// Apply scoped selection assignments produced by an event binding.
     pub fn apply_scoped_selection_patch(&mut self, patch: Vec<ScopedSelectionAssignment>) -> bool {
         self.scoped_selections.apply_scoped_patch(patch)
+    }
+
+    /// Apply scoped mutable-store assignments produced by an event binding.
+    pub fn apply_scoped_store_patch(
+        &mut self,
+        patch: Vec<ScopedStoreAssignment>,
+    ) -> Result<bool, AvengerChartError> {
+        self.scoped_stores.apply_scoped_patch(patch)
     }
 
     #[doc(hidden)]
@@ -4689,6 +4991,203 @@ mod tests {
             panic!("duplicate store names should error");
         };
         assert!(format!("{err:?}").contains("declared more than once"));
+        Ok(())
+    }
+
+    fn brush_store() -> Store {
+        use datafusion::arrow::datatypes::DataType;
+
+        Store::empty("brush_boxes")
+            .field("id", DataType::Utf8, false)
+            .field("x_min", DataType::Float64, false)
+            .field("x_max", DataType::Float64, true)
+            .primary_key(["id"])
+            .sharing(Sharing::Free)
+    }
+
+    fn brush_row(id: &str, x_min: f64, x_max: Option<f64>) -> StoreRowValue {
+        let mut row = StoreRowValue::new();
+        row.insert("id".to_string(), ScalarValue::Utf8(Some(id.to_string())));
+        row.insert("x_min".to_string(), ScalarValue::Float64(Some(x_min)));
+        if let Some(x_max) = x_max {
+            row.insert("x_max".to_string(), ScalarValue::Float64(Some(x_max)));
+        }
+        row
+    }
+
+    async fn brush_store_session() -> Result<PlotSession, AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(
+            Plot::<Cartesian>::new()
+                .add_store(brush_store())
+                .compile(&ctx)
+                .await?,
+        );
+        Ok(compiled.instantiate(ctx))
+    }
+
+    #[tokio::test]
+    async fn scoped_store_crud_operations_work() -> Result<(), AvengerChartError> {
+        let mut session = brush_store_session().await?;
+        let owner_path = vec![ScalarValue::Utf8(Some("A".to_string()))];
+
+        let changed = session.apply_scoped_store_patch(vec![ScopedStoreAssignment {
+            store_name: "brush_boxes".to_string(),
+            owner_path: owner_path.clone(),
+            update: StoreStateUpdate::InsertRows {
+                rows: vec![brush_row("a", 1.0, None)],
+            },
+        }])?;
+        assert!(changed);
+        let rows = session.store_rows_for_diagnostics("brush_boxes");
+        let scoped_rows = rows
+            .iter()
+            .find(|(path, _)| path == &owner_path)
+            .expect("scoped owner rows")
+            .1
+            .clone();
+        assert_eq!(
+            scoped_rows[0].get("x_max"),
+            Some(&ScalarValue::Float64(None)),
+            "omitted nullable fields are filled with typed nulls"
+        );
+
+        session.apply_scoped_store_patch(vec![ScopedStoreAssignment {
+            store_name: "brush_boxes".to_string(),
+            owner_path: owner_path.clone(),
+            update: StoreStateUpdate::UpsertRows {
+                rows: vec![
+                    brush_row("a", 2.0, Some(4.0)),
+                    brush_row("b", 5.0, Some(6.0)),
+                ],
+            },
+        }])?;
+        let rows = session.store_rows_for_diagnostics("brush_boxes");
+        let scoped_rows = &rows
+            .iter()
+            .find(|(path, _)| path == &owner_path)
+            .expect("scoped owner rows")
+            .1;
+        assert_eq!(scoped_rows.len(), 2);
+        assert_eq!(
+            scoped_rows[0].get("x_min"),
+            Some(&ScalarValue::Float64(Some(2.0)))
+        );
+
+        let mut key = StoreRowValue::new();
+        key.insert("id".to_string(), ScalarValue::Utf8(Some("b".to_string())));
+        let mut patch = StoreRowValue::new();
+        patch.insert("x_min".to_string(), ScalarValue::Float64(Some(7.0)));
+        session.apply_scoped_store_patch(vec![ScopedStoreAssignment {
+            store_name: "brush_boxes".to_string(),
+            owner_path: owner_path.clone(),
+            update: StoreStateUpdate::UpdateByKey {
+                key: key.clone(),
+                fields: patch,
+            },
+        }])?;
+        let rows = session.store_rows_for_diagnostics("brush_boxes");
+        let scoped_rows = &rows
+            .iter()
+            .find(|(path, _)| path == &owner_path)
+            .expect("scoped owner rows")
+            .1;
+        assert_eq!(
+            scoped_rows[1].get("x_min"),
+            Some(&ScalarValue::Float64(Some(7.0)))
+        );
+
+        session.apply_scoped_store_patch(vec![ScopedStoreAssignment {
+            store_name: "brush_boxes".to_string(),
+            owner_path: owner_path.clone(),
+            update: StoreStateUpdate::ToggleRows {
+                rows: vec![
+                    brush_row("b", 9.0, Some(10.0)),
+                    brush_row("c", 11.0, Some(12.0)),
+                ],
+            },
+        }])?;
+        let rows = session.store_rows_for_diagnostics("brush_boxes");
+        let scoped_rows = &rows
+            .iter()
+            .find(|(path, _)| path == &owner_path)
+            .expect("scoped owner rows")
+            .1;
+        assert_eq!(scoped_rows.len(), 2);
+        assert_eq!(
+            scoped_rows
+                .iter()
+                .map(|row| row.get("id"))
+                .collect::<Vec<_>>(),
+            vec![
+                Some(&ScalarValue::Utf8(Some("a".to_string()))),
+                Some(&ScalarValue::Utf8(Some("c".to_string())))
+            ]
+        );
+
+        session.apply_scoped_store_patch(vec![ScopedStoreAssignment {
+            store_name: "brush_boxes".to_string(),
+            owner_path: owner_path.clone(),
+            update: StoreStateUpdate::DeleteByKey { key },
+        }])?;
+        let unchanged = session.apply_scoped_store_patch(vec![ScopedStoreAssignment {
+            store_name: "brush_boxes".to_string(),
+            owner_path: owner_path.clone(),
+            update: StoreStateUpdate::Clear,
+        }])?;
+        assert!(unchanged, "clear should mutate non-empty scoped rows");
+        let rows = session.store_rows_for_diagnostics("brush_boxes");
+        let scoped_rows = &rows
+            .iter()
+            .find(|(path, _)| path == &owner_path)
+            .expect("scoped owner rows")
+            .1;
+        assert!(scoped_rows.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn store_clear_is_scoped_to_owner() -> Result<(), AvengerChartError> {
+        let mut session = brush_store_session().await?;
+        let owner_a = vec![ScalarValue::Utf8(Some("A".to_string()))];
+        let owner_b = vec![ScalarValue::Utf8(Some("B".to_string()))];
+        session.apply_scoped_store_patch(vec![
+            ScopedStoreAssignment {
+                store_name: "brush_boxes".to_string(),
+                owner_path: owner_a.clone(),
+                update: StoreStateUpdate::ReplaceRows {
+                    rows: vec![brush_row("a", 1.0, Some(2.0))],
+                },
+            },
+            ScopedStoreAssignment {
+                store_name: "brush_boxes".to_string(),
+                owner_path: owner_b.clone(),
+                update: StoreStateUpdate::ReplaceRows {
+                    rows: vec![brush_row("b", 3.0, Some(4.0))],
+                },
+            },
+        ])?;
+        session.apply_scoped_store_patch(vec![ScopedStoreAssignment {
+            store_name: "brush_boxes".to_string(),
+            owner_path: owner_a.clone(),
+            update: StoreStateUpdate::Clear,
+        }])?;
+        let rows = session.store_rows_for_diagnostics("brush_boxes");
+        assert!(
+            rows.iter()
+                .find(|(path, _)| path == &owner_a)
+                .expect("owner A")
+                .1
+                .is_empty()
+        );
+        assert_eq!(
+            rows.iter()
+                .find(|(path, _)| path == &owner_b)
+                .expect("owner B")
+                .1
+                .len(),
+            1
+        );
         Ok(())
     }
 

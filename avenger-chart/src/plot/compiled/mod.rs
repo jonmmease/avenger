@@ -91,7 +91,7 @@ pub(crate) use self::mark_data_runtime::{
 };
 pub use self::session::{
     EvaluationRequest, PlotSession, ScopedParamAssignment, ScopedParamStoreSnapshot,
-    ScopedSelectionAssignment,
+    ScopedSelectionAssignment, ScopedStoreAssignment, StoreStateUpdate,
 };
 pub(crate) use self::session::{
     GuideOverflowCacheHandle, LegendMeasurementCacheHandle, ScaleDomainCacheHandle,

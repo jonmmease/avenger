@@ -114,6 +114,7 @@ pub struct ChartEventMetrics {
     pub filter_failures: usize,
     pub param_patch_events: usize,
     pub params_patched: usize,
+    pub store_patch_events: usize,
     pub unchanged_patch_skips: usize,
     pub evaluation_errors: usize,
     pub total_eval_us: u64,
@@ -425,6 +426,7 @@ pub async fn chart_avenger_app(
         ctx.as_ref(),
         compiled_plot.param_specs(),
         compiled_plot.selection_specs(),
+        compiled_plot.store_specs(),
         &[],
     )?);
     let session = Arc::new(compiled_plot).instantiate(ctx);
