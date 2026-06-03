@@ -1,6 +1,9 @@
 //! Plot builder for creating visualizations
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use datafusion::{common::ScalarValue, dataframe::DataFrame};
 use datafusion_proto::protobuf::LogicalPlanNode;
@@ -10,7 +13,7 @@ use avenger_chart_core::{
     AvengerChartError, AxisSpec, ChartTool, CompileContext, CompiledMark, CompiledMarkState,
     CompiledParamSpec, CompiledSelectionSpec, CompiledSubplotChildPlot, CoordinateGuide,
     CoordinateSystem, IntoExpr, Legend, Mark, MarkDataMode, Param, Selection, Sharing, Store,
-    SubplotChildPlotSpec, Theme, compile_selections,
+    SubplotChildPlotSpec, Theme, compile_selections, validate_structural_id,
 };
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
 
@@ -183,6 +186,7 @@ impl<C: CoordinateSystem> Plot<C> {
         for active in &active_tool_expansions {
             marks.extend(active.expansion.marks.iter().cloned());
         }
+        validate_sibling_mark_ids(&marks)?;
 
         // 1. Extract and merge channel configs from all marks with proper SessionContext
         for mark in &marks {
@@ -602,4 +606,70 @@ fn scale_domain_share_modes<C: CoordinateSystem>(
         }
     }
     result
+}
+
+fn validate_sibling_mark_ids<C: CoordinateSystem>(
+    marks: &[Arc<dyn Mark<C>>],
+) -> Result<(), AvengerChartError> {
+    let mut seen = HashSet::new();
+    for mark in marks {
+        let Some(id) = mark.state().id.as_deref() else {
+            continue;
+        };
+        validate_structural_id("mark", id)?;
+        if !seen.insert(id.to_string()) {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Duplicate mark id '{id}' among sibling marks"
+            )));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cartesian::Cartesian;
+    use avenger_chart_cartesian::CartesianSymbolPositionChannels;
+    use avenger_chart_marks::Symbol;
+    use datafusion::prelude::{SessionContext, lit};
+
+    #[tokio::test]
+    async fn mark_id_is_accepted_on_regular_mark() {
+        let ctx = SessionContext::new();
+        Plot::<Cartesian>::new()
+            .mark(Symbol::new().id("points").x(lit(1.0)).y(lit(1.0)))
+            .compile(&ctx)
+            .await
+            .expect("mark id compiles");
+    }
+
+    #[tokio::test]
+    async fn invalid_mark_id_errors() {
+        let ctx = SessionContext::new();
+        let err = match Plot::<Cartesian>::new()
+            .mark(Symbol::new().id("bad.id").x(lit(1.0)).y(lit(1.0)))
+            .compile(&ctx)
+            .await
+        {
+            Ok(_) => panic!("invalid mark id should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("Invalid mark id"));
+    }
+
+    #[tokio::test]
+    async fn duplicate_sibling_mark_ids_error() {
+        let ctx = SessionContext::new();
+        let err = match Plot::<Cartesian>::new()
+            .mark(Symbol::new().id("points").x(lit(1.0)).y(lit(1.0)))
+            .mark(Symbol::new().id("points").x(lit(2.0)).y(lit(2.0)))
+            .compile(&ctx)
+            .await
+        {
+            Ok(_) => panic!("duplicate sibling mark ids should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("Duplicate mark id 'points'"));
+    }
 }

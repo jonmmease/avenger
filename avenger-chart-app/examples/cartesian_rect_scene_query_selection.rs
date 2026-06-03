@@ -78,6 +78,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .cursor_param(cursor.name.clone())
         .mark(
             Symbol::new()
+                .id("points")
                 .x_with(col("source_x"), |c| {
                     c.scale_with::<Linear>(|s| {
                         s.domain((lit(X_DOMAIN_MIN), lit(X_DOMAIN_MAX)))
@@ -181,6 +182,7 @@ fn rect_query_update() -> SelectionSceneQuery {
     SelectionSceneQuery::new(
         SceneGeometryQuery::rect(ev::start_x(), ev::start_y(), ev::x(), ev::y())
             .hit_policy(SceneGeometryHitPolicy::AnchorInside)
+            .mark("points")
             .datum_field(
                 SceneQueryDatumField::new("point_id")
                     .datum("point_id")

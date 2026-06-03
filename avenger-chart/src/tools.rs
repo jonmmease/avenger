@@ -183,7 +183,7 @@ impl ToolCompileContext {
         for binding in bindings {
             *binding = binding
                 .clone()
-                .with_coord_node_path_target(self.coord_node_path.clone());
+                .with_resolved_coord_node_path_target(self.coord_node_path.clone());
         }
     }
 }

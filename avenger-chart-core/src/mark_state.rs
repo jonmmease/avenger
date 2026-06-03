@@ -8,7 +8,23 @@ use serde_with::{FromInto, serde_as};
 use datafusion::dataframe::DataFrame;
 use datafusion_proto::protobuf::LogicalExprNode;
 
-use crate::{Axis, CompiledDataContext, DataContext, FacetDataScope, SerializableExpr};
+use crate::{
+    AvengerChartError, Axis, CompiledDataContext, DataContext, FacetDataScope, SerializableExpr,
+};
+
+pub fn validate_structural_id(kind: &str, id: &str) -> Result<(), AvengerChartError> {
+    if id.is_empty()
+        || id.contains('.')
+        || !id
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+    {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Invalid {kind} id '{id}'; ids must be non-empty ASCII identifiers without periods"
+        )));
+    }
+    Ok(())
+}
 
 /// How a mark obtains rows when it has no explicit mark-level data.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,6 +40,7 @@ pub enum MarkDataMode {
 /// Used during mark construction - stores live DataFrames that can be transformed
 #[derive(Clone)]
 pub struct MarkState {
+    pub id: Option<String>,
     pub data: DataContext,
     pub data_mode: MarkDataMode,
 
@@ -44,6 +61,8 @@ pub struct MarkState {
 #[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledMarkState {
+    #[serde(default)]
+    pub id: Option<String>,
     pub data: CompiledDataContext,
     #[serde(default)]
     pub data_mode: MarkDataMode,
@@ -75,6 +94,7 @@ impl CompiledMarkState {
             CompiledDataContext::new(transformed_df, state.data.channels().clone())
         };
         Self {
+            id: state.id.clone(),
             data,
             data_mode: state.data_mode,
             mark_index: 0,

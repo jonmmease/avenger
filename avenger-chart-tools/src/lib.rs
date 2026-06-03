@@ -457,6 +457,7 @@ pub struct LassoSelection {
     selection_id: String,
     tool_id: String,
     fields: Vec<LassoSelectionField>,
+    mark_ids: Vec<String>,
     facet_scope: Sharing,
     facet_context_fields: Vec<(String, Expr)>,
     empty: EmptySelectionBehavior,
@@ -480,6 +481,7 @@ impl LassoSelection {
             tool_id: selection_id.clone(),
             selection_id,
             fields: Vec::new(),
+            mark_ids: Vec::new(),
             facet_scope: Sharing::Free,
             facet_context_fields: Vec::new(),
             empty: EmptySelectionBehavior::SelectNothing,
@@ -499,6 +501,20 @@ impl LassoSelection {
     pub fn field(self, field: impl Into<String>) -> Self {
         let field = field.into();
         self.dimension(col(&field), field)
+    }
+
+    pub fn mark(mut self, id: impl Into<String>) -> Self {
+        self.mark_ids = vec![id.into()];
+        self
+    }
+
+    pub fn marks<I, S>(mut self, ids: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.mark_ids = ids.into_iter().map(Into::into).collect();
+        self
     }
 
     pub fn dimension(self, field_expr: impl IntoExpr, datum_field: impl Into<String>) -> Self {
@@ -598,6 +614,9 @@ impl LassoSelection {
 
         let mut query = SceneGeometryQuery::polygon(ev::event_path())
             .hit_policy(SceneGeometryHitPolicy::AnchorInside);
+        if !self.mark_ids.is_empty() {
+            query = query.marks(self.mark_ids.clone());
+        }
         for field in &self.fields {
             query = query.datum_field(
                 SceneQueryDatumField::new(&field.id)
@@ -1281,6 +1300,7 @@ mod tests {
     fn lasso_selection_expands_to_selection_query_binding_and_metadata() {
         let tool = LassoSelection::new("picked")
             .field("point_id")
+            .mark("points")
             .event_path_min_distance_px(7.0)
             .facet_scope(Sharing::Shared);
         let expansion = <LassoSelection as ChartTool<Cartesian>>::expand(
@@ -1324,6 +1344,7 @@ mod tests {
         assert_eq!(query.sharing, Sharing::Shared);
         assert_eq!(query.query.datum_fields.len(), 1);
         assert_eq!(query.query.datum_fields[0].id, "point_id");
+        assert_eq!(query.query.target.mark_ids(), &["points".to_string()]);
         assert_eq!(query.query.hit_policy, SceneGeometryHitPolicy::AnchorInside);
         assert!(
             matches!(

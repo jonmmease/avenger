@@ -60,6 +60,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .plot_size(LEFT_WIDTH, PLOT_HEIGHT)
         .title("Lasso source")
         .mark(selection_points(
+            "source_points",
             col("source_x"),
             col("source_y"),
             selected.clone(),
@@ -75,6 +76,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .plot_size(RIGHT_WIDTH, PLOT_HEIGHT)
         .title("Sibling view")
         .mark(selection_points(
+            "sibling_points",
             col("sibling_x"),
             col("sibling_y"),
             selected,
@@ -89,11 +91,13 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .cursor_param(cursor.name.clone())
         .mark(
             Subplot::new(source)
+                .id("source")
                 .key("source")
                 .label("Query rendered marks"),
         )
         .mark(
             Subplot::new(sibling)
+                .id("sibling")
                 .key("sibling")
                 .label("Same semantic selection"),
         );
@@ -113,8 +117,15 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     .expect("build chart app")
 }
 
-fn selection_points(x: Expr, y: Expr, selected: Expr, selected_fill: &str) -> Symbol<Cartesian> {
+fn selection_points(
+    mark_id: &str,
+    x: Expr,
+    y: Expr,
+    selected: Expr,
+    selected_fill: &str,
+) -> Symbol<Cartesian> {
     Symbol::new()
+        .id(mark_id)
         .x(x)
         .y(y)
         .fill_with(lit("#b8beca"), |c| {
@@ -170,6 +181,8 @@ fn lasso_query_update() -> SelectionSceneQuery {
     SelectionSceneQuery::new(
         SceneGeometryQuery::polygon(ev::event_path())
             .hit_policy(SceneGeometryHitPolicy::AnchorInside)
+            .mark("source_points")
+            .within_subplot("source")
             .datum_field(
                 SceneQueryDatumField::new("point_id")
                     .datum("point_id")

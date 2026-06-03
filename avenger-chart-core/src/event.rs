@@ -10,6 +10,7 @@ use crate::{
     AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, Param, SelectionUpdate,
     SerializableExpr, StoreUpdate,
     scene_query::{SceneGeometryQueryGeometry, SceneQueryClauseId, SelectionSceneQuery},
+    validate_structural_id,
 };
 use avenger_common::cursor::CursorStyle;
 use datafusion::{
@@ -142,7 +143,54 @@ pub struct ChartEventSelectionAssignment {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChartEventScopeTarget {
-    pub coord_node_path_prefix: Vec<usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    subplot_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    resolved_coord_node_path_prefix: Option<Vec<usize>>,
+}
+
+impl ChartEventScopeTarget {
+    pub fn within_subplot(id: impl Into<String>) -> Self {
+        Self {
+            subplot_ids: vec![id.into()],
+            resolved_coord_node_path_prefix: None,
+        }
+    }
+
+    pub fn within_subplots<I, S>(ids: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            subplot_ids: ids.into_iter().map(Into::into).collect(),
+            resolved_coord_node_path_prefix: None,
+        }
+    }
+
+    pub fn subplot_ids(&self) -> &[String] {
+        &self.subplot_ids
+    }
+
+    #[doc(hidden)]
+    pub fn resolved_coord_node_path_prefix(&self) -> Option<&[usize]> {
+        self.resolved_coord_node_path_prefix.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn with_resolved_coord_node_path_prefix(prefix: Vec<usize>) -> Self {
+        Self {
+            subplot_ids: Vec::new(),
+            resolved_coord_node_path_prefix: (!prefix.is_empty()).then_some(prefix),
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), AvengerChartError> {
+        for id in &self.subplot_ids {
+            validate_structural_id("subplot target", id)?;
+        }
+        Ok(())
+    }
 }
 
 #[serde_as]
@@ -151,8 +199,12 @@ pub struct ChartEventStream {
     pub event_type: Option<ChartEventType>,
     #[serde_as(as = "Vec<FromInto<SerializableExpr>>")]
     pub filters: Vec<LogicalExprNode>,
-    pub source_group: Option<Vec<usize>>,
-    pub mark_paths: Option<Vec<Vec<usize>>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    mark_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    resolved_source_group: Option<Vec<usize>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    resolved_mark_paths: Option<Vec<Vec<usize>>>,
 }
 
 impl ChartEventStream {
@@ -169,14 +221,51 @@ impl ChartEventStream {
         self
     }
 
-    pub fn source_group(mut self, group: Vec<usize>) -> Self {
-        self.source_group = Some(group);
+    pub fn mark(mut self, id: impl Into<String>) -> Self {
+        self.mark_ids = vec![id.into()];
         self
     }
 
-    pub fn mark_paths(mut self, paths: Vec<Vec<usize>>) -> Self {
-        self.mark_paths = Some(paths);
+    pub fn marks<I, S>(mut self, ids: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.mark_ids = ids.into_iter().map(Into::into).collect();
         self
+    }
+
+    pub fn mark_ids(&self) -> &[String] {
+        &self.mark_ids
+    }
+
+    #[doc(hidden)]
+    pub fn resolved_source_group(&self) -> Option<&[usize]> {
+        self.resolved_source_group.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn resolved_mark_paths(&self) -> Option<&[Vec<usize>]> {
+        self.resolved_mark_paths.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn with_resolved_source_group(mut self, group: Vec<usize>) -> Self {
+        self.resolved_source_group = Some(group);
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn with_resolved_mark_paths(mut self, paths: Vec<Vec<usize>>) -> Self {
+        self.resolved_mark_paths = Some(paths);
+        self
+    }
+
+    pub fn validate(&self) -> Result<(), AvengerChartError> {
+        for id in &self.mark_ids {
+            validate_structural_id("mark target", id)?;
+        }
+        Ok(())
     }
 }
 
@@ -264,11 +353,28 @@ impl ChartEventBinding {
         self
     }
 
+    pub fn within_subplot(mut self, id: impl Into<String>) -> Self {
+        self.scope_target = Some(ChartEventScopeTarget::within_subplot(id));
+        self
+    }
+
+    pub fn within_subplots<I, S>(mut self, ids: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.scope_target = Some(ChartEventScopeTarget::within_subplots(ids));
+        self
+    }
+
     #[doc(hidden)]
-    pub fn with_coord_node_path_target(mut self, coord_node_path_prefix: Vec<usize>) -> Self {
-        self.scope_target = (!coord_node_path_prefix.is_empty()).then_some(ChartEventScopeTarget {
-            coord_node_path_prefix,
-        });
+    pub fn with_resolved_coord_node_path_target(
+        mut self,
+        coord_node_path_prefix: Vec<usize>,
+    ) -> Self {
+        self.scope_target = (!coord_node_path_prefix.is_empty()).then_some(
+            ChartEventScopeTarget::with_resolved_coord_node_path_prefix(coord_node_path_prefix),
+        );
         self
     }
 
@@ -459,6 +565,13 @@ impl ChartEventBinding {
                 "Chart event binding event path minimum distance must be finite and non-negative"
                     .to_string(),
             ));
+        }
+        if let Some(target) = &self.scope_target {
+            target.validate()?;
+        }
+        if let Some(between) = &self.between {
+            between.start.validate()?;
+            between.end.validate()?;
         }
         let mut targets = std::collections::HashSet::new();
         for assignment in &self.assignments {
@@ -1072,6 +1185,7 @@ fn collect_scene_query_update_exprs(
     ctx: &SessionContext,
     exprs: &mut Vec<Expr>,
 ) -> Result<(), AvengerChartError> {
+    update.query.target.validate()?;
     match &update.query.geometry {
         SceneGeometryQueryGeometry::Rect { x0, y0, x1, y1 } => {
             exprs.push(x0.to_expr(ctx)?);

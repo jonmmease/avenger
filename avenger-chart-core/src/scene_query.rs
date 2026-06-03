@@ -3,7 +3,10 @@ use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
-use crate::{DefaultLogicalExprNodeExt, IntoExpr, SerializableExpr, Sharing};
+use crate::{
+    AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, SerializableExpr, Sharing,
+    validate_structural_id,
+};
 
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -80,8 +83,56 @@ pub enum SceneGeometryHitPolicy {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SceneGeometryTarget {
-    pub source_group: Option<Vec<usize>>,
-    pub mark_paths: Option<Vec<Vec<usize>>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    mark_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    subplot_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    resolved_source_group: Option<Vec<usize>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    resolved_mark_paths: Option<Vec<Vec<usize>>>,
+}
+
+impl SceneGeometryTarget {
+    pub fn mark_ids(&self) -> &[String] {
+        &self.mark_ids
+    }
+
+    pub fn subplot_ids(&self) -> &[String] {
+        &self.subplot_ids
+    }
+
+    #[doc(hidden)]
+    pub fn resolved_source_group(&self) -> Option<&[usize]> {
+        self.resolved_source_group.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn resolved_mark_paths(&self) -> Option<&[Vec<usize>]> {
+        self.resolved_mark_paths.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn with_resolved_source_group(mut self, group: Vec<usize>) -> Self {
+        self.resolved_source_group = Some(group);
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn with_resolved_mark_paths(mut self, paths: Vec<Vec<usize>>) -> Self {
+        self.resolved_mark_paths = Some(paths);
+        self
+    }
+
+    pub fn validate(&self) -> Result<(), AvengerChartError> {
+        for id in &self.mark_ids {
+            validate_structural_id("mark target", id)?;
+        }
+        for id in &self.subplot_ids {
+            validate_structural_id("subplot target", id)?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -159,13 +210,31 @@ impl SceneGeometryQuery {
         self
     }
 
-    pub fn source_group(mut self, group: Vec<usize>) -> Self {
-        self.target.source_group = Some(group);
+    pub fn mark(mut self, id: impl Into<String>) -> Self {
+        self.target.mark_ids = vec![id.into()];
         self
     }
 
-    pub fn mark_paths(mut self, paths: Vec<Vec<usize>>) -> Self {
-        self.target.mark_paths = Some(paths);
+    pub fn marks<I, S>(mut self, ids: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.target.mark_ids = ids.into_iter().map(Into::into).collect();
+        self
+    }
+
+    pub fn within_subplot(mut self, id: impl Into<String>) -> Self {
+        self.target.subplot_ids = vec![id.into()];
+        self
+    }
+
+    pub fn within_subplots<I, S>(mut self, ids: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.target.subplot_ids = ids.into_iter().map(Into::into).collect();
         self
     }
 

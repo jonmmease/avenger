@@ -163,6 +163,22 @@ impl RenderedMarkOutput {
     }
 }
 
+fn set_scene_mark_name(mark: &mut SceneMark, name: &str) {
+    match mark {
+        SceneMark::Arc(mark) => mark.name = name.to_string(),
+        SceneMark::Area(mark) => mark.name = name.to_string(),
+        SceneMark::Path(mark) => mark.name = name.to_string(),
+        SceneMark::Symbol(mark) => mark.name = name.to_string(),
+        SceneMark::Line(mark) => mark.name = name.to_string(),
+        SceneMark::Trail(mark) => mark.name = name.to_string(),
+        SceneMark::Rect(mark) => mark.name = name.to_string(),
+        SceneMark::Rule(mark) => mark.name = name.to_string(),
+        SceneMark::Text(mark) => Arc::make_mut(mark).name = name.to_string(),
+        SceneMark::Image(mark) => Arc::make_mut(mark).name = name.to_string(),
+        SceneMark::Group(mark) => mark.name = name.to_string(),
+    }
+}
+
 fn prefix_event_datum_rows(
     rows: impl IntoIterator<Item = EvaluatedEventDatumRows>,
     prefix: &[usize],
@@ -1831,7 +1847,7 @@ impl CompiledPlot {
                 .map(RenderedMarkOutput::marks_only);
         }
 
-        let marks = mark
+        let mut marks = mark
             .render_from_data(
                 prepared.data_batch.as_ref(),
                 &prepared.scalar_batch,
@@ -1839,12 +1855,18 @@ impl CompiledPlot {
                 self.coord_transform.as_ref(),
             )
             .await?;
+        if let Some(id) = mark.state().id.as_deref() {
+            for scene_mark in &mut marks {
+                set_scene_mark_name(scene_mark, id);
+            }
+        }
         let event_datums = prepared
             .event_datum_batch
             .map(|rows| {
                 (0..marks.len())
                     .map(|mark_index| EvaluatedEventDatumRows {
                         mark_path: vec![mark_index],
+                        subplot_id_path: Vec::new(),
                         rows: rows.clone(),
                     })
                     .collect()
@@ -4869,6 +4891,7 @@ impl CompiledPlot {
             facet_path: facet_path.to_vec(),
             logical_facet_values,
             coord_node_path,
+            subplot_id_path: Vec::new(),
             coord_transform: self.coord_transform.clone(),
             channels: channels.iter().map(|channel| channel.to_string()).collect(),
             scales: channel_scales,

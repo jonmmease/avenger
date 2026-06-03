@@ -821,6 +821,8 @@ pub struct EvaluatedInteractionScope {
     pub logical_facet_values: Vec<ScalarValue>,
     /// Facet coord-node path for this scope (empty at the root).
     pub coord_node_path: Vec<usize>,
+    /// Authored subplot ids for ancestor subplot marks, outermost first.
+    pub subplot_id_path: Vec<String>,
     /// Coordinate transform used to invert local points for this scope.
     pub coord_transform: Box<dyn CoordinateSystemTransform>,
     /// Coordinate channels this scope can invert.
@@ -836,6 +838,13 @@ impl EvaluatedInteractionScope {
         self.coord_node_path.insert(0, child_index);
         self.scope_id =
             interaction_scope_content_id(&self.coord_node_path, &self.logical_facet_values);
+    }
+
+    pub(crate) fn prepend_subplot_id(&mut self, id: Option<&str>) {
+        let Some(id) = id else {
+            return;
+        };
+        self.subplot_id_path.insert(0, id.to_string());
     }
 }
 
@@ -877,6 +886,7 @@ impl std::fmt::Debug for EvaluatedInteractionScope {
             .field("facet_path", &self.facet_path)
             .field("logical_facet_values", &self.logical_facet_values)
             .field("coord_node_path", &self.coord_node_path)
+            .field("subplot_id_path", &self.subplot_id_path)
             .field("channels", &self.channels)
             .field("sharing_owner_paths", &self.sharing_owner_paths)
             .finish_non_exhaustive()
@@ -894,8 +904,19 @@ pub struct EvaluatedInteractionState {
 pub struct EvaluatedEventDatumRows {
     /// Final scene-graph mark path for the rendered mark.
     pub mark_path: Vec<usize>,
+    /// Authored subplot ids for ancestor subplot marks, outermost first.
+    pub subplot_id_path: Vec<String>,
     /// Logical rows in the same order as rendered mark instances.
     pub rows: RecordBatch,
+}
+
+impl EvaluatedEventDatumRows {
+    pub(crate) fn prepend_subplot_id(&mut self, id: Option<&str>) {
+        let Some(id) = id else {
+            return;
+        };
+        self.subplot_id_path.insert(0, id.to_string());
+    }
 }
 
 /// Datum lookup table produced by the most recent chart evaluation.
@@ -993,10 +1014,8 @@ impl EvaluatedEventDatumState {
             let mut missing = false;
             for field in fields {
                 let Some(column) = rows.rows.column_by_name(&field.datum_field) else {
-                    return Err(AvengerChartError::InvalidArgument(format!(
-                        "Scene geometry query requested datum field '{}' but rendered mark {:?} did not retain it",
-                        field.datum_field, rows.mark_path
-                    )));
+                    missing = true;
+                    break;
                 };
                 if row_index >= column.len() {
                     missing = true;
@@ -1052,6 +1071,13 @@ impl EvaluatedEventDatumState {
             ))
         })
     }
+
+    pub fn subplot_id_path_for_mark_path(&self, mark_path: &[usize]) -> Option<&[String]> {
+        self.rows
+            .iter()
+            .find(|rows| rows.mark_path == mark_path)
+            .map(|rows| rows.subplot_id_path.as_slice())
+    }
 }
 
 fn scalar_unique_key(value: &ScalarValue) -> Option<String> {
@@ -1101,6 +1127,7 @@ mod tests {
         EvaluatedEventDatumState {
             rows: vec![EvaluatedEventDatumRows {
                 mark_path: vec![2, 0],
+                subplot_id_path: Vec::new(),
                 rows,
             }],
         }
@@ -1176,6 +1203,70 @@ mod tests {
         assert_eq!(batch.num_rows(), 1);
         let value =
             ScalarValue::try_from_array(batch.column_by_name("id").unwrap(), 0).expect("id value");
+        assert_eq!(value, ScalarValue::Utf8(Some("b".to_string())));
+    }
+
+    #[test]
+    fn datums_for_mark_instances_skips_marks_missing_requested_fields() {
+        let eligible_schema = Arc::new(Schema::new(vec![
+            Field::new("row_id", DataType::Utf8, false),
+            Field::new("value", DataType::Int32, false),
+        ]));
+        let eligible_rows = RecordBatch::try_new(
+            eligible_schema,
+            vec![
+                Arc::new(StringArray::from(vec!["a", "b"])),
+                Arc::new(Int32Array::from(vec![1, 2])),
+            ],
+        )
+        .expect("eligible batch");
+        let annotation_schema = Arc::new(Schema::new(vec![Field::new(
+            "label",
+            DataType::Utf8,
+            false,
+        )]));
+        let annotation_rows = RecordBatch::try_new(
+            annotation_schema,
+            vec![Arc::new(StringArray::from(vec!["note"]))],
+        )
+        .expect("annotation batch");
+        let state = EvaluatedEventDatumState {
+            rows: vec![
+                EvaluatedEventDatumRows {
+                    mark_path: vec![0],
+                    subplot_id_path: Vec::new(),
+                    rows: eligible_rows,
+                },
+                EvaluatedEventDatumRows {
+                    mark_path: vec![1],
+                    subplot_id_path: Vec::new(),
+                    rows: annotation_rows,
+                },
+            ],
+        };
+
+        let batch = state
+            .datums_for_mark_instances(
+                [
+                    MarkInstance {
+                        name: "points".to_string(),
+                        mark_path: vec![0],
+                        instance_index: Some(1),
+                    },
+                    MarkInstance {
+                        name: "annotation".to_string(),
+                        mark_path: vec![1],
+                        instance_index: Some(0),
+                    },
+                ],
+                &[SceneQueryDatumField::new("row_id")],
+                &[],
+            )
+            .expect("query datum batch");
+
+        assert_eq!(batch.num_rows(), 1);
+        let value = ScalarValue::try_from_array(batch.column_by_name("row_id").unwrap(), 0)
+            .expect("row_id value");
         assert_eq!(value, ScalarValue::Utf8(Some("b".to_string())));
     }
 }

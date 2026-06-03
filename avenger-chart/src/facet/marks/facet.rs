@@ -361,6 +361,7 @@ enum FacetCellPlanKind {
 async fn render_facet_band_with_placement(
     ops: FacetBandRenderOps,
     compiled_subplot: &CompiledPlot,
+    subplot_id: Option<&str>,
     facet_empty_cell_policy: FacetEmptyCellPolicy,
     context: &RenderContext<'_>,
     facet_measurement: &FacetBandCoordMeasurement,
@@ -522,6 +523,7 @@ async fn render_facet_band_with_placement(
                 let cell_scopes = std::mem::take(&mut components.interaction_scopes);
                 if !cell_scopes.is_empty() {
                     let translated = cell_scopes.into_iter().map(|mut scope| {
+                        scope.prepend_subplot_id(subplot_id);
                         scope.bounds.x += subplot_origin[0];
                         scope.bounds.y += subplot_origin[1];
                         scope
@@ -537,6 +539,7 @@ async fn render_facet_band_with_placement(
                         path.push(0);
                         path.extend(rows.mark_path);
                         rows.mark_path = path;
+                        rows.prepend_subplot_id(subplot_id);
                         rows
                     });
                     context.eval.push_event_datums(translated);
@@ -580,6 +583,7 @@ async fn render_facet_band_with_placement(
 async fn render_facet_band_common(
     ops: FacetBandRenderOps,
     compiled_subplot: &CompiledPlot,
+    subplot_id: Option<&str>,
     facet_empty_cell_policy: FacetEmptyCellPolicy,
     context: &RenderContext<'_>,
 ) -> Result<Vec<SceneMark>, AvengerChartError> {
@@ -601,6 +605,7 @@ async fn render_facet_band_common(
     render_facet_band_with_placement(
         ops,
         compiled_subplot,
+        subplot_id,
         facet_empty_cell_policy,
         context,
         facet_measurement,
@@ -839,6 +844,7 @@ impl CompiledFacetRowSubplot {
         Box::pin(render_facet_band_common(
             FacetBandRenderOps::row(),
             self.compiled_subplot(),
+            self.state().id.as_deref(),
             self.facet_empty_cell_policy,
             context,
         ))
@@ -1059,6 +1065,7 @@ impl CompiledFacetColumnSubplot {
         Box::pin(render_facet_band_common(
             FacetBandRenderOps::col(),
             self.compiled_subplot(),
+            self.state().id.as_deref(),
             self.facet_empty_cell_policy,
             context,
         ))
@@ -1209,6 +1216,7 @@ impl CompiledFacetWrapSubplot {
         Box::pin(render_facet_band_common(
             FacetBandRenderOps::row(),
             self.physical_subplot(),
+            self.state().id.as_deref(),
             self.facet_empty_cell_policy,
             context,
         ))

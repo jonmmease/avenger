@@ -92,6 +92,7 @@ pub(crate) async fn render_positioned_subplot_with_context(
                 path.push(0);
                 path.extend(rows.mark_path);
                 rows.mark_path = path;
+                rows.prepend_subplot_id(subplot.state().id.as_deref());
                 rows
             });
             context.eval.push_event_datums(translated);

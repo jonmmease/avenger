@@ -123,6 +123,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
 fn selection_points(selected: Expr, selected_fill: &str) -> Symbol<Cartesian> {
     Symbol::new()
+        .id("points")
         .x(col("x"))
         .y(col("y"))
         .fill_with(lit("#b8beca"), |c| {
@@ -194,6 +195,7 @@ fn lasso_query_update(sharing: Sharing) -> SelectionSceneQuery {
     SelectionSceneQuery::new(
         SceneGeometryQuery::polygon(ev::event_path())
             .hit_policy(SceneGeometryHitPolicy::AnchorInside)
+            .mark("points")
             .datum_field(
                 SceneQueryDatumField::new("row_id")
                     .datum("row_id")

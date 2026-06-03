@@ -271,6 +271,7 @@ impl CompiledConcatSubplot {
             if !child_scopes.is_empty() {
                 let translated = child_scopes.into_iter().map(|mut scope| {
                     scope.prepend_coord_node_path(self.child_index());
+                    scope.prepend_subplot_id(self.compiled_state().id.as_deref());
                     scope.bounds.x += render_placement.origin[0];
                     scope.bounds.y += render_placement.origin[1];
                     scope
@@ -285,6 +286,7 @@ impl CompiledConcatSubplot {
                     path.push(0);
                     path.extend(rows.mark_path);
                     rows.mark_path = path;
+                    rows.prepend_subplot_id(self.compiled_state().id.as_deref());
                     rows
                 });
                 context.eval.push_event_datums(translated);

@@ -13,6 +13,7 @@ macro_rules! impl_mark_base {
             fn default() -> Self {
                 Self {
                     state: $crate::MarkState {
+                        id: None,
                         data: $crate::DataContext::default(),
                         data_mode: $crate::MarkDataMode::Inherit,
                         facet_data_scope: $crate::FacetDataScope::FILTERED,
@@ -34,6 +35,12 @@ macro_rules! impl_mark_base {
             /// Create a new mark with default settings.
             pub fn new() -> Self {
                 Self::default()
+            }
+
+            /// Set a structural id used by chart interaction targeting.
+            pub fn id(mut self, id: impl Into<String>) -> Self {
+                self.state.id = Some(id.into());
+                self
             }
 
             /// Set explicit data for this mark.

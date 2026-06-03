@@ -62,6 +62,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     {
         Self {
             state: MarkState {
+                id: None,
                 data: DataContext::default(),
                 data_mode: MarkDataMode::Inherit,
                 facet_data_scope: FacetDataScope::FILTERED,
@@ -75,6 +76,12 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
             config: SubplotConfig::default(),
             _outer: PhantomData,
         }
+    }
+
+    /// Set a structural id used by chart interaction targeting.
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.state.id = Some(id.into());
+        self
     }
 
     /// Set explicit data for this subplot mark.

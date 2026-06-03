@@ -1117,6 +1117,10 @@ fn compile_scene_geometry_query(
     query: &SceneGeometryQuery,
     ctx: &SessionContext,
 ) -> Result<SceneGeometryQueryExpression, AvengerAppError> {
+    query
+        .target
+        .validate()
+        .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
     Ok(SceneGeometryQueryExpression {
         geometry: match &query.geometry {
             SceneGeometryQueryGeometry::Rect { x0, y0, x1, y1 } => {
@@ -2601,7 +2605,9 @@ fn scene_geometry_query_result(
     let mut instances = shapes
         .iter()
         .flat_map(|shape| rtree.query_shape(shape, hit_policy))
-        .filter(|instance| scene_query_target_matches(&query.target, &instance.mark_instance))
+        .filter(|instance| {
+            scene_query_target_matches(&query.target, &instance.mark_instance, event_datums)
+        })
         .map(|instance| instance.mark_instance.clone())
         .collect::<Vec<_>>();
     instances.sort_by(|a, b| {
@@ -2794,17 +2800,38 @@ fn geometry_hit_policy(policy: SceneGeometryHitPolicy) -> GeometryQueryHitPolicy
     }
 }
 
-fn scene_query_target_matches(target: &SceneGeometryTarget, mark_instance: &MarkInstance) -> bool {
-    if let Some(group) = &target.source_group
+fn scene_query_target_matches(
+    target: &SceneGeometryTarget,
+    mark_instance: &MarkInstance,
+    event_datums: &EvaluatedEventDatumState,
+) -> bool {
+    if let Some(group) = target.resolved_source_group()
         && (mark_instance.mark_path.len() < group.len()
             || group != &mark_instance.mark_path[0..group.len()])
     {
         return false;
     }
-    if let Some(paths) = &target.mark_paths
+    if let Some(paths) = target.resolved_mark_paths()
         && !paths.contains(&mark_instance.mark_path)
     {
         return false;
+    }
+    if !target.mark_ids().is_empty() && !target.mark_ids().contains(&mark_instance.name) {
+        return false;
+    }
+    if !target.subplot_ids().is_empty() {
+        let Some(subplot_id_path) =
+            event_datums.subplot_id_path_for_mark_path(&mark_instance.mark_path)
+        else {
+            return false;
+        };
+        if !target
+            .subplot_ids()
+            .iter()
+            .any(|id| subplot_id_path.iter().any(|candidate| candidate == id))
+        {
+            return false;
+        }
     }
     true
 }
@@ -3377,9 +3404,22 @@ fn scope_matches_target(
     let Some(target) = target else {
         return true;
     };
-    scope
-        .coord_node_path
-        .starts_with(&target.coord_node_path_prefix)
+    if let Some(prefix) = target.resolved_coord_node_path_prefix()
+        && !scope.coord_node_path.starts_with(prefix)
+    {
+        return false;
+    }
+    if !target.subplot_ids().is_empty()
+        && !target.subplot_ids().iter().any(|id| {
+            scope
+                .subplot_id_path
+                .iter()
+                .any(|candidate| candidate == id)
+        })
+    {
+        return false;
+    }
+    true
 }
 
 /// Result of routing a pointer event against interaction scopes.
@@ -3483,13 +3523,16 @@ fn stream_config_for_chart_stream(
     ctx: &SessionContext,
     param_specs: &IndexMap<String, CompiledParamSpec>,
 ) -> Result<EventStreamConfig, AvengerAppError> {
+    stream
+        .validate()
+        .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
     let mut config = EventStreamConfig {
         types: stream
             .event_type
             .map(|event_type| vec![scene_event_type_from_chart(event_type)])
             .unwrap_or_default(),
-        source_group: stream.source_group.clone(),
-        mark_paths: stream.mark_paths.clone(),
+        source_group: stream.resolved_source_group().map(ToOwned::to_owned),
+        mark_paths: stream.resolved_mark_paths().map(ToOwned::to_owned),
         throttle,
         consume,
         ..Default::default()
@@ -3505,6 +3548,20 @@ fn stream_config_for_chart_stream(
             ctx,
             param_specs,
         )?]);
+    }
+    if !stream.mark_ids().is_empty() {
+        let mark_ids = Arc::new(stream.mark_ids().iter().cloned().collect::<HashSet<_>>());
+        config
+            .filter
+            .get_or_insert_with(Vec::new)
+            .push(EventStreamFilter::context(
+                move |_event, context, _rtree| {
+                    context
+                        .mark_instance
+                        .as_ref()
+                        .is_some_and(|instance| mark_ids.contains(&instance.name))
+                },
+            ));
     }
     Ok(config)
 }
@@ -4114,6 +4171,7 @@ mod tests {
             facet_path: Vec::new(),
             logical_facet_values: Vec::new(),
             coord_node_path: Vec::new(),
+            subplot_id_path: Vec::new(),
             coord_transform: Box::new(Cartesian),
             channels: channels.iter().map(|c| c.to_string()).collect(),
             scales: HashMap::new(),
@@ -4332,22 +4390,52 @@ mod tests {
     }
 
     #[test]
-    fn scene_query_target_matching_filters_mark_paths() {
+    fn scene_query_target_matching_filters_ids_and_resolved_paths() {
         let mark_instance = MarkInstance {
             name: "points".to_string(),
             mark_path: vec![2, 1, 0],
             instance_index: Some(4),
         };
 
-        let mut target = SceneGeometryTarget::default();
-        target.source_group = Some(vec![2, 1]);
-        assert!(scene_query_target_matches(&target, &mark_instance));
+        let event_datums = EvaluatedEventDatumState::default();
+        let target = SceneGeometryTarget::default().with_resolved_source_group(vec![2, 1]);
+        assert!(scene_query_target_matches(
+            &target,
+            &mark_instance,
+            &event_datums
+        ));
 
-        target.mark_paths = Some(vec![vec![2, 1, 0]]);
-        assert!(scene_query_target_matches(&target, &mark_instance));
+        let target = SceneGeometryTarget::default().with_resolved_mark_paths(vec![vec![2, 1, 0]]);
+        assert!(scene_query_target_matches(
+            &target,
+            &mark_instance,
+            &event_datums
+        ));
 
-        target.mark_paths = Some(vec![vec![2, 1, 1]]);
-        assert!(!scene_query_target_matches(&target, &mark_instance));
+        let target = SceneGeometryTarget::default().with_resolved_mark_paths(vec![vec![2, 1, 1]]);
+        assert!(!scene_query_target_matches(
+            &target,
+            &mark_instance,
+            &event_datums
+        ));
+
+        let target = SceneGeometryQuery::rect(lit(0), lit(0), lit(1), lit(1))
+            .mark("points")
+            .target;
+        assert!(scene_query_target_matches(
+            &target,
+            &mark_instance,
+            &event_datums
+        ));
+
+        let target = SceneGeometryQuery::rect(lit(0), lit(0), lit(1), lit(1))
+            .mark("other")
+            .target;
+        assert!(!scene_query_target_matches(
+            &target,
+            &mark_instance,
+            &event_datums
+        ));
     }
 
     #[test]
@@ -4393,9 +4481,7 @@ mod tests {
         source.coord_node_path = vec![1, 0];
         let mut sibling = coord_scope(2, 410.0, 20.0, 100.0, 100.0, &["x", "y"]);
         sibling.coord_node_path = vec![1, 1];
-        let target = ChartEventScopeTarget {
-            coord_node_path_prefix: vec![1],
-        };
+        let target = ChartEventScopeTarget::with_resolved_coord_node_path_prefix(vec![1]);
         let shape = GeometryQueryShape::Polygon {
             points: vec![[212.0, 24.0], [220.0, 24.0], [220.0, 32.0]],
         };

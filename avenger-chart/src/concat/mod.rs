@@ -967,7 +967,8 @@ mod tests {
                 binding
                     .scope_target
                     .as_ref()
-                    .map(|target| target.coord_node_path_prefix.clone())
+                    .and_then(|target| target.resolved_coord_node_path_prefix())
+                    .map(|target| target.to_vec())
             })
             .collect::<Vec<_>>();
 
