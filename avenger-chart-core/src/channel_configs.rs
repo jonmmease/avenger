@@ -37,6 +37,9 @@ define_channel_config!(SizeChannelConfig);
 // Channel config for shape channels
 define_channel_config!(ShapeChannelConfig);
 
+// Channel config for SVG path data channels
+define_channel_config!(PathChannelConfig);
+
 // Channel config for opacity channels
 define_channel_config!(OpacityChannelConfig);
 
@@ -54,7 +57,8 @@ mod tests {
     use datafusion::prelude::{col, lit};
 
     use crate::{
-        ChannelConfig, ChannelValue, ColorChannelConfig, ConditionalValue, StrokeDashChannelConfig,
+        ChannelConfig, ChannelValue, ColorChannelConfig, ConditionalValue, PathChannelConfig,
+        StrokeDashChannelConfig,
     };
 
     #[test]
@@ -64,6 +68,7 @@ mod tests {
         assert_channel_config::<crate::ColorChannelConfig>();
         assert_channel_config::<crate::SizeChannelConfig>();
         assert_channel_config::<crate::ShapeChannelConfig>();
+        assert_channel_config::<PathChannelConfig>();
         assert_channel_config::<crate::OpacityChannelConfig>();
         assert_channel_config::<crate::AngleChannelConfig>();
         assert_channel_config::<crate::StrokeWidthChannelConfig>();

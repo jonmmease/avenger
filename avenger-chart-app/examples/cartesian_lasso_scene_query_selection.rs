@@ -62,7 +62,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .exclude_from_scale_domains()
         .x(col("anchor_x"))
         .y(col("anchor_y"))
-        .with_channel_value("path", ChannelValue::from(col("path")).no_scale())
+        .path_with(col("path"), |c| c.no_scale())
         .fill("rgba(37, 99, 235, 0.08)")
         .stroke("#2563eb")
         .stroke_width(1.5)

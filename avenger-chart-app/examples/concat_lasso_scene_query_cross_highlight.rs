@@ -183,7 +183,7 @@ fn lasso_overlay(store: &str, stroke: &str) -> PathMark<Cartesian> {
         .exclude_from_scale_domains()
         .x(col("anchor_x"))
         .y(col("anchor_y"))
-        .with_channel_value("path", ChannelValue::from(col("path")).no_scale())
+        .path_with(col("path"), |c| c.no_scale())
         .fill("rgba(37, 99, 235, 0.08)")
         .stroke(stroke)
         .stroke_width(1.5)

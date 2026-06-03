@@ -232,6 +232,36 @@ async fn test_band_with_scale_config() {
 }
 
 #[tokio::test]
+async fn test_path_with_no_scale_and_scaled_config() {
+    let raw_path_plot = Plot::<Cartesian>::new().mark(
+        PathMark::new()
+            .x(col("x"))
+            .y(col("y"))
+            .path_with(col("svg_path"), |c| c.no_scale()),
+    );
+
+    let raw_compiled = compile_and_check!(raw_path_plot);
+    assert!(!raw_compiled.scale_specs().contains_key("path"));
+
+    let scaled_path_plot =
+        Plot::<Cartesian>::new().mark(PathMark::new().x(col("x")).y(col("y")).path_with(
+            col("path_kind"),
+            |c| {
+                c.scale_with::<Ordinal>(|s| {
+                    s.domain_discrete(vec![lit("triangle"), lit("diamond")])
+                        .range_discrete(vec![
+                            "M -8 -8 L 8 -8 L 0 8 Z",
+                            "M 0 -10 L 10 0 L 0 10 L -10 0 Z",
+                        ])
+                })
+            },
+        ));
+
+    let scaled_compiled = compile_and_check!(scaled_path_plot);
+    assert!(scaled_compiled.scale_specs().contains_key("path"));
+}
+
+#[tokio::test]
 async fn test_identity_unscaled() {
     // Test that identity() creates unscaled values
     // Note: we need to add scale config to make it show up in scale_specs
