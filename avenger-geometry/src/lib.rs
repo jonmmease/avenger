@@ -3,4 +3,4 @@ pub mod marks;
 pub mod rtree;
 
 pub use geo_types;
-pub use rtree::GeometryInstance;
+pub use rtree::{GeometryInstance, GeometryQueryHitPolicy, GeometryQueryShape};

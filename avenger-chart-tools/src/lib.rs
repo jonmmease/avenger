@@ -3,8 +3,9 @@
 use avenger_chart_cartesian::{Cartesian, CartesianRectPositionChannels};
 use avenger_chart_core::{
     AvengerChartError, ChartEventBinding, ChartEventStream, ChartEventType, ChartTool,
-    CoordinateSystemCore, EmptySelectionBehavior, IntoExpr, Param, Selection,
-    SelectionClauseUpdate, SelectionUpdate, Sharing, ToolExpansion, ToolExpansionContext,
+    CoordinateSystemCore, EmptySelectionBehavior, IntoExpr, Param, SceneGeometryHitPolicy,
+    SceneGeometryQuery, SceneQueryDatumField, Selection, SelectionClauseUpdate,
+    SelectionFromSceneQuery, SelectionUpdate, Sharing, ToolExpansion, ToolExpansionContext,
     ToolMetadata, ToolParamSharing, ToolScaleEdit, event as ev,
 };
 use avenger_chart_marks::Rect;
@@ -445,6 +446,237 @@ fn point_selection_click_binding(
 }
 
 fn point_selection_clear_binding(enabled_param: &str, selection_id: &str) -> ChartEventBinding {
+    ChartEventBinding::on(ChartEventType::DoubleClick)
+        .filter(ev::param(enabled_param).eq(lit(true)))
+        .clear_selection(selection_id)
+        .exact()
+}
+
+#[derive(Clone, Debug)]
+pub struct LassoSelection {
+    selection_id: String,
+    tool_id: String,
+    fields: Vec<LassoSelectionField>,
+    facet_scope: Sharing,
+    facet_context_fields: Vec<(String, Expr)>,
+    empty: EmptySelectionBehavior,
+    drag_button: String,
+    event_path_min_distance_px: f32,
+    double_click_clear: bool,
+    enabled_by_default: bool,
+}
+
+#[derive(Clone, Debug)]
+struct LassoSelectionField {
+    id: String,
+    datum_field: String,
+    field_expr: Expr,
+}
+
+impl LassoSelection {
+    pub fn new(selection_id: impl Into<String>) -> Self {
+        let selection_id = selection_id.into();
+        Self {
+            tool_id: selection_id.clone(),
+            selection_id,
+            fields: Vec::new(),
+            facet_scope: Sharing::Free,
+            facet_context_fields: Vec::new(),
+            empty: EmptySelectionBehavior::SelectNothing,
+            drag_button: "left".to_string(),
+            event_path_min_distance_px:
+                avenger_chart_core::event::DEFAULT_EVENT_PATH_MIN_DISTANCE_PX,
+            double_click_clear: true,
+            enabled_by_default: true,
+        }
+    }
+
+    pub fn id(mut self, tool_id: impl Into<String>) -> Self {
+        self.tool_id = tool_id.into();
+        self
+    }
+
+    pub fn field(self, field: impl Into<String>) -> Self {
+        let field = field.into();
+        self.dimension(col(&field), field)
+    }
+
+    pub fn dimension(self, field_expr: impl IntoExpr, datum_field: impl Into<String>) -> Self {
+        let datum_field = datum_field.into();
+        self.dimension_named(datum_field.clone(), field_expr, datum_field)
+    }
+
+    pub fn dimension_named(
+        mut self,
+        id: impl Into<String>,
+        field_expr: impl IntoExpr,
+        datum_field: impl Into<String>,
+    ) -> Self {
+        self.fields.push(LassoSelectionField {
+            id: id.into(),
+            datum_field: datum_field.into(),
+            field_expr: field_expr.into_expr(),
+        });
+        self
+    }
+
+    pub fn facet_scope(mut self, scope: Sharing) -> Self {
+        self.facet_scope = scope;
+        self
+    }
+
+    pub fn facet_context_field(mut self, id: impl Into<String>, expr: impl IntoExpr) -> Self {
+        self.facet_context_fields
+            .push((id.into(), expr.into_expr()));
+        self
+    }
+
+    pub fn empty_selects_nothing(mut self) -> Self {
+        self.empty = EmptySelectionBehavior::SelectNothing;
+        self
+    }
+
+    pub fn empty_selects_all(mut self) -> Self {
+        self.empty = EmptySelectionBehavior::SelectAll;
+        self
+    }
+
+    pub fn drag_button(mut self, button: impl Into<String>) -> Self {
+        self.drag_button = button.into();
+        self
+    }
+
+    pub fn event_path_min_distance_px(mut self, distance: f32) -> Self {
+        self.event_path_min_distance_px = distance;
+        self
+    }
+
+    pub fn double_click_clear(mut self, enabled: bool) -> Self {
+        self.double_click_clear = enabled;
+        self
+    }
+
+    pub fn enabled_by_default(mut self, enabled: bool) -> Self {
+        self.enabled_by_default = enabled;
+        self
+    }
+
+    pub fn predicate(&self) -> Expr {
+        Selection::new(&self.selection_id).predicate()
+    }
+
+    fn enabled_param_name(&self) -> String {
+        generated_tool_name(&self.tool_id, "enabled")
+    }
+
+    fn selection(&self) -> Selection {
+        let mut selection =
+            Selection::new(&self.selection_id).combine(avenger_chart_core::SelectionCombine::Union);
+        selection = match self.empty {
+            EmptySelectionBehavior::SelectAll => selection.empty_selects_all(),
+            EmptySelectionBehavior::SelectNothing => selection.empty_selects_nothing(),
+        };
+        for (id, expr) in &self.facet_context_fields {
+            selection = selection.facet_context_field(id.clone(), expr.clone());
+        }
+        selection
+    }
+
+    fn scene_query_update(&self) -> Result<SelectionFromSceneQuery, AvengerChartError> {
+        if self.fields.is_empty() {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "tool '{}' requires at least one lasso selection field",
+                self.tool_id
+            )));
+        }
+        if !self.event_path_min_distance_px.is_finite() || self.event_path_min_distance_px < 0.0 {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "tool '{}' requires a finite non-negative event path minimum distance",
+                self.tool_id
+            )));
+        }
+
+        let mut query = SceneGeometryQuery::polygon(ev::event_path())
+            .hit_policy(SceneGeometryHitPolicy::AnchorInside);
+        for field in &self.fields {
+            query = query.datum_field(
+                SceneQueryDatumField::new(&field.id)
+                    .datum(&field.datum_field)
+                    .field_expr(field.field_expr.clone()),
+            );
+        }
+        let unique_fields = self
+            .fields
+            .iter()
+            .map(|field| field.id.clone())
+            .collect::<Vec<_>>();
+        Ok(
+            SelectionFromSceneQuery::replace_all(query.unique_by(unique_fields))
+                .sharing(self.facet_scope),
+        )
+    }
+}
+
+impl<C: CoordinateSystemCore> ChartTool<C> for LassoSelection {
+    fn id(&self) -> &str {
+        &self.tool_id
+    }
+
+    fn expand(
+        &self,
+        _ctx: ToolExpansionContext<'_>,
+    ) -> Result<ToolExpansion<C>, AvengerChartError> {
+        let enabled = Param::new(
+            self.enabled_param_name(),
+            ScalarValue::Boolean(Some(self.enabled_by_default)),
+        );
+        let mut expansion = ToolExpansion::new()
+            .param(enabled.clone(), ToolParamSharing::Explicit(Sharing::Shared))
+            .selection(self.selection())
+            .event_binding(lasso_selection_drag_binding(
+                &enabled.name,
+                &self.selection_id,
+                &self.drag_button,
+                self.event_path_min_distance_px,
+                self.scene_query_update()?,
+            ))
+            .metadata(
+                ToolMetadata::new(self.tool_id.clone(), "Lasso Selection")
+                    .enabled_param(enabled.name.clone()),
+            );
+
+        if self.double_click_clear {
+            expansion = expansion.event_binding(lasso_selection_clear_binding(
+                &enabled.name,
+                &self.selection_id,
+            ));
+        }
+
+        Ok(expansion)
+    }
+}
+
+fn lasso_selection_drag_binding(
+    enabled_param: &str,
+    selection_id: &str,
+    drag_button: &str,
+    event_path_min_distance_px: f32,
+    update: SelectionFromSceneQuery,
+) -> ChartEventBinding {
+    ChartEventBinding::on(ChartEventType::CursorMoved)
+        .filter(ev::param(enabled_param).eq(lit(true)))
+        .between(
+            ChartEventStream::on(ChartEventType::MouseDown)
+                .filter(ev::button().eq(lit(drag_button.to_string()))),
+            ChartEventStream::on(ChartEventType::MouseUp),
+        )
+        .set_selection_from_scene_query_at_start_scope(selection_id, update)
+        .event_path_min_distance_px(event_path_min_distance_px)
+        .preview()
+        .settle_exact()
+}
+
+fn lasso_selection_clear_binding(enabled_param: &str, selection_id: &str) -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::DoubleClick)
         .filter(ev::param(enabled_param).eq(lit(true)))
         .clear_selection(selection_id)
@@ -1043,6 +1275,83 @@ mod tests {
                 .all(|binding| binding.filters.len() >= 1),
             "every binding should include the enabled-param filter"
         );
+    }
+
+    #[test]
+    fn lasso_selection_expands_to_selection_query_binding_and_metadata() {
+        let tool = LassoSelection::new("picked")
+            .field("point_id")
+            .event_path_min_distance_px(7.0)
+            .facet_scope(Sharing::Shared);
+        let expansion = <LassoSelection as ChartTool<Cartesian>>::expand(
+            &tool,
+            ToolExpansionContext {
+                tool_id: <LassoSelection as ChartTool<Cartesian>>::id(&tool),
+            },
+        )
+        .expect("expand");
+
+        assert_eq!(expansion.params.len(), 1);
+        assert_eq!(expansion.selections.len(), 1);
+        assert_eq!(expansion.event_bindings.len(), 2);
+        assert_eq!(expansion.metadata.len(), 1);
+        assert!(expansion.stores.is_empty());
+        assert!(expansion.marks.is_empty());
+        assert!(expansion.scale_edits.is_empty());
+        assert_eq!(expansion.params[0].param.name, "__tool_picked__enabled");
+        assert_eq!(expansion.selections[0].id, "picked");
+        assert_eq!(expansion.metadata[0].id, "picked");
+
+        let drag = expansion
+            .event_bindings
+            .iter()
+            .find(|binding| binding.event_type == ChartEventType::CursorMoved)
+            .expect("drag binding");
+        assert!(drag.between.is_some());
+        assert_eq!(drag.event_path_min_distance_px, Some(7.0));
+        assert_eq!(drag.scene_query_selection_assignments.len(), 1);
+        assert_eq!(
+            drag.evaluation_mode,
+            avenger_chart_core::event::ChartEventEvaluationMode::Preview
+        );
+        assert!(drag.settle_exact);
+
+        let assignment = &drag.scene_query_selection_assignments[0];
+        assert_eq!(assignment.selection_id, "picked");
+        assert_eq!(assignment.update.sharing, Sharing::Shared);
+        assert_eq!(assignment.update.query.datum_fields.len(), 1);
+        assert_eq!(assignment.update.query.datum_fields[0].id, "point_id");
+        assert_eq!(
+            assignment.update.query.hit_policy,
+            SceneGeometryHitPolicy::AnchorInside
+        );
+        assert!(
+            matches!(
+                assignment.update.query.geometry,
+                avenger_chart_core::SceneGeometryQueryGeometry::Polygon { .. }
+            ),
+            "lasso selection should use the event-path polygon query"
+        );
+
+        assert!(expansion.event_bindings.iter().any(|binding| {
+            binding.event_type == ChartEventType::DoubleClick
+                && binding.selection_assignments.len() == 1
+        }));
+    }
+
+    #[test]
+    fn lasso_selection_requires_at_least_one_field() {
+        let tool = LassoSelection::new("picked");
+        let err = match <LassoSelection as ChartTool<Cartesian>>::expand(
+            &tool,
+            ToolExpansionContext {
+                tool_id: <LassoSelection as ChartTool<Cartesian>>::id(&tool),
+            },
+        ) {
+            Ok(_) => panic!("missing lasso field should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("requires at least one"));
     }
 
     #[test]

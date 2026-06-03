@@ -19,7 +19,7 @@ pub use avenger_chart_core::{
     ChartTool, ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamExpansion,
     ToolParamSharing, ToolScaleEdit,
 };
-pub use avenger_chart_tools::{BoxZoom, PanScrollZoom, PointSelection};
+pub use avenger_chart_tools::{BoxZoom, LassoSelection, PanScrollZoom, PointSelection};
 
 pub(crate) struct ToolCompileContext {
     state: Arc<Mutex<ToolCompileState>>,

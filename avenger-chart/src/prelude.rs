@@ -22,6 +22,8 @@
 pub use crate::concat::{ConcatGuide, HConcat, VConcat};
 pub use crate::event::{
     ChartEventBinding, ChartEventEvaluationMode, ChartEventStream, ChartEventType,
+    SceneGeometryHitPolicy, SceneGeometryQuery, SceneQueryClauseId, SceneQueryDatumField,
+    SceneQuerySelectionMode, SelectionFromSceneQuery,
 };
 pub use crate::facet::coord::{FacetColumn, FacetRow, FacetWrap};
 pub use avenger_chart_cartesian::Cartesian;
@@ -43,7 +45,7 @@ pub use avenger_chart_core::{
     ChartTool, ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamExpansion,
     ToolParamSharing, ToolScaleEdit,
 };
-pub use avenger_chart_tools::{BoxZoom, PanScrollZoom, PointSelection};
+pub use avenger_chart_tools::{BoxZoom, LassoSelection, PanScrollZoom, PointSelection};
 
 // Re-export theme types
 pub use avenger_chart_core::Theme;

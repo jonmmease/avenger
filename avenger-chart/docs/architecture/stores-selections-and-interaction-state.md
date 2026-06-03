@@ -217,6 +217,34 @@ equality clauses use `equality(id)` with an explicit id. Multiple clauses are
 combined by the selection's `SelectionCombine`: `Union` ORs clauses together
 and `Intersect` ANDs clauses together.
 
+Generic predicate clauses are the extension path for selection semantics that
+are not built into core. A generic predicate stores named event-time values and
+a serialized DataFusion boolean expression. During mark data preparation,
+`selection::clause_value(name)` placeholders in the expression are replaced
+with the stored scalar values, then the expression is evaluated against the
+mark's input rows:
+
+```rust
+let point_dx = col("source_x") - selection::clause_value("cx");
+let point_dy = col("source_y") - selection::clause_value("cy");
+
+let circle_clause = SelectionClauseUpdate::predicate(lit("active"))
+    .kind("circle")
+    .value("cx", ev::start_coord("x"))
+    .value("cy", ev::start_coord("y"))
+    .value("r2", radius_squared_expr)
+    .expr(
+        (point_dx.clone() * point_dx + point_dy.clone() * point_dy)
+            .lt_eq(selection::clause_value("r2")),
+    );
+```
+
+`kind(...)` is metadata for diagnostics and future editable selection UI; it is
+not used for dispatch. If a generic value resolves to null, the clause evaluates
+to false. If the predicate references an undeclared `clause_value(...)`, the
+evaluation returns an error. If the predicate references data columns that are
+not present in a mark's input rows, that mark treats the clause as false.
+
 The public selection mutation operations are:
 
 - `SelectionUpdate::clear()`
@@ -332,10 +360,22 @@ Plot::<Cartesian>::new()
     );
 ```
 
-`PointSelection` is chrome-free: it contributes no stores or marks. Region
-selection tools such as box and lasso selection use the same selection
-primitive for predicate semantics, plus stores and ordinary marks for editable
-selection chrome. They do not need a private overlay scene-mark system.
+`LassoSelection` is the built-in rendered-geometry lasso-selection tool. It
+contributes a selection, an enabled param, a between-stream cursor-move binding
+that samples `ev::event_path()`, a scene-geometry polygon query that collects
+datum tuples from rendered marks, an optional double-click clear binding, and
+metadata:
+
+```rust
+let picked = LassoSelection::new("picked")
+    .field("point_id")
+    .event_path_min_distance_px(6.0);
+```
+
+`PointSelection` and `LassoSelection` are chrome-free: they contribute no stores
+or marks. Editable region-selection chrome uses the same selection primitive for
+predicate semantics, plus stores and ordinary marks for drawable state. It does
+not need a private overlay scene-mark system.
 
 ## Invariants
 

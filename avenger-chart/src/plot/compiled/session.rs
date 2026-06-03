@@ -3042,6 +3042,68 @@ mod tests {
         }
     }
 
+    fn radial_predicate_selection_clause(
+        id: &str,
+        cx: ScalarValue,
+        cy: ScalarValue,
+        r2: ScalarValue,
+    ) -> SelectionClause {
+        let dx = col("x") - avenger_chart_core::clause_value("cx");
+        let dy = col("y") - avenger_chart_core::clause_value("cy");
+        SelectionClause {
+            id: id.to_string(),
+            scope: avenger_chart_core::ResolvedSelectionClauseScope {
+                sharing: Sharing::Shared,
+                owner_path: Vec::new(),
+            },
+            predicate: avenger_chart_core::SelectionPredicateSpec::Predicate {
+                values: vec![
+                    avenger_chart_core::SelectionPredicateValue {
+                        id: "cx".to_string(),
+                        value: cx,
+                    },
+                    avenger_chart_core::SelectionPredicateValue {
+                        id: "cy".to_string(),
+                        value: cy,
+                    },
+                    avenger_chart_core::SelectionPredicateValue {
+                        id: "r2".to_string(),
+                        value: r2,
+                    },
+                ],
+                expr: LogicalExprNode::from_expr(
+                    (dx.clone() * dx + dy.clone() * dy)
+                        .lt_eq(avenger_chart_core::clause_value("r2")),
+                )
+                .expect("serialize radial predicate"),
+                kind: Some("circle".to_string()),
+            },
+            facet_context: Vec::new(),
+        }
+    }
+
+    fn undeclared_value_predicate_selection_clause() -> SelectionClause {
+        SelectionClause {
+            id: "bad".to_string(),
+            scope: avenger_chart_core::ResolvedSelectionClauseScope {
+                sharing: Sharing::Shared,
+                owner_path: Vec::new(),
+            },
+            predicate: avenger_chart_core::SelectionPredicateSpec::Predicate {
+                values: vec![avenger_chart_core::SelectionPredicateValue {
+                    id: "cx".to_string(),
+                    value: ScalarValue::Float64(Some(2.0)),
+                }],
+                expr: LogicalExprNode::from_expr(
+                    col("x").gt_eq(avenger_chart_core::clause_value("cy")),
+                )
+                .expect("serialize undeclared value predicate"),
+                kind: Some("bad".to_string()),
+            },
+            facet_context: Vec::new(),
+        }
+    }
+
     async fn evaluate_blue_count_after_selection_clauses(
         compiled: Arc<CompiledPlot>,
         ctx: Arc<SessionContext>,
@@ -4217,6 +4279,127 @@ mod tests {
         assert_eq!(
             blue_count, 0,
             "a clause whose fields are absent from this consumer should evaluate false"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn generic_predicate_selection_clause_selects_rows() -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_selection_preview_plot(&ctx).await?);
+
+        let blue_count = evaluate_blue_count_after_selection_clauses(
+            compiled,
+            ctx,
+            SelectionStateUpdate::ReplaceAllClauses {
+                clauses: vec![radial_predicate_selection_clause(
+                    "circle",
+                    ScalarValue::Float64(Some(2.0)),
+                    ScalarValue::Float64(Some(2.0)),
+                    ScalarValue::Float64(Some(3.0)),
+                )],
+            },
+        )
+        .await?;
+        assert_eq!(
+            blue_count, 2,
+            "two points should fall inside the generic radial predicate"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn generic_predicate_selection_null_values_select_nothing()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_selection_preview_plot(&ctx).await?);
+
+        let blue_count = evaluate_blue_count_after_selection_clauses(
+            compiled,
+            ctx,
+            SelectionStateUpdate::ReplaceAllClauses {
+                clauses: vec![radial_predicate_selection_clause(
+                    "circle",
+                    ScalarValue::Float64(None),
+                    ScalarValue::Float64(Some(2.0)),
+                    ScalarValue::Float64(Some(3.0)),
+                )],
+            },
+        )
+        .await?;
+        assert_eq!(
+            blue_count, 0,
+            "null generic predicate values should produce a false predicate"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn generic_predicate_selection_missing_fields_select_nothing()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let brush = Selection::new("brush").empty_selects_nothing();
+        let selected = brush.predicate();
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0)) AS t(u, v)")
+            .await?;
+        let compiled = Arc::new(
+            Plot::<Cartesian>::new()
+                .add_selection(brush)
+                .canvas_size(420.0, 320.0)
+                .data(df)
+                .mark(
+                    Symbol::new()
+                        .x(col("u"))
+                        .y(col("v"))
+                        .fill_with(lit("#b8beca"), |c| {
+                            c.no_scale()
+                                .when_value(selected, lit("#2563eb"))
+                                .no_legend()
+                        })
+                        .size(20.0),
+                )
+                .compile(&ctx)
+                .await?,
+        );
+
+        let blue_count = evaluate_blue_count_after_selection_clauses(
+            compiled,
+            ctx,
+            SelectionStateUpdate::ReplaceAllClauses {
+                clauses: vec![radial_predicate_selection_clause(
+                    "circle",
+                    ScalarValue::Float64(Some(2.0)),
+                    ScalarValue::Float64(Some(2.0)),
+                    ScalarValue::Float64(Some(3.0)),
+                )],
+            },
+        )
+        .await?;
+        assert_eq!(
+            blue_count, 0,
+            "generic predicates whose data columns are absent should evaluate false"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn generic_predicate_undeclared_clause_value_errors() -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_selection_preview_plot(&ctx).await?);
+
+        let err = evaluate_blue_count_after_selection_clauses(
+            compiled,
+            ctx,
+            SelectionStateUpdate::ReplaceAllClauses {
+                clauses: vec![undeclared_value_predicate_selection_clause()],
+            },
+        )
+        .await
+        .expect_err("undeclared predicate value should error");
+        assert!(
+            err.to_string().contains("undeclared clause value 'cy'"),
+            "unexpected error: {err}"
         );
         Ok(())
     }

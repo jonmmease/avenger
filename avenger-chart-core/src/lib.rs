@@ -198,8 +198,9 @@ pub use selection::{
     SelectionClause, SelectionClauseUpdate, SelectionCombine, SelectionEqualityDimensionUpdate,
     SelectionEqualityDimensionValue, SelectionFacetContextSpec, SelectionFacetContextValue,
     SelectionIntervalDimensionUpdate, SelectionIntervalDimensionValue, SelectionPredicateSpec,
-    SelectionPredicateUpdate, SelectionUpdate, SelectionValueExpr, compile_selections,
-    selection_id_from_predicate_placeholder,
+    SelectionPredicateUpdate, SelectionPredicateValue, SelectionPredicateValueUpdate,
+    SelectionUpdate, SelectionValueExpr, clause_value, compile_selections,
+    selection_clause_value_id_from_placeholder, selection_id_from_predicate_placeholder,
 };
 pub use serialization::{
     DefaultLogicalExprNodeExt, LogicalPlanNodeExt, SerializableDataFrame, SerializableDataType,

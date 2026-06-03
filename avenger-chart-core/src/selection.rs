@@ -69,12 +69,26 @@ pub struct SelectionEqualityDimensionUpdate {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SelectionPredicateValueUpdate {
+    pub id: String,
+    pub value: SelectionValueExpr,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SelectionPredicateUpdate {
     Interval {
         dimensions: Vec<SelectionIntervalDimensionUpdate>,
     },
     Equality {
         dimensions: Vec<SelectionEqualityDimensionUpdate>,
+    },
+    Predicate {
+        values: Vec<SelectionPredicateValueUpdate>,
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        expr: LogicalExprNode,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kind: Option<String>,
     },
 }
 
@@ -142,12 +156,23 @@ pub struct SelectionEqualityDimensionValue {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct SelectionPredicateValue {
+    pub id: String,
+    pub value: ScalarValue,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum SelectionPredicateSpec {
     Interval {
         dimensions: Vec<SelectionIntervalDimensionValue>,
     },
     Equality {
         dimensions: Vec<SelectionEqualityDimensionValue>,
+    },
+    Predicate {
+        values: Vec<SelectionPredicateValue>,
+        expr: LogicalExprNode,
+        kind: Option<String>,
     },
 }
 
@@ -290,6 +315,15 @@ impl SelectionClauseUpdate {
             .dimension(field_expr, value_expr)
             .build()
     }
+
+    pub fn predicate(id: impl IntoExpr) -> SelectionPredicateClauseBuilder {
+        SelectionPredicateClauseBuilder {
+            id: SelectionValueExpr::new(id),
+            facet_scope: Sharing::Free,
+            values: Vec::new(),
+            kind: None,
+        }
+    }
 }
 
 pub struct SelectionIntervalClauseBuilder {
@@ -357,6 +391,9 @@ impl SelectionIntervalDimensionBuilder {
             SelectionPredicateUpdate::Equality { .. } => {
                 unreachable!("interval builder always owns interval predicate")
             }
+            SelectionPredicateUpdate::Predicate { .. } => {
+                unreachable!("interval builder always owns interval predicate")
+            }
         };
         dimensions.push(SelectionIntervalDimensionUpdate {
             id: self.id,
@@ -395,6 +432,9 @@ impl SelectionEqualityClauseBuilder {
             SelectionPredicateUpdate::Interval { .. } => {
                 unreachable!("equality builder always owns equality predicate")
             }
+            SelectionPredicateUpdate::Predicate { .. } => {
+                unreachable!("equality builder always owns equality predicate")
+            }
         };
         dimensions.push(SelectionEqualityDimensionUpdate {
             id: id.into(),
@@ -412,6 +452,45 @@ impl SelectionEqualityClauseBuilder {
 impl From<SelectionEqualityClauseBuilder> for SelectionClauseUpdate {
     fn from(builder: SelectionEqualityClauseBuilder) -> Self {
         builder.build()
+    }
+}
+
+pub struct SelectionPredicateClauseBuilder {
+    id: SelectionValueExpr,
+    facet_scope: Sharing,
+    values: Vec<SelectionPredicateValueUpdate>,
+    kind: Option<String>,
+}
+
+impl SelectionPredicateClauseBuilder {
+    pub fn facet_scope(mut self, facet_scope: Sharing) -> Self {
+        self.facet_scope = facet_scope;
+        self
+    }
+
+    pub fn kind(mut self, kind: impl Into<String>) -> Self {
+        self.kind = Some(kind.into());
+        self
+    }
+
+    pub fn value(mut self, id: impl Into<String>, value: impl IntoExpr) -> Self {
+        self.values.push(SelectionPredicateValueUpdate {
+            id: id.into(),
+            value: SelectionValueExpr::new(value),
+        });
+        self
+    }
+
+    pub fn expr(self, expr: impl IntoExpr) -> SelectionClauseUpdate {
+        SelectionClauseUpdate {
+            id: self.id,
+            facet_scope: self.facet_scope,
+            predicate: SelectionPredicateUpdate::Predicate {
+                values: self.values,
+                expr: expr_node(expr.into_expr(), "selection generic predicate expression"),
+                kind: self.kind,
+            },
+        }
     }
 }
 
@@ -509,6 +588,21 @@ pub fn selection_id_from_predicate_placeholder(placeholder_id: &str) -> Option<&
     placeholder_id.strip_prefix("$__selection_predicate_")
 }
 
+pub fn clause_value(id: impl AsRef<str>) -> Expr {
+    Expr::Placeholder(Placeholder {
+        id: selection_clause_value_placeholder_id(id.as_ref()),
+        data_type: None,
+    })
+}
+
+fn selection_clause_value_placeholder_id(id: &str) -> String {
+    format!("$__selection_clause_value_{id}")
+}
+
+pub fn selection_clause_value_id_from_placeholder(placeholder_id: &str) -> Option<&str> {
+    placeholder_id.strip_prefix("$__selection_clause_value_")
+}
+
 pub fn compile_selections(
     selections: &[Selection],
 ) -> Result<IndexMap<String, CompiledSelectionSpec>, AvengerChartError> {
@@ -554,6 +648,19 @@ mod tests {
     fn selection_predicate_serializes() {
         let expr = Selection::new("brush").predicate();
         LogicalExprNode::from_expr(expr).expect("selection predicate serializes");
+    }
+
+    #[test]
+    fn selection_clause_value_placeholder_serializes_and_is_recognized() {
+        let expr = clause_value("cx");
+        LogicalExprNode::from_expr(expr.clone()).expect("clause value placeholder serializes");
+        let Expr::Placeholder(placeholder) = expr else {
+            panic!("expected placeholder expression");
+        };
+        assert_eq!(
+            selection_clause_value_id_from_placeholder(&placeholder.id),
+            Some("cx")
+        );
     }
 
     #[test]
@@ -639,6 +746,27 @@ mod tests {
             dimensions[0].value, restored_id,
             "the clause id and equality value should be the same expression"
         );
+    }
+
+    #[test]
+    fn generic_predicate_clause_update_builder_serializes() {
+        let clause = SelectionClauseUpdate::predicate("active")
+            .facet_scope(Sharing::Level(1))
+            .kind("circle")
+            .value("cx", event::start_coord("x"))
+            .value("r2", lit(4.0))
+            .expr(col("source_x").gt_eq(clause_value("cx")));
+        let json = serde_json::to_string(&clause).expect("serialize clause");
+        let restored: SelectionClauseUpdate =
+            serde_json::from_str(&json).expect("deserialize clause");
+        assert_eq!(restored.facet_scope, Sharing::Level(1));
+        let SelectionPredicateUpdate::Predicate { values, kind, .. } = restored.predicate else {
+            panic!("expected generic predicate");
+        };
+        assert_eq!(kind.as_deref(), Some("circle"));
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0].id, "cx");
+        assert_eq!(values[1].id, "r2");
     }
 
     #[test]

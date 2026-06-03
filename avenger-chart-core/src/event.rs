@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 
 use crate::{
     AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, Param, SelectionUpdate,
-    SerializableExpr, StoreUpdate,
+    SerializableExpr, Sharing, StoreUpdate,
 };
 use avenger_common::cursor::CursorStyle;
 use datafusion::{
@@ -77,6 +77,9 @@ pub const EVENT_SCOPE_ID_FIELD: &str = "__event_scope_id";
 pub const START_SCOPE_ID_FIELD: &str = "__start_scope_id";
 pub const EVENT_FACET_VALUE_PREFIX: &str = "__event_facet_value_";
 pub const START_FACET_VALUE_PREFIX: &str = "__start_facet_value_";
+pub const EVENT_PATH_FIELD: &str = "__event_path";
+pub const EVENT_PATH_SVG_FIELD: &str = "__event_path_svg";
+pub const DEFAULT_EVENT_PATH_MIN_DISTANCE_PX: f32 = 2.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChartEventType {
@@ -132,6 +135,302 @@ pub struct ChartEventStoreAssignment {
 pub struct ChartEventSelectionAssignment {
     pub selection_id: String,
     pub update: SelectionUpdate,
+    #[serde(default)]
+    pub scope: ChartEventAssignmentScope,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SceneQueryDatumField {
+    pub id: String,
+    pub datum_field: String,
+    #[serde_as(as = "FromInto<SerializableExpr>")]
+    pub field_expr: LogicalExprNode,
+}
+
+impl SceneQueryDatumField {
+    pub fn new(field: impl Into<String>) -> Self {
+        let field = field.into();
+        Self {
+            id: field.clone(),
+            datum_field: field.clone(),
+            field_expr: expr_node(col(field), "scene query datum field expression"),
+        }
+    }
+
+    pub fn datum(mut self, field: impl Into<String>) -> Self {
+        self.datum_field = field.into();
+        self
+    }
+
+    pub fn field_expr(mut self, expr: impl IntoExpr) -> Self {
+        self.field_expr = expr_node(expr.into_expr(), "scene query datum field expression");
+        self
+    }
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum SceneGeometryQueryGeometry {
+    Rect {
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        x0: LogicalExprNode,
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        y0: LogicalExprNode,
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        x1: LogicalExprNode,
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        y1: LogicalExprNode,
+    },
+    Circle {
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        cx: LogicalExprNode,
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        cy: LogicalExprNode,
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        radius: LogicalExprNode,
+    },
+    Polygon {
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        points: LogicalExprNode,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SceneGeometryCoordinateSpace {
+    #[default]
+    Scene,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SceneGeometryHitPolicy {
+    EnvelopeIntersects,
+    GeometryIntersects,
+    GeometryContained,
+    #[default]
+    AnchorInside,
+    CentroidInside,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SceneGeometryTarget {
+    pub source_group: Option<Vec<usize>>,
+    pub mark_paths: Option<Vec<Vec<usize>>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SceneGeometryQuery {
+    pub geometry: SceneGeometryQueryGeometry,
+    #[serde(default)]
+    pub coordinate_space: SceneGeometryCoordinateSpace,
+    #[serde(default)]
+    pub hit_policy: SceneGeometryHitPolicy,
+    #[serde(default)]
+    pub target: SceneGeometryTarget,
+    #[serde(default)]
+    pub datum_fields: Vec<SceneQueryDatumField>,
+    #[serde(default)]
+    pub unique_by: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_hits: Option<usize>,
+}
+
+impl SceneGeometryQuery {
+    pub fn rect(
+        x0: impl IntoExpr,
+        y0: impl IntoExpr,
+        x1: impl IntoExpr,
+        y1: impl IntoExpr,
+    ) -> Self {
+        Self {
+            geometry: SceneGeometryQueryGeometry::Rect {
+                x0: expr_node(x0.into_expr(), "scene rectangle query x0"),
+                y0: expr_node(y0.into_expr(), "scene rectangle query y0"),
+                x1: expr_node(x1.into_expr(), "scene rectangle query x1"),
+                y1: expr_node(y1.into_expr(), "scene rectangle query y1"),
+            },
+            coordinate_space: SceneGeometryCoordinateSpace::Scene,
+            hit_policy: SceneGeometryHitPolicy::AnchorInside,
+            target: SceneGeometryTarget::default(),
+            datum_fields: Vec::new(),
+            unique_by: Vec::new(),
+            max_hits: None,
+        }
+    }
+
+    pub fn circle(cx: impl IntoExpr, cy: impl IntoExpr, radius: impl IntoExpr) -> Self {
+        Self {
+            geometry: SceneGeometryQueryGeometry::Circle {
+                cx: expr_node(cx.into_expr(), "scene circle query cx"),
+                cy: expr_node(cy.into_expr(), "scene circle query cy"),
+                radius: expr_node(radius.into_expr(), "scene circle query radius"),
+            },
+            coordinate_space: SceneGeometryCoordinateSpace::Scene,
+            hit_policy: SceneGeometryHitPolicy::AnchorInside,
+            target: SceneGeometryTarget::default(),
+            datum_fields: Vec::new(),
+            unique_by: Vec::new(),
+            max_hits: None,
+        }
+    }
+
+    pub fn polygon(points: impl IntoExpr) -> Self {
+        Self {
+            geometry: SceneGeometryQueryGeometry::Polygon {
+                points: expr_node(points.into_expr(), "scene polygon query points"),
+            },
+            coordinate_space: SceneGeometryCoordinateSpace::Scene,
+            hit_policy: SceneGeometryHitPolicy::AnchorInside,
+            target: SceneGeometryTarget::default(),
+            datum_fields: Vec::new(),
+            unique_by: Vec::new(),
+            max_hits: None,
+        }
+    }
+
+    pub fn hit_policy(mut self, hit_policy: SceneGeometryHitPolicy) -> Self {
+        self.hit_policy = hit_policy;
+        self
+    }
+
+    pub fn source_group(mut self, group: Vec<usize>) -> Self {
+        self.target.source_group = Some(group);
+        self
+    }
+
+    pub fn mark_paths(mut self, paths: Vec<Vec<usize>>) -> Self {
+        self.target.mark_paths = Some(paths);
+        self
+    }
+
+    pub fn datum_field(mut self, field: SceneQueryDatumField) -> Self {
+        if self.unique_by.is_empty() {
+            self.unique_by.push(field.id.clone());
+        }
+        self.datum_fields.push(field);
+        self
+    }
+
+    pub fn datum_fields<I>(mut self, fields: I) -> Self
+    where
+        I: IntoIterator<Item = SceneQueryDatumField>,
+    {
+        for field in fields {
+            self = self.datum_field(field);
+        }
+        self
+    }
+
+    pub fn unique_by<I, S>(mut self, fields: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.unique_by = fields.into_iter().map(Into::into).collect();
+        self
+    }
+
+    pub fn max_hits(mut self, max_hits: usize) -> Self {
+        self.max_hits = Some(max_hits);
+        self
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum SceneQuerySelectionMode {
+    ReplaceAll,
+    ReplaceInScope,
+    Upsert,
+    Toggle,
+}
+
+impl Default for SceneQuerySelectionMode {
+    fn default() -> Self {
+        Self::ReplaceAll
+    }
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum SceneQueryClauseId {
+    Tuple,
+    Field(String),
+    Expr(#[serde_as(as = "FromInto<SerializableExpr>")] LogicalExprNode),
+}
+
+impl Default for SceneQueryClauseId {
+    fn default() -> Self {
+        Self::Tuple
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SelectionFromSceneQuery {
+    pub query: SceneGeometryQuery,
+    #[serde(default)]
+    pub mode: SceneQuerySelectionMode,
+    #[serde(default = "default_scene_query_sharing")]
+    pub sharing: Sharing,
+    #[serde(default)]
+    pub clause_id: SceneQueryClauseId,
+}
+
+impl SelectionFromSceneQuery {
+    pub fn replace_all(query: SceneGeometryQuery) -> Self {
+        Self {
+            query,
+            mode: SceneQuerySelectionMode::ReplaceAll,
+            sharing: Sharing::Free,
+            clause_id: SceneQueryClauseId::Tuple,
+        }
+    }
+
+    pub fn replace_in_scope(query: SceneGeometryQuery) -> Self {
+        Self {
+            query,
+            mode: SceneQuerySelectionMode::ReplaceInScope,
+            sharing: Sharing::Free,
+            clause_id: SceneQueryClauseId::Tuple,
+        }
+    }
+
+    pub fn upsert(query: SceneGeometryQuery) -> Self {
+        Self {
+            query,
+            mode: SceneQuerySelectionMode::Upsert,
+            sharing: Sharing::Free,
+            clause_id: SceneQueryClauseId::Tuple,
+        }
+    }
+
+    pub fn toggle(query: SceneGeometryQuery) -> Self {
+        Self {
+            query,
+            mode: SceneQuerySelectionMode::Toggle,
+            sharing: Sharing::Free,
+            clause_id: SceneQueryClauseId::Tuple,
+        }
+    }
+
+    pub fn sharing(mut self, sharing: Sharing) -> Self {
+        self.sharing = sharing;
+        self
+    }
+
+    pub fn clause_id(mut self, clause_id: SceneQueryClauseId) -> Self {
+        self.clause_id = clause_id;
+        self
+    }
+}
+
+fn default_scene_query_sharing() -> Sharing {
+    Sharing::Free
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ChartEventSceneQuerySelectionAssignment {
+    pub selection_id: String,
+    pub update: SelectionFromSceneQuery,
     #[serde(default)]
     pub scope: ChartEventAssignmentScope,
 }
@@ -197,6 +496,8 @@ pub struct ChartEventBinding {
     #[serde_as(as = "Vec<FromInto<SerializableExpr>>")]
     pub filters: Vec<LogicalExprNode>,
     pub between: Option<ChartEventBetween>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_path_min_distance_px: Option<f32>,
     pub throttle_ms: Option<u64>,
     pub consume: bool,
     pub assignments: Vec<ChartEventParamAssignment>,
@@ -204,6 +505,8 @@ pub struct ChartEventBinding {
     pub store_assignments: Vec<ChartEventStoreAssignment>,
     #[serde(default)]
     pub selection_assignments: Vec<ChartEventSelectionAssignment>,
+    #[serde(default)]
+    pub scene_query_selection_assignments: Vec<ChartEventSceneQuerySelectionAssignment>,
     pub evaluation_mode: ChartEventEvaluationMode,
     pub settle_exact: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -216,11 +519,13 @@ impl ChartEventBinding {
             event_type: event_type.into_chart_event_type(),
             filters: Vec::new(),
             between: None,
+            event_path_min_distance_px: None,
             throttle_ms: None,
             consume: false,
             assignments: Vec::new(),
             store_assignments: Vec::new(),
             selection_assignments: Vec::new(),
+            scene_query_selection_assignments: Vec::new(),
             evaluation_mode: ChartEventEvaluationMode::Preview,
             settle_exact: false,
             scope_target: None,
@@ -239,11 +544,13 @@ impl ChartEventBinding {
                 end,
                 emit_end_event: true,
             }),
+            event_path_min_distance_px: None,
             throttle_ms: None,
             consume: false,
             assignments: Vec::new(),
             store_assignments: Vec::new(),
             selection_assignments: Vec::new(),
+            scene_query_selection_assignments: Vec::new(),
             evaluation_mode: ChartEventEvaluationMode::Preview,
             settle_exact: false,
             scope_target: None,
@@ -270,6 +577,11 @@ impl ChartEventBinding {
             end,
             emit_end_event: false,
         });
+        self
+    }
+
+    pub fn event_path_min_distance_px(mut self, distance: f32) -> Self {
+        self.event_path_min_distance_px = Some(distance);
         self
     }
 
@@ -411,6 +723,34 @@ impl ChartEventBinding {
         self
     }
 
+    pub fn set_selection_from_scene_query(
+        mut self,
+        selection: impl Into<String>,
+        update: SelectionFromSceneQuery,
+    ) -> Self {
+        self.scene_query_selection_assignments
+            .push(ChartEventSceneQuerySelectionAssignment {
+                selection_id: selection.into(),
+                update,
+                scope: ChartEventAssignmentScope::Current,
+            });
+        self
+    }
+
+    pub fn set_selection_from_scene_query_at_start_scope(
+        mut self,
+        selection: impl Into<String>,
+        update: SelectionFromSceneQuery,
+    ) -> Self {
+        self.scene_query_selection_assignments
+            .push(ChartEventSceneQuerySelectionAssignment {
+                selection_id: selection.into(),
+                update,
+                scope: ChartEventAssignmentScope::Start,
+            });
+        self
+    }
+
     pub fn clear_selection(self, selection: impl Into<String>) -> Self {
         self.set_selection(selection, SelectionUpdate::clear())
     }
@@ -435,6 +775,14 @@ impl ChartEventBinding {
     }
 
     pub fn validate(&self) -> Result<(), AvengerChartError> {
+        if let Some(distance) = self.event_path_min_distance_px
+            && (!distance.is_finite() || distance < 0.0)
+        {
+            return Err(AvengerChartError::InvalidArgument(
+                "Chart event binding event path minimum distance must be finite and non-negative"
+                    .to_string(),
+            ));
+        }
         let mut targets = std::collections::HashSet::new();
         for assignment in &self.assignments {
             if !targets.insert(assignment.param_name.as_str()) {
@@ -446,6 +794,14 @@ impl ChartEventBinding {
         }
         let mut selection_targets = std::collections::HashSet::new();
         for assignment in &self.selection_assignments {
+            if !selection_targets.insert(assignment.selection_id.as_str()) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Chart event binding assigns selection '{}' more than once",
+                    assignment.selection_id
+                )));
+            }
+        }
+        for assignment in &self.scene_query_selection_assignments {
             if !selection_targets.insert(assignment.selection_id.as_str()) {
                 return Err(AvengerChartError::InvalidArgument(format!(
                     "Chart event binding assigns selection '{}' more than once",
@@ -712,6 +1068,21 @@ pub fn start_facet_value(index: usize) -> Expr {
     col(start_facet_value_column_name(index))
 }
 
+/// Scene-space path accumulated during a `between(...)` gesture.
+///
+/// The path is encoded as a flat `List(Float64)`: `[x0, y0, x1, y1, ...]`.
+pub fn event_path() -> Expr {
+    col(EVENT_PATH_FIELD)
+}
+
+/// SVG path string derived from the current `between(...)` gesture path.
+///
+/// The path is relative to the first sampled scene-space point, so it can be
+/// drawn by a `PathMark` anchored at the gesture-start data coordinate.
+pub fn event_path_svg() -> Expr {
+    col(EVENT_PATH_SVG_FIELD)
+}
+
 /// Build a two-element interval list `[min, max]` from scalar expressions.
 ///
 /// This is a plain array constructor; pair it with [`interval_start`] and
@@ -816,6 +1187,8 @@ pub struct InteractionColumnRequests {
     pub start_event_id: bool,
     pub current_facet_values: BTreeSet<usize>,
     pub start_facet_values: BTreeSet<usize>,
+    pub event_path: bool,
+    pub event_path_svg: bool,
 }
 
 impl InteractionColumnRequests {
@@ -835,6 +1208,8 @@ impl InteractionColumnRequests {
             && !self.start_event_id
             && self.current_facet_values.is_empty()
             && self.start_facet_values.is_empty()
+            && !self.event_path
+            && !self.event_path_svg
     }
 
     /// Union of every coordinate channel referenced by any request kind.
@@ -880,6 +1255,10 @@ impl InteractionColumnRequests {
             self.start_scope_id = true;
         } else if name == START_EVENT_ID_FIELD {
             self.start_event_id = true;
+        } else if name == EVENT_PATH_FIELD {
+            self.event_path = true;
+        } else if name == EVENT_PATH_SVG_FIELD {
+            self.event_path_svg = true;
         } else if let Some(index) = name
             .strip_prefix(EVENT_FACET_VALUE_PREFIX)
             .and_then(|s| s.parse::<usize>().ok())
@@ -925,7 +1304,16 @@ pub fn scan_chart_event_binding_interaction_columns(
     for assignment in &binding.selection_assignments {
         collect_selection_update_exprs(&assignment.update, ctx, &mut exprs)?;
     }
-    Ok(scan_interaction_columns(&exprs))
+    for assignment in &binding.scene_query_selection_assignments {
+        collect_scene_query_update_exprs(&assignment.update, ctx, &mut exprs)?;
+    }
+    let mut requests = scan_interaction_columns(&exprs);
+    for assignment in &binding.scene_query_selection_assignments {
+        for field in &assignment.update.query.datum_fields {
+            requests.current_datum.insert(field.datum_field.clone());
+        }
+    }
+    Ok(requests)
 }
 
 fn collect_store_update_exprs(
@@ -987,6 +1375,11 @@ fn collect_selection_update_exprs(
                             exprs.push(dimension.value.expr.to_expr(ctx)?);
                         }
                     }
+                    crate::SelectionPredicateUpdate::Predicate { values, .. } => {
+                        for value in values {
+                            exprs.push(value.value.expr.to_expr(ctx)?);
+                        }
+                    }
                 }
             }
         }
@@ -1000,6 +1393,33 @@ fn collect_selection_update_exprs(
                 exprs.push(id.expr.to_expr(ctx)?);
             }
         }
+    }
+    Ok(())
+}
+
+fn collect_scene_query_update_exprs(
+    update: &SelectionFromSceneQuery,
+    ctx: &SessionContext,
+    exprs: &mut Vec<Expr>,
+) -> Result<(), AvengerChartError> {
+    match &update.query.geometry {
+        SceneGeometryQueryGeometry::Rect { x0, y0, x1, y1 } => {
+            exprs.push(x0.to_expr(ctx)?);
+            exprs.push(y0.to_expr(ctx)?);
+            exprs.push(x1.to_expr(ctx)?);
+            exprs.push(y1.to_expr(ctx)?);
+        }
+        SceneGeometryQueryGeometry::Circle { cx, cy, radius } => {
+            exprs.push(cx.to_expr(ctx)?);
+            exprs.push(cy.to_expr(ctx)?);
+            exprs.push(radius.to_expr(ctx)?);
+        }
+        SceneGeometryQueryGeometry::Polygon { points } => {
+            exprs.push(points.to_expr(ctx)?);
+        }
+    }
+    if let SceneQueryClauseId::Expr(expr) = &update.clause_id {
+        exprs.push(expr.to_expr(ctx)?);
     }
     Ok(())
 }
@@ -1089,6 +1509,8 @@ mod tests {
             event_plot_width(),
             start_facet_value(0),
             datum("category"),
+            event_path(),
+            event_path_svg(),
         ]);
         assert!(requests.event_at_start_coord.contains("x"));
         assert!(requests.event_at_start_clipped_coord.contains("y"));
@@ -1097,6 +1519,8 @@ mod tests {
         assert!(requests.current_datum.contains("category"));
         assert!(requests.current_plot_size);
         assert!(requests.start_facet_values.contains(&0));
+        assert!(requests.event_path);
+        assert!(requests.event_path_svg);
         assert!(requests.current_coord.is_empty());
         assert!(!requests.is_empty());
         assert!(requests.all_channels().contains("x"));
@@ -1115,6 +1539,7 @@ mod tests {
                 ChartEventStream::on(ChartEventType::MouseDown).filter(button().eq(lit("left"))),
                 ChartEventStream::on(ChartEventType::MouseUp).filter(button().eq(lit("left"))),
             )
+            .event_path_min_distance_px(6.0)
             .filter(shift().eq(lit(false)))
             .set_param("x0", start_param("x0") + dx())
             .preview()
@@ -1125,5 +1550,46 @@ mod tests {
         assert_eq!(restored.event_type, ChartEventType::CursorMoved);
         assert_eq!(restored.assignments.len(), 1);
         assert!(restored.settle_exact);
+        assert_eq!(restored.event_path_min_distance_px, Some(6.0));
+    }
+
+    #[test]
+    fn chart_event_binding_rejects_invalid_event_path_distance() {
+        let binding =
+            ChartEventBinding::on(ChartEventType::CursorMoved).event_path_min_distance_px(f32::NAN);
+        assert!(binding.validate().is_err());
+
+        let binding =
+            ChartEventBinding::on(ChartEventType::CursorMoved).event_path_min_distance_px(-1.0);
+        assert!(binding.validate().is_err());
+    }
+
+    #[test]
+    fn scene_query_selection_binding_serializes_and_requests_datums() {
+        let binding = ChartEventBinding::on_between_end(
+            ChartEventStream::on(ChartEventType::MouseDown),
+            ChartEventStream::on(ChartEventType::MouseUp),
+        )
+        .set_selection_from_scene_query_at_start_scope(
+            "picked",
+            SelectionFromSceneQuery::replace_all(
+                SceneGeometryQuery::polygon(event_path())
+                    .datum_field(SceneQueryDatumField::new("point_id"))
+                    .unique_by(["point_id"]),
+            )
+            .sharing(Sharing::Shared),
+        )
+        .exact();
+
+        let json = serde_json::to_string(&binding).expect("serialize scene query binding");
+        let restored: ChartEventBinding =
+            serde_json::from_str(&json).expect("deserialize scene query binding");
+        assert_eq!(restored.scene_query_selection_assignments.len(), 1);
+
+        let ctx = SessionContext::new();
+        let requests = scan_chart_event_binding_interaction_columns(&restored, &ctx)
+            .expect("scan scene query binding");
+        assert!(requests.event_path);
+        assert!(requests.current_datum.contains("point_id"));
     }
 }

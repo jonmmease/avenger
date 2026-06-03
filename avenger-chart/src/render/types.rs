@@ -1,10 +1,17 @@
 //! Core types for rendering pipeline
 
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use avenger_chart_core::CoordinateSystemTransform;
+use avenger_chart_core::{AvengerChartError, CoordinateSystemTransform, SceneQueryDatumField};
 use avenger_scales::scales::ConfiguredScale;
-use datafusion::{arrow::record_batch::RecordBatch, common::ScalarValue};
+use datafusion::{
+    arrow::{
+        array::new_null_array,
+        datatypes::{Field, Schema},
+        record_batch::RecordBatch,
+    },
+    common::ScalarValue,
+};
 
 pub use avenger_chart_legend::{LegendMeasurement, LegendMeasurements};
 use avenger_geometry::rtree::SceneGraphRTree;
@@ -915,6 +922,144 @@ impl EvaluatedEventDatumState {
         }
         ScalarValue::try_from_array(column, row_index).ok()
     }
+
+    pub fn datums_for_mark_instances(
+        &self,
+        instances: impl IntoIterator<Item = MarkInstance>,
+        fields: &[SceneQueryDatumField],
+        unique_by: &[String],
+    ) -> Result<RecordBatch, AvengerChartError> {
+        let schema_fields = fields
+            .iter()
+            .map(|field| {
+                let data_type = self
+                    .rows
+                    .iter()
+                    .find_map(|rows| {
+                        rows.rows
+                            .schema()
+                            .field_with_name(&field.datum_field)
+                            .ok()
+                            .map(|field| field.data_type().clone())
+                    })
+                    .ok_or_else(|| {
+                        AvengerChartError::InvalidArgument(format!(
+                            "Scene geometry query requested datum field '{}' but no retained event datum rows expose it",
+                            field.datum_field
+                        ))
+                    })?;
+                Ok(Field::new(field.id.clone(), data_type, true))
+            })
+            .collect::<Result<Vec<_>, AvengerChartError>>()?;
+        let schema = Arc::new(Schema::new(schema_fields));
+
+        let unique_fields = if unique_by.is_empty() {
+            fields
+                .iter()
+                .map(|field| field.id.clone())
+                .collect::<Vec<_>>()
+        } else {
+            unique_by.to_vec()
+        };
+        let unique_indices = unique_fields
+            .iter()
+            .map(|field| {
+                fields
+                    .iter()
+                    .position(|datum_field| &datum_field.id == field)
+                    .ok_or_else(|| {
+                        AvengerChartError::InvalidArgument(format!(
+                            "Scene geometry query unique field '{}' is not one of the requested datum fields",
+                            field
+                        ))
+                    })
+            })
+            .collect::<Result<Vec<_>, AvengerChartError>>()?;
+
+        let mut rows_out: Vec<Vec<ScalarValue>> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for instance in instances {
+            let Some(row_index) = instance.instance_index else {
+                continue;
+            };
+            let Some(rows) = self
+                .rows
+                .iter()
+                .find(|rows| rows.mark_path == instance.mark_path)
+            else {
+                continue;
+            };
+            let mut row = Vec::with_capacity(fields.len());
+            let mut missing = false;
+            for field in fields {
+                let Some(column) = rows.rows.column_by_name(&field.datum_field) else {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "Scene geometry query requested datum field '{}' but rendered mark {:?} did not retain it",
+                        field.datum_field, rows.mark_path
+                    )));
+                };
+                if row_index >= column.len() {
+                    missing = true;
+                    break;
+                }
+                let value = ScalarValue::try_from_array(column, row_index).map_err(|err| {
+                    AvengerChartError::InvalidArgument(format!(
+                        "Failed to read scene query datum field '{}': {}",
+                        field.datum_field, err
+                    ))
+                })?;
+                row.push(value);
+            }
+            if missing {
+                continue;
+            }
+            let unique_key = unique_indices
+                .iter()
+                .map(|index| scalar_unique_key(&row[*index]))
+                .collect::<Option<Vec<_>>>();
+            let Some(unique_key) = unique_key else {
+                continue;
+            };
+            if seen.insert(unique_key.join("\u{1f}")) {
+                rows_out.push(row);
+            }
+        }
+
+        let columns = fields
+            .iter()
+            .enumerate()
+            .map(|(field_index, _)| {
+                let values = rows_out
+                    .iter()
+                    .map(|row| row[field_index].clone())
+                    .collect::<Vec<_>>();
+                if values.is_empty() {
+                    Ok(new_null_array(schema.field(field_index).data_type(), 0))
+                } else {
+                    ScalarValue::iter_to_array(values.into_iter()).map_err(|err| {
+                        AvengerChartError::InvalidArgument(format!(
+                            "Failed to build scene query datum batch: {}",
+                            err
+                        ))
+                    })
+                }
+            })
+            .collect::<Result<Vec<_>, AvengerChartError>>()?;
+        RecordBatch::try_new(schema, columns).map_err(|err| {
+            AvengerChartError::InvalidArgument(format!(
+                "Failed to build scene query datum batch: {}",
+                err
+            ))
+        })
+    }
+}
+
+fn scalar_unique_key(value: &ScalarValue) -> Option<String> {
+    if value.is_null() {
+        None
+    } else {
+        Some(format!("{value:?}"))
+    }
 }
 
 /// Result of evaluating a plot to scene graph components
@@ -927,4 +1072,110 @@ pub struct EvaluatedPlot {
     pub interaction: EvaluatedInteractionState,
     /// Logical datum rows addressable by rendered mark instance.
     pub event_datums: EvaluatedEventDatumState,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use datafusion::arrow::{
+        array::{Int32Array, StringArray},
+        datatypes::DataType,
+    };
+
+    fn datum_state() -> EvaluatedEventDatumState {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("source_id", DataType::Utf8, false),
+            Field::new("category", DataType::Utf8, false),
+            Field::new("value", DataType::Int32, false),
+        ]));
+        let rows = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(StringArray::from(vec!["a", "b", "b", "c"])),
+                Arc::new(StringArray::from(vec!["A", "B", "B", "C"])),
+                Arc::new(Int32Array::from(vec![1, 2, 3, 4])),
+            ],
+        )
+        .expect("build batch");
+
+        EvaluatedEventDatumState {
+            rows: vec![EvaluatedEventDatumRows {
+                mark_path: vec![2, 0],
+                rows,
+            }],
+        }
+    }
+
+    fn mark(index: usize) -> MarkInstance {
+        MarkInstance {
+            name: "points".to_string(),
+            mark_path: vec![2, 0],
+            instance_index: Some(index),
+        }
+    }
+
+    #[test]
+    fn datums_for_mark_instances_dedupes_by_requested_tuple() {
+        let batch = datum_state()
+            .datums_for_mark_instances(
+                [mark(0), mark(1), mark(2), mark(3)],
+                &[
+                    SceneQueryDatumField::new("id").datum("source_id"),
+                    SceneQueryDatumField::new("category"),
+                ],
+                &["id".to_string()],
+            )
+            .expect("query datum batch");
+
+        assert_eq!(batch.num_rows(), 3);
+        let ids = (0..batch.num_rows())
+            .map(|row| {
+                ScalarValue::try_from_array(batch.column_by_name("id").unwrap(), row)
+                    .expect("id value")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ids,
+            vec![
+                ScalarValue::Utf8(Some("a".to_string())),
+                ScalarValue::Utf8(Some("b".to_string())),
+                ScalarValue::Utf8(Some("c".to_string())),
+            ]
+        );
+    }
+
+    #[test]
+    fn datums_for_mark_instances_reports_unknown_unique_field() {
+        let err = datum_state()
+            .datums_for_mark_instances(
+                [mark(0)],
+                &[SceneQueryDatumField::new("id").datum("source_id")],
+                &["missing".to_string()],
+            )
+            .expect_err("unknown unique field should error");
+        assert!(err.to_string().contains("unique field 'missing'"));
+    }
+
+    #[test]
+    fn datums_for_mark_instances_skips_missing_instance_indexes() {
+        let batch = datum_state()
+            .datums_for_mark_instances(
+                [
+                    MarkInstance {
+                        name: "points".to_string(),
+                        mark_path: vec![2, 0],
+                        instance_index: None,
+                    },
+                    mark(1),
+                ],
+                &[SceneQueryDatumField::new("id").datum("source_id")],
+                &[],
+            )
+            .expect("query datum batch");
+
+        assert_eq!(batch.num_rows(), 1);
+        let value =
+            ScalarValue::try_from_array(batch.column_by_name("id").unwrap(), 0).expect("id value");
+        assert_eq!(value, ScalarValue::Utf8(Some("b".to_string())));
+    }
 }

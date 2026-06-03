@@ -91,3 +91,23 @@ required-features = ["winit-wgpu"]
 [[example]]
 name = "cartesian_concat_facet_manual_box_selection"
 required-features = ["winit-wgpu"]
+
+[[example]]
+name = "cartesian_rect_scene_query_selection"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "cartesian_circle_scene_query_selection"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "cartesian_lasso_scene_query_selection"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "concat_lasso_scene_query_cross_highlight"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "facet_lasso_scene_query_selection"
+required-features = ["winit-wgpu"]

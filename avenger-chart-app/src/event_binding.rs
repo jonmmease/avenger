@@ -9,6 +9,9 @@ use avenger_chart::{
     event::{
         self, ChartEventAssignmentScope, ChartEventBinding, ChartEventEvaluationMode,
         ChartEventScopeTarget, ChartEventStream, ChartEventType, InteractionColumnRequests,
+        SceneGeometryCoordinateSpace, SceneGeometryHitPolicy, SceneGeometryQuery,
+        SceneGeometryQueryGeometry, SceneGeometryTarget, SceneQueryClauseId, SceneQueryDatumField,
+        SceneQuerySelectionMode, SelectionFromSceneQuery,
     },
     plot::{
         CompiledPlot, ScopedParamAssignment, ScopedParamStoreSnapshot, ScopedStoreAssignment,
@@ -23,8 +26,9 @@ use avenger_chart_core::{
     PlaceholderColumn, ResolvedSelectionClauseScope, SelectionClause, SelectionClauseUpdate,
     SelectionEqualityDimensionUpdate, SelectionEqualityDimensionValue, SelectionFacetContextValue,
     SelectionIntervalDimensionUpdate, SelectionIntervalDimensionValue, SelectionPredicateSpec,
-    SelectionPredicateUpdate, SelectionUpdate, SelectionValueExpr, Sharing, StoreFieldPatch,
-    StoreKey, StoreRow, StoreRowValue, StoreUpdate, StoreValueExpr, collect_placeholder_ids,
+    SelectionPredicateUpdate, SelectionPredicateValue, SelectionPredicateValueUpdate,
+    SelectionUpdate, SelectionValueExpr, Sharing, StoreFieldPatch, StoreKey, StoreRow,
+    StoreRowValue, StoreUpdate, StoreValueExpr, collect_placeholder_ids,
     one_row_batch_from_scalars, schema_from_fields,
 };
 use avenger_common::cursor::CursorStyle;
@@ -38,13 +42,15 @@ use avenger_eventstream::{
     },
     window::{Key, MouseButton, MouseScrollDelta},
 };
-use avenger_geometry::rtree::SceneGraphRTree;
+use avenger_geometry::{GeometryQueryHitPolicy, GeometryQueryShape, rtree::SceneGraphRTree};
 use avenger_scenegraph::marks::mark::MarkInstance;
 use datafusion::{
     arrow::{
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
+    dataframe::DataFrame,
+    datasource::MemTable,
     error::DataFusionError,
     logical_expr::Expr,
     prelude::SessionContext,
@@ -134,8 +140,10 @@ struct CompiledChartEventBinding {
     assignments: Vec<CompiledParamAssignment>,
     store_assignments: Vec<CompiledStoreAssignment>,
     selection_assignments: Vec<CompiledSelectionAssignment>,
+    scene_query_selection_assignments: Vec<CompiledSceneQuerySelectionAssignment>,
     evaluation_mode: ChartEventEvaluationMode,
     interaction_requests: InteractionColumnRequests,
+    event_path_min_distance_px: f32,
     scope_target: Option<ChartEventScopeTarget>,
     scope_target_uses_start_scope: bool,
     cursor_params: Arc<HashSet<String>>,
@@ -196,6 +204,58 @@ struct CompiledSelectionAssignment {
 }
 
 #[derive(Clone)]
+struct CompiledSceneQuerySelectionAssignment {
+    selection_id: String,
+    spec: CompiledSelectionSpec,
+    scope: ChartEventAssignmentScope,
+    update: CompiledSelectionFromSceneQuery,
+}
+
+#[derive(Clone)]
+struct CompiledSelectionFromSceneQuery {
+    query: CompiledSceneGeometryQuery,
+    mode: SceneQuerySelectionMode,
+    sharing: Sharing,
+    clause_id: CompiledSceneQueryClauseId,
+}
+
+#[derive(Clone)]
+struct CompiledSceneGeometryQuery {
+    geometry: CompiledSceneGeometryQueryGeometry,
+    coordinate_space: SceneGeometryCoordinateSpace,
+    hit_policy: SceneGeometryHitPolicy,
+    target: SceneGeometryTarget,
+    datum_fields: Vec<SceneQueryDatumField>,
+    unique_by: Vec<String>,
+    max_hits: Option<usize>,
+}
+
+#[derive(Clone)]
+enum CompiledSceneGeometryQueryGeometry {
+    Rect {
+        x0: usize,
+        y0: usize,
+        x1: usize,
+        y1: usize,
+    },
+    Circle {
+        cx: usize,
+        cy: usize,
+        radius: usize,
+    },
+    Polygon {
+        points: usize,
+    },
+}
+
+#[derive(Clone)]
+enum CompiledSceneQueryClauseId {
+    Tuple,
+    Field(String),
+    Expr(usize),
+}
+
+#[derive(Clone)]
 enum CompiledSelectionUpdate {
     Clear,
     ClearInScope {
@@ -238,6 +298,11 @@ enum CompiledSelectionPredicate {
     Equality {
         dimensions: Vec<CompiledSelectionEqualityDimension>,
     },
+    Predicate {
+        values: Vec<CompiledSelectionPredicateValue>,
+        expr: datafusion_proto::protobuf::LogicalExprNode,
+        kind: Option<String>,
+    },
 }
 
 #[derive(Clone)]
@@ -252,6 +317,12 @@ struct CompiledSelectionIntervalDimension {
 struct CompiledSelectionEqualityDimension {
     id: String,
     field_expr: datafusion_proto::protobuf::LogicalExprNode,
+    value: usize,
+}
+
+#[derive(Clone)]
+struct CompiledSelectionPredicateValue {
+    id: String,
     value: usize,
 }
 
@@ -343,6 +414,11 @@ enum SelectionExpressionPredicate {
     Equality {
         dimensions: Vec<SelectionExpressionEqualityDimension>,
     },
+    Predicate {
+        values: Vec<SelectionExpressionPredicateValue>,
+        expr: datafusion_proto::protobuf::LogicalExprNode,
+        kind: Option<String>,
+    },
 }
 
 struct SelectionExpressionIntervalDimension {
@@ -356,6 +432,58 @@ struct SelectionExpressionEqualityDimension {
     id: String,
     field_expr: datafusion_proto::protobuf::LogicalExprNode,
     value: Expr,
+}
+
+struct SelectionExpressionPredicateValue {
+    id: String,
+    value: Expr,
+}
+
+struct SceneQuerySelectionExpressionAssignment {
+    selection_id: String,
+    spec: CompiledSelectionSpec,
+    scope: ChartEventAssignmentScope,
+    update: SelectionFromSceneQueryExpression,
+}
+
+struct SelectionFromSceneQueryExpression {
+    query: SceneGeometryQueryExpression,
+    mode: SceneQuerySelectionMode,
+    sharing: Sharing,
+    clause_id: SceneQueryClauseIdExpression,
+}
+
+struct SceneGeometryQueryExpression {
+    geometry: SceneGeometryQueryGeometryExpression,
+    coordinate_space: SceneGeometryCoordinateSpace,
+    hit_policy: SceneGeometryHitPolicy,
+    target: SceneGeometryTarget,
+    datum_fields: Vec<SceneQueryDatumField>,
+    unique_by: Vec<String>,
+    max_hits: Option<usize>,
+}
+
+enum SceneGeometryQueryGeometryExpression {
+    Rect {
+        x0: Expr,
+        y0: Expr,
+        x1: Expr,
+        y1: Expr,
+    },
+    Circle {
+        cx: Expr,
+        cy: Expr,
+        radius: Expr,
+    },
+    Polygon {
+        points: Expr,
+    },
+}
+
+enum SceneQueryClauseIdExpression {
+    Tuple,
+    Field(String),
+    Expr(Expr),
 }
 
 impl CompiledChartEventBinding {
@@ -389,6 +517,14 @@ impl CompiledChartEventBinding {
             }
         }
         for assignment in &binding.selection_assignments {
+            if !selection_specs.contains_key(&assignment.selection_id) {
+                return Err(AvengerAppError::InternalError(format!(
+                    "Chart event binding updates unknown selection '{}'",
+                    assignment.selection_id
+                )));
+            }
+        }
+        for assignment in &binding.scene_query_selection_assignments {
             if !selection_specs.contains_key(&assignment.selection_id) {
                 return Err(AvengerAppError::InternalError(format!(
                     "Chart event binding updates unknown selection '{}'",
@@ -445,6 +581,18 @@ impl CompiledChartEventBinding {
                 update: compile_selection_expression_update(&assignment.update, ctx)?,
             });
         }
+        let mut scene_query_selection_exprs = Vec::new();
+        for assignment in &binding.scene_query_selection_assignments {
+            let spec = selection_specs
+                .get(&assignment.selection_id)
+                .expect("scene query selection assignment validated");
+            scene_query_selection_exprs.push(SceneQuerySelectionExpressionAssignment {
+                selection_id: assignment.selection_id.clone(),
+                spec: spec.clone(),
+                scope: assignment.scope,
+                update: compile_selection_from_scene_query(&assignment.update, ctx)?,
+            });
+        }
 
         let mut scan_exprs = filter_exprs.clone();
         scan_exprs.extend(assignment_exprs.iter().map(|(_, expr, _, _)| expr.clone()));
@@ -454,9 +602,31 @@ impl CompiledChartEventBinding {
         for assignment in &selection_exprs {
             scan_exprs.extend(selection_expression_update_exprs(&assignment.update));
         }
+        for assignment in &scene_query_selection_exprs {
+            scan_exprs.extend(collect_scene_query_selection_exprs(&assignment.update));
+        }
         let mut interaction_requests = event::scan_interaction_columns(&scan_exprs);
+        for assignment in &scene_query_selection_exprs {
+            for field in &assignment.update.query.datum_fields {
+                interaction_requests
+                    .current_datum
+                    .insert(field.datum_field.clone());
+            }
+        }
         for assignment in &store_exprs {
             if assignment.sharing.to_level() != u8::MAX {
+                match assignment.scope {
+                    ChartEventAssignmentScope::Current => {
+                        interaction_requests.current_scope_id = true;
+                    }
+                    ChartEventAssignmentScope::Start => {
+                        interaction_requests.start_scope_id = true;
+                    }
+                }
+            }
+        }
+        for assignment in &scene_query_selection_exprs {
+            if scene_query_selection_needs_scope(&assignment.update) {
                 match assignment.scope {
                     ChartEventAssignmentScope::Current => {
                         interaction_requests.current_scope_id = true;
@@ -548,6 +718,21 @@ impl CompiledChartEventBinding {
                 update,
             });
         }
+        let mut scene_query_selection_assignments = Vec::new();
+        for assignment in scene_query_selection_exprs {
+            let update = append_scene_query_selection_specs(
+                &assignment.selection_id,
+                assignment.update,
+                &mut specs,
+                filter_count,
+            );
+            scene_query_selection_assignments.push(CompiledSceneQuerySelectionAssignment {
+                selection_id: assignment.selection_id,
+                spec: assignment.spec,
+                scope: assignment.scope,
+                update,
+            });
+        }
         let program = CompiledScalarExpressionProgram::compile(
             ctx,
             schema,
@@ -567,8 +752,12 @@ impl CompiledChartEventBinding {
             assignments,
             store_assignments,
             selection_assignments,
+            scene_query_selection_assignments,
             evaluation_mode: binding.evaluation_mode,
             interaction_requests,
+            event_path_min_distance_px: binding
+                .event_path_min_distance_px
+                .unwrap_or(event::DEFAULT_EVENT_PATH_MIN_DISTANCE_PX),
             scope_target: binding.scope_target.clone(),
             scope_target_uses_start_scope: binding.between.is_some(),
             cursor_params: Arc::new(cursor_params.iter().cloned().collect()),
@@ -883,6 +1072,16 @@ fn compile_selection_predicate_update(
                     .collect::<Result<Vec<_>, _>>()?,
             }
         }
+        SelectionPredicateUpdate::Predicate { values, expr, kind } => {
+            SelectionExpressionPredicate::Predicate {
+                values: values
+                    .iter()
+                    .map(|value| compile_selection_predicate_value(value, ctx))
+                    .collect::<Result<Vec<_>, _>>()?,
+                expr: expr.clone(),
+                kind: kind.clone(),
+            }
+        }
     })
 }
 
@@ -909,6 +1108,16 @@ fn compile_selection_equality_dimension(
     })
 }
 
+fn compile_selection_predicate_value(
+    value: &SelectionPredicateValueUpdate,
+    ctx: &SessionContext,
+) -> Result<SelectionExpressionPredicateValue, AvengerAppError> {
+    Ok(SelectionExpressionPredicateValue {
+        id: value.id.clone(),
+        value: selection_value_expr_to_expr(&value.value, ctx)?,
+    })
+}
+
 fn selection_value_expr_to_expr(
     value: &SelectionValueExpr,
     ctx: &SessionContext,
@@ -917,6 +1126,205 @@ fn selection_value_expr_to_expr(
         .expr
         .to_expr(ctx)
         .map_err(|err| AvengerAppError::InternalError(err.to_string()))
+}
+
+fn compile_selection_from_scene_query(
+    update: &SelectionFromSceneQuery,
+    ctx: &SessionContext,
+) -> Result<SelectionFromSceneQueryExpression, AvengerAppError> {
+    Ok(SelectionFromSceneQueryExpression {
+        query: compile_scene_geometry_query(&update.query, ctx)?,
+        mode: update.mode.clone(),
+        sharing: update.sharing,
+        clause_id: compile_scene_query_clause_id(&update.clause_id, ctx)?,
+    })
+}
+
+fn compile_scene_geometry_query(
+    query: &SceneGeometryQuery,
+    ctx: &SessionContext,
+) -> Result<SceneGeometryQueryExpression, AvengerAppError> {
+    Ok(SceneGeometryQueryExpression {
+        geometry: match &query.geometry {
+            SceneGeometryQueryGeometry::Rect { x0, y0, x1, y1 } => {
+                SceneGeometryQueryGeometryExpression::Rect {
+                    x0: x0
+                        .to_expr(ctx)
+                        .map_err(|err| AvengerAppError::InternalError(err.to_string()))?,
+                    y0: y0
+                        .to_expr(ctx)
+                        .map_err(|err| AvengerAppError::InternalError(err.to_string()))?,
+                    x1: x1
+                        .to_expr(ctx)
+                        .map_err(|err| AvengerAppError::InternalError(err.to_string()))?,
+                    y1: y1
+                        .to_expr(ctx)
+                        .map_err(|err| AvengerAppError::InternalError(err.to_string()))?,
+                }
+            }
+            SceneGeometryQueryGeometry::Circle { cx, cy, radius } => {
+                SceneGeometryQueryGeometryExpression::Circle {
+                    cx: cx
+                        .to_expr(ctx)
+                        .map_err(|err| AvengerAppError::InternalError(err.to_string()))?,
+                    cy: cy
+                        .to_expr(ctx)
+                        .map_err(|err| AvengerAppError::InternalError(err.to_string()))?,
+                    radius: radius
+                        .to_expr(ctx)
+                        .map_err(|err| AvengerAppError::InternalError(err.to_string()))?,
+                }
+            }
+            SceneGeometryQueryGeometry::Polygon { points } => {
+                SceneGeometryQueryGeometryExpression::Polygon {
+                    points: points
+                        .to_expr(ctx)
+                        .map_err(|err| AvengerAppError::InternalError(err.to_string()))?,
+                }
+            }
+        },
+        coordinate_space: query.coordinate_space,
+        hit_policy: query.hit_policy,
+        target: query.target.clone(),
+        datum_fields: query.datum_fields.clone(),
+        unique_by: query.unique_by.clone(),
+        max_hits: query.max_hits,
+    })
+}
+
+fn compile_scene_query_clause_id(
+    clause_id: &SceneQueryClauseId,
+    ctx: &SessionContext,
+) -> Result<SceneQueryClauseIdExpression, AvengerAppError> {
+    Ok(match clause_id {
+        SceneQueryClauseId::Tuple => SceneQueryClauseIdExpression::Tuple,
+        SceneQueryClauseId::Field(field) => SceneQueryClauseIdExpression::Field(field.clone()),
+        SceneQueryClauseId::Expr(expr) => SceneQueryClauseIdExpression::Expr(
+            expr.to_expr(ctx)
+                .map_err(|err| AvengerAppError::InternalError(err.to_string()))?,
+        ),
+    })
+}
+
+fn collect_scene_query_selection_exprs(update: &SelectionFromSceneQueryExpression) -> Vec<Expr> {
+    let mut exprs = Vec::new();
+    match &update.query.geometry {
+        SceneGeometryQueryGeometryExpression::Rect { x0, y0, x1, y1 } => {
+            exprs.extend([x0.clone(), y0.clone(), x1.clone(), y1.clone()]);
+        }
+        SceneGeometryQueryGeometryExpression::Circle { cx, cy, radius } => {
+            exprs.extend([cx.clone(), cy.clone(), radius.clone()]);
+        }
+        SceneGeometryQueryGeometryExpression::Polygon { points } => {
+            exprs.push(points.clone());
+        }
+    }
+    if let SceneQueryClauseIdExpression::Expr(expr) = &update.clause_id {
+        exprs.push(expr.clone());
+    }
+    exprs
+}
+
+fn scene_query_selection_needs_scope(_update: &SelectionFromSceneQueryExpression) -> bool {
+    true
+}
+
+fn append_scene_query_selection_specs(
+    selection_id: &str,
+    update: SelectionFromSceneQueryExpression,
+    specs: &mut Vec<PhysicalScalarExpressionSpec>,
+    filter_count: usize,
+) -> CompiledSelectionFromSceneQuery {
+    CompiledSelectionFromSceneQuery {
+        query: append_scene_geometry_query_specs(selection_id, update.query, specs, filter_count),
+        mode: update.mode,
+        sharing: update.sharing,
+        clause_id: match update.clause_id {
+            SceneQueryClauseIdExpression::Tuple => CompiledSceneQueryClauseId::Tuple,
+            SceneQueryClauseIdExpression::Field(field) => CompiledSceneQueryClauseId::Field(field),
+            SceneQueryClauseIdExpression::Expr(expr) => CompiledSceneQueryClauseId::Expr(
+                append_scene_query_value_spec(selection_id, "clause_id", expr, specs, filter_count),
+            ),
+        },
+    }
+}
+
+fn append_scene_geometry_query_specs(
+    selection_id: &str,
+    query: SceneGeometryQueryExpression,
+    specs: &mut Vec<PhysicalScalarExpressionSpec>,
+    filter_count: usize,
+) -> CompiledSceneGeometryQuery {
+    let geometry = match query.geometry {
+        SceneGeometryQueryGeometryExpression::Rect { x0, y0, x1, y1 } => {
+            CompiledSceneGeometryQueryGeometry::Rect {
+                x0: append_scene_query_value_spec(selection_id, "rect_x0", x0, specs, filter_count),
+                y0: append_scene_query_value_spec(selection_id, "rect_y0", y0, specs, filter_count),
+                x1: append_scene_query_value_spec(selection_id, "rect_x1", x1, specs, filter_count),
+                y1: append_scene_query_value_spec(selection_id, "rect_y1", y1, specs, filter_count),
+            }
+        }
+        SceneGeometryQueryGeometryExpression::Circle { cx, cy, radius } => {
+            CompiledSceneGeometryQueryGeometry::Circle {
+                cx: append_scene_query_value_spec(
+                    selection_id,
+                    "circle_cx",
+                    cx,
+                    specs,
+                    filter_count,
+                ),
+                cy: append_scene_query_value_spec(
+                    selection_id,
+                    "circle_cy",
+                    cy,
+                    specs,
+                    filter_count,
+                ),
+                radius: append_scene_query_value_spec(
+                    selection_id,
+                    "circle_radius",
+                    radius,
+                    specs,
+                    filter_count,
+                ),
+            }
+        }
+        SceneGeometryQueryGeometryExpression::Polygon { points } => {
+            CompiledSceneGeometryQueryGeometry::Polygon {
+                points: append_scene_query_value_spec(
+                    selection_id,
+                    "polygon_points",
+                    points,
+                    specs,
+                    filter_count,
+                ),
+            }
+        }
+    };
+    CompiledSceneGeometryQuery {
+        geometry,
+        coordinate_space: query.coordinate_space,
+        hit_policy: query.hit_policy,
+        target: query.target,
+        datum_fields: query.datum_fields,
+        unique_by: query.unique_by,
+        max_hits: query.max_hits,
+    }
+}
+
+fn append_scene_query_value_spec(
+    selection_id: &str,
+    name: &str,
+    expr: Expr,
+    specs: &mut Vec<PhysicalScalarExpressionSpec>,
+    filter_count: usize,
+) -> usize {
+    let value_index = specs.len().saturating_sub(filter_count);
+    specs.push(
+        PhysicalScalarExpressionSpec::new(format!("scene_query_{selection_id}_{name}"), expr)
+            .with_nullable_cast(),
+    );
+    value_index
 }
 
 fn selection_expression_update_exprs(update: &SelectionExpressionUpdate) -> Vec<Expr> {
@@ -960,6 +1368,11 @@ fn collect_selection_clause_exprs(clause: &SelectionExpressionClause, exprs: &mu
         SelectionExpressionPredicate::Equality { dimensions } => {
             for dimension in dimensions {
                 exprs.push(dimension.value.clone());
+            }
+        }
+        SelectionExpressionPredicate::Predicate { values, .. } => {
+            for value in values {
+                exprs.push(value.value.clone());
             }
         }
     }
@@ -1170,6 +1583,29 @@ fn append_selection_clause_spec(
                     .collect(),
             }
         }
+        SelectionExpressionPredicate::Predicate { values, expr, kind } => {
+            CompiledSelectionPredicate::Predicate {
+                values: values
+                    .into_iter()
+                    .enumerate()
+                    .map(|(value_index, value)| {
+                        let value_ref = append_selection_value_spec(
+                            selection_id,
+                            &format!("{prefix}_{value_index}_predicate_value"),
+                            value.value,
+                            specs,
+                            filter_count,
+                        );
+                        CompiledSelectionPredicateValue {
+                            id: value.id,
+                            value: value_ref,
+                        }
+                    })
+                    .collect(),
+                expr,
+                kind,
+            }
+        }
     };
     CompiledSelectionClause {
         id,
@@ -1202,6 +1638,7 @@ struct ChartEventBindingState {
     previous_params: Option<ScopedParamStoreSnapshot>,
     start_scope: Option<EvaluatedInteractionScope>,
     previous_scope: Option<EvaluatedInteractionScope>,
+    event_path: Vec<[f32; 2]>,
 }
 
 struct ChartEventBindingHandler {
@@ -1225,7 +1662,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
         event: &SceneGraphEvent,
         context: &EventStreamContext,
         state: &mut ChartAppState,
-        _rtree: &SceneGraphRTree,
+        rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let mut app = state.runtime.lock().await;
         let eval_start = Instant::now();
@@ -1275,18 +1712,39 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                     };
                     binding_state.previous_params = None;
                     binding_state.previous_scope = None;
+                    binding_state.event_path.clear();
+                    if let Some(position) = start.event.position() {
+                        binding_state.event_path.push(position);
+                    }
                 }
                 None => {
                     binding_state.active_start = None;
                     binding_state.active_start_event_id = None;
                     binding_state.start_params = None;
                     binding_state.start_scope = None;
+                    binding_state.event_path.clear();
                 }
                 _ => {}
             }
+            if context.start_event.is_some()
+                && let Some(position) = event.position()
+            {
+                push_event_path_point(
+                    &mut binding_state.event_path,
+                    position,
+                    self.runtime.event_path_min_distance_px,
+                );
+            }
         }
 
-        let (start_snapshot, previous_snapshot, start_scope, previous_scope, start_event_id) = {
+        let (
+            start_snapshot,
+            previous_snapshot,
+            start_scope,
+            previous_scope,
+            start_event_id,
+            event_path,
+        ) = {
             let binding_state = self
                 .state
                 .lock()
@@ -1297,6 +1755,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                 binding_state.start_scope.clone(),
                 binding_state.previous_scope.clone(),
                 binding_state.active_start_event_id,
+                binding_state.event_path.clone(),
             )
         };
 
@@ -1358,6 +1817,19 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             start_scope.as_ref(),
             previous_scope.as_ref(),
         );
+        let mut interaction_values = interaction_values;
+        if requests.event_path {
+            interaction_values.insert(
+                event::EVENT_PATH_FIELD.to_string(),
+                event_path_scalar(&event_path),
+            );
+        }
+        if requests.event_path_svg {
+            interaction_values.insert(
+                event::EVENT_PATH_SVG_FIELD.to_string(),
+                event_path_svg_scalar(&event_path),
+            );
+        }
         let event_datum_values = compute_event_datum_values(
             &app.last_event_datum_state,
             event_mark_instance,
@@ -1549,6 +2021,48 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                 selection_id: assignment.selection_id.clone(),
                 update,
             });
+        }
+        for assignment in &self.runtime.scene_query_selection_assignments {
+            let assignment_scope = match assignment.scope {
+                ChartEventAssignmentScope::Current => current_scope.as_ref(),
+                ChartEventAssignmentScope::Start => start_scope.as_ref(),
+            };
+            match scene_query_selection_state_update_from_values(
+                &assignment.update,
+                &assignment.spec,
+                &values,
+                self.runtime.filter_count,
+                assignment_scope,
+                &app.last_interaction_state.scopes,
+                self.runtime.scope_target.as_ref(),
+                rtree,
+                &app.last_event_datum_state,
+            ) {
+                Ok(Some(update)) => {
+                    selection_patch.push(SelectionAssignment {
+                        selection_id: assignment.selection_id.clone(),
+                        update,
+                    });
+                }
+                Ok(None) => {
+                    tracing::debug!(
+                        target: "avenger_chart_app::event_binding",
+                        binding = self.runtime.binding_index,
+                        selection = %assignment.selection_id,
+                        "skipping scene query selection assignment with no routed scope or null geometry"
+                    );
+                }
+                Err(err) => {
+                    app.event_metrics.evaluation_errors += 1;
+                    tracing::warn!(
+                        target: "avenger_chart_app::event_binding",
+                        binding = self.runtime.binding_index,
+                        selection = %assignment.selection_id,
+                        error = %err,
+                        "failed to evaluate scene query selection assignment"
+                    );
+                }
+            }
         }
 
         let cursor = cursor_from_patch(&patch, &self.runtime.cursor_params);
@@ -1819,6 +2333,60 @@ fn cursor_from_patch(
         })
 }
 
+fn push_event_path_point(path: &mut Vec<[f32; 2]>, point: [f32; 2], min_distance_px: f32) {
+    const MAX_POINTS: usize = 2048;
+    if let Some(previous) = path.last() {
+        let dx = point[0] - previous[0];
+        let dy = point[1] - previous[1];
+        let min_distance_squared = min_distance_px.max(0.0) * min_distance_px.max(0.0);
+        if dx * dx + dy * dy < min_distance_squared {
+            return;
+        }
+    }
+    if path.len() >= MAX_POINTS {
+        if let Some(last) = path.last_mut() {
+            *last = point;
+        }
+        return;
+    }
+    path.push(point);
+}
+
+fn event_path_scalar(path: &[[f32; 2]]) -> ScalarValue {
+    let values = path
+        .iter()
+        .flat_map(|point| {
+            [
+                ScalarValue::Float64(Some(point[0] as f64)),
+                ScalarValue::Float64(Some(point[1] as f64)),
+            ]
+        })
+        .collect::<Vec<_>>();
+    ScalarValue::List(ScalarValue::new_list(&values, &DataType::Float64, true))
+}
+
+fn event_path_svg_scalar(path: &[[f32; 2]]) -> ScalarValue {
+    let Some(first) = path.first() else {
+        return ScalarValue::Utf8(None);
+    };
+    if path.len() < 2 {
+        return ScalarValue::Utf8(None);
+    }
+
+    let mut out = "M 0 0".to_string();
+    for point in path.iter().skip(1) {
+        out.push_str(&format!(
+            " L {:.3} {:.3}",
+            point[0] - first[0],
+            point[1] - first[1]
+        ));
+    }
+    if path.len() >= 3 {
+        out.push_str(" Z");
+    }
+    ScalarValue::Utf8(Some(out))
+}
+
 fn store_state_update_from_values(
     update: &CompiledStoreUpdate,
     values: &[ScalarValue],
@@ -1922,6 +2490,380 @@ fn selection_state_update_from_values(
     })
 }
 
+fn scene_query_selection_state_update_from_values(
+    update: &CompiledSelectionFromSceneQuery,
+    spec: &CompiledSelectionSpec,
+    values: &[ScalarValue],
+    filter_count: usize,
+    scope: Option<&EvaluatedInteractionScope>,
+    all_scopes: &[EvaluatedInteractionScope],
+    scope_target: Option<&ChartEventScopeTarget>,
+    rtree: &SceneGraphRTree,
+    event_datums: &EvaluatedEventDatumState,
+) -> Result<Option<SelectionStateUpdate>, AvengerAppError> {
+    if update.query.datum_fields.is_empty() {
+        return Err(AvengerAppError::InternalError(
+            "Scene geometry query selection requires at least one datum field".to_string(),
+        ));
+    }
+    if update.query.coordinate_space != SceneGeometryCoordinateSpace::Scene {
+        return Err(AvengerAppError::InternalError(
+            "Only scene-space geometry queries are supported".to_string(),
+        ));
+    }
+    let Some(owner_path) = selection_owner_path(update.sharing, scope) else {
+        return Ok(None);
+    };
+    let Some(shape) = scene_query_shape_from_values(&update.query.geometry, values, filter_count)?
+    else {
+        return Ok(None);
+    };
+    let Some(scope) = scope else {
+        return Ok(None);
+    };
+    let shapes =
+        scene_query_shapes_for_sharing(&shape, update.sharing, scope, all_scopes, scope_target);
+    if shapes.is_empty() {
+        return Ok(None);
+    }
+    let result = scene_geometry_query_result(&update.query, &shapes, rtree, event_datums)?;
+    let clauses = scene_query_selection_clauses_from_batch(
+        update,
+        spec,
+        values,
+        filter_count,
+        &owner_path,
+        &result.rows,
+    )?;
+    Ok(Some(match update.mode {
+        SceneQuerySelectionMode::ReplaceAll => SelectionStateUpdate::ReplaceAllClauses { clauses },
+        SceneQuerySelectionMode::ReplaceInScope => SelectionStateUpdate::ReplaceClausesInScope {
+            scope_owner_path: owner_path,
+            clauses,
+        },
+        SceneQuerySelectionMode::Upsert => SelectionStateUpdate::UpsertClauses { clauses },
+        SceneQuerySelectionMode::Toggle => SelectionStateUpdate::ToggleClauses { clauses },
+    }))
+}
+
+#[allow(dead_code)]
+struct SceneGeometryQueryResult {
+    rows: RecordBatch,
+    hit_count: usize,
+    unique_count: usize,
+    dropped_count: usize,
+}
+
+impl SceneGeometryQueryResult {
+    #[allow(dead_code)]
+    fn into_dataframe(self, ctx: &SessionContext) -> Result<DataFrame, AvengerAppError> {
+        let provider = Arc::new(
+            MemTable::try_new(self.rows.schema(), vec![vec![self.rows]])
+                .map_err(|err| AvengerAppError::InternalError(err.to_string()))?,
+        );
+        ctx.read_table(provider)
+            .map_err(|err| AvengerAppError::InternalError(err.to_string()))
+    }
+}
+
+fn scene_geometry_query_result(
+    query: &CompiledSceneGeometryQuery,
+    shapes: &[GeometryQueryShape],
+    rtree: &SceneGraphRTree,
+    event_datums: &EvaluatedEventDatumState,
+) -> Result<SceneGeometryQueryResult, AvengerAppError> {
+    let hit_policy = geometry_hit_policy(query.hit_policy);
+    let mut instances = shapes
+        .iter()
+        .flat_map(|shape| rtree.query_shape(shape, hit_policy))
+        .filter(|instance| scene_query_target_matches(&query.target, &instance.mark_instance))
+        .map(|instance| instance.mark_instance.clone())
+        .collect::<Vec<_>>();
+    instances.sort_by(|a, b| {
+        a.mark_path
+            .cmp(&b.mark_path)
+            .then_with(|| a.instance_index.cmp(&b.instance_index))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    instances.dedup_by(|a, b| {
+        a.name == b.name && a.mark_path == b.mark_path && a.instance_index == b.instance_index
+    });
+    if let Some(max_hits) = query.max_hits {
+        instances.truncate(max_hits);
+    }
+    let hit_count = instances.len();
+    let rows = event_datums
+        .datums_for_mark_instances(instances, &query.datum_fields, &query.unique_by)
+        .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
+    let unique_count = rows.num_rows();
+    let dropped_count = hit_count.saturating_sub(unique_count);
+    Ok(SceneGeometryQueryResult {
+        rows,
+        hit_count,
+        unique_count,
+        dropped_count,
+    })
+}
+
+fn scene_query_shapes_for_sharing(
+    shape: &GeometryQueryShape,
+    sharing: Sharing,
+    source_scope: &EvaluatedInteractionScope,
+    all_scopes: &[EvaluatedInteractionScope],
+    scope_target: Option<&ChartEventScopeTarget>,
+) -> Vec<GeometryQueryShape> {
+    if sharing.is_free() {
+        return vec![shape.clone()];
+    }
+
+    let Some(source_owner_path) = assignment_owner_path(sharing, Some(source_scope)) else {
+        return Vec::new();
+    };
+    all_scopes
+        .iter()
+        .filter(|candidate| candidate.kind == source_scope.kind)
+        .filter(|candidate| scope_matches_target(scope_target, candidate))
+        .filter(|candidate| {
+            assignment_owner_path(sharing, Some(candidate)).as_ref() == Some(&source_owner_path)
+        })
+        .map(|target_scope| translate_scene_query_shape(shape, source_scope, target_scope))
+        .collect()
+}
+
+fn translate_scene_query_shape(
+    shape: &GeometryQueryShape,
+    source_scope: &EvaluatedInteractionScope,
+    target_scope: &EvaluatedInteractionScope,
+) -> GeometryQueryShape {
+    let dx = target_scope.bounds.x - source_scope.bounds.x;
+    let dy = target_scope.bounds.y - source_scope.bounds.y;
+    translate_scene_query_shape_by(shape, dx, dy)
+}
+
+fn translate_scene_query_shape_by(
+    shape: &GeometryQueryShape,
+    dx: f32,
+    dy: f32,
+) -> GeometryQueryShape {
+    match shape {
+        GeometryQueryShape::Rect { x0, y0, x1, y1 } => GeometryQueryShape::Rect {
+            x0: x0 + dx,
+            y0: y0 + dy,
+            x1: x1 + dx,
+            y1: y1 + dy,
+        },
+        GeometryQueryShape::Circle { cx, cy, radius } => GeometryQueryShape::Circle {
+            cx: cx + dx,
+            cy: cy + dy,
+            radius: *radius,
+        },
+        GeometryQueryShape::Polygon { points } => GeometryQueryShape::Polygon {
+            points: points
+                .iter()
+                .map(|point| [point[0] + dx, point[1] + dy])
+                .collect(),
+        },
+    }
+}
+
+fn scene_query_shape_from_values(
+    geometry: &CompiledSceneGeometryQueryGeometry,
+    values: &[ScalarValue],
+    filter_count: usize,
+) -> Result<Option<GeometryQueryShape>, AvengerAppError> {
+    Ok(match geometry {
+        CompiledSceneGeometryQueryGeometry::Rect { x0, y0, x1, y1 } => {
+            let Some(x0) = scalar_value_to_f32(values.get(filter_count + *x0)) else {
+                return Ok(None);
+            };
+            let Some(y0) = scalar_value_to_f32(values.get(filter_count + *y0)) else {
+                return Ok(None);
+            };
+            let Some(x1) = scalar_value_to_f32(values.get(filter_count + *x1)) else {
+                return Ok(None);
+            };
+            let Some(y1) = scalar_value_to_f32(values.get(filter_count + *y1)) else {
+                return Ok(None);
+            };
+            Some(GeometryQueryShape::Rect { x0, y0, x1, y1 })
+        }
+        CompiledSceneGeometryQueryGeometry::Circle { cx, cy, radius } => {
+            let Some(cx) = scalar_value_to_f32(values.get(filter_count + *cx)) else {
+                return Ok(None);
+            };
+            let Some(cy) = scalar_value_to_f32(values.get(filter_count + *cy)) else {
+                return Ok(None);
+            };
+            let Some(radius) = scalar_value_to_f32(values.get(filter_count + *radius)) else {
+                return Ok(None);
+            };
+            if radius <= 0.0 {
+                return Ok(None);
+            }
+            Some(GeometryQueryShape::Circle { cx, cy, radius })
+        }
+        CompiledSceneGeometryQueryGeometry::Polygon { points } => {
+            let Some(points) = scalar_value_to_point_list(values.get(filter_count + *points))
+            else {
+                return Ok(None);
+            };
+            if points.len() < 3 {
+                return Ok(None);
+            }
+            Some(GeometryQueryShape::Polygon { points })
+        }
+    })
+}
+
+fn scalar_value_to_f32(value: Option<&ScalarValue>) -> Option<f32> {
+    match value? {
+        ScalarValue::Float64(Some(value)) => Some(*value as f32),
+        ScalarValue::Float32(Some(value)) => Some(*value),
+        ScalarValue::Int64(Some(value)) => Some(*value as f32),
+        ScalarValue::Int32(Some(value)) => Some(*value as f32),
+        ScalarValue::UInt64(Some(value)) => Some(*value as f32),
+        ScalarValue::UInt32(Some(value)) => Some(*value as f32),
+        _ => None,
+    }
+}
+
+fn scalar_value_to_point_list(value: Option<&ScalarValue>) -> Option<Vec<[f32; 2]>> {
+    use datafusion::arrow::array::Array;
+    let elements = match value? {
+        ScalarValue::List(array) => {
+            if array.is_empty() || array.is_null(0) {
+                return None;
+            }
+            array.value(0)
+        }
+        ScalarValue::LargeList(array) => {
+            if array.is_empty() || array.is_null(0) {
+                return None;
+            }
+            array.value(0)
+        }
+        _ => return None,
+    };
+    if elements.len() < 6 || elements.len() % 2 != 0 {
+        return None;
+    }
+    let mut points = Vec::with_capacity(elements.len() / 2);
+    for index in (0..elements.len()).step_by(2) {
+        let x = ScalarValue::try_from_array(&elements, index).ok()?;
+        let y = ScalarValue::try_from_array(&elements, index + 1).ok()?;
+        points.push([
+            scalar_value_to_f32(Some(&x))?,
+            scalar_value_to_f32(Some(&y))?,
+        ]);
+    }
+    Some(points)
+}
+
+fn geometry_hit_policy(policy: SceneGeometryHitPolicy) -> GeometryQueryHitPolicy {
+    match policy {
+        SceneGeometryHitPolicy::EnvelopeIntersects => GeometryQueryHitPolicy::EnvelopeIntersects,
+        SceneGeometryHitPolicy::GeometryIntersects => GeometryQueryHitPolicy::GeometryIntersects,
+        SceneGeometryHitPolicy::GeometryContained => GeometryQueryHitPolicy::GeometryContained,
+        SceneGeometryHitPolicy::AnchorInside => GeometryQueryHitPolicy::AnchorInside,
+        SceneGeometryHitPolicy::CentroidInside => GeometryQueryHitPolicy::CentroidInside,
+    }
+}
+
+fn scene_query_target_matches(target: &SceneGeometryTarget, mark_instance: &MarkInstance) -> bool {
+    if let Some(group) = &target.source_group
+        && (mark_instance.mark_path.len() < group.len()
+            || group != &mark_instance.mark_path[0..group.len()])
+    {
+        return false;
+    }
+    if let Some(paths) = &target.mark_paths
+        && !paths.contains(&mark_instance.mark_path)
+    {
+        return false;
+    }
+    true
+}
+
+fn scene_query_selection_clauses_from_batch(
+    update: &CompiledSelectionFromSceneQuery,
+    spec: &CompiledSelectionSpec,
+    values: &[ScalarValue],
+    filter_count: usize,
+    owner_path: &[ScalarValue],
+    batch: &RecordBatch,
+) -> Result<Vec<SelectionClause>, AvengerAppError> {
+    let facet_context = selection_facet_context_values(spec, owner_path);
+    let mut clauses = Vec::new();
+    for row_index in 0..batch.num_rows() {
+        let mut row_values = Vec::new();
+        let mut row_has_null = false;
+        for field in &update.query.datum_fields {
+            let Some(column) = batch.column_by_name(&field.id) else {
+                return Err(AvengerAppError::InternalError(format!(
+                    "Scene query result did not contain datum field '{}'",
+                    field.id
+                )));
+            };
+            let value = ScalarValue::try_from_array(column, row_index)
+                .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
+            if value.is_null() {
+                row_has_null = true;
+                break;
+            }
+            row_values.push((field, value));
+        }
+        if row_has_null {
+            continue;
+        }
+        let Some(id) = scene_query_clause_id(&update.clause_id, &row_values, values, filter_count)
+        else {
+            continue;
+        };
+        let dimensions = row_values
+            .iter()
+            .map(|(field, value)| SelectionEqualityDimensionValue {
+                id: field.id.clone(),
+                field_expr: field.field_expr.clone(),
+                value: value.clone(),
+            })
+            .collect();
+        clauses.push(SelectionClause {
+            id,
+            scope: ResolvedSelectionClauseScope {
+                sharing: update.sharing,
+                owner_path: owner_path.to_vec(),
+            },
+            predicate: SelectionPredicateSpec::Equality { dimensions },
+            facet_context: facet_context.clone(),
+        });
+    }
+    Ok(clauses)
+}
+
+fn scene_query_clause_id(
+    clause_id: &CompiledSceneQueryClauseId,
+    row_values: &[(&SceneQueryDatumField, ScalarValue)],
+    values: &[ScalarValue],
+    filter_count: usize,
+) -> Option<String> {
+    match clause_id {
+        CompiledSceneQueryClauseId::Tuple => Some(
+            row_values
+                .iter()
+                .map(|(field, value)| format!("{}={value:?}", field.id))
+                .collect::<Vec<_>>()
+                .join("|"),
+        ),
+        CompiledSceneQueryClauseId::Field(field) => row_values
+            .iter()
+            .find(|(datum_field, _)| &datum_field.id == field)
+            .and_then(|(_, value)| selection_clause_id_from_value(value)),
+        CompiledSceneQueryClauseId::Expr(index) => {
+            selection_clause_id_from_value(values.get(filter_count + *index)?)
+        }
+    }
+}
+
 fn selection_clauses_from_values(
     clauses: &[CompiledSelectionClause],
     spec: &CompiledSelectionSpec,
@@ -1973,6 +2915,24 @@ fn selection_clause_from_values(
                     })
                 })
                 .collect::<Option<Vec<_>>>()?,
+        },
+        CompiledSelectionPredicate::Predicate {
+            values: predicate_values,
+            expr,
+            kind,
+        } => SelectionPredicateSpec::Predicate {
+            values: predicate_values
+                .iter()
+                .map(|value| {
+                    let resolved = values.get(filter_count + value.value)?.clone();
+                    Some(SelectionPredicateValue {
+                        id: value.id.clone(),
+                        value: resolved,
+                    })
+                })
+                .collect::<Option<Vec<_>>>()?,
+            expr: expr.clone(),
+            kind: kind.clone(),
         },
     };
     Some(SelectionClause {
@@ -2382,6 +3342,16 @@ fn target_scope_matches(
     let Some(scope) = scope else {
         return false;
     };
+    scope_matches_target(Some(target), scope)
+}
+
+fn scope_matches_target(
+    target: Option<&ChartEventScopeTarget>,
+    scope: &EvaluatedInteractionScope,
+) -> bool {
+    let Some(target) = target else {
+        return true;
+    };
     scope
         .coord_node_path
         .starts_with(&target.coord_node_path_prefix)
@@ -2742,6 +3712,20 @@ fn event_schema(
     for index in &interaction.start_facet_values {
         fields.push(Field::new(
             event::start_facet_value_column_name(*index),
+            DataType::Utf8,
+            true,
+        ));
+    }
+    if interaction.event_path {
+        fields.push(Field::new(
+            event::EVENT_PATH_FIELD,
+            DataType::List(Arc::new(Field::new("item", DataType::Float64, true))),
+            true,
+        ));
+    }
+    if interaction.event_path_svg {
+        fields.push(Field::new(
+            event::EVENT_PATH_SVG_FIELD,
             DataType::Utf8,
             true,
         ));
@@ -3157,6 +4141,192 @@ mod tests {
     }
 
     #[test]
+    fn event_path_samples_meaningful_motion_and_round_trips_as_points() {
+        let mut path = Vec::new();
+        push_event_path_point(
+            &mut path,
+            [0.0, 0.0],
+            event::DEFAULT_EVENT_PATH_MIN_DISTANCE_PX,
+        );
+        push_event_path_point(
+            &mut path,
+            [1.0, 1.0],
+            event::DEFAULT_EVENT_PATH_MIN_DISTANCE_PX,
+        );
+        push_event_path_point(
+            &mut path,
+            [2.0, 0.0],
+            event::DEFAULT_EVENT_PATH_MIN_DISTANCE_PX,
+        );
+        push_event_path_point(
+            &mut path,
+            [4.0, 0.0],
+            event::DEFAULT_EVENT_PATH_MIN_DISTANCE_PX,
+        );
+
+        assert_eq!(path, vec![[0.0, 0.0], [2.0, 0.0], [4.0, 0.0]]);
+
+        let scalar = event_path_scalar(&path);
+        let restored = scalar_value_to_point_list(Some(&scalar)).expect("event path points");
+        assert_eq!(restored, path);
+
+        assert_eq!(
+            event_path_svg_scalar(&path),
+            ScalarValue::Utf8(Some("M 0 0 L 2.000 0.000 L 4.000 0.000 Z".to_string()))
+        );
+    }
+
+    #[test]
+    fn event_path_sampler_is_bounded() {
+        let mut path = Vec::new();
+        for index in 0..2100 {
+            push_event_path_point(
+                &mut path,
+                [index as f32 * 3.0, 0.0],
+                event::DEFAULT_EVENT_PATH_MIN_DISTANCE_PX,
+            );
+        }
+
+        assert_eq!(path.len(), 2048);
+        assert_eq!(path.first(), Some(&[0.0, 0.0]));
+        assert_eq!(path.last(), Some(&[6297.0, 0.0]));
+    }
+
+    #[test]
+    fn event_path_sampler_uses_configured_minimum_distance() {
+        let mut path = Vec::new();
+        push_event_path_point(&mut path, [0.0, 0.0], 5.0);
+        push_event_path_point(&mut path, [3.0, 4.0], 5.0);
+        push_event_path_point(&mut path, [6.0, 6.0], 5.0);
+        push_event_path_point(&mut path, [9.0, 8.0], 5.0);
+
+        assert_eq!(path, vec![[0.0, 0.0], [3.0, 4.0], [9.0, 8.0]]);
+    }
+
+    #[test]
+    fn scene_query_batch_rows_become_faceted_equality_clauses() {
+        use datafusion::arrow::{
+            array::StringArray,
+            datatypes::{DataType, Field, Schema},
+            record_batch::RecordBatch,
+        };
+
+        let spec = Selection::new("picked")
+            .empty_selects_nothing()
+            .facet_context_field("group_name", col("group_name"))
+            .compile()
+            .expect("compile selection");
+        let update = CompiledSelectionFromSceneQuery {
+            query: CompiledSceneGeometryQuery {
+                geometry: CompiledSceneGeometryQueryGeometry::Rect {
+                    x0: 0,
+                    y0: 1,
+                    x1: 2,
+                    y1: 3,
+                },
+                coordinate_space: SceneGeometryCoordinateSpace::Scene,
+                hit_policy: SceneGeometryHitPolicy::AnchorInside,
+                target: SceneGeometryTarget::default(),
+                datum_fields: vec![
+                    SceneQueryDatumField::new("item")
+                        .datum("item")
+                        .field_expr(col("item")),
+                ],
+                unique_by: vec!["item".to_string()],
+                max_hits: None,
+            },
+            mode: SceneQuerySelectionMode::ReplaceAll,
+            sharing: Sharing::Free,
+            clause_id: CompiledSceneQueryClauseId::Field("item".to_string()),
+        };
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new("item", DataType::Utf8, false)])),
+            vec![Arc::new(StringArray::from(vec!["A", "B"]))],
+        )
+        .expect("query result batch");
+        let owner_path = vec![ScalarValue::Utf8(Some("Beta".to_string()))];
+
+        let clauses =
+            scene_query_selection_clauses_from_batch(&update, &spec, &[], 0, &owner_path, &batch)
+                .expect("scene query clauses");
+
+        assert_eq!(clauses.len(), 2);
+        assert_eq!(clauses[0].id, "A");
+        assert_eq!(clauses[1].id, "B");
+        assert_eq!(clauses[0].scope.sharing, Sharing::Free);
+        assert_eq!(clauses[0].scope.owner_path, owner_path);
+        assert_eq!(clauses[0].facet_context.len(), 1);
+        assert_eq!(clauses[0].facet_context[0].id, "group_name");
+        assert_eq!(
+            clauses[0].facet_context[0].value,
+            ScalarValue::Utf8(Some("Beta".to_string()))
+        );
+        let SelectionPredicateSpec::Equality { dimensions } = &clauses[0].predicate else {
+            panic!("expected equality clause");
+        };
+        assert_eq!(dimensions.len(), 1);
+        assert_eq!(dimensions[0].id, "item");
+        assert_eq!(
+            dimensions[0].value,
+            ScalarValue::Utf8(Some("A".to_string()))
+        );
+    }
+
+    #[tokio::test]
+    async fn scene_query_result_wraps_record_batch_as_dataframe() {
+        use datafusion::arrow::{
+            array::StringArray,
+            datatypes::{DataType, Field, Schema},
+            record_batch::RecordBatch,
+        };
+
+        let rows = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new("item", DataType::Utf8, false)])),
+            vec![Arc::new(StringArray::from(vec!["A", "B"]))],
+        )
+        .expect("query result batch");
+        let result = SceneGeometryQueryResult {
+            rows,
+            hit_count: 3,
+            unique_count: 2,
+            dropped_count: 1,
+        };
+        assert_eq!(result.hit_count, 3);
+        assert_eq!(result.unique_count, 2);
+        assert_eq!(result.dropped_count, 1);
+
+        let ctx = SessionContext::new();
+        let batches = result
+            .into_dataframe(&ctx)
+            .expect("query result dataframe")
+            .collect()
+            .await
+            .expect("collect query result dataframe");
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].num_rows(), 2);
+        assert!(batches[0].column_by_name("item").is_some());
+    }
+
+    #[test]
+    fn scene_query_target_matching_filters_mark_paths() {
+        let mark_instance = MarkInstance {
+            name: "points".to_string(),
+            mark_path: vec![2, 1, 0],
+            instance_index: Some(4),
+        };
+
+        let mut target = SceneGeometryTarget::default();
+        target.source_group = Some(vec![2, 1]);
+        assert!(scene_query_target_matches(&target, &mark_instance));
+
+        target.mark_paths = Some(vec![vec![2, 1, 0]]);
+        assert!(scene_query_target_matches(&target, &mark_instance));
+
+        target.mark_paths = Some(vec![vec![2, 1, 1]]);
+        assert!(!scene_query_target_matches(&target, &mark_instance));
+    }
+
+    #[test]
     fn route_is_ambiguous_for_equal_area_overlap() {
         let scopes = vec![
             coord_scope(0, 0.0, 0.0, 100.0, 100.0, &["x", "y"]),
@@ -3166,6 +4336,70 @@ mod tests {
             route_interaction_scope(&scopes, Some([50.0, 50.0]), &channel_set(&["x"])),
             InteractionRoute::Ambiguous
         ));
+    }
+
+    #[test]
+    fn scene_query_shapes_free_scope_stays_in_start_scope() {
+        let source = coord_scope(0, 10.0, 20.0, 100.0, 100.0, &["x", "y"]);
+        let other = coord_scope(1, 210.0, 20.0, 100.0, 100.0, &["x", "y"]);
+        let shape = GeometryQueryShape::Polygon {
+            points: vec![[12.0, 24.0], [20.0, 24.0], [20.0, 32.0]],
+        };
+
+        let shapes = scene_query_shapes_for_sharing(
+            &shape,
+            Sharing::Free,
+            &source,
+            &[source.clone(), other],
+            None,
+        );
+
+        assert_eq!(shapes.len(), 1);
+        assert_eq!(
+            polygon_points(&shapes[0]),
+            vec![[12.0, 24.0], [20.0, 24.0], [20.0, 32.0]]
+        );
+    }
+
+    #[test]
+    fn scene_query_shapes_shared_scope_replicates_inside_binding_target() {
+        let mut left = coord_scope(0, 10.0, 20.0, 100.0, 100.0, &["x", "y"]);
+        left.coord_node_path = vec![0, 0];
+        let mut source = coord_scope(1, 210.0, 20.0, 100.0, 100.0, &["x", "y"]);
+        source.coord_node_path = vec![1, 0];
+        let mut sibling = coord_scope(2, 410.0, 20.0, 100.0, 100.0, &["x", "y"]);
+        sibling.coord_node_path = vec![1, 1];
+        let target = ChartEventScopeTarget {
+            coord_node_path_prefix: vec![1],
+        };
+        let shape = GeometryQueryShape::Polygon {
+            points: vec![[212.0, 24.0], [220.0, 24.0], [220.0, 32.0]],
+        };
+
+        let shapes = scene_query_shapes_for_sharing(
+            &shape,
+            Sharing::Shared,
+            &source,
+            &[left, source.clone(), sibling],
+            Some(&target),
+        );
+
+        assert_eq!(shapes.len(), 2);
+        assert_eq!(
+            polygon_points(&shapes[0]),
+            vec![[212.0, 24.0], [220.0, 24.0], [220.0, 32.0]]
+        );
+        assert_eq!(
+            polygon_points(&shapes[1]),
+            vec![[412.0, 24.0], [420.0, 24.0], [420.0, 32.0]]
+        );
+    }
+
+    fn polygon_points(shape: &GeometryQueryShape) -> Vec<[f32; 2]> {
+        match shape {
+            GeometryQueryShape::Polygon { points } => points.clone(),
+            other => panic!("expected polygon shape, got {other:?}"),
+        }
     }
 
     #[test]
@@ -4569,6 +5803,73 @@ mod tests {
             !second_status.rerender,
             "unchanged selection clauses should skip reevaluation"
         );
+    }
+
+    #[tokio::test]
+    async fn generic_predicate_selection_update_resolves_event_values() {
+        let ctx = SessionContext::new();
+        let binding = ChartEventBinding::on(ChartEventType::CanvasResize)
+            .set_selection(
+                "brush",
+                SelectionUpdate::replace_all_clauses([SelectionClauseUpdate::predicate(lit(
+                    "active",
+                ))
+                .facet_scope(Sharing::Shared)
+                .kind("circle")
+                .value("cx", event::canvas_width())
+                .value("cy", event::canvas_height())
+                .expr(col("x").gt_eq(avenger_chart::selection::clause_value("cx")))]),
+            )
+            .preview();
+        let compiled = Plot::<Cartesian>::new()
+            .add_selection(Selection::new("brush").empty_selects_nothing())
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile generic predicate binding plot");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+            compiled.selection_specs(),
+            compiled.store_specs(),
+            compiled.cursor_params(),
+            &compiled.event_datum_types(),
+        )
+        .expect("compile selection binding runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CanvasResize(CanvasResizeEvent {
+                    size: [640.0, 360.0],
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+
+        assert!(status.rerender);
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("brush");
+        assert_eq!(clauses.len(), 1);
+        let SelectionPredicateSpec::Predicate { values, kind, .. } = &clauses[0].predicate else {
+            panic!("expected generic predicate");
+        };
+        assert_eq!(kind.as_deref(), Some("circle"));
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0].id, "cx");
+        assert_eq!(values[0].value, ScalarValue::Float64(Some(640.0)));
+        assert_eq!(values[1].id, "cy");
+        assert_eq!(values[1].value, ScalarValue::Float64(Some(360.0)));
     }
 
     #[tokio::test]

@@ -79,6 +79,39 @@ Single-field point selection uses `SelectionClauseUpdate::equality_value(...)`
 so replace and toggle bindings share the same clause identity. Multi-field
 point selections require an explicit clause id.
 
+## `LassoSelection`
+
+`LassoSelection` packages rendered-geometry lasso selection. It contributes a
+neutral `Selection`, an enabled param, a between-stream cursor-move binding that
+accumulates `ev::event_path()`, a scene-geometry polygon query, optional
+double-click clear, and tool metadata. The query collects datum tuples from
+rendered marks and lowers them to equality selection clauses, so sibling plots
+can use the same `Selection::predicate()` for cross-highlighting.
+
+```rust
+let picked = LassoSelection::new("picked")
+    .field("point_id")
+    .event_path_min_distance_px(6.0)
+    .facet_scope(Sharing::Shared);
+
+let plot = Plot::<Cartesian>::new()
+    .tool(picked.clone())
+    .mark(
+        Symbol::new()
+            .x(col("x"))
+            .y(col("y"))
+            .fill_with(lit("#b8beca"), |c| {
+                c.no_scale()
+                    .when_value(picked.predicate(), lit("#2563eb"))
+                    .no_legend()
+            }),
+    );
+```
+
+`LassoSelection` is semantic selection packaging only. Editable lasso chrome
+continues to use lower-level stores and ordinary marks, and richer chrome
+tooling remains future work.
+
 ## `PanScrollZoom`
 
 `PanScrollZoom` is a built-in chart tool and lives in

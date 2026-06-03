@@ -29,7 +29,7 @@ use indexmap::IndexMap;
 use avenger_chart_core::{
     CompiledSelectionSpec, MarkDataMode, SelectionClause, SelectionCombine, SelectionPredicateSpec,
     color::parse_color_string, contains_aggregate, params_to_datafusion,
-    selection_id_from_predicate_placeholder,
+    selection_clause_value_id_from_placeholder, selection_id_from_predicate_placeholder,
 };
 
 use crate::{
@@ -344,44 +344,7 @@ fn selection_clause_predicate_expr(
     ctx: &SessionContext,
     available_columns: Option<&HashSet<String>>,
 ) -> Result<Expr, AvengerChartError> {
-    let mut expr = match &clause.predicate {
-        SelectionPredicateSpec::Interval { dimensions } => {
-            if dimensions.is_empty() {
-                return Ok(lit(false));
-            }
-            let mut expr = lit(true);
-            for dimension in dimensions {
-                if dimension.min.is_null() || dimension.max.is_null() {
-                    return Ok(lit(false));
-                }
-                let value = dimension.field_expr.to_expr(ctx)?;
-                if !expr_columns_are_available(&value, available_columns) {
-                    return Ok(lit(false));
-                }
-                expr = expr
-                    .and(value.clone().gt_eq(lit(dimension.min.clone())))
-                    .and(value.lt_eq(lit(dimension.max.clone())));
-            }
-            expr
-        }
-        SelectionPredicateSpec::Equality { dimensions } => {
-            if dimensions.is_empty() {
-                return Ok(lit(false));
-            }
-            let mut expr = lit(true);
-            for dimension in dimensions {
-                if dimension.value.is_null() {
-                    return Ok(lit(false));
-                }
-                let value = dimension.field_expr.to_expr(ctx)?;
-                if !expr_columns_are_available(&value, available_columns) {
-                    return Ok(lit(false));
-                }
-                expr = expr.and(value.eq(lit(dimension.value.clone())));
-            }
-            expr
-        }
-    };
+    let mut expr = selection_clause_row_predicate_expr(&clause.predicate, ctx, available_columns)?;
     for facet_value in &clause.facet_context {
         if facet_value.value.is_null() {
             continue;
@@ -397,6 +360,107 @@ fn selection_clause_predicate_expr(
             }
             expr = expr.and(facet_expr.eq(lit(facet_value.value.clone())));
         }
+    }
+    Ok(expr)
+}
+
+fn selection_clause_row_predicate_expr(
+    predicate: &SelectionPredicateSpec,
+    ctx: &SessionContext,
+    available_columns: Option<&HashSet<String>>,
+) -> Result<Expr, AvengerChartError> {
+    match predicate {
+        SelectionPredicateSpec::Interval { dimensions } => {
+            interval_selection_clause_expr(dimensions, ctx, available_columns)
+        }
+        SelectionPredicateSpec::Equality { dimensions } => {
+            equality_selection_clause_expr(dimensions, ctx, available_columns)
+        }
+        SelectionPredicateSpec::Predicate { values, expr, .. } => {
+            generic_selection_clause_expr(values, expr, ctx, available_columns)
+        }
+    }
+}
+
+fn interval_selection_clause_expr(
+    dimensions: &[avenger_chart_core::SelectionIntervalDimensionValue],
+    ctx: &SessionContext,
+    available_columns: Option<&HashSet<String>>,
+) -> Result<Expr, AvengerChartError> {
+    if dimensions.is_empty() {
+        return Ok(lit(false));
+    }
+    let mut expr = lit(true);
+    for dimension in dimensions {
+        if dimension.min.is_null() || dimension.max.is_null() {
+            return Ok(lit(false));
+        }
+        let value = dimension.field_expr.to_expr(ctx)?;
+        if !expr_columns_are_available(&value, available_columns) {
+            return Ok(lit(false));
+        }
+        expr = expr
+            .and(value.clone().gt_eq(lit(dimension.min.clone())))
+            .and(value.lt_eq(lit(dimension.max.clone())));
+    }
+    Ok(expr)
+}
+
+fn equality_selection_clause_expr(
+    dimensions: &[avenger_chart_core::SelectionEqualityDimensionValue],
+    ctx: &SessionContext,
+    available_columns: Option<&HashSet<String>>,
+) -> Result<Expr, AvengerChartError> {
+    if dimensions.is_empty() {
+        return Ok(lit(false));
+    }
+    let mut expr = lit(true);
+    for dimension in dimensions {
+        if dimension.value.is_null() {
+            return Ok(lit(false));
+        }
+        let value = dimension.field_expr.to_expr(ctx)?;
+        if !expr_columns_are_available(&value, available_columns) {
+            return Ok(lit(false));
+        }
+        expr = expr.and(value.eq(lit(dimension.value.clone())));
+    }
+    Ok(expr)
+}
+
+fn generic_selection_clause_expr(
+    values: &[avenger_chart_core::SelectionPredicateValue],
+    expr: &LogicalExprNode,
+    ctx: &SessionContext,
+    available_columns: Option<&HashSet<String>>,
+) -> Result<Expr, AvengerChartError> {
+    let has_null_value = values.iter().any(|value| value.value.is_null());
+    let value_map = values
+        .iter()
+        .map(|value| (value.id.as_str(), value.value.clone()))
+        .collect::<HashMap<_, _>>();
+    let expr = expr.to_expr(ctx)?;
+    let expr = expr
+        .transform(|candidate| {
+            if let Expr::Placeholder(placeholder) = &candidate
+                && let Some(value_id) = selection_clause_value_id_from_placeholder(&placeholder.id)
+            {
+                let Some(value) = value_map.get(value_id) else {
+                    return Err(datafusion::error::DataFusionError::Plan(format!(
+                        "Selection predicate references undeclared clause value '{value_id}'"
+                    )));
+                };
+                return Ok(Transformed::yes(lit(value.clone())));
+            }
+            Ok(Transformed::no(candidate))
+        })
+        .map(|transformed| transformed.data)
+        .map_err(AvengerChartError::DataFusionError)?;
+    if has_null_value {
+        return Ok(lit(false));
+    }
+    if !expr_columns_are_available(&expr, available_columns) {
+        return Ok(lit(false));
     }
     Ok(expr)
 }
