@@ -173,7 +173,10 @@ fn lasso_drag_binding(
         .filter(ev::event_path_svg().is_not_null())
         .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
         .set_store_at_start_scope_replacing_scopes(store_name, lasso_overlay_update("active"))
-        .set_selection_from_scene_query_at_start_scope(selection_id, lasso_query_update(sharing))
+        .set_selection_at_start_scope(
+            selection_id,
+            SelectionUpdate::replace_all_from_scene_query(lasso_query_update(sharing)),
+        )
         .event_path_min_distance_px(6.0)
         .preview()
         .settle_exact()
@@ -187,8 +190,8 @@ fn lasso_clear_binding(store_name: &str, selection_id: &str) -> ChartEventBindin
         .exact()
 }
 
-fn lasso_query_update(sharing: Sharing) -> SelectionFromSceneQuery {
-    SelectionFromSceneQuery::replace_all(
+fn lasso_query_update(sharing: Sharing) -> SelectionSceneQuery {
+    SelectionSceneQuery::new(
         SceneGeometryQuery::polygon(ev::event_path())
             .hit_policy(SceneGeometryHitPolicy::AnchorInside)
             .datum_field(

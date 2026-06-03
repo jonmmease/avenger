@@ -6,7 +6,10 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
-use crate::{AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, SerializableExpr, Sharing};
+use crate::{
+    AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, SelectionSceneQuery, SerializableExpr,
+    Sharing,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EmptySelectionBehavior {
@@ -118,6 +121,18 @@ pub enum SelectionUpdate {
     },
     ToggleClauses {
         clauses: Vec<SelectionClauseUpdate>,
+    },
+    ReplaceAllFromSceneQuery {
+        query: SelectionSceneQuery,
+    },
+    ReplaceFromSceneQueryInScope {
+        query: SelectionSceneQuery,
+    },
+    UpsertFromSceneQuery {
+        query: SelectionSceneQuery,
+    },
+    ToggleFromSceneQuery {
+        query: SelectionSceneQuery,
     },
     DeleteClauses {
         ids: Vec<SelectionValueExpr>,
@@ -244,6 +259,30 @@ impl SelectionUpdate {
 
     pub fn toggle_clause(clause: impl Into<SelectionClauseUpdate>) -> Self {
         Self::toggle_clauses([clause])
+    }
+
+    pub fn replace_all_from_scene_query(query: impl Into<SelectionSceneQuery>) -> Self {
+        Self::ReplaceAllFromSceneQuery {
+            query: query.into(),
+        }
+    }
+
+    pub fn replace_from_scene_query_in_scope(query: impl Into<SelectionSceneQuery>) -> Self {
+        Self::ReplaceFromSceneQueryInScope {
+            query: query.into(),
+        }
+    }
+
+    pub fn upsert_from_scene_query(query: impl Into<SelectionSceneQuery>) -> Self {
+        Self::UpsertFromSceneQuery {
+            query: query.into(),
+        }
+    }
+
+    pub fn toggle_from_scene_query(query: impl Into<SelectionSceneQuery>) -> Self {
+        Self::ToggleFromSceneQuery {
+            query: query.into(),
+        }
     }
 
     pub fn delete_clauses<I, E>(ids: I) -> Self

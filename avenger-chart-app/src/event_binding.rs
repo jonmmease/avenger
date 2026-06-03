@@ -9,9 +9,6 @@ use avenger_chart::{
     event::{
         self, ChartEventAssignmentScope, ChartEventBinding, ChartEventEvaluationMode,
         ChartEventScopeTarget, ChartEventStream, ChartEventType, InteractionColumnRequests,
-        SceneGeometryCoordinateSpace, SceneGeometryHitPolicy, SceneGeometryQuery,
-        SceneGeometryQueryGeometry, SceneGeometryTarget, SceneQueryClauseId, SceneQueryDatumField,
-        SceneQuerySelectionMode, SelectionFromSceneQuery,
     },
     plot::{
         CompiledPlot, ScopedParamAssignment, ScopedParamStoreSnapshot, ScopedStoreAssignment,
@@ -23,12 +20,14 @@ use avenger_chart::{
 use avenger_chart_core::{
     CompiledParamSpec, CompiledScalarExpressionProgram, CompiledSelectionSpec, CompiledStoreSpec,
     InteractionPointInversionRequest, PhysicalScalarExpressionSpec, PhysicalScalarProgramOptions,
-    PlaceholderColumn, ResolvedSelectionClauseScope, SelectionClause, SelectionClauseUpdate,
+    PlaceholderColumn, ResolvedSelectionClauseScope, SceneGeometryCoordinateSpace,
+    SceneGeometryHitPolicy, SceneGeometryQuery, SceneGeometryQueryGeometry, SceneGeometryTarget,
+    SceneQueryClauseId, SceneQueryDatumField, SelectionClause, SelectionClauseUpdate,
     SelectionEqualityDimensionUpdate, SelectionEqualityDimensionValue, SelectionFacetContextValue,
     SelectionIntervalDimensionUpdate, SelectionIntervalDimensionValue, SelectionPredicateSpec,
     SelectionPredicateUpdate, SelectionPredicateValue, SelectionPredicateValueUpdate,
-    SelectionUpdate, SelectionValueExpr, Sharing, StoreFieldPatch, StoreKey, StoreRow,
-    StoreRowValue, StoreUpdate, StoreValueExpr, collect_placeholder_ids,
+    SelectionSceneQuery, SelectionUpdate, SelectionValueExpr, Sharing, StoreFieldPatch, StoreKey,
+    StoreRow, StoreRowValue, StoreUpdate, StoreValueExpr, collect_placeholder_ids,
     one_row_batch_from_scalars, schema_from_fields,
 };
 use avenger_common::cursor::CursorStyle;
@@ -140,7 +139,6 @@ struct CompiledChartEventBinding {
     assignments: Vec<CompiledParamAssignment>,
     store_assignments: Vec<CompiledStoreAssignment>,
     selection_assignments: Vec<CompiledSelectionAssignment>,
-    scene_query_selection_assignments: Vec<CompiledSceneQuerySelectionAssignment>,
     evaluation_mode: ChartEventEvaluationMode,
     interaction_requests: InteractionColumnRequests,
     event_path_min_distance_px: f32,
@@ -204,17 +202,8 @@ struct CompiledSelectionAssignment {
 }
 
 #[derive(Clone)]
-struct CompiledSceneQuerySelectionAssignment {
-    selection_id: String,
-    spec: CompiledSelectionSpec,
-    scope: ChartEventAssignmentScope,
-    update: CompiledSelectionFromSceneQuery,
-}
-
-#[derive(Clone)]
-struct CompiledSelectionFromSceneQuery {
+struct CompiledSelectionSceneQuery {
     query: CompiledSceneGeometryQuery,
-    mode: SceneQuerySelectionMode,
     sharing: Sharing,
     clause_id: CompiledSceneQueryClauseId,
 }
@@ -273,6 +262,18 @@ enum CompiledSelectionUpdate {
     },
     ToggleClauses {
         clauses: Vec<CompiledSelectionClause>,
+    },
+    ReplaceAllFromSceneQuery {
+        query: CompiledSelectionSceneQuery,
+    },
+    ReplaceFromSceneQueryInScope {
+        query: CompiledSelectionSceneQuery,
+    },
+    UpsertFromSceneQuery {
+        query: CompiledSelectionSceneQuery,
+    },
+    ToggleFromSceneQuery {
+        query: CompiledSelectionSceneQuery,
     },
     DeleteClauses {
         ids: Vec<usize>,
@@ -392,6 +393,18 @@ enum SelectionExpressionUpdate {
     ToggleClauses {
         clauses: Vec<SelectionExpressionClause>,
     },
+    ReplaceAllFromSceneQuery {
+        query: SelectionSceneQueryExpression,
+    },
+    ReplaceFromSceneQueryInScope {
+        query: SelectionSceneQueryExpression,
+    },
+    UpsertFromSceneQuery {
+        query: SelectionSceneQueryExpression,
+    },
+    ToggleFromSceneQuery {
+        query: SelectionSceneQueryExpression,
+    },
     DeleteClauses {
         ids: Vec<Expr>,
     },
@@ -439,16 +452,8 @@ struct SelectionExpressionPredicateValue {
     value: Expr,
 }
 
-struct SceneQuerySelectionExpressionAssignment {
-    selection_id: String,
-    spec: CompiledSelectionSpec,
-    scope: ChartEventAssignmentScope,
-    update: SelectionFromSceneQueryExpression,
-}
-
-struct SelectionFromSceneQueryExpression {
+struct SelectionSceneQueryExpression {
     query: SceneGeometryQueryExpression,
-    mode: SceneQuerySelectionMode,
     sharing: Sharing,
     clause_id: SceneQueryClauseIdExpression,
 }
@@ -524,14 +529,6 @@ impl CompiledChartEventBinding {
                 )));
             }
         }
-        for assignment in &binding.scene_query_selection_assignments {
-            if !selection_specs.contains_key(&assignment.selection_id) {
-                return Err(AvengerAppError::InternalError(format!(
-                    "Chart event binding updates unknown selection '{}'",
-                    assignment.selection_id
-                )));
-            }
-        }
 
         // Convert filter and assignment expressions once so we can scan them for
         // reserved interaction columns before building the event schema.
@@ -581,18 +578,6 @@ impl CompiledChartEventBinding {
                 update: compile_selection_expression_update(&assignment.update, ctx)?,
             });
         }
-        let mut scene_query_selection_exprs = Vec::new();
-        for assignment in &binding.scene_query_selection_assignments {
-            let spec = selection_specs
-                .get(&assignment.selection_id)
-                .expect("scene query selection assignment validated");
-            scene_query_selection_exprs.push(SceneQuerySelectionExpressionAssignment {
-                selection_id: assignment.selection_id.clone(),
-                spec: spec.clone(),
-                scope: assignment.scope,
-                update: compile_selection_from_scene_query(&assignment.update, ctx)?,
-            });
-        }
 
         let mut scan_exprs = filter_exprs.clone();
         scan_exprs.extend(assignment_exprs.iter().map(|(_, expr, _, _)| expr.clone()));
@@ -602,12 +587,9 @@ impl CompiledChartEventBinding {
         for assignment in &selection_exprs {
             scan_exprs.extend(selection_expression_update_exprs(&assignment.update));
         }
-        for assignment in &scene_query_selection_exprs {
-            scan_exprs.extend(collect_scene_query_selection_exprs(&assignment.update));
-        }
         let mut interaction_requests = event::scan_interaction_columns(&scan_exprs);
-        for assignment in &scene_query_selection_exprs {
-            for field in &assignment.update.query.datum_fields {
+        for assignment in &selection_exprs {
+            for field in selection_expression_update_datum_fields(&assignment.update) {
                 interaction_requests
                     .current_datum
                     .insert(field.datum_field.clone());
@@ -615,18 +597,6 @@ impl CompiledChartEventBinding {
         }
         for assignment in &store_exprs {
             if assignment.sharing.to_level() != u8::MAX {
-                match assignment.scope {
-                    ChartEventAssignmentScope::Current => {
-                        interaction_requests.current_scope_id = true;
-                    }
-                    ChartEventAssignmentScope::Start => {
-                        interaction_requests.start_scope_id = true;
-                    }
-                }
-            }
-        }
-        for assignment in &scene_query_selection_exprs {
-            if scene_query_selection_needs_scope(&assignment.update) {
                 match assignment.scope {
                     ChartEventAssignmentScope::Current => {
                         interaction_requests.current_scope_id = true;
@@ -718,21 +688,6 @@ impl CompiledChartEventBinding {
                 update,
             });
         }
-        let mut scene_query_selection_assignments = Vec::new();
-        for assignment in scene_query_selection_exprs {
-            let update = append_scene_query_selection_specs(
-                &assignment.selection_id,
-                assignment.update,
-                &mut specs,
-                filter_count,
-            );
-            scene_query_selection_assignments.push(CompiledSceneQuerySelectionAssignment {
-                selection_id: assignment.selection_id,
-                spec: assignment.spec,
-                scope: assignment.scope,
-                update,
-            });
-        }
         let program = CompiledScalarExpressionProgram::compile(
             ctx,
             schema,
@@ -752,7 +707,6 @@ impl CompiledChartEventBinding {
             assignments,
             store_assignments,
             selection_assignments,
-            scene_query_selection_assignments,
             evaluation_mode: binding.evaluation_mode,
             interaction_requests,
             event_path_min_distance_px: binding
@@ -1012,6 +966,26 @@ fn compile_selection_expression_update(
         SelectionUpdate::ToggleClauses { clauses } => SelectionExpressionUpdate::ToggleClauses {
             clauses: compile_selection_clauses(clauses, ctx)?,
         },
+        SelectionUpdate::ReplaceAllFromSceneQuery { query } => {
+            SelectionExpressionUpdate::ReplaceAllFromSceneQuery {
+                query: compile_selection_scene_query(query, ctx)?,
+            }
+        }
+        SelectionUpdate::ReplaceFromSceneQueryInScope { query } => {
+            SelectionExpressionUpdate::ReplaceFromSceneQueryInScope {
+                query: compile_selection_scene_query(query, ctx)?,
+            }
+        }
+        SelectionUpdate::UpsertFromSceneQuery { query } => {
+            SelectionExpressionUpdate::UpsertFromSceneQuery {
+                query: compile_selection_scene_query(query, ctx)?,
+            }
+        }
+        SelectionUpdate::ToggleFromSceneQuery { query } => {
+            SelectionExpressionUpdate::ToggleFromSceneQuery {
+                query: compile_selection_scene_query(query, ctx)?,
+            }
+        }
         SelectionUpdate::DeleteClauses { ids } => SelectionExpressionUpdate::DeleteClauses {
             ids: ids
                 .iter()
@@ -1128,13 +1102,12 @@ fn selection_value_expr_to_expr(
         .map_err(|err| AvengerAppError::InternalError(err.to_string()))
 }
 
-fn compile_selection_from_scene_query(
-    update: &SelectionFromSceneQuery,
+fn compile_selection_scene_query(
+    update: &SelectionSceneQuery,
     ctx: &SessionContext,
-) -> Result<SelectionFromSceneQueryExpression, AvengerAppError> {
-    Ok(SelectionFromSceneQueryExpression {
+) -> Result<SelectionSceneQueryExpression, AvengerAppError> {
+    Ok(SelectionSceneQueryExpression {
         query: compile_scene_geometry_query(&update.query, ctx)?,
-        mode: update.mode.clone(),
         sharing: update.sharing,
         clause_id: compile_scene_query_clause_id(&update.clause_id, ctx)?,
     })
@@ -1206,7 +1179,7 @@ fn compile_scene_query_clause_id(
     })
 }
 
-fn collect_scene_query_selection_exprs(update: &SelectionFromSceneQueryExpression) -> Vec<Expr> {
+fn collect_scene_query_selection_exprs(update: &SelectionSceneQueryExpression) -> Vec<Expr> {
     let mut exprs = Vec::new();
     match &update.query.geometry {
         SceneGeometryQueryGeometryExpression::Rect { x0, y0, x1, y1 } => {
@@ -1225,19 +1198,14 @@ fn collect_scene_query_selection_exprs(update: &SelectionFromSceneQueryExpressio
     exprs
 }
 
-fn scene_query_selection_needs_scope(_update: &SelectionFromSceneQueryExpression) -> bool {
-    true
-}
-
 fn append_scene_query_selection_specs(
     selection_id: &str,
-    update: SelectionFromSceneQueryExpression,
+    update: SelectionSceneQueryExpression,
     specs: &mut Vec<PhysicalScalarExpressionSpec>,
     filter_count: usize,
-) -> CompiledSelectionFromSceneQuery {
-    CompiledSelectionFromSceneQuery {
+) -> CompiledSelectionSceneQuery {
+    CompiledSelectionSceneQuery {
         query: append_scene_geometry_query_specs(selection_id, update.query, specs, filter_count),
-        mode: update.mode,
         sharing: update.sharing,
         clause_id: match update.clause_id {
             SceneQueryClauseIdExpression::Tuple => CompiledSceneQueryClauseId::Tuple,
@@ -1353,6 +1321,24 @@ fn collect_selection_expression_update_exprs(
         SelectionExpressionUpdate::DeleteClausesInScope { ids, .. } => {
             exprs.extend(ids.iter().cloned());
         }
+        SelectionExpressionUpdate::ReplaceAllFromSceneQuery { query }
+        | SelectionExpressionUpdate::ReplaceFromSceneQueryInScope { query }
+        | SelectionExpressionUpdate::UpsertFromSceneQuery { query }
+        | SelectionExpressionUpdate::ToggleFromSceneQuery { query } => {
+            exprs.extend(collect_scene_query_selection_exprs(query));
+        }
+    }
+}
+
+fn selection_expression_update_datum_fields(
+    update: &SelectionExpressionUpdate,
+) -> &[SceneQueryDatumField] {
+    match update {
+        SelectionExpressionUpdate::ReplaceAllFromSceneQuery { query }
+        | SelectionExpressionUpdate::ReplaceFromSceneQueryInScope { query }
+        | SelectionExpressionUpdate::UpsertFromSceneQuery { query }
+        | SelectionExpressionUpdate::ToggleFromSceneQuery { query } => &query.query.datum_fields,
+        _ => &[],
     }
 }
 
@@ -1397,6 +1383,10 @@ fn selection_update_needs_scope(update: &SelectionExpressionUpdate) -> bool {
         SelectionExpressionUpdate::DeleteClausesInScope { scope, .. } => {
             scope.to_level() != u8::MAX
         }
+        SelectionExpressionUpdate::ReplaceAllFromSceneQuery { .. }
+        | SelectionExpressionUpdate::ReplaceFromSceneQueryInScope { .. }
+        | SelectionExpressionUpdate::UpsertFromSceneQuery { .. }
+        | SelectionExpressionUpdate::ToggleFromSceneQuery { .. } => true,
     }
 }
 
@@ -1454,6 +1444,26 @@ fn append_selection_expression_update_specs(
                     specs,
                     filter_count,
                 ),
+            }
+        }
+        SelectionExpressionUpdate::ReplaceAllFromSceneQuery { query } => {
+            CompiledSelectionUpdate::ReplaceAllFromSceneQuery {
+                query: append_scene_query_selection_specs(selection_id, query, specs, filter_count),
+            }
+        }
+        SelectionExpressionUpdate::ReplaceFromSceneQueryInScope { query } => {
+            CompiledSelectionUpdate::ReplaceFromSceneQueryInScope {
+                query: append_scene_query_selection_specs(selection_id, query, specs, filter_count),
+            }
+        }
+        SelectionExpressionUpdate::UpsertFromSceneQuery { query } => {
+            CompiledSelectionUpdate::UpsertFromSceneQuery {
+                query: append_scene_query_selection_specs(selection_id, query, specs, filter_count),
+            }
+        }
+        SelectionExpressionUpdate::ToggleFromSceneQuery { query } => {
+            CompiledSelectionUpdate::ToggleFromSceneQuery {
+                query: append_scene_query_selection_specs(selection_id, query, specs, filter_count),
             }
         }
         SelectionExpressionUpdate::DeleteClauses { ids } => {
@@ -2002,42 +2012,28 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                 ChartEventAssignmentScope::Current => current_scope.as_ref(),
                 ChartEventAssignmentScope::Start => start_scope.as_ref(),
             };
-            let Some(update) = selection_state_update_from_values(
-                &assignment.update,
-                &assignment.spec,
-                &values,
-                self.runtime.filter_count,
-                assignment_scope,
-            ) else {
-                tracing::debug!(
-                    target: "avenger_chart_app::event_binding",
-                    binding = self.runtime.binding_index,
-                    selection = %assignment.selection_id,
-                    "skipping selection assignment with no routed scope or null values"
-                );
-                continue;
+            let update_result = if compiled_selection_update_is_scene_query(&assignment.update) {
+                scene_query_selection_state_update_from_values(
+                    &assignment.update,
+                    &assignment.spec,
+                    &values,
+                    self.runtime.filter_count,
+                    assignment_scope,
+                    &app.last_interaction_state.scopes,
+                    self.runtime.scope_target.as_ref(),
+                    rtree,
+                    &app.last_event_datum_state,
+                )
+            } else {
+                Ok(selection_state_update_from_values(
+                    &assignment.update,
+                    &assignment.spec,
+                    &values,
+                    self.runtime.filter_count,
+                    assignment_scope,
+                ))
             };
-            selection_patch.push(SelectionAssignment {
-                selection_id: assignment.selection_id.clone(),
-                update,
-            });
-        }
-        for assignment in &self.runtime.scene_query_selection_assignments {
-            let assignment_scope = match assignment.scope {
-                ChartEventAssignmentScope::Current => current_scope.as_ref(),
-                ChartEventAssignmentScope::Start => start_scope.as_ref(),
-            };
-            match scene_query_selection_state_update_from_values(
-                &assignment.update,
-                &assignment.spec,
-                &values,
-                self.runtime.filter_count,
-                assignment_scope,
-                &app.last_interaction_state.scopes,
-                self.runtime.scope_target.as_ref(),
-                rtree,
-                &app.last_event_datum_state,
-            ) {
+            match update_result {
                 Ok(Some(update)) => {
                     selection_patch.push(SelectionAssignment {
                         selection_id: assignment.selection_id.clone(),
@@ -2049,7 +2045,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                         target: "avenger_chart_app::event_binding",
                         binding = self.runtime.binding_index,
                         selection = %assignment.selection_id,
-                        "skipping scene query selection assignment with no routed scope or null geometry"
+                        "skipping selection assignment with no routed scope or null values"
                     );
                 }
                 Err(err) => {
@@ -2059,7 +2055,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                         binding = self.runtime.binding_index,
                         selection = %assignment.selection_id,
                         error = %err,
-                        "failed to evaluate scene query selection assignment"
+                        "failed to evaluate selection assignment"
                     );
                 }
             }
@@ -2487,11 +2483,25 @@ fn selection_state_update_from_values(
                 .map(|id| selection_clause_id_from_value(values.get(filter_count + *id)?))
                 .collect::<Option<Vec<_>>>()?,
         },
+        CompiledSelectionUpdate::ReplaceAllFromSceneQuery { .. }
+        | CompiledSelectionUpdate::ReplaceFromSceneQueryInScope { .. }
+        | CompiledSelectionUpdate::UpsertFromSceneQuery { .. }
+        | CompiledSelectionUpdate::ToggleFromSceneQuery { .. } => return None,
     })
 }
 
+fn compiled_selection_update_is_scene_query(update: &CompiledSelectionUpdate) -> bool {
+    matches!(
+        update,
+        CompiledSelectionUpdate::ReplaceAllFromSceneQuery { .. }
+            | CompiledSelectionUpdate::ReplaceFromSceneQueryInScope { .. }
+            | CompiledSelectionUpdate::UpsertFromSceneQuery { .. }
+            | CompiledSelectionUpdate::ToggleFromSceneQuery { .. }
+    )
+}
+
 fn scene_query_selection_state_update_from_values(
-    update: &CompiledSelectionFromSceneQuery,
+    update: &CompiledSelectionUpdate,
     spec: &CompiledSelectionSpec,
     values: &[ScalarValue],
     filter_count: usize,
@@ -2501,20 +2511,27 @@ fn scene_query_selection_state_update_from_values(
     rtree: &SceneGraphRTree,
     event_datums: &EvaluatedEventDatumState,
 ) -> Result<Option<SelectionStateUpdate>, AvengerAppError> {
-    if update.query.datum_fields.is_empty() {
+    let query = match update {
+        CompiledSelectionUpdate::ReplaceAllFromSceneQuery { query }
+        | CompiledSelectionUpdate::ReplaceFromSceneQueryInScope { query }
+        | CompiledSelectionUpdate::UpsertFromSceneQuery { query }
+        | CompiledSelectionUpdate::ToggleFromSceneQuery { query } => query,
+        _ => return Ok(None),
+    };
+    if query.query.datum_fields.is_empty() {
         return Err(AvengerAppError::InternalError(
             "Scene geometry query selection requires at least one datum field".to_string(),
         ));
     }
-    if update.query.coordinate_space != SceneGeometryCoordinateSpace::Scene {
+    if query.query.coordinate_space != SceneGeometryCoordinateSpace::Scene {
         return Err(AvengerAppError::InternalError(
             "Only scene-space geometry queries are supported".to_string(),
         ));
     }
-    let Some(owner_path) = selection_owner_path(update.sharing, scope) else {
+    let Some(owner_path) = selection_owner_path(query.sharing, scope) else {
         return Ok(None);
     };
-    let Some(shape) = scene_query_shape_from_values(&update.query.geometry, values, filter_count)?
+    let Some(shape) = scene_query_shape_from_values(&query.query.geometry, values, filter_count)?
     else {
         return Ok(None);
     };
@@ -2522,30 +2539,38 @@ fn scene_query_selection_state_update_from_values(
         return Ok(None);
     };
     let shapes =
-        scene_query_shapes_for_sharing(&shape, update.sharing, scope, all_scopes, scope_target);
+        scene_query_shapes_for_sharing(&shape, query.sharing, scope, all_scopes, scope_target);
     if shapes.is_empty() {
         return Ok(None);
     }
-    let result = scene_geometry_query_result(&update.query, &shapes, rtree, event_datums)?;
+    let result = scene_geometry_query_result(&query.query, &shapes, rtree, event_datums)?;
     let clauses = scene_query_selection_clauses_from_batch(
-        update,
+        query,
         spec,
         values,
         filter_count,
         &owner_path,
         &result.rows,
     )?;
-    Ok(Some(match update.mode {
-        SceneQuerySelectionMode::ReplaceAll => SelectionStateUpdate::ReplaceAllClauses { clauses },
-        SceneQuerySelectionMode::ReplaceInScope => SelectionStateUpdate::ReplaceClausesInScope {
-            scope_owner_path: owner_path,
-            clauses,
-        },
-        SceneQuerySelectionMode::Upsert => SelectionStateUpdate::UpsertClauses { clauses },
-        SceneQuerySelectionMode::Toggle => SelectionStateUpdate::ToggleClauses { clauses },
+    Ok(Some(match update {
+        CompiledSelectionUpdate::ReplaceAllFromSceneQuery { .. } => {
+            SelectionStateUpdate::ReplaceAllClauses { clauses }
+        }
+        CompiledSelectionUpdate::ReplaceFromSceneQueryInScope { .. } => {
+            SelectionStateUpdate::ReplaceClausesInScope {
+                scope_owner_path: owner_path,
+                clauses,
+            }
+        }
+        CompiledSelectionUpdate::UpsertFromSceneQuery { .. } => {
+            SelectionStateUpdate::UpsertClauses { clauses }
+        }
+        CompiledSelectionUpdate::ToggleFromSceneQuery { .. } => {
+            SelectionStateUpdate::ToggleClauses { clauses }
+        }
+        _ => return Ok(None),
     }))
 }
-
 #[allow(dead_code)]
 struct SceneGeometryQueryResult {
     rows: RecordBatch,
@@ -2785,7 +2810,7 @@ fn scene_query_target_matches(target: &SceneGeometryTarget, mark_instance: &Mark
 }
 
 fn scene_query_selection_clauses_from_batch(
-    update: &CompiledSelectionFromSceneQuery,
+    update: &CompiledSelectionSceneQuery,
     spec: &CompiledSelectionSpec,
     values: &[ScalarValue],
     filter_count: usize,
@@ -4216,7 +4241,7 @@ mod tests {
             .facet_context_field("group_name", col("group_name"))
             .compile()
             .expect("compile selection");
-        let update = CompiledSelectionFromSceneQuery {
+        let update = CompiledSelectionSceneQuery {
             query: CompiledSceneGeometryQuery {
                 geometry: CompiledSceneGeometryQueryGeometry::Rect {
                     x0: 0,
@@ -4235,7 +4260,6 @@ mod tests {
                 unique_by: vec!["item".to_string()],
                 max_hits: None,
             },
-            mode: SceneQuerySelectionMode::ReplaceAll,
             sharing: Sharing::Free,
             clause_id: CompiledSceneQueryClauseId::Field("item".to_string()),
         };

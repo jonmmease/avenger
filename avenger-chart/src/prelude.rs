@@ -22,15 +22,16 @@
 pub use crate::concat::{ConcatGuide, HConcat, VConcat};
 pub use crate::event::{
     ChartEventBinding, ChartEventEvaluationMode, ChartEventStream, ChartEventType,
-    SceneGeometryHitPolicy, SceneGeometryQuery, SceneQueryClauseId, SceneQueryDatumField,
-    SceneQuerySelectionMode, SelectionFromSceneQuery,
 };
 pub use crate::facet::coord::{FacetColumn, FacetRow, FacetWrap};
 pub use avenger_chart_cartesian::Cartesian;
 pub use avenger_chart_core::{
     CursorStyle, EmptySelectionBehavior, FacetEmptyCellPolicy, Selection, SelectionClauseUpdate,
-    SelectionCombine, SelectionUpdate, Sharing, Store, StoreData, StoreFieldPatch, StoreFieldRef,
-    StoreKey, StoreRow, StoreUpdate, ZeroDCoord,
+    SelectionCombine, SelectionSceneQuery, SelectionUpdate, Sharing, Store, StoreData,
+    StoreFieldPatch, StoreFieldRef, StoreKey, StoreRow, StoreUpdate, ZeroDCoord,
+};
+pub use avenger_chart_core::{
+    SceneGeometryHitPolicy, SceneGeometryQuery, SceneQueryClauseId, SceneQueryDatumField,
 };
 pub use avenger_chart_polar::Polar;
 

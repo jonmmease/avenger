@@ -5,7 +5,7 @@ use avenger_chart_core::{
     AvengerChartError, ChartEventBinding, ChartEventStream, ChartEventType, ChartTool,
     CoordinateSystemCore, EmptySelectionBehavior, IntoExpr, Param, SceneGeometryHitPolicy,
     SceneGeometryQuery, SceneQueryDatumField, Selection, SelectionClauseUpdate,
-    SelectionFromSceneQuery, SelectionUpdate, Sharing, ToolExpansion, ToolExpansionContext,
+    SelectionSceneQuery, SelectionUpdate, Sharing, ToolExpansion, ToolExpansionContext,
     ToolMetadata, ToolParamSharing, ToolScaleEdit, event as ev,
 };
 use avenger_chart_marks::Rect;
@@ -582,7 +582,7 @@ impl LassoSelection {
         selection
     }
 
-    fn scene_query_update(&self) -> Result<SelectionFromSceneQuery, AvengerChartError> {
+    fn scene_query_update(&self) -> Result<SelectionSceneQuery, AvengerChartError> {
         if self.fields.is_empty() {
             return Err(AvengerChartError::InvalidArgument(format!(
                 "tool '{}' requires at least one lasso selection field",
@@ -610,10 +610,7 @@ impl LassoSelection {
             .iter()
             .map(|field| field.id.clone())
             .collect::<Vec<_>>();
-        Ok(
-            SelectionFromSceneQuery::replace_all(query.unique_by(unique_fields))
-                .sharing(self.facet_scope),
-        )
+        Ok(SelectionSceneQuery::new(query.unique_by(unique_fields)).sharing(self.facet_scope))
     }
 }
 
@@ -661,7 +658,7 @@ fn lasso_selection_drag_binding(
     selection_id: &str,
     drag_button: &str,
     event_path_min_distance_px: f32,
-    update: SelectionFromSceneQuery,
+    update: SelectionSceneQuery,
 ) -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::CursorMoved)
         .filter(ev::param(enabled_param).eq(lit(true)))
@@ -670,7 +667,10 @@ fn lasso_selection_drag_binding(
                 .filter(ev::button().eq(lit(drag_button.to_string()))),
             ChartEventStream::on(ChartEventType::MouseUp),
         )
-        .set_selection_from_scene_query_at_start_scope(selection_id, update)
+        .set_selection_at_start_scope(
+            selection_id,
+            SelectionUpdate::replace_all_from_scene_query(update),
+        )
         .event_path_min_distance_px(event_path_min_distance_px)
         .preview()
         .settle_exact()
@@ -1309,25 +1309,25 @@ mod tests {
             .expect("drag binding");
         assert!(drag.between.is_some());
         assert_eq!(drag.event_path_min_distance_px, Some(7.0));
-        assert_eq!(drag.scene_query_selection_assignments.len(), 1);
+        assert_eq!(drag.selection_assignments.len(), 1);
         assert_eq!(
             drag.evaluation_mode,
             avenger_chart_core::event::ChartEventEvaluationMode::Preview
         );
         assert!(drag.settle_exact);
 
-        let assignment = &drag.scene_query_selection_assignments[0];
+        let assignment = &drag.selection_assignments[0];
         assert_eq!(assignment.selection_id, "picked");
-        assert_eq!(assignment.update.sharing, Sharing::Shared);
-        assert_eq!(assignment.update.query.datum_fields.len(), 1);
-        assert_eq!(assignment.update.query.datum_fields[0].id, "point_id");
-        assert_eq!(
-            assignment.update.query.hit_policy,
-            SceneGeometryHitPolicy::AnchorInside
-        );
+        let SelectionUpdate::ReplaceAllFromSceneQuery { query } = &assignment.update else {
+            panic!("lasso drag should use a scene-query selection update");
+        };
+        assert_eq!(query.sharing, Sharing::Shared);
+        assert_eq!(query.query.datum_fields.len(), 1);
+        assert_eq!(query.query.datum_fields[0].id, "point_id");
+        assert_eq!(query.query.hit_policy, SceneGeometryHitPolicy::AnchorInside);
         assert!(
             matches!(
-                assignment.update.query.geometry,
+                query.query.geometry,
                 avenger_chart_core::SceneGeometryQueryGeometry::Polygon { .. }
             ),
             "lasso selection should use the event-path polygon query"

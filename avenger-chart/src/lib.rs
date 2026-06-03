@@ -33,6 +33,7 @@ pub mod render;
 // render_context moved to render/context
 pub mod maybe;
 pub mod scales;
+pub mod scene_query;
 pub mod selection;
 pub mod serialization;
 pub mod theme;

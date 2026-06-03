@@ -146,7 +146,10 @@ fn rect_drag_binding(cursor: &Param) -> ChartEventBinding {
         .filter(ev::y().is_not_null())
         .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
         .set_store_at_start_scope_replacing_scopes("selection_rect", rect_overlay_update())
-        .set_selection_from_scene_query_at_start_scope("picked", rect_query_update())
+        .set_selection_at_start_scope(
+            "picked",
+            SelectionUpdate::replace_all_from_scene_query(rect_query_update()),
+        )
         .preview()
 }
 
@@ -160,7 +163,10 @@ fn rect_release_binding() -> ChartEventBinding {
     .filter(ev::x().is_not_null())
     .filter(ev::y().is_not_null())
     .set_store_at_start_scope_replacing_scopes("selection_rect", rect_overlay_update())
-    .set_selection_from_scene_query_at_start_scope("picked", rect_query_update())
+    .set_selection_at_start_scope(
+        "picked",
+        SelectionUpdate::replace_all_from_scene_query(rect_query_update()),
+    )
     .exact()
 }
 
@@ -171,8 +177,8 @@ fn rect_clear_binding() -> ChartEventBinding {
         .exact()
 }
 
-fn rect_query_update() -> SelectionFromSceneQuery {
-    SelectionFromSceneQuery::replace_all(
+fn rect_query_update() -> SelectionSceneQuery {
+    SelectionSceneQuery::new(
         SceneGeometryQuery::rect(ev::start_x(), ev::start_y(), ev::x(), ev::y())
             .hit_policy(SceneGeometryHitPolicy::AnchorInside)
             .datum_field(

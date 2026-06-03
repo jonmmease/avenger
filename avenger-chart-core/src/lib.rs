@@ -60,6 +60,7 @@ pub mod scale_range;
 pub mod scale_range_binding;
 pub mod scale_spec;
 pub mod scale_type;
+pub mod scene_query;
 pub mod selection;
 pub mod serialization;
 pub mod sharing;
@@ -194,6 +195,11 @@ pub use scale_range_binding::{
 };
 pub use scale_spec::{Auto, ScaleSpec};
 pub use scale_type::{ScaleTypePreference, default_scale_type_for_data_type, is_continuous_scale};
+pub use scene_query::{
+    SceneGeometryCoordinateSpace, SceneGeometryHitPolicy, SceneGeometryQuery,
+    SceneGeometryQueryGeometry, SceneGeometryTarget, SceneQueryClauseId, SceneQueryDatumField,
+    SelectionSceneQuery,
+};
 pub use selection::{
     CompiledSelectionSpec, EmptySelectionBehavior, ResolvedSelectionClauseScope, Selection,
     SelectionClause, SelectionClauseUpdate, SelectionCombine, SelectionEqualityDimensionUpdate,

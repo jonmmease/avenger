@@ -146,7 +146,10 @@ fn circle_drag_binding(cursor: &Param) -> ChartEventBinding {
         .filter(ev::y().is_not_null())
         .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
         .set_store_at_start_scope_replacing_scopes("selection_circle", circle_overlay_update())
-        .set_selection_from_scene_query_at_start_scope("picked", circle_query_update())
+        .set_selection_at_start_scope(
+            "picked",
+            SelectionUpdate::replace_all_from_scene_query(circle_query_update()),
+        )
         .preview()
 }
 
@@ -160,7 +163,10 @@ fn circle_release_binding() -> ChartEventBinding {
     .filter(ev::x().is_not_null())
     .filter(ev::y().is_not_null())
     .set_store_at_start_scope_replacing_scopes("selection_circle", circle_overlay_update())
-    .set_selection_from_scene_query_at_start_scope("picked", circle_query_update())
+    .set_selection_at_start_scope(
+        "picked",
+        SelectionUpdate::replace_all_from_scene_query(circle_query_update()),
+    )
     .exact()
 }
 
@@ -171,12 +177,12 @@ fn circle_clear_binding() -> ChartEventBinding {
         .exact()
 }
 
-fn circle_query_update() -> SelectionFromSceneQuery {
+fn circle_query_update() -> SelectionSceneQuery {
     let dx = ev::x() - ev::start_x();
     let dy = ev::y() - ev::start_y();
     let radius = sqrt(dx.clone() * dx + dy.clone() * dy);
 
-    SelectionFromSceneQuery::replace_all(
+    SelectionSceneQuery::new(
         SceneGeometryQuery::circle(ev::start_x(), ev::start_y(), radius)
             .hit_policy(SceneGeometryHitPolicy::AnchorInside)
             .datum_field(

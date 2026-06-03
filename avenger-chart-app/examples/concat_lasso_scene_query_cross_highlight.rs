@@ -150,7 +150,10 @@ fn lasso_drag_binding(cursor: &Param) -> ChartEventBinding {
         .filter(ev::event_path_svg().is_not_null())
         .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
         .set_store_at_start_scope_replacing_scopes("source_lasso", lasso_overlay_update("active"))
-        .set_selection_from_scene_query_at_start_scope("picked", lasso_query_update())
+        .set_selection_at_start_scope(
+            "picked",
+            SelectionUpdate::replace_all_from_scene_query(lasso_query_update()),
+        )
         .event_path_min_distance_px(6.0)
         .preview()
         .settle_exact()
@@ -163,8 +166,8 @@ fn lasso_clear_binding() -> ChartEventBinding {
         .exact()
 }
 
-fn lasso_query_update() -> SelectionFromSceneQuery {
-    SelectionFromSceneQuery::replace_all(
+fn lasso_query_update() -> SelectionSceneQuery {
+    SelectionSceneQuery::new(
         SceneGeometryQuery::polygon(ev::event_path())
             .hit_policy(SceneGeometryHitPolicy::AnchorInside)
             .datum_field(
