@@ -40,6 +40,9 @@ define_channel_config!(ShapeChannelConfig);
 // Channel config for SVG path data channels
 define_channel_config!(PathChannelConfig);
 
+// Channel config for SVG path transform channels
+define_channel_config!(TransformChannelConfig);
+
 // Channel config for opacity channels
 define_channel_config!(OpacityChannelConfig);
 
@@ -58,7 +61,7 @@ mod tests {
 
     use crate::{
         ChannelConfig, ChannelValue, ColorChannelConfig, ConditionalValue, PathChannelConfig,
-        StrokeDashChannelConfig,
+        StrokeDashChannelConfig, TransformChannelConfig,
     };
 
     #[test]
@@ -69,6 +72,7 @@ mod tests {
         assert_channel_config::<crate::SizeChannelConfig>();
         assert_channel_config::<crate::ShapeChannelConfig>();
         assert_channel_config::<PathChannelConfig>();
+        assert_channel_config::<TransformChannelConfig>();
         assert_channel_config::<crate::OpacityChannelConfig>();
         assert_channel_config::<crate::AngleChannelConfig>();
         assert_channel_config::<crate::StrokeWidthChannelConfig>();

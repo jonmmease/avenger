@@ -86,6 +86,7 @@ pub use channel_config::ChannelConfig;
 pub use channel_configs::{
     AngleChannelConfig, ColorChannelConfig, OpacityChannelConfig, PathChannelConfig,
     ShapeChannelConfig, SizeChannelConfig, StrokeDashChannelConfig, StrokeWidthChannelConfig,
+    TransformChannelConfig,
 };
 pub use channel_resolution::{resolve_all_channel_refs, resolve_channel_refs};
 pub use channel_resolution_error::{ChannelResolutionError, suggest_similar_channel_name};

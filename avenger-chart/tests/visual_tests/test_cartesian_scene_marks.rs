@@ -567,7 +567,7 @@ async fn test_cartesian_path_svg_transform_styles() {
                 .x(col("x"))
                 .y(col("y"))
                 .path_with(col("path"), |c| c.no_scale())
-                .transform(ChannelValue::from(col("transform")).no_scale())
+                .transform_with(col("transform"), |c| c.no_scale())
                 .fill_with(col("group"), |c| c.legend(|l| l.visible(false)))
                 .stroke("#111827")
                 .stroke_width(1.6)

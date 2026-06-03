@@ -2,7 +2,7 @@ use datafusion_common::ScalarValue;
 
 use avenger_chart_core::{
     ColorChannelConfig, MarkState, OpacityChannelConfig, PathChannelConfig,
-    StrokeWidthChannelConfig, define_common_mark_channels, impl_mark_base,
+    StrokeWidthChannelConfig, TransformChannelConfig, define_common_mark_channels, impl_mark_base,
 };
 
 pub struct PathMark<C> {
@@ -20,6 +20,7 @@ define_common_mark_channels! {
         },
         transform: {
             allow_column: true,
+            with_config: TransformChannelConfig,
         },
         fill: {
             allow_column: true,
