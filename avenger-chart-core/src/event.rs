@@ -14,7 +14,7 @@ use avenger_common::cursor::CursorStyle;
 use datafusion::{
     functions_array::expr_fn::{array_element, make_array},
     logical_expr::expr::Placeholder,
-    prelude::{Expr, col, lit, when},
+    prelude::{Expr, SessionContext, col, lit, when},
 };
 use datafusion_common::tree_node::{TreeNode, TreeNodeRecursion};
 use datafusion_proto::protobuf::LogicalExprNode;
@@ -68,6 +68,7 @@ pub const EVENT_AT_START_CLIPPED_COORD_PREFIX: &str = "__event_at_start_clipped_
 pub const PREVIOUS_COORD_PREFIX: &str = "__previous_coord_";
 pub const EVENT_DOMAIN_PREFIX: &str = "__event_domain_";
 pub const START_DOMAIN_PREFIX: &str = "__start_domain_";
+pub const EVENT_DATUM_PREFIX: &str = "__event_datum_";
 pub const EVENT_PLOT_WIDTH_FIELD: &str = "__event_plot_width";
 pub const EVENT_PLOT_HEIGHT_FIELD: &str = "__event_plot_height";
 pub const START_PLOT_WIDTH_FIELD: &str = "__start_plot_width";
@@ -656,6 +657,15 @@ pub fn start_domain(channel: &str) -> Expr {
     col(start_domain_column_name(channel))
 }
 
+/// Datum value for `field` from the rendered mark instance hit by the current event.
+///
+/// The value is drawn from the evaluated logical mark row before visual channels
+/// are scaled to pixels. Events that do not hit a mark instance, or hit a mark
+/// without the requested datum field, produce null.
+pub fn datum(field: &str) -> Expr {
+    col(event_datum_column_name(field))
+}
+
 /// Current routed plot-area width in scene pixels.
 pub fn event_plot_width() -> Expr {
     col(EVENT_PLOT_WIDTH_FIELD)
@@ -762,6 +772,10 @@ pub fn start_domain_column_name(channel: &str) -> String {
     format!("{START_DOMAIN_PREFIX}{channel}")
 }
 
+pub fn event_datum_column_name(field: &str) -> String {
+    format!("{EVENT_DATUM_PREFIX}{field}")
+}
+
 pub fn event_facet_value_column_name(index: usize) -> String {
     format!("{EVENT_FACET_VALUE_PREFIX}{index}")
 }
@@ -794,6 +808,7 @@ pub struct InteractionColumnRequests {
     pub previous_coord: BTreeSet<String>,
     pub current_domain: BTreeSet<String>,
     pub start_domain: BTreeSet<String>,
+    pub current_datum: BTreeSet<String>,
     pub current_plot_size: bool,
     pub start_plot_size: bool,
     pub current_scope_id: bool,
@@ -812,6 +827,7 @@ impl InteractionColumnRequests {
             && self.previous_coord.is_empty()
             && self.current_domain.is_empty()
             && self.start_domain.is_empty()
+            && self.current_datum.is_empty()
             && !self.current_plot_size
             && !self.start_plot_size
             && !self.current_scope_id
@@ -852,6 +868,8 @@ impl InteractionColumnRequests {
             self.current_domain.insert(channel.to_string());
         } else if let Some(channel) = name.strip_prefix(START_DOMAIN_PREFIX) {
             self.start_domain.insert(channel.to_string());
+        } else if let Some(field) = name.strip_prefix(EVENT_DATUM_PREFIX) {
+            self.current_datum.insert(field.to_string());
         } else if name == EVENT_PLOT_WIDTH_FIELD || name == EVENT_PLOT_HEIGHT_FIELD {
             self.current_plot_size = true;
         } else if name == START_PLOT_WIDTH_FIELD || name == START_PLOT_HEIGHT_FIELD {
@@ -888,6 +906,97 @@ pub fn scan_interaction_columns(exprs: &[Expr]) -> InteractionColumnRequests {
         });
     }
     requests
+}
+
+pub fn scan_chart_event_binding_interaction_columns(
+    binding: &ChartEventBinding,
+    ctx: &SessionContext,
+) -> Result<InteractionColumnRequests, AvengerChartError> {
+    let mut exprs = Vec::new();
+    for filter in &binding.filters {
+        exprs.push(filter.to_expr(ctx)?);
+    }
+    for assignment in &binding.assignments {
+        exprs.push(assignment.expr.to_expr(ctx)?);
+    }
+    for assignment in &binding.store_assignments {
+        collect_store_update_exprs(&assignment.update, ctx, &mut exprs)?;
+    }
+    for assignment in &binding.selection_assignments {
+        collect_selection_update_exprs(&assignment.update, ctx, &mut exprs)?;
+    }
+    Ok(scan_interaction_columns(&exprs))
+}
+
+fn collect_store_update_exprs(
+    update: &StoreUpdate,
+    ctx: &SessionContext,
+    exprs: &mut Vec<Expr>,
+) -> Result<(), AvengerChartError> {
+    match update {
+        StoreUpdate::Clear => {}
+        StoreUpdate::ReplaceRows { rows }
+        | StoreUpdate::InsertRows { rows }
+        | StoreUpdate::UpsertRows { rows }
+        | StoreUpdate::ToggleRows { rows } => {
+            for row in rows {
+                for value in row.fields.values() {
+                    exprs.push(value.expr.to_expr(ctx)?);
+                }
+            }
+        }
+        StoreUpdate::UpdateByKey { key, fields } => {
+            for value in key.fields.values() {
+                exprs.push(value.expr.to_expr(ctx)?);
+            }
+            for value in fields.fields.values() {
+                exprs.push(value.expr.to_expr(ctx)?);
+            }
+        }
+        StoreUpdate::DeleteByKey { key } => {
+            for value in key.fields.values() {
+                exprs.push(value.expr.to_expr(ctx)?);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn collect_selection_update_exprs(
+    update: &SelectionUpdate,
+    ctx: &SessionContext,
+    exprs: &mut Vec<Expr>,
+) -> Result<(), AvengerChartError> {
+    match update {
+        SelectionUpdate::Clear | SelectionUpdate::ClearInScope { .. } => {}
+        SelectionUpdate::ReplaceAllClauses { clauses }
+        | SelectionUpdate::ReplaceClausesInScope { clauses, .. }
+        | SelectionUpdate::UpsertClauses { clauses }
+        | SelectionUpdate::ToggleClauses { clauses } => {
+            for clause in clauses {
+                exprs.push(clause.id.expr.to_expr(ctx)?);
+                match &clause.predicate {
+                    crate::SelectionPredicateUpdate::Interval { dimensions } => {
+                        for dimension in dimensions {
+                            exprs.push(dimension.min.expr.to_expr(ctx)?);
+                            exprs.push(dimension.max.expr.to_expr(ctx)?);
+                        }
+                    }
+                    crate::SelectionPredicateUpdate::Equality { dimensions } => {
+                        for dimension in dimensions {
+                            exprs.push(dimension.value.expr.to_expr(ctx)?);
+                        }
+                    }
+                }
+            }
+        }
+        SelectionUpdate::DeleteClauses { ids } => {
+            for id in ids {
+                exprs.push(id.expr.to_expr(ctx)?);
+            }
+        }
+    }
+    Ok(())
 }
 
 fn expr_node(expr: Expr, label: &str) -> LogicalExprNode {
@@ -930,6 +1039,7 @@ mod tests {
         assert_eq!(start_scope_id(), col("__start_scope_id"));
         assert_eq!(start_event_id(), col("__start_event_id"));
         assert_eq!(event_facet_value(2), col("__event_facet_value_2"));
+        assert_eq!(datum("category"), col("__event_datum_category"));
         // The public helper expressions reference those reserved columns.
         assert_eq!(event_coord("x"), col("__event_coord_x"));
         assert_eq!(start_domain("y"), col("__start_domain_y"));
@@ -973,11 +1083,13 @@ mod tests {
             interval_start(start_domain("x")),
             event_plot_width(),
             start_facet_value(0),
+            datum("category"),
         ]);
         assert!(requests.event_at_start_coord.contains("x"));
         assert!(requests.event_at_start_clipped_coord.contains("y"));
         assert!(requests.start_coord.contains("x"));
         assert!(requests.start_domain.contains("x"));
+        assert!(requests.current_datum.contains("category"));
         assert!(requests.current_plot_size);
         assert!(requests.start_facet_values.contains(&0));
         assert!(requests.current_coord.is_empty());

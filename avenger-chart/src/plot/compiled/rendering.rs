@@ -73,12 +73,12 @@ use crate::{
         FacetRuntimeSizingPolicy, FacetSubtreeSnapshotCapture,
     },
     render::{
-        CoordinationCheckpoint, EvaluatedInteractionScope, EvaluatedInteractionState,
-        EvaluatedPlot, EvaluationContext, EvaluationMetrics, EvaluationOptions,
-        FacetSubtreeCheckpoint, FacetSubtreeSelector, FacetSubtreeSnapshot, InteractionScopeId,
-        InteractionScopeKind, LayoutDebugOverlayMode, LayoutSnapshot, LayoutSolution,
-        PreviewProfileFallbackReason, RefinementCheckpoint, RenderContext, RenderState,
-        WholeChartSnapshot,
+        CoordinationCheckpoint, EvaluatedEventDatumRows, EvaluatedEventDatumState,
+        EvaluatedInteractionScope, EvaluatedInteractionState, EvaluatedPlot, EvaluationContext,
+        EvaluationMetrics, EvaluationOptions, FacetSubtreeCheckpoint, FacetSubtreeSelector,
+        FacetSubtreeSnapshot, InteractionScopeId, InteractionScopeKind, LayoutDebugOverlayMode,
+        LayoutSnapshot, LayoutSolution, PreviewProfileFallbackReason, RefinementCheckpoint,
+        RenderContext, RenderState, WholeChartSnapshot,
         debug::{FrameDebugOverlay, create_debug_layout_rects, create_debug_overlay_rects},
     },
     scales::ConfiguredScaleWithSpec,
@@ -142,6 +142,56 @@ fn scalar_value_for_scope_id(value: &ScalarValue) -> String {
         | ScalarValue::Utf8View(Some(value)) => value.clone(),
         _ => value.to_string(),
     }
+}
+
+struct CachedDataMarks {
+    data_marks: Vec<SceneMark>,
+    event_datums: Vec<EvaluatedEventDatumRows>,
+}
+
+struct RenderedMarkOutput {
+    marks: Vec<SceneMark>,
+    event_datums: Vec<EvaluatedEventDatumRows>,
+}
+
+impl RenderedMarkOutput {
+    fn marks_only(marks: Vec<SceneMark>) -> Self {
+        Self {
+            marks,
+            event_datums: Vec::new(),
+        }
+    }
+}
+
+fn prefix_event_datum_rows(
+    rows: impl IntoIterator<Item = EvaluatedEventDatumRows>,
+    prefix: &[usize],
+) -> Vec<EvaluatedEventDatumRows> {
+    rows.into_iter()
+        .map(|mut rows| {
+            let mut path = Vec::with_capacity(prefix.len() + rows.mark_path.len());
+            path.extend_from_slice(prefix);
+            path.extend(rows.mark_path);
+            rows.mark_path = path;
+            rows
+        })
+        .collect()
+}
+
+fn offset_flat_event_datum_rows(
+    rows: impl IntoIterator<Item = EvaluatedEventDatumRows>,
+    start_index: usize,
+) -> Vec<EvaluatedEventDatumRows> {
+    rows.into_iter()
+        .map(|mut rows| {
+            if let Some(first) = rows.mark_path.first_mut() {
+                *first += start_index;
+            } else {
+                rows.mark_path.push(start_index);
+            }
+            rows
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug)]
@@ -1462,6 +1512,7 @@ impl CompiledPlot {
             merged_params,
             facet_tree,
         )
+        .with_event_datum_fields(Arc::new(self.event_datum_types()))
         .with_facet_data_root(dataframe_from_compiled_plot_data(&self.data, ctx)?)
         .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode())
         .with_facet_layout_refinement(options.facet_layout_refinement)
@@ -1690,7 +1741,7 @@ impl CompiledPlot {
     }
 
     /// Render a single mark to scene marks.
-    pub(super) async fn render_mark_with_plot_df(
+    async fn render_mark_with_plot_df(
         &self,
         mark: &dyn CompiledMark,
         eval_ctx: &EvaluationContext,
@@ -1700,7 +1751,7 @@ impl CompiledPlot {
         provided_plot_df: Option<&DataFrame>,
         facet_path: &[ScalarValue],
         coord_measurement: &dyn CoordMeasurement,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+    ) -> Result<RenderedMarkOutput, AvengerChartError> {
         if let Some(visible_expr) = &mark.state().visible {
             let expr = visible_expr.to_expr(eval_ctx.session_context.as_ref())?;
             let visible = if let Some(value) = direct_param_value(&expr, eval_ctx.params()) {
@@ -1710,7 +1761,7 @@ impl CompiledPlot {
                     .await?
             };
             if !visible {
-                return Ok(vec![]);
+                return Ok(RenderedMarkOutput::marks_only(vec![]));
             }
         }
 
@@ -1718,7 +1769,10 @@ impl CompiledPlot {
             let render_state = RenderState::new(plot_width, plot_height, scales.clone());
             let render_ctx =
                 RenderContext::new(eval_ctx, &render_state, facet_path, coord_measurement);
-            return subplot.render_with_context(&render_ctx).await;
+            return subplot
+                .render_with_context(&render_ctx)
+                .await
+                .map(RenderedMarkOutput::marks_only);
         }
 
         if let Some(subplot) = compiled_concat_subplot(mark) {
@@ -1742,7 +1796,10 @@ impl CompiledPlot {
             let data_batch = prepared
                 .as_ref()
                 .and_then(|prepared| prepared.data_batch.as_ref());
-            return subplot.render_with_context(data_batch, &render_ctx).await;
+            return subplot
+                .render_with_context(data_batch, &render_ctx)
+                .await
+                .map(RenderedMarkOutput::marks_only);
         }
 
         let prepared = self
@@ -1758,7 +1815,7 @@ impl CompiledPlot {
             .await?;
 
         let Some(prepared) = prepared else {
-            return Ok(vec![]);
+            return Ok(RenderedMarkOutput::marks_only(vec![]));
         };
 
         let render_ctx = RenderContext::new(
@@ -1769,16 +1826,34 @@ impl CompiledPlot {
         );
 
         if let Some(subplot) = mark.as_positioned_subplot() {
-            return render_positioned_subplot_with_context(subplot, &render_ctx).await;
+            return render_positioned_subplot_with_context(subplot, &render_ctx)
+                .await
+                .map(RenderedMarkOutput::marks_only);
         }
 
-        mark.render_from_data(
-            prepared.data_batch.as_ref(),
-            &prepared.scalar_batch,
-            &render_ctx,
-            self.coord_transform.as_ref(),
-        )
-        .await
+        let marks = mark
+            .render_from_data(
+                prepared.data_batch.as_ref(),
+                &prepared.scalar_batch,
+                &render_ctx,
+                self.coord_transform.as_ref(),
+            )
+            .await?;
+        let event_datums = prepared
+            .event_datum_batch
+            .map(|rows| {
+                (0..marks.len())
+                    .map(|mark_index| EvaluatedEventDatumRows {
+                        mark_path: vec![mark_index],
+                        rows: rows.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(RenderedMarkOutput {
+            marks,
+            event_datums,
+        })
     }
 
     /// Create guide marks (axes, grids) for the coordinate system
@@ -4253,7 +4328,10 @@ impl CompiledPlot {
             data_override,
             dimensions_are_plot_area,
             facet_path,
-            Some(data_marks),
+            Some(CachedDataMarks {
+                data_marks,
+                event_datums: cached_components.event_datums.clone(),
+            }),
         )
         .await
         .map(Some)
@@ -4284,6 +4362,7 @@ impl CompiledPlot {
         ) else {
             return Ok(None);
         };
+        let event_datums = cached_components.event_datums.clone();
 
         let local_scope_bounds = LayoutBounds {
             x: 0.0,
@@ -4316,6 +4395,7 @@ impl CompiledPlot {
             size_is_canvas: false,
             debug_marks: cached_components.debug_marks.clone(),
             interaction_scopes,
+            event_datums,
         };
         eval_ctx.record_build_plot_components_duration(build_start.elapsed());
         Ok(Some(components))
@@ -4339,7 +4419,7 @@ impl CompiledPlot {
         data_override: Option<&DataFrame>,
         dimensions_are_plot_area: bool,
         facet_path: &[ScalarValue],
-        cached_data_marks: Option<Vec<SceneMark>>,
+        cached_data_marks: Option<CachedDataMarks>,
     ) -> Result<PlotComponents, AvengerChartError> {
         tracing::debug!(
             target: "avenger_chart::resize",
@@ -4374,21 +4454,25 @@ impl CompiledPlot {
         // collect their translated scopes here, isolated from any parent sink.
         let interaction_scope_sink: Arc<Mutex<Vec<EvaluatedInteractionScope>>> =
             Arc::new(Mutex::new(Vec::new()));
+        let event_datum_sink: Arc<Mutex<Vec<EvaluatedEventDatumRows>>> =
+            Arc::new(Mutex::new(Vec::new()));
         let mark_eval_ctx = eval_ctx
             .with_params(merged_params.clone())
-            .with_interaction_scope_sink(Some(interaction_scope_sink.clone()));
+            .with_interaction_scope_sink(Some(interaction_scope_sink.clone()))
+            .with_event_datum_sink(Some(event_datum_sink.clone()));
 
         // Render marks using pre-computed measurements from measurement
         let coord_measurement_ref: &dyn CoordMeasurement = measurement.coord_measurement.as_ref();
 
         let data_marks_start = Instant::now();
         let data_marks_reused = cached_data_marks.is_some();
-        let data_marks = if let Some(data_marks) = cached_data_marks {
-            data_marks
+        let (data_marks, event_datums) = if let Some(cached) = cached_data_marks {
+            (cached.data_marks, cached.event_datums)
         } else {
             let mut data_marks = Vec::new();
+            let mut event_datums = Vec::new();
             for mark in &self.marks {
-                let marks = Box::pin(self.render_mark_with_plot_df(
+                let output = Box::pin(self.render_mark_with_plot_df(
                     mark.as_ref(),
                     &mark_eval_ctx,
                     &merged_scales,
@@ -4399,9 +4483,29 @@ impl CompiledPlot {
                     coord_measurement_ref,
                 ))
                 .await?;
-                data_marks.extend(marks);
+                let start_index = data_marks.len();
+                event_datums.extend(offset_flat_event_datum_rows(
+                    output.event_datums,
+                    start_index,
+                ));
+                let pushed_event_datums: Vec<_> = event_datum_sink
+                    .lock()
+                    .expect("event datum sink poisoned")
+                    .drain(..)
+                    .collect();
+                event_datums.extend(offset_flat_event_datum_rows(
+                    pushed_event_datums,
+                    start_index,
+                ));
+                data_marks.extend(output.marks);
             }
-            data_marks
+            let leftover_event_datums: Vec<_> = event_datum_sink
+                .lock()
+                .expect("event datum sink poisoned")
+                .drain(..)
+                .collect();
+            event_datums.extend(leftover_event_datums);
+            (data_marks, event_datums)
         };
         let data_marks_elapsed = data_marks_start.elapsed();
 
@@ -4650,6 +4754,7 @@ impl CompiledPlot {
             size_is_canvas: !dimensions_are_plot_area,
             debug_marks,
             interaction_scopes,
+            event_datums,
         };
         let build_elapsed = build_start.elapsed();
         eval_ctx.record_build_plot_components_duration(build_elapsed);
@@ -4825,6 +4930,7 @@ impl CompiledPlot {
             all_marks.push(SceneMark::Rect(background_rect));
         }
 
+        let data_group_index = all_marks.len();
         all_marks.push(SceneMark::Group(data_marks_group));
         all_marks.extend(components.guide_marks);
         all_marks.extend(components.legend_marks);
@@ -4845,11 +4951,15 @@ impl CompiledPlot {
         };
 
         let rtree = build_scene_rtree.then(|| SceneGraphRTree::from_scene_graph(&scene_graph));
+        let event_datums = EvaluatedEventDatumState {
+            rows: prefix_event_datum_rows(components.event_datums, &[0, data_group_index]),
+        };
 
         let evaluated = EvaluatedPlot {
             scene_graph,
             rtree,
             interaction,
+            event_datums,
         };
         let convert_elapsed = convert_start.elapsed();
         eval_ctx.record_components_to_evaluated_plot_duration(convert_elapsed);
@@ -4988,6 +5098,9 @@ impl CompiledPlot {
 
     fn pad_facet_subtree_snapshot(evaluated: EvaluatedPlot) -> EvaluatedPlot {
         let mut interaction = evaluated.interaction;
+        let event_datums = EvaluatedEventDatumState {
+            rows: prefix_event_datum_rows(evaluated.event_datums.rows, &[0, 0]),
+        };
         let original_scene = evaluated.scene_graph;
         let original_width = original_scene.width.max(1.0);
         let original_height = original_scene.height.max(1.0);
@@ -5033,6 +5146,7 @@ impl CompiledPlot {
             scene_graph,
             rtree: Some(rtree),
             interaction,
+            event_datums,
         }
     }
 
@@ -5509,6 +5623,7 @@ impl CompiledPlot {
             merged_params,
             facet_tree.clone(),
         )
+        .with_event_datum_fields(Arc::new(self.event_datum_types()))
         .with_facet_data_root(dataframe_from_compiled_plot_data(&self.data, ctx)?)
         .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode())
         .with_facet_layout_refinement(options.facet_layout_refinement)
@@ -5981,6 +6096,7 @@ impl CompiledPlot {
             merged_params,
             facet_tree.clone(),
         )
+        .with_event_datum_fields(Arc::new(self.event_datum_types()))
         .with_facet_data_root(dataframe_from_compiled_plot_data(&self.data, ctx)?)
         .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode())
         .with_facet_layout_refinement(options.facet_layout_refinement)
@@ -7476,6 +7592,7 @@ mod tests {
             merged_params,
             facet_tree,
         )
+        .with_event_datum_fields(Arc::new(compiled.event_datum_types()))
         .with_facet_data_root(dataframe_from_compiled_plot_data(&compiled.data, ctx)?)
         .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode());
 

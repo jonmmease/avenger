@@ -277,6 +277,18 @@ impl CompiledConcatSubplot {
                 });
                 context.eval.push_interaction_scopes(translated);
             }
+            let child_event_datums = std::mem::take(&mut components.event_datums);
+            if !child_event_datums.is_empty() {
+                let translated = child_event_datums.into_iter().map(|mut rows| {
+                    let mut path = Vec::with_capacity(rows.mark_path.len() + 2);
+                    path.push(0);
+                    path.push(0);
+                    path.extend(rows.mark_path);
+                    rows.mark_path = path;
+                    rows
+                });
+                context.eval.push_event_datums(translated);
+            }
 
             let data_marks_group = SceneGroup {
                 origin: [0.0, 0.0],

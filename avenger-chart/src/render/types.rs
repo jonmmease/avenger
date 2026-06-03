@@ -4,10 +4,11 @@ use std::{collections::HashMap, time::Duration};
 
 use avenger_chart_core::CoordinateSystemTransform;
 use avenger_scales::scales::ConfiguredScale;
-use datafusion::common::ScalarValue;
+use datafusion::{arrow::record_batch::RecordBatch, common::ScalarValue};
 
 pub use avenger_chart_legend::{LegendMeasurement, LegendMeasurements};
 use avenger_geometry::rtree::SceneGraphRTree;
+use avenger_scenegraph::marks::mark::MarkInstance;
 use avenger_scenegraph::scene_graph::SceneGraph;
 
 use crate::{
@@ -881,6 +882,41 @@ pub struct EvaluatedInteractionState {
     pub scopes: Vec<EvaluatedInteractionScope>,
 }
 
+/// Logical datum rows retained for one rendered scene mark.
+#[derive(Clone, Debug)]
+pub struct EvaluatedEventDatumRows {
+    /// Final scene-graph mark path for the rendered mark.
+    pub mark_path: Vec<usize>,
+    /// Logical rows in the same order as rendered mark instances.
+    pub rows: RecordBatch,
+}
+
+/// Datum lookup table produced by the most recent chart evaluation.
+#[derive(Clone, Debug, Default)]
+pub struct EvaluatedEventDatumState {
+    pub rows: Vec<EvaluatedEventDatumRows>,
+}
+
+impl EvaluatedEventDatumState {
+    pub fn datum_for_mark_instance(
+        &self,
+        mark_instance: Option<&MarkInstance>,
+        field: &str,
+    ) -> Option<ScalarValue> {
+        let mark_instance = mark_instance?;
+        let row_index = mark_instance.instance_index?;
+        let rows = self
+            .rows
+            .iter()
+            .find(|rows| rows.mark_path == mark_instance.mark_path)?;
+        let column = rows.rows.column_by_name(field)?;
+        if row_index >= column.len() {
+            return None;
+        }
+        ScalarValue::try_from_array(column, row_index).ok()
+    }
+}
+
 /// Result of evaluating a plot to scene graph components
 pub struct EvaluatedPlot {
     /// The complete scene graph ready for rendering
@@ -889,4 +925,6 @@ pub struct EvaluatedPlot {
     pub rtree: Option<SceneGraphRTree>,
     /// Interaction scopes for event routing and coordinate inversion.
     pub interaction: EvaluatedInteractionState,
+    /// Logical datum rows addressable by rendered mark instance.
+    pub event_datums: EvaluatedEventDatumState,
 }

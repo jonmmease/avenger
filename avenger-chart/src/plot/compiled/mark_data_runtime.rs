@@ -19,7 +19,7 @@ use datafusion::{
     },
     common::{DFSchema, ScalarValue},
     dataframe::DataFrame,
-    logical_expr::{EmptyRelation, Expr, LogicalPlan, lit, when},
+    logical_expr::{EmptyRelation, Expr, LogicalPlan, col, lit, when},
     prelude::SessionContext,
 };
 use datafusion_common::tree_node::{Transformed, TreeNode};
@@ -56,6 +56,8 @@ pub(crate) struct PreparedLogicalMarkData {
 pub(crate) struct PreparedMarkData {
     /// Array data batch (multiple rows), or None if all channels are scalar.
     pub(crate) data_batch: Option<RecordBatch>,
+    /// Requested logical datum rows in rendered instance order.
+    pub(crate) event_datum_batch: Option<RecordBatch>,
     /// Scalar data batch (single row) for channels that do not vary per mark.
     pub(crate) scalar_batch: RecordBatch,
     /// Render state with plot dimensions and configured scales.
@@ -141,11 +143,36 @@ fn validate_runtime_aggregate_channels(
             && channel_value
                 .all_exprs(ctx)
                 .into_iter()
-                .any(|expr| !expr.column_refs().is_empty() || contains_aggregate(&expr))
+                .any(|expr| contains_aggregate(&expr))
         {
             return Err(AvengerChartError::InvalidArgument(format!(
-                "Aggregate marks with conditional channel `{channel_name}` are not supported yet"
+                "Aggregate marks with aggregate expressions inside conditional channel `{channel_name}` are not supported yet"
             )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_runtime_aggregate_conditional_columns(
+    channels: &IndexMap<String, ChannelValue>,
+    ctx: &SessionContext,
+    schema: &DFSchema,
+) -> Result<(), AvengerChartError> {
+    let available_columns = schema
+        .fields()
+        .iter()
+        .map(|field| field.name().clone())
+        .collect::<HashSet<_>>();
+    for (channel_name, channel_value) in channels {
+        if !matches!(channel_value, ChannelValue::Conditional { .. }) {
+            continue;
+        }
+        for expr in channel_value.all_exprs(ctx) {
+            if !expr_columns_are_available(&expr, Some(&available_columns)) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Aggregate mark conditional channel `{channel_name}` references columns that are not available after aggregation"
+                )));
+            }
         }
     }
     Ok(())
@@ -337,6 +364,23 @@ fn selection_clause_predicate_expr(
             }
             expr
         }
+        SelectionPredicateSpec::Equality { dimensions } => {
+            if dimensions.is_empty() {
+                return Ok(lit(false));
+            }
+            let mut expr = lit(true);
+            for dimension in dimensions {
+                if dimension.value.is_null() {
+                    return Ok(lit(false));
+                }
+                let value = dimension.field_expr.to_expr(ctx)?;
+                if !expr_columns_are_available(&value, available_columns) {
+                    return Ok(lit(false));
+                }
+                expr = expr.and(value.eq(lit(dimension.value.clone())));
+            }
+            expr
+        }
     };
     for facet_value in &clause.facet_context {
         if facet_value.value.is_null() {
@@ -503,9 +547,31 @@ pub(crate) async fn prepare_logical_mark_data(
 
     let mut unique_group_exprs = IndexMap::new();
     let mut unique_agg_exprs = IndexMap::new();
-    let mut channel_info: Vec<(String, Expr, bool, bool, ChannelValue)> = Vec::new();
+    enum AggregateChannelInfo {
+        Direct {
+            name: String,
+            expr: Expr,
+            is_aggregate: bool,
+            is_literal: bool,
+            value: ChannelValue,
+        },
+        Conditional {
+            name: String,
+            value: ChannelValue,
+        },
+    }
+
+    let mut channel_info: Vec<AggregateChannelInfo> = Vec::new();
 
     for (channel_name, channel_value) in &channels {
+        if matches!(channel_value, ChannelValue::Conditional { .. }) {
+            channel_info.push(AggregateChannelInfo::Conditional {
+                name: channel_name.clone(),
+                value: channel_value.clone(),
+            });
+            continue;
+        }
+
         let Some(expr) = channel_value.expr(ctx) else {
             continue;
         };
@@ -520,13 +586,13 @@ pub(crate) async fn prepare_logical_mark_data(
             unique_group_exprs.insert(expr.clone(), unique_group_exprs.len());
         }
 
-        channel_info.push((
-            channel_name.clone(),
+        channel_info.push(AggregateChannelInfo::Direct {
+            name: channel_name.clone(),
             expr,
             is_aggregate,
             is_literal,
-            channel_value.clone(),
-        ));
+            value: channel_value.clone(),
+        });
     }
 
     if unique_agg_exprs.is_empty() {
@@ -540,24 +606,38 @@ pub(crate) async fn prepare_logical_mark_data(
     let agg_exprs: Vec<Expr> = unique_agg_exprs.keys().cloned().collect();
     let agg_df = df.aggregate(group_by_exprs.clone(), agg_exprs.clone())?;
     let schema = agg_df.schema();
+    validate_runtime_aggregate_conditional_columns(&channels, ctx, schema)?;
     let mut updated_channels = IndexMap::new();
 
-    for (channel_name, original_expr, is_aggregate, is_literal, original_channel_value) in
-        channel_info
-    {
-        if is_literal {
-            updated_channels.insert(channel_name, original_channel_value);
-        } else if is_aggregate {
-            let agg_index = unique_agg_exprs.get(&original_expr).unwrap();
-            let field_index = group_by_exprs.len() + agg_index;
-            let field_name = schema.field(field_index).name().clone();
-            let new_expr = LogicalExprNode::from_expr(datafusion::prelude::col(&field_name))?;
-            updated_channels.insert(channel_name, original_channel_value.with_expr(new_expr));
-        } else {
-            let group_index = unique_group_exprs.get(&original_expr).unwrap();
-            let field_name = schema.field(*group_index).name().clone();
-            let new_expr = LogicalExprNode::from_expr(datafusion::prelude::col(&field_name))?;
-            updated_channels.insert(channel_name, original_channel_value.with_expr(new_expr));
+    for info in channel_info {
+        match info {
+            AggregateChannelInfo::Conditional { name, value } => {
+                updated_channels.insert(name, value);
+            }
+            AggregateChannelInfo::Direct {
+                name,
+                expr,
+                is_aggregate,
+                is_literal,
+                value,
+            } => {
+                if is_literal {
+                    updated_channels.insert(name, value);
+                } else if is_aggregate {
+                    let agg_index = unique_agg_exprs.get(&expr).unwrap();
+                    let field_index = group_by_exprs.len() + agg_index;
+                    let field_name = schema.field(field_index).name().clone();
+                    let new_expr =
+                        LogicalExprNode::from_expr(datafusion::prelude::col(&field_name))?;
+                    updated_channels.insert(name, value.with_expr(new_expr));
+                } else {
+                    let group_index = unique_group_exprs.get(&expr).unwrap();
+                    let field_name = schema.field(*group_index).name().clone();
+                    let new_expr =
+                        LogicalExprNode::from_expr(datafusion::prelude::col(&field_name))?;
+                    updated_channels.insert(name, value.with_expr(new_expr));
+                }
+            }
         }
     }
 
@@ -723,6 +803,45 @@ pub(crate) async fn prepare_mark_data(
         }
     }
 
+    let event_datum_batch = if !request.eval_ctx.event_datum_fields.is_empty() {
+        let available_fields = df
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| field.name().clone())
+            .collect::<HashSet<_>>();
+        let select_exprs = request
+            .eval_ctx
+            .event_datum_fields
+            .keys()
+            .filter(|field| available_fields.contains(*field))
+            .map(|field| col(field).alias(field))
+            .collect::<Vec<_>>();
+        if select_exprs.is_empty() {
+            None
+        } else {
+            let datafusion_params = params_to_datafusion(params);
+            let batch = if let Some(param_values) = datafusion_params {
+                (*df)
+                    .clone()
+                    .select(select_exprs)?
+                    .with_param_values(param_values)?
+                    .collect()
+                    .await?
+            } else {
+                (*df).clone().select(select_exprs)?.collect().await?
+            };
+            if batch.is_empty() {
+                None
+            } else {
+                let schema = batch[0].schema();
+                Some(concat_batches(&schema, &batch)?)
+            }
+        }
+    } else {
+        None
+    };
+
     let data_batch = if mark.wants_full_data_batch() {
         let datafusion_params = params_to_datafusion(params);
         record_mark_data_full_collect(&request.evaluation_metrics);
@@ -806,6 +925,7 @@ pub(crate) async fn prepare_mark_data(
 
     Ok(Some(PreparedMarkData {
         data_batch,
+        event_datum_batch,
         scalar_batch,
         render_state: RenderState::new(
             request.plot_width,

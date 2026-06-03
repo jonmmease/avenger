@@ -20,9 +20,15 @@ mod session;
 mod titles;
 mod validation;
 
-use std::{any::Any, collections::HashMap, sync::Arc};
+use std::{
+    any::Any,
+    collections::{BTreeSet, HashMap},
+    sync::Arc,
+};
 
-use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
+use datafusion::{
+    arrow::datatypes::DataType, common::ScalarValue, dataframe::DataFrame, prelude::SessionContext,
+};
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -32,8 +38,8 @@ use avenger_chart_core::{
     AvengerChartError, AxisSpec, CompiledGuide, CompiledMark, CompiledParamSpec,
     CompiledSelectionSpec, CompiledStoreSpec, CompiledSubplotChildPlot, CompiledSubplotPayload,
     CoordMeasurement, CoordinateSystemTransform, EvaluationContext as CoreEvaluationContext,
-    Legend, ScaleRangeBinding, SerializableDataFrame, SerializableScalarMap, Theme, ToolMetadata,
-    channel::strip_trailing_numbers,
+    Legend, LogicalPlanNodeExt, ScaleRangeBinding, SerializableDataFrame, SerializableDataType,
+    SerializableScalarMap, Theme, ToolMetadata, channel::strip_trailing_numbers,
 };
 use avenger_chart_scales::{ConfiguredScaleWithSpec, PlotScaleSpec as ScaleSpec, ScaleBuilder};
 
@@ -102,6 +108,14 @@ pub(crate) use self::session::{
 use super::title::{PlotSubtitle, PlotTitle};
 
 #[serde_as]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EventDatumFieldSpec {
+    pub name: String,
+    #[serde_as(as = "FromInto<SerializableDataType>")]
+    pub data_type: DataType,
+}
+
+#[serde_as]
 #[derive(Serialize, Deserialize)]
 pub struct CompiledPlot {
     /// Coordinate system transform for position mapping
@@ -163,6 +177,10 @@ pub struct CompiledPlot {
     #[serde(default)]
     pub(crate) event_bindings: Vec<ChartEventBinding>,
 
+    /// Datum columns requested by event bindings, with their compile-time types.
+    #[serde(default)]
+    pub(crate) event_datum_fields: Vec<EventDatumFieldSpec>,
+
     /// Static selection specs registered by the author.
     #[serde(default)]
     pub(crate) selection_specs: IndexMap<String, CompiledSelectionSpec>,
@@ -221,6 +239,83 @@ impl CompiledPlot {
     /// Get plot-level event bindings.
     pub fn event_bindings(&self) -> &[ChartEventBinding] {
         &self.event_bindings
+    }
+
+    pub fn event_datum_types(&self) -> IndexMap<String, DataType> {
+        self.event_datum_fields
+            .iter()
+            .map(|field| (field.name.clone(), field.data_type.clone()))
+            .collect()
+    }
+
+    pub(crate) fn infer_event_datum_fields(
+        &self,
+        ctx: &SessionContext,
+    ) -> Result<Vec<EventDatumFieldSpec>, AvengerChartError> {
+        let mut requested = BTreeSet::new();
+        for binding in &self.event_bindings {
+            requested.extend(
+                crate::event::scan_chart_event_binding_interaction_columns(binding, ctx)?
+                    .current_datum,
+            );
+        }
+        if requested.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut types = IndexMap::new();
+        self.collect_event_datum_types(ctx, &requested, &mut types)?;
+        let missing = requested
+            .iter()
+            .filter(|field| !types.contains_key(*field))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Event binding requested datum field(s) {} but no compiled mark or plot data source exposes them",
+                missing.join(", ")
+            )));
+        }
+        Ok(types
+            .into_iter()
+            .map(|(name, data_type)| EventDatumFieldSpec { name, data_type })
+            .collect())
+    }
+
+    fn collect_event_datum_types(
+        &self,
+        ctx: &SessionContext,
+        requested: &BTreeSet<String>,
+        out: &mut IndexMap<String, DataType>,
+    ) -> Result<(), AvengerChartError> {
+        if let Some(df) = self.data.as_ref().and_then(|node| {
+            node.to_logical_plan(ctx)
+                .ok()
+                .map(|plan| DataFrame::new(ctx.state().clone(), plan))
+        }) {
+            collect_event_datum_types_from_schema(&df, requested, out);
+        }
+
+        for mark in &self.marks {
+            if let Some(df) = mark.data_context().dataframe_with_context(ctx) {
+                collect_event_datum_types_from_schema(&df, requested, out);
+            }
+            if let Some(subplot) = crate::concat::compiled_subplot(mark.as_ref()) {
+                subplot
+                    .compiled_subplot()
+                    .collect_event_datum_types(ctx, requested, out)?;
+            }
+            if let Some(subplot) = crate::facet::marks::facet::facet_subplot_ref(mark.as_ref()) {
+                subplot
+                    .compiled_subplot()
+                    .collect_event_datum_types(ctx, requested, out)?;
+            }
+            if let Some(subplot) = mark.as_positioned_subplot() {
+                compiled_subplot_payload_child_plot(subplot.payload())
+                    .collect_event_datum_types(ctx, requested, out)?;
+            }
+        }
+        Ok(())
     }
 
     pub fn selection_specs(&self) -> &IndexMap<String, CompiledSelectionSpec> {
@@ -344,6 +439,19 @@ pub(crate) fn compiled_subplot_payload_child_plot(
         .as_any()
         .downcast_ref::<CompiledPlot>()
         .expect("subplot payload child plot is not an avenger-chart CompiledPlot")
+}
+
+fn collect_event_datum_types_from_schema(
+    df: &DataFrame,
+    requested: &BTreeSet<String>,
+    out: &mut IndexMap<String, DataType>,
+) {
+    for field in df.schema().fields() {
+        let name = field.name();
+        if requested.contains(name) && !out.contains_key(name) {
+            out.insert(name.clone(), field.data_type().clone());
+        }
+    }
 }
 
 pub(crate) fn compiled_subplot_payload_child_plot_arc(
@@ -520,4 +628,7 @@ pub struct PlotComponents {
     /// scope bounds by the same origin used for the child scene group, the same
     /// way they translate child scene marks.
     pub interaction_scopes: Vec<crate::render::EvaluatedInteractionScope>,
+
+    /// Event datum rows produced by data marks, keyed by local scene-mark path.
+    pub event_datums: Vec<crate::render::EvaluatedEventDatumRows>,
 }

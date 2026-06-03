@@ -528,6 +528,19 @@ async fn render_facet_band_with_placement(
                     });
                     context.eval.push_interaction_scopes(translated);
                 }
+                let group_index = scene_marks.len();
+                let cell_event_datums = std::mem::take(&mut components.event_datums);
+                if !cell_event_datums.is_empty() {
+                    let translated = cell_event_datums.into_iter().map(|mut rows| {
+                        let mut path = Vec::with_capacity(rows.mark_path.len() + 2);
+                        path.push(group_index);
+                        path.push(0);
+                        path.extend(rows.mark_path);
+                        rows.mark_path = path;
+                        rows
+                    });
+                    context.eval.push_event_datums(translated);
+                }
 
                 let data_marks_group = SceneGroup {
                     origin: [0.0, 0.0],
@@ -1284,6 +1297,7 @@ fn build_physical_wrap_subplot(
         param_specs: compiled_subplot.param_specs.clone(),
         store_specs: compiled_subplot.store_specs.clone(),
         event_bindings: Vec::new(),
+        event_datum_fields: compiled_subplot.event_datum_fields.clone(),
         selection_specs: Default::default(),
         cursor_params: Vec::new(),
         tool_metadata: Vec::new(),

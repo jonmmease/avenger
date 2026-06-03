@@ -343,7 +343,7 @@ impl<C: CoordinateSystem> Plot<C> {
 
         // 5. Build CompiledPlot (we do not store a persistent ScaleBuilder; it is
         // rebuilt per evaluation using current params for correctness.)
-        let compiled = CompiledPlot {
+        let mut compiled = CompiledPlot {
             coord_transform,
             compiled_guide: Some(compiled_guide),
             marks: compiled_marks,
@@ -360,10 +360,12 @@ impl<C: CoordinateSystem> Plot<C> {
             param_specs,
             store_specs,
             event_bindings,
+            event_datum_fields: Vec::new(),
             selection_specs,
             cursor_params,
             tool_metadata,
         };
+        compiled.event_datum_fields = compiled.infer_event_datum_fields(session_context)?;
 
         // 6. Validate scoped raw-domain params are shared at least as broadly as
         // the scales they drive (catches Free/Level pan misconfigurations early).

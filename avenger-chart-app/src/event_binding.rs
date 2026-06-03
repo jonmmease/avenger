@@ -14,17 +14,18 @@ use avenger_chart::{
         CompiledPlot, ScopedParamAssignment, ScopedParamStoreSnapshot, ScopedStoreAssignment,
         SelectionAssignment, SelectionStateUpdate, StoreStateUpdate,
     },
-    render::{EvaluatedInteractionScope, EvaluationMode},
+    render::{EvaluatedEventDatumState, EvaluatedInteractionScope, EvaluationMode},
     serialization::LogicalExprNodeExt,
 };
 use avenger_chart_core::{
     CompiledParamSpec, CompiledScalarExpressionProgram, CompiledSelectionSpec, CompiledStoreSpec,
     InteractionPointInversionRequest, PhysicalScalarExpressionSpec, PhysicalScalarProgramOptions,
     PlaceholderColumn, ResolvedSelectionClauseScope, SelectionClause, SelectionClauseUpdate,
-    SelectionFacetContextValue, SelectionIntervalDimensionUpdate, SelectionIntervalDimensionValue,
-    SelectionPredicateSpec, SelectionPredicateUpdate, SelectionUpdate, SelectionValueExpr, Sharing,
-    StoreFieldPatch, StoreKey, StoreRow, StoreRowValue, StoreUpdate, StoreValueExpr,
-    collect_placeholder_ids, one_row_batch_from_scalars, schema_from_fields,
+    SelectionEqualityDimensionUpdate, SelectionEqualityDimensionValue, SelectionFacetContextValue,
+    SelectionIntervalDimensionUpdate, SelectionIntervalDimensionValue, SelectionPredicateSpec,
+    SelectionPredicateUpdate, SelectionUpdate, SelectionValueExpr, Sharing, StoreFieldPatch,
+    StoreKey, StoreRow, StoreRowValue, StoreUpdate, StoreValueExpr, collect_placeholder_ids,
+    one_row_batch_from_scalars, schema_from_fields,
 };
 use avenger_common::cursor::CursorStyle;
 use avenger_common::time::Instant;
@@ -38,6 +39,7 @@ use avenger_eventstream::{
     window::{Key, MouseButton, MouseScrollDelta},
 };
 use avenger_geometry::rtree::SceneGraphRTree;
+use avenger_scenegraph::marks::mark::MarkInstance;
 use datafusion::{
     arrow::{
         datatypes::{DataType, Field, Schema},
@@ -62,6 +64,7 @@ pub(crate) fn event_streams_for_plot_bindings(
     )>,
     AvengerAppError,
 > {
+    let event_datum_types = compiled_plot.event_datum_types();
     event_streams_for_bindings(
         compiled_plot.event_bindings(),
         ctx,
@@ -69,6 +72,7 @@ pub(crate) fn event_streams_for_plot_bindings(
         compiled_plot.selection_specs(),
         compiled_plot.store_specs(),
         compiled_plot.cursor_params(),
+        &event_datum_types,
     )
 }
 
@@ -79,6 +83,7 @@ pub(crate) fn event_streams_for_bindings(
     selection_specs: &IndexMap<String, CompiledSelectionSpec>,
     store_specs: &IndexMap<String, CompiledStoreSpec>,
     cursor_params: &[String],
+    event_datum_types: &IndexMap<String, DataType>,
 ) -> Result<
     Vec<(
         EventStreamConfig,
@@ -96,6 +101,7 @@ pub(crate) fn event_streams_for_bindings(
             selection_specs,
             store_specs,
             cursor_params,
+            event_datum_types,
         )?);
         streams.push((
             runtime.event_stream_config.clone(),
@@ -205,6 +211,9 @@ enum CompiledSelectionUpdate {
     UpsertClauses {
         clauses: Vec<CompiledSelectionClause>,
     },
+    ToggleClauses {
+        clauses: Vec<CompiledSelectionClause>,
+    },
     DeleteClauses {
         ids: Vec<usize>,
     },
@@ -222,6 +231,9 @@ enum CompiledSelectionPredicate {
     Interval {
         dimensions: Vec<CompiledSelectionIntervalDimension>,
     },
+    Equality {
+        dimensions: Vec<CompiledSelectionEqualityDimension>,
+    },
 }
 
 #[derive(Clone)]
@@ -230,6 +242,13 @@ struct CompiledSelectionIntervalDimension {
     field_expr: datafusion_proto::protobuf::LogicalExprNode,
     min: usize,
     max: usize,
+}
+
+#[derive(Clone)]
+struct CompiledSelectionEqualityDimension {
+    id: String,
+    field_expr: datafusion_proto::protobuf::LogicalExprNode,
+    value: usize,
 }
 
 struct StoreExpressionAssignment {
@@ -295,6 +314,9 @@ enum SelectionExpressionUpdate {
     UpsertClauses {
         clauses: Vec<SelectionExpressionClause>,
     },
+    ToggleClauses {
+        clauses: Vec<SelectionExpressionClause>,
+    },
     DeleteClauses {
         ids: Vec<Expr>,
     },
@@ -310,6 +332,9 @@ enum SelectionExpressionPredicate {
     Interval {
         dimensions: Vec<SelectionExpressionIntervalDimension>,
     },
+    Equality {
+        dimensions: Vec<SelectionExpressionEqualityDimension>,
+    },
 }
 
 struct SelectionExpressionIntervalDimension {
@@ -317,6 +342,12 @@ struct SelectionExpressionIntervalDimension {
     field_expr: datafusion_proto::protobuf::LogicalExprNode,
     min: Expr,
     max: Expr,
+}
+
+struct SelectionExpressionEqualityDimension {
+    id: String,
+    field_expr: datafusion_proto::protobuf::LogicalExprNode,
+    value: Expr,
 }
 
 impl CompiledChartEventBinding {
@@ -328,6 +359,7 @@ impl CompiledChartEventBinding {
         selection_specs: &IndexMap<String, CompiledSelectionSpec>,
         store_specs: &IndexMap<String, CompiledStoreSpec>,
         cursor_params: &[String],
+        event_datum_types: &IndexMap<String, DataType>,
     ) -> Result<Self, AvengerAppError> {
         binding
             .validate()
@@ -440,7 +472,7 @@ impl CompiledChartEventBinding {
             }
         }
 
-        let schema = event_schema(param_specs, &interaction_requests);
+        let schema = event_schema(param_specs, &interaction_requests, event_datum_types);
         let allowed_columns = schema
             .fields()
             .iter()
@@ -780,6 +812,9 @@ fn compile_selection_expression_update(
         SelectionUpdate::UpsertClauses { clauses } => SelectionExpressionUpdate::UpsertClauses {
             clauses: compile_selection_clauses(clauses, ctx)?,
         },
+        SelectionUpdate::ToggleClauses { clauses } => SelectionExpressionUpdate::ToggleClauses {
+            clauses: compile_selection_clauses(clauses, ctx)?,
+        },
         SelectionUpdate::DeleteClauses { ids } => SelectionExpressionUpdate::DeleteClauses {
             ids: ids
                 .iter()
@@ -823,6 +858,14 @@ fn compile_selection_predicate_update(
                     .collect::<Result<Vec<_>, _>>()?,
             }
         }
+        SelectionPredicateUpdate::Equality { dimensions } => {
+            SelectionExpressionPredicate::Equality {
+                dimensions: dimensions
+                    .iter()
+                    .map(|dimension| compile_selection_equality_dimension(dimension, ctx))
+                    .collect::<Result<Vec<_>, _>>()?,
+            }
+        }
     })
 }
 
@@ -835,6 +878,17 @@ fn compile_selection_interval_dimension(
         field_expr: dimension.field_expr.clone(),
         min: selection_value_expr_to_expr(&dimension.min, ctx)?,
         max: selection_value_expr_to_expr(&dimension.max, ctx)?,
+    })
+}
+
+fn compile_selection_equality_dimension(
+    dimension: &SelectionEqualityDimensionUpdate,
+    ctx: &SessionContext,
+) -> Result<SelectionExpressionEqualityDimension, AvengerAppError> {
+    Ok(SelectionExpressionEqualityDimension {
+        id: dimension.id.clone(),
+        field_expr: dimension.field_expr.clone(),
+        value: selection_value_expr_to_expr(&dimension.value, ctx)?,
     })
 }
 
@@ -862,7 +916,8 @@ fn collect_selection_expression_update_exprs(
         SelectionExpressionUpdate::Clear | SelectionExpressionUpdate::ClearInScope { .. } => {}
         SelectionExpressionUpdate::ReplaceAllClauses { clauses }
         | SelectionExpressionUpdate::ReplaceClausesInScope { clauses, .. }
-        | SelectionExpressionUpdate::UpsertClauses { clauses } => {
+        | SelectionExpressionUpdate::UpsertClauses { clauses }
+        | SelectionExpressionUpdate::ToggleClauses { clauses } => {
             for clause in clauses {
                 collect_selection_clause_exprs(clause, exprs);
             }
@@ -882,6 +937,11 @@ fn collect_selection_clause_exprs(clause: &SelectionExpressionClause, exprs: &mu
                 exprs.push(dimension.max.clone());
             }
         }
+        SelectionExpressionPredicate::Equality { dimensions } => {
+            for dimension in dimensions {
+                exprs.push(dimension.value.clone());
+            }
+        }
     }
 }
 
@@ -890,7 +950,8 @@ fn selection_update_needs_scope(update: &SelectionExpressionUpdate) -> bool {
         SelectionExpressionUpdate::Clear => false,
         SelectionExpressionUpdate::ClearInScope { scope } => scope.to_level() != u8::MAX,
         SelectionExpressionUpdate::ReplaceAllClauses { clauses }
-        | SelectionExpressionUpdate::UpsertClauses { clauses } => clauses
+        | SelectionExpressionUpdate::UpsertClauses { clauses }
+        | SelectionExpressionUpdate::ToggleClauses { clauses } => clauses
             .iter()
             .any(|clause| clause.facet_scope.to_level() != u8::MAX),
         SelectionExpressionUpdate::ReplaceClausesInScope { scope, clauses } => {
@@ -942,6 +1003,17 @@ fn append_selection_expression_update_specs(
                 clauses: append_selection_clause_specs(
                     selection_id,
                     "upsert",
+                    clauses,
+                    specs,
+                    filter_count,
+                ),
+            }
+        }
+        SelectionExpressionUpdate::ToggleClauses { clauses } => {
+            CompiledSelectionUpdate::ToggleClauses {
+                clauses: append_selection_clause_specs(
+                    selection_id,
+                    "toggle",
                     clauses,
                     specs,
                     filter_count,
@@ -1035,6 +1107,28 @@ fn append_selection_clause_spec(
                     .collect(),
             }
         }
+        SelectionExpressionPredicate::Equality { dimensions } => {
+            CompiledSelectionPredicate::Equality {
+                dimensions: dimensions
+                    .into_iter()
+                    .enumerate()
+                    .map(|(dimension_index, dimension)| {
+                        let value = append_selection_value_spec(
+                            selection_id,
+                            &format!("{prefix}_{dimension_index}_value"),
+                            dimension.value,
+                            specs,
+                            filter_count,
+                        );
+                        CompiledSelectionEqualityDimension {
+                            id: dimension.id,
+                            field_expr: dimension.field_expr,
+                            value,
+                        }
+                    })
+                    .collect(),
+            }
+        }
     };
     CompiledSelectionClause {
         id,
@@ -1094,6 +1188,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
     ) -> UpdateStatus {
         let mut app = state.runtime.lock().await;
         let eval_start = Instant::now();
+        let event_mark_instance = event.mark_instance().or(context.mark_instance.as_ref());
 
         let requests = &self.runtime.interaction_requests;
         let required_channels = requests.all_channels();
@@ -1170,6 +1265,13 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             current_scope.as_ref(),
             start_scope.as_ref(),
         ) {
+            trace_chart_event_rejection(
+                self.runtime.binding_index,
+                event,
+                event_mark_instance,
+                context.mark_instance.as_ref(),
+                "scope_target",
+            );
             record_event_eval_elapsed(&mut app.event_metrics, eval_start);
             return UpdateStatus::default();
         }
@@ -1215,6 +1317,28 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             start_scope.as_ref(),
             previous_scope.as_ref(),
         );
+        let event_datum_values = compute_event_datum_values(
+            &app.last_event_datum_state,
+            event_mark_instance,
+            &requests.current_datum,
+        );
+        trace_chart_event_datum_miss(
+            self.runtime.binding_index,
+            event,
+            event_mark_instance,
+            &requests.current_datum,
+            &app.last_event_datum_state,
+            &event_datum_values,
+        );
+        trace_chart_event_inputs(
+            self.runtime.binding_index,
+            event,
+            event_mark_instance,
+            context.mark_instance.as_ref(),
+            current_scope.is_some(),
+            start_scope.is_some(),
+            &event_datum_values,
+        );
 
         let batch = match event_record_batch(
             self.runtime.program.schema().clone(),
@@ -1225,6 +1349,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                 start_params: start_params.as_ref(),
                 previous_params: previous_params.as_ref(),
                 interaction_values: &interaction_values,
+                event_datum_values: &event_datum_values,
                 start_event_id,
             },
         ) {
@@ -1262,6 +1387,11 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
 
         if !filters_pass(&values[..self.runtime.filter_count]) {
             app.event_metrics.filter_failures += 1;
+            trace_chart_event_filter_failure(
+                self.runtime.binding_index,
+                event,
+                &values[..self.runtime.filter_count],
+            );
             record_event_eval_elapsed(&mut app.event_metrics, eval_start);
             return UpdateStatus::default();
         }
@@ -1439,6 +1569,14 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             if !self.runtime.assignments.is_empty() {
                 app.event_metrics.unchanged_patch_skips += 1;
             }
+            trace_chart_event_patch(
+                self.runtime.binding_index,
+                event,
+                visual_patch_count,
+                store_changed,
+                selection_changed,
+                false,
+            );
             record_event_eval_elapsed(&mut app.event_metrics, eval_start);
             return UpdateStatus {
                 cursor,
@@ -1459,6 +1597,14 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             ChartEventEvaluationMode::Preview => EvaluationMode::Preview,
             ChartEventEvaluationMode::Exact => EvaluationMode::Exact,
         };
+        trace_chart_event_patch(
+            self.runtime.binding_index,
+            event,
+            visual_patch_count,
+            store_changed,
+            selection_changed,
+            true,
+        );
         record_event_eval_elapsed(&mut app.event_metrics, eval_start);
 
         {
@@ -1477,6 +1623,143 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             ..Default::default()
         }
     }
+}
+
+fn trace_chart_events_enabled() -> bool {
+    std::env::var_os("AVENGER_TRACE_EVENTS").is_some()
+}
+
+fn trace_chart_event_inputs(
+    binding_index: usize,
+    event: &SceneGraphEvent,
+    event_mark_instance: Option<&MarkInstance>,
+    context_mark_instance: Option<&MarkInstance>,
+    current_scope: bool,
+    start_scope: bool,
+    event_datum_values: &HashMap<String, ScalarValue>,
+) {
+    if !trace_chart_events_enabled() {
+        return;
+    }
+    eprintln!(
+        "chart event binding={} event={:?} pos={:?} event_mark={} context_mark={} current_scope={} start_scope={} datum={:?}",
+        binding_index,
+        event.event_type(),
+        event.position(),
+        event_mark_instance.is_some(),
+        context_mark_instance.is_some(),
+        current_scope,
+        start_scope,
+        event_datum_values,
+    );
+}
+
+fn trace_chart_event_datum_miss(
+    binding_index: usize,
+    event: &SceneGraphEvent,
+    event_mark_instance: Option<&MarkInstance>,
+    requested_fields: &std::collections::BTreeSet<String>,
+    state: &EvaluatedEventDatumState,
+    event_datum_values: &HashMap<String, ScalarValue>,
+) {
+    if !trace_chart_events_enabled()
+        || requested_fields.is_empty()
+        || !event_datum_values.is_empty()
+    {
+        return;
+    }
+    let picked = event_mark_instance
+        .map(|mark| format!("{:?}#{:?}", mark.mark_path, mark.instance_index))
+        .unwrap_or_else(|| "<none>".to_string());
+    let retained: Vec<String> = state
+        .rows
+        .iter()
+        .map(|rows| {
+            let fields: Vec<String> = rows
+                .rows
+                .schema()
+                .fields()
+                .iter()
+                .map(|field| field.name().clone())
+                .collect();
+            format!(
+                "{:?} rows={} fields={:?}",
+                rows.mark_path,
+                rows.rows.num_rows(),
+                fields
+            )
+        })
+        .collect();
+    eprintln!(
+        "chart event binding={} event={:?} pos={:?} datum_miss requested={:?} picked={} retained={:?}",
+        binding_index,
+        event.event_type(),
+        event.position(),
+        requested_fields,
+        picked,
+        retained,
+    );
+}
+
+fn trace_chart_event_rejection(
+    binding_index: usize,
+    event: &SceneGraphEvent,
+    event_mark_instance: Option<&MarkInstance>,
+    context_mark_instance: Option<&MarkInstance>,
+    reason: &str,
+) {
+    if !trace_chart_events_enabled() {
+        return;
+    }
+    eprintln!(
+        "chart event binding={} event={:?} pos={:?} rejected={} event_mark={} context_mark={}",
+        binding_index,
+        event.event_type(),
+        event.position(),
+        reason,
+        event_mark_instance.is_some(),
+        context_mark_instance.is_some(),
+    );
+}
+
+fn trace_chart_event_filter_failure(
+    binding_index: usize,
+    event: &SceneGraphEvent,
+    filter_values: &[ScalarValue],
+) {
+    if !trace_chart_events_enabled() {
+        return;
+    }
+    eprintln!(
+        "chart event binding={} event={:?} pos={:?} rejected=filter filters={:?}",
+        binding_index,
+        event.event_type(),
+        event.position(),
+        filter_values,
+    );
+}
+
+fn trace_chart_event_patch(
+    binding_index: usize,
+    event: &SceneGraphEvent,
+    param_patches: usize,
+    store_changed: bool,
+    selection_changed: bool,
+    rerender: bool,
+) {
+    if !trace_chart_events_enabled() {
+        return;
+    }
+    eprintln!(
+        "chart event binding={} event={:?} pos={:?} accepted params={} store_changed={} selection_changed={} rerender={}",
+        binding_index,
+        event.event_type(),
+        event.position(),
+        param_patches,
+        store_changed,
+        selection_changed,
+        rerender,
+    );
 }
 
 fn cursor_from_patch(
@@ -1576,6 +1859,9 @@ fn selection_state_update_from_values(
         CompiledSelectionUpdate::UpsertClauses { clauses } => SelectionStateUpdate::UpsertClauses {
             clauses: selection_clauses_from_values(clauses, spec, values, filter_count, scope)?,
         },
+        CompiledSelectionUpdate::ToggleClauses { clauses } => SelectionStateUpdate::ToggleClauses {
+            clauses: selection_clauses_from_values(clauses, spec, values, filter_count, scope)?,
+        },
         CompiledSelectionUpdate::DeleteClauses { ids } => SelectionStateUpdate::DeleteClauses {
             ids: ids
                 .iter()
@@ -1620,6 +1906,19 @@ fn selection_clause_from_values(
                         field_expr: dimension.field_expr.clone(),
                         min,
                         max,
+                    })
+                })
+                .collect::<Option<Vec<_>>>()?,
+        },
+        CompiledSelectionPredicate::Equality { dimensions } => SelectionPredicateSpec::Equality {
+            dimensions: dimensions
+                .iter()
+                .map(|dimension| {
+                    let value = values.get(filter_count + dimension.value)?.clone();
+                    Some(SelectionEqualityDimensionValue {
+                        id: dimension.id.clone(),
+                        field_expr: dimension.field_expr.clone(),
+                        value,
                     })
                 })
                 .collect::<Option<Vec<_>>>()?,
@@ -1797,6 +2096,21 @@ fn domain_list_scalar(min: f32, max: f32) -> ScalarValue {
         &DataType::Float64,
         true,
     ))
+}
+
+fn compute_event_datum_values(
+    state: &EvaluatedEventDatumState,
+    mark_instance: Option<&MarkInstance>,
+    requested_fields: &std::collections::BTreeSet<String>,
+) -> HashMap<String, ScalarValue> {
+    requested_fields
+        .iter()
+        .filter_map(|field| {
+            state
+                .datum_for_mark_instance(mark_instance, field)
+                .map(|value| (event::event_datum_column_name(field), value))
+        })
+        .collect()
 }
 
 /// Compute the requested derived coordinate/domain columns from routed scopes.
@@ -2157,6 +2471,7 @@ fn compile_low_level_stream_filter(
     let schema = event_schema(
         &IndexMap::new(),
         &event::InteractionColumnRequests::default(),
+        &IndexMap::new(),
     );
     let allowed_columns = schema
         .fields()
@@ -2192,6 +2507,7 @@ fn compile_low_level_stream_filter(
     Ok(EventStreamFilter::context(move |event, context, _rtree| {
         let params = IndexMap::new();
         let interaction_values = HashMap::new();
+        let event_datum_values = HashMap::new();
         let batch = match event_record_batch(
             program.schema().clone(),
             event,
@@ -2201,6 +2517,7 @@ fn compile_low_level_stream_filter(
                 start_params: None,
                 previous_params: None,
                 interaction_values: &interaction_values,
+                event_datum_values: &event_datum_values,
                 start_event_id: None,
             },
         ) {
@@ -2217,6 +2534,7 @@ fn compile_low_level_stream_filter(
 fn event_schema(
     param_specs: &IndexMap<String, CompiledParamSpec>,
     interaction: &event::InteractionColumnRequests,
+    event_datum_types: &IndexMap<String, DataType>,
 ) -> Arc<Schema> {
     let mut fields = vec![
         Field::new(event::EVENT_TYPE_FIELD, DataType::Utf8, true),
@@ -2377,6 +2695,15 @@ fn event_schema(
             true,
         ));
     }
+    for field in &interaction.current_datum {
+        if let Some(data_type) = event_datum_types.get(field) {
+            fields.push(Field::new(
+                event::event_datum_column_name(field),
+                data_type.clone(),
+                true,
+            ));
+        }
+    }
 
     schema_from_fields(fields)
 }
@@ -2387,6 +2714,7 @@ struct EventBatchInputs<'a> {
     start_params: Option<&'a IndexMap<String, ScalarValue>>,
     previous_params: Option<&'a IndexMap<String, ScalarValue>>,
     interaction_values: &'a HashMap<String, ScalarValue>,
+    event_datum_values: &'a HashMap<String, ScalarValue>,
     start_event_id: Option<u64>,
 }
 
@@ -2437,6 +2765,9 @@ fn event_record_batch(
     }
     // Derived interaction columns are filled by name; absent columns become null.
     for (name, value) in inputs.interaction_values {
+        values.insert(name.clone(), value.clone());
+    }
+    for (name, value) in inputs.event_datum_values {
         values.insert(name.clone(), value.clone());
     }
     one_row_batch_from_scalars(schema, &values)
@@ -2685,15 +3016,18 @@ fn duration_ms(current: Instant, previous: Instant) -> f64 {
 mod tests {
     use std::collections::BTreeSet;
 
+    use avenger_app::app::SceneGraphBuilder;
     use avenger_chart::layout::LayoutBounds;
     use avenger_chart::prelude::*;
     use avenger_chart::render::{InteractionScopeId, InteractionScopeKind};
     use avenger_eventstream::{
         scene::{
-            SceneCursorMovedEvent, SceneDoubleClickEvent, SceneMouseDownEvent, SceneMouseUpEvent,
+            SceneClickEvent, SceneCursorMovedEvent, SceneDoubleClickEvent, SceneMouseDownEvent,
+            SceneMouseUpEvent,
         },
         window::{CanvasResizeEvent, MouseButton},
     };
+    use avenger_scenegraph::{marks::mark::SceneMark, scene_graph::SceneGraph};
 
     use super::*;
 
@@ -2902,6 +3236,14 @@ mod tests {
             .iter()
             .position(|binding| binding.event_type == event_type)
             .unwrap_or_else(|| panic!("missing {event_type:?} binding"));
+        compile_handler_for_binding_index(compiled, ctx, binding_index)
+    }
+
+    fn compile_handler_for_binding_index(
+        compiled: &CompiledPlot,
+        ctx: &SessionContext,
+        binding_index: usize,
+    ) -> ChartEventBindingHandler {
         let runtime = CompiledChartEventBinding::compile(
             binding_index,
             &compiled.event_bindings()[binding_index],
@@ -2910,6 +3252,7 @@ mod tests {
             compiled.selection_specs(),
             compiled.store_specs(),
             compiled.cursor_params(),
+            &compiled.event_datum_types(),
         )
         .expect("compile binding runtime");
         ChartEventBindingHandler {
@@ -3018,6 +3361,7 @@ mod tests {
             compiled.selection_specs(),
             compiled.store_specs(),
             compiled.cursor_params(),
+            &compiled.event_datum_types(),
         )
         .expect("compile release binding runtime");
         let reset_runtime = CompiledChartEventBinding::compile(
@@ -3028,6 +3372,7 @@ mod tests {
             compiled.selection_specs(),
             compiled.store_specs(),
             compiled.cursor_params(),
+            &compiled.event_datum_types(),
         )
         .expect("compile reset binding runtime");
         let policy = compiled.resize_policy();
@@ -3089,8 +3434,6 @@ mod tests {
 
     #[tokio::test]
     async fn root_pan_updates_x_domain_param() {
-        use avenger_app::app::SceneGraphBuilder;
-
         let (mut state, handler) = pan_state_and_handler().await;
         // First evaluation populates the interaction scope.
         crate::ChartSceneGraphBuilder
@@ -3134,8 +3477,6 @@ mod tests {
 
     #[tokio::test]
     async fn box_zoom_release_sets_raw_domain_params_to_drag_extents() {
-        use avenger_app::app::SceneGraphBuilder;
-
         let (mut state, handler) = box_zoom_state_and_release_handler().await;
         crate::ChartSceneGraphBuilder
             .build(&mut state)
@@ -3182,8 +3523,6 @@ mod tests {
 
     #[tokio::test]
     async fn box_zoom_double_click_resets_raw_domain_params_to_default() {
-        use avenger_app::app::SceneGraphBuilder;
-
         let (mut state, release_handler, reset_handler) = box_zoom_state_and_handlers().await;
         crate::ChartSceneGraphBuilder
             .build(&mut state)
@@ -3258,8 +3597,6 @@ mod tests {
 
     #[tokio::test]
     async fn root_pan_outside_plot_is_noop() {
-        use avenger_app::app::SceneGraphBuilder;
-
         let (mut state, handler) = pan_state_and_handler().await;
         crate::ChartSceneGraphBuilder
             .build(&mut state)
@@ -3295,8 +3632,6 @@ mod tests {
 
     #[tokio::test]
     async fn root_pan_preview_moves_match_single_move() {
-        use avenger_app::app::SceneGraphBuilder;
-
         // One continuous gesture: three preview moves with a rebuild between each
         // (as a real preview loop would do). The shared gesture instant keeps the
         // start scope/domain frozen even as the raw-domain param changes.
@@ -3356,8 +3691,6 @@ mod tests {
 
     #[tokio::test]
     async fn faceted_shared_pan_updates_all_cells_via_root_domain() {
-        use avenger_app::app::SceneGraphBuilder;
-
         let (mut state, handler) = faceted_pan_state_and_handler().await;
         crate::ChartSceneGraphBuilder
             .build(&mut state)
@@ -3423,8 +3756,6 @@ mod tests {
 
     #[tokio::test]
     async fn faceted_free_pan_updates_only_active_cell() {
-        use avenger_app::app::SceneGraphBuilder;
-
         let (mut state, handler) = faceted_pan_state_and_handler_with_sharing(Sharing::Free).await;
         crate::ChartSceneGraphBuilder
             .build(&mut state)
@@ -3520,6 +3851,7 @@ mod tests {
             compiled.selection_specs(),
             compiled.store_specs(),
             compiled.cursor_params(),
+            &compiled.event_datum_types(),
         )
         .expect("compile binding runtime");
         ChartEventBindingHandler {
@@ -3549,6 +3881,7 @@ mod tests {
             compiled.selection_specs(),
             compiled.store_specs(),
             compiled.cursor_params(),
+            &compiled.event_datum_types(),
         )
         .expect("compile reset binding runtime");
         let policy = compiled.resize_policy();
@@ -3559,6 +3892,278 @@ mod tests {
             state: Mutex::new(ChartEventBindingState::default()),
         };
         (state, handler)
+    }
+
+    fn equality_category_clause(id: Expr) -> SelectionClauseUpdate {
+        SelectionClauseUpdate::equality(id)
+            .dimension(col("category"), event::datum("category"))
+            .build()
+    }
+
+    fn scene_mark_at_path_with_origin<'a>(
+        marks: &'a [SceneMark],
+        path: &[usize],
+        origin: [f32; 2],
+    ) -> Option<(&'a SceneMark, [f32; 2])> {
+        let (first, rest) = path.split_first()?;
+        let mark = marks.get(*first)?;
+        if rest.is_empty() {
+            return Some((mark, origin));
+        }
+        match mark {
+            SceneMark::Group(group) => scene_mark_at_path_with_origin(
+                &group.marks,
+                rest,
+                [origin[0] + group.origin[0], origin[1] + group.origin[1]],
+            ),
+            _ => None,
+        }
+    }
+
+    fn rect_instance_point(scene: &SceneGraph, instance: &MarkInstance) -> [f32; 2] {
+        let (mark, origin) =
+            scene_mark_at_path_with_origin(&scene.marks, &instance.mark_path, scene.origin)
+                .expect("scene mark at path");
+        let SceneMark::Rect(rect) = mark else {
+            panic!("expected rect mark at hit-test path");
+        };
+        let index = instance.instance_index.expect("rect instance index");
+        let x = rect.x_vec()[index];
+        let y = rect.y_vec()[index];
+        let x2 = rect.x2_vec()[index];
+        let y2 = rect.y2_vec()[index];
+        [
+            origin[0] + x + (x2 - x) * 0.37,
+            origin[1] + y + (y2 - y) * 0.41,
+        ]
+    }
+
+    fn collect_rect_fills(scene: &SceneGraph) -> Vec<[f32; 4]> {
+        fn collect_from_mark(mark: &SceneMark, fills: &mut Vec<[f32; 4]>) {
+            match mark {
+                SceneMark::Group(group) => {
+                    for child in &group.marks {
+                        collect_from_mark(child, fills);
+                    }
+                }
+                SceneMark::Rect(rect) => {
+                    fills.extend(
+                        rect.fill_vec()
+                            .into_iter()
+                            .map(|fill| fill.color_or_transparent()),
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        let mut fills = Vec::new();
+        for mark in &scene.marks {
+            collect_from_mark(mark, &mut fills);
+        }
+        fills
+    }
+
+    fn has_blue_fill(fills: &[[f32; 4]]) -> bool {
+        fills
+            .iter()
+            .any(|fill| fill[2] > 0.8 && fill[0] < 0.2 && fill[1] < 0.5)
+    }
+
+    async fn retained_event_datum_mark_instance(
+        state: &ChartAppState,
+        field: &str,
+        target: ScalarValue,
+    ) -> MarkInstance {
+        let runtime = state.runtime.lock().await;
+        runtime
+            .last_event_datum_state
+            .rows
+            .iter()
+            .find_map(|rows| {
+                let column = rows.rows.column_by_name(field)?;
+                (0..column.len()).find_map(|index| {
+                    let value = ScalarValue::try_from_array(column, index).ok()?;
+                    (value == target).then(|| MarkInstance {
+                        name: "retained_event_datum".to_string(),
+                        mark_path: rows.mark_path.clone(),
+                        instance_index: Some(index),
+                    })
+                })
+            })
+            .expect("retained event datum row")
+    }
+
+    async fn equality_bar_state_and_handler(
+        binding: ChartEventBinding,
+    ) -> (
+        ChartAppState,
+        ChartEventBindingHandler,
+        MarkInstance,
+        [f32; 2],
+    ) {
+        let (state, mut handlers, mark_instance, position) =
+            equality_bar_state_and_handlers(vec![binding]).await;
+        (state, handlers.remove(0), mark_instance, position)
+    }
+
+    async fn equality_bar_state_and_handlers(
+        bindings: Vec<ChartEventBinding>,
+    ) -> (
+        ChartAppState,
+        Vec<ChartEventBindingHandler>,
+        MarkInstance,
+        [f32; 2],
+    ) {
+        let ctx = SessionContext::new();
+        let picked = Selection::new("picked").empty_selects_nothing();
+        let selected = picked.predicate();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('Alpha',  5.0),
+                    ('Beta',   4.0),
+                    ('Beta',   6.0),
+                    ('Gamma',  7.0)
+                ) AS t(category, amount)",
+            )
+            .await
+            .expect("data");
+        let mut plot = Plot::<Cartesian>::new()
+            .canvas_size(420.0, 320.0)
+            .add_selection(picked)
+            .data(df)
+            .mark(
+                Rect::new()
+                    .x_with(col("category"), |c| {
+                        c.scale_with::<Band>(|s| s.padding_inner(0.2))
+                    })
+                    .x2_with(col(":x"), |c| c.band(1.0))
+                    .y(lit(0.0))
+                    .y2(datafusion::functions_aggregate::expr_fn::sum(col("amount")))
+                    .fill_with(lit("#b8beca"), |c| {
+                        c.no_scale()
+                            .when_value(selected, lit("#2563eb"))
+                            .no_legend()
+                    }),
+            );
+        for binding in bindings {
+            plot = plot.event_binding(binding);
+        }
+        let compiled = plot.compile(&ctx).await.expect("compile equality bar plot");
+        let handlers = (0..compiled.event_bindings().len())
+            .map(|index| compile_handler_for_binding_index(&compiled, &ctx, index))
+            .collect::<Vec<_>>();
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial build");
+        let datum_mark_instance = retained_event_datum_mark_instance(
+            &state,
+            "category",
+            ScalarValue::Utf8(Some("Beta".to_string())),
+        )
+        .await;
+        let position = rect_instance_point(&scene, &datum_mark_instance);
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let mark_instance = rtree
+            .pick_top_mark_at_point(&position)
+            .cloned()
+            .expect("rtree should pick the Beta bar");
+        assert_eq!(
+            mark_instance.mark_path, datum_mark_instance.mark_path,
+            "rtree hit-test path should match retained event datum rows"
+        );
+        assert_eq!(
+            mark_instance.instance_index, datum_mark_instance.instance_index,
+            "rtree hit-test instance should match retained event datum rows"
+        );
+        (state, handlers, mark_instance, position)
+    }
+
+    async fn click_mark(
+        state: &mut ChartAppState,
+        handler: &ChartEventBindingHandler,
+        mark_instance: Option<MarkInstance>,
+        position: [f32; 2],
+        shift: bool,
+    ) -> UpdateStatus {
+        handler
+            .handle_with_context(
+                &SceneGraphEvent::Click(SceneClickEvent {
+                    position,
+                    button: MouseButton::Left,
+                    mark_instance,
+                    modifiers: ModifiersState {
+                        shift,
+                        ..ModifiersState::default()
+                    },
+                }),
+                &EventStreamContext::default(),
+                &mut *state,
+                &empty_rtree(),
+            )
+            .await
+    }
+
+    async fn double_click_mark(
+        state: &mut ChartAppState,
+        handler: &ChartEventBindingHandler,
+        mark_instance: Option<MarkInstance>,
+        position: [f32; 2],
+    ) -> UpdateStatus {
+        handler
+            .handle_with_context(
+                &SceneGraphEvent::DoubleClick(SceneDoubleClickEvent {
+                    position,
+                    mark_instance,
+                    modifiers: ModifiersState::default(),
+                }),
+                &EventStreamContext::default(),
+                &mut *state,
+                &empty_rtree(),
+            )
+            .await
+    }
+
+    async fn click_category(
+        state: &mut ChartAppState,
+        handler: &ChartEventBindingHandler,
+        category: &str,
+        shift: bool,
+    ) -> UpdateStatus {
+        let scene = crate::ChartSceneGraphBuilder
+            .build(state)
+            .await
+            .expect("scene for category click");
+        let datum_mark_instance = retained_event_datum_mark_instance(
+            state,
+            "category",
+            ScalarValue::Utf8(Some(category.to_string())),
+        )
+        .await;
+        let position = rect_instance_point(&scene, &datum_mark_instance);
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let mark_instance = rtree
+            .pick_top_mark_at_point(&position)
+            .cloned()
+            .expect("rtree should pick category mark");
+        click_mark(state, handler, Some(mark_instance), position, shift).await
+    }
+
+    async fn selected_clause_ids(state: &ChartAppState) -> Vec<String> {
+        let runtime = state.runtime.lock().await;
+        let mut ids = runtime
+            .session
+            .selection_clauses_for_diagnostics("picked")
+            .iter()
+            .map(|clause| clause.id.clone())
+            .collect::<Vec<_>>();
+        ids.sort();
+        ids
     }
 
     #[tokio::test]
@@ -3615,6 +4220,7 @@ mod tests {
             compiled.selection_specs(),
             compiled.store_specs(),
             compiled.cursor_params(),
+            &compiled.event_datum_types(),
         )
         .expect("compile cursor binding runtime");
         let policy = compiled.resize_policy();
@@ -3682,6 +4288,7 @@ mod tests {
             compiled.selection_specs(),
             compiled.store_specs(),
             compiled.cursor_params(),
+            &compiled.event_datum_types(),
         )
         .expect("compile store binding runtime");
         let policy = compiled.resize_policy();
@@ -3770,6 +4377,7 @@ mod tests {
             compiled.selection_specs(),
             compiled.store_specs(),
             compiled.cursor_params(),
+            &compiled.event_datum_types(),
         )
         .expect("compile selection binding runtime");
         let policy = compiled.resize_policy();
@@ -3802,7 +4410,9 @@ mod tests {
             assert_eq!(clause.scope.sharing, Sharing::Shared);
             assert!(clause.scope.owner_path.is_empty());
             assert!(clause.facet_context.is_empty());
-            let SelectionPredicateSpec::Interval { dimensions } = &clause.predicate;
+            let SelectionPredicateSpec::Interval { dimensions } = &clause.predicate else {
+                panic!("expected interval predicate");
+            };
             assert_eq!(dimensions.len(), 1);
             assert_eq!(dimensions[0].id, "x");
             assert_eq!(dimensions[0].min, ScalarValue::Float64(Some(640.0)));
@@ -3822,6 +4432,385 @@ mod tests {
         assert!(
             !second_status.rerender,
             "unchanged selection clauses should skip reevaluation"
+        );
+    }
+
+    #[tokio::test]
+    async fn event_datum_click_writes_equality_selection_clause() {
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::datum("category").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_all_clauses([equality_category_clause(lit("active"))]),
+            )
+            .exact();
+        let (mut state, handler, mark_instance, position) =
+            equality_bar_state_and_handler(binding).await;
+
+        let status = click_mark(
+            &mut state,
+            &handler,
+            Some(mark_instance.clone()),
+            position,
+            false,
+        )
+        .await;
+        assert!(status.rerender);
+        assert!(status.rebuild_geometry);
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+        assert_eq!(clauses.len(), 1);
+        assert_eq!(clauses[0].id, "active");
+        let SelectionPredicateSpec::Equality { dimensions } = &clauses[0].predicate else {
+            panic!("expected equality predicate");
+        };
+        assert_eq!(dimensions.len(), 1);
+        assert_eq!(
+            dimensions[0].value,
+            ScalarValue::Utf8(Some("Beta".to_string())),
+            "ev::datum should use the clicked aggregate bar's logical category"
+        );
+    }
+
+    #[tokio::test]
+    async fn event_datum_click_uses_context_mark_instance() {
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::datum("category").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_all_clauses([equality_category_clause(lit("active"))]),
+            )
+            .exact();
+        let (mut state, handler, mark_instance, position) =
+            equality_bar_state_and_handler(binding).await;
+
+        let context = EventStreamContext {
+            mark_instance: Some(mark_instance),
+            current_event: None,
+            start_event: None,
+            previous_event: None,
+        };
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::Click(SceneClickEvent {
+                    position,
+                    button: MouseButton::Left,
+                    mark_instance: None,
+                    modifiers: ModifiersState::default(),
+                }),
+                &context,
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+        assert!(
+            status.rerender,
+            "datum lookup should use the eventstream context mark instance"
+        );
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+        assert_eq!(clauses.len(), 1);
+        let SelectionPredicateSpec::Equality { dimensions } = &clauses[0].predicate else {
+            panic!("expected equality predicate");
+        };
+        assert_eq!(
+            dimensions[0].value,
+            ScalarValue::Utf8(Some("Beta".to_string()))
+        );
+    }
+
+    #[tokio::test]
+    async fn equality_selection_shift_click_toggles_clause() {
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::shift().eq(lit(true)))
+            .filter(event::datum("category").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::toggle_clause(equality_category_clause(event::datum("category"))),
+            )
+            .exact();
+        let (mut state, handler, mark_instance, position) =
+            equality_bar_state_and_handler(binding).await;
+
+        let first = click_mark(
+            &mut state,
+            &handler,
+            Some(mark_instance.clone()),
+            position,
+            true,
+        )
+        .await;
+        assert!(first.rerender);
+        {
+            let runtime = state.runtime.lock().await;
+            assert_eq!(
+                runtime
+                    .session
+                    .selection_clauses_for_diagnostics("picked")
+                    .len(),
+                1
+            );
+        }
+
+        let second = click_mark(&mut state, &handler, Some(mark_instance), position, true).await;
+        assert!(second.rerender);
+        let runtime = state.runtime.lock().await;
+        assert!(
+            runtime
+                .session
+                .selection_clauses_for_diagnostics("picked")
+                .is_empty(),
+            "second shift-click on the same clause id should remove it"
+        );
+    }
+
+    #[tokio::test]
+    async fn equality_selection_shift_click_toggles_one_of_multiple_clauses() {
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::shift().eq(lit(true)))
+            .filter(event::datum("category").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::toggle_clause(equality_category_clause(event::datum("category"))),
+            )
+            .exact();
+        let (mut state, handler, _, _) = equality_bar_state_and_handler(binding).await;
+
+        assert!(
+            click_category(&mut state, &handler, "Beta", true)
+                .await
+                .rerender
+        );
+        assert_eq!(selected_clause_ids(&state).await, vec!["Beta"]);
+
+        assert!(
+            click_category(&mut state, &handler, "Alpha", true)
+                .await
+                .rerender
+        );
+        assert_eq!(selected_clause_ids(&state).await, vec!["Alpha", "Beta"]);
+
+        assert!(
+            click_category(&mut state, &handler, "Beta", true)
+                .await
+                .rerender
+        );
+        assert_eq!(
+            selected_clause_ids(&state).await,
+            vec!["Alpha"],
+            "shift-clicking an already selected category should remove only that category"
+        );
+    }
+
+    #[tokio::test]
+    async fn equality_selection_replace_then_shift_toggle_removes_initial_clause() {
+        let replace = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::shift().eq(lit(false)))
+            .filter(event::datum("category").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_all_clauses([equality_category_clause(event::datum(
+                    "category",
+                ))]),
+            )
+            .exact();
+        let toggle = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::shift().eq(lit(true)))
+            .filter(event::datum("category").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::toggle_clause(equality_category_clause(event::datum("category"))),
+            )
+            .exact();
+        let (mut state, handlers, _, _) =
+            equality_bar_state_and_handlers(vec![replace, toggle]).await;
+        let replace_handler = &handlers[0];
+        let toggle_handler = &handlers[1];
+
+        assert!(
+            click_category(&mut state, replace_handler, "Beta", false)
+                .await
+                .rerender
+        );
+        assert_eq!(selected_clause_ids(&state).await, vec!["Beta"]);
+
+        assert!(
+            click_category(&mut state, toggle_handler, "Alpha", true)
+                .await
+                .rerender
+        );
+        assert_eq!(selected_clause_ids(&state).await, vec!["Alpha", "Beta"]);
+
+        assert!(
+            click_category(&mut state, toggle_handler, "Beta", true)
+                .await
+                .rerender
+        );
+        assert_eq!(
+            selected_clause_ids(&state).await,
+            vec!["Alpha"],
+            "shift-clicking the initially replaced category should remove it"
+        );
+    }
+
+    #[tokio::test]
+    async fn equality_selection_double_click_clears_selection() {
+        let replace = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::datum("category").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_all_clauses([equality_category_clause(event::datum(
+                    "category",
+                ))]),
+            )
+            .exact();
+        let clear = ChartEventBinding::on(ChartEventType::DoubleClick)
+            .clear_selection("picked")
+            .exact();
+        let (mut state, handlers, mark_instance, position) =
+            equality_bar_state_and_handlers(vec![replace, clear]).await;
+        let replace_handler = &handlers[0];
+        let clear_handler = &handlers[1];
+
+        assert!(
+            click_category(&mut state, replace_handler, "Beta", false)
+                .await
+                .rerender
+        );
+        assert_eq!(selected_clause_ids(&state).await, vec!["Beta"]);
+
+        assert!(
+            double_click_mark(&mut state, clear_handler, Some(mark_instance), position)
+                .await
+                .rerender
+        );
+        assert!(
+            selected_clause_ids(&state).await.is_empty(),
+            "double-click should clear the equality selection"
+        );
+    }
+
+    #[tokio::test]
+    async fn child_plot_event_datum_requests_are_available_at_root() {
+        let ctx = SessionContext::new();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('Alpha',  5.0, 1.0),
+                    ('Beta',   6.0, 2.0)
+                ) AS t(category, amount, x_value)",
+            )
+            .await
+            .expect("data");
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::datum("category").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_all_clauses([equality_category_clause(lit("active"))]),
+            )
+            .exact();
+        let picked = Selection::new("picked").empty_selects_nothing();
+        let selected = picked.predicate();
+        let bar_child = Plot::<Cartesian>::new()
+            .data(df.clone())
+            .mark(
+                Rect::new()
+                    .x_with(col("category"), |c| {
+                        c.scale_with::<Band>(|s| s.padding_inner(0.2))
+                    })
+                    .x2_with(col(":x"), |c| c.band(1.0))
+                    .y(lit(0.0))
+                    .y2(datafusion::functions_aggregate::expr_fn::sum(col("amount")))
+                    .fill_with(lit("#c8cdd7"), |c| {
+                        c.no_scale()
+                            .when_value(selected, lit("#2563eb"))
+                            .no_legend()
+                    }),
+            )
+            .event_binding(binding);
+        let scatter_child = Plot::<Cartesian>::new()
+            .data(df)
+            .mark(Symbol::new().x(col("x_value")).y(col("amount")).size(20.0));
+
+        let compiled = Plot::<HConcat>::new()
+            .add_selection(picked)
+            .mark(Subplot::new(bar_child).key("bars"))
+            .mark(Subplot::new(scatter_child).key("scatter"))
+            .compile(&ctx)
+            .await
+            .expect("compile concat event datum plot");
+
+        assert_eq!(
+            compiled.event_bindings().len(),
+            1,
+            "child plot binding should be registered on the root compiled plot"
+        );
+        assert_eq!(
+            compiled.event_datum_types().get("category"),
+            Some(&DataType::Utf8),
+            "root event datum types should include child binding datum requests"
+        );
+
+        let handler = compile_handler_for_event_type(&compiled, &ctx, ChartEventType::Click);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial concat build");
+        let datum_mark_instance = retained_event_datum_mark_instance(
+            &state,
+            "category",
+            ScalarValue::Utf8(Some("Beta".to_string())),
+        )
+        .await;
+        let position = rect_instance_point(&scene, &datum_mark_instance);
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let mark_instance = rtree
+            .pick_top_mark_at_point(&position)
+            .cloned()
+            .expect("rtree should pick the child Beta bar");
+        assert_eq!(mark_instance.mark_path, datum_mark_instance.mark_path);
+        assert_eq!(
+            mark_instance.instance_index,
+            datum_mark_instance.instance_index
+        );
+
+        let status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
+        assert!(
+            status.rerender,
+            "child plot click should resolve event datum and patch selection"
+        );
+        {
+            let runtime = state.runtime.lock().await;
+            let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+            assert_eq!(clauses.len(), 1);
+            let SelectionPredicateSpec::Equality { dimensions } = &clauses[0].predicate else {
+                panic!("expected equality predicate");
+            };
+            assert_eq!(
+                dimensions[0].value,
+                ScalarValue::Utf8(Some("Beta".to_string()))
+            );
+        }
+
+        let updated_scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("scene after child selection");
+        assert!(
+            has_blue_fill(&collect_rect_fills(&updated_scene)),
+            "selected aggregate bar should render with conditional blue fill"
         );
     }
 
@@ -3863,6 +4852,7 @@ mod tests {
             compiled.selection_specs(),
             compiled.store_specs(),
             compiled.cursor_params(),
+            &compiled.event_datum_types(),
         )
         .expect("compile selection binding runtime");
         let policy = compiled.resize_policy();
@@ -3966,6 +4956,7 @@ mod tests {
             compiled.selection_specs(),
             compiled.store_specs(),
             compiled.cursor_params(),
+            &compiled.event_datum_types(),
         )
         .expect("compile store binding runtime");
         let policy = compiled.resize_policy();
@@ -4073,6 +5064,7 @@ mod tests {
             compiled.selection_specs(),
             compiled.store_specs(),
             compiled.cursor_params(),
+            &compiled.event_datum_types(),
         )
         .expect("compile store binding runtime");
         let policy = compiled.resize_policy();
@@ -4398,6 +5390,7 @@ mod tests {
             compiled.selection_specs(),
             compiled.store_specs(),
             compiled.cursor_params(),
+            &compiled.event_datum_types(),
         ) {
             Ok(_) => panic!("param columns should be rejected in low-level filters"),
             Err(err) => err,
@@ -4437,6 +5430,7 @@ mod tests {
             compiled.selection_specs(),
             compiled.store_specs(),
             compiled.cursor_params(),
+            &compiled.event_datum_types(),
         )
         .expect("compile binding runtime");
 
@@ -4480,6 +5474,7 @@ mod tests {
             compiled.selection_specs(),
             compiled.store_specs(),
             compiled.cursor_params(),
+            &compiled.event_datum_types(),
         )
         .expect("compile binding runtime");
 

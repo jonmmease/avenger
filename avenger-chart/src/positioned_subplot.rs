@@ -75,7 +75,7 @@ pub(crate) async fn render_positioned_subplot_with_context(
             .eval
             .with_params(params)
             .with_child_frame_sharing_level_appended(sharing_level);
-        let components = Box::pin(child_plot.build_plot_components(
+        let mut components = Box::pin(child_plot.build_plot_components(
             &child_eval_ctx,
             &child.measurement,
             child.data_override.as_ref(),
@@ -83,6 +83,19 @@ pub(crate) async fn render_positioned_subplot_with_context(
             context.facet_path,
         ))
         .await?;
+        let group_index = marks.len();
+        let child_event_datums = std::mem::take(&mut components.event_datums);
+        if !child_event_datums.is_empty() {
+            let translated = child_event_datums.into_iter().map(|mut rows| {
+                let mut path = Vec::with_capacity(rows.mark_path.len() + 2);
+                path.push(group_index);
+                path.push(0);
+                path.extend(rows.mark_path);
+                rows.mark_path = path;
+                rows
+            });
+            context.eval.push_event_datums(translated);
+        }
 
         let data_marks_group = SceneGroup {
             origin: [0.0, 0.0],

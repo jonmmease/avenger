@@ -59,10 +59,22 @@ pub struct SelectionIntervalDimensionUpdate {
     pub max: SelectionValueExpr,
 }
 
+#[serde_as]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SelectionEqualityDimensionUpdate {
+    pub id: String,
+    #[serde_as(as = "FromInto<SerializableExpr>")]
+    pub field_expr: LogicalExprNode,
+    pub value: SelectionValueExpr,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SelectionPredicateUpdate {
     Interval {
         dimensions: Vec<SelectionIntervalDimensionUpdate>,
+    },
+    Equality {
+        dimensions: Vec<SelectionEqualityDimensionUpdate>,
     },
 }
 
@@ -88,6 +100,9 @@ pub enum SelectionUpdate {
         clauses: Vec<SelectionClauseUpdate>,
     },
     UpsertClauses {
+        clauses: Vec<SelectionClauseUpdate>,
+    },
+    ToggleClauses {
         clauses: Vec<SelectionClauseUpdate>,
     },
     DeleteClauses {
@@ -116,9 +131,19 @@ pub struct SelectionIntervalDimensionValue {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct SelectionEqualityDimensionValue {
+    pub id: String,
+    pub field_expr: LogicalExprNode,
+    pub value: ScalarValue,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum SelectionPredicateSpec {
     Interval {
         dimensions: Vec<SelectionIntervalDimensionValue>,
+    },
+    Equality {
+        dimensions: Vec<SelectionEqualityDimensionValue>,
     },
 }
 
@@ -178,6 +203,20 @@ impl SelectionUpdate {
         Self::upsert_clauses([clause])
     }
 
+    pub fn toggle_clauses<I, C>(clauses: I) -> Self
+    where
+        I: IntoIterator<Item = C>,
+        C: Into<SelectionClauseUpdate>,
+    {
+        Self::ToggleClauses {
+            clauses: clauses.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn toggle_clause(clause: impl Into<SelectionClauseUpdate>) -> Self {
+        Self::toggle_clauses([clause])
+    }
+
     pub fn delete_clauses<I, E>(ids: I) -> Self
     where
         I: IntoIterator<Item = E>,
@@ -201,6 +240,18 @@ impl SelectionClauseUpdate {
             },
         }
     }
+
+    pub fn equality(id: impl IntoExpr) -> SelectionEqualityClauseBuilder {
+        SelectionEqualityClauseBuilder {
+            update: Self {
+                id: SelectionValueExpr::new(id),
+                facet_scope: Sharing::Free,
+                predicate: SelectionPredicateUpdate::Equality {
+                    dimensions: Vec::new(),
+                },
+            },
+        }
+    }
 }
 
 pub struct SelectionIntervalClauseBuilder {
@@ -215,7 +266,7 @@ impl SelectionIntervalClauseBuilder {
 
     pub fn dimension(self, field_expr: impl IntoExpr) -> SelectionIntervalDimensionBuilder {
         let field_expr = field_expr.into_expr();
-        let id = interval_dimension_id_from_expr(&field_expr);
+        let id = dimension_id_from_expr(&field_expr);
         self.dimension_named(id, field_expr)
     }
 
@@ -236,7 +287,7 @@ impl SelectionIntervalClauseBuilder {
     }
 }
 
-fn interval_dimension_id_from_expr(expr: &Expr) -> String {
+fn dimension_id_from_expr(expr: &Expr) -> String {
     let id = expr.to_string();
     if id.is_empty() {
         "dimension".to_string()
@@ -263,7 +314,12 @@ impl SelectionIntervalDimensionBuilder {
         min: impl IntoExpr,
         max: impl IntoExpr,
     ) -> SelectionIntervalClauseBuilder {
-        let SelectionPredicateUpdate::Interval { dimensions } = &mut self.builder.update.predicate;
+        let dimensions = match &mut self.builder.update.predicate {
+            SelectionPredicateUpdate::Interval { dimensions } => dimensions,
+            SelectionPredicateUpdate::Equality { .. } => {
+                unreachable!("interval builder always owns interval predicate")
+            }
+        };
         dimensions.push(SelectionIntervalDimensionUpdate {
             id: self.id,
             field_expr: self.field_expr,
@@ -271,6 +327,53 @@ impl SelectionIntervalDimensionBuilder {
             max: SelectionValueExpr::new(max),
         });
         self.builder
+    }
+}
+
+pub struct SelectionEqualityClauseBuilder {
+    update: SelectionClauseUpdate,
+}
+
+impl SelectionEqualityClauseBuilder {
+    pub fn facet_scope(mut self, facet_scope: Sharing) -> Self {
+        self.update.facet_scope = facet_scope;
+        self
+    }
+
+    pub fn dimension(self, field_expr: impl IntoExpr, value: impl IntoExpr) -> Self {
+        let field_expr = field_expr.into_expr();
+        let id = dimension_id_from_expr(&field_expr);
+        self.dimension_named(id, field_expr, value)
+    }
+
+    pub fn dimension_named(
+        mut self,
+        id: impl Into<String>,
+        field_expr: impl IntoExpr,
+        value: impl IntoExpr,
+    ) -> Self {
+        let dimensions = match &mut self.update.predicate {
+            SelectionPredicateUpdate::Equality { dimensions } => dimensions,
+            SelectionPredicateUpdate::Interval { .. } => {
+                unreachable!("equality builder always owns equality predicate")
+            }
+        };
+        dimensions.push(SelectionEqualityDimensionUpdate {
+            id: id.into(),
+            field_expr: expr_node(field_expr.into_expr(), "selection equality dimension field"),
+            value: SelectionValueExpr::new(value),
+        });
+        self
+    }
+
+    pub fn build(self) -> SelectionClauseUpdate {
+        self.update
+    }
+}
+
+impl From<SelectionEqualityClauseBuilder> for SelectionClauseUpdate {
+    fn from(builder: SelectionEqualityClauseBuilder) -> Self {
+        builder.build()
     }
 }
 
@@ -452,9 +555,44 @@ mod tests {
         let restored: SelectionClauseUpdate =
             serde_json::from_str(&json).expect("deserialize clause");
         assert_eq!(restored.facet_scope, Sharing::Level(1));
-        let SelectionPredicateUpdate::Interval { dimensions } = restored.predicate;
+        let SelectionPredicateUpdate::Interval { dimensions } = restored.predicate else {
+            panic!("expected interval predicate");
+        };
         assert_eq!(dimensions.len(), 2);
         assert_eq!(dimensions[0].id, "x");
         assert_eq!(dimensions[1].id, "vertical");
+    }
+
+    #[test]
+    fn equality_clause_update_builder_serializes() {
+        let clause = SelectionClauseUpdate::equality("active")
+            .facet_scope(Sharing::Level(1))
+            .dimension(col("category"), event::datum("category"))
+            .dimension_named("region_key", col("region"), event::datum("region"))
+            .build();
+        let json = serde_json::to_string(&clause).expect("serialize clause");
+        let restored: SelectionClauseUpdate =
+            serde_json::from_str(&json).expect("deserialize clause");
+        assert_eq!(restored.facet_scope, Sharing::Level(1));
+        let SelectionPredicateUpdate::Equality { dimensions } = restored.predicate else {
+            panic!("expected equality predicate");
+        };
+        assert_eq!(dimensions.len(), 2);
+        assert_eq!(dimensions[0].id, "category");
+        assert_eq!(dimensions[1].id, "region_key");
+    }
+
+    #[test]
+    fn toggle_clause_update_serializes() {
+        let update = SelectionUpdate::toggle_clause(
+            SelectionClauseUpdate::equality(event::datum("category"))
+                .dimension(col("category"), event::datum("category")),
+        );
+        let json = serde_json::to_string(&update).expect("serialize update");
+        let restored: SelectionUpdate = serde_json::from_str(&json).expect("deserialize update");
+        let SelectionUpdate::ToggleClauses { clauses } = restored else {
+            panic!("expected toggle clauses");
+        };
+        assert_eq!(clauses.len(), 1);
     }
 }

@@ -41,7 +41,7 @@ pub struct EventStreamManager<State: Clone + Send + Sync + 'static> {
     state: State,
     streams: Vec<EventStream<State>>,
     current_mark: Option<MarkInstance>,
-    last_click: Option<(Instant, [f32; 2])>,
+    last_click: Option<(Instant, [f32; 2], Option<MarkInstance>)>,
     double_click_threshold: Duration,
     // Double-click distance threshold (e.g., 5 pixels)
     double_click_distance: f32,
@@ -437,34 +437,20 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
     ) -> UpdateStatus {
         let mut update_status = UpdateStatus::default();
 
-        if let Some((last_time, last_pos)) = &self.last_click {
+        let is_double_click = if let Some((last_time, last_pos, last_mark)) = &self.last_click {
             let time_diff = instant.duration_since(*last_time);
             let distance =
                 ((position[0] - last_pos[0]).powi(2) + (position[1] - last_pos[1]).powi(2)).sqrt();
 
-            if time_diff <= self.double_click_threshold && distance <= self.double_click_distance {
-                // Double click detected - dispatch event
-                update_status = update_status.merge(
-                    &self
-                        .dispatch_single_event(
-                            &SceneGraphEvent::DoubleClick(SceneDoubleClickEvent {
-                                position,
-                                mark_instance,
-                                modifiers: self.modifiers,
-                            }),
-                            rtree,
-                            instant,
-                            None,
-                        )
-                        .await,
-                );
-                // Reset last click
-                self.last_click = None;
-                return update_status;
-            }
-        }
+            time_diff <= self.double_click_threshold
+                && distance <= self.double_click_distance
+                && last_mark.as_ref() == mark_instance.as_ref()
+        } else {
+            false
+        };
 
-        // Not a double click, emit single left-click and store for potential future double-click
+        // Always emit the underlying click. DoubleClick is an additional higher-level event,
+        // not a replacement for the second click in the pair.
         update_status = update_status.merge(
             &self
                 .dispatch_single_event(
@@ -480,7 +466,26 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                 )
                 .await,
         );
-        self.last_click = Some((instant, position));
+
+        if is_double_click {
+            update_status = update_status.merge(
+                &self
+                    .dispatch_single_event(
+                        &SceneGraphEvent::DoubleClick(SceneDoubleClickEvent {
+                            position,
+                            mark_instance,
+                            modifiers: self.modifiers,
+                        }),
+                        rtree,
+                        instant,
+                        None,
+                    )
+                    .await,
+            );
+            self.last_click = None;
+        } else {
+            self.last_click = Some((instant, position, mark_instance));
+        }
 
         update_status
     }
@@ -585,6 +590,14 @@ mod tests {
             height: 1.0,
             origin: [0.0, 0.0],
         })
+    }
+
+    fn test_mark_instance(name: &str, mark_index: usize) -> MarkInstance {
+        MarkInstance {
+            name: name.to_string(),
+            mark_path: vec![mark_index],
+            instance_index: Some(0),
+        }
     }
 
     fn left_mouse_down_config() -> EventStreamConfig {
@@ -893,6 +906,190 @@ mod tests {
         assert_eq!(
             labels.lock().unwrap().as_slice(),
             &["down:MouseDown".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn spaced_left_clicks_do_not_emit_double_click() {
+        let state = TestState::default();
+        let events = state.events.clone();
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::Click],
+                ..Default::default()
+            },
+            Arc::new(RecordingHandler),
+        );
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::DoubleClick],
+                ..Default::default()
+            },
+            Arc::new(RecordingHandler),
+        );
+
+        let start = Instant::now();
+        dispatch_cursor(&mut manager, [10.0, 20.0], start).await;
+        dispatch_left_mouse(
+            &mut manager,
+            ElementState::Pressed,
+            start + Duration::from_millis(1),
+        )
+        .await;
+        dispatch_left_mouse(
+            &mut manager,
+            ElementState::Released,
+            start + Duration::from_millis(2),
+        )
+        .await;
+        dispatch_left_mouse(
+            &mut manager,
+            ElementState::Pressed,
+            start + Duration::from_millis(700),
+        )
+        .await;
+        dispatch_left_mouse(
+            &mut manager,
+            ElementState::Released,
+            start + Duration::from_millis(701),
+        )
+        .await;
+
+        let events = events.lock().unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, SceneGraphEvent::Click(_)))
+                .count(),
+            2
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, SceneGraphEvent::DoubleClick(_)))
+                .count(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn double_click_emits_second_click_and_double_click() {
+        let state = TestState::default();
+        let events = state.events.clone();
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::Click],
+                ..Default::default()
+            },
+            Arc::new(RecordingHandler),
+        );
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::DoubleClick],
+                ..Default::default()
+            },
+            Arc::new(RecordingHandler),
+        );
+
+        let start = Instant::now();
+        dispatch_cursor(&mut manager, [10.0, 20.0], start).await;
+        dispatch_left_mouse(
+            &mut manager,
+            ElementState::Pressed,
+            start + Duration::from_millis(1),
+        )
+        .await;
+        dispatch_left_mouse(
+            &mut manager,
+            ElementState::Released,
+            start + Duration::from_millis(2),
+        )
+        .await;
+        dispatch_left_mouse(
+            &mut manager,
+            ElementState::Pressed,
+            start + Duration::from_millis(100),
+        )
+        .await;
+        dispatch_left_mouse(
+            &mut manager,
+            ElementState::Released,
+            start + Duration::from_millis(101),
+        )
+        .await;
+
+        let events = events.lock().unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, SceneGraphEvent::Click(_)))
+                .count(),
+            2
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, SceneGraphEvent::DoubleClick(_)))
+                .count(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn close_clicks_on_different_targets_do_not_emit_double_click() {
+        let state = TestState::default();
+        let events = state.events.clone();
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::Click],
+                ..Default::default()
+            },
+            Arc::new(RecordingHandler),
+        );
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::DoubleClick],
+                ..Default::default()
+            },
+            Arc::new(RecordingHandler),
+        );
+
+        let rtree = empty_rtree();
+        let start = Instant::now();
+        manager
+            .check_double_click(
+                [10.0, 20.0],
+                Some(test_mark_instance("first", 0)),
+                &rtree,
+                start + Duration::from_millis(1),
+            )
+            .await;
+        manager
+            .check_double_click(
+                [11.0, 20.0],
+                Some(test_mark_instance("second", 1)),
+                &rtree,
+                start + Duration::from_millis(100),
+            )
+            .await;
+
+        let events = events.lock().unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, SceneGraphEvent::Click(_)))
+                .count(),
+            2
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, SceneGraphEvent::DoubleClick(_)))
+                .count(),
+            0
         );
     }
 }

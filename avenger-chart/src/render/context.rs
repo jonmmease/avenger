@@ -12,7 +12,9 @@ use std::{
     time::Duration,
 };
 
-use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
+use datafusion::{
+    arrow::datatypes::DataType, common::ScalarValue, dataframe::DataFrame, prelude::SessionContext,
+};
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
@@ -35,8 +37,8 @@ use crate::{
         ScopedSelectionStore, ScopedStoreState, TextMeasurementCacheHandle,
     },
     render::types::{
-        EvaluatedInteractionScope, EvaluatedPlot, EvaluationMetrics, FacetLayoutRefinement,
-        FacetSubtreeSnapshot, LayoutDebugOverlayMode,
+        EvaluatedEventDatumRows, EvaluatedInteractionScope, EvaluatedPlot, EvaluationMetrics,
+        FacetLayoutRefinement, FacetSubtreeSnapshot, LayoutDebugOverlayMode,
     },
     scales::ConfiguredScaleWithSpec,
     theme::{Theme, ThemeContext, ThemeValue},
@@ -274,6 +276,10 @@ pub struct EvaluationContext {
     /// the cell scene origin and pushes them here so the parent components pick
     /// them up. Interior-mutable so it can be shared across `&EvaluationContext`.
     pub(crate) interaction_scope_sink: Option<Arc<Mutex<Vec<EvaluatedInteractionScope>>>>,
+    /// Event datum columns requested by chart event bindings.
+    pub(crate) event_datum_fields: Arc<IndexMap<String, DataType>>,
+    /// Optional sink that collects event datum rows while building components.
+    pub(crate) event_datum_sink: Option<Arc<Mutex<Vec<EvaluatedEventDatumRows>>>>,
     /// Optional session-owned scoped param store, present only when an
     /// interaction has written `Free`/`Level(N)` (non-root) param assignments.
     /// When set, per-cell measurement resolves each cell's effective params from
@@ -315,6 +321,8 @@ impl EvaluationContext {
             facet_cell_rendered_components_capture: None,
             facet_subtree_snapshot_capture: None,
             interaction_scope_sink: None,
+            event_datum_fields: Arc::new(IndexMap::new()),
+            event_datum_sink: None,
             scoped_param_store: None,
             scoped_selection_store: None,
             scoped_store_state: None,
@@ -335,6 +343,21 @@ impl EvaluationContext {
         ctx
     }
 
+    pub(crate) fn with_event_datum_fields(&self, fields: Arc<IndexMap<String, DataType>>) -> Self {
+        let mut ctx = self.clone();
+        ctx.event_datum_fields = fields;
+        ctx
+    }
+
+    pub(crate) fn with_event_datum_sink(
+        &self,
+        sink: Option<Arc<Mutex<Vec<EvaluatedEventDatumRows>>>>,
+    ) -> Self {
+        let mut ctx = self.clone();
+        ctx.event_datum_sink = sink;
+        ctx
+    }
+
     pub(crate) fn with_facet_tree(&self, facet_tree: Arc<EvaluatedFacetTree>) -> Self {
         let mut ctx = self.clone();
         ctx.facet_tree = facet_tree;
@@ -349,6 +372,16 @@ impl EvaluationContext {
         if let Some(sink) = &self.interaction_scope_sink {
             let mut guard = sink.lock().expect("interaction scope sink poisoned");
             guard.extend(scopes);
+        }
+    }
+
+    pub(crate) fn push_event_datums(
+        &self,
+        rows: impl IntoIterator<Item = EvaluatedEventDatumRows>,
+    ) {
+        if let Some(sink) = &self.event_datum_sink {
+            let mut guard = sink.lock().expect("event datum sink poisoned");
+            guard.extend(rows);
         }
     }
 
@@ -430,6 +463,8 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
@@ -463,6 +498,8 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
@@ -501,6 +538,8 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
@@ -546,6 +585,8 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
@@ -578,6 +619,8 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
@@ -614,6 +657,8 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
@@ -650,6 +695,8 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
@@ -682,6 +729,8 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
@@ -721,6 +770,8 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
@@ -765,6 +816,8 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
@@ -817,6 +870,8 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
@@ -851,6 +906,8 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
@@ -883,6 +940,8 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
@@ -919,6 +978,8 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
@@ -958,6 +1019,8 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
@@ -994,6 +1057,8 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
@@ -1030,6 +1095,8 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
@@ -1067,6 +1134,8 @@ impl EvaluationContext {
             facet_cell_rendered_components_capture: Some(capture),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
@@ -1108,6 +1177,8 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: Some(capture),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
@@ -1142,6 +1213,8 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
@@ -1191,6 +1264,8 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
@@ -1228,6 +1303,8 @@ impl EvaluationContext {
                 .clone(),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
             interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),

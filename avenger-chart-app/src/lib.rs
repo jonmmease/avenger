@@ -16,8 +16,8 @@ use avenger_chart::{
     layout::{ChartResizeAxisPolicy, ChartResizePolicy},
     plot::{CompiledPlot, EvaluationRequest, PlotSession},
     render::{
-        EvaluatedInteractionScope, EvaluatedInteractionState, EvaluationMetrics, EvaluationMode,
-        EvaluationOptions,
+        EvaluatedEventDatumState, EvaluatedInteractionScope, EvaluatedInteractionState,
+        EvaluationMetrics, EvaluationMode, EvaluationOptions,
     },
 };
 use avenger_eventstream::{
@@ -136,6 +136,8 @@ struct ChartAppRuntime {
     /// Interaction scopes from the most recent evaluation, used to route pointer
     /// events to coordinate scopes for inversion.
     last_interaction_state: EvaluatedInteractionState,
+    /// Event datum rows from the most recent evaluation, used by `ev::datum`.
+    last_event_datum_state: EvaluatedEventDatumState,
 }
 
 impl ChartAppState {
@@ -160,6 +162,7 @@ impl ChartAppState {
                 accepted_resize_count: 0,
                 event_metrics: ChartEventMetrics::default(),
                 last_interaction_state: EvaluatedInteractionState::default(),
+                last_event_datum_state: EvaluatedEventDatumState::default(),
             })),
         }
     }
@@ -310,6 +313,7 @@ impl SceneGraphBuilder<ChartAppState> for ChartSceneGraphBuilder {
         runtime.last_evaluation_elapsed = Some(elapsed);
         runtime.last_scene_size = Some(scene_size);
         runtime.last_interaction_state = evaluated.interaction;
+        runtime.last_event_datum_state = evaluated.event_datums;
         Ok(evaluated.scene_graph)
     }
 }
@@ -428,6 +432,7 @@ pub async fn chart_avenger_app(
         compiled_plot.selection_specs(),
         compiled_plot.store_specs(),
         &[],
+        &IndexMap::new(),
     )?);
     let session = Arc::new(compiled_plot).instantiate(ctx);
     let exact_on_resize_settle = options.exact_on_resize_settle;

@@ -634,6 +634,9 @@ pub enum SelectionStateUpdate {
     UpsertClauses {
         clauses: Vec<SelectionClause>,
     },
+    ToggleClauses {
+        clauses: Vec<SelectionClause>,
+    },
     DeleteClauses {
         ids: Vec<String>,
     },
@@ -665,7 +668,7 @@ fn apply_selection_update(state: &mut MutableSelectionState, update: SelectionSt
         SelectionStateUpdate::ReplaceAllClauses { clauses } => {
             let clauses = clauses
                 .into_iter()
-                .map(|clause| (clause.id.clone(), clause))
+                .map(|clause| (selection_clause_state_key(&clause), clause))
                 .collect::<IndexMap<_, _>>();
             if state.clauses == clauses {
                 false
@@ -681,7 +684,7 @@ fn apply_selection_update(state: &mut MutableSelectionState, update: SelectionSt
             let mut next = state.clauses.clone();
             next.retain(|_, clause| clause.scope.owner_path != scope_owner_path);
             for clause in clauses {
-                next.insert(clause.id.clone(), clause);
+                next.insert(selection_clause_state_key(&clause), clause);
             }
             if state.clauses == next {
                 false
@@ -693,9 +696,22 @@ fn apply_selection_update(state: &mut MutableSelectionState, update: SelectionSt
         SelectionStateUpdate::UpsertClauses { clauses } => {
             let mut changed = false;
             for clause in clauses {
-                let id = clause.id.clone();
-                if state.clauses.get(&id) != Some(&clause) {
-                    state.clauses.insert(id, clause);
+                let key = selection_clause_state_key(&clause);
+                if state.clauses.get(&key) != Some(&clause) {
+                    state.clauses.insert(key, clause);
+                    changed = true;
+                }
+            }
+            changed
+        }
+        SelectionStateUpdate::ToggleClauses { clauses } => {
+            let mut changed = false;
+            for clause in clauses {
+                let key = selection_clause_state_key(&clause);
+                if state.clauses.shift_remove(&key).is_some() {
+                    changed = true;
+                } else {
+                    state.clauses.insert(key, clause);
                     changed = true;
                 }
             }
@@ -703,12 +719,18 @@ fn apply_selection_update(state: &mut MutableSelectionState, update: SelectionSt
         }
         SelectionStateUpdate::DeleteClauses { ids } => {
             let mut changed = false;
-            for id in ids {
-                changed |= state.clauses.shift_remove(&id).is_some();
-            }
+            state.clauses.retain(|_, clause| {
+                let remove = ids.iter().any(|id| id == &clause.id);
+                changed |= remove;
+                !remove
+            });
             changed
         }
     }
+}
+
+fn selection_clause_state_key(clause: &SelectionClause) -> String {
+    format!("{:?}\u{1f}{}", clause.scope.owner_path, clause.id)
 }
 
 /// Identifies one scoped copy of a mutable store at a specific facet owner path.
@@ -2796,6 +2818,40 @@ mod tests {
             .await
     }
 
+    async fn compile_equality_selection_preview_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let picked = Selection::new("picked").empty_selects_nothing();
+        let selected = picked.predicate();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('Alpha', 1.0, 1.0),
+                    ('Beta', 2.0, 2.0),
+                    ('Beta', 3.0, 3.0),
+                    ('Gamma', 4.0, 4.0)
+                ) AS t(category, x, y)",
+            )
+            .await?;
+        Plot::<Cartesian>::new()
+            .add_selection(picked)
+            .canvas_size(420.0, 320.0)
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x(col("x"))
+                    .y(col("y"))
+                    .fill_with(lit("#b8beca"), |c| {
+                        c.no_scale()
+                            .when_value(selected, lit("#2563eb"))
+                            .no_legend()
+                    })
+                    .size(20.0),
+            )
+            .compile(ctx)
+            .await
+    }
+
     async fn compile_selection_facet_context_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
@@ -2880,14 +2936,48 @@ mod tests {
         }
     }
 
+    fn category_equality_selection_clause(
+        id: &str,
+        sharing: Sharing,
+        value: ScalarValue,
+        owner_path: Vec<ScalarValue>,
+    ) -> SelectionClause {
+        SelectionClause {
+            id: id.to_string(),
+            scope: avenger_chart_core::ResolvedSelectionClauseScope {
+                sharing,
+                owner_path,
+            },
+            predicate: avenger_chart_core::SelectionPredicateSpec::Equality {
+                dimensions: vec![avenger_chart_core::SelectionEqualityDimensionValue {
+                    id: "category".to_string(),
+                    field_expr: LogicalExprNode::from_expr(col("category"))
+                        .expect("serialize category equality field"),
+                    value,
+                }],
+            },
+            facet_context: Vec::new(),
+        }
+    }
+
     async fn evaluate_blue_count_after_selection_clauses(
         compiled: Arc<CompiledPlot>,
         ctx: Arc<SessionContext>,
         update: SelectionStateUpdate,
     ) -> Result<usize, AvengerChartError> {
+        evaluate_blue_count_after_selection_clauses_for_selection(compiled, ctx, "brush", update)
+            .await
+    }
+
+    async fn evaluate_blue_count_after_selection_clauses_for_selection(
+        compiled: Arc<CompiledPlot>,
+        ctx: Arc<SessionContext>,
+        selection_id: &str,
+        update: SelectionStateUpdate,
+    ) -> Result<usize, AvengerChartError> {
         let mut session = compiled.instantiate(ctx);
         session.apply_selection_patch(vec![SelectionAssignment {
-            selection_id: "brush".to_string(),
+            selection_id: selection_id.to_string(),
             update,
         }])?;
         let (evaluated, _metrics) = session
@@ -4081,6 +4171,103 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn equality_selection_predicate_matches_values_and_rejects_null()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_equality_selection_preview_plot(&ctx).await?);
+
+        let beta_count = evaluate_blue_count_after_selection_clauses_for_selection(
+            compiled.clone(),
+            ctx.clone(),
+            "picked",
+            SelectionStateUpdate::ReplaceAllClauses {
+                clauses: vec![category_equality_selection_clause(
+                    "beta",
+                    Sharing::Shared,
+                    ScalarValue::Utf8(Some("Beta".to_string())),
+                    Vec::new(),
+                )],
+            },
+        )
+        .await?;
+        assert_eq!(
+            beta_count, 2,
+            "two rows should match the equality selection clause"
+        );
+
+        let null_count = evaluate_blue_count_after_selection_clauses_for_selection(
+            compiled,
+            ctx,
+            "picked",
+            SelectionStateUpdate::ReplaceAllClauses {
+                clauses: vec![category_equality_selection_clause(
+                    "null",
+                    Sharing::Shared,
+                    ScalarValue::Utf8(None),
+                    Vec::new(),
+                )],
+            },
+        )
+        .await?;
+        assert_eq!(
+            null_count, 0,
+            "null equality values should produce a false predicate"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn toggle_clauses_insert_and_remove_only_matching_scope() {
+        let mut state = MutableSelectionState {
+            clauses: IndexMap::new(),
+            revision: 0,
+        };
+        let beta_owner = vec![ScalarValue::Utf8(Some("Beta".to_string()))];
+        let alpha_owner = vec![ScalarValue::Utf8(Some("Alpha".to_string()))];
+        let beta = category_equality_selection_clause(
+            "active",
+            Sharing::Free,
+            ScalarValue::Utf8(Some("Beta".to_string())),
+            beta_owner.clone(),
+        );
+        let alpha = category_equality_selection_clause(
+            "active",
+            Sharing::Free,
+            ScalarValue::Utf8(Some("Alpha".to_string())),
+            alpha_owner.clone(),
+        );
+
+        assert!(apply_selection_update(
+            &mut state,
+            SelectionStateUpdate::ToggleClauses {
+                clauses: vec![beta.clone()]
+            }
+        ));
+        assert!(apply_selection_update(
+            &mut state,
+            SelectionStateUpdate::ToggleClauses {
+                clauses: vec![alpha.clone()]
+            }
+        ));
+        assert_eq!(
+            state.clauses.len(),
+            2,
+            "same clause id in different owner scopes should coexist"
+        );
+
+        assert!(apply_selection_update(
+            &mut state,
+            SelectionStateUpdate::ToggleClauses {
+                clauses: vec![beta]
+            }
+        ));
+        assert_eq!(state.clauses.len(), 1);
+        let remaining = state.clauses.values().next().expect("remaining clause");
+        assert_eq!(remaining.scope.owner_path, alpha_owner);
     }
 
     #[tokio::test]
