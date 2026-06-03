@@ -995,6 +995,11 @@ fn collect_selection_update_exprs(
                 exprs.push(id.expr.to_expr(ctx)?);
             }
         }
+        SelectionUpdate::DeleteClausesInScope { ids, .. } => {
+            for id in ids {
+                exprs.push(id.expr.to_expr(ctx)?);
+            }
+        }
     }
     Ok(())
 }

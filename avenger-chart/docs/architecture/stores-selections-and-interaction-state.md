@@ -194,9 +194,28 @@ ChartEventBinding::on_between_end(
 Each interval dimension maps one data expression, such as `col("source_a")`,
 to a resolved min/max value. The dimension name is metadata derived from the
 expression by default; use `dimension_named(...)` when a stable or clearer name
-is needed. Multiple clauses are combined by the selection's
-`SelectionCombine`: `Union` ORs clauses together and `Intersect` ANDs clauses
-together.
+is needed.
+
+Equality clauses compare one or more input-data expressions to resolved event
+values. `ev::datum("field")` reads the logical datum value for the clicked mark
+instance before scaling, including rows produced by aggregate marks and
+instanced marks:
+
+```rust
+let picked_category =
+    SelectionClauseUpdate::equality_value(col("category"), ev::datum("category"));
+
+let compound_pick = SelectionClauseUpdate::equality(ev::datum("id"))
+    .dimension(col("category"), ev::datum("category"))
+    .dimension(col("region"), ev::datum("region"))
+    .build();
+```
+
+`equality_value(...)` is the preferred helper for one-field point selection
+because the clause id and equality value are the same expression. Compound
+equality clauses use `equality(id)` with an explicit id. Multiple clauses are
+combined by the selection's `SelectionCombine`: `Union` ORs clauses together
+and `Intersect` ANDs clauses together.
 
 The public selection mutation operations are:
 
@@ -205,7 +224,9 @@ The public selection mutation operations are:
 - `SelectionUpdate::replace_all_clauses(...)`
 - `SelectionUpdate::replace_clauses_in_scope(...)`
 - `SelectionUpdate::upsert_clauses(...)`
+- `SelectionUpdate::toggle_clauses(...)`
 - `SelectionUpdate::delete_clauses(...)`
+- `SelectionUpdate::delete_clauses_in_scope(...)`
 
 Selection updates can run in the same event binding as param and store updates.
 This lets interaction chrome and semantic selection predicates become visible
@@ -284,15 +305,37 @@ clears the selection clauses.
 Tools are compile-time packages over the same primitives. A selection tool can
 expand through `ToolExpansion` into:
 
-- a `Store` for editable chrome rows,
 - a neutral `Selection` for predicate semantics,
 - event bindings that mutate the store and selection,
+- optional `Store` rows for editable chrome,
 - ordinary overlay marks that read `StoreData`,
 - optional params and metadata.
 
-The built-in `BoxSelection` tool should use this shape. It does not need a
-private overlay scene-mark system; editable boxes are regular chart marks over
-regular store rows.
+`PointSelection` is the built-in click-selection tool. It contributes a
+selection, an enabled param, click replace and shift-click toggle bindings, an
+optional double-click clear binding, and metadata:
+
+```rust
+let picked = PointSelection::new("picked").field("category");
+
+Plot::<Cartesian>::new()
+    .tool(picked.clone())
+    .mark(
+        Symbol::new()
+            .x(col("x"))
+            .y(col("y"))
+            .fill_with(lit("#b8beca"), |c| {
+                c.no_scale()
+                    .when_value(picked.predicate(), lit("#2563eb"))
+                    .no_legend()
+            }),
+    );
+```
+
+`PointSelection` is chrome-free: it contributes no stores or marks. Region
+selection tools such as box and lasso selection use the same selection
+primitive for predicate semantics, plus stores and ordinary marks for editable
+selection chrome. They do not need a private overlay scene-mark system.
 
 ## Invariants
 

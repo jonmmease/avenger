@@ -2,15 +2,16 @@
 
 use avenger_chart_cartesian::{Cartesian, CartesianRectPositionChannels};
 use avenger_chart_core::{
-    AvengerChartError, ChartEventBinding, ChartEventStream, ChartEventType, ChartTool, Param,
-    Sharing, ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamSharing, ToolScaleEdit,
-    event as ev,
+    AvengerChartError, ChartEventBinding, ChartEventStream, ChartEventType, ChartTool,
+    CoordinateSystemCore, EmptySelectionBehavior, IntoExpr, Param, Selection,
+    SelectionClauseUpdate, SelectionUpdate, Sharing, ToolExpansion, ToolExpansionContext,
+    ToolMetadata, ToolParamSharing, ToolScaleEdit, event as ev,
 };
 use avenger_chart_marks::Rect;
 use datafusion::{
     common::ScalarValue,
     functions::expr_fn::power,
-    prelude::{Expr, lit},
+    prelude::{Expr, col, lit},
 };
 
 #[derive(Clone, Debug)]
@@ -208,6 +209,246 @@ impl ChartTool<Cartesian> for PanScrollZoom {
 
         Ok(expansion)
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct PointSelection {
+    selection_id: String,
+    tool_id: String,
+    dimensions: Vec<PointSelectionDimension>,
+    clause_id: Option<Expr>,
+    facet_scope: Sharing,
+    facet_context_fields: Vec<(String, Expr)>,
+    empty: EmptySelectionBehavior,
+    shift_toggle: bool,
+    double_click_clear: bool,
+    enabled_by_default: bool,
+}
+
+#[derive(Clone, Debug)]
+struct PointSelectionDimension {
+    field_expr: Expr,
+    datum_field: String,
+}
+
+impl PointSelection {
+    pub fn new(selection_id: impl Into<String>) -> Self {
+        let selection_id = selection_id.into();
+        Self {
+            tool_id: selection_id.clone(),
+            selection_id,
+            dimensions: Vec::new(),
+            clause_id: None,
+            facet_scope: Sharing::Free,
+            facet_context_fields: Vec::new(),
+            empty: EmptySelectionBehavior::SelectNothing,
+            shift_toggle: true,
+            double_click_clear: true,
+            enabled_by_default: true,
+        }
+    }
+
+    pub fn id(mut self, tool_id: impl Into<String>) -> Self {
+        self.tool_id = tool_id.into();
+        self
+    }
+
+    pub fn field(self, field: impl Into<String>) -> Self {
+        let field = field.into();
+        self.dimension(col(&field), field)
+    }
+
+    pub fn dimension(mut self, field_expr: impl IntoExpr, datum_field: impl Into<String>) -> Self {
+        self.dimensions.push(PointSelectionDimension {
+            field_expr: field_expr.into_expr(),
+            datum_field: datum_field.into(),
+        });
+        self
+    }
+
+    pub fn clause_id(mut self, id: impl IntoExpr) -> Self {
+        self.clause_id = Some(id.into_expr());
+        self
+    }
+
+    pub fn facet_scope(mut self, scope: Sharing) -> Self {
+        self.facet_scope = scope;
+        self
+    }
+
+    pub fn facet_context_field(mut self, id: impl Into<String>, expr: impl IntoExpr) -> Self {
+        self.facet_context_fields
+            .push((id.into(), expr.into_expr()));
+        self
+    }
+
+    pub fn empty_selects_nothing(mut self) -> Self {
+        self.empty = EmptySelectionBehavior::SelectNothing;
+        self
+    }
+
+    pub fn empty_selects_all(mut self) -> Self {
+        self.empty = EmptySelectionBehavior::SelectAll;
+        self
+    }
+
+    pub fn shift_toggle(mut self, enabled: bool) -> Self {
+        self.shift_toggle = enabled;
+        self
+    }
+
+    pub fn double_click_clear(mut self, enabled: bool) -> Self {
+        self.double_click_clear = enabled;
+        self
+    }
+
+    pub fn enabled_by_default(mut self, enabled: bool) -> Self {
+        self.enabled_by_default = enabled;
+        self
+    }
+
+    pub fn predicate(&self) -> Expr {
+        Selection::new(&self.selection_id).predicate()
+    }
+
+    fn enabled_param_name(&self) -> String {
+        generated_tool_name(&self.tool_id, "enabled")
+    }
+
+    fn selection(&self) -> Selection {
+        let mut selection =
+            Selection::new(&self.selection_id).combine(avenger_chart_core::SelectionCombine::Union);
+        selection = match self.empty {
+            EmptySelectionBehavior::SelectAll => selection.empty_selects_all(),
+            EmptySelectionBehavior::SelectNothing => selection.empty_selects_nothing(),
+        };
+        for (id, expr) in &self.facet_context_fields {
+            selection = selection.facet_context_field(id.clone(), expr.clone());
+        }
+        selection
+    }
+
+    fn clause(&self) -> Result<SelectionClauseUpdate, AvengerChartError> {
+        match self.dimensions.as_slice() {
+            [] => Err(AvengerChartError::InvalidArgument(format!(
+                "tool '{}' requires at least one point selection dimension",
+                self.tool_id
+            ))),
+            [dimension] if self.clause_id.is_none() => Ok(SelectionClauseUpdate::equality_value(
+                dimension.field_expr.clone(),
+                ev::datum(&dimension.datum_field),
+            )
+            .facet_scope(self.facet_scope)),
+            dimensions => {
+                let Some(clause_id) = &self.clause_id else {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "tool '{}' has multiple point selection dimensions and requires \
+                         .clause_id(...)",
+                        self.tool_id
+                    )));
+                };
+                let mut builder = SelectionClauseUpdate::equality(clause_id.clone())
+                    .facet_scope(self.facet_scope);
+                for dimension in dimensions {
+                    builder = builder.dimension(
+                        dimension.field_expr.clone(),
+                        ev::datum(&dimension.datum_field),
+                    );
+                }
+                Ok(builder.build())
+            }
+        }
+    }
+}
+
+impl<C: CoordinateSystemCore> ChartTool<C> for PointSelection {
+    fn id(&self) -> &str {
+        &self.tool_id
+    }
+
+    fn expand(
+        &self,
+        _ctx: ToolExpansionContext<'_>,
+    ) -> Result<ToolExpansion<C>, AvengerChartError> {
+        let enabled = Param::new(
+            self.enabled_param_name(),
+            ScalarValue::Boolean(Some(self.enabled_by_default)),
+        );
+        let clause = self.clause()?;
+        let mut expansion = ToolExpansion::new()
+            .param(enabled.clone(), ToolParamSharing::Explicit(Sharing::Shared))
+            .selection(self.selection())
+            .event_binding(point_selection_replace_binding(
+                &enabled.name,
+                &self.selection_id,
+                &self.dimensions,
+                clause.clone(),
+            ))
+            .metadata(
+                ToolMetadata::new(self.tool_id.clone(), "Point Selection")
+                    .enabled_param(enabled.name.clone()),
+            );
+
+        if self.shift_toggle {
+            expansion = expansion.event_binding(point_selection_toggle_binding(
+                &enabled.name,
+                &self.selection_id,
+                &self.dimensions,
+                clause,
+            ));
+        }
+        if self.double_click_clear {
+            expansion = expansion.event_binding(point_selection_clear_binding(
+                &enabled.name,
+                &self.selection_id,
+            ));
+        }
+
+        Ok(expansion)
+    }
+}
+
+fn point_selection_replace_binding(
+    enabled_param: &str,
+    selection_id: &str,
+    dimensions: &[PointSelectionDimension],
+    clause: SelectionClauseUpdate,
+) -> ChartEventBinding {
+    point_selection_click_binding(enabled_param, dimensions, false)
+        .set_selection(selection_id, SelectionUpdate::replace_all_clauses([clause]))
+}
+
+fn point_selection_toggle_binding(
+    enabled_param: &str,
+    selection_id: &str,
+    dimensions: &[PointSelectionDimension],
+    clause: SelectionClauseUpdate,
+) -> ChartEventBinding {
+    point_selection_click_binding(enabled_param, dimensions, true)
+        .set_selection(selection_id, SelectionUpdate::toggle_clause(clause))
+}
+
+fn point_selection_click_binding(
+    enabled_param: &str,
+    dimensions: &[PointSelectionDimension],
+    shift: bool,
+) -> ChartEventBinding {
+    let mut binding = ChartEventBinding::on(ChartEventType::Click)
+        .filter(ev::param(enabled_param).eq(lit(true)))
+        .filter(ev::button().eq(lit("left")))
+        .filter(ev::shift().eq(lit(shift)))
+        .exact();
+    for dimension in dimensions {
+        binding = binding.filter(ev::datum(&dimension.datum_field).is_not_null());
+    }
+    binding
+}
+
+fn point_selection_clear_binding(enabled_param: &str, selection_id: &str) -> ChartEventBinding {
+    ChartEventBinding::on(ChartEventType::DoubleClick)
+        .filter(ev::param(enabled_param).eq(lit(true)))
+        .clear_selection(selection_id)
+        .exact()
 }
 
 #[derive(Clone, Debug)]
@@ -723,6 +964,84 @@ mod tests {
                 .params
                 .iter()
                 .any(|p| p.param.name == "__tool_nav__y_domain")
+        );
+    }
+
+    #[test]
+    fn point_selection_expands_to_selection_param_bindings_and_metadata() {
+        let tool = PointSelection::new("picked").field("category");
+        let expansion = <PointSelection as ChartTool<Cartesian>>::expand(
+            &tool,
+            ToolExpansionContext {
+                tool_id: <PointSelection as ChartTool<Cartesian>>::id(&tool),
+            },
+        )
+        .expect("expand");
+
+        assert_eq!(expansion.params.len(), 1);
+        assert_eq!(expansion.selections.len(), 1);
+        assert_eq!(expansion.event_bindings.len(), 3);
+        assert_eq!(expansion.metadata.len(), 1);
+        assert!(expansion.stores.is_empty());
+        assert!(expansion.marks.is_empty());
+        assert!(expansion.scale_edits.is_empty());
+        assert_eq!(expansion.params[0].param.name, "__tool_picked__enabled");
+        assert_eq!(expansion.selections[0].id, "picked");
+        assert_eq!(expansion.metadata[0].id, "picked");
+        assert_eq!(
+            expansion
+                .event_bindings
+                .iter()
+                .filter(|binding| binding.event_type == ChartEventType::Click)
+                .count(),
+            2
+        );
+        assert!(expansion.event_bindings.iter().any(|binding| {
+            binding.event_type == ChartEventType::DoubleClick
+                && binding.selection_assignments.len() == 1
+        }));
+    }
+
+    #[test]
+    fn point_selection_multiple_dimensions_require_clause_id() {
+        let tool = PointSelection::new("picked")
+            .dimension(col("category"), "category")
+            .dimension(col("region"), "region");
+        let err = match <PointSelection as ChartTool<Cartesian>>::expand(
+            &tool,
+            ToolExpansionContext {
+                tool_id: <PointSelection as ChartTool<Cartesian>>::id(&tool),
+            },
+        ) {
+            Ok(_) => panic!("missing clause id should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("requires .clause_id(...)"));
+    }
+
+    #[test]
+    fn point_selection_disabled_default_sets_enabled_param_false() {
+        let tool = PointSelection::new("picked")
+            .field("category")
+            .enabled_by_default(false);
+        let expansion = <PointSelection as ChartTool<Cartesian>>::expand(
+            &tool,
+            ToolExpansionContext {
+                tool_id: <PointSelection as ChartTool<Cartesian>>::id(&tool),
+            },
+        )
+        .expect("expand");
+
+        assert_eq!(
+            expansion.params[0].param.default,
+            ScalarValue::Boolean(Some(false))
+        );
+        assert!(
+            expansion
+                .event_bindings
+                .iter()
+                .all(|binding| binding.filters.len() >= 1),
+            "every binding should include the enabled-param filter"
         );
     }
 

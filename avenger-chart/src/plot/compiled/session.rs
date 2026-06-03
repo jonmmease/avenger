@@ -640,6 +640,10 @@ pub enum SelectionStateUpdate {
     DeleteClauses {
         ids: Vec<String>,
     },
+    DeleteClausesInScope {
+        scope_owner_path: Vec<ScalarValue>,
+        ids: Vec<String>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -721,6 +725,19 @@ fn apply_selection_update(state: &mut MutableSelectionState, update: SelectionSt
             let mut changed = false;
             state.clauses.retain(|_, clause| {
                 let remove = ids.iter().any(|id| id == &clause.id);
+                changed |= remove;
+                !remove
+            });
+            changed
+        }
+        SelectionStateUpdate::DeleteClausesInScope {
+            scope_owner_path,
+            ids,
+        } => {
+            let mut changed = false;
+            state.clauses.retain(|_, clause| {
+                let remove = clause.scope.owner_path == scope_owner_path
+                    && ids.iter().any(|id| id == &clause.id);
                 changed |= remove;
                 !remove
             });
@@ -2960,6 +2977,71 @@ mod tests {
         }
     }
 
+    fn compound_group_equality_selection_clause(
+        id: &str,
+        row_value: ScalarValue,
+        col_value: ScalarValue,
+    ) -> SelectionClause {
+        SelectionClause {
+            id: id.to_string(),
+            scope: avenger_chart_core::ResolvedSelectionClauseScope {
+                sharing: Sharing::Shared,
+                owner_path: Vec::new(),
+            },
+            predicate: avenger_chart_core::SelectionPredicateSpec::Equality {
+                dimensions: vec![
+                    avenger_chart_core::SelectionEqualityDimensionValue {
+                        id: "row_group".to_string(),
+                        field_expr: LogicalExprNode::from_expr(col("row_group"))
+                            .expect("serialize row equality field"),
+                        value: row_value,
+                    },
+                    avenger_chart_core::SelectionEqualityDimensionValue {
+                        id: "col_group".to_string(),
+                        field_expr: LogicalExprNode::from_expr(col("col_group"))
+                            .expect("serialize column equality field"),
+                        value: col_value,
+                    },
+                ],
+            },
+            facet_context: Vec::new(),
+        }
+    }
+
+    fn x_equality_selection_clause_with_facet_context(
+        id: &str,
+        sharing: Sharing,
+        owner_path: Vec<ScalarValue>,
+        facet_ids: &[&str],
+        value: ScalarValue,
+    ) -> SelectionClause {
+        SelectionClause {
+            id: id.to_string(),
+            scope: avenger_chart_core::ResolvedSelectionClauseScope {
+                sharing,
+                owner_path: owner_path.clone(),
+            },
+            predicate: avenger_chart_core::SelectionPredicateSpec::Equality {
+                dimensions: vec![avenger_chart_core::SelectionEqualityDimensionValue {
+                    id: "x".to_string(),
+                    field_expr: LogicalExprNode::from_expr(col("x"))
+                        .expect("serialize x equality field"),
+                    value,
+                }],
+            },
+            facet_context: facet_ids
+                .iter()
+                .zip(owner_path)
+                .map(
+                    |(id, value)| avenger_chart_core::SelectionFacetContextValue {
+                        id: (*id).to_string(),
+                        value,
+                    },
+                )
+                .collect(),
+        }
+    }
+
     async fn evaluate_blue_count_after_selection_clauses(
         compiled: Arc<CompiledPlot>,
         ctx: Arc<SessionContext>,
@@ -4220,6 +4302,63 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn compound_equality_selection_matches_all_dimensions() -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_selection_facet_context_plot(&ctx).await?);
+
+        let count = evaluate_blue_count_after_selection_clauses(
+            compiled,
+            ctx,
+            SelectionStateUpdate::ReplaceAllClauses {
+                clauses: vec![compound_group_equality_selection_clause(
+                    "north_west",
+                    ScalarValue::Utf8(Some("North".to_string())),
+                    ScalarValue::Utf8(Some("West".to_string())),
+                )],
+            },
+        )
+        .await?;
+        assert_eq!(
+            count, 1,
+            "compound equality clauses should require every dimension to match"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn equality_selection_facet_context_predicate_is_portable()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_selection_facet_context_plot(&ctx).await?);
+        let owner_path = vec![
+            ScalarValue::Utf8(Some("North".to_string())),
+            ScalarValue::Utf8(Some("West".to_string())),
+        ];
+
+        let count = evaluate_blue_count_after_selection_clauses(
+            compiled,
+            ctx,
+            SelectionStateUpdate::ReplaceAllClauses {
+                clauses: vec![x_equality_selection_clause_with_facet_context(
+                    "north_west_x",
+                    Sharing::Free,
+                    owner_path,
+                    &["row_group", "col_group"],
+                    ScalarValue::Float64(Some(1.0)),
+                )],
+            },
+        )
+        .await?;
+        assert_eq!(
+            count, 1,
+            "facet context should make a free-scope clause portable to a sibling data scope"
+        );
+
+        Ok(())
+    }
+
     #[test]
     fn toggle_clauses_insert_and_remove_only_matching_scope() {
         let mut state = MutableSelectionState {
@@ -4268,6 +4407,98 @@ mod tests {
         assert_eq!(state.clauses.len(), 1);
         let remaining = state.clauses.values().next().expect("remaining clause");
         assert_eq!(remaining.scope.owner_path, alpha_owner);
+    }
+
+    #[test]
+    fn delete_clauses_removes_matching_ids_across_scopes() {
+        let mut state = MutableSelectionState {
+            clauses: IndexMap::new(),
+            revision: 0,
+        };
+        let beta_owner = vec![ScalarValue::Utf8(Some("Beta".to_string()))];
+        let alpha_owner = vec![ScalarValue::Utf8(Some("Alpha".to_string()))];
+        let beta = category_equality_selection_clause(
+            "active",
+            Sharing::Free,
+            ScalarValue::Utf8(Some("Beta".to_string())),
+            beta_owner,
+        );
+        let alpha = category_equality_selection_clause(
+            "active",
+            Sharing::Free,
+            ScalarValue::Utf8(Some("Alpha".to_string())),
+            alpha_owner,
+        );
+        let gamma = category_equality_selection_clause(
+            "other",
+            Sharing::Shared,
+            ScalarValue::Utf8(Some("Gamma".to_string())),
+            Vec::new(),
+        );
+
+        assert!(apply_selection_update(
+            &mut state,
+            SelectionStateUpdate::UpsertClauses {
+                clauses: vec![beta, alpha, gamma.clone()]
+            }
+        ));
+        assert!(apply_selection_update(
+            &mut state,
+            SelectionStateUpdate::DeleteClauses {
+                ids: vec!["active".to_string()]
+            }
+        ));
+
+        assert_eq!(state.clauses.len(), 1);
+        let remaining = state.clauses.values().next().expect("remaining clause");
+        assert_eq!(remaining.id, gamma.id);
+        assert!(remaining.scope.owner_path.is_empty());
+    }
+
+    #[test]
+    fn delete_clauses_in_scope_removes_only_matching_owner_path_and_id() {
+        let mut state = MutableSelectionState {
+            clauses: IndexMap::new(),
+            revision: 0,
+        };
+        let beta_owner = vec![ScalarValue::Utf8(Some("Beta".to_string()))];
+        let alpha_owner = vec![ScalarValue::Utf8(Some("Alpha".to_string()))];
+        let beta = category_equality_selection_clause(
+            "active",
+            Sharing::Free,
+            ScalarValue::Utf8(Some("Beta".to_string())),
+            beta_owner.clone(),
+        );
+        let alpha = category_equality_selection_clause(
+            "active",
+            Sharing::Free,
+            ScalarValue::Utf8(Some("Alpha".to_string())),
+            alpha_owner.clone(),
+        );
+        let beta_other = category_equality_selection_clause(
+            "other",
+            Sharing::Free,
+            ScalarValue::Utf8(Some("Beta".to_string())),
+            beta_owner.clone(),
+        );
+
+        assert!(apply_selection_update(
+            &mut state,
+            SelectionStateUpdate::UpsertClauses {
+                clauses: vec![beta, alpha.clone(), beta_other.clone()]
+            }
+        ));
+        assert!(apply_selection_update(
+            &mut state,
+            SelectionStateUpdate::DeleteClausesInScope {
+                scope_owner_path: beta_owner,
+                ids: vec!["active".to_string()]
+            }
+        ));
+
+        assert_eq!(state.clauses.len(), 2);
+        assert!(state.clauses.values().any(|clause| clause == &alpha));
+        assert!(state.clauses.values().any(|clause| clause == &beta_other));
     }
 
     #[tokio::test]

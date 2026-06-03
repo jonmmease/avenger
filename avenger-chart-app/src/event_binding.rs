@@ -217,6 +217,10 @@ enum CompiledSelectionUpdate {
     DeleteClauses {
         ids: Vec<usize>,
     },
+    DeleteClausesInScope {
+        scope: Sharing,
+        ids: Vec<usize>,
+    },
 }
 
 #[derive(Clone)]
@@ -318,6 +322,10 @@ enum SelectionExpressionUpdate {
         clauses: Vec<SelectionExpressionClause>,
     },
     DeleteClauses {
+        ids: Vec<Expr>,
+    },
+    DeleteClausesInScope {
+        scope: Sharing,
         ids: Vec<Expr>,
     },
 }
@@ -821,6 +829,15 @@ fn compile_selection_expression_update(
                 .map(|id| selection_value_expr_to_expr(id, ctx))
                 .collect::<Result<Vec<_>, _>>()?,
         },
+        SelectionUpdate::DeleteClausesInScope { scope, ids } => {
+            SelectionExpressionUpdate::DeleteClausesInScope {
+                scope: *scope,
+                ids: ids
+                    .iter()
+                    .map(|id| selection_value_expr_to_expr(id, ctx))
+                    .collect::<Result<Vec<_>, _>>()?,
+            }
+        }
     })
 }
 
@@ -925,6 +942,9 @@ fn collect_selection_expression_update_exprs(
         SelectionExpressionUpdate::DeleteClauses { ids } => {
             exprs.extend(ids.iter().cloned());
         }
+        SelectionExpressionUpdate::DeleteClausesInScope { ids, .. } => {
+            exprs.extend(ids.iter().cloned());
+        }
     }
 }
 
@@ -961,6 +981,9 @@ fn selection_update_needs_scope(update: &SelectionExpressionUpdate) -> bool {
                     .any(|clause| clause.facet_scope.to_level() != u8::MAX)
         }
         SelectionExpressionUpdate::DeleteClauses { .. } => false,
+        SelectionExpressionUpdate::DeleteClausesInScope { scope, .. } => {
+            scope.to_level() != u8::MAX
+        }
     }
 }
 
@@ -1029,6 +1052,24 @@ fn append_selection_expression_update_specs(
                         append_selection_value_spec(
                             selection_id,
                             &format!("delete_{index}"),
+                            expr,
+                            specs,
+                            filter_count,
+                        )
+                    })
+                    .collect(),
+            }
+        }
+        SelectionExpressionUpdate::DeleteClausesInScope { scope, ids } => {
+            CompiledSelectionUpdate::DeleteClausesInScope {
+                scope,
+                ids: ids
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, expr)| {
+                        append_selection_value_spec(
+                            selection_id,
+                            &format!("delete_scope_{index}"),
                             expr,
                             specs,
                             filter_count,
@@ -1863,6 +1904,16 @@ fn selection_state_update_from_values(
             clauses: selection_clauses_from_values(clauses, spec, values, filter_count, scope)?,
         },
         CompiledSelectionUpdate::DeleteClauses { ids } => SelectionStateUpdate::DeleteClauses {
+            ids: ids
+                .iter()
+                .map(|id| selection_clause_id_from_value(values.get(filter_count + *id)?))
+                .collect::<Option<Vec<_>>>()?,
+        },
+        CompiledSelectionUpdate::DeleteClausesInScope {
+            scope: delete_scope,
+            ids,
+        } => SelectionStateUpdate::DeleteClausesInScope {
+            scope_owner_path: selection_owner_path(*delete_scope, scope)?,
             ids: ids
                 .iter()
                 .map(|id| selection_clause_id_from_value(values.get(filter_count + *id)?))
@@ -3900,6 +3951,10 @@ mod tests {
             .build()
     }
 
+    fn equality_category_value_clause() -> SelectionClauseUpdate {
+        SelectionClauseUpdate::equality_value(col("category"), event::datum("category"))
+    }
+
     fn scene_mark_at_path_with_origin<'a>(
         marks: &'a [SceneMark],
         path: &[usize],
@@ -3936,6 +3991,19 @@ mod tests {
             origin[0] + x + (x2 - x) * 0.37,
             origin[1] + y + (y2 - y) * 0.41,
         ]
+    }
+
+    fn symbol_instance_point(scene: &SceneGraph, instance: &MarkInstance) -> [f32; 2] {
+        let (mark, origin) =
+            scene_mark_at_path_with_origin(&scene.marks, &instance.mark_path, scene.origin)
+                .expect("scene mark at path");
+        let SceneMark::Symbol(symbol) = mark else {
+            panic!("expected symbol mark at hit-test path");
+        };
+        let index = instance.instance_index.expect("symbol instance index");
+        let x = symbol.x_vec()[index];
+        let y = symbol.y_vec()[index];
+        [origin[0] + x, origin[1] + y]
     }
 
     fn collect_rect_fills(scene: &SceneGraph) -> Vec<[f32; 4]> {
@@ -4082,6 +4150,74 @@ mod tests {
             "rtree hit-test instance should match retained event datum rows"
         );
         (state, handlers, mark_instance, position)
+    }
+
+    async fn equality_symbol_state_and_handler(
+        binding: ChartEventBinding,
+    ) -> (
+        ChartAppState,
+        ChartEventBindingHandler,
+        MarkInstance,
+        [f32; 2],
+    ) {
+        let ctx = SessionContext::new();
+        let picked = Selection::new("picked").empty_selects_nothing();
+        let selected = picked.predicate();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('Alpha', 1.0, 1.0),
+                    ('Beta',  2.17, 2.31),
+                    ('Gamma', 3.0, 3.0)
+                ) AS t(category, x, y)",
+            )
+            .await
+            .expect("data");
+        let compiled = Plot::<Cartesian>::new()
+            .canvas_size(420.0, 320.0)
+            .add_selection(picked)
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x(col("x"))
+                    .y(col("y"))
+                    .fill_with(lit("#b8beca"), |c| {
+                        c.no_scale()
+                            .when_value(selected, lit("#2563eb"))
+                            .no_legend()
+                    })
+                    .size(48.0),
+            )
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile equality symbol plot");
+        let handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial build");
+        let datum_mark_instance = retained_event_datum_mark_instance(
+            &state,
+            "category",
+            ScalarValue::Utf8(Some("Beta".to_string())),
+        )
+        .await;
+        let position = symbol_instance_point(&scene, &datum_mark_instance);
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let mark_instance = rtree
+            .pick_top_mark_at_point(&position)
+            .cloned()
+            .expect("rtree should pick the Beta symbol");
+        assert_eq!(mark_instance.mark_path, datum_mark_instance.mark_path);
+        assert_eq!(
+            mark_instance.instance_index, datum_mark_instance.instance_index,
+            "rtree hit-test instance should match retained event datum rows"
+        );
+        (state, handler, mark_instance, position)
     }
 
     async fn click_mark(
@@ -4524,6 +4660,99 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn event_datum_click_resolves_instanced_symbol_rows() {
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::datum("category").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_all_clauses([equality_category_value_clause()]),
+            )
+            .exact();
+        let (mut state, handler, mark_instance, position) =
+            equality_symbol_state_and_handler(binding).await;
+
+        let status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
+        assert!(
+            status.rerender,
+            "clicking an instanced symbol should resolve event datum and patch selection"
+        );
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+        assert_eq!(clauses.len(), 1);
+        assert_eq!(clauses[0].id, "Beta");
+        let SelectionPredicateSpec::Equality { dimensions } = &clauses[0].predicate else {
+            panic!("expected equality predicate");
+        };
+        assert_eq!(
+            dimensions[0].value,
+            ScalarValue::Utf8(Some("Beta".to_string()))
+        );
+    }
+
+    async fn assert_equality_click_uses_facet_scope(
+        facet_scope: Sharing,
+        expected_owner_path: Vec<ScalarValue>,
+    ) {
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::datum("category").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_all_clauses([
+                    equality_category_value_clause().facet_scope(facet_scope)
+                ]),
+            )
+            .exact();
+        let (mut state, handler, mark_instance, position) =
+            equality_bar_state_and_handler(binding).await;
+        let mut scope = coord_scope(0, 0.0, 0.0, 1000.0, 1000.0, &["x", "y"]);
+        scope
+            .sharing_owner_paths
+            .insert(0, vec![ScalarValue::Utf8(Some("Beta".to_string()))]);
+        scope
+            .sharing_owner_paths
+            .insert(1, vec![ScalarValue::Utf8(Some("North".to_string()))]);
+        {
+            let mut app = state.runtime.lock().await;
+            app.last_interaction_state.scopes = vec![scope];
+        }
+
+        let status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
+        assert!(status.rerender);
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+        assert_eq!(clauses.len(), 1);
+        assert_eq!(clauses[0].scope.sharing, facet_scope);
+        assert_eq!(clauses[0].scope.owner_path, expected_owner_path);
+    }
+
+    #[tokio::test]
+    async fn equality_selection_free_scope_uses_leaf_owner_path() {
+        assert_equality_click_uses_facet_scope(
+            Sharing::Free,
+            vec![ScalarValue::Utf8(Some("Beta".to_string()))],
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn equality_selection_level_scope_uses_ancestor_owner_path() {
+        assert_equality_click_uses_facet_scope(
+            Sharing::Level(1),
+            vec![ScalarValue::Utf8(Some("North".to_string()))],
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn equality_selection_shared_scope_uses_root_owner_path() {
+        assert_equality_click_uses_facet_scope(Sharing::Shared, Vec::new()).await;
+    }
+
+    #[tokio::test]
     async fn equality_selection_shift_click_toggles_clause() {
         let binding = ChartEventBinding::on(ChartEventType::Click)
             .filter(event::button().eq(lit("left")))
@@ -4531,7 +4760,7 @@ mod tests {
             .filter(event::datum("category").is_not_null())
             .set_selection(
                 "picked",
-                SelectionUpdate::toggle_clause(equality_category_clause(event::datum("category"))),
+                SelectionUpdate::toggle_clause(equality_category_value_clause()),
             )
             .exact();
         let (mut state, handler, mark_instance, position) =
@@ -4577,7 +4806,7 @@ mod tests {
             .filter(event::datum("category").is_not_null())
             .set_selection(
                 "picked",
-                SelectionUpdate::toggle_clause(equality_category_clause(event::datum("category"))),
+                SelectionUpdate::toggle_clause(equality_category_value_clause()),
             )
             .exact();
         let (mut state, handler, _, _) = equality_bar_state_and_handler(binding).await;
@@ -4616,9 +4845,7 @@ mod tests {
             .filter(event::datum("category").is_not_null())
             .set_selection(
                 "picked",
-                SelectionUpdate::replace_all_clauses([equality_category_clause(event::datum(
-                    "category",
-                ))]),
+                SelectionUpdate::replace_all_clauses([equality_category_value_clause()]),
             )
             .exact();
         let toggle = ChartEventBinding::on(ChartEventType::Click)
@@ -4627,7 +4854,7 @@ mod tests {
             .filter(event::datum("category").is_not_null())
             .set_selection(
                 "picked",
-                SelectionUpdate::toggle_clause(equality_category_clause(event::datum("category"))),
+                SelectionUpdate::toggle_clause(equality_category_value_clause()),
             )
             .exact();
         let (mut state, handlers, _, _) =
@@ -4668,9 +4895,7 @@ mod tests {
             .filter(event::datum("category").is_not_null())
             .set_selection(
                 "picked",
-                SelectionUpdate::replace_all_clauses([equality_category_clause(event::datum(
-                    "category",
-                ))]),
+                SelectionUpdate::replace_all_clauses([equality_category_value_clause()]),
             )
             .exact();
         let clear = ChartEventBinding::on(ChartEventType::DoubleClick)

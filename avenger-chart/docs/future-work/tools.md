@@ -48,9 +48,40 @@ __tool_{id}__y_domain
 
 The default `PanScrollZoom` id is `pan_scroll_zoom`.
 
+## `PointSelection`
+
+`PointSelection` packages click-based equality selection. It contributes a
+neutral `Selection`, an enabled param, event bindings for click replace,
+optional shift-click toggle, optional double-click clear, and tool metadata.
+It does not contribute marks, stores, or scale edits.
+
+```rust
+let picked = PointSelection::new("picked")
+    .field("category")
+    .shift_toggle(true)
+    .double_click_clear(true);
+
+let plot = Plot::<Cartesian>::new()
+    .tool(picked.clone())
+    .mark(
+        Symbol::new()
+            .x(col("x"))
+            .y(col("y"))
+            .fill_with(lit("#b8beca"), |c| {
+                c.no_scale()
+                    .when_value(picked.predicate(), lit("#2563eb"))
+                    .no_legend()
+            }),
+    );
+```
+
+Single-field point selection uses `SelectionClauseUpdate::equality_value(...)`
+so replace and toggle bindings share the same clause identity. Multi-field
+point selections require an explicit clause id.
+
 ## `PanScrollZoom`
 
-`PanScrollZoom` is the first built-in chart tool and lives in
+`PanScrollZoom` is a built-in chart tool and lives in
 `avenger-chart-tools`. It packages Cartesian drag-pan and wheel zoom by
 generating raw-domain params, installing those params on the target scales, and
 emitting DataFusion-backed event bindings.
@@ -138,8 +169,6 @@ The same expansion substrate should support richer interactions:
 - Brush selection: a keyed `Store` of editable region rows, a neutral
   `Selection` derived from that store, event bindings that mutate store rows,
   and ordinary overlay marks that read `StoreData`.
-- Click selection: hit-test metadata patches a selected datum, group, or facet
-  path store or param.
 - Hover and tooltips: hover params drive tooltip marks or app UI.
 - Annotation drawing: drag state patches annotation stores and overlay marks.
 - Reset/domain controls: app or chart controls patch tool-owned params back to

@@ -43,7 +43,7 @@ pub use avenger_chart_core::{
     ChartTool, ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamExpansion,
     ToolParamSharing, ToolScaleEdit,
 };
-pub use avenger_chart_tools::{BoxZoom, PanScrollZoom};
+pub use avenger_chart_tools::{BoxZoom, PanScrollZoom, PointSelection};
 
 // Re-export theme types
 pub use avenger_chart_core::Theme;

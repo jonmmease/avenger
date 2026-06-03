@@ -108,6 +108,10 @@ pub enum SelectionUpdate {
     DeleteClauses {
         ids: Vec<SelectionValueExpr>,
     },
+    DeleteClausesInScope {
+        scope: Sharing,
+        ids: Vec<SelectionValueExpr>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -226,9 +230,33 @@ impl SelectionUpdate {
             ids: ids.into_iter().map(SelectionValueExpr::new).collect(),
         }
     }
+
+    pub fn delete_clause(id: impl IntoExpr) -> Self {
+        Self::delete_clauses([id])
+    }
+
+    pub fn delete_clauses_in_scope<I, E>(scope: Sharing, ids: I) -> Self
+    where
+        I: IntoIterator<Item = E>,
+        E: IntoExpr,
+    {
+        Self::DeleteClausesInScope {
+            scope,
+            ids: ids.into_iter().map(SelectionValueExpr::new).collect(),
+        }
+    }
+
+    pub fn delete_clause_in_scope(scope: Sharing, id: impl IntoExpr) -> Self {
+        Self::delete_clauses_in_scope(scope, [id])
+    }
 }
 
 impl SelectionClauseUpdate {
+    pub fn facet_scope(mut self, facet_scope: Sharing) -> Self {
+        self.facet_scope = facet_scope;
+        self
+    }
+
     pub fn interval(id: impl IntoExpr) -> SelectionIntervalClauseBuilder {
         SelectionIntervalClauseBuilder {
             update: Self {
@@ -251,6 +279,16 @@ impl SelectionClauseUpdate {
                 },
             },
         }
+    }
+
+    pub fn equality_value(
+        field_expr: impl IntoExpr,
+        value_expr: impl IntoExpr,
+    ) -> SelectionClauseUpdate {
+        let value_expr = value_expr.into_expr();
+        SelectionClauseUpdate::equality(value_expr.clone())
+            .dimension(field_expr, value_expr)
+            .build()
     }
 }
 
@@ -583,6 +621,27 @@ mod tests {
     }
 
     #[test]
+    fn equality_value_clause_uses_value_as_id_and_dimension_value() {
+        let clause =
+            SelectionClauseUpdate::equality_value(col("category"), event::datum("category"))
+                .facet_scope(Sharing::Shared);
+        let json = serde_json::to_string(&clause).expect("serialize clause");
+        let restored: SelectionClauseUpdate =
+            serde_json::from_str(&json).expect("deserialize clause");
+        assert_eq!(restored.facet_scope, Sharing::Shared);
+        let restored_id = restored.id.clone();
+        let SelectionPredicateUpdate::Equality { dimensions } = restored.predicate else {
+            panic!("expected equality predicate");
+        };
+        assert_eq!(dimensions.len(), 1);
+        assert_eq!(dimensions[0].id, "category");
+        assert_eq!(
+            dimensions[0].value, restored_id,
+            "the clause id and equality value should be the same expression"
+        );
+    }
+
+    #[test]
     fn toggle_clause_update_serializes() {
         let update = SelectionUpdate::toggle_clause(
             SelectionClauseUpdate::equality(event::datum("category"))
@@ -594,5 +653,20 @@ mod tests {
             panic!("expected toggle clauses");
         };
         assert_eq!(clauses.len(), 1);
+    }
+
+    #[test]
+    fn scoped_delete_update_serializes() {
+        let update = SelectionUpdate::delete_clauses_in_scope(
+            Sharing::Level(1),
+            [event::datum("category"), lit("fallback")],
+        );
+        let json = serde_json::to_string(&update).expect("serialize update");
+        let restored: SelectionUpdate = serde_json::from_str(&json).expect("deserialize update");
+        let SelectionUpdate::DeleteClausesInScope { scope, ids } = restored else {
+            panic!("expected scoped delete clauses");
+        };
+        assert_eq!(scope, Sharing::Level(1));
+        assert_eq!(ids.len(), 2);
     }
 }

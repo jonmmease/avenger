@@ -6,7 +6,6 @@
 
 use std::sync::Arc;
 
-use avenger_chart::event as ev;
 use avenger_chart::prelude::*;
 use avenger_chart_app::{
     ChartAppOptions, ChartResizeBinding, WinitWgpuAvengerApp, WinitWgpuAvengerAppOptions,
@@ -14,7 +13,7 @@ use avenger_chart_app::{
 };
 use datafusion::{
     functions_aggregate::expr_fn::sum,
-    prelude::{Expr, SessionContext, col, lit},
+    prelude::{SessionContext, col, lit},
 };
 use winit::window::WindowAttributes;
 
@@ -48,12 +47,13 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .await
         .expect("build data");
 
-    let picked = Selection::new("picked").empty_selects_nothing();
+    let picked = PointSelection::new("picked").field("category");
     let selected = picked.predicate();
 
     let bars = Plot::<Cartesian>::new()
         .data(df.clone())
         .title("Click bars")
+        .tool(picked)
         .mark(
             Rect::new()
                 .x_with(col("category"), |c| {
@@ -69,10 +69,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                 })
                 .stroke("#ffffff")
                 .stroke_width(1.0),
-        )
-        .event_binding(replace_binding())
-        .event_binding(toggle_binding())
-        .event_binding(clear_binding());
+        );
 
     let scatter = Plot::<Cartesian>::new()
         .data(df)
@@ -93,7 +90,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
     let plot = Plot::<HConcat>::new()
         .canvas_size(1040.0, 470.0)
-        .add_selection(picked)
         .mark(Subplot::new(bars).key("bars").label("Bar selection"))
         .mark(
             Subplot::new(scatter)
@@ -114,42 +110,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     )
     .await
     .expect("build chart app")
-}
-
-fn replace_binding() -> ChartEventBinding {
-    ChartEventBinding::on(ChartEventType::Click)
-        .filter(ev::button().eq(lit("left")))
-        .filter(ev::shift().eq(lit(false)))
-        .filter(ev::datum("category").is_not_null())
-        .set_selection(
-            "picked",
-            SelectionUpdate::replace_all_clauses([category_clause(ev::datum("category"))]),
-        )
-        .exact()
-}
-
-fn toggle_binding() -> ChartEventBinding {
-    ChartEventBinding::on(ChartEventType::Click)
-        .filter(ev::button().eq(lit("left")))
-        .filter(ev::shift().eq(lit(true)))
-        .filter(ev::datum("category").is_not_null())
-        .set_selection(
-            "picked",
-            SelectionUpdate::toggle_clause(category_clause(ev::datum("category"))),
-        )
-        .exact()
-}
-
-fn clear_binding() -> ChartEventBinding {
-    ChartEventBinding::on(ChartEventType::DoubleClick)
-        .clear_selection("picked")
-        .exact()
-}
-
-fn category_clause(id: Expr) -> SelectionClauseUpdate {
-    SelectionClauseUpdate::equality(id)
-        .dimension(col("category"), ev::datum("category"))
-        .build()
 }
 
 fn init_diagnostics() {

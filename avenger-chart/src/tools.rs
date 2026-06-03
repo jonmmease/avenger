@@ -19,7 +19,7 @@ pub use avenger_chart_core::{
     ChartTool, ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamExpansion,
     ToolParamSharing, ToolScaleEdit,
 };
-pub use avenger_chart_tools::{BoxZoom, PanScrollZoom};
+pub use avenger_chart_tools::{BoxZoom, PanScrollZoom, PointSelection};
 
 pub(crate) struct ToolCompileContext {
     state: Arc<Mutex<ToolCompileState>>,
@@ -730,6 +730,44 @@ mod tests {
             compiled
                 .selection_specs()
                 .contains_key("__tool_custom_selection__brush")
+        );
+    }
+
+    #[tokio::test]
+    async fn point_selection_tool_contributes_selection_bindings_and_metadata() {
+        let ctx = SessionContext::new();
+        let df = data(&ctx).await;
+        let picked = PointSelection::new("picked").field("group_name");
+        let compiled = Plot::<Cartesian>::new()
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x(col("x"))
+                    .y(col("y"))
+                    .fill_with(lit("#b8beca"), |c| {
+                        c.no_scale()
+                            .when_value(picked.predicate(), lit("#2563eb"))
+                            .no_legend()
+                    }),
+            )
+            .tool(picked)
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        assert!(
+            compiled
+                .param_specs()
+                .contains_key("__tool_picked__enabled")
+        );
+        assert!(compiled.selection_specs().contains_key("picked"));
+        assert_eq!(compiled.event_bindings().len(), 3);
+        assert_eq!(compiled.tool_metadata().len(), 1);
+        assert_eq!(compiled.tool_metadata()[0].id, "picked");
+        assert_eq!(
+            compiled.event_datum_types().get("group_name"),
+            Some(&DataType::Utf8),
+            "point selection should request clicked datum values"
         );
     }
 
