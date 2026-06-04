@@ -401,26 +401,30 @@ fn make_line_group(
         color: ColorOrGradient::Color(label_color.unwrap_or([0.235, 0.235, 0.235, 1.0])).into(),
         ..Default::default()
     };
-    let text_bounds = text_mark.bounding_box();
-    let row_width = (max_line_length + text_padding + text_bounds.width()).ceil();
-    let row_height = text_bounds.height().max(stroke_width.max(1.0)).ceil();
+    let content_marks = vec![
+        SceneMark::Line(single_line_mark).with_interactive(false),
+        SceneMark::Text(Arc::new(text_mark)).with_interactive(false),
+    ];
+    let content_bbox = SceneGroup {
+        marks: content_marks.clone(),
+        ..Default::default()
+    }
+    .bounding_box();
 
     SceneGroup {
         origin: [x_offset, y],
-        marks: vec![
-            SceneMark::Rect(SceneRectMark {
-                x: 0.0.into(),
-                y: (-row_height / 2.0).into(),
-                width: Some(row_width.into()),
-                height: Some(row_height.into()),
-                fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
-                stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
-                stroke_width: 0.0.into(),
-                ..Default::default()
-            }),
-            SceneMark::Line(single_line_mark).with_interactive(false),
-            SceneMark::Text(Arc::new(text_mark)).with_interactive(false),
-        ],
+        marks: std::iter::once(SceneMark::Rect(SceneRectMark {
+            x: content_bbox.lower()[0].into(),
+            y: content_bbox.lower()[1].into(),
+            width: Some(content_bbox.width().into()),
+            height: Some(content_bbox.height().into()),
+            fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
+            stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
+            stroke_width: 0.0.into(),
+            ..Default::default()
+        }))
+        .chain(content_marks)
+        .collect(),
         ..Default::default()
     }
 }

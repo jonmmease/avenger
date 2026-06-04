@@ -1582,6 +1582,22 @@ impl CompiledPlot {
                         group.primary_channel
                     )));
                 }
+                let overlay_channels = group
+                    .channels
+                    .iter()
+                    .filter(|channel| {
+                        self.legend_colorbar_overlays
+                            .iter()
+                            .any(|overlay| overlay.channel_name == channel.name)
+                    })
+                    .map(|channel| channel.name.as_str())
+                    .collect::<Vec<_>>();
+                if !overlay_channels.is_empty() && rendered.continuous_surfaces.is_empty() {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "Legend '{}' has colorbar overlay marks but did not render a colorbar surface",
+                        overlay_channels.join(", ")
+                    )));
+                }
                 let legend_index = legend_marks.len();
                 let legend_origin = rendered.group.origin;
                 let surface_keys = group

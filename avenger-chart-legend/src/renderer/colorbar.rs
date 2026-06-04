@@ -509,3 +509,76 @@ fn colorbar_surface_scales(
     let band_scale = BandScale::configured(band_domain, band_range);
     (value_scale, band_scale)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use avenger_chart_core::{
+        LegendChannel, LegendContinuousOrientation, LegendPosition, LegendSurfaceKind,
+    };
+    use avenger_scales::scales::linear::LinearScale;
+
+    use super::*;
+
+    #[test]
+    fn colorbar_renderer_emits_continuous_surface_metadata() {
+        futures::executor::block_on(async {
+            let renderer = CompiledColorbar::new();
+            let scale = LinearScale::configured_color((0.0, 100.0), ["#440154", "#fde725"]);
+            let channel = LegendChannel {
+                name: "fill".to_string(),
+                expression: None,
+                scale,
+                channel_type: "fill".to_string(),
+                sharing_level: None,
+                mark_type: "symbol".to_string(),
+                mark_index: 0,
+                related_channels: HashMap::new(),
+            };
+            let config = Legend::new()
+                .id("temperature")
+                .position(LegendPosition::Right)
+                .title("Temperature");
+            let theme = Theme::light();
+            let params = IndexMap::new();
+            let ctx = SessionContext::new();
+            let output = renderer
+                .evaluate(
+                    &[channel],
+                    &config,
+                    0.0,
+                    0.0,
+                    80.0,
+                    220.0,
+                    &theme,
+                    &params,
+                    &ctx,
+                )
+                .await
+                .expect("colorbar evaluates")
+                .expect("colorbar output");
+
+            assert!(output.items.is_empty());
+            assert_eq!(output.continuous_surfaces.len(), 1);
+            let surface = &output.continuous_surfaces[0];
+            assert_eq!(surface.kind, LegendSurfaceKind::ContinuousColorbar);
+            assert_eq!(surface.orientation, LegendContinuousOrientation::Right);
+            assert_eq!(surface.channel, "fill");
+            assert_eq!(surface.name, "fill");
+            assert_eq!(surface.legend_id.as_deref(), Some("temperature"));
+            assert_eq!(surface.surface_key, "fill");
+            assert_eq!(surface.value_channel, "y");
+            assert_eq!(surface.band_channel, "x");
+            assert_eq!(surface.hit_rect_path, surface.gradient_rect_path);
+            assert!(surface.bounds.width > 0.0);
+            assert!(surface.bounds.height > 0.0);
+
+            let midpoint = surface
+                .value_scale
+                .invert_scalar(surface.bounds.height * 0.5)
+                .expect("value scale inverts");
+            assert!((midpoint - 50.0).abs() < 1.0);
+        });
+    }
+}

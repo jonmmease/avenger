@@ -7711,7 +7711,8 @@ mod tests {
                     .y(col("value"))
                     .size(24.0)
                     .fill_with(col("value"), |c| {
-                        c.legend(|l| l.title("Value").colorbar_overlay(overlay))
+                        c.scale_with::<Linear>(|s| s.domain((0.0, 10.0)).nice(false).zero(false))
+                            .legend(|l| l.title("Value").colorbar_overlay(overlay))
                     }),
             )
             .compile(&ctx)
@@ -7741,6 +7742,241 @@ mod tests {
                 .marks
                 .iter()
                 .any(|mark| matches!(mark, avenger_scenegraph::marks::mark::SceneMark::Rect(_)))
+        );
+        let (clip_width, clip_height) = clip_dimensions(overlay_group);
+        let rect = first_rect_mark(overlay_group);
+        assert_close(rect.x_vec()[0], 0.0);
+        assert_close(rect.x2_vec()[0], clip_width);
+        assert_close(rect.y_vec()[0], clip_height * 0.8);
+        assert_close(rect.y2_vec()[0], clip_height * 0.3);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn horizontal_colorbar_overlay_rect_maps_data_values_to_pixels()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let df = deeply_nested_dataframe(&ctx);
+        let overlay = crate::legend::ColorbarOverlay::new().mark(
+            Rect::<Cartesian>::new()
+                .unit_data()
+                .exclude_from_scale_domains()
+                .x(lit(2.0))
+                .x2(lit(7.0))
+                .y_with(lit("colorbar"), |c| c.band(0.0))
+                .y2_with(lit("colorbar"), |c| c.band(1.0))
+                .fill("rgba(37, 99, 235, 0.20)")
+                .stroke("#2563eb")
+                .stroke_width(1.5),
+        );
+        let compiled = Plot::<Cartesian>::new()
+            .data(df)
+            .canvas_size(420.0, 320.0)
+            .mark(
+                Symbol::new()
+                    .x(col("value"))
+                    .y(col("value"))
+                    .size(24.0)
+                    .fill_with(col("value"), |c| {
+                        c.scale_with::<Linear>(|s| s.domain((0.0, 10.0)).nice(false).zero(false))
+                            .legend(|l| {
+                                l.title("Value")
+                                    .position(LegendPosition::Bottom)
+                                    .colorbar_overlay(overlay)
+                            })
+                    }),
+            )
+            .compile(&ctx)
+            .await?;
+
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let overlay_group =
+            find_scene_group_by_name(&evaluated.scene_graph.marks, "fill-colorbar-overlays")
+                .expect("colorbar overlay group should render");
+        let (clip_width, clip_height) = clip_dimensions(overlay_group);
+        let rect = first_rect_mark(overlay_group);
+        assert_close(rect.x_vec()[0], clip_width * 0.2);
+        assert_close(rect.x2_vec()[0], clip_width * 0.7);
+        assert_close(rect.y_vec()[0], 0.0);
+        assert_close(rect.y2_vec()[0], clip_height);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn colorbar_overlay_channels_do_not_affect_parent_domains_or_legends()
+    -> Result<(), AvengerChartError> {
+        use avenger_chart_core::{ConfiguredScaleLegendExt, DomainValues};
+
+        let ctx = SessionContext::new();
+        let df = deeply_nested_dataframe(&ctx);
+        let overlay = crate::legend::ColorbarOverlay::new().mark(
+            Rect::<Cartesian>::new()
+                .unit_data()
+                .x_with(lit("colorbar"), |c| c.band(0.0))
+                .x2_with(lit("colorbar"), |c| c.band(1.0))
+                .y(lit(-1_000.0))
+                .y2(lit(1_000.0))
+                .fill("#2563eb"),
+        );
+        let compiled = Plot::<Cartesian>::new()
+            .data(df)
+            .canvas_size(420.0, 320.0)
+            .mark(
+                Symbol::new()
+                    .x(col("value"))
+                    .y(col("value"))
+                    .size(24.0)
+                    .fill_with(col("value"), |c| {
+                        c.legend(|l| l.title("Value").colorbar_overlay(overlay))
+                    }),
+            )
+            .compile(&ctx)
+            .await?;
+        assert_eq!(compiled.legends.len(), 1);
+        assert!(compiled.legends.contains_key("fill"));
+
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let colorbar_scope = evaluated
+            .interaction
+            .scopes
+            .iter()
+            .find(|scope| scope.kind == InteractionScopeKind::LegendColorbar)
+            .expect("colorbar interaction scope");
+        let value_scale = colorbar_scope
+            .scales
+            .get("y")
+            .expect("vertical colorbar value scale");
+        let DomainValues::Interval(min, max) = value_scale.domain_values()? else {
+            panic!("colorbar scale should have interval domain");
+        };
+        let min = min.as_f64().expect("numeric colorbar domain min");
+        let max = max.as_f64().expect("numeric colorbar domain max");
+        assert!(
+            min > -100.0 && max < 100.0,
+            "overlay interval values should not affect parent colorbar domain: {min}..{max}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn colorbar_overlay_rejects_visible_overlay_legends() {
+        let ctx = SessionContext::new();
+        let df = deeply_nested_dataframe(&ctx);
+        let overlay = crate::legend::ColorbarOverlay::new().mark(
+            Rect::<Cartesian>::new()
+                .unit_data()
+                .x_with(lit("colorbar"), |c| c.band(0.0))
+                .x2_with(lit("colorbar"), |c| c.band(1.0))
+                .y(lit(2.0))
+                .y2(lit(7.0))
+                .fill_with(lit("overlay"), |c| c.legend(|l| l.title("Overlay"))),
+        );
+        let err = match Plot::<Cartesian>::new()
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x(col("value"))
+                    .y(col("value"))
+                    .fill_with(col("value"), |c| c.legend(|l| l.colorbar_overlay(overlay))),
+            )
+            .compile(&ctx)
+            .await
+        {
+            Ok(_) => panic!("overlay legends should be rejected"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("cannot create a legend"));
+    }
+
+    #[tokio::test]
+    async fn colorbar_overlay_rejects_position_scale_configs() {
+        let ctx = SessionContext::new();
+        let df = deeply_nested_dataframe(&ctx);
+        let overlay = crate::legend::ColorbarOverlay::new().mark(
+            Rect::<Cartesian>::new()
+                .unit_data()
+                .x_with(lit("colorbar"), |c| c.scale_with::<Band>(|s| s).band(0.0))
+                .x2_with(lit("colorbar"), |c| c.band(1.0))
+                .y(lit(2.0))
+                .y2(lit(7.0))
+                .fill("#2563eb"),
+        );
+        let err = match Plot::<Cartesian>::new()
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x(col("value"))
+                    .y(col("value"))
+                    .fill_with(col("value"), |c| c.legend(|l| l.colorbar_overlay(overlay))),
+            )
+            .compile(&ctx)
+            .await
+        {
+            Ok(_) => panic!("overlay position scale configs should be rejected"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("cannot define its own scale"));
+    }
+
+    #[tokio::test]
+    async fn colorbar_overlay_rejects_positioned_subplots() {
+        let ctx = SessionContext::new();
+        let df = deeply_nested_dataframe(&ctx);
+        let child = Plot::<Cartesian>::new().mark(Symbol::new().x(lit(0.0)).y(lit(0.0)));
+        let overlay = crate::legend::ColorbarOverlay::new().mark(
+            Subplot::new(child)
+                .subplot_x(lit("colorbar"))
+                .subplot_y(lit(5.0)),
+        );
+        let err = match Plot::<Cartesian>::new()
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x(col("value"))
+                    .y(col("value"))
+                    .fill_with(col("value"), |c| c.legend(|l| l.colorbar_overlay(overlay))),
+            )
+            .compile(&ctx)
+            .await
+        {
+            Ok(_) => panic!("positioned subplots should be rejected"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("positioned subplots"));
+    }
+
+    #[tokio::test]
+    async fn colorbar_overlay_rejects_non_colorbar_legend() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let df = deeply_nested_dataframe(&ctx);
+        let overlay = crate::legend::ColorbarOverlay::new().mark(
+            Rect::<Cartesian>::new()
+                .unit_data()
+                .x_with(lit("colorbar"), |c| c.band(0.0))
+                .x2_with(lit("colorbar"), |c| c.band(1.0))
+                .y(lit(2.0))
+                .y2(lit(7.0))
+                .fill("#2563eb"),
+        );
+        let compiled = Plot::<Cartesian>::new()
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x(col("value"))
+                    .y(col("value"))
+                    .fill_with(col("category"), |c| {
+                        c.legend(|l| l.colorbar_overlay(overlay))
+                    }),
+            )
+            .compile(&ctx)
+            .await?;
+        let err = match compiled.evaluate(&ctx, None).await {
+            Ok(_) => panic!("overlay on a discrete legend should be rejected"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string()
+                .contains("did not render a colorbar surface")
         );
         Ok(())
     }
@@ -8176,6 +8412,34 @@ mod tests {
             }
         }
         None
+    }
+
+    fn clip_dimensions(group: &avenger_scenegraph::marks::group::SceneGroup) -> (f32, f32) {
+        let Clip::Rect { width, height, .. } = group.clip else {
+            panic!("expected rect clip");
+        };
+        (width, height)
+    }
+
+    fn first_rect_mark(group: &avenger_scenegraph::marks::group::SceneGroup) -> &SceneRectMark {
+        group
+            .marks
+            .iter()
+            .find_map(|mark| {
+                if let SceneMark::Rect(rect) = mark {
+                    Some(rect)
+                } else {
+                    None
+                }
+            })
+            .expect("expected rect mark")
+    }
+
+    fn assert_close(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() < 1.0,
+            "expected {actual} to be within 1px of {expected}"
+        );
     }
 
     fn collect_text_x_positions(scene_graph: &SceneGraph, text: &str) -> Vec<f32> {

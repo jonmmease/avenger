@@ -97,6 +97,9 @@ pub const EVENT_PATH_FIELD: &str = "__event_path";
 pub const EVENT_PATH_SVG_FIELD: &str = "__event_path_svg";
 pub const DEFAULT_EVENT_PATH_MIN_DISTANCE_PX: f32 = 2.0;
 
+pub const LEGEND_ITEM_ONLY_DATUM_FIELDS: &[&str] =
+    &[LEGEND_VALUE_FIELD, LEGEND_LABEL_FIELD, LEGEND_INDEX_FIELD];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChartEventType {
     MouseDown,
@@ -1047,6 +1050,10 @@ pub fn rewrite_legend_event_binding_local_datums(
     Ok(binding)
 }
 
+pub fn is_legend_item_only_datum_field(field: &str) -> bool {
+    LEGEND_ITEM_ONLY_DATUM_FIELDS.contains(&field)
+}
+
 fn rewrite_event_stream_legend_datums(
     stream: &mut ChartEventStream,
     ctx: &SessionContext,
@@ -1604,6 +1611,34 @@ mod tests {
             .expect("scan rewritten binding");
         assert!(requests.current_datum.contains(LEGEND_VALUE_FIELD));
         assert!(!requests.current_datum.contains("value"));
+    }
+
+    #[test]
+    fn legend_event_binding_scan_detects_colorbar_coordinate_requests() {
+        let ctx = SessionContext::new();
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .filter(datum("surface_kind").eq(lit(LEGEND_SURFACE_KIND_CONTINUOUS_COLORBAR)))
+            .filter(event_coord("y").is_not_null())
+            .between(
+                ChartEventStream::on(ChartEventType::MouseDown)
+                    .filter(start_coord("y").is_not_null()),
+                ChartEventStream::on(ChartEventType::MouseUp),
+            )
+            .set_param("domain", interval(event_coord("y"), start_coord("y")))
+            .set_param("clipped", event_at_start_clipped_coord("y"))
+            .set_param("start_domain", start_domain("y"))
+            .set_param("event_domain", event_domain("y"));
+
+        let rewritten = rewrite_legend_event_binding_local_datums(binding, &ctx)
+            .expect("legend local datum rewrite succeeds");
+        let requests = scan_chart_event_binding_interaction_columns(&rewritten, &ctx)
+            .expect("scan rewritten binding");
+        assert!(requests.current_datum.contains(LEGEND_SURFACE_KIND_FIELD));
+        assert!(requests.current_coord.contains("y"));
+        assert!(requests.start_coord.contains("y"));
+        assert!(requests.event_at_start_clipped_coord.contains("y"));
+        assert!(requests.start_domain.contains("y"));
+        assert!(requests.current_domain.contains("y"));
     }
 
     #[test]

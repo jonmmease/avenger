@@ -1704,6 +1704,28 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
         };
 
         let requests = &self.runtime.interaction_requests;
+        if matches!(
+            legend_surface_kind_for_mark_instance(&app.last_event_datum_state, event_mark_instance),
+            Some(LegendSurfaceKind::ContinuousColorbar)
+        ) {
+            let item_only_fields = requests
+                .current_datum
+                .iter()
+                .filter(|field| event::is_legend_item_only_datum_field(field))
+                .cloned()
+                .collect::<Vec<_>>();
+            if !item_only_fields.is_empty() {
+                app.event_metrics.evaluation_errors += 1;
+                record_event_eval_elapsed(&mut app.event_metrics, eval_start);
+                tracing::warn!(
+                    target: "avenger_chart_app::event_binding",
+                    binding = self.runtime.binding_index,
+                    fields = ?item_only_fields,
+                    "continuous colorbar legend events do not expose discrete legend item datum fields"
+                );
+                return UpdateStatus::default();
+            }
+        }
         let required_channels = requests.all_channels();
         let routing_enabled = !requests.is_empty() || self.runtime.scope_target.is_some();
 
@@ -6748,6 +6770,38 @@ mod tests {
         assert_eq!(dimensions.len(), 1);
         assert!((scalar_f64(&dimensions[0].min) - 50.0).abs() < 1.0);
         assert!((scalar_f64(&dimensions[0].max) - 50.0).abs() < 1.0);
+    }
+
+    #[tokio::test]
+    async fn colorbar_legend_binding_rejects_item_only_datum_fields() {
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::datum("value").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_clause(colorbar_interval_clause("y")),
+            )
+            .exact();
+        let (mut state, handlers, mark_instance, position) =
+            colorbar_state_and_handlers(LegendPosition::Right, vec![binding]).await;
+
+        let status = click_mark(
+            &mut state,
+            &handlers[0],
+            Some(mark_instance),
+            position,
+            false,
+        )
+        .await;
+        assert!(!status.rerender);
+
+        let runtime = state.runtime.lock().await;
+        assert_eq!(runtime.event_metrics.evaluation_errors, 1);
+        assert!(
+            runtime
+                .session
+                .selection_clauses_for_diagnostics("picked")
+                .is_empty()
+        );
     }
 
     #[tokio::test]

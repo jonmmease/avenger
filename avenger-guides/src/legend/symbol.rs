@@ -379,29 +379,33 @@ fn make_symbol_group(
         color: ColorOrGradient::Color(label_color.unwrap_or([0.235, 0.235, 0.235, 1.0])).into(),
         ..Default::default()
     };
-    let text_bounds = text_mark.bounding_box();
-    let row_width = (max_width + text_padding + text_bounds.width()).ceil();
-    let row_height = (symbol_height + padding * 2.0)
-        .max(text_bounds.height())
-        .round();
+    let content_marks = vec![
+        SceneMark::Symbol(single_symbol_mark).with_interactive(false),
+        SceneMark::Text(Arc::new(text_mark)).with_interactive(false),
+    ];
+    let content_bbox = SceneGroup {
+        marks: content_marks.clone(),
+        ..Default::default()
+    }
+    .bounding_box();
 
     SceneGroup {
         origin,
-        marks: vec![
-            // Full-row transparent hit rect for interactions.
+        marks: std::iter::once(
+            // Transparent hit rect for interactions, sized to the rendered item.
             SceneMark::Rect(SceneRectMark {
-                x: 0.0.into(),
-                y: 0.0.into(),
-                width: Some(row_width.into()),
-                height: Some(row_height.into()),
+                x: content_bbox.lower()[0].into(),
+                y: content_bbox.lower()[1].into(),
+                width: Some(content_bbox.width().into()),
+                height: Some(content_bbox.height().into()),
                 fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
                 stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
                 stroke_width: 0.0.into(),
                 ..Default::default()
             }),
-            SceneMark::Symbol(single_symbol_mark).with_interactive(false),
-            SceneMark::Text(Arc::new(text_mark)).with_interactive(false),
-        ],
+        )
+        .chain(content_marks)
+        .collect(),
 
         stroke_width: Some(1.0),
         ..Default::default()

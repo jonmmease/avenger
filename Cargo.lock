@@ -681,6 +681,7 @@ dependencies = [
  "avenger-scenegraph",
  "avenger-text",
  "datafusion",
+ "futures",
  "indexmap 2.9.0",
  "serde",
  "serde_with",
