@@ -30,6 +30,9 @@ current design is available.
 | [faceting.md](faceting.md) | Mostly implemented for row/column facets; remaining work is facet convenience APIs and mark data strategy. |
 | [repeat.md](repeat.md) | Valid goal; design should choose between schema reshaping, template expansion, or dedicated repeat containers. |
 | [layout.md](layout.md) | Valid goal; concat covers some composition, but arbitrary dashboard composition is still separate. |
+| [async-rasterized-marks.md](async-rasterized-marks.md) | Valid goal; external Datashader-style rasterized mark crates need generic materialization/resource primitives. |
+| [async-m4-lines.md](async-m4-lines.md) | Valid goal; external M4 line-downsampling mark crates need generic view-dependent materialized data primitives. |
+| [map-tiles.md](map-tiles.md) | Valid goal; external Web Mercator coordinate crates can use coordinate-guide tile underlays after generic async-resource primitives land. |
 | [multi-dim-coords.md](multi-dim-coords.md) | Valid goal; requires a repeated or indexed channel model. |
 | [sankey-coords.md](sankey-coords.md) | Valid goal; likely a graph-layout coordinate/mark family, but other paradigms remain plausible. |
 | [hierarchical-coords.md](hierarchical-coords.md) | Valid goal; treemap/sunburst can be coordinates, transforms, or specialized marks. |
