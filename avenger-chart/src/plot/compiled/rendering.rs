@@ -29,8 +29,9 @@ use indexmap::IndexMap;
 use tracing::{Level, debug, trace};
 
 use avenger_chart_core::{
-    AxisPosition, FacetEmptyCellPolicy, LegendPosition, ScalarValueHelpers, eval_to_scalars,
-    evaluate_bool_expr, evaluate_f32_expr, maybe::Maybe, params_to_datafusion,
+    AxisPosition, DerivedScalarsByChannel, FacetEmptyCellPolicy, LegendPosition,
+    ScalarValueHelpers, eval_to_scalars, evaluate_bool_expr, evaluate_f32_expr, maybe::Maybe,
+    params_to_datafusion,
 };
 
 use crate::{
@@ -103,6 +104,21 @@ use super::{
         scale_domain_cache_key_for_parts_with_scope,
     },
 };
+
+fn derived_scalars_by_channel(
+    scales: &HashMap<String, ConfiguredScaleWithSpec>,
+) -> DerivedScalarsByChannel {
+    scales
+        .iter()
+        .filter_map(|(channel, scale)| {
+            if scale.derived_scalars().is_empty() {
+                None
+            } else {
+                Some((channel.clone(), scale.derived_scalars().clone()))
+            }
+        })
+        .collect()
+}
 
 fn selection_revision_fingerprint(
     store: Option<&ScopedSelectionStore>,
@@ -1902,6 +1918,7 @@ impl CompiledPlot {
                 .iter()
                 .map(|(k, v)| (k.clone(), v.configured().clone()))
                 .collect();
+            let derived_scalars = derived_scalars_by_channel(scales);
 
             if tracing::enabled!(Level::DEBUG)
                 && let Some(y_scale) = configured_scales.get("y")
@@ -1919,7 +1936,8 @@ impl CompiledPlot {
             }
 
             let sharing_context =
-                GuideSharingContext::new(facet_tree, facet_path, child_frame_sharing_path);
+                GuideSharingContext::new(facet_tree, facet_path, child_frame_sharing_path)
+                    .with_derived_scalars(&derived_scalars);
             compiled_guide
                 .evaluate(
                     &configured_scales,
@@ -1983,8 +2001,10 @@ impl CompiledPlot {
                 .iter()
                 .map(|(k, v)| (k.clone(), v.configured().clone()))
                 .collect();
+            let derived_scalars = derived_scalars_by_channel(scales);
             let sharing_context =
-                GuideSharingContext::new(facet_tree, facet_path, child_frame_sharing_path);
+                GuideSharingContext::new(facet_tree, facet_path, child_frame_sharing_path)
+                    .with_derived_scalars(&derived_scalars);
             let cache_lookup = eval_ctx.guide_overflow_cache().map(|cache| {
                 let guide_ptr = Arc::as_ptr(compiled_guide) as *const () as usize;
                 let key = self.guide_overflow_cache_key(
@@ -2389,9 +2409,11 @@ impl CompiledPlot {
             .iter()
             .map(|(k, v)| (k.clone(), v.configured().clone()))
             .collect();
+        let derived_scalars = derived_scalars_by_channel(scales);
 
         let sharing_context =
-            GuideSharingContext::new(facet_tree, facet_path, child_frame_sharing_path);
+            GuideSharingContext::new(facet_tree, facet_path, child_frame_sharing_path)
+                .with_derived_scalars(&derived_scalars);
         let cache_lookup = if phase == GuideOverflowPhase::Final && coord_subtree_overflow.is_none()
         {
             compiled_guide

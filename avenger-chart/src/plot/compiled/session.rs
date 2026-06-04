@@ -2077,7 +2077,17 @@ fn plot_dependency_param_fingerprint_with_options(
 }
 
 fn configured_scale_signature(scale: &ConfiguredScaleWithSpec) -> String {
-    configured_scale_runtime_signature(scale.configured())
+    let mut derived_scalars = scale
+        .derived_scalars()
+        .iter()
+        .map(|(name, expr)| (name.clone(), format!("{expr:?}")))
+        .collect::<Vec<_>>();
+    derived_scalars.sort_by(|a, b| a.0.cmp(&b.0));
+    format!(
+        "{};derived_scalars={:?}",
+        configured_scale_runtime_signature(scale.configured()),
+        derived_scalars
+    )
 }
 
 fn configured_scale_runtime_signature(configured: &ConfiguredScale) -> String {

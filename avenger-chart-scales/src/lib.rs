@@ -16,9 +16,9 @@ pub mod spec;
 pub mod udf;
 
 pub use avenger_chart_core::{
-    Auto, ConfiguredScaleLegendExt, DomainValues, PlotAreaDimension, PlotAreaRangeEndpoint,
-    PlotAreaRangeExpr, ResolvedDomain, Scale, ScaleConfigSpec, ScaleOrderingSpec,
-    ScaleRangeBinding, ScaleSpec,
+    Auto, ConfiguredScaleLegendExt, DerivedScalarMap, DomainValues, PlotAreaDimension,
+    PlotAreaRangeEndpoint, PlotAreaRangeExpr, ResolvedDomain, Scale, ScaleConfigSpec,
+    ScaleOrderingSpec, ScaleRangeBinding, ScaleSpec,
 };
 pub use builder::{ChannelScaleData, DataExtents, DefaultScaleRangeResolver, ScaleBuilder};
 pub use channel_config::{ScaleChannelConfig, ScaleChannelValue};
@@ -63,6 +63,8 @@ pub struct ConfiguredScaleWithSpec {
     configured: ConfiguredScale,
     /// Semantic owner of the configured range.
     range_binding: ScaleRangeBinding,
+    /// Runtime-derived scalar expressions referenced by channel config.
+    derived_scalars: DerivedScalarMap,
 }
 
 impl ConfiguredScaleWithSpec {
@@ -81,7 +83,14 @@ impl ConfiguredScaleWithSpec {
             scale,
             configured,
             range_binding,
+            derived_scalars: DerivedScalarMap::new(),
         }
+    }
+
+    /// Attach runtime-derived scalar expressions referenced by this channel.
+    pub fn with_derived_scalars(mut self, derived_scalars: DerivedScalarMap) -> Self {
+        self.derived_scalars = derived_scalars;
+        self
     }
 
     /// Access the scale specification.
@@ -92,6 +101,11 @@ impl ConfiguredScaleWithSpec {
     /// Access the configured scale.
     pub fn configured(&self) -> &ConfiguredScale {
         &self.configured
+    }
+
+    /// Access runtime-derived scalar expressions referenced by this channel.
+    pub fn derived_scalars(&self) -> &DerivedScalarMap {
+        &self.derived_scalars
     }
 
     /// Access semantic range binding metadata.

@@ -21,7 +21,7 @@ use avenger_chart_core::{
     PlotGeometry, RowDimensionConfig, SharingLevel, SubplotGeometry, SubplotRect,
 };
 #[cfg(test)]
-use avenger_chart_core::{GuideSharingContext, OverflowSpaceRequirement};
+use avenger_chart_core::{DerivedScalarsByChannel, GuideSharingContext, OverflowSpaceRequirement};
 
 use crate::{
     container::{ChildFrameKey, ChildFrameScopeKey, ContainerPathSegment},
@@ -3537,11 +3537,22 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                     .iter()
                     .map(|(name, scale)| (name.clone(), scale.configured().clone()))
                     .collect::<HashMap<_, _>>();
+                let derived_scalars = adjusted_scales
+                    .iter()
+                    .filter_map(|(name, scale)| {
+                        if scale.derived_scalars().is_empty() {
+                            None
+                        } else {
+                            Some((name.clone(), scale.derived_scalars().clone()))
+                        }
+                    })
+                    .collect::<DerivedScalarsByChannel>();
                 let sharing_context = GuideSharingContext::new(
                     self.eval_ctx.facet_tree.as_ref(),
                     self.facet_path,
                     self.eval_ctx.child_frame_sharing_path(),
-                );
+                )
+                .with_derived_scalars(&derived_scalars);
                 compiled_guide
                     .measure_overflow(
                         &configured_scales,

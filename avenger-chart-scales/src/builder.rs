@@ -34,7 +34,8 @@ use indexmap::IndexMap;
 use tracing::{debug, trace};
 
 use avenger_chart_core::{
-    AvengerChartError, Maybe, ResolvedDomain, ScaleRange, ScaleRangeBinding, Theme,
+    AvengerChartError, DerivedScalarMap, Maybe, ResolvedDomain, ScaleRange, ScaleRangeBinding,
+    Theme, resolve_derived_scalars,
 };
 
 use crate::{
@@ -92,6 +93,8 @@ pub enum ChannelScaleData {
         options: HashMap<String, LogicalExprNode>,
         /// Runtime raw-domain override expression, if configured.
         raw_domain: Option<LogicalExprNode>,
+        /// Runtime-derived scalar expressions referenced by channel config.
+        derived_scalars: DerivedScalarMap,
     },
 
     /// Radius-aware scale: cache raw data, recompute domain on each build
@@ -112,6 +115,8 @@ pub enum ChannelScaleData {
         options: HashMap<String, LogicalExprNode>,
         /// Runtime raw-domain override expression, if configured.
         raw_domain: Option<LogicalExprNode>,
+        /// Runtime-derived scalar expressions referenced by channel config.
+        derived_scalars: DerivedScalarMap,
     },
 
     /// Explicit domain scale: no data caching, domain set explicitly
@@ -125,6 +130,8 @@ pub enum ChannelScaleData {
         options: HashMap<String, LogicalExprNode>,
         /// The explicit domain that was set by the user
         domain: ScaleDomain,
+        /// Runtime-derived scalar expressions referenced by channel config.
+        derived_scalars: DerivedScalarMap,
     },
 }
 
@@ -139,6 +146,15 @@ pub enum DataExtents {
     OrderedDiscrete(Vec<ScalarValue>),
     /// Temporal interval: (min, max) as Unix timestamps
     Temporal(i64, i64),
+}
+
+fn resolve_scale_option_expr(
+    value_node: &LogicalExprNode,
+    ctx: &SessionContext,
+    derived_scalars: &DerivedScalarMap,
+) -> Result<datafusion::logical_expr::Expr, AvengerChartError> {
+    let expr = value_node.to_expr(ctx)?;
+    resolve_derived_scalars(expr, derived_scalars)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -240,6 +256,7 @@ impl ScaleBuilder {
         scale_spec: Box<dyn ScaleSpec>,
         data_extents: DataExtents,
         options: HashMap<String, LogicalExprNode>,
+        derived_scalars: DerivedScalarMap,
     ) {
         self.channel_scale_data.insert(
             channel_name,
@@ -248,6 +265,7 @@ impl ScaleBuilder {
                 data_extents,
                 options,
                 raw_domain: None,
+                derived_scalars,
             },
         );
     }
@@ -261,6 +279,7 @@ impl ScaleBuilder {
         radius_lower_data: Vec<f64>,
         radius_upper_data: Vec<f64>,
         options: HashMap<String, LogicalExprNode>,
+        derived_scalars: DerivedScalarMap,
     ) {
         self.channel_scale_data.insert(
             channel_name,
@@ -271,6 +290,7 @@ impl ScaleBuilder {
                 radius_upper_data,
                 options,
                 raw_domain: None,
+                derived_scalars,
             },
         );
     }
@@ -282,6 +302,7 @@ impl ScaleBuilder {
         scale_spec: Box<dyn ScaleSpec>,
         options: HashMap<String, LogicalExprNode>,
         domain: ScaleDomain,
+        derived_scalars: DerivedScalarMap,
     ) {
         self.channel_scale_data.insert(
             channel_name,
@@ -289,6 +310,7 @@ impl ScaleBuilder {
                 scale_spec,
                 options,
                 domain,
+                derived_scalars,
             },
         );
     }
@@ -620,13 +642,14 @@ impl ScaleBuilder {
                     data_extents,
                     options,
                     raw_domain,
+                    derived_scalars,
                 } => {
                     // For standard scales: use cached extents directly (no query!)
                     let mut scale = Scale::<Auto>::from_spec(scale_spec.as_ref().clone_box());
 
                     // Apply cached options
                     for (key, value_node) in options {
-                        let expr = value_node.to_expr(ctx)?;
+                        let expr = resolve_scale_option_expr(&value_node, ctx, &derived_scalars)?;
                         scale = scale.option(key, expr);
                     }
 
@@ -692,7 +715,8 @@ impl ScaleBuilder {
                             scale,
                             configured,
                             range_binding,
-                        ),
+                        )
+                        .with_derived_scalars(derived_scalars.clone()),
                     );
                 }
                 ChannelScaleData::RadiusAware {
@@ -702,13 +726,14 @@ impl ScaleBuilder {
                     radius_upper_data,
                     options,
                     raw_domain,
+                    derived_scalars,
                 } => {
                     // For radius-aware scales: recompute domain with new range (cheap math, no query!)
                     let mut scale = Scale::<Auto>::from_spec(scale_spec.as_ref().clone_box());
 
                     // Apply cached options
                     for (key, value_node) in options {
-                        let expr = value_node.to_expr(ctx)?;
+                        let expr = resolve_scale_option_expr(&value_node, ctx, &derived_scalars)?;
                         scale = scale.option(key, expr);
                     }
 
@@ -765,7 +790,8 @@ impl ScaleBuilder {
                                     scale,
                                     configured,
                                     range_binding,
-                                ),
+                                )
+                                .with_derived_scalars(derived_scalars.clone()),
                             );
                             continue;
                         }
@@ -841,13 +867,15 @@ impl ScaleBuilder {
                             scale,
                             configured,
                             range_binding,
-                        ),
+                        )
+                        .with_derived_scalars(derived_scalars.clone()),
                     );
                 }
                 ChannelScaleData::ExplicitDomain {
                     scale_spec,
                     options,
                     domain,
+                    derived_scalars,
                 } => {
                     // For explicit domain scales: build scale from spec without cached data
                     let mut scale = Scale::<Auto>::from_spec(scale_spec.as_ref().clone_box());
@@ -857,7 +885,7 @@ impl ScaleBuilder {
 
                     // Apply cached options
                     for (key, value_node) in options {
-                        let expr = value_node.to_expr(ctx)?;
+                        let expr = resolve_scale_option_expr(&value_node, ctx, &derived_scalars)?;
                         scale = scale.option(key, expr);
                     }
 
@@ -907,7 +935,8 @@ impl ScaleBuilder {
                             scale,
                             configured,
                             range_binding,
-                        ),
+                        )
+                        .with_derived_scalars(derived_scalars.clone()),
                     );
                 }
             }

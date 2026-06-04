@@ -20,6 +20,7 @@ pub mod coordination_values;
 pub mod data_context;
 pub mod datafusion_physical_eval;
 pub mod datafusion_utils;
+pub mod derived_scalar;
 pub mod error;
 pub mod evaluation_context;
 pub mod event;
@@ -122,6 +123,10 @@ pub use datafusion_utils::{
     ArrayRefHelpers, DataFrameChartHelpers, ExprHelpers, ScalarValueHelpers, array_value_to_f64,
     contains_aggregate, eval_to_scalars, params_to_datafusion, partition_expressions,
     scalar_to_scalar_value, simplify_to_scalar_sync,
+};
+pub use derived_scalar::{
+    DerivedScalarMap, DerivedScalarsByChannel, collect_derived_scalar_ids, derived_scalar,
+    derived_scalar_id_from_placeholder, resolve_derived_scalars,
 };
 pub use error::AvengerChartError;
 pub use evaluation_context::{EvaluationContext, EvaluationDiagnostics};
@@ -241,7 +246,7 @@ pub use tools::{
     ToolParamSharing, ToolScaleEdit,
 };
 pub use transform::{
-    CompiledDataTransform, DataTransform, DataTransformExecutionContext,
+    CompiledDataTransform, DataTransform, DataTransformExecutionContext, DataTransformResult,
     apply_compiled_data_transforms,
 };
 pub use zero_d::ZeroDCoord;

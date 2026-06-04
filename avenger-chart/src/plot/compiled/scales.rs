@@ -51,6 +51,7 @@ pub(crate) async fn build_scale_builder_from_marks(
             mark.clone(),
             prepared.dataframe,
             prepared.channels,
+            prepared.derived_scalars,
         ));
     }
 
@@ -126,6 +127,7 @@ pub(crate) async fn build_scale_builder_from_marks_with_facet_scope(
             mark.clone(),
             prepared.dataframe,
             prepared.channels,
+            prepared.derived_scalars,
         ));
     }
 

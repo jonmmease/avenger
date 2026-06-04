@@ -29,11 +29,11 @@ use indexmap::IndexMap;
 use tracing::trace;
 
 use avenger_chart_core::{
-    AvengerChartError, ChannelValue, CompiledMark, CoordinateSystemTransformCore,
+    AvengerChartError, ChannelValue, CompiledMark, CoordinateSystemTransformCore, DerivedScalarMap,
     EvaluationContext as CoreEvaluationContext, MarkDataMode, Maybe, RadiusExpression,
-    ScaleOrderingSpec, ScaleRange, Theme, array_value_to_f64, contains_aggregate,
-    default_channel_value_for_eval, params_to_datafusion, resolve_all_channel_refs,
-    scalar_total_cmp, strip_trailing_numbers,
+    ScaleOrderingSpec, ScaleRange, Theme, array_value_to_f64, collect_derived_scalar_ids,
+    contains_aggregate, default_channel_value_for_eval, params_to_datafusion,
+    resolve_all_channel_refs, resolve_derived_scalars, scalar_total_cmp, strip_trailing_numbers,
 };
 
 use crate::{
@@ -51,6 +51,7 @@ pub struct PreparedScaleMark {
     pub mark: Arc<dyn CompiledMark>,
     pub dataframe: Option<DataFrame>,
     pub channels: IndexMap<String, ChannelValue>,
+    pub derived_scalars: DerivedScalarMap,
 }
 
 #[derive(Clone)]
@@ -118,13 +119,73 @@ impl PreparedScaleMark {
         mark: Arc<dyn CompiledMark>,
         dataframe: Option<DataFrame>,
         channels: IndexMap<String, ChannelValue>,
+        derived_scalars: DerivedScalarMap,
     ) -> Self {
         Self {
             mark,
             dataframe,
             channels,
+            derived_scalars,
         }
     }
+}
+
+fn collect_channel_derived_scalars(
+    channel: &str,
+    prepared_marks: &[PreparedScaleMark],
+    ctx: &SessionContext,
+) -> Result<DerivedScalarMap, AvengerChartError> {
+    let mut collected = DerivedScalarMap::new();
+    for prepared in prepared_marks {
+        let mut collect_from_exprs = |exprs: Vec<Expr>| -> Result<(), AvengerChartError> {
+            for expr in exprs {
+                for id in collect_derived_scalar_ids(&expr)? {
+                    let Some(replacement) = prepared.derived_scalars.get(&id) else {
+                        return Err(AvengerChartError::InvalidArgument(format!(
+                            "Derived scalar '{id}' was referenced by channel '{channel}' but was not produced in this data scope"
+                        )));
+                    };
+                    if let Some(existing) = collected.insert(id.clone(), replacement.clone())
+                        && existing != *replacement
+                    {
+                        return Err(AvengerChartError::InvalidArgument(format!(
+                            "Derived scalar '{id}' for channel '{channel}' has conflicting expressions in the same data scope"
+                        )));
+                    }
+                }
+            }
+            Ok(())
+        };
+
+        let resolved = resolve_all_channel_refs(&prepared.channels, ctx)
+            .unwrap_or_else(|_| prepared.channels.clone());
+        for (channel_name, channel_value) in resolved {
+            let maps_to_target =
+                if let Some(scale_name) = channel_value.get_scale_name(&channel_name) {
+                    scale_name == channel
+                } else {
+                    channel_name == channel
+                };
+            if !maps_to_target {
+                continue;
+            }
+
+            let mut exprs = channel_value.all_exprs(ctx);
+            if let Some(scale_config) = channel_value.get_scale_config() {
+                exprs.extend(scale_config.all_exprs(ctx));
+            }
+            if let Some(axis_config) = channel_value.get_axis_config() {
+                exprs.extend(axis_config.all_exprs(ctx));
+            }
+
+            collect_from_exprs(exprs)?;
+        }
+
+        if let Some(axis_config) = prepared.mark.state().axis_configs.get(channel) {
+            collect_from_exprs(axis_config.all_exprs(ctx))?;
+        }
+    }
+    Ok(collected)
 }
 
 /// Build ScaleBuilder by executing expensive data queries once
@@ -177,6 +238,7 @@ where
                 mark.clone(),
                 dataframe,
                 mark.data_context().channels().clone(),
+                DerivedScalarMap::new(),
             )
         })
         .collect::<Vec<_>>();
@@ -747,6 +809,8 @@ async fn cache_domain_data(
     radius_expr_opt: Option<PreparedRadiusExpression>,
     theme: &Theme,
 ) -> Result<(), AvengerChartError> {
+    let derived_scalars = collect_channel_derived_scalars(channel, prepared_marks, ctx)?;
+
     // Build a scale with domain and options to inspect domain (including any DomainExprs)
     let mut scale = Scale::<Auto>::from_spec(spec.clone_box());
 
@@ -756,7 +820,7 @@ async fn cache_domain_data(
     }
 
     for (key, value_node) in &options {
-        let expr = value_node.to_expr(ctx)?;
+        let expr = resolve_derived_scalars(value_node.to_expr(ctx)?, &derived_scalars)?;
         scale = scale.option(key, expr);
     }
 
@@ -782,6 +846,7 @@ async fn cache_domain_data(
                     spec.clone_box(),
                     options,
                     domain.clone(),
+                    derived_scalars,
                 );
                 builder.set_channel_data_type(channel.to_string(), dt.clone());
                 return Ok(());
@@ -968,6 +1033,7 @@ async fn cache_domain_data(
             params,
             builder,
             dt,
+            derived_scalars,
         ))
         .await?;
     } else if target_domain_kind == DomainKind::Categorical {
@@ -982,6 +1048,7 @@ async fn cache_domain_data(
             params,
             builder,
             dt,
+            derived_scalars,
         ))
         .await?;
     } else if target_domain_kind == DomainKind::Temporal {
@@ -995,6 +1062,7 @@ async fn cache_domain_data(
             params,
             builder,
             dt,
+            derived_scalars,
         ))
         .await?;
     } else {
@@ -1008,6 +1076,7 @@ async fn cache_domain_data(
             params,
             builder,
             dt,
+            derived_scalars,
         ))
         .await?;
     }
@@ -1033,12 +1102,13 @@ async fn build_temp_configured_scale(
             data_extents,
             options,
             raw_domain,
+            derived_scalars,
         } => {
             let mut scale = Scale::<Auto>::from_spec(scale_spec.as_ref().clone_box());
 
             // Apply cached options
             for (key, value_node) in options {
-                let expr = value_node.to_expr(ctx)?;
+                let expr = resolve_derived_scalars(value_node.to_expr(ctx)?, derived_scalars)?;
                 scale = scale.option(key, expr);
             }
 
@@ -1073,7 +1143,7 @@ async fn build_temp_configured_scale(
             scale_spec,
             options,
             domain,
-            ..
+            derived_scalars,
         } => {
             // Build a temporary configured scale using the explicit domain and options
             let mut scale = Scale::<Auto>::from_spec(scale_spec.as_ref().clone_box());
@@ -1083,7 +1153,7 @@ async fn build_temp_configured_scale(
 
             // Apply cached options
             for (key, value_node) in options {
-                let expr = value_node.to_expr(ctx)?;
+                let expr = resolve_derived_scalars(value_node.to_expr(ctx)?, derived_scalars)?;
                 scale = scale.option(key, expr);
             }
 
@@ -1127,6 +1197,7 @@ async fn cache_radius_aware_data(
     params: &IndexMap<String, ScalarValue>,
     builder: &mut ScaleBuilder,
     dt: &ArrowDataType,
+    derived_scalars: DerivedScalarMap,
 ) -> Result<(), AvengerChartError> {
     let mut all_positions = Vec::new();
     let mut all_radius_lower = Vec::new();
@@ -1226,6 +1297,7 @@ async fn cache_radius_aware_data(
             all_radius_lower,
             all_radius_upper,
             options,
+            derived_scalars,
         );
         builder.set_channel_data_type(channel.to_string(), dt.clone());
     }
@@ -1473,6 +1545,7 @@ async fn cache_categorical_data(
     params: &IndexMap<String, ScalarValue>,
     builder: &mut ScaleBuilder,
     dt: &ArrowDataType,
+    derived_scalars: DerivedScalarMap,
 ) -> Result<(), AvengerChartError> {
     let ordering_expr = ordering.and_then(|ordering| ordering.order_expr.as_ref());
     let (all_unique_values, ordered) = if let Some(order_expr_node) = ordering_expr {
@@ -1500,7 +1573,13 @@ async fn cache_categorical_data(
         } else {
             DataExtents::Discrete(all_unique_values)
         };
-        builder.add_standard(channel.to_string(), spec.clone_box(), extents, options);
+        builder.add_standard(
+            channel.to_string(),
+            spec.clone_box(),
+            extents,
+            options,
+            derived_scalars,
+        );
 
         // For ordinal scales with continuous range, store Float64 type
         let stored_type = if spec.range_kind() == RangeKind::Continuous {
@@ -1524,6 +1603,7 @@ async fn cache_temporal_data(
     params: &IndexMap<String, ScalarValue>,
     builder: &mut ScaleBuilder,
     dt: &ArrowDataType,
+    derived_scalars: DerivedScalarMap,
 ) -> Result<(), AvengerChartError> {
     let mut global_min_ts: Option<i64> = None;
     let mut global_max_ts: Option<i64> = None;
@@ -1580,7 +1660,13 @@ async fn cache_temporal_data(
 
     if let (Some(min_ts), Some(max_ts)) = (global_min_ts, global_max_ts) {
         let extents = DataExtents::Temporal(min_ts, max_ts);
-        builder.add_standard(channel.to_string(), spec.clone_box(), extents, options);
+        builder.add_standard(
+            channel.to_string(),
+            spec.clone_box(),
+            extents,
+            options,
+            derived_scalars,
+        );
         builder.set_channel_data_type(channel.to_string(), dt.clone());
     }
 
@@ -1597,6 +1683,7 @@ async fn cache_numeric_data(
     params: &IndexMap<String, ScalarValue>,
     builder: &mut ScaleBuilder,
     dt: &ArrowDataType,
+    derived_scalars: DerivedScalarMap,
 ) -> Result<(), AvengerChartError> {
     let mut global_min_val: Option<f64> = None;
     let mut global_max_val: Option<f64> = None;
@@ -1641,7 +1728,13 @@ async fn cache_numeric_data(
 
     if let (Some(min_val), Some(max_val)) = (global_min_val, global_max_val) {
         let extents = DataExtents::Interval(min_val, max_val);
-        builder.add_standard(channel.to_string(), spec.clone_box(), extents, options);
+        builder.add_standard(
+            channel.to_string(),
+            spec.clone_box(),
+            extents,
+            options,
+            derived_scalars,
+        );
         builder.set_channel_data_type(channel.to_string(), dt.clone());
     }
 

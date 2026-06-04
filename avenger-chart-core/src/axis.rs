@@ -2,6 +2,8 @@
 
 use std::any::Any;
 
+use datafusion::{logical_expr::Expr, prelude::SessionContext};
+
 /// Trait for axis types that support update operations
 
 #[typetag::serde(tag = "type")]
@@ -12,6 +14,11 @@ pub trait Axis: Send + Sync {
     fn as_any(&self) -> &dyn Any;
 
     fn box_clone(&self) -> Box<dyn Axis>;
+
+    /// Return expressions referenced by this axis configuration.
+    fn all_exprs(&self, _ctx: &SessionContext) -> Vec<Expr> {
+        Vec::new()
+    }
 }
 
 impl Clone for Box<dyn Axis> {

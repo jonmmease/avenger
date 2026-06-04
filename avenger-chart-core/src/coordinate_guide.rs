@@ -9,8 +9,8 @@ use indexmap::IndexMap;
 
 use crate::{
     AvengerChartError, Axis, AxisPosition, CompiledMarkCore, CoordMeasurement, CoordinationAxis,
-    GuideOverflowPhase, LayoutBounds, MeasurementResult, OverflowSpaceRequirement, SharingLevel,
-    Theme,
+    DerivedScalarMap, DerivedScalarsByChannel, GuideOverflowPhase, LayoutBounds, MeasurementResult,
+    OverflowSpaceRequirement, SharingLevel, Theme,
     guide_sharing::{
         AxisOwnershipMode, AxisVisibility, ChildFrameGuideSharingView, FacetGuideSharingView,
     },
@@ -22,6 +22,7 @@ pub struct GuideSharingContext<'a> {
     facet_view: &'a dyn FacetGuideSharingView,
     facet_path: &'a [ScalarValue],
     child_frame_view: &'a dyn ChildFrameGuideSharingView,
+    derived_scalars_by_channel: Option<&'a DerivedScalarsByChannel>,
 }
 
 impl<'a> GuideSharingContext<'a> {
@@ -35,7 +36,23 @@ impl<'a> GuideSharingContext<'a> {
             facet_view,
             facet_path,
             child_frame_view,
+            derived_scalars_by_channel: None,
         }
+    }
+
+    #[doc(hidden)]
+    pub fn with_derived_scalars(
+        mut self,
+        derived_scalars_by_channel: &'a DerivedScalarsByChannel,
+    ) -> Self {
+        self.derived_scalars_by_channel = Some(derived_scalars_by_channel);
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn derived_scalars_for_channel(&self, channel: &str) -> Option<&'a DerivedScalarMap> {
+        self.derived_scalars_by_channel
+            .and_then(|scalars| scalars.get(channel))
     }
 
     pub fn facet_path(&self) -> &'a [ScalarValue] {
@@ -73,6 +90,7 @@ impl<'a> GuideSharingContext<'a> {
             facet_view: self.facet_view,
             facet_path,
             child_frame_view: self.child_frame_view,
+            derived_scalars_by_channel: self.derived_scalars_by_channel,
         }
     }
 

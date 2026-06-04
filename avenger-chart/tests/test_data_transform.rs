@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use avenger_chart::prelude::*;
-use avenger_chart_core::{AvengerChartError, CompiledDataTransform, DataTransformExecutionContext};
+use avenger_chart_core::{
+    AvengerChartError, CompiledDataTransform, DataTransformExecutionContext, DataTransformResult,
+};
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -71,8 +73,11 @@ impl CompiledDataTransform for CompiledAddConstantTransform {
         &self,
         dataframe: DataFrame,
         _ctx: &DataTransformExecutionContext<'_>,
-    ) -> Result<DataFrame, AvengerChartError> {
-        Ok(dataframe.with_column(&self.output_name, col("source_value") + lit(self.amount))?)
+    ) -> Result<DataTransformResult, AvengerChartError> {
+        Ok(DataTransformResult::dataframe(dataframe.with_column(
+            &self.output_name,
+            col("source_value") + lit(self.amount),
+        )?))
     }
 }
 

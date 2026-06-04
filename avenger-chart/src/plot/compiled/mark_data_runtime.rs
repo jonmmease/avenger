@@ -27,9 +27,9 @@ use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    CompiledSelectionSpec, DataTransformExecutionContext, MarkDataMode, SelectionClause,
-    SelectionCombine, SelectionPredicateSpec, color::parse_color_string, contains_aggregate,
-    params_to_datafusion, selection_clause_value_id_from_placeholder,
+    CompiledSelectionSpec, DataTransformExecutionContext, DerivedScalarMap, MarkDataMode,
+    SelectionClause, SelectionCombine, SelectionPredicateSpec, color::parse_color_string,
+    contains_aggregate, params_to_datafusion, selection_clause_value_id_from_placeholder,
     selection_id_from_predicate_placeholder,
 };
 
@@ -51,6 +51,7 @@ use crate::{
 pub(crate) struct PreparedLogicalMarkData {
     pub(crate) dataframe: Option<DataFrame>,
     pub(crate) channels: IndexMap<String, ChannelValue>,
+    pub(crate) derived_scalars: DerivedScalarMap,
 }
 
 /// Prepared data for mark evaluation.
@@ -139,17 +140,18 @@ async fn apply_mark_data_transforms(
     dataframe: Option<DataFrame>,
     transforms: &[Box<dyn avenger_chart_core::CompiledDataTransform>],
     ctx: &SessionContext,
-) -> Result<Option<DataFrame>, AvengerChartError> {
+) -> Result<(Option<DataFrame>, DerivedScalarMap), AvengerChartError> {
     if transforms.is_empty() {
-        return Ok(dataframe);
+        return Ok((dataframe, DerivedScalarMap::new()));
     }
     let dataframe = dataframe.unwrap_or_else(|| empty_dataframe(ctx));
     let transform_ctx = DataTransformExecutionContext {
         session_context: ctx,
     };
-    avenger_chart_core::apply_compiled_data_transforms(dataframe, transforms, &transform_ctx)
-        .await
-        .map(Some)
+    let result =
+        avenger_chart_core::apply_compiled_data_transforms(dataframe, transforms, &transform_ctx)
+            .await?;
+    Ok((Some(result.dataframe), result.derived_scalars))
 }
 
 fn validate_runtime_aggregate_channels(
@@ -632,7 +634,7 @@ pub(crate) async fn prepare_logical_mark_data(
         ctx,
         request.eval_ctx,
     )?;
-    let dataframe =
+    let (dataframe, derived_scalars) =
         apply_mark_data_transforms(dataframe, request.mark.data_context().transforms(), ctx)
             .await?;
     let available_columns = dataframe.as_ref().map(|df| {
@@ -652,6 +654,7 @@ pub(crate) async fn prepare_logical_mark_data(
         return Ok(PreparedLogicalMarkData {
             dataframe,
             channels,
+            derived_scalars,
         });
     }
 
@@ -712,6 +715,7 @@ pub(crate) async fn prepare_logical_mark_data(
         return Ok(PreparedLogicalMarkData {
             dataframe: Some(df),
             channels,
+            derived_scalars,
         });
     }
 
@@ -757,6 +761,7 @@ pub(crate) async fn prepare_logical_mark_data(
     Ok(PreparedLogicalMarkData {
         dataframe: Some(agg_df),
         channels: updated_channels,
+        derived_scalars,
     })
 }
 

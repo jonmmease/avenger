@@ -7,7 +7,8 @@ use avenger_chart_core::{
     MaybeOptionalExpr, ScalarValueHelpers, SharingGroupEdge, SharingLevel, Theme,
     axis_ownership_mode_from_params, eval_to_scalars, evaluate_axis_position_expr,
     evaluate_bool_expr, evaluate_f32_expr, evaluate_string_expr, owner_for_edge,
-    params_to_datafusion, project_container_edge_levels, serialization::DefaultLogicalExprNodeExt,
+    params_to_datafusion, project_container_edge_levels, resolve_derived_scalars,
+    serialization::DefaultLogicalExprNodeExt,
 };
 use avenger_guides::axis::{
     band::make_band_axis_marks,
@@ -215,6 +216,18 @@ fn default_axis_position_for_channel(channel: &str) -> AxisPosition {
     }
 }
 
+fn resolve_axis_expr(
+    expr: Expr,
+    channel: &str,
+    sharing_context: GuideSharingContext<'_>,
+) -> Result<Expr, AvengerChartError> {
+    if let Some(derived_scalars) = sharing_context.derived_scalars_for_channel(channel) {
+        resolve_derived_scalars(expr, derived_scalars)
+    } else {
+        Ok(expr)
+    }
+}
+
 #[typetag::serde]
 impl Axis for CartesianAxis {
     fn update(&mut self, other: &dyn Axis) {
@@ -229,6 +242,26 @@ impl Axis for CartesianAxis {
 
     fn box_clone(&self) -> Box<dyn Axis> {
         Box::new(self.clone())
+    }
+
+    fn all_exprs(&self, ctx: &SessionContext) -> Vec<Expr> {
+        [
+            &self.visible,
+            &self.position,
+            &self.title,
+            &self.grid,
+            &self.tick_count,
+            &self.tick_spacing,
+            &self.label_angle,
+            &self.format_number,
+            &self.title_font_family,
+            &self.label_font_family,
+            &self.show_title,
+        ]
+        .into_iter()
+        .filter_map(|maybe| maybe.as_option().and_then(|o| o.as_ref()))
+        .filter_map(|node| node.to_default_expr(ctx).ok())
+        .collect()
     }
 }
 
@@ -399,7 +432,8 @@ pub async fn evaluate_cartesian_axis(
     child_frame_sharing_level: SharingLevel,
 ) -> Result<SceneMark, AvengerChartError> {
     let visible = if let Some(visible_node) = axis.visible.as_option().and_then(|o| o.as_ref()) {
-        let visible_expr = visible_node.to_default_expr(ctx)?;
+        let visible_expr =
+            resolve_axis_expr(visible_node.to_default_expr(ctx)?, channel, sharing_context)?;
         evaluate_bool_expr(&visible_expr, ctx, params).await?
     } else {
         true
@@ -413,7 +447,11 @@ pub async fn evaluate_cartesian_axis(
     }
 
     let position = if let Some(position_node) = axis.position.as_option().and_then(|o| o.as_ref()) {
-        let position_expr = position_node.to_default_expr(ctx)?;
+        let position_expr = resolve_axis_expr(
+            position_node.to_default_expr(ctx)?,
+            channel,
+            sharing_context,
+        )?;
         evaluate_axis_position_expr(&position_expr, ctx, params).await?
     } else {
         default_axis_position_for_channel(channel)
@@ -441,7 +479,8 @@ pub async fn evaluate_cartesian_axis(
     let tick_color = theme.stroke_color(&axis_ctx.child("tick"));
 
     let grid = if let Some(grid_node) = axis.grid.as_option().and_then(|o| o.as_ref()) {
-        let grid_expr = grid_node.to_default_expr(ctx)?;
+        let grid_expr =
+            resolve_axis_expr(grid_node.to_default_expr(ctx)?, channel, sharing_context)?;
         evaluate_bool_expr(&grid_expr, ctx, params).await?
     } else {
         false
@@ -449,7 +488,8 @@ pub async fn evaluate_cartesian_axis(
 
     let format_number =
         if let Some(format_node) = axis.format_number.as_option().and_then(|o| o.as_ref()) {
-            let format_expr = format_node.to_default_expr(ctx)?;
+            let format_expr =
+                resolve_axis_expr(format_node.to_default_expr(ctx)?, channel, sharing_context)?;
             Some(evaluate_string_expr(&format_expr, ctx, params).await?)
         } else {
             None
@@ -458,7 +498,11 @@ pub async fn evaluate_cartesian_axis(
     let label_font_family = if let Some(label_font_node) =
         axis.label_font_family.as_option().and_then(|o| o.as_ref())
     {
-        let label_font_expr = label_font_node.to_default_expr(ctx)?;
+        let label_font_expr = resolve_axis_expr(
+            label_font_node.to_default_expr(ctx)?,
+            channel,
+            sharing_context,
+        )?;
         Some(evaluate_string_expr(&label_font_expr, ctx, params).await?)
     } else {
         theme.font_family(&label_ctx)
@@ -467,14 +511,18 @@ pub async fn evaluate_cartesian_axis(
     let title_font_family = if let Some(title_font_node) =
         axis.title_font_family.as_option().and_then(|o| o.as_ref())
     {
-        let title_font_expr = title_font_node.to_default_expr(ctx)?;
+        let title_font_expr = resolve_axis_expr(
+            title_font_node.to_default_expr(ctx)?,
+            channel,
+            sharing_context,
+        )?;
         Some(evaluate_string_expr(&title_font_expr, ctx, params).await?)
     } else {
         theme.font_family(&title_ctx)
     };
 
     let show_title_expr = if let Some(node) = axis.show_title.as_option().and_then(|o| o.as_ref()) {
-        let expr = node.to_default_expr(ctx)?;
+        let expr = resolve_axis_expr(node.to_default_expr(ctx)?, channel, sharing_context)?;
         evaluate_bool_expr(&expr, ctx, params).await.unwrap_or(true)
     } else {
         true
@@ -520,12 +568,13 @@ pub async fn evaluate_cartesian_axis(
     );
 
     let tick_count = if let Some(tc_node) = axis.tick_count.as_option().and_then(|o| o.as_ref()) {
-        let tc_expr = tc_node.to_default_expr(ctx)?;
+        let tc_expr = resolve_axis_expr(tc_node.to_default_expr(ctx)?, channel, sharing_context)?;
         Some(evaluate_f32_expr(&tc_expr, ctx, params).await?)
     } else {
         None
     };
-    let tick_start_step = evaluate_tick_spacing(axis, ctx, params).await?;
+    let tick_start_step =
+        evaluate_tick_spacing(axis, channel, ctx, params, sharing_context).await?;
 
     let axis_config = AxisConfig {
         orientation,
@@ -559,7 +608,8 @@ pub async fn evaluate_cartesian_axis(
     };
 
     let title = if let Some(title_node) = axis.title.as_option().and_then(|o| o.as_ref()) {
-        let title_expr = title_node.to_default_expr(ctx)?;
+        let title_expr =
+            resolve_axis_expr(title_node.to_default_expr(ctx)?, channel, sharing_context)?;
         evaluate_string_expr(&title_expr, ctx, params).await?
     } else {
         String::new()
@@ -593,13 +643,16 @@ pub async fn evaluate_cartesian_axis(
 
 async fn evaluate_tick_spacing(
     axis: &CartesianAxis,
+    channel: &str,
     ctx: &SessionContext,
     params: &indexmap::IndexMap<String, ScalarValue>,
+    sharing_context: GuideSharingContext<'_>,
 ) -> Result<Option<[f32; 2]>, AvengerChartError> {
     let Some(spacing_node) = axis.tick_spacing.as_option().and_then(|o| o.as_ref()) else {
         return Ok(None);
     };
-    let spacing_expr = spacing_node.to_default_expr(ctx)?;
+    let spacing_expr =
+        resolve_axis_expr(spacing_node.to_default_expr(ctx)?, channel, sharing_context)?;
     let spacing = evaluate_scalar_expr(&spacing_expr, ctx, params).await?;
     Ok(Some(extract_tick_spacing(spacing)?))
 }

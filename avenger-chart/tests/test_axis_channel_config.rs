@@ -1,4 +1,22 @@
+use async_trait::async_trait;
 use avenger_chart::prelude::*;
+use avenger_chart_core::{
+    AvengerChartError, CompiledDataTransform, DataTransformExecutionContext, DataTransformResult,
+    DerivedScalarMap,
+};
+use avenger_scenegraph::marks::mark::SceneMark;
+use datafusion::{
+    arrow::{
+        array::{ArrayRef, Float64Array, StructArray},
+        datatypes::{DataType, Field, Fields, Schema},
+        record_batch::RecordBatch,
+    },
+    common::ScalarValue,
+    dataframe::DataFrame,
+    prelude::SessionContext,
+};
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[test]
 fn test_axis_config_from_channel() {
@@ -58,4 +76,118 @@ fn test_axis_config_on_channel_value_roundtrip() {
 
     assert!(axis.title.is_set());
     assert!(axis.tick_spacing.is_set());
+}
+
+#[derive(Clone)]
+struct AxisTickSpacingTransform;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct CompiledAxisTickSpacingTransform;
+
+impl DataTransform for AxisTickSpacingTransform {
+    type Output = ();
+
+    fn into_compiled_and_output(
+        self,
+    ) -> Result<(Box<dyn CompiledDataTransform>, Self::Output), AvengerChartError> {
+        Ok((Box::new(CompiledAxisTickSpacingTransform), ()))
+    }
+}
+
+#[typetag::serde(name = "test_axis_derived_tick_spacing")]
+#[async_trait]
+impl CompiledDataTransform for CompiledAxisTickSpacingTransform {
+    fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
+        Box::new(self.clone())
+    }
+
+    async fn apply(
+        &self,
+        dataframe: DataFrame,
+        _ctx: &DataTransformExecutionContext<'_>,
+    ) -> Result<DataTransformResult, AvengerChartError> {
+        let mut derived_scalars = DerivedScalarMap::new();
+        let fields = Fields::from(vec![
+            Field::new("start", DataType::Float64, false),
+            Field::new("step", DataType::Float64, false),
+        ]);
+        let arrays: Vec<ArrayRef> = vec![
+            Arc::new(Float64Array::from(vec![0.0])),
+            Arc::new(Float64Array::from(vec![2.5])),
+        ];
+        derived_scalars.insert(
+            "x_tick_spacing".to_string(),
+            lit(ScalarValue::Struct(Arc::new(StructArray::new(
+                fields, arrays, None,
+            )))),
+        );
+        Ok(DataTransformResult {
+            dataframe,
+            derived_scalars,
+        })
+    }
+}
+
+fn collect_text_labels(mark: &SceneMark, labels: &mut Vec<String>) {
+    match mark {
+        SceneMark::Text(text) => {
+            labels.extend(text.text_iter().cloned());
+        }
+        SceneMark::Group(group) => {
+            for child in &group.marks {
+                collect_text_labels(child, labels);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[tokio::test]
+async fn axis_config_resolves_transform_derived_scalar_tick_spacing()
+-> Result<(), Box<dyn std::error::Error>> {
+    let ctx = SessionContext::new();
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("source_x", DataType::Float64, false),
+            Field::new("source_y", DataType::Float64, false),
+        ])),
+        vec![
+            Arc::new(Float64Array::from(vec![0.0, 2.5, 5.0])),
+            Arc::new(Float64Array::from(vec![0.2, 0.5, 0.8])),
+        ],
+    )?;
+    let df = ctx.read_batch(batch)?;
+
+    let plot = Plot::<Cartesian>::new()
+        .canvas_size(420.0, 320.0)
+        .data(df)
+        .mark(
+            Symbol::new().transform(AxisTickSpacingTransform, |mark, _| {
+                mark.x_with(col("source_x"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((0.0, 5.0)).nice(false).zero(false))
+                        .axis(|a| {
+                            a.title("derived x ticks")
+                                .tick_spacing(derived_scalar("x_tick_spacing", None))
+                        })
+                })
+                .y_with(col("source_y"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((0.0, 1.0)).nice(false).zero(false))
+                })
+                .size(48.0)
+                .fill("#2563eb")
+            }),
+        );
+
+    let compiled = plot.compile(&ctx).await?;
+    let mut session = Arc::new(compiled).instantiate(Arc::new(ctx));
+    let evaluated = session.evaluate(EvaluationRequest::new().exact()).await?;
+
+    let mut labels = Vec::new();
+    for mark in evaluated.scene_graph.children() {
+        collect_text_labels(mark, &mut labels);
+    }
+
+    assert!(labels.iter().any(|label| label == "2.5"), "{labels:?}");
+    assert!(labels.iter().any(|label| label == "5"), "{labels:?}");
+    Ok(())
 }

@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, CompiledDataTransform, DataTransform,
-    DataTransformExecutionContext, DefaultLogicalExprNodeExt, SerializableExpr,
+    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt,
+    SerializableExpr,
 };
 use datafusion::{
     common::ScalarValue,
@@ -336,7 +337,7 @@ impl CompiledDataTransform for CompiledAggregateTransform {
         &self,
         dataframe: DataFrame,
         ctx: &DataTransformExecutionContext<'_>,
-    ) -> Result<DataFrame, AvengerChartError> {
+    ) -> Result<DataTransformResult, AvengerChartError> {
         validate_output_names(
             dataframe.schema().fields().iter().map(|field| field.name()),
             {
@@ -371,9 +372,10 @@ impl CompiledDataTransform for CompiledAggregateTransform {
             .iter()
             .map(|measure| aggregate_expr(measure, ctx.session_context))
             .collect::<Result<Vec<_>, _>>()?;
-        dataframe
+        let dataframe = dataframe
             .aggregate(group_exprs, agg_exprs)
-            .map_err(AvengerChartError::DataFusionError)
+            .map_err(AvengerChartError::DataFusionError)?;
+        Ok(DataTransformResult::dataframe(dataframe))
     }
 }
 
@@ -388,7 +390,7 @@ impl CompiledDataTransform for CompiledStackTransform {
         &self,
         dataframe: DataFrame,
         ctx: &DataTransformExecutionContext<'_>,
-    ) -> Result<DataFrame, AvengerChartError> {
+    ) -> Result<DataTransformResult, AvengerChartError> {
         validate_output_names(
             dataframe.schema().fields().iter().map(|field| field.name()),
             [
@@ -397,7 +399,8 @@ impl CompiledDataTransform for CompiledStackTransform {
                 self.value_name.as_deref().unwrap_or("__unused_stack_value"),
             ],
         )?;
-        apply_stack(dataframe, self, ctx.session_context)
+        let dataframe = apply_stack(dataframe, self, ctx.session_context)?;
+        Ok(DataTransformResult::dataframe(dataframe))
     }
 }
 
@@ -780,6 +783,7 @@ mod tests {
         )
         .await
         .unwrap()
+        .dataframe
         .collect()
         .await
         .unwrap()
@@ -865,7 +869,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let batches = result.collect().await.unwrap();
+        let batches = result.dataframe.collect().await.unwrap();
         let rows: usize = batches.iter().map(|batch| batch.num_rows()).sum();
         assert_eq!(rows, 4);
     }
@@ -889,7 +893,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let schema = result.schema();
+        let schema = result.dataframe.schema();
         assert!(schema.field_with_name(None, "value_stack_start").is_ok());
         assert!(schema.field_with_name(None, "value_stack_end").is_ok());
     }
