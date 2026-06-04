@@ -1,25 +1,34 @@
 use async_trait::async_trait;
+use avenger_chart_cartesian::CartesianAxis;
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, CompiledDataTransform, DataTransform,
     DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt,
-    SerializableExpr,
+    DerivedScalarMap, ScaleChannelValue, SerializableExpr, derived_scalar,
 };
 use datafusion::{
+    arrow::datatypes::DataType,
     common::ScalarValue,
     dataframe::DataFrame,
+    functions::expr_fn::floor,
     functions_aggregate::expr_fn::{avg, count, max, min, sum},
     logical_expr::{
         Expr, ExprSchemable, WindowFrame, WindowFrameBound, WindowFrameUnits,
         WindowFunctionDefinition, col,
         expr::{Sort, WindowFunction},
+        expr_fn::scalar_subquery,
         lit, when,
     },
+    prelude::named_struct,
 };
-use datafusion_functions_aggregate::{min_max::max_udaf, sum::sum_udaf};
+use datafusion_functions_aggregate::{
+    min_max::{max_udaf, min_udaf},
+    sum::sum_udaf,
+};
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
+use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CompiledAggregateTransform {
@@ -174,6 +183,20 @@ pub struct CompiledStackTransform {
 
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CompiledBinTransform {
+    #[serde_as(as = "FromInto<SerializableExpr>")]
+    pub value: LogicalExprNode,
+    pub maxbins: usize,
+    pub start_name: String,
+    pub end_name: String,
+    pub index_name: String,
+    pub domain_start_scalar_id: String,
+    pub domain_end_scalar_id: String,
+    pub tick_spacing_scalar_id: String,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TransformSortSpec {
     #[serde_as(as = "FromInto<SerializableExpr>")]
     pub expr: LogicalExprNode,
@@ -308,6 +331,124 @@ pub struct StackOutput {
     value_name: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+pub struct Bin {
+    value: Expr,
+    maxbins: usize,
+    name: Option<String>,
+}
+
+impl Bin {
+    pub fn new(value: Expr) -> Self {
+        Self {
+            value,
+            maxbins: 10,
+            name: None,
+        }
+    }
+
+    pub fn maxbins(mut self, maxbins: usize) -> Self {
+        self.maxbins = maxbins;
+        self
+    }
+
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+}
+
+impl DataTransform for Bin {
+    type Output = BinOutput;
+
+    fn into_compiled_and_output(
+        self,
+    ) -> Result<(Box<dyn CompiledDataTransform>, Self::Output), AvengerChartError> {
+        if self.maxbins == 0 {
+            return Err(AvengerChartError::InvalidArgument(
+                "Bin::maxbins(...) must be greater than zero".to_string(),
+            ));
+        }
+        if avenger_chart_core::contains_aggregate(&self.value) {
+            return Err(AvengerChartError::InvalidArgument(
+                "Bin::new(...) does not accept aggregate expressions; use Aggregate before Bin"
+                    .to_string(),
+            ));
+        }
+
+        let base_name = self
+            .name
+            .unwrap_or_else(|| sanitize_output_name(&format!("{}_bin", self.value)));
+        let start_name = format!("{base_name}_start");
+        let end_name = format!("{base_name}_end");
+        let index_name = format!("{base_name}_index");
+        let domain_start_scalar_id = format!("{base_name}_domain_start");
+        let domain_end_scalar_id = format!("{base_name}_domain_end");
+        let tick_spacing_scalar_id = format!("{base_name}_tick_spacing");
+        let transform = CompiledBinTransform {
+            value: expr_node(self.value, "bin value expression"),
+            maxbins: self.maxbins,
+            start_name: start_name.clone(),
+            end_name: end_name.clone(),
+            index_name: index_name.clone(),
+            domain_start_scalar_id: domain_start_scalar_id.clone(),
+            domain_end_scalar_id: domain_end_scalar_id.clone(),
+            tick_spacing_scalar_id: tick_spacing_scalar_id.clone(),
+        };
+
+        Ok((
+            Box::new(transform),
+            BinOutput {
+                start_name,
+                end_name,
+                index_name,
+                domain_start_scalar_id,
+                domain_end_scalar_id,
+                tick_spacing_scalar_id,
+            },
+        ))
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct BinOutput {
+    start_name: String,
+    end_name: String,
+    index_name: String,
+    domain_start_scalar_id: String,
+    domain_end_scalar_id: String,
+    tick_spacing_scalar_id: String,
+}
+
+impl BinOutput {
+    pub fn start(&self) -> ChannelValue {
+        let domain_start_scalar_id = self.domain_start_scalar_id.clone();
+        let domain_end_scalar_id = self.domain_end_scalar_id.clone();
+        let tick_spacing_scalar_id = self.tick_spacing_scalar_id.clone();
+        ChannelValue::from(col(&self.start_name))
+            .scale(move |scale| {
+                scale
+                    .domain_interval(
+                        derived_scalar(&domain_start_scalar_id, Some(DataType::Float64)),
+                        derived_scalar(&domain_end_scalar_id, Some(DataType::Float64)),
+                    )
+                    .option("nice", lit(false))
+                    .option("zero", lit(false))
+            })
+            .with_axis_config(
+                CartesianAxis::new().tick_spacing(derived_scalar(&tick_spacing_scalar_id, None)),
+            )
+    }
+
+    pub fn end(&self) -> ChannelValue {
+        ChannelValue::from(col(&self.end_name))
+    }
+
+    pub fn index(&self) -> Expr {
+        col(&self.index_name)
+    }
+}
+
 impl StackOutput {
     pub fn start(&self) -> ChannelValue {
         ChannelValue::from(col(&self.start_name))
@@ -401,6 +542,36 @@ impl CompiledDataTransform for CompiledStackTransform {
         )?;
         let dataframe = apply_stack(dataframe, self, ctx.session_context)?;
         Ok(DataTransformResult::dataframe(dataframe))
+    }
+}
+
+#[typetag::serde(name = "bin")]
+#[async_trait]
+impl CompiledDataTransform for CompiledBinTransform {
+    fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
+        Box::new(self.clone())
+    }
+
+    async fn apply(
+        &self,
+        dataframe: DataFrame,
+        ctx: &DataTransformExecutionContext<'_>,
+    ) -> Result<DataTransformResult, AvengerChartError> {
+        validate_output_names(
+            dataframe.schema().fields().iter().map(|field| field.name()),
+            [
+                self.start_name.as_str(),
+                self.end_name.as_str(),
+                self.index_name.as_str(),
+            ],
+        )?;
+
+        let derived_scalars = bin_derived_scalars(dataframe.clone(), self, ctx.session_context)?;
+        let dataframe = apply_bin(dataframe, self, ctx.session_context)?;
+        Ok(DataTransformResult {
+            dataframe,
+            derived_scalars,
+        })
     }
 }
 
@@ -533,6 +704,177 @@ fn window_max(
         order_by,
         window_frame,
     )
+}
+
+fn window_min(
+    arg: Expr,
+    partition_by: Vec<Expr>,
+    order_by: Vec<Sort>,
+    window_frame: WindowFrame,
+) -> Expr {
+    aggregate_window_expr(
+        WindowFunctionDefinition::AggregateUDF(min_udaf()),
+        arg,
+        partition_by,
+        order_by,
+        window_frame,
+    )
+}
+
+fn bin_step_expr(
+    min_expr: Expr,
+    max_expr: Expr,
+    maxbins: usize,
+) -> Result<Expr, AvengerChartError> {
+    let span = max_expr - min_expr;
+    when(span.clone().eq(lit(0.0)), lit(1.0))
+        .otherwise(span / lit(maxbins as f64))
+        .map_err(AvengerChartError::DataFusionError)
+}
+
+fn bin_stop_expr(
+    min_expr: Expr,
+    max_expr: Expr,
+    maxbins: usize,
+) -> Result<Expr, AvengerChartError> {
+    Ok(min_expr.clone() + bin_step_expr(min_expr, max_expr, maxbins)? * lit(maxbins as f64))
+}
+
+fn bin_extent_dataframe(
+    dataframe: DataFrame,
+    value_expr: Expr,
+) -> Result<DataFrame, AvengerChartError> {
+    dataframe
+        .aggregate(
+            Vec::<Expr>::new(),
+            vec![
+                min(value_expr.clone()).alias("__avenger_bin_extent_min"),
+                max(value_expr).alias("__avenger_bin_extent_max"),
+            ],
+        )
+        .map_err(AvengerChartError::DataFusionError)
+}
+
+fn scalar_from_dataframe(dataframe: DataFrame, expr: Expr) -> Result<Expr, AvengerChartError> {
+    let dataframe = dataframe
+        .select(vec![expr.alias("__avenger_bin_scalar")])
+        .map_err(AvengerChartError::DataFusionError)?;
+    Ok(scalar_subquery(Arc::new(dataframe.into_unoptimized_plan())))
+}
+
+fn bin_derived_scalars(
+    dataframe: DataFrame,
+    payload: &CompiledBinTransform,
+    ctx: &datafusion::prelude::SessionContext,
+) -> Result<DerivedScalarMap, AvengerChartError> {
+    let value_expr = payload.value.to_default_expr(ctx)?;
+    let value_expr = value_expr.cast_to(&DataType::Float64, dataframe.schema())?;
+    let extent_df = bin_extent_dataframe(dataframe, value_expr)?;
+    let min_expr = col("__avenger_bin_extent_min");
+    let max_expr = col("__avenger_bin_extent_max");
+    let step_expr = bin_step_expr(min_expr.clone(), max_expr.clone(), payload.maxbins)?;
+    let stop_expr = bin_stop_expr(min_expr.clone(), max_expr.clone(), payload.maxbins)?;
+
+    let mut derived_scalars = DerivedScalarMap::new();
+    derived_scalars.insert(
+        payload.domain_start_scalar_id.clone(),
+        scalar_from_dataframe(extent_df.clone(), min_expr.clone())?,
+    );
+    derived_scalars.insert(
+        payload.domain_end_scalar_id.clone(),
+        scalar_from_dataframe(extent_df.clone(), stop_expr)?,
+    );
+    derived_scalars.insert(
+        payload.tick_spacing_scalar_id.clone(),
+        scalar_from_dataframe(
+            extent_df,
+            named_struct(vec![lit("start"), min_expr, lit("step"), step_expr]),
+        )?,
+    );
+    Ok(derived_scalars)
+}
+
+fn apply_bin(
+    dataframe: DataFrame,
+    payload: &CompiledBinTransform,
+    ctx: &datafusion::prelude::SessionContext,
+) -> Result<DataFrame, AvengerChartError> {
+    let original_columns = dataframe
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| field.name().clone())
+        .collect::<Vec<_>>();
+    let value_expr = payload.value.to_default_expr(ctx)?;
+    let value_expr = value_expr.cast_to(&DataType::Float64, dataframe.schema())?;
+    let whole_partition_frame = WindowFrame::new_bounds(
+        WindowFrameUnits::Rows,
+        WindowFrameBound::Preceding(ScalarValue::UInt64(None)),
+        WindowFrameBound::Following(ScalarValue::UInt64(None)),
+    );
+
+    let mut df = dataframe
+        .with_column("__avenger_bin_value", value_expr)?
+        .with_column(
+            "__avenger_bin_min",
+            window_min(
+                col("__avenger_bin_value"),
+                Vec::new(),
+                Vec::new(),
+                whole_partition_frame.clone(),
+            ),
+        )?
+        .with_column(
+            "__avenger_bin_max",
+            window_max(
+                col("__avenger_bin_value"),
+                Vec::new(),
+                Vec::new(),
+                whole_partition_frame,
+            ),
+        )?
+        .with_column(
+            "__avenger_bin_step",
+            bin_step_expr(
+                col("__avenger_bin_min"),
+                col("__avenger_bin_max"),
+                payload.maxbins,
+            )?,
+        )?;
+
+    let raw_index =
+        floor((col("__avenger_bin_value") - col("__avenger_bin_min")) / col("__avenger_bin_step"));
+    let max_index = payload.maxbins.saturating_sub(1) as f64;
+    let clamped_index = when(raw_index.clone().lt(lit(0.0)), lit(0.0))
+        .otherwise(
+            when(raw_index.clone().gt(lit(max_index)), lit(max_index))
+                .otherwise(raw_index)
+                .map_err(AvengerChartError::DataFusionError)?,
+        )
+        .map_err(AvengerChartError::DataFusionError)?;
+
+    df = df.with_column("__avenger_bin_index_float", clamped_index)?;
+    let index_expr = col("__avenger_bin_index_float").cast_to(&DataType::Int64, df.schema())?;
+    df = df
+        .with_column(&payload.index_name, index_expr)?
+        .with_column(
+            &payload.start_name,
+            col("__avenger_bin_min") + col("__avenger_bin_index_float") * col("__avenger_bin_step"),
+        )?
+        .with_column(
+            &payload.end_name,
+            col(&payload.start_name) + col("__avenger_bin_step"),
+        )?;
+
+    let mut projection = original_columns
+        .iter()
+        .map(|name| col(name))
+        .collect::<Vec<_>>();
+    projection.push(col(&payload.start_name));
+    projection.push(col(&payload.end_name));
+    projection.push(col(&payload.index_name));
+    df.select(projection)
+        .map_err(AvengerChartError::DataFusionError)
 }
 
 fn apply_stack(
@@ -745,10 +1087,11 @@ fn apply_stack(
 mod tests {
     use super::*;
     use arrow::{
-        array::{Array, Float64Array, StringArray},
+        array::{Array, Float64Array, Int64Array, StringArray},
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     };
+    use avenger_chart_core::collect_derived_scalar_ids;
     use datafusion::prelude::SessionContext;
     use std::sync::Arc;
 
@@ -764,6 +1107,26 @@ mod tests {
                 Arc::new(StringArray::from(vec!["s1", "s2", "s3", "s1"])) as _,
                 Arc::new(Float64Array::from(vec![1.0, 2.0, -3.0, 4.0])) as _,
             ],
+        )
+        .unwrap();
+        ctx.read_batch(batch).unwrap()
+    }
+
+    fn bin_dataframe(ctx: &SessionContext) -> DataFrame {
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new(
+                "value",
+                DataType::Float64,
+                true,
+            )])),
+            vec![Arc::new(Float64Array::from(vec![
+                Some(1.0),
+                Some(2.0),
+                Some(3.0),
+                Some(4.0),
+                Some(5.0),
+                None,
+            ])) as _],
         )
         .unwrap();
         ctx.read_batch(batch).unwrap()
@@ -787,6 +1150,49 @@ mod tests {
         .collect()
         .await
         .unwrap()
+    }
+
+    fn bin_rows(batch: &RecordBatch) -> Vec<(Option<f64>, Option<f64>, Option<f64>, Option<i64>)> {
+        let value = batch
+            .column_by_name("value")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let start = batch
+            .column_by_name("value_bin_start")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let end = batch
+            .column_by_name("value_bin_end")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let index = batch
+            .column_by_name("value_bin_index")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        (0..batch.num_rows())
+            .map(|row| {
+                (
+                    (!value.is_null(row)).then(|| value.value(row)),
+                    (!start.is_null(row)).then(|| start.value(row)),
+                    (!end.is_null(row)).then(|| end.value(row)),
+                    (!index.is_null(row)).then(|| index.value(row)),
+                )
+            })
+            .collect()
+    }
+
+    fn bin_rows_from_batches(
+        batches: &[RecordBatch],
+    ) -> Vec<(Option<f64>, Option<f64>, Option<f64>, Option<i64>)> {
+        batches.iter().flat_map(bin_rows).collect()
     }
 
     fn stack_rows(batch: &RecordBatch) -> Vec<(String, String, f64, f64)> {
@@ -872,6 +1278,134 @@ mod tests {
         let batches = result.dataframe.collect().await.unwrap();
         let rows: usize = batches.iter().map(|batch| batch.num_rows()).sum();
         assert_eq!(rows, 4);
+    }
+
+    #[tokio::test]
+    async fn bin_output_names_and_derived_scalar_refs() {
+        let output = Bin::new(col("value"))
+            .maxbins(4)
+            .name("custom_bin")
+            .into_compiled_and_output()
+            .unwrap()
+            .1;
+
+        assert_eq!(output.index().to_string(), "custom_bin_index");
+        let start = output.start();
+        assert!(matches!(start, ChannelValue::Scaled { .. }));
+        let scale = start.get_scale_config().expect("scale config");
+        let mut ids = Vec::new();
+        for expr in scale.all_exprs(&SessionContext::new()) {
+            ids.extend(collect_derived_scalar_ids(&expr).unwrap());
+        }
+        let axis = start.get_axis_config().expect("axis config");
+        for expr in axis.all_exprs(&SessionContext::new()) {
+            ids.extend(collect_derived_scalar_ids(&expr).unwrap());
+        }
+        assert!(
+            ids.contains(&"custom_bin_domain_start".to_string()),
+            "{ids:?}"
+        );
+        assert!(
+            ids.contains(&"custom_bin_domain_end".to_string()),
+            "{ids:?}"
+        );
+        assert!(
+            ids.contains(&"custom_bin_tick_spacing".to_string()),
+            "{ids:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn bin_maxbins_zero_errors() {
+        let err = match Bin::new(col("value")).maxbins(0).into_compiled_and_output() {
+            Ok(_) => panic!("maxbins zero should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("maxbins"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn bin_exact_count_clamps_max_and_preserves_nulls() {
+        let ctx = SessionContext::new();
+        let dataframe = bin_dataframe(&ctx);
+        let (compiled_transform, output) = Bin::new(col("value"))
+            .maxbins(4)
+            .into_compiled_and_output()
+            .unwrap();
+        assert_eq!(output.index().to_string(), "value_bin_index");
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let rows = bin_rows_from_batches(&batches);
+        assert_eq!(
+            rows,
+            vec![
+                (Some(1.0), Some(1.0), Some(2.0), Some(0)),
+                (Some(2.0), Some(2.0), Some(3.0), Some(1)),
+                (Some(3.0), Some(3.0), Some(4.0), Some(2)),
+                (Some(4.0), Some(4.0), Some(5.0), Some(3)),
+                (Some(5.0), Some(4.0), Some(5.0), Some(3)),
+                (None, None, None, None),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn bin_single_value_uses_fallback_step() {
+        let ctx = SessionContext::new();
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new(
+                "value",
+                DataType::Float64,
+                false,
+            )])),
+            vec![Arc::new(Float64Array::from(vec![7.0, 7.0])) as _],
+        )
+        .unwrap();
+        let dataframe = ctx.read_batch(batch).unwrap();
+        let (compiled_transform, _) = Bin::new(col("value"))
+            .maxbins(3)
+            .into_compiled_and_output()
+            .unwrap();
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let rows = bin_rows_from_batches(&batches);
+        assert_eq!(
+            rows,
+            vec![
+                (Some(7.0), Some(7.0), Some(8.0), Some(0)),
+                (Some(7.0), Some(7.0), Some(8.0), Some(0)),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn bin_returns_derived_scalars() {
+        let ctx = SessionContext::new();
+        let dataframe = bin_dataframe(&ctx);
+        let (compiled_transform, _) = Bin::new(col("value"))
+            .maxbins(4)
+            .into_compiled_and_output()
+            .unwrap();
+        let result = avenger_chart_core::apply_compiled_data_transforms(
+            dataframe,
+            &[compiled_transform],
+            &DataTransformExecutionContext {
+                session_context: &ctx,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(
+            result
+                .derived_scalars
+                .contains_key("value_bin_domain_start")
+        );
+        assert!(result.derived_scalars.contains_key("value_bin_domain_end"));
+        assert!(
+            result
+                .derived_scalars
+                .contains_key("value_bin_tick_spacing")
+        );
     }
 
     #[tokio::test]

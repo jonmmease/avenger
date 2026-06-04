@@ -191,3 +191,46 @@ async fn axis_config_resolves_transform_derived_scalar_tick_spacing()
     assert!(labels.iter().any(|label| label == "5"), "{labels:?}");
     Ok(())
 }
+
+#[tokio::test]
+async fn axis_config_resolves_bin_derived_tick_spacing() -> Result<(), Box<dyn std::error::Error>> {
+    let ctx = SessionContext::new();
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("source_x", DataType::Float64, false),
+            Field::new("source_y", DataType::Float64, false),
+        ])),
+        vec![
+            Arc::new(Float64Array::from(vec![0.3, 1.0, 2.8, 5.3])),
+            Arc::new(Float64Array::from(vec![0.2, 0.5, 0.8, 0.4])),
+        ],
+    )?;
+    let df = ctx.read_batch(batch)?;
+
+    let plot = Plot::<Cartesian>::new()
+        .canvas_size(420.0, 320.0)
+        .data(df)
+        .mark(
+            Symbol::new().transform(Bin::new(col("source_x")).maxbins(2), |mark, bin| {
+                mark.x(bin.start())
+                    .y_with(col("source_y"), |c| {
+                        c.scale_with::<Linear>(|s| s.domain((0.0, 1.0)).nice(false).zero(false))
+                    })
+                    .size(48.0)
+                    .fill("#2563eb")
+            }),
+        );
+
+    let compiled = plot.compile(&ctx).await?;
+    let mut session = Arc::new(compiled).instantiate(Arc::new(ctx));
+    let evaluated = session.evaluate(EvaluationRequest::new().exact()).await?;
+
+    let mut labels = Vec::new();
+    for mark in evaluated.scene_graph.children() {
+        collect_text_labels(mark, &mut labels);
+    }
+
+    assert!(labels.iter().any(|label| label == "2.8"), "{labels:?}");
+    assert!(labels.iter().any(|label| label == "5.3"), "{labels:?}");
+    Ok(())
+}

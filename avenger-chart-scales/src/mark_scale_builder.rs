@@ -39,6 +39,7 @@ use avenger_chart_core::{
 use crate::{
     Auto, ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec, DomainExpr, Ordinal,
     PlotScaleSpec, Scale, ScaleDefaultDomain, ScaleDomain, ScaleRuntimeExt, ScaleSpec,
+    builder::resolve_scale_domain_exprs,
     builder::{ChannelScaleData, DataExtents, ScaleBuilder},
     default_range_for_channel, scale_spec_for_preference,
     serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
@@ -1149,7 +1150,8 @@ async fn build_temp_configured_scale(
             let mut scale = Scale::<Auto>::from_spec(scale_spec.as_ref().clone_box());
 
             // Apply the stored explicit domain FIRST
-            scale = scale.domain(domain.clone());
+            scale = scale
+                .domain(resolve_scale_domain_exprs(domain, ctx, params, derived_scalars).await?);
 
             // Apply cached options
             for (key, value_node) in options {

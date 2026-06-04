@@ -35,7 +35,7 @@ use tracing::{debug, trace};
 
 use avenger_chart_core::{
     AvengerChartError, DerivedScalarMap, Maybe, ResolvedDomain, ScaleRange, ScaleRangeBinding,
-    Theme, resolve_derived_scalars,
+    Theme, eval_to_scalars, params_to_datafusion, resolve_derived_scalars,
 };
 
 use crate::{
@@ -155,6 +155,55 @@ fn resolve_scale_option_expr(
 ) -> Result<datafusion::logical_expr::Expr, AvengerChartError> {
     let expr = value_node.to_expr(ctx)?;
     resolve_derived_scalars(expr, derived_scalars)
+}
+
+pub(crate) async fn resolve_scale_domain_exprs(
+    domain: &ScaleDomain,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+    derived_scalars: &DerivedScalarMap,
+) -> Result<ScaleDomain, AvengerChartError> {
+    let datafusion_params = params_to_datafusion(params);
+    let default_domain = match &domain.default_domain {
+        ScaleDefaultDomain::Interval(start, end) => {
+            let start_expr = resolve_derived_scalars(start.to_expr(ctx)?, derived_scalars)?;
+            let end_expr = resolve_derived_scalars(end.to_expr(ctx)?, derived_scalars)?;
+            let scalars = eval_to_scalars(
+                vec![start_expr, end_expr],
+                Some(ctx),
+                datafusion_params.as_ref(),
+            )
+            .await?;
+            let [start_value, end_value] = scalars.as_slice() else {
+                return Err(AvengerChartError::InternalError(
+                    "Expected two scalar values for derived interval domain".to_string(),
+                ));
+            };
+            ScaleDefaultDomain::Interval(
+                LogicalExprNode::from_expr(lit(start_value.clone()))?,
+                Box::new(LogicalExprNode::from_expr(lit(end_value.clone()))?),
+            )
+        }
+        ScaleDefaultDomain::Discrete(values) => {
+            let exprs = values
+                .iter()
+                .map(|node| resolve_derived_scalars(node.to_expr(ctx)?, derived_scalars))
+                .collect::<Result<Vec<_>, _>>()?;
+            let scalars = eval_to_scalars(exprs, Some(ctx), datafusion_params.as_ref()).await?;
+            ScaleDefaultDomain::Discrete(
+                scalars
+                    .into_iter()
+                    .map(|value| LogicalExprNode::from_expr(lit(value)))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )
+        }
+        ScaleDefaultDomain::DomainExprs(exprs) => ScaleDefaultDomain::DomainExprs(exprs.clone()),
+        ScaleDefaultDomain::NoDefault => ScaleDefaultDomain::NoDefault,
+    };
+    Ok(ScaleDomain {
+        default_domain,
+        raw_domain: domain.raw_domain.clone(),
+    })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -676,6 +725,11 @@ impl ScaleBuilder {
                             current_raw_domain(&scale, raw_domain.as_ref()),
                         );
                         scale = scale.domain(domain);
+                    } else if let Some(domain) = scale.get_domain().cloned() {
+                        scale = scale.domain(
+                            resolve_scale_domain_exprs(&domain, ctx, params, &derived_scalars)
+                                .await?,
+                        );
                     }
 
                     let range_binding = coord_system_range_bindings
@@ -896,6 +950,12 @@ impl ScaleBuilder {
                                 scale = scale.update(Scale::from_config(scale_changes.clone()));
                             }
                         }
+                    }
+                    if let Some(domain) = scale.get_domain().cloned() {
+                        scale = scale.domain(
+                            resolve_scale_domain_exprs(&domain, ctx, params, &derived_scalars)
+                                .await?,
+                        );
                     }
 
                     let range_binding = coord_system_range_bindings
