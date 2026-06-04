@@ -1635,9 +1635,14 @@ impl CompiledPlot {
             if !seen_channels.insert(channel.name.as_str()) {
                 continue;
             }
-            let Some(marks) = self.legend_colorbar_overlays.get(&channel.name) else {
+            let Some(overlay) = self
+                .legend_colorbar_overlays
+                .iter()
+                .find(|overlay| overlay.channel_name == channel.name)
+            else {
                 continue;
             };
+            let marks = &overlay.marks;
             let scales = colorbar_overlay_scales(surface);
             let render_state =
                 RenderState::new(surface.bounds.width, surface.bounds.height, scales.clone());

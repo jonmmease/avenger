@@ -14,6 +14,32 @@ use crate::{
     validate_structural_id,
 };
 
+mod serde_colorbar_overlays {
+    use std::{any::Any, sync::Arc};
+
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub(super) fn serialize<S>(
+        _value: &Vec<Arc<dyn Any + Send + Sync>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        Vec::<()>::new().serialize(serializer)
+    }
+
+    pub(super) fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<Vec<Arc<dyn Any + Send + Sync>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let _ = Vec::<()>::deserialize(deserializer)?;
+        Ok(Vec::new())
+    }
+}
+
 trait LogicalExprNodeExt {
     fn from_expr(expr: Expr) -> Result<LogicalExprNode, String>;
 }
@@ -29,14 +55,12 @@ impl LogicalExprNodeExt for LogicalExprNode {
 #[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Legend {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub id: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub explicit_ids: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub event_bindings: Vec<ChartEventBinding>,
-    #[serde(skip)]
-    pub colorbar_overlays: Vec<Arc<dyn Any + Send + Sync>>,
     #[serde_as(as = "MaybeOptionalExpr")]
     pub visible: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
@@ -101,6 +125,8 @@ pub struct Legend {
     pub tick_font_weight: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
     pub tick_color: Maybe<Option<LogicalExprNode>>,
+    #[serde(with = "serde_colorbar_overlays")]
+    pub colorbar_overlays: Vec<Arc<dyn Any + Send + Sync>>,
 }
 
 impl std::fmt::Debug for Legend {

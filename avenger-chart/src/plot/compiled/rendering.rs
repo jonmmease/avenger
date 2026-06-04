@@ -7716,6 +7716,16 @@ mod tests {
             )
             .compile(&ctx)
             .await?;
+        let overlay_bytes = bincode::serialize(&compiled.legend_colorbar_overlays)
+            .expect("serialize colorbar overlay marks");
+        let _roundtripped: Vec<crate::plot::compiled::CompiledColorbarOverlayMarks> =
+            bincode::deserialize(&overlay_bytes).expect("deserialize colorbar overlay marks");
+        let legend_bytes = bincode::serialize(&compiled.legends).expect("serialize legends");
+        let _legend_roundtripped: IndexMap<String, Legend> =
+            bincode::deserialize(&legend_bytes).expect("deserialize legends");
+        let compiled_bytes = bincode::serialize(&compiled).expect("serialize compiled plot");
+        let _compiled_roundtripped: CompiledPlot =
+            bincode::deserialize(&compiled_bytes).expect("deserialize compiled plot");
 
         let evaluated = compiled.evaluate(&ctx, None).await?;
         let overlay_group =

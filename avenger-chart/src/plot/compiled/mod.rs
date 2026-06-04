@@ -115,6 +115,12 @@ pub struct EventDatumFieldSpec {
     pub data_type: DataType,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+pub(crate) struct CompiledColorbarOverlayMarks {
+    pub(crate) channel_name: String,
+    pub(crate) marks: Vec<Arc<dyn CompiledMark>>,
+}
+
 #[serde_as]
 #[derive(Serialize, Deserialize)]
 pub struct CompiledPlot {
@@ -135,7 +141,7 @@ pub struct CompiledPlot {
 
     /// Compiled overlay marks keyed by legend channel name.
     #[serde(default)]
-    pub(crate) legend_colorbar_overlays: IndexMap<String, Vec<Arc<dyn CompiledMark>>>,
+    pub(crate) legend_colorbar_overlays: Vec<CompiledColorbarOverlayMarks>,
 
     /// Layout specification
     pub(crate) layout_spec: LayoutSpec,

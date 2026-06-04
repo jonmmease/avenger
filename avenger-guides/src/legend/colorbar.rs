@@ -963,3 +963,147 @@ impl Default for ColorbarConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use avenger_geometry::rtree::{EnvelopeUtils, SceneGraphRTree};
+    use avenger_scales::scales::linear::LinearScale;
+    use avenger_scenegraph::{marks::mark::SceneMark, scene_graph::SceneGraph};
+
+    use super::*;
+    use crate::legend::{GuideLegendContinuousOrientation, GuideLegendSurfaceKind};
+
+    fn color_scale() -> ConfiguredScale {
+        LinearScale::configured_color((0.0, 100.0), ["#440154", "#fde725"])
+    }
+
+    fn test_config(orientation: ColorbarOrientation) -> ColorbarConfig {
+        ColorbarConfig {
+            orientation,
+            dimensions: [240.0, 220.0],
+            colorbar_width: Some(18.0),
+            colorbar_height: Some(160.0),
+            colorbar_margin: Some(4.0),
+            background_padding: Some(4.0),
+            ..Default::default()
+        }
+    }
+
+    fn expected_orientation(orientation: &ColorbarOrientation) -> GuideLegendContinuousOrientation {
+        match orientation {
+            ColorbarOrientation::Top => GuideLegendContinuousOrientation::Top,
+            ColorbarOrientation::Bottom => GuideLegendContinuousOrientation::Bottom,
+            ColorbarOrientation::Left => GuideLegendContinuousOrientation::Left,
+            ColorbarOrientation::Right => GuideLegendContinuousOrientation::Right,
+        }
+    }
+
+    fn mark_at_path<'a>(marks: &'a [SceneMark], path: &[usize]) -> &'a SceneMark {
+        let (first, rest) = path.split_first().expect("non-empty path");
+        let mark = marks.get(*first).expect("mark at path segment");
+        if rest.is_empty() {
+            return mark;
+        }
+        let SceneMark::Group(group) = mark else {
+            panic!("interior path segment should be a group");
+        };
+        mark_at_path(&group.marks, rest)
+    }
+
+    #[test]
+    fn colorbar_orientations_report_one_continuous_surface() {
+        for orientation in [
+            ColorbarOrientation::Top,
+            ColorbarOrientation::Bottom,
+            ColorbarOrientation::Left,
+            ColorbarOrientation::Right,
+        ] {
+            let output = make_colorbar_marks_with_surfaces(
+                &color_scale(),
+                "temperature",
+                [0.0, 0.0],
+                &test_config(orientation.clone()),
+            )
+            .expect("colorbar renders");
+            assert!(output.items.is_empty());
+            assert_eq!(output.continuous_surfaces.len(), 1);
+
+            let surface = &output.continuous_surfaces[0];
+            assert_eq!(surface.kind, GuideLegendSurfaceKind::Colorbar);
+            assert_eq!(surface.orientation, expected_orientation(&orientation));
+            match orientation {
+                ColorbarOrientation::Top | ColorbarOrientation::Bottom => {
+                    assert_eq!(surface.value_channel, "x");
+                    assert_eq!(surface.band_channel, "y");
+                }
+                ColorbarOrientation::Left | ColorbarOrientation::Right => {
+                    assert_eq!(surface.value_channel, "y");
+                    assert_eq!(surface.band_channel, "x");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn colorbar_surface_hit_path_exists_and_matches_gradient_rect_bounds() {
+        for orientation in [
+            ColorbarOrientation::Top,
+            ColorbarOrientation::Bottom,
+            ColorbarOrientation::Left,
+            ColorbarOrientation::Right,
+        ] {
+            let output = make_colorbar_marks_with_surfaces(
+                &color_scale(),
+                "temperature",
+                [0.0, 0.0],
+                &test_config(orientation),
+            )
+            .expect("colorbar renders");
+            let surface = &output.continuous_surfaces[0];
+            assert_eq!(surface.hit_rect_path, surface.gradient_rect_path);
+
+            let gradient_mark = mark_at_path(&output.group.marks, &surface.gradient_rect_path);
+            assert!(gradient_mark.interactive());
+            let SceneMark::Rect(rect) = gradient_mark else {
+                panic!("colorbar hit path should resolve to the gradient rect");
+            };
+            let rect_bounds = rect.bounding_box();
+            assert_eq!(rect_bounds.width(), surface.bounds[2]);
+            assert_eq!(rect_bounds.height(), surface.bounds[3]);
+        }
+    }
+
+    #[test]
+    fn colorbar_rtree_hits_gradient_but_not_noninteractive_chrome() {
+        let output = make_colorbar_marks_with_surfaces(
+            &color_scale(),
+            "temperature",
+            [0.0, 0.0],
+            &test_config(ColorbarOrientation::Right),
+        )
+        .expect("colorbar renders");
+        let surface = &output.continuous_surfaces[0];
+        let scene = SceneGraph {
+            marks: output.group.marks.clone(),
+            width: output.group.bounding_box().width(),
+            height: output.group.bounding_box().height(),
+            origin: output.group.origin,
+        };
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+
+        let gradient_point = [
+            surface.bounds[0] + surface.bounds[2] * 0.5,
+            surface.bounds[1] + surface.bounds[3] * 0.5,
+        ];
+        let hit = rtree
+            .pick_top_mark_at_point(&gradient_point)
+            .expect("gradient should be interactive");
+        assert_eq!(hit.mark_path, surface.gradient_rect_path);
+
+        let background_point = [1.0, 1.0];
+        assert!(
+            rtree.pick_top_mark_at_point(&background_point).is_none(),
+            "transparent background/chrome should remain noninteractive"
+        );
+    }
+}

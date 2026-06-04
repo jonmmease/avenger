@@ -5502,6 +5502,15 @@ mod tests {
     }
 
     fn rect_instance_point(scene: &SceneGraph, instance: &MarkInstance) -> [f32; 2] {
+        rect_instance_fraction_point(scene, instance, 0.37, 0.41)
+    }
+
+    fn rect_instance_fraction_point(
+        scene: &SceneGraph,
+        instance: &MarkInstance,
+        fx: f32,
+        fy: f32,
+    ) -> [f32; 2] {
         let (mark, origin) =
             scene_mark_at_path_with_origin(&scene.marks, &instance.mark_path, scene.origin)
                 .expect("scene mark at path");
@@ -5513,10 +5522,7 @@ mod tests {
         let y = rect.y_vec()[index];
         let x2 = rect.x2_vec()[index];
         let y2 = rect.y2_vec()[index];
-        [
-            origin[0] + x + (x2 - x) * 0.37,
-            origin[1] + y + (y2 - y) * 0.41,
-        ]
+        [origin[0] + x + (x2 - x) * fx, origin[1] + y + (y2 - y) * fy]
     }
 
     fn symbol_instance_point(scene: &SceneGraph, instance: &MarkInstance) -> [f32; 2] {
@@ -5768,6 +5774,142 @@ mod tests {
             "rtree hit-test instance should match retained event datum rows"
         );
         (state, handler, mark_instance, position)
+    }
+
+    fn colorbar_interval_clause(value_channel: &str) -> SelectionClauseUpdate {
+        SelectionClauseUpdate::interval(lit("active"))
+            .facet_scope(Sharing::Shared)
+            .dimension(col("temperature"))
+            .endpoints(
+                event::event_coord(value_channel),
+                event::event_coord(value_channel),
+            )
+            .build()
+    }
+
+    async fn colorbar_state_and_handlers(
+        position: LegendPosition,
+        bindings: Vec<ChartEventBinding>,
+    ) -> (
+        ChartAppState,
+        Vec<ChartEventBindingHandler>,
+        MarkInstance,
+        [f32; 2],
+    ) {
+        let ctx = SessionContext::new();
+        let picked = Selection::new("picked").empty_selects_nothing();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    (1.0, 1.0, 0.0),
+                    (2.0, 1.6, 50.0),
+                    (3.0, 2.2, 100.0)
+                ) AS t(x, y, temperature)",
+            )
+            .await
+            .expect("colorbar data");
+        let mut legend_bindings = bindings.into_iter();
+        let first = legend_bindings.next().expect("at least one binding");
+        let compiled = Plot::<Cartesian>::new()
+            .canvas_size(480.0, 360.0)
+            .add_selection(picked)
+            .data(df)
+            .mark(Symbol::new().x(col("x")).y(col("y")).size(80.0).fill_with(
+                col("temperature"),
+                |c| {
+                    c.scale_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false).zero(false))
+                        .legend(|l| {
+                            let mut legend = l
+                                .id("temperature_colorbar")
+                                .title("Temperature")
+                                .position(position)
+                                .event_binding(first);
+                            for binding in legend_bindings {
+                                legend = legend.event_binding(binding);
+                            }
+                            legend
+                        })
+                },
+            ))
+            .compile(&ctx)
+            .await
+            .expect("compile colorbar interaction plot");
+        let handlers = (0..compiled.event_bindings().len())
+            .map(|index| compile_handler_for_binding_index(&compiled, &ctx, index))
+            .collect::<Vec<_>>();
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial colorbar build");
+        let colorbar_mark_instance = retained_event_datum_mark_instance(
+            &state,
+            event::LEGEND_SURFACE_KIND_FIELD,
+            ScalarValue::Utf8(Some(
+                event::LEGEND_SURFACE_KIND_CONTINUOUS_COLORBAR.to_string(),
+            )),
+        )
+        .await;
+        let midpoint = rect_instance_fraction_point(&scene, &colorbar_mark_instance, 0.5, 0.5);
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let mark_instance = rtree
+            .pick_top_mark_at_point(&midpoint)
+            .cloned()
+            .expect("rtree should pick the colorbar hit rect");
+        assert_eq!(mark_instance.mark_path, colorbar_mark_instance.mark_path);
+        assert_eq!(
+            mark_instance.instance_index,
+            colorbar_mark_instance.instance_index
+        );
+        (state, handlers, mark_instance, midpoint)
+    }
+
+    fn scalar_f64(value: &ScalarValue) -> f64 {
+        match value {
+            ScalarValue::Float64(Some(value)) => *value,
+            ScalarValue::Float32(Some(value)) => *value as f64,
+            value => panic!("expected numeric scalar, got {value:?}"),
+        }
+    }
+
+    async fn colorbar_drag_move(
+        state: &mut ChartAppState,
+        handler: &ChartEventBindingHandler,
+        start_mark_instance: MarkInstance,
+        start_pos: [f32; 2],
+        current_pos: [f32; 2],
+    ) -> UpdateStatus {
+        let instant = Instant::now();
+        let start_event = EventStreamEventSnapshot {
+            event: SceneGraphEvent::MouseDown(SceneMouseDownEvent {
+                position: start_pos,
+                button: MouseButton::Left,
+                mark_instance: Some(start_mark_instance.clone()),
+                modifiers: Default::default(),
+            }),
+            mark_instance: Some(start_mark_instance.clone()),
+            instant,
+        };
+        let context = EventStreamContext {
+            mark_instance: Some(start_mark_instance),
+            current_event: None,
+            start_event: Some(start_event),
+            previous_event: None,
+        };
+        handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: current_pos,
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &context,
+                state,
+                &empty_rtree(),
+            )
+            .await
     }
 
     async fn click_mark(
@@ -6500,6 +6642,245 @@ mod tests {
         let runtime = state.runtime.lock().await;
         let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
         assert!(clauses.is_empty());
+    }
+
+    #[tokio::test]
+    async fn plot_surface_binding_ignores_colorbar_click() {
+        let ctx = SessionContext::new();
+        let picked = Selection::new("picked").empty_selects_nothing();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    (1.0, 1.0, 0.0),
+                    (2.0, 1.6, 50.0),
+                    (3.0, 2.2, 100.0)
+                ) AS t(x, y, temperature)",
+            )
+            .await
+            .expect("colorbar data");
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(
+                event::legend_surface_kind()
+                    .eq(lit(event::LEGEND_SURFACE_KIND_CONTINUOUS_COLORBAR)),
+            )
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_clause(colorbar_interval_clause("y")),
+            )
+            .exact();
+        let compiled = Plot::<Cartesian>::new()
+            .canvas_size(480.0, 360.0)
+            .add_selection(picked)
+            .data(df)
+            .event_binding(binding)
+            .mark(Symbol::new().x(col("x")).y(col("y")).size(80.0).fill_with(
+                col("temperature"),
+                |c| {
+                    c.scale_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false).zero(false))
+                        .legend(|l| l.id("temperature_colorbar").title("Temperature"))
+                },
+            ))
+            .compile(&ctx)
+            .await
+            .expect("compile plot-surface colorbar plot");
+        let handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial colorbar build");
+        let colorbar_mark_instance = retained_event_datum_mark_instance(
+            &state,
+            event::LEGEND_SURFACE_KIND_FIELD,
+            ScalarValue::Utf8(Some(
+                event::LEGEND_SURFACE_KIND_CONTINUOUS_COLORBAR.to_string(),
+            )),
+        )
+        .await;
+        let position = rect_instance_fraction_point(&scene, &colorbar_mark_instance, 0.5, 0.5);
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let mark_instance = rtree
+            .pick_top_mark_at_point(&position)
+            .cloned()
+            .expect("rtree should pick the colorbar hit rect");
+
+        let status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
+        assert!(!status.rerender);
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+        assert!(clauses.is_empty());
+    }
+
+    #[tokio::test]
+    async fn colorbar_legend_binding_click_writes_root_selection_clause() {
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::datum("surface_kind").eq(lit("continuous-colorbar")))
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_clause(colorbar_interval_clause("y")),
+            )
+            .exact();
+        let (mut state, handlers, mark_instance, position) =
+            colorbar_state_and_handlers(LegendPosition::Right, vec![binding]).await;
+
+        let status = click_mark(
+            &mut state,
+            &handlers[0],
+            Some(mark_instance),
+            position,
+            false,
+        )
+        .await;
+        assert!(status.rerender);
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+        assert_eq!(clauses.len(), 1);
+        assert_eq!(clauses[0].id, "active");
+        assert_eq!(clauses[0].scope.sharing, Sharing::Shared);
+        assert!(clauses[0].scope.owner_path.is_empty());
+        let SelectionPredicateSpec::Interval { dimensions } = &clauses[0].predicate else {
+            panic!("expected interval predicate");
+        };
+        assert_eq!(dimensions.len(), 1);
+        assert!((scalar_f64(&dimensions[0].min) - 50.0).abs() < 1.0);
+        assert!((scalar_f64(&dimensions[0].max) - 50.0).abs() < 1.0);
+    }
+
+    #[tokio::test]
+    async fn horizontal_colorbar_legend_binding_inverts_midpoint() {
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::datum("surface_kind").eq(lit("continuous-colorbar")))
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_clause(colorbar_interval_clause("x")),
+            )
+            .exact();
+        let (mut state, handlers, mark_instance, position) =
+            colorbar_state_and_handlers(LegendPosition::Bottom, vec![binding]).await;
+
+        let status = click_mark(
+            &mut state,
+            &handlers[0],
+            Some(mark_instance),
+            position,
+            false,
+        )
+        .await;
+        assert!(status.rerender);
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+        let SelectionPredicateSpec::Interval { dimensions } = &clauses[0].predicate else {
+            panic!("expected interval predicate");
+        };
+        assert!((scalar_f64(&dimensions[0].min) - 50.0).abs() < 1.0);
+        assert!((scalar_f64(&dimensions[0].max) - 50.0).abs() < 1.0);
+    }
+
+    #[tokio::test]
+    async fn colorbar_legend_binding_double_click_clears_selection() {
+        let write_binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::datum("surface_kind").eq(lit("continuous-colorbar")))
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_clause(colorbar_interval_clause("y")),
+            )
+            .exact();
+        let clear_binding = ChartEventBinding::on(ChartEventType::DoubleClick)
+            .filter(event::datum("surface_kind").eq(lit("continuous-colorbar")))
+            .set_selection("picked", SelectionUpdate::clear())
+            .exact();
+        let (mut state, handlers, mark_instance, position) =
+            colorbar_state_and_handlers(LegendPosition::Right, vec![write_binding, clear_binding])
+                .await;
+
+        let write_status = click_mark(
+            &mut state,
+            &handlers[0],
+            Some(mark_instance.clone()),
+            position,
+            false,
+        )
+        .await;
+        assert!(write_status.rerender);
+        {
+            let runtime = state.runtime.lock().await;
+            assert_eq!(
+                runtime
+                    .session
+                    .selection_clauses_for_diagnostics("picked")
+                    .len(),
+                1
+            );
+        }
+
+        let clear_status =
+            double_click_mark(&mut state, &handlers[1], Some(mark_instance), position).await;
+        assert!(clear_status.rerender);
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+        assert!(clauses.is_empty());
+    }
+
+    #[tokio::test]
+    async fn colorbar_drag_clamps_event_at_start_clipped_coord() {
+        let interval = event::interval_ordered(
+            event::start_coord("y"),
+            event::event_at_start_clipped_coord("y"),
+        );
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .between(
+                ChartEventStream::on(ChartEventType::MouseDown)
+                    .filter(event::button().eq(lit("left"))),
+                ChartEventStream::on(ChartEventType::MouseUp),
+            )
+            .filter(event::start_coord("y").is_not_null())
+            .filter(event::event_at_start_clipped_coord("y").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_clause(
+                    SelectionClauseUpdate::interval(lit("active"))
+                        .facet_scope(Sharing::Shared)
+                        .dimension(col("temperature"))
+                        .endpoints(
+                            event::interval_start(interval.clone()),
+                            event::interval_end(interval),
+                        )
+                        .build(),
+                ),
+            )
+            .preview();
+        let (mut state, handlers, mark_instance, midpoint) =
+            colorbar_state_and_handlers(LegendPosition::Right, vec![binding]).await;
+
+        let far_above_colorbar = [midpoint[0], midpoint[1] - 10_000.0];
+        let status = colorbar_drag_move(
+            &mut state,
+            &handlers[0],
+            mark_instance,
+            midpoint,
+            far_above_colorbar,
+        )
+        .await;
+        assert!(status.rerender);
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+        let SelectionPredicateSpec::Interval { dimensions } = &clauses[0].predicate else {
+            panic!("expected interval predicate");
+        };
+        assert!(
+            (scalar_f64(&dimensions[0].min) - 50.0).abs() < 1.0,
+            "start midpoint should stay near the domain midpoint"
+        );
+        assert!(
+            (scalar_f64(&dimensions[0].max) - 100.0).abs() < 1.0,
+            "dragging above the vertical colorbar should clamp to the top/domain maximum"
+        );
     }
 
     #[tokio::test]

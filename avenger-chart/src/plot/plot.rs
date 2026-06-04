@@ -26,7 +26,7 @@ use crate::{
 };
 
 use super::{
-    compiled::CompiledPlot,
+    compiled::{CompiledColorbarOverlayMarks, CompiledPlot},
     title::{PlotSubtitle, PlotTitle},
 };
 
@@ -291,6 +291,9 @@ impl<C: CoordinateSystem> Plot<C> {
         let mut param_source_specs = self.param_specs.clone();
         let mut store_source_specs = Vec::new();
         let legend_colorbar_overlays = compile_colorbar_overlays(&legends, session_context).await?;
+        for legend in legends.values_mut() {
+            legend.colorbar_overlays.clear();
+        }
         let legend_event_bindings = legend_event_bindings(&legends, session_context)?;
         if !is_root {
             tool_context.register_local_legend_event_bindings(&legend_event_bindings)?;
@@ -667,8 +670,8 @@ fn legend_event_bindings(
 async fn compile_colorbar_overlays(
     legends: &IndexMap<String, Legend>,
     session_context: &datafusion::prelude::SessionContext,
-) -> Result<IndexMap<String, Vec<Arc<dyn CompiledMark>>>, AvengerChartError> {
-    let mut compiled = IndexMap::new();
+) -> Result<Vec<CompiledColorbarOverlayMarks>, AvengerChartError> {
+    let mut compiled = Vec::new();
     for (channel_name, legend) in legends {
         if legend.colorbar_overlays.is_empty() {
             continue;
@@ -683,7 +686,10 @@ async fn compile_colorbar_overlays(
             };
             marks.extend(overlay.compile(session_context).await?);
         }
-        compiled.insert(channel_name.clone(), marks);
+        compiled.push(CompiledColorbarOverlayMarks {
+            channel_name: channel_name.clone(),
+            marks,
+        });
     }
     Ok(compiled)
 }
