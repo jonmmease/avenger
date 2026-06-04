@@ -7628,6 +7628,13 @@ mod tests {
                 Symbol::new()
                     .x(col("value"))
                     .y(col("value"))
+                    .size(16.0)
+                    .fill("#aeb6c4"),
+            )
+            .mark(
+                Symbol::new()
+                    .x(col("value"))
+                    .y(col("value"))
                     .size(24.0)
                     .fill_with(col("value"), |c| {
                         c.legend(|l| {
@@ -7676,13 +7683,13 @@ mod tests {
             0,
         )?;
         assert_eq!(value_channel, ScalarValue::Utf8(Some("y".to_string())));
-        assert!(
-            evaluated
-                .interaction
-                .scopes
-                .iter()
-                .any(|scope| scope.kind == InteractionScopeKind::LegendColorbar)
-        );
+        let colorbar_scopes = evaluated
+            .interaction
+            .scopes
+            .iter()
+            .filter(|scope| scope.kind == InteractionScopeKind::LegendColorbar)
+            .collect::<Vec<_>>();
+        assert_eq!(colorbar_scopes.len(), 1);
         Ok(())
     }
 
@@ -7694,8 +7701,8 @@ mod tests {
             Rect::<Cartesian>::new()
                 .unit_data()
                 .exclude_from_scale_domains()
-                .x_with(lit("colorbar"), |c| c.band(0.0))
-                .x2_with(lit("colorbar"), |c| c.band(1.0))
+                .x(lit(0.0))
+                .x2(lit(1.0))
                 .y(lit(2.0))
                 .y2(lit(7.0))
                 .fill("rgba(37, 99, 235, 0.20)")
@@ -7763,8 +7770,8 @@ mod tests {
                 .exclude_from_scale_domains()
                 .x(lit(2.0))
                 .x2(lit(7.0))
-                .y_with(lit("colorbar"), |c| c.band(0.0))
-                .y2_with(lit("colorbar"), |c| c.band(1.0))
+                .y(lit(0.0))
+                .y2(lit(1.0))
                 .fill("rgba(37, 99, 235, 0.20)")
                 .stroke("#2563eb")
                 .stroke_width(1.5),
@@ -7812,8 +7819,8 @@ mod tests {
         let overlay = crate::legend::ColorbarOverlay::new().mark(
             Rect::<Cartesian>::new()
                 .unit_data()
-                .x_with(lit("colorbar"), |c| c.band(0.0))
-                .x2_with(lit("colorbar"), |c| c.band(1.0))
+                .x(lit(0.0))
+                .x2(lit(1.0))
                 .y(lit(-1_000.0))
                 .y2(lit(1_000.0))
                 .fill("#2563eb"),
@@ -7865,8 +7872,8 @@ mod tests {
         let overlay = crate::legend::ColorbarOverlay::new().mark(
             Rect::<Cartesian>::new()
                 .unit_data()
-                .x_with(lit("colorbar"), |c| c.band(0.0))
-                .x2_with(lit("colorbar"), |c| c.band(1.0))
+                .x(lit(0.0))
+                .x2(lit(1.0))
                 .y(lit(2.0))
                 .y2(lit(7.0))
                 .fill_with(lit("overlay"), |c| c.legend(|l| l.title("Overlay"))),
@@ -7895,8 +7902,8 @@ mod tests {
         let overlay = crate::legend::ColorbarOverlay::new().mark(
             Rect::<Cartesian>::new()
                 .unit_data()
-                .x_with(lit("colorbar"), |c| c.scale_with::<Band>(|s| s).band(0.0))
-                .x2_with(lit("colorbar"), |c| c.band(1.0))
+                .x_with(lit(0.0), |c| c.scale_with::<Linear>(|s| s))
+                .x2(lit(1.0))
                 .y(lit(2.0))
                 .y2(lit(7.0))
                 .fill("#2563eb"),
@@ -7923,11 +7930,8 @@ mod tests {
         let ctx = SessionContext::new();
         let df = deeply_nested_dataframe(&ctx);
         let child = Plot::<Cartesian>::new().mark(Symbol::new().x(lit(0.0)).y(lit(0.0)));
-        let overlay = crate::legend::ColorbarOverlay::new().mark(
-            Subplot::new(child)
-                .subplot_x(lit("colorbar"))
-                .subplot_y(lit(5.0)),
-        );
+        let overlay = crate::legend::ColorbarOverlay::new()
+            .mark(Subplot::new(child).subplot_x(lit(0.5)).subplot_y(lit(5.0)));
         let err = match Plot::<Cartesian>::new()
             .data(df)
             .mark(
@@ -7952,8 +7956,8 @@ mod tests {
         let overlay = crate::legend::ColorbarOverlay::new().mark(
             Rect::<Cartesian>::new()
                 .unit_data()
-                .x_with(lit("colorbar"), |c| c.band(0.0))
-                .x2_with(lit("colorbar"), |c| c.band(1.0))
+                .x(lit(0.0))
+                .x2(lit(1.0))
                 .y(lit(2.0))
                 .y2(lit(7.0))
                 .fill("#2563eb"),

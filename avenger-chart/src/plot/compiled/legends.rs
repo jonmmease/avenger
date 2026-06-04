@@ -53,7 +53,7 @@ use crate::{
         InteractionScopeKind, LegendMeasurements, RenderContext, RenderState,
         types::LegendMeasurement,
     },
-    scales::{Band, ConfiguredScaleWithSpec, Linear, Time},
+    scales::{ConfiguredScaleWithSpec, Linear, Time},
     serialization::LogicalExprNodeExt,
 };
 use avenger_chart_cartesian::Cartesian;
@@ -230,6 +230,10 @@ fn legend_orientation_string(orientation: LegendContinuousOrientation) -> &'stat
     }
 }
 
+fn legend_colorbar_scope_id(surface_key: &str) -> String {
+    format!("legend-colorbar:{surface_key}")
+}
+
 fn legend_continuous_surface_interaction_scopes(
     plot_area: LayoutBounds,
     legend_origin: [f32; 2],
@@ -253,7 +257,7 @@ fn legend_continuous_surface_interaction_scopes(
             Some(EvaluatedInteractionScope {
                 id: InteractionScopeId(0),
                 kind: InteractionScopeKind::LegendColorbar,
-                scope_id: format!("legend-colorbar:{}", surface.surface_key),
+                scope_id: legend_colorbar_scope_id(&surface.surface_key),
                 bounds: local_bounds,
                 plot_area_width: surface.bounds.width,
                 plot_area_height: surface.bounds.height,
@@ -288,7 +292,7 @@ fn colorbar_overlay_scales(
     surface: &LegendContinuousSurface,
 ) -> HashMap<String, ConfiguredScaleWithSpec> {
     let value_spec = colorbar_value_scale_spec(&surface.value_scale);
-    let band_spec = Scale::<Band>::new().into_auto();
+    let cross_spec = Scale::<Linear>::new().into_auto();
     let mut scales = HashMap::new();
     if surface.value_channel == "x" {
         scales.insert(
@@ -297,12 +301,12 @@ fn colorbar_overlay_scales(
         );
         scales.insert(
             "y".to_string(),
-            configured_scale_with_spec(band_spec, surface.band_scale.clone()),
+            configured_scale_with_spec(cross_spec, surface.band_scale.clone()),
         );
     } else {
         scales.insert(
             "x".to_string(),
-            configured_scale_with_spec(band_spec, surface.band_scale.clone()),
+            configured_scale_with_spec(cross_spec, surface.band_scale.clone()),
         );
         scales.insert(
             "y".to_string(),
@@ -1316,7 +1320,7 @@ impl CompiledPlot {
         scope: LegendPlanScope,
     ) -> Result<PreparedLegendPlan, AvengerChartError> {
         let mut legend_measurements = LegendMeasurements::new();
-        let mut groups = Vec::new();
+        let mut groups: Vec<PreparedLegendGroup> = Vec::new();
         let mut hoisted_requests = Vec::new();
 
         // Get all legends including channel-level configs
@@ -1425,6 +1429,10 @@ impl CompiledPlot {
                         sharing_level,
                         group,
                     });
+                    continue;
+                }
+
+                if groups.iter().any(|group| group.layout_key == layout_key) {
                     continue;
                 }
 

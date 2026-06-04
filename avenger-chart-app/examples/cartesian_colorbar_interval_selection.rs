@@ -86,13 +86,13 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         Rect::<Cartesian>::new()
             .data_store(StoreData::new("temperature_interval"))
             .exclude_from_scale_domains()
-            .x_with(lit("colorbar"), |c| c.band(0.0))
-            .x2_with(lit("colorbar"), |c| c.band(1.0))
+            .x(lit(0.0))
+            .x2(lit(1.0))
             .y(col("temperature_min"))
             .y2(col("temperature_max"))
-            .fill("rgba(37, 99, 235, 0.16)")
-            .stroke("#2563eb")
-            .stroke_width(1.5)
+            .fill("rgba(255, 255, 255, 0.35)")
+            .stroke("#000000")
+            .stroke_width(1.75)
             .zindex(10_000),
     );
 
@@ -119,8 +119,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                 .y(col("source_y"))
                 .fill_with(col("temperature"), |c| {
                     c.legend(|l| {
-                        l.id("temperature_colorbar")
-                            .title("Temperature")
+                        l.title("Temperature")
                             .event_binding(colorbar_drag)
                             .event_binding(colorbar_release)
                             .event_binding(colorbar_clear)

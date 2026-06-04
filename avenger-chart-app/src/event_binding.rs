@@ -15,7 +15,9 @@ use avenger_chart::{
         CompiledPlot, ScopedParamAssignment, ScopedParamStoreSnapshot, ScopedStoreAssignment,
         SelectionAssignment, SelectionStateUpdate, StoreStateUpdate,
     },
-    render::{EvaluatedEventDatumState, EvaluatedInteractionScope, EvaluationMode},
+    render::{
+        EvaluatedEventDatumState, EvaluatedInteractionScope, EvaluationMode, InteractionScopeKind,
+    },
     serialization::LogicalExprNodeExt,
 };
 use avenger_chart_core::{
@@ -1683,7 +1685,19 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
     ) -> UpdateStatus {
         let mut app = state.runtime.lock().await;
         let eval_start = Instant::now();
-        let event_mark_instance = event.mark_instance().or(context.mark_instance.as_ref());
+        let current_mark_instance = event.mark_instance().or(context.mark_instance.as_ref());
+        let event_mark_instance = if matches!(
+            self.runtime.surface_target,
+            Some(ChartEventSurfaceTarget::LegendSurface { .. })
+        ) {
+            context
+                .start_event
+                .as_ref()
+                .and_then(|start| start.mark_instance.as_ref())
+                .or(current_mark_instance)
+        } else {
+            current_mark_instance
+        };
         let legend_surface_match = match surface_target_matches(
             self.runtime.surface_target.as_ref(),
             &app.last_event_datum_state,
@@ -1737,7 +1751,14 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                 &required_channels,
             ) {
                 InteractionRoute::Scope(scope) => Some(scope.clone()),
-                InteractionRoute::None | InteractionRoute::Ambiguous => None,
+                InteractionRoute::None | InteractionRoute::Ambiguous => {
+                    legend_colorbar_scope_for_mark_instance(
+                        &app.last_interaction_state.scopes,
+                        &app.last_event_datum_state,
+                        event_mark_instance,
+                        &required_channels,
+                    )
+                }
             }
         } else {
             None
@@ -1755,6 +1776,14 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                     binding_state.next_start_event_id += 1;
                     binding_state.active_start_event_id = Some(binding_state.next_start_event_id);
                     binding_state.start_params = Some(app.session.snapshot_scoped_params());
+                    let start_mark_instance = if matches!(
+                        self.runtime.surface_target,
+                        Some(ChartEventSurfaceTarget::LegendSurface { .. })
+                    ) {
+                        start.mark_instance.as_ref()
+                    } else {
+                        start.event.mark_instance()
+                    };
                     binding_state.start_scope = if routing_enabled {
                         match route_interaction_scope(
                             &app.last_interaction_state.scopes,
@@ -1762,7 +1791,14 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                             &required_channels,
                         ) {
                             InteractionRoute::Scope(scope) => Some(scope.clone()),
-                            InteractionRoute::None | InteractionRoute::Ambiguous => None,
+                            InteractionRoute::None | InteractionRoute::Ambiguous => {
+                                legend_colorbar_scope_for_mark_instance(
+                                    &app.last_interaction_state.scopes,
+                                    &app.last_event_datum_state,
+                                    start_mark_instance,
+                                    &required_channels,
+                                )
+                            }
                         }
                     } else {
                         None
@@ -3581,6 +3617,10 @@ fn legend_surface_keys_for_mark_instance(
         .collect()
 }
 
+fn legend_colorbar_scope_id(surface_key: &str) -> String {
+    format!("legend-colorbar:{surface_key}")
+}
+
 fn target_scope_matches(
     target: Option<&ChartEventScopeTarget>,
     use_start_scope: bool,
@@ -3685,6 +3725,42 @@ pub(crate) fn route_interaction_scope<'a>(
         return InteractionRoute::Ambiguous;
     }
     InteractionRoute::Scope(candidates[0])
+}
+
+fn legend_colorbar_scope_for_mark_instance(
+    scopes: &[EvaluatedInteractionScope],
+    event_datums: &EvaluatedEventDatumState,
+    mark_instance: Option<&MarkInstance>,
+    required_channels: &std::collections::BTreeSet<String>,
+) -> Option<EvaluatedInteractionScope> {
+    if !matches!(
+        legend_surface_kind_for_mark_instance(event_datums, mark_instance),
+        Some(LegendSurfaceKind::ContinuousColorbar)
+    ) {
+        return None;
+    }
+    let surface_keys = legend_surface_keys_for_mark_instance(event_datums, mark_instance);
+    let mut candidates = scopes
+        .iter()
+        .filter(|scope| scope.kind == InteractionScopeKind::LegendColorbar)
+        .filter(|scope| {
+            required_channels
+                .iter()
+                .all(|channel| scope.channels.iter().any(|c| c == channel))
+        })
+        .filter(|scope| {
+            surface_keys.is_empty()
+                || surface_keys
+                    .iter()
+                    .any(|key| scope.scope_id == legend_colorbar_scope_id(key))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if candidates.len() == 1 {
+        candidates.pop()
+    } else {
+        None
+    }
 }
 
 fn event_stream_config_for_binding(
@@ -4341,12 +4417,17 @@ mod tests {
     use avenger_chart::layout::LayoutBounds;
     use avenger_chart::prelude::*;
     use avenger_chart::render::{InteractionScopeId, InteractionScopeKind};
+    use avenger_common::time::Duration;
     use avenger_eventstream::{
+        manager::EventStreamManager,
         scene::{
             SceneClickEvent, SceneCursorMovedEvent, SceneDoubleClickEvent, SceneMouseDownEvent,
             SceneMouseUpEvent,
         },
-        window::{CanvasResizeEvent, MouseButton},
+        window::{
+            CanvasResizeEvent, ElementState, MouseButton, WindowCursorMoved, WindowEvent,
+            WindowMouseInput,
+        },
     };
     use avenger_scenegraph::{marks::mark::SceneMark, scene_graph::SceneGraph};
 
@@ -5885,6 +5966,20 @@ mod tests {
             mark_instance.instance_index,
             colorbar_mark_instance.instance_index
         );
+        let runtime = state.runtime.lock().await;
+        assert!(
+            matches!(
+                route_interaction_scope(
+                    &runtime.last_interaction_state.scopes,
+                    Some(midpoint),
+                    &channel_set(&["y"]),
+                ),
+                InteractionRoute::Scope(scope)
+                    if scope.kind == InteractionScopeKind::LegendColorbar
+            ),
+            "colorbar midpoint should route to the exported legend colorbar interaction scope"
+        );
+        drop(runtime);
         (state, handlers, mark_instance, midpoint)
     }
 
@@ -5915,7 +6010,7 @@ mod tests {
             instant,
         };
         let context = EventStreamContext {
-            mark_instance: Some(start_mark_instance),
+            mark_instance: None,
             current_event: None,
             start_event: Some(start_event),
             previous_event: None,
@@ -6924,6 +7019,195 @@ mod tests {
 
         let runtime = state.runtime.lock().await;
         let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+        let SelectionPredicateSpec::Interval { dimensions } = &clauses[0].predicate else {
+            panic!("expected interval predicate");
+        };
+        assert!(
+            (scalar_f64(&dimensions[0].min) - 50.0).abs() < 1.0,
+            "start midpoint should stay near the domain midpoint"
+        );
+        assert!(
+            (scalar_f64(&dimensions[0].max) - 100.0).abs() < 1.0,
+            "dragging above the vertical colorbar should clamp to the top/domain maximum"
+        );
+    }
+
+    #[tokio::test]
+    async fn colorbar_drag_from_legend_axis_area_uses_colorbar_scope() {
+        let interval = event::interval_ordered(
+            event::start_coord("y"),
+            event::event_at_start_clipped_coord("y"),
+        );
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .between(
+                ChartEventStream::on(ChartEventType::MouseDown)
+                    .filter(event::button().eq(lit("left"))),
+                ChartEventStream::on(ChartEventType::MouseUp),
+            )
+            .filter(event::start_coord("y").is_not_null())
+            .filter(event::event_at_start_clipped_coord("y").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_clause(
+                    SelectionClauseUpdate::interval(lit("active"))
+                        .facet_scope(Sharing::Shared)
+                        .dimension(col("temperature"))
+                        .endpoints(
+                            event::interval_start(interval.clone()),
+                            event::interval_end(interval),
+                        )
+                        .build(),
+                ),
+            )
+            .preview();
+        let (mut state, handlers, mark_instance, midpoint) =
+            colorbar_state_and_handlers(LegendPosition::Right, vec![binding]).await;
+
+        let axis_area_start = [midpoint[0] + 50.0, midpoint[1]];
+        let axis_area_end = [axis_area_start[0], midpoint[1] - 10_000.0];
+        let status = colorbar_drag_move(
+            &mut state,
+            &handlers[0],
+            mark_instance,
+            axis_area_start,
+            axis_area_end,
+        )
+        .await;
+        assert!(status.rerender);
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+        let SelectionPredicateSpec::Interval { dimensions } = &clauses[0].predicate else {
+            panic!("expected interval predicate");
+        };
+        assert!(
+            (scalar_f64(&dimensions[0].min) - 50.0).abs() < 1.0,
+            "start y should invert through the colorbar scope even when x is outside the gradient"
+        );
+        assert!(
+            (scalar_f64(&dimensions[0].max) - 100.0).abs() < 1.0,
+            "dragging above the vertical colorbar should clamp to the top/domain maximum"
+        );
+    }
+
+    #[tokio::test]
+    async fn colorbar_drag_dispatches_through_event_stream_manager() {
+        let ctx = SessionContext::new();
+        let interval = event::interval_ordered(
+            event::start_coord("y"),
+            event::event_at_start_clipped_coord("y"),
+        );
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .between(
+                ChartEventStream::on(ChartEventType::MouseDown)
+                    .filter(event::button().eq(lit("left"))),
+                ChartEventStream::on(ChartEventType::MouseUp),
+            )
+            .filter(event::start_coord("y").is_not_null())
+            .filter(event::event_at_start_clipped_coord("y").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_clause(
+                    SelectionClauseUpdate::interval(lit("active"))
+                        .facet_scope(Sharing::Shared)
+                        .dimension(col("temperature"))
+                        .endpoints(
+                            event::interval_start(interval.clone()),
+                            event::interval_end(interval),
+                        )
+                        .build(),
+                ),
+            )
+            .preview();
+        let picked = Selection::new("picked").empty_selects_nothing();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    (1.0, 1.0, 0.0),
+                    (2.0, 1.6, 50.0),
+                    (3.0, 2.2, 100.0)
+                ) AS t(x, y, temperature)",
+            )
+            .await
+            .expect("colorbar data");
+        let compiled = Plot::<Cartesian>::new()
+            .canvas_size(480.0, 360.0)
+            .add_selection(picked)
+            .data(df)
+            .mark(Symbol::new().x(col("x")).y(col("y")).size(80.0).fill_with(
+                col("temperature"),
+                |c| {
+                    c.scale_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false).zero(false))
+                        .legend(|l| {
+                            l.id("temperature_colorbar")
+                                .title("Temperature")
+                                .event_binding(binding)
+                        })
+                },
+            ))
+            .compile(&ctx)
+            .await
+            .expect("compile colorbar interaction plot");
+        let streams = event_streams_for_plot_bindings(&compiled, &ctx).expect("event streams");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial colorbar build");
+        let colorbar_mark_instance = retained_event_datum_mark_instance(
+            &state,
+            event::LEGEND_SURFACE_KIND_FIELD,
+            ScalarValue::Utf8(Some(
+                event::LEGEND_SURFACE_KIND_CONTINUOUS_COLORBAR.to_string(),
+            )),
+        )
+        .await;
+        let midpoint = rect_instance_fraction_point(&scene, &colorbar_mark_instance, 0.5, 0.5);
+        let far_above_colorbar = [midpoint[0], midpoint[1] - 10_000.0];
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        assert!(
+            rtree.pick_top_mark_at_point(&midpoint).is_some(),
+            "rtree should pick the colorbar hit rect"
+        );
+
+        let mut manager = EventStreamManager::new(state);
+        for (config, handler) in streams {
+            manager.register_handler(config, handler);
+        }
+        let instant = Instant::now();
+        manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved { position: midpoint }),
+                &rtree,
+                instant,
+            )
+            .await;
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Pressed,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                instant,
+            )
+            .await;
+        let status = manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved {
+                    position: far_above_colorbar,
+                }),
+                &rtree,
+                instant + Duration::from_millis(16),
+            )
+            .await;
+        assert!(status.rerender);
+
+        let runtime = manager.state().runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+        assert_eq!(clauses.len(), 1);
         let SelectionPredicateSpec::Interval { dimensions } = &clauses[0].predicate else {
             panic!("expected interval predicate");
         };

@@ -13,13 +13,9 @@ use avenger_guides::legend::{
     GuideLegendContinuousOrientation,
     colorbar::{ColorbarConfig, ColorbarOrientation, make_colorbar_marks_with_surfaces},
 };
-use avenger_scales::scales::{ConfiguredScale, DomainKind, RangeKind, band::BandScale};
+use avenger_scales::scales::{ConfiguredScale, DomainKind, RangeKind, linear::LinearScale};
 use avenger_text::types::FontWeight;
-use datafusion::{
-    arrow::array::{ArrayRef, StringArray},
-    common::ScalarValue,
-    prelude::SessionContext,
-};
+use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace};
@@ -499,15 +495,14 @@ fn colorbar_surface_scales(
     } else {
         (bounds.height, 0.0)
     };
-    let band_range = if value_channel == "x" {
+    let cross_range = if value_channel == "x" {
         (0.0, bounds.height)
     } else {
         (0.0, bounds.width)
     };
     let value_scale = configured_scale.clone().with_range_interval(value_range);
-    let band_domain: ArrayRef = std::sync::Arc::new(StringArray::from(vec!["colorbar"]));
-    let band_scale = BandScale::configured(band_domain, band_range);
-    (value_scale, band_scale)
+    let cross_scale = LinearScale::configured((0.0, 1.0), cross_range);
+    (value_scale, cross_scale)
 }
 
 #[cfg(test)]
