@@ -6,7 +6,7 @@
 use super::helpers::assert_visual_match_default;
 use avenger_chart::param::Param;
 use avenger_chart::prelude::*;
-use datafusion::arrow::array::Float64Array;
+use datafusion::arrow::array::{ArrayRef, Float64Array, StructArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::ScalarValue;
@@ -29,6 +29,22 @@ fn create_test_data(ctx: &SessionContext) -> DataFrame {
         .expect("Failed to create RecordBatch");
 
     ctx.read_batch(batch).expect("Failed to read batch")
+}
+
+fn tick_spacing_param() -> Param {
+    Param::new(
+        "y_tick_spacing",
+        ScalarValue::Struct(Arc::new(StructArray::from(vec![
+            (
+                Arc::new(Field::new("start", DataType::Float64, false)),
+                Arc::new(Float64Array::from(vec![-2.0])) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new("step", DataType::Float64, false)),
+                Arc::new(Float64Array::from(vec![2.0])) as ArrayRef,
+            ),
+        ]))),
+    )
 }
 
 #[tokio::test]
@@ -188,6 +204,47 @@ async fn test_conditional_axis_visibility() {
         Some(params_hidden),
         "axis_conditional",
         "visible_false",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_axis_tick_spacing_start_step() {
+    let ctx = SessionContext::new();
+    let df = create_test_data(&ctx);
+    let y_tick_spacing = tick_spacing_param();
+
+    let plot = Plot::<Cartesian>::new()
+        .canvas_size(520.0, 360.0)
+        .title("Axis Tick Spacing")
+        .data(df)
+        .add_param(y_tick_spacing.clone())
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((0.0, 10.0)).nice(false).zero(false))
+                        .axis(|a| {
+                            a.title("ticks_start_step: 0 + 2.5n")
+                                .ticks_start_step(0.0, 2.5)
+                        })
+                })
+                .y_with(col("y"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((-3.0, 9.0)).nice(false).zero(false))
+                        .axis(|a| a.title("tick_spacing param").tick_spacing(&y_tick_spacing))
+                })
+                .fill("#2563eb")
+                .stroke("#0f172a")
+                .stroke_width(1.0)
+                .size(120.0),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "axis_conditional",
+        "tick_spacing_start_step",
     )
     .await;
 }

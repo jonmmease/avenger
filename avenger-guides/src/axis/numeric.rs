@@ -1,4 +1,10 @@
-use arrow::array::ArrayRef;
+use std::sync::Arc;
+
+use arrow::{
+    array::{ArrayRef, AsArray, Float32Array},
+    compute::cast,
+    datatypes::{DataType, Float32Type},
+};
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scales::scales::ConfiguredScale;
@@ -22,6 +28,7 @@ const DEFAULT_TICK_FONT_SIZE: f32 = 12.0;
 const DEFAULT_MAX_TICK_COUNT: f32 = 10.0;
 const HORIZONTAL_MIN_TICK_SPACING_PX: f32 = 25.0;
 const VERTICAL_TICK_SPACING_FONT_HEIGHT_FACTOR: f32 = 1.6;
+const MAX_START_STEP_TICKS: usize = 10_000;
 
 pub fn make_numeric_axis_marks(
     scale: &ConfiguredScale,
@@ -43,11 +50,13 @@ pub fn make_numeric_axis_marks(
         ..Default::default()
     };
 
-    // Compute tick count: use explicit value, or adapt to available pixel space.
-    let tick_count = config.tick_count.or_else(|| adaptive_tick_count(config));
-
-    // Get ticks
-    let ticks = scale.ticks(tick_count)?;
+    let ticks = if let Some([start, step]) = config.tick_start_step {
+        start_step_ticks(&scale, start, step)?
+    } else {
+        // Compute tick count: use explicit value, or adapt to available pixel space.
+        let tick_count = config.tick_count.or_else(|| adaptive_tick_count(config));
+        scale.ticks(tick_count)?
+    };
 
     // Get range bounds considering orientation
     let range = scale.numeric_interval_range()?;
@@ -153,6 +162,67 @@ pub fn make_numeric_axis_marks(
     Ok(main_group)
 }
 
+fn start_step_ticks(
+    scale: &ConfiguredScale,
+    start: f32,
+    step: f32,
+) -> Result<ArrayRef, AvengerGuidesError> {
+    if !start.is_finite() {
+        return Err(AvengerGuidesError::InvalidAxisTicks(
+            "tick start must be finite".to_string(),
+        ));
+    }
+    if !step.is_finite() || step <= 0.0 {
+        return Err(AvengerGuidesError::InvalidAxisTicks(
+            "tick step must be finite and greater than zero".to_string(),
+        ));
+    }
+
+    let domain = scale.normalized_domain()?;
+    if domain.len() != 2 {
+        return Err(AvengerGuidesError::InvalidAxisTicks(
+            "start-step ticks require a two-value numeric scale domain".to_string(),
+        ));
+    }
+    let domain = cast(domain.as_ref(), &DataType::Float32)
+        .map_err(|err| AvengerGuidesError::InvalidAxisTicks(err.to_string()))?;
+    let domain = domain.as_primitive::<Float32Type>();
+    let domain_start = domain.value(0);
+    let domain_end = domain.value(1);
+    let lo = domain_start.min(domain_end);
+    let hi = domain_start.max(domain_end);
+
+    if !lo.is_finite() || !hi.is_finite() {
+        return Err(AvengerGuidesError::InvalidAxisTicks(
+            "scale domain must be finite for start-step ticks".to_string(),
+        ));
+    }
+
+    let first_index = ((lo - start) / step).ceil();
+    if !first_index.is_finite() {
+        return Err(AvengerGuidesError::InvalidAxisTicks(
+            "failed to compute first tick index".to_string(),
+        ));
+    }
+
+    let epsilon = (step.abs() * 1e-4).max(f32::EPSILON);
+    let mut value = start + first_index * step;
+    let mut ticks = Vec::new();
+    while value <= hi + epsilon {
+        if value >= lo - epsilon {
+            if ticks.len() >= MAX_START_STEP_TICKS {
+                return Err(AvengerGuidesError::InvalidAxisTicks(format!(
+                    "start-step ticks would generate more than {MAX_START_STEP_TICKS} ticks"
+                )));
+            }
+            ticks.push(if value.abs() <= epsilon { 0.0 } else { value });
+        }
+        value += step;
+    }
+
+    Ok(Arc::new(Float32Array::from(ticks)) as ArrayRef)
+}
+
 fn adaptive_tick_count(config: &AxisConfig) -> Option<f32> {
     // Estimate reasonable tick count from available axis length.
     // For vertical axes (Left/Right), use height; for horizontal (Top/Bottom), use width.
@@ -190,6 +260,42 @@ fn vertical_min_tick_spacing_px(config: &AxisConfig) -> f32 {
     });
 
     (font_metrics.height * VERTICAL_TICK_SPACING_FONT_HEIGHT_FACTOR).max(1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use avenger_scales::scales::linear::LinearScale;
+
+    fn values(array: &ArrayRef) -> Vec<f32> {
+        array
+            .as_primitive::<Float32Type>()
+            .values()
+            .iter()
+            .copied()
+            .collect()
+    }
+
+    #[test]
+    fn start_step_ticks_clip_to_domain() {
+        let scale = LinearScale::configured((1.2, 8.8), (0.0, 100.0));
+        let ticks = start_step_ticks(&scale, 0.0, 2.0).expect("ticks");
+        assert_eq!(values(&ticks), vec![2.0, 4.0, 6.0, 8.0]);
+    }
+
+    #[test]
+    fn start_step_ticks_support_reversed_domain() {
+        let scale = LinearScale::configured((8.8, 1.2), (0.0, 100.0));
+        let ticks = start_step_ticks(&scale, 0.0, 2.0).expect("ticks");
+        assert_eq!(values(&ticks), vec![2.0, 4.0, 6.0, 8.0]);
+    }
+
+    #[test]
+    fn start_step_ticks_reject_invalid_step() {
+        let scale = LinearScale::configured((0.0, 10.0), (0.0, 100.0));
+        let err = start_step_ticks(&scale, 0.0, 0.0).expect_err("invalid step");
+        assert!(matches!(err, AvengerGuidesError::InvalidAxisTicks(_)));
+    }
 }
 
 fn make_axis_line(

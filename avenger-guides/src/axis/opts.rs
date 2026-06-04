@@ -29,6 +29,7 @@ pub struct AxisConfig {
     pub title_visible: Option<bool>,
     pub labels_visible: Option<bool>,
     pub tick_count: Option<f32>,
+    pub tick_start_step: Option<[f32; 2]>,
 }
 
 impl Default for AxisConfig {
@@ -54,6 +55,7 @@ impl Default for AxisConfig {
             title_visible: None,
             labels_visible: None,
             tick_count: None,
+            tick_start_step: None,
         }
     }
 }

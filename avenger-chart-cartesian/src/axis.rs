@@ -4,9 +4,10 @@ pub use avenger_chart_core::AxisPosition;
 use avenger_chart_core::{
     AvengerChartError, Axis, AxisVisibility, CoordinationAxis, GuideSharingContext,
     INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM, IntoExpr, LayoutBounds, Maybe,
-    MaybeOptionalExpr, SharingGroupEdge, SharingLevel, Theme, axis_ownership_mode_from_params,
-    evaluate_axis_position_expr, evaluate_bool_expr, evaluate_f32_expr, evaluate_string_expr,
-    owner_for_edge, project_container_edge_levels, serialization::DefaultLogicalExprNodeExt,
+    MaybeOptionalExpr, ScalarValueHelpers, SharingGroupEdge, SharingLevel, Theme,
+    axis_ownership_mode_from_params, eval_to_scalars, evaluate_axis_position_expr,
+    evaluate_bool_expr, evaluate_f32_expr, evaluate_string_expr, owner_for_edge,
+    params_to_datafusion, project_container_edge_levels, serialization::DefaultLogicalExprNodeExt,
 };
 use avenger_guides::axis::{
     band::make_band_axis_marks,
@@ -16,7 +17,11 @@ use avenger_guides::axis::{
 };
 use avenger_scales::scales::{DomainKind, band::BandScale};
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
-use datafusion::{common::ScalarValue, prelude::SessionContext};
+use datafusion::{
+    arrow::array::Array,
+    common::ScalarValue,
+    prelude::{Expr, SessionContext, lit, named_struct},
+};
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -40,6 +45,8 @@ pub struct CartesianAxis {
     pub grid: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
     pub tick_count: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub tick_spacing: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
     pub label_angle: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
@@ -95,6 +102,27 @@ impl CartesianAxis {
             LogicalExprNode::from_default_expr(expr).expect("Failed to serialize tick_count expr"),
         ));
         self
+    }
+
+    /// Generate numeric axis ticks from a struct expression with `start` and `step` fields.
+    ///
+    /// The generated ticks are `start + n * step`, clipped to the scale domain.
+    pub fn tick_spacing(mut self, spacing: impl IntoExpr) -> Self {
+        self.tick_spacing = Maybe::Set(Some(
+            LogicalExprNode::from_default_expr(spacing.into_expr())
+                .expect("Failed to serialize tick_spacing expr"),
+        ));
+        self
+    }
+
+    /// Generate numeric axis ticks from `start + n * step`, clipped to the scale domain.
+    pub fn ticks_start_step(self, start: impl IntoExpr, step: impl IntoExpr) -> Self {
+        self.tick_spacing(named_struct(vec![
+            lit("start"),
+            start.into_expr(),
+            lit("step"),
+            step.into_expr(),
+        ]))
     }
 
     pub fn label_angle(mut self, angle: impl IntoExpr) -> Self {
@@ -156,6 +184,9 @@ impl CartesianAxis {
         }
         if other.tick_count.is_set() {
             self.tick_count = other.tick_count;
+        }
+        if other.tick_spacing.is_set() {
+            self.tick_spacing = other.tick_spacing;
         }
         if other.label_angle.is_set() {
             self.label_angle = other.label_angle;
@@ -494,6 +525,7 @@ pub async fn evaluate_cartesian_axis(
     } else {
         None
     };
+    let tick_start_step = evaluate_tick_spacing(axis, ctx, params).await?;
 
     let axis_config = AxisConfig {
         orientation,
@@ -523,6 +555,7 @@ pub async fn evaluate_cartesian_axis(
         title_visible: Some(show_title),
         labels_visible,
         tick_count,
+        tick_start_step,
     };
 
     let title = if let Some(title_node) = axis.title.as_option().and_then(|o| o.as_ref()) {
@@ -558,11 +591,91 @@ pub async fn evaluate_cartesian_axis(
     Ok(SceneMark::Group(axis_group))
 }
 
+async fn evaluate_tick_spacing(
+    axis: &CartesianAxis,
+    ctx: &SessionContext,
+    params: &indexmap::IndexMap<String, ScalarValue>,
+) -> Result<Option<[f32; 2]>, AvengerChartError> {
+    let Some(spacing_node) = axis.tick_spacing.as_option().and_then(|o| o.as_ref()) else {
+        return Ok(None);
+    };
+    let spacing_expr = spacing_node.to_default_expr(ctx)?;
+    let spacing = evaluate_scalar_expr(&spacing_expr, ctx, params).await?;
+    Ok(Some(extract_tick_spacing(spacing)?))
+}
+
+async fn evaluate_scalar_expr(
+    expr: &Expr,
+    ctx: &SessionContext,
+    params: &indexmap::IndexMap<String, ScalarValue>,
+) -> Result<ScalarValue, AvengerChartError> {
+    let scalars = eval_to_scalars(
+        vec![expr.clone()],
+        Some(ctx),
+        params_to_datafusion(params).as_ref(),
+    )
+    .await
+    .map_err(|err| {
+        AvengerChartError::InternalError(format!("Failed to evaluate scalar expression: {err}"))
+    })?;
+
+    scalars
+        .into_iter()
+        .next()
+        .ok_or_else(|| AvengerChartError::InternalError("No value returned".to_string()))
+}
+
+fn extract_tick_spacing(spacing: ScalarValue) -> Result<[f32; 2], AvengerChartError> {
+    let ScalarValue::Struct(struct_array) = spacing else {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Axis tick_spacing must evaluate to a struct with start and step fields, got {spacing}"
+        )));
+    };
+
+    if struct_array.len() != 1 {
+        return Err(AvengerChartError::InvalidArgument(
+            "Axis tick_spacing struct must contain exactly one row".to_string(),
+        ));
+    }
+
+    Ok([
+        tick_spacing_field(&struct_array, "start")?,
+        tick_spacing_field(&struct_array, "step")?,
+    ])
+}
+
+fn tick_spacing_field(
+    struct_array: &datafusion::arrow::array::StructArray,
+    name: &str,
+) -> Result<f32, AvengerChartError> {
+    let (field_index, _) = struct_array
+        .fields()
+        .iter()
+        .enumerate()
+        .find(|(_, field)| field.name() == name)
+        .ok_or_else(|| {
+            AvengerChartError::InvalidArgument(format!(
+                "Axis tick_spacing struct is missing required field '{name}'"
+            ))
+        })?;
+    let value =
+        ScalarValue::try_from_array(struct_array.column(field_index), 0).map_err(|err| {
+            AvengerChartError::InvalidArgument(format!(
+                "Failed to read axis tick_spacing field '{name}': {err}"
+            ))
+        })?;
+    value.as_f32().map_err(|err| {
+        AvengerChartError::InvalidArgument(format!(
+            "Axis tick_spacing field '{name}' must be numeric: {err}"
+        ))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         AxisPosition, ChildFrameAxisOwnershipRole, child_frame_axis_ownership_scope,
-        child_frame_axis_title_scope, default_axis_position_for_channel,
+        child_frame_axis_title_scope, default_axis_position_for_channel, extract_tick_spacing,
         facet_axis_ownership_applies, facet_axis_visibility_for_cartesian_axis,
     };
     use avenger_chart_core::{
@@ -570,8 +683,13 @@ mod tests {
         ChildFrameGuideSharingView, CoordinationAxis, FacetGuideSharingView, GuideSharingContext,
         SharingLevel, axis_owner_ignore_empty_cells_from_params, axis_ownership_mode_from_params,
     };
+    use datafusion::arrow::{
+        array::{ArrayRef, Float64Array, StructArray},
+        datatypes::{DataType, Field},
+    };
     use datafusion::common::ScalarValue;
     use indexmap::IndexMap;
+    use std::sync::Arc;
 
     use crate::marks::subplot::{CARTESIAN_SUBPLOT_X_CHANNEL, CARTESIAN_SUBPLOT_Y_CHANNEL};
 
@@ -733,6 +851,22 @@ mod tests {
         );
         assert_eq!(default_axis_position_for_channel("x"), AxisPosition::Bottom);
         assert_eq!(default_axis_position_for_channel("y"), AxisPosition::Left);
+    }
+
+    #[test]
+    fn tick_spacing_extracts_start_step_struct() {
+        let spacing = ScalarValue::Struct(Arc::new(StructArray::from(vec![
+            (
+                Arc::new(Field::new("start", DataType::Float64, false)),
+                Arc::new(Float64Array::from(vec![1.5])) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new("step", DataType::Float64, false)),
+                Arc::new(Float64Array::from(vec![2.5])) as ArrayRef,
+            ),
+        ])));
+
+        assert_eq!(extract_tick_spacing(spacing).expect("spacing"), [1.5, 2.5]);
     }
 
     #[test]

@@ -140,6 +140,7 @@ pub fn make_colorbar_marks_with_surfaces(
                 title_visible: Some(true),
                 labels_visible: None,
                 tick_count: Some(10.0),
+                tick_start_step: None,
             };
 
             let numeric_scale = scale.clone().with_range_interval((0.0, gradient_width));
@@ -362,6 +363,7 @@ pub fn make_colorbar_marks_with_surfaces(
                 title_visible: Some(true),
                 labels_visible: None,
                 tick_count: Some(10.0),
+                tick_start_step: None,
             };
 
             // Create scale with horizontal range
@@ -529,6 +531,7 @@ pub fn make_colorbar_marks_with_surfaces(
                 title_visible: Some(true),
                 labels_visible: None,
                 tick_count: None,
+                tick_start_step: None,
             };
 
             let numeric_scale = scale.clone().with_range_interval((gradient_height, 0.0));
@@ -746,6 +749,7 @@ pub fn make_colorbar_marks_with_surfaces(
                 title_visible: Some(true),
                 labels_visible: None,
                 tick_count: None,
+                tick_start_step: None,
             };
 
             // Create a new scale with desired range for the axis

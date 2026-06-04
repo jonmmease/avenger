@@ -10,4 +10,7 @@ pub enum AvengerGuidesError {
 
     #[error("Invalid scale: {0}")]
     InvalidScale(#[from] AvengerScaleError),
+
+    #[error("Invalid axis ticks: {0}")]
+    InvalidAxisTicks(String),
 }
