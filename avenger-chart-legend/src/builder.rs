@@ -1,3 +1,5 @@
+use std::{any::Any, sync::Arc};
+
 use avenger_chart_core::{ChartEventBinding, IntoExpr, Legend};
 
 /// Base trait for legend builders - just for common functionality
@@ -31,6 +33,12 @@ pub trait LegendBuilder: Sized {
     fn event_bindings(mut self, bindings: impl IntoIterator<Item = ChartEventBinding>) -> Self {
         let legend = self.legend_mut().clone();
         *self.legend_mut() = legend.event_bindings(bindings);
+        self
+    }
+
+    fn colorbar_overlay(mut self, overlay: impl Any + Send + Sync + 'static) -> Self {
+        let legend = self.legend_mut().clone();
+        *self.legend_mut() = legend.colorbar_overlay_any(Arc::new(overlay));
         self
     }
 }

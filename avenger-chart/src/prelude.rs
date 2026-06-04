@@ -94,6 +94,7 @@ pub use avenger_chart_scales::{
 };
 
 // Re-export legend types
+pub use crate::legend::ColorbarOverlay;
 pub use avenger_chart_core::Legend;
 pub use avenger_chart_core::{LegendOrientation, LegendPosition};
 pub use avenger_chart_legend::{

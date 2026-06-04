@@ -328,6 +328,7 @@ pub fn make_line_legend_itemized(
             ..Default::default()
         },
         items,
+        continuous_surfaces: Vec::new(),
     })
 }
 

@@ -133,6 +133,10 @@ pub struct CompiledPlot {
     /// Legends
     pub(crate) legends: IndexMap<String, Legend>,
 
+    /// Compiled overlay marks keyed by legend channel name.
+    #[serde(default)]
+    pub(crate) legend_colorbar_overlays: IndexMap<String, Vec<Arc<dyn CompiledMark>>>,
+
     /// Layout specification
     pub(crate) layout_spec: LayoutSpec,
 
@@ -437,8 +441,9 @@ fn collect_reserved_event_datum_types(
     out: &mut IndexMap<String, DataType>,
 ) {
     use avenger_chart_core::event::{
-        LEGEND_CHANNEL_FIELD, LEGEND_ID_FIELD, LEGEND_INDEX_FIELD, LEGEND_LABEL_FIELD,
-        LEGEND_NAME_FIELD, LEGEND_SURFACE_KEY_FIELD, LEGEND_VALUE_FIELD,
+        LEGEND_BAND_CHANNEL_FIELD, LEGEND_CHANNEL_FIELD, LEGEND_ID_FIELD, LEGEND_INDEX_FIELD,
+        LEGEND_LABEL_FIELD, LEGEND_NAME_FIELD, LEGEND_ORIENTATION_FIELD, LEGEND_SURFACE_KEY_FIELD,
+        LEGEND_SURFACE_KIND_FIELD, LEGEND_VALUE_CHANNEL_FIELD, LEGEND_VALUE_FIELD,
     };
 
     for (name, data_type) in [
@@ -449,6 +454,10 @@ fn collect_reserved_event_datum_types(
         (LEGEND_INDEX_FIELD, DataType::Int64),
         (LEGEND_ID_FIELD, DataType::Utf8),
         (LEGEND_SURFACE_KEY_FIELD, DataType::Utf8),
+        (LEGEND_SURFACE_KIND_FIELD, DataType::Utf8),
+        (LEGEND_ORIENTATION_FIELD, DataType::Utf8),
+        (LEGEND_VALUE_CHANNEL_FIELD, DataType::Utf8),
+        (LEGEND_BAND_CHANNEL_FIELD, DataType::Utf8),
     ] {
         if requested.contains(name) && !out.contains_key(name) {
             out.insert(name.to_string(), data_type);

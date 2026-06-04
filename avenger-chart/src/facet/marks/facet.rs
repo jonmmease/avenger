@@ -1323,6 +1323,7 @@ fn build_physical_wrap_subplot(
         selection_specs: Default::default(),
         cursor_params: Vec::new(),
         tool_metadata: Vec::new(),
+        legend_colorbar_overlays: Default::default(),
     }))
 }
 

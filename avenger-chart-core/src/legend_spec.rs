@@ -1,3 +1,5 @@
+use std::{any::Any, sync::Arc};
+
 use datafusion::{common::ScalarValue, logical_expr::Expr, prelude::lit};
 use datafusion_proto::{
     logical_plan::{DefaultLogicalExtensionCodec, to_proto::serialize_expr},
@@ -33,6 +35,8 @@ pub struct Legend {
     pub explicit_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub event_bindings: Vec<ChartEventBinding>,
+    #[serde(skip)]
+    pub colorbar_overlays: Vec<Arc<dyn Any + Send + Sync>>,
     #[serde_as(as = "MaybeOptionalExpr")]
     pub visible: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
@@ -145,6 +149,7 @@ impl Legend {
             id: None,
             explicit_ids: Vec::new(),
             event_bindings: Vec::new(),
+            colorbar_overlays: Vec::new(),
             visible: Maybe::Set(Some(
                 LogicalExprNode::from_expr(lit(true)).expect("Failed to serialize visible expr"),
             )),
@@ -187,6 +192,7 @@ impl Legend {
         }
         self.explicit_ids.extend(other.explicit_ids);
         self.event_bindings.extend(other.event_bindings);
+        self.colorbar_overlays.extend(other.colorbar_overlays);
         if other.visible.is_set() {
             self.visible = other.visible;
         }
@@ -293,6 +299,12 @@ impl Legend {
 
     pub fn event_bindings(mut self, bindings: impl IntoIterator<Item = ChartEventBinding>) -> Self {
         self.event_bindings.extend(bindings);
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn colorbar_overlay_any(mut self, overlay: Arc<dyn Any + Send + Sync>) -> Self {
+        self.colorbar_overlays.push(overlay);
         self
     }
 

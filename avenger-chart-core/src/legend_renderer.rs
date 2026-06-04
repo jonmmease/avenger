@@ -13,8 +13,8 @@ use datafusion::{common::ScalarValue, logical_expr::Expr, prelude::SessionContex
 use indexmap::IndexMap;
 
 use crate::{
-    AvengerChartError, ConfiguredScaleLegendExt, DomainValues, Legend, LegendRendererKind, Size2D,
-    Theme,
+    AvengerChartError, ConfiguredScaleLegendExt, DomainValues, LayoutBounds, Legend,
+    LegendRendererKind, Size2D, Theme,
 };
 
 #[derive(Clone)]
@@ -148,11 +148,48 @@ pub struct LegendRenderItem {
     pub hit_rect_path: Vec<usize>,
 }
 
+/// Kind of interactive surface emitted by a legend renderer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum LegendSurfaceKind {
+    DiscreteItem,
+    ContinuousColorbar,
+}
+
+/// Physical orientation of a continuous legend surface.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum LegendContinuousOrientation {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+/// One continuous interactive surface emitted by a legend renderer.
+#[derive(Clone, Debug)]
+pub struct LegendContinuousSurface {
+    pub channel: String,
+    pub name: String,
+    pub legend_id: Option<String>,
+    pub surface_key: String,
+    pub kind: LegendSurfaceKind,
+    pub orientation: LegendContinuousOrientation,
+    pub surface_group_path: Vec<usize>,
+    pub gradient_rect_path: Vec<usize>,
+    pub hit_rect_path: Vec<usize>,
+    /// Bounds relative to the returned legend group.
+    pub bounds: LayoutBounds,
+    pub value_channel: String,
+    pub band_channel: String,
+    pub value_scale: ConfiguredScale,
+    pub band_scale: ConfiguredScale,
+}
+
 /// Rendered legend scene plus optional item metadata for event datum lookup.
 #[derive(Clone, Debug)]
 pub struct LegendRenderOutput {
     pub group: SceneGroup,
     pub items: Vec<LegendRenderItem>,
+    pub continuous_surfaces: Vec<LegendContinuousSurface>,
 }
 
 impl From<SceneGroup> for LegendRenderOutput {
@@ -160,6 +197,7 @@ impl From<SceneGroup> for LegendRenderOutput {
         Self {
             group,
             items: Vec::new(),
+            continuous_surfaces: Vec::new(),
         }
     }
 }

@@ -708,6 +708,7 @@ impl LegendRenderer for CompiledSymbolLegend {
         Ok(Some(LegendRenderOutput {
             group: output.group,
             items,
+            continuous_surfaces: Vec::new(),
         }))
     }
 }

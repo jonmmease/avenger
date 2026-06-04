@@ -20,16 +20,16 @@ use avenger_chart::{
 };
 use avenger_chart_core::{
     CompiledParamSpec, CompiledScalarExpressionProgram, CompiledSelectionSpec, CompiledStoreSpec,
-    InteractionPointInversionRequest, PhysicalScalarExpressionSpec, PhysicalScalarProgramOptions,
-    PlaceholderColumn, ResolvedSelectionClauseScope, SceneGeometryCoordinateSpace,
-    SceneGeometryHitPolicy, SceneGeometryQuery, SceneGeometryQueryGeometry, SceneGeometryTarget,
-    SceneQueryClauseId, SceneQueryDatumField, SelectionClause, SelectionClauseUpdate,
-    SelectionEqualityDimensionUpdate, SelectionEqualityDimensionValue, SelectionFacetContextValue,
-    SelectionIntervalDimensionUpdate, SelectionIntervalDimensionValue, SelectionPredicateSpec,
-    SelectionPredicateUpdate, SelectionPredicateValue, SelectionPredicateValueUpdate,
-    SelectionSceneQuery, SelectionUpdate, SelectionValueExpr, Sharing, StoreFieldPatch, StoreKey,
-    StoreRow, StoreRowValue, StoreUpdate, StoreValueExpr, collect_placeholder_ids,
-    one_row_batch_from_scalars, schema_from_fields,
+    InteractionPointInversionRequest, LegendSurfaceKind, PhysicalScalarExpressionSpec,
+    PhysicalScalarProgramOptions, PlaceholderColumn, ResolvedSelectionClauseScope,
+    SceneGeometryCoordinateSpace, SceneGeometryHitPolicy, SceneGeometryQuery,
+    SceneGeometryQueryGeometry, SceneGeometryTarget, SceneQueryClauseId, SceneQueryDatumField,
+    SelectionClause, SelectionClauseUpdate, SelectionEqualityDimensionUpdate,
+    SelectionEqualityDimensionValue, SelectionFacetContextValue, SelectionIntervalDimensionUpdate,
+    SelectionIntervalDimensionValue, SelectionPredicateSpec, SelectionPredicateUpdate,
+    SelectionPredicateValue, SelectionPredicateValueUpdate, SelectionSceneQuery, SelectionUpdate,
+    SelectionValueExpr, Sharing, StoreFieldPatch, StoreKey, StoreRow, StoreRowValue, StoreUpdate,
+    StoreValueExpr, collect_placeholder_ids, one_row_batch_from_scalars, schema_from_fields,
 };
 use avenger_common::cursor::CursorStyle;
 use avenger_common::time::Instant;
@@ -1689,7 +1689,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             &app.last_event_datum_state,
             event_mark_instance,
         ) {
-            SurfaceMatch::Accept { legend_item } => legend_item,
+            SurfaceMatch::Accept { legend_surface } => legend_surface,
             SurfaceMatch::Reject { reason } => {
                 trace_chart_event_rejection(
                     self.runtime.binding_index,
@@ -3464,7 +3464,7 @@ fn filters_pass(values: &[ScalarValue]) -> bool {
 }
 
 enum SurfaceMatch {
-    Accept { legend_item: bool },
+    Accept { legend_surface: bool },
     Reject { reason: &'static str },
 }
 
@@ -3474,23 +3474,38 @@ fn surface_target_matches(
     mark_instance: Option<&MarkInstance>,
 ) -> SurfaceMatch {
     let legend_surface_keys = legend_surface_keys_for_mark_instance(event_datums, mark_instance);
+    let legend_surface_kind = legend_surface_kind_for_mark_instance(event_datums, mark_instance);
     match target {
         None | Some(ChartEventSurfaceTarget::All) => SurfaceMatch::Accept {
-            legend_item: !legend_surface_keys.is_empty(),
+            legend_surface: !legend_surface_keys.is_empty(),
         },
         Some(ChartEventSurfaceTarget::PlotSurface) => {
             if legend_surface_keys.is_empty() {
-                SurfaceMatch::Accept { legend_item: false }
+                SurfaceMatch::Accept {
+                    legend_surface: false,
+                }
             } else {
                 SurfaceMatch::Reject {
                     reason: "surface_plot_excludes_legend",
                 }
             }
         }
-        Some(ChartEventSurfaceTarget::LegendItemSurface { surface_keys }) => {
+        Some(ChartEventSurfaceTarget::LegendSurface {
+            surface_keys,
+            kinds,
+        }) => {
             if legend_surface_keys.is_empty() {
                 return SurfaceMatch::Reject {
-                    reason: "surface_legend_requires_legend_item",
+                    reason: "surface_legend_requires_legend_surface",
+                };
+            }
+            if !kinds.is_empty()
+                && !legend_surface_kind
+                    .as_ref()
+                    .is_some_and(|kind| kinds.iter().any(|target| target == kind))
+            {
+                return SurfaceMatch::Reject {
+                    reason: "surface_legend_kind_mismatch",
                 };
             }
             if surface_keys.is_empty()
@@ -3498,13 +3513,33 @@ fn surface_target_matches(
                     .iter()
                     .any(|key| legend_surface_keys.iter().any(|candidate| candidate == key))
             {
-                SurfaceMatch::Accept { legend_item: true }
+                SurfaceMatch::Accept {
+                    legend_surface: true,
+                }
             } else {
                 SurfaceMatch::Reject {
                     reason: "surface_legend_key_mismatch",
                 }
             }
         }
+    }
+}
+
+fn legend_surface_kind_for_mark_instance(
+    event_datums: &EvaluatedEventDatumState,
+    mark_instance: Option<&MarkInstance>,
+) -> Option<LegendSurfaceKind> {
+    let ScalarValue::Utf8(Some(kind)) =
+        event_datums.datum_for_mark_instance(mark_instance, event::LEGEND_SURFACE_KIND_FIELD)?
+    else {
+        return None;
+    };
+    match kind.as_str() {
+        event::LEGEND_SURFACE_KIND_DISCRETE_ITEM => Some(LegendSurfaceKind::DiscreteItem),
+        event::LEGEND_SURFACE_KIND_CONTINUOUS_COLORBAR => {
+            Some(LegendSurfaceKind::ContinuousColorbar)
+        }
+        _ => None,
     }
 }
 

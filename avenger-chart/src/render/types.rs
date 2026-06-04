@@ -798,6 +798,7 @@ pub struct InteractionScopeId(pub usize);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InteractionScopeKind {
     Coordinate,
+    LegendColorbar,
     Container,
 }
 

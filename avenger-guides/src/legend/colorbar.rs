@@ -1,7 +1,7 @@
 use avenger_common::types::{ColorOrGradient, Gradient, LinearGradient};
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_scales::scales::ConfiguredScale;
-use avenger_scenegraph::marks::{group::SceneGroup, rect::SceneRectMark};
+use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark, rect::SceneRectMark};
 use avenger_text::{
     measurement::{default_text_measurer, TextMeasurementConfig, TextMeasurer},
     types::{FontStyle, FontWeight, FontWeightNameSpec},
@@ -13,14 +13,27 @@ use crate::{
         opts::{AxisConfig, AxisOrientation},
     },
     error::AvengerGuidesError,
+    legend::{
+        GuideLegendContinuousOrientation, GuideLegendContinuousSurface, GuideLegendOutput,
+        GuideLegendSurfaceKind,
+    },
 };
 
 pub fn make_colorbar_marks(
     scale: &ConfiguredScale,
     title: &str,
-    _origin: [f32; 2], // Unused - we always start at (0, 0) now
+    origin: [f32; 2],
     config: &ColorbarConfig,
 ) -> Result<SceneGroup, AvengerGuidesError> {
+    Ok(make_colorbar_marks_with_surfaces(scale, title, origin, config)?.group)
+}
+
+pub fn make_colorbar_marks_with_surfaces(
+    scale: &ConfiguredScale,
+    title: &str,
+    _origin: [f32; 2], // Unused - we always start at (0, 0) now
+    config: &ColorbarConfig,
+) -> Result<GuideLegendOutput, AvengerGuidesError> {
     match config.orientation {
         ColorbarOrientation::Top => {
             // Horizontal gradient going left-to-right with axis above
@@ -148,7 +161,12 @@ pub fn make_colorbar_marks(
             // For Top orientation, the axis renders upward from its origin
             // Place the axis origin at the top of the rect, minus margin
             let axis_origin = [0.0, -colorbar_margin];
-            let axis = make_numeric_axis_marks(&numeric_scale, title, axis_origin, &axis_config)?;
+            let axis = noninteractive_group(make_numeric_axis_marks(
+                &numeric_scale,
+                title,
+                axis_origin,
+                &axis_config,
+            )?);
 
             // Content marks
             let content_marks = vec![axis.clone().into(), rect.clone().into()];
@@ -193,13 +211,15 @@ pub fn make_colorbar_marks(
                 },
                 corner_radius: config.background_corner_radius.unwrap_or(0.0).into(),
                 zindex: Some(0),
+                interactive: false,
                 ..Default::default()
             };
 
             // Shift content to account for any negative y overhang, then add bg_padding
             // Add horizontal_text_padding to ensure equal spacing for tick labels on left/right
+            let axis_group_origin = [horizontal_text_padding + bg_padding, y_shift + bg_padding];
             let colorbar_axis_group = SceneGroup {
-                origin: [horizontal_text_padding + bg_padding, y_shift + bg_padding],
+                origin: axis_group_origin,
                 marks: vec![axis.into(), rect.into()],
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 ..Default::default()
@@ -207,12 +227,19 @@ pub fn make_colorbar_marks(
 
             let marks = vec![bg_rect.into(), colorbar_axis_group.into()];
 
-            Ok(SceneGroup {
-                origin: [0.0, 0.0],
-                marks,
-                clip: avenger_scenegraph::marks::group::Clip::None,
-                ..Default::default()
-            })
+            Ok(colorbar_guide_output(
+                SceneGroup {
+                    origin: [0.0, 0.0],
+                    marks,
+                    clip: avenger_scenegraph::marks::group::Clip::None,
+                    ..Default::default()
+                },
+                &config.orientation,
+                axis_group_origin,
+                1,
+                gradient_width,
+                colorbar_height,
+            ))
         }
         ColorbarOrientation::Bottom => {
             // Horizontal gradient going left-to-right with axis below
@@ -342,7 +369,12 @@ pub fn make_colorbar_marks(
 
             // Position axis below the colorbar
             let axis_origin = [0.0, colorbar_height + colorbar_margin];
-            let axis = make_numeric_axis_marks(&numeric_scale, title, axis_origin, &axis_config)?;
+            let axis = noninteractive_group(make_numeric_axis_marks(
+                &numeric_scale,
+                title,
+                axis_origin,
+                &axis_config,
+            )?);
 
             // Content marks
             let content_marks = vec![rect.clone().into(), axis.clone().into()];
@@ -385,13 +417,15 @@ pub fn make_colorbar_marks(
                 },
                 corner_radius: config.background_corner_radius.unwrap_or(0.0).into(),
                 zindex: Some(0),
+                interactive: false,
                 ..Default::default()
             };
 
             // Shift content down if there's negative y overhang, then add bg_padding
             // Add horizontal_text_padding to ensure equal spacing for tick labels on left/right
+            let axis_group_origin = [horizontal_text_padding + bg_padding, y_shift + bg_padding];
             let colorbar_axis_group = SceneGroup {
-                origin: [horizontal_text_padding + bg_padding, y_shift + bg_padding],
+                origin: axis_group_origin,
                 marks: vec![rect.into(), axis.into()],
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 ..Default::default()
@@ -399,12 +433,19 @@ pub fn make_colorbar_marks(
 
             let marks = vec![bg_rect.into(), colorbar_axis_group.into()];
 
-            Ok(SceneGroup {
-                origin: [0.0, 0.0],
-                marks,
-                clip: avenger_scenegraph::marks::group::Clip::None,
-                ..Default::default()
-            })
+            Ok(colorbar_guide_output(
+                SceneGroup {
+                    origin: [0.0, 0.0],
+                    marks,
+                    clip: avenger_scenegraph::marks::group::Clip::None,
+                    ..Default::default()
+                },
+                &config.orientation,
+                axis_group_origin,
+                0,
+                gradient_width,
+                colorbar_height,
+            ))
         }
         ColorbarOrientation::Left => {
             // Similar to Right but axis is positioned to the left of the gradient
@@ -525,7 +566,12 @@ pub fn make_colorbar_marks(
             // Position axis to the left of rect with margin
             // Axis renders leftward from origin, so place origin at -margin (to the left of rect at x=0)
             let axis_origin = [-(colorbar_margin), 0.0];
-            let axis = make_numeric_axis_marks(&numeric_scale, title, axis_origin, &axis_config)?;
+            let axis = noninteractive_group(make_numeric_axis_marks(
+                &numeric_scale,
+                title,
+                axis_origin,
+                &axis_config,
+            )?);
 
             // Content marks
             let content_marks = vec![axis.clone().into(), rect.clone().into()];
@@ -570,13 +616,15 @@ pub fn make_colorbar_marks(
                 },
                 corner_radius: config.background_corner_radius.unwrap_or(0.0).into(),
                 zindex: Some(0),
+                interactive: false,
                 ..Default::default()
             };
 
             // Shift content to account for any negative x overhang, then add bg_padding
             // Add vertical_text_padding to ensure equal spacing for tick labels
+            let axis_group_origin = [x_shift + bg_padding, vertical_text_padding + bg_padding];
             let colorbar_axis_group = SceneGroup {
-                origin: [x_shift + bg_padding, vertical_text_padding + bg_padding],
+                origin: axis_group_origin,
                 marks: vec![axis.into(), rect.into()],
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 ..Default::default()
@@ -584,12 +632,19 @@ pub fn make_colorbar_marks(
 
             let marks = vec![bg_rect.into(), colorbar_axis_group.into()];
 
-            Ok(SceneGroup {
-                origin: [0.0, 0.0],
-                marks,
-                clip: avenger_scenegraph::marks::group::Clip::None,
-                ..Default::default()
-            })
+            Ok(colorbar_guide_output(
+                SceneGroup {
+                    origin: [0.0, 0.0],
+                    marks,
+                    clip: avenger_scenegraph::marks::group::Clip::None,
+                    ..Default::default()
+                },
+                &config.orientation,
+                axis_group_origin,
+                1,
+                colorbar_width,
+                gradient_height,
+            ))
         }
         ColorbarOrientation::Right => {
             // config.dimensions represents available space for the colorbar
@@ -695,7 +750,12 @@ pub fn make_colorbar_marks(
 
             // Create a new scale with desired range for the axis
             let numeric_scale = scale.clone().with_range_interval((gradient_height, 0.0));
-            let axis = make_numeric_axis_marks(&numeric_scale, title, axis_origin, &axis_config)?;
+            let axis = noninteractive_group(make_numeric_axis_marks(
+                &numeric_scale,
+                title,
+                axis_origin,
+                &axis_config,
+            )?);
 
             // Content marks
             let content_marks = vec![rect.clone().into(), axis.clone().into()];
@@ -743,14 +803,16 @@ pub fn make_colorbar_marks(
                 },
                 corner_radius: config.background_corner_radius.unwrap_or(0.0).into(),
                 zindex: Some(0),
+                interactive: false,
                 ..Default::default()
             };
 
             // Create a group for colorbar and axis with proper padding
             // Shift content right if there's negative x overhang, then add bg_padding
             // Add vertical_text_padding to ensure equal spacing for tick labels
+            let axis_group_origin = [x_shift + bg_padding, vertical_text_padding + bg_padding];
             let colorbar_axis_group = SceneGroup {
-                origin: [x_shift + bg_padding, vertical_text_padding + bg_padding],
+                origin: axis_group_origin,
                 marks: vec![rect.into(), axis.into()],
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 ..Default::default()
@@ -759,13 +821,74 @@ pub fn make_colorbar_marks(
             // Insert background rect first, then legend content
             let marks = vec![bg_rect.into(), colorbar_axis_group.into()];
 
-            Ok(SceneGroup {
-                origin: [0.0, 0.0],
-                marks,
-                clip: avenger_scenegraph::marks::group::Clip::None,
-                ..Default::default()
-            })
+            Ok(colorbar_guide_output(
+                SceneGroup {
+                    origin: [0.0, 0.0],
+                    marks,
+                    clip: avenger_scenegraph::marks::group::Clip::None,
+                    ..Default::default()
+                },
+                &config.orientation,
+                axis_group_origin,
+                0,
+                colorbar_width,
+                gradient_height,
+            ))
         }
+    }
+}
+
+fn noninteractive_group(mut group: SceneGroup) -> SceneGroup {
+    group.interactive = false;
+    for mark in &mut group.marks {
+        set_interactive_recursive(mark, false);
+    }
+    group
+}
+
+fn set_interactive_recursive(mark: &mut SceneMark, interactive: bool) {
+    mark.set_interactive(interactive);
+    if let SceneMark::Group(group) = mark {
+        for child in &mut group.marks {
+            set_interactive_recursive(child, interactive);
+        }
+    }
+}
+
+fn colorbar_guide_output(
+    group: SceneGroup,
+    orientation: &ColorbarOrientation,
+    axis_group_origin: [f32; 2],
+    gradient_rect_index: usize,
+    gradient_width: f32,
+    gradient_height: f32,
+) -> GuideLegendOutput {
+    let (orientation, value_channel, band_channel) = match orientation {
+        ColorbarOrientation::Top => (GuideLegendContinuousOrientation::Top, "x", "y"),
+        ColorbarOrientation::Bottom => (GuideLegendContinuousOrientation::Bottom, "x", "y"),
+        ColorbarOrientation::Left => (GuideLegendContinuousOrientation::Left, "y", "x"),
+        ColorbarOrientation::Right => (GuideLegendContinuousOrientation::Right, "y", "x"),
+    };
+    let surface_group_path = vec![1];
+    let gradient_rect_path = vec![1, gradient_rect_index];
+    GuideLegendOutput {
+        group,
+        items: Vec::new(),
+        continuous_surfaces: vec![GuideLegendContinuousSurface {
+            kind: GuideLegendSurfaceKind::Colorbar,
+            orientation,
+            surface_group_path,
+            hit_rect_path: gradient_rect_path.clone(),
+            gradient_rect_path,
+            bounds: [
+                axis_group_origin[0],
+                axis_group_origin[1],
+                gradient_width,
+                gradient_height,
+            ],
+            value_channel: value_channel.to_string(),
+            band_channel: band_channel.to_string(),
+        }],
     }
 }
 

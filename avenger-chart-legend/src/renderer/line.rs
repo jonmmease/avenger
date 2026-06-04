@@ -564,6 +564,7 @@ impl LegendRenderer for CompiledLineLegend {
         Ok(Some(LegendRenderOutput {
             group: output.group,
             items,
+            continuous_surfaces: Vec::new(),
         }))
     }
 }

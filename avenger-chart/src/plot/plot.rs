@@ -12,14 +12,15 @@ use indexmap::IndexMap;
 use avenger_chart_core::{
     AvengerChartError, AxisSpec, ChartTool, CompileContext, CompiledMark, CompiledMarkState,
     CompiledParamSpec, CompiledSelectionSpec, CompiledSubplotChildPlot, CoordinateGuide,
-    CoordinateSystem, IntoExpr, Legend, Mark, MarkDataMode, Param, Selection, Sharing, Store,
-    SubplotChildPlotSpec, Theme, compile_selections, validate_structural_id,
+    CoordinateSystem, IntoExpr, Legend, LegendSurfaceKind, Mark, MarkDataMode, Param, Selection,
+    Sharing, Store, SubplotChildPlotSpec, Theme, compile_selections, validate_structural_id,
 };
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
 
 use crate::{
     event::{ChartEventBinding, rewrite_legend_event_binding_local_datums},
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint, SizeMode},
+    legend::ColorbarOverlay,
     serialization::serializable_expr_from_expr,
     tools::ToolCompileContext,
 };
@@ -289,6 +290,7 @@ impl<C: CoordinateSystem> Plot<C> {
         // add_param_with_sharing.
         let mut param_source_specs = self.param_specs.clone();
         let mut store_source_specs = Vec::new();
+        let legend_colorbar_overlays = compile_colorbar_overlays(&legends, session_context).await?;
         let legend_event_bindings = legend_event_bindings(&legends, session_context)?;
         if !is_root {
             tool_context.register_local_legend_event_bindings(&legend_event_bindings)?;
@@ -365,6 +367,7 @@ impl<C: CoordinateSystem> Plot<C> {
             marks: compiled_marks,
             axis_specs,
             legends,
+            legend_colorbar_overlays,
             layout_spec: self.layout_spec,
             title: self.title,
             subtitle: self.subtitle,
@@ -648,11 +651,41 @@ fn legend_event_bindings(
         for binding in &legend.event_bindings {
             let binding =
                 rewrite_legend_event_binding_local_datums(binding.clone(), session_context)?
-                    .with_legend_item_surface_target(vec![channel_name.clone()]);
+                    .with_legend_surface_target(
+                        vec![channel_name.clone()],
+                        vec![
+                            LegendSurfaceKind::DiscreteItem,
+                            LegendSurfaceKind::ContinuousColorbar,
+                        ],
+                    );
             bindings.push(binding);
         }
     }
     Ok(bindings)
+}
+
+async fn compile_colorbar_overlays(
+    legends: &IndexMap<String, Legend>,
+    session_context: &datafusion::prelude::SessionContext,
+) -> Result<IndexMap<String, Vec<Arc<dyn CompiledMark>>>, AvengerChartError> {
+    let mut compiled = IndexMap::new();
+    for (channel_name, legend) in legends {
+        if legend.colorbar_overlays.is_empty() {
+            continue;
+        }
+        let mut marks = Vec::new();
+        for overlay in &legend.colorbar_overlays {
+            let Some(overlay) = overlay.downcast_ref::<ColorbarOverlay>() else {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Legend '{}' has an unsupported colorbar overlay type",
+                    channel_name
+                )));
+            };
+            marks.extend(overlay.compile(session_context).await?);
+        }
+        compiled.insert(channel_name.clone(), marks);
+    }
+    Ok(compiled)
 }
 
 #[cfg(test)]

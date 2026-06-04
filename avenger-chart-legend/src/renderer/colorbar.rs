@@ -1,17 +1,25 @@
 //! Colorbar legend renderer for continuous color scales
 
 use avenger_chart_core::{
-    AvengerChartError, Legend, LegendPosition, LegendRenderOutput, Theme,
+    AvengerChartError, LayoutBounds, Legend, LegendContinuousOrientation, LegendContinuousSurface,
+    LegendPosition, LegendRenderOutput, LegendSurfaceKind, Theme,
     color::{parse_color_string, parse_color_string_strict},
     evaluate_f32_expr, evaluate_f64_expr, evaluate_legend_position_expr, evaluate_string_expr,
 };
 use avenger_chart_core::{ConfiguredScaleLegendExt, DefaultLogicalExprNodeExt, DomainValues};
 use avenger_common::types::ColorOrGradient;
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
-use avenger_guides::legend::colorbar::{ColorbarConfig, ColorbarOrientation, make_colorbar_marks};
-use avenger_scales::scales::{DomainKind, RangeKind};
+use avenger_guides::legend::{
+    GuideLegendContinuousOrientation,
+    colorbar::{ColorbarConfig, ColorbarOrientation, make_colorbar_marks_with_surfaces},
+};
+use avenger_scales::scales::{ConfiguredScale, DomainKind, RangeKind, band::BandScale};
 use avenger_text::types::FontWeight;
-use datafusion::{common::ScalarValue, prelude::SessionContext};
+use datafusion::{
+    arrow::array::{ArrayRef, StringArray},
+    common::ScalarValue,
+    prelude::SessionContext,
+};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace};
@@ -404,10 +412,14 @@ impl LegendRenderer for CompiledColorbar {
         // Create the colorbar marks at origin [0, 0] (will be positioned by group origin)
         let plot_origin = [0.0, 0.0];
 
-        let mut colorbar_group =
-            make_colorbar_marks(configured_scale, &title, plot_origin, &legend_config)?;
+        let mut colorbar_output = make_colorbar_marks_with_surfaces(
+            configured_scale,
+            &title,
+            plot_origin,
+            &legend_config,
+        )?;
 
-        let bbox = colorbar_group.bounding_box();
+        let bbox = colorbar_output.group.bounding_box();
         let lower = bbox.lower();
         let upper = bbox.upper();
         trace!(
@@ -421,11 +433,79 @@ impl LegendRenderer for CompiledColorbar {
         );
 
         // Position the colorbar group
-        colorbar_group.origin = [x, y];
+        colorbar_output.group.origin = [x, y];
 
         // Set z-index
-        colorbar_group.zindex = Some(10); // Legends above data but below title
+        colorbar_output.group.zindex = Some(10); // Legends above data but below title
 
-        Ok(Some(colorbar_group.into()))
+        let continuous_surfaces = colorbar_output
+            .continuous_surfaces
+            .into_iter()
+            .map(|surface| {
+                let bounds = LayoutBounds {
+                    x: surface.bounds[0],
+                    y: surface.bounds[1],
+                    width: surface.bounds[2],
+                    height: surface.bounds[3],
+                };
+                let (value_scale, band_scale) = colorbar_surface_scales(
+                    configured_scale,
+                    surface.value_channel.as_str(),
+                    bounds,
+                );
+                LegendContinuousSurface {
+                    channel: primary_channel.channel_type.clone(),
+                    name: primary_channel.name.clone(),
+                    legend_id: config.id.clone(),
+                    surface_key: primary_channel.name.clone(),
+                    kind: LegendSurfaceKind::ContinuousColorbar,
+                    orientation: match surface.orientation {
+                        GuideLegendContinuousOrientation::Top => LegendContinuousOrientation::Top,
+                        GuideLegendContinuousOrientation::Bottom => {
+                            LegendContinuousOrientation::Bottom
+                        }
+                        GuideLegendContinuousOrientation::Left => LegendContinuousOrientation::Left,
+                        GuideLegendContinuousOrientation::Right => {
+                            LegendContinuousOrientation::Right
+                        }
+                    },
+                    surface_group_path: surface.surface_group_path,
+                    gradient_rect_path: surface.gradient_rect_path,
+                    hit_rect_path: surface.hit_rect_path,
+                    bounds,
+                    value_channel: surface.value_channel,
+                    band_channel: surface.band_channel,
+                    value_scale,
+                    band_scale,
+                }
+            })
+            .collect();
+
+        Ok(Some(LegendRenderOutput {
+            group: colorbar_output.group,
+            items: Vec::new(),
+            continuous_surfaces,
+        }))
     }
+}
+
+fn colorbar_surface_scales(
+    configured_scale: &ConfiguredScale,
+    value_channel: &str,
+    bounds: LayoutBounds,
+) -> (ConfiguredScale, ConfiguredScale) {
+    let value_range = if value_channel == "x" {
+        (0.0, bounds.width)
+    } else {
+        (bounds.height, 0.0)
+    };
+    let band_range = if value_channel == "x" {
+        (0.0, bounds.height)
+    } else {
+        (0.0, bounds.width)
+    };
+    let value_scale = configured_scale.clone().with_range_interval(value_range);
+    let band_domain: ArrayRef = std::sync::Arc::new(StringArray::from(vec!["colorbar"]));
+    let band_scale = BandScale::configured(band_domain, band_range);
+    (value_scale, band_scale)
 }

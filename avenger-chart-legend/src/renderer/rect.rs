@@ -382,6 +382,7 @@ impl LegendRenderer for CompiledRectLegend {
         Ok(Some(LegendRenderOutput {
             group: output.group,
             items,
+            continuous_surfaces: Vec::new(),
         }))
     }
 }

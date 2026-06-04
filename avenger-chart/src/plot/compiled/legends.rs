@@ -10,7 +10,10 @@ use avenger_common::{
     types::ColorOrGradient,
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
-use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scenegraph::marks::{
+    group::{Clip, SceneGroup},
+    mark::SceneMark,
+};
 use datafusion::{
     arrow::{
         array::Array,
@@ -25,30 +28,35 @@ use indexmap::IndexMap;
 use tracing::debug;
 
 use avenger_chart_core::{
-    ChannelInfo, CompiledSelectionSpec, ConfiguredScaleLegendExt, DomainValues, LegendChannel,
+    Auto, ChannelInfo, CompiledSelectionSpec, ConfiguredScaleLegendExt, DomainValues,
+    EmptyCoordMeasurement, LegendChannel, LegendContinuousOrientation, LegendContinuousSurface,
     LegendPosition, LegendRenderItem, LegendRenderer, LegendRendererSelection, MergeKey,
-    ScalarValueHelpers, SharingLevel, apply_opacity_to_color, one_row_batch_from_scalars,
+    ScalarValueHelpers, Scale, SharingLevel, apply_opacity_to_color, one_row_batch_from_scalars,
     params_to_datafusion,
 };
+use avenger_scales::scales::{ConfiguredScale, DomainKind};
 
 use crate::{
     channel::value::ChannelValue,
     coords::extract_channel_title_from_marks,
     error::AvengerChartError,
     facet::{evaluated_facet_tree::EvaluatedFacetTree, sharing_policy},
-    layout::{FrameLayout, Size2D},
+    layout::{FrameLayout, LayoutBounds, Size2D},
     legend::{Legend, renderer_for_kind},
     marks::{CompiledMark, default_channel_value_for_eval},
     plot::compiled::{
         ChildFrameSharingPath, ContainerPathSegment, CoordinationKind, EdgeOwnershipRequest,
-        edge_ownership_scope_for_request,
+        MarkDataRequest, edge_ownership_scope_for_request, prepare_mark_data_runtime,
     },
     render::{
-        EvaluatedEventDatumRows, EvaluationContext, LegendMeasurements, types::LegendMeasurement,
+        EvaluatedEventDatumRows, EvaluatedInteractionScope, EvaluationContext, InteractionScopeId,
+        InteractionScopeKind, LegendMeasurements, RenderContext, RenderState,
+        types::LegendMeasurement,
     },
-    scales::ConfiguredScaleWithSpec,
+    scales::{Band, ConfiguredScaleWithSpec, Linear, Time},
     serialization::LogicalExprNodeExt,
 };
+use avenger_chart_cartesian::Cartesian;
 use avenger_chart_legend::{
     apply_legend_theme_defaults, measure_legend_size_with_channels, themed_default_legend,
 };
@@ -59,6 +67,7 @@ use super::mark_data_runtime::expand_selection_predicates_with_fallback_specs;
 pub(super) struct RenderedLegendMarks {
     pub marks: Vec<SceneMark>,
     pub event_datums: Vec<EvaluatedEventDatumRows>,
+    pub interaction_scopes: Vec<EvaluatedInteractionScope>,
 }
 
 fn legend_item_event_datums(
@@ -69,7 +78,8 @@ fn legend_item_event_datums(
 ) -> Result<Vec<EvaluatedEventDatumRows>, AvengerChartError> {
     use avenger_chart_core::event::{
         LEGEND_CHANNEL_FIELD, LEGEND_ID_FIELD, LEGEND_INDEX_FIELD, LEGEND_LABEL_FIELD,
-        LEGEND_NAME_FIELD, LEGEND_SURFACE_KEY_FIELD, LEGEND_VALUE_FIELD,
+        LEGEND_NAME_FIELD, LEGEND_SURFACE_KEY_FIELD, LEGEND_SURFACE_KIND_DISCRETE_ITEM,
+        LEGEND_SURFACE_KIND_FIELD, LEGEND_VALUE_FIELD,
     };
 
     let schema = Arc::new(Schema::new(vec![
@@ -80,6 +90,7 @@ fn legend_item_event_datums(
         Field::new(LEGEND_INDEX_FIELD, DataType::Int64, true),
         Field::new(LEGEND_ID_FIELD, DataType::Utf8, true),
         Field::new(LEGEND_SURFACE_KEY_FIELD, DataType::Utf8, true),
+        Field::new(LEGEND_SURFACE_KIND_FIELD, DataType::Utf8, true),
     ]));
 
     items
@@ -114,6 +125,10 @@ fn legend_item_event_datums(
                 LEGEND_SURFACE_KEY_FIELD.to_string(),
                 ScalarValue::Utf8(Some(surface_keys.join("\u{1f}"))),
             );
+            values.insert(
+                LEGEND_SURFACE_KIND_FIELD.to_string(),
+                ScalarValue::Utf8(Some(LEGEND_SURFACE_KIND_DISCRETE_ITEM.to_string())),
+            );
             let rows: RecordBatch = one_row_batch_from_scalars(schema.clone(), &values)?;
             let mut mark_path = Vec::with_capacity(item.hit_rect_path.len() + 1);
             mark_path.push(legend_index);
@@ -125,6 +140,253 @@ fn legend_item_event_datums(
             })
         })
         .collect()
+}
+
+fn legend_continuous_surface_event_datums(
+    legend_index: usize,
+    surface_keys: &[String],
+    legend_id: Option<&str>,
+    surfaces: Vec<LegendContinuousSurface>,
+) -> Result<Vec<EvaluatedEventDatumRows>, AvengerChartError> {
+    use avenger_chart_core::event::{
+        LEGEND_BAND_CHANNEL_FIELD, LEGEND_CHANNEL_FIELD, LEGEND_ID_FIELD, LEGEND_NAME_FIELD,
+        LEGEND_ORIENTATION_FIELD, LEGEND_SURFACE_KEY_FIELD,
+        LEGEND_SURFACE_KIND_CONTINUOUS_COLORBAR, LEGEND_SURFACE_KIND_FIELD,
+        LEGEND_VALUE_CHANNEL_FIELD,
+    };
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new(LEGEND_NAME_FIELD, DataType::Utf8, true),
+        Field::new(LEGEND_CHANNEL_FIELD, DataType::Utf8, true),
+        Field::new(LEGEND_ID_FIELD, DataType::Utf8, true),
+        Field::new(LEGEND_SURFACE_KEY_FIELD, DataType::Utf8, true),
+        Field::new(LEGEND_SURFACE_KIND_FIELD, DataType::Utf8, true),
+        Field::new(LEGEND_ORIENTATION_FIELD, DataType::Utf8, true),
+        Field::new(LEGEND_VALUE_CHANNEL_FIELD, DataType::Utf8, true),
+        Field::new(LEGEND_BAND_CHANNEL_FIELD, DataType::Utf8, true),
+    ]));
+
+    surfaces
+        .into_iter()
+        .map(|surface| {
+            let mut values = HashMap::new();
+            values.insert(
+                LEGEND_NAME_FIELD.to_string(),
+                ScalarValue::Utf8(Some(surface.name)),
+            );
+            values.insert(
+                LEGEND_CHANNEL_FIELD.to_string(),
+                ScalarValue::Utf8(Some(surface.channel)),
+            );
+            values.insert(
+                LEGEND_ID_FIELD.to_string(),
+                ScalarValue::Utf8(surface.legend_id.or_else(|| legend_id.map(str::to_string))),
+            );
+            values.insert(
+                LEGEND_SURFACE_KEY_FIELD.to_string(),
+                ScalarValue::Utf8(Some(if surface_keys.is_empty() {
+                    surface.surface_key
+                } else {
+                    surface_keys.join("\u{1f}")
+                })),
+            );
+            values.insert(
+                LEGEND_SURFACE_KIND_FIELD.to_string(),
+                ScalarValue::Utf8(Some(LEGEND_SURFACE_KIND_CONTINUOUS_COLORBAR.to_string())),
+            );
+            values.insert(
+                LEGEND_ORIENTATION_FIELD.to_string(),
+                ScalarValue::Utf8(Some(
+                    legend_orientation_string(surface.orientation).to_string(),
+                )),
+            );
+            values.insert(
+                LEGEND_VALUE_CHANNEL_FIELD.to_string(),
+                ScalarValue::Utf8(Some(surface.value_channel)),
+            );
+            values.insert(
+                LEGEND_BAND_CHANNEL_FIELD.to_string(),
+                ScalarValue::Utf8(Some(surface.band_channel)),
+            );
+            let rows: RecordBatch = one_row_batch_from_scalars(schema.clone(), &values)?;
+            let mut mark_path = Vec::with_capacity(surface.hit_rect_path.len() + 1);
+            mark_path.push(legend_index);
+            mark_path.extend(surface.hit_rect_path);
+            Ok(EvaluatedEventDatumRows {
+                mark_path,
+                subplot_id_path: Vec::new(),
+                rows,
+            })
+        })
+        .collect()
+}
+
+fn legend_orientation_string(orientation: LegendContinuousOrientation) -> &'static str {
+    match orientation {
+        LegendContinuousOrientation::Top => "top",
+        LegendContinuousOrientation::Bottom => "bottom",
+        LegendContinuousOrientation::Left => "left",
+        LegendContinuousOrientation::Right => "right",
+    }
+}
+
+fn legend_continuous_surface_interaction_scopes(
+    plot_area: LayoutBounds,
+    legend_origin: [f32; 2],
+    surfaces: &[LegendContinuousSurface],
+) -> Vec<EvaluatedInteractionScope> {
+    surfaces
+        .iter()
+        .filter_map(|surface| {
+            if surface.kind != avenger_chart_core::LegendSurfaceKind::ContinuousColorbar {
+                return None;
+            }
+            let local_bounds = LayoutBounds {
+                x: legend_origin[0] + surface.bounds.x - plot_area.x,
+                y: legend_origin[1] + surface.bounds.y - plot_area.y,
+                width: surface.bounds.width,
+                height: surface.bounds.height,
+            };
+            let mut scales = HashMap::new();
+            scales.insert(surface.value_channel.clone(), surface.value_scale.clone());
+            scales.insert(surface.band_channel.clone(), surface.band_scale.clone());
+            Some(EvaluatedInteractionScope {
+                id: InteractionScopeId(0),
+                kind: InteractionScopeKind::LegendColorbar,
+                scope_id: format!("legend-colorbar:{}", surface.surface_key),
+                bounds: local_bounds,
+                plot_area_width: surface.bounds.width,
+                plot_area_height: surface.bounds.height,
+                facet_path: Vec::new(),
+                logical_facet_values: Vec::new(),
+                coord_node_path: Vec::new(),
+                subplot_id_path: Vec::new(),
+                coord_transform: Box::new(Cartesian),
+                channels: vec![surface.value_channel.clone(), surface.band_channel.clone()],
+                scales,
+                sharing_owner_paths: HashMap::new(),
+            })
+        })
+        .collect()
+}
+
+fn configured_scale_with_spec(
+    spec: Scale<Auto>,
+    configured: ConfiguredScale,
+) -> ConfiguredScaleWithSpec {
+    ConfiguredScaleWithSpec::new(spec, configured)
+}
+
+fn colorbar_value_scale_spec(configured: &ConfiguredScale) -> Scale<Auto> {
+    match configured.scale_impl.domain_kind() {
+        DomainKind::Temporal => Scale::<Time>::new().into_auto(),
+        _ => Scale::<Linear>::new().into_auto(),
+    }
+}
+
+fn colorbar_overlay_scales(
+    surface: &LegendContinuousSurface,
+) -> HashMap<String, ConfiguredScaleWithSpec> {
+    let value_spec = colorbar_value_scale_spec(&surface.value_scale);
+    let band_spec = Scale::<Band>::new().into_auto();
+    let mut scales = HashMap::new();
+    if surface.value_channel == "x" {
+        scales.insert(
+            "x".to_string(),
+            configured_scale_with_spec(value_spec.clone(), surface.value_scale.clone()),
+        );
+        scales.insert(
+            "y".to_string(),
+            configured_scale_with_spec(band_spec, surface.band_scale.clone()),
+        );
+    } else {
+        scales.insert(
+            "x".to_string(),
+            configured_scale_with_spec(band_spec, surface.band_scale.clone()),
+        );
+        scales.insert(
+            "y".to_string(),
+            configured_scale_with_spec(value_spec, surface.value_scale.clone()),
+        );
+    }
+    scales
+}
+
+fn set_interactive_recursive(mark: &mut SceneMark, interactive: bool) {
+    mark.set_interactive(interactive);
+    if let SceneMark::Group(group) = mark {
+        for child in &mut group.marks {
+            set_interactive_recursive(child, interactive);
+        }
+    }
+}
+
+fn set_scene_mark_name(mark: &mut SceneMark, name: &str) {
+    match mark {
+        SceneMark::Arc(mark) => mark.name = name.to_string(),
+        SceneMark::Area(mark) => mark.name = name.to_string(),
+        SceneMark::Path(mark) => mark.name = name.to_string(),
+        SceneMark::Symbol(mark) => mark.name = name.to_string(),
+        SceneMark::Line(mark) => mark.name = name.to_string(),
+        SceneMark::Trail(mark) => mark.name = name.to_string(),
+        SceneMark::Rect(mark) => mark.name = name.to_string(),
+        SceneMark::Rule(mark) => mark.name = name.to_string(),
+        SceneMark::Text(mark) => Arc::make_mut(mark).name = name.to_string(),
+        SceneMark::Image(mark) => Arc::make_mut(mark).name = name.to_string(),
+        SceneMark::Group(mark) => mark.name = name.to_string(),
+    }
+}
+
+fn scene_group_at_path_mut<'a>(
+    group: &'a mut SceneGroup,
+    path: &[usize],
+) -> Option<&'a mut SceneGroup> {
+    if path.is_empty() {
+        return Some(group);
+    }
+    let (first, rest) = path.split_first()?;
+    let mark = group.marks.get_mut(*first)?;
+    match mark {
+        SceneMark::Group(child_group) => scene_group_at_path_mut(child_group, rest),
+        _ => None,
+    }
+}
+
+fn insert_colorbar_overlay_group(
+    legend_group: &mut SceneGroup,
+    surface: &LegendContinuousSurface,
+    overlay_marks: Vec<SceneMark>,
+) {
+    if overlay_marks.is_empty() {
+        return;
+    }
+    let Some(surface_group) = scene_group_at_path_mut(legend_group, &surface.surface_group_path)
+    else {
+        return;
+    };
+    let local_gradient_index = surface
+        .gradient_rect_path
+        .last()
+        .copied()
+        .unwrap_or(surface_group.marks.len().saturating_sub(1));
+    let insert_index = local_gradient_index
+        .saturating_add(1)
+        .min(surface_group.marks.len());
+    let overlay_group = SceneGroup {
+        name: format!("{}-colorbar-overlays", surface.surface_key),
+        interactive: false,
+        clip: Clip::Rect {
+            x: 0.0,
+            y: 0.0,
+            width: surface.bounds.width,
+            height: surface.bounds.height,
+        },
+        marks: overlay_marks,
+        ..Default::default()
+    };
+    surface_group
+        .marks
+        .insert(insert_index, SceneMark::Group(overlay_group));
 }
 
 async fn apply_related_legend_item_opacity(
@@ -1280,6 +1542,7 @@ impl CompiledPlot {
         let theme = self.get_theme();
         let mut legend_marks = Vec::new();
         let mut event_datums = Vec::new();
+        let mut interaction_scopes = Vec::new();
 
         for group in &legend_plan.groups {
             let Some(bounds) = layout.legends.get(&group.layout_key) else {
@@ -1310,23 +1573,45 @@ impl CompiledPlot {
                     params,
                 )
                 .await?;
-                if !group.legend.event_bindings.is_empty() && rendered.items.is_empty() {
+                if !group.legend.event_bindings.is_empty()
+                    && rendered.items.is_empty()
+                    && rendered.continuous_surfaces.is_empty()
+                {
                     return Err(AvengerChartError::InvalidArgument(format!(
-                        "Legend '{}' has event bindings but does not expose discrete legend items",
+                        "Legend '{}' has event bindings but does not expose interactive legend surfaces",
                         group.primary_channel
                     )));
                 }
                 let legend_index = legend_marks.len();
+                let legend_origin = rendered.group.origin;
+                let surface_keys = group
+                    .channels
+                    .iter()
+                    .map(|channel| channel.name.clone())
+                    .collect::<Vec<_>>();
                 event_datums.extend(legend_item_event_datums(
                     legend_index,
-                    &group
-                        .channels
-                        .iter()
-                        .map(|channel| channel.name.clone())
-                        .collect::<Vec<_>>(),
+                    &surface_keys,
                     group.legend.id.as_deref(),
                     rendered.items,
                 )?);
+                event_datums.extend(legend_continuous_surface_event_datums(
+                    legend_index,
+                    &surface_keys,
+                    group.legend.id.as_deref(),
+                    rendered.continuous_surfaces.clone(),
+                )?);
+                interaction_scopes.extend(legend_continuous_surface_interaction_scopes(
+                    layout.plot_area,
+                    legend_origin,
+                    &rendered.continuous_surfaces,
+                ));
+                for surface in &rendered.continuous_surfaces {
+                    let overlay_marks = self
+                        .render_colorbar_overlay_marks(eval_ctx, surface, &group.channels)
+                        .await?;
+                    insert_colorbar_overlay_group(&mut rendered.group, surface, overlay_marks);
+                }
                 legend_marks.push(SceneMark::Group(rendered.group));
             }
         }
@@ -1334,7 +1619,69 @@ impl CompiledPlot {
         Ok(RenderedLegendMarks {
             marks: legend_marks,
             event_datums,
+            interaction_scopes,
         })
+    }
+
+    async fn render_colorbar_overlay_marks(
+        &self,
+        eval_ctx: &EvaluationContext,
+        surface: &LegendContinuousSurface,
+        channels: &[LegendChannel],
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        let mut overlay_marks = Vec::new();
+        let mut seen_channels = HashSet::new();
+        for channel in channels {
+            if !seen_channels.insert(channel.name.as_str()) {
+                continue;
+            }
+            let Some(marks) = self.legend_colorbar_overlays.get(&channel.name) else {
+                continue;
+            };
+            let scales = colorbar_overlay_scales(surface);
+            let render_state =
+                RenderState::new(surface.bounds.width, surface.bounds.height, scales.clone());
+            let coord_measurement = EmptyCoordMeasurement;
+            let render_ctx = RenderContext::new(eval_ctx, &render_state, &[], &coord_measurement);
+            let coord_transform = Cartesian;
+
+            for mark in marks {
+                let Some(prepared) = prepare_mark_data_runtime(MarkDataRequest {
+                    mark: mark.as_ref(),
+                    plot_data: None,
+                    provided_plot_df: None,
+                    facet_data_scope: None,
+                    prepared_logical: None,
+                    eval_ctx,
+                    evaluation_metrics: eval_ctx.evaluation_metrics.clone(),
+                    scales: &scales,
+                    plot_width: surface.bounds.width,
+                    plot_height: surface.bounds.height,
+                })
+                .await?
+                else {
+                    continue;
+                };
+                let mut marks = mark
+                    .render_from_data(
+                        prepared.data_batch.as_ref(),
+                        &prepared.scalar_batch,
+                        &render_ctx,
+                        &coord_transform,
+                    )
+                    .await?;
+                if let Some(id) = mark.state().id.as_deref() {
+                    for scene_mark in &mut marks {
+                        set_scene_mark_name(scene_mark, id);
+                    }
+                }
+                for scene_mark in &mut marks {
+                    set_interactive_recursive(scene_mark, false);
+                }
+                overlay_marks.extend(marks);
+            }
+        }
+        Ok(overlay_marks)
     }
 
     pub(super) async fn add_measured_hoisted_legends_to_plan(

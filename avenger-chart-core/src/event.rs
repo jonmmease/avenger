@@ -7,8 +7,8 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, Param, SelectionUpdate,
-    SerializableExpr, StoreUpdate,
+    AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, LegendSurfaceKind, Param,
+    SelectionUpdate, SerializableExpr, StoreUpdate,
     scene_query::{SceneGeometryQueryGeometry, SceneQueryClauseId, SelectionSceneQuery},
     validate_structural_id,
 };
@@ -79,6 +79,12 @@ pub const LEGEND_CHANNEL_FIELD: &str = "__legend_channel";
 pub const LEGEND_INDEX_FIELD: &str = "__legend_index";
 pub const LEGEND_ID_FIELD: &str = "__legend_id";
 pub const LEGEND_SURFACE_KEY_FIELD: &str = "__legend_surface_key";
+pub const LEGEND_SURFACE_KIND_FIELD: &str = "__legend_surface_kind";
+pub const LEGEND_SURFACE_KIND_DISCRETE_ITEM: &str = "discrete-item";
+pub const LEGEND_SURFACE_KIND_CONTINUOUS_COLORBAR: &str = "continuous-colorbar";
+pub const LEGEND_ORIENTATION_FIELD: &str = "__legend_orientation";
+pub const LEGEND_VALUE_CHANNEL_FIELD: &str = "__legend_value_channel";
+pub const LEGEND_BAND_CHANNEL_FIELD: &str = "__legend_band_channel";
 pub const EVENT_PLOT_WIDTH_FIELD: &str = "__event_plot_width";
 pub const EVENT_PLOT_HEIGHT_FIELD: &str = "__event_plot_height";
 pub const START_PLOT_WIDTH_FIELD: &str = "__start_plot_width";
@@ -205,15 +211,17 @@ impl ChartEventScopeTarget {
 pub enum ChartEventSurfaceTarget {
     All,
     PlotSurface,
-    LegendItemSurface {
+    LegendSurface {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         surface_keys: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        kinds: Vec<LegendSurfaceKind>,
     },
 }
 
 impl ChartEventSurfaceTarget {
     pub fn validate(&self) -> Result<(), AvengerChartError> {
-        if let ChartEventSurfaceTarget::LegendItemSurface { surface_keys } = self {
+        if let ChartEventSurfaceTarget::LegendSurface { surface_keys, .. } = self {
             for key in surface_keys {
                 if key.is_empty() {
                     return Err(AvengerChartError::InvalidArgument(
@@ -227,7 +235,7 @@ impl ChartEventSurfaceTarget {
 
     pub fn legend_surface_keys(&self) -> Option<&[String]> {
         match self {
-            ChartEventSurfaceTarget::LegendItemSurface { surface_keys } => Some(surface_keys),
+            ChartEventSurfaceTarget::LegendSurface { surface_keys, .. } => Some(surface_keys),
             _ => None,
         }
     }
@@ -426,8 +434,15 @@ impl ChartEventBinding {
     }
 
     #[doc(hidden)]
-    pub fn with_legend_item_surface_target(mut self, surface_keys: Vec<String>) -> Self {
-        self.surface_target = Some(ChartEventSurfaceTarget::LegendItemSurface { surface_keys });
+    pub fn with_legend_surface_target(
+        mut self,
+        surface_keys: Vec<String>,
+        kinds: Vec<LegendSurfaceKind>,
+    ) -> Self {
+        self.surface_target = Some(ChartEventSurfaceTarget::LegendSurface {
+            surface_keys,
+            kinds,
+        });
         self
     }
 
@@ -906,9 +921,14 @@ pub fn legend_surface_key() -> Expr {
     datum(LEGEND_SURFACE_KEY_FIELD)
 }
 
+#[doc(hidden)]
+pub fn legend_surface_kind() -> Expr {
+    datum(LEGEND_SURFACE_KIND_FIELD)
+}
+
 /// True for events whose hit mark is a discrete legend item hit rectangle.
 pub fn is_legend_item() -> Expr {
-    legend_surface_key().is_not_null()
+    legend_surface_kind().eq(lit(LEGEND_SURFACE_KIND_DISCRETE_ITEM))
 }
 
 /// Current routed plot-area width in scene pixels.
@@ -1177,6 +1197,10 @@ fn legend_local_datum_reserved_field(column_name: &str) -> Option<&'static str> 
         "index" => Some(LEGEND_INDEX_FIELD),
         "legend_id" => Some(LEGEND_ID_FIELD),
         "surface_key" => Some(LEGEND_SURFACE_KEY_FIELD),
+        "surface_kind" => Some(LEGEND_SURFACE_KIND_FIELD),
+        "orientation" => Some(LEGEND_ORIENTATION_FIELD),
+        "value_channel" => Some(LEGEND_VALUE_CHANNEL_FIELD),
+        "band_channel" => Some(LEGEND_BAND_CHANNEL_FIELD),
         _ => None,
     }
 }

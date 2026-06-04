@@ -324,6 +324,7 @@ pub fn make_symbol_legend_itemized(
             ..Default::default()
         },
         items,
+        continuous_surfaces: Vec::new(),
     })
 }
 

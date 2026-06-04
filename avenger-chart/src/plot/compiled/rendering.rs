@@ -4542,6 +4542,7 @@ impl CompiledPlot {
             subtitle_marks,
             debug_marks,
             chrome_event_datums,
+            legend_interaction_scopes,
         ) = {
             let layout_initial = layout_solution;
             // Check if this is a top-level plot (canvas mode) or subplot (plot area mode)
@@ -4586,6 +4587,7 @@ impl CompiledPlot {
                     1 + guide_marks.len(),
                 );
                 let legend_marks = rendered_legends.marks;
+                let legend_interaction_scopes = rendered_legends.interaction_scopes;
 
                 let title_marks = if let Some(title_bounds) = &layout_initial.frame_layout.title {
                     self.create_title(Some(*title_bounds), ctx, &merged_params)
@@ -4623,6 +4625,7 @@ impl CompiledPlot {
                     subtitle_marks,
                     debug_marks,
                     legend_event_datums,
+                    legend_interaction_scopes,
                 )
             } else {
                 // Plot area mode (subplots): plot_bounds.y = 0
@@ -4672,6 +4675,7 @@ impl CompiledPlot {
                     rendered_legends.event_datums,
                     1 + guide_marks.len(),
                 );
+                let legend_interaction_scopes = rendered_legends.interaction_scopes;
 
                 // Translate frame chrome to be relative to the child plot-area origin.
                 let legend_marks: Vec<_> = rendered_legends
@@ -4732,6 +4736,7 @@ impl CompiledPlot {
                     subtitle_marks,
                     debug_marks,
                     legend_event_datums,
+                    legend_interaction_scopes,
                 )
             }
         };
@@ -4761,6 +4766,7 @@ impl CompiledPlot {
             .expect("interaction scope sink poisoned")
             .drain(..)
             .collect::<Vec<_>>();
+        interaction_scopes.extend(legend_interaction_scopes);
         let local_scope_bounds = LayoutBounds {
             x: 0.0,
             y: 0.0,
@@ -7611,7 +7617,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn colorbar_legend_item_binding_errors_clearly() -> Result<(), AvengerChartError> {
+    async fn colorbar_legend_bindings_register_continuous_surface() -> Result<(), AvengerChartError>
+    {
         let ctx = SessionContext::new();
         let df = deeply_nested_dataframe(&ctx);
         let compiled = Plot::<Cartesian>::new()
@@ -7624,23 +7631,106 @@ mod tests {
                     .size(24.0)
                     .fill_with(col("value"), |c| {
                         c.legend(|l| {
-                            l.event_binding(ChartEventBinding::on(
-                                crate::event::ChartEventType::Click,
-                            ))
+                            l.event_binding(
+                                ChartEventBinding::on(crate::event::ChartEventType::Click)
+                                    .filter(
+                                        crate::event::datum("surface_kind")
+                                            .eq(lit("continuous-colorbar")),
+                                    )
+                                    .filter(crate::event::datum("value_channel").eq(lit("y"))),
+                            )
                         })
                     }),
             )
             .compile(&ctx)
             .await?;
 
-        let err = match compiled.evaluate(&ctx, None).await {
-            Ok(_) => panic!("colorbar legend item binding should error"),
-            Err(err) => err,
-        };
+        let event_datum_types = compiled.event_datum_types();
+        assert_eq!(
+            event_datum_types.get("__legend_surface_kind"),
+            Some(&DataType::Utf8)
+        );
+        assert_eq!(
+            event_datum_types.get("__legend_value_channel"),
+            Some(&DataType::Utf8)
+        );
+
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let colorbar_rows = evaluated
+            .event_datums
+            .rows
+            .iter()
+            .filter(|rows| {
+                rows.rows
+                    .column_by_name("__legend_surface_kind")
+                    .and_then(|array| ScalarValue::try_from_array(array, 0).ok())
+                    == Some(ScalarValue::Utf8(Some("continuous-colorbar".to_string())))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(colorbar_rows.len(), 1);
+        let value_channel = ScalarValue::try_from_array(
+            colorbar_rows[0]
+                .rows
+                .column_by_name("__legend_value_channel")
+                .unwrap(),
+            0,
+        )?;
+        assert_eq!(value_channel, ScalarValue::Utf8(Some("y".to_string())));
         assert!(
-            err.to_string()
-                .contains("event bindings but does not expose discrete legend items"),
-            "{err}"
+            evaluated
+                .interaction
+                .scopes
+                .iter()
+                .any(|scope| scope.kind == InteractionScopeKind::LegendColorbar)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn colorbar_overlay_marks_render_in_legend_group() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let df = deeply_nested_dataframe(&ctx);
+        let overlay = crate::legend::ColorbarOverlay::new().mark(
+            Rect::<Cartesian>::new()
+                .unit_data()
+                .exclude_from_scale_domains()
+                .x_with(lit("colorbar"), |c| c.band(0.0))
+                .x2_with(lit("colorbar"), |c| c.band(1.0))
+                .y(lit(2.0))
+                .y2(lit(7.0))
+                .fill("rgba(37, 99, 235, 0.20)")
+                .stroke("#2563eb")
+                .stroke_width(1.5),
+        );
+        let compiled = Plot::<Cartesian>::new()
+            .data(df)
+            .canvas_size(420.0, 320.0)
+            .mark(
+                Symbol::new()
+                    .x(col("value"))
+                    .y(col("value"))
+                    .size(24.0)
+                    .fill_with(col("value"), |c| {
+                        c.legend(|l| l.title("Value").colorbar_overlay(overlay))
+                    }),
+            )
+            .compile(&ctx)
+            .await?;
+
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let overlay_group =
+            find_scene_group_by_name(&evaluated.scene_graph.marks, "fill-colorbar-overlays")
+                .expect("colorbar overlay group should render");
+        assert!(!overlay_group.interactive);
+        assert!(matches!(
+            overlay_group.clip,
+            avenger_scenegraph::marks::group::Clip::Rect { .. }
+        ));
+        assert!(
+            overlay_group
+                .marks
+                .iter()
+                .any(|mark| matches!(mark, avenger_scenegraph::marks::mark::SceneMark::Rect(_)))
         );
         Ok(())
     }
@@ -8059,6 +8149,23 @@ mod tests {
                 group.name.starts_with(prefix) && !group.name.ends_with(excluded_suffix)
             })
             .count()
+    }
+
+    fn find_scene_group_by_name<'a>(
+        marks: &'a [SceneMark],
+        name: &str,
+    ) -> Option<&'a avenger_scenegraph::marks::group::SceneGroup> {
+        for mark in marks {
+            if let SceneMark::Group(group) = mark {
+                if group.name == name {
+                    return Some(group);
+                }
+                if let Some(found) = find_scene_group_by_name(&group.marks, name) {
+                    return Some(found);
+                }
+            }
+        }
+        None
     }
 
     fn collect_text_x_positions(scene_graph: &SceneGraph, text: &str) -> Vec<f32> {

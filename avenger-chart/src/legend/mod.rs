@@ -6,6 +6,7 @@
 //! - Legend rendering for different mark types
 //! - Integration with plot rendering
 
+pub mod colorbar_overlay;
 pub(crate) mod plot_legends;
 pub mod renderer;
 
@@ -17,6 +18,7 @@ pub use avenger_chart_legend::{
     OpacityLegendBuilder, ShapeLegendBuilder, SizeLegendBuilder, StrokeDashLegendBuilder,
     StrokeWidthLegendBuilder,
 };
+pub use colorbar_overlay::ColorbarOverlay;
 
 // Re-export renderer types
 pub use renderer::{
