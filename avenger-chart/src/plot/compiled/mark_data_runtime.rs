@@ -214,6 +214,7 @@ fn expand_selection_predicates_in_channels(
                 band,
                 scale_config,
                 legend_config,
+                axis_config,
                 share_mode,
             } => {
                 let expanded =
@@ -224,6 +225,7 @@ fn expand_selection_predicates_in_channels(
                     band,
                     scale_config,
                     legend_config,
+                    axis_config,
                     share_mode,
                 }
             }
@@ -239,6 +241,7 @@ fn expand_selection_predicates_in_channels(
                 otherwise,
                 scale_config,
                 legend_config,
+                axis_config,
                 share_mode,
             } => {
                 let expanded_conditions = conditions
@@ -289,6 +292,7 @@ fn expand_selection_predicates_in_channels(
                     otherwise: expanded_otherwise,
                     scale_config,
                     legend_config,
+                    axis_config,
                     share_mode,
                 }
             }

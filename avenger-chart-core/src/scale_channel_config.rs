@@ -40,6 +40,7 @@ pub trait ScaleChannelConfig: ChannelConfig {
                 band,
                 scale_config,
                 legend_config,
+                axis_config,
                 ..
             } => ChannelValue::Scaled {
                 expr,
@@ -47,6 +48,7 @@ pub trait ScaleChannelConfig: ChannelConfig {
                 band,
                 scale_config,
                 legend_config,
+                axis_config,
                 share_mode: Some(normalized),
             },
             ChannelValue::Conditional {
@@ -54,12 +56,14 @@ pub trait ScaleChannelConfig: ChannelConfig {
                 otherwise,
                 scale_config,
                 legend_config,
+                axis_config,
                 ..
             } => ChannelValue::Conditional {
                 conditions,
                 otherwise,
                 scale_config,
                 legend_config,
+                axis_config,
                 share_mode: Some(normalized),
             },
             other => other,
@@ -122,6 +126,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             scale_name,
             band,
             legend_config,
+            axis_config,
             share_mode,
             ..
         } => ChannelValue::Scaled {
@@ -130,12 +135,14 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             band,
             scale_config: Some(scale_config),
             legend_config,
+            axis_config,
             share_mode,
         },
         ChannelValue::Conditional {
             conditions,
             otherwise,
             legend_config,
+            axis_config,
             share_mode,
             ..
         } => ChannelValue::Conditional {
@@ -143,6 +150,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             otherwise,
             scale_config: Some(scale_config),
             legend_config,
+            axis_config,
             share_mode,
         },
         ChannelValue::Value { .. } => value,

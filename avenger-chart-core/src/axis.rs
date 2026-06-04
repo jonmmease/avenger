@@ -14,6 +14,12 @@ pub trait Axis: Send + Sync {
     fn box_clone(&self) -> Box<dyn Axis>;
 }
 
+impl Clone for Box<dyn Axis> {
+    fn clone(&self) -> Self {
+        self.box_clone()
+    }
+}
+
 // Implement for unit type (used by coordinate systems without axes like ZeroD)
 #[typetag::serde(name = "empty")]
 impl Axis for () {

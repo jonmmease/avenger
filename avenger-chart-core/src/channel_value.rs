@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 use crate::{
-    AvengerChartError, Legend, ScaleConfigSpec, SerializableExpr, Sharing,
+    AvengerChartError, Axis, Legend, ScaleConfigSpec, SerializableExpr, Sharing,
     channel::strip_trailing_numbers,
 };
 
@@ -167,6 +167,9 @@ pub enum ChannelValue {
         scale_config: Option<Box<ScaleConfigSpec>>,
         /// Optional legend configuration
         legend_config: Option<Box<Legend>>,
+        /// Optional axis configuration applied when this value is used on a position channel
+        #[serde(default)]
+        axis_config: Option<Box<dyn Axis>>,
         /// Share this channel's scale across facets using Sharing enum
         #[serde(default)]
         share_mode: Option<Sharing>,
@@ -187,6 +190,9 @@ pub enum ChannelValue {
         scale_config: Option<Box<ScaleConfigSpec>>,
         /// Optional legend configuration (applies to all Field branches)
         legend_config: Option<Box<Legend>>,
+        /// Optional axis configuration applied when this value is used on a position channel
+        #[serde(default)]
+        axis_config: Option<Box<dyn Axis>>,
         /// Share this channel's scale across facets using Sharing enum
         #[serde(default)]
         share_mode: Option<Sharing>,
@@ -205,6 +211,7 @@ impl std::fmt::Debug for ChannelValue {
                 .field("band", band)
                 .field("has_scale_config", &self.has_scale_config())
                 .field("has_legend_config", &self.has_legend_config())
+                .field("has_axis_config", &self.has_axis_config())
                 .finish(),
             ChannelValue::Value { expr: _ } => f
                 .debug_struct("Identity")
@@ -220,6 +227,7 @@ impl std::fmt::Debug for ChannelValue {
                 .field("otherwise", otherwise)
                 .field("has_scale_config", &self.has_scale_config())
                 .field("has_legend_config", &self.has_legend_config())
+                .field("has_axis_config", &self.has_axis_config())
                 .finish(),
         }
     }
@@ -240,7 +248,21 @@ impl ChannelValue {
         match self {
             ChannelValue::Scaled { legend_config, .. }
             | ChannelValue::Conditional { legend_config, .. } => legend_config.is_some(),
-            _ => false,
+            ChannelValue::Value { .. } => false,
+        }
+    }
+
+    /// Check if this channel has axis configuration defaults
+    pub fn has_axis_config(&self) -> bool {
+        self.get_axis_config().is_some()
+    }
+
+    /// Get the axis configuration if present
+    pub fn get_axis_config(&self) -> Option<&dyn Axis> {
+        match self {
+            ChannelValue::Scaled { axis_config, .. }
+            | ChannelValue::Conditional { axis_config, .. } => axis_config.as_deref(),
+            ChannelValue::Value { .. } => None,
         }
     }
 
@@ -258,7 +280,7 @@ impl ChannelValue {
         match self {
             ChannelValue::Scaled { legend_config, .. }
             | ChannelValue::Conditional { legend_config, .. } => legend_config.as_deref(),
-            _ => None,
+            ChannelValue::Value { .. } => None,
         }
     }
 
@@ -267,7 +289,55 @@ impl ChannelValue {
         match self {
             ChannelValue::Scaled { share_mode, .. }
             | ChannelValue::Conditional { share_mode, .. } => *share_mode,
-            _ => None,
+            ChannelValue::Value { .. } => None,
+        }
+    }
+
+    /// Attach default axis configuration to this channel value.
+    ///
+    /// The defaults apply only when this value is used on a coordinate position
+    /// channel whose guide supports the axis type. Explicit mark-level position
+    /// configuration, such as `.x_with(..., |c| c.axis(...))`, is merged on top.
+    pub fn with_axis_config<A: Axis + 'static>(self, axis_config: A) -> Self {
+        self.with_boxed_axis_config(Box::new(axis_config))
+    }
+
+    /// Attach a boxed default axis configuration to this channel value.
+    pub fn with_boxed_axis_config(self, axis_config: Box<dyn Axis>) -> Self {
+        match self {
+            ChannelValue::Scaled {
+                expr,
+                scale_name,
+                band,
+                scale_config,
+                legend_config,
+                share_mode,
+                ..
+            } => ChannelValue::Scaled {
+                expr,
+                scale_name,
+                band,
+                scale_config,
+                legend_config,
+                axis_config: Some(axis_config),
+                share_mode,
+            },
+            ChannelValue::Value { expr } => ChannelValue::Value { expr },
+            ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                legend_config,
+                share_mode,
+                ..
+            } => ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                legend_config,
+                axis_config: Some(axis_config),
+                share_mode,
+            },
         }
     }
 }
@@ -434,6 +504,7 @@ impl ChannelValue {
                 scale_name,
                 scale_config,
                 legend_config,
+                axis_config,
                 share_mode,
                 ..
             } => ChannelValue::Scaled {
@@ -442,6 +513,7 @@ impl ChannelValue {
                 band: Some(band),
                 scale_config: scale_config.clone(),
                 legend_config: legend_config.clone(),
+                axis_config: axis_config.clone(),
                 share_mode,
             },
             other => other, // No-op for identity and conditional values
@@ -457,6 +529,7 @@ impl ChannelValue {
                 band,
                 scale_config,
                 legend_config,
+                axis_config,
                 share_mode,
                 ..
             } => ChannelValue::Scaled {
@@ -465,6 +538,7 @@ impl ChannelValue {
                 band,
                 scale_config,
                 legend_config,
+                axis_config,
                 share_mode,
             },
             ChannelValue::Value { .. } => ChannelValue::Value { expr: new_expr },
@@ -476,6 +550,7 @@ impl ChannelValue {
                     band: None,
                     scale_config: None,
                     legend_config: None,
+                    axis_config: None,
                     share_mode: None,
                 }
             }
@@ -490,6 +565,7 @@ impl ChannelValue {
                 band,
                 scale_config,
                 legend_config,
+                axis_config,
                 ..
             } => ChannelValue::Scaled {
                 expr: expr.clone(),
@@ -497,6 +573,7 @@ impl ChannelValue {
                 band,
                 scale_config: scale_config.clone(),
                 legend_config: legend_config.clone(),
+                axis_config: axis_config.clone(),
                 share_mode: None,
             },
             ChannelValue::Value { expr } => {
@@ -507,6 +584,7 @@ impl ChannelValue {
                     band: None,
                     scale_config: None,
                     legend_config: None,
+                    axis_config: None,
                     share_mode: None,
                 }
             }
@@ -586,6 +664,7 @@ impl From<Expr> for ChannelValue {
             band: None,
             scale_config: None,
             legend_config: None,
+            axis_config: None,
             share_mode: None,
         }
     }
@@ -808,7 +887,7 @@ mod tests {
         assert!(matches!(cv, ChannelValue::Value { .. }));
 
         // Check the expression is a literal
-        if let ChannelValue::Value { expr } = cv {
+        if let ChannelValue::Value { expr, .. } = cv {
             // Convert SerializableExpr back to Expr to check if it's a literal
             let datafusion_expr = expr.to_expr(&ctx).unwrap();
             assert!(matches!(
@@ -934,6 +1013,7 @@ mod tests {
                 },
                 scale_config: None,
                 legend_config: None,
+                axis_config: None,
                 share_mode: None,
             };
             // Conditional values don't have a single column name
@@ -995,6 +1075,7 @@ mod tests {
             },
             scale_config: None,
             legend_config: None,
+            axis_config: None,
             share_mode: None,
         };
 
@@ -1058,6 +1139,7 @@ mod tests {
             },
             scale_config: None,
             legend_config: None,
+            axis_config: None,
             share_mode: None,
         };
 
@@ -1125,6 +1207,7 @@ mod tests {
             },
             scale_config: None,
             legend_config: None,
+            axis_config: None,
             share_mode: None,
         };
 
@@ -1177,6 +1260,7 @@ mod tests {
             },
             scale_config: None,
             legend_config: None,
+            axis_config: None,
             share_mode: None,
         };
 
@@ -1212,6 +1296,7 @@ mod tests {
             },
             scale_config: None,
             legend_config: None,
+            axis_config: None,
             share_mode: None,
         };
 

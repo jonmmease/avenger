@@ -100,6 +100,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
             otherwise,
             scale_config,
             legend_config,
+            axis_config,
             share_mode,
         } => {
             conditions.push((condition_node, new_branch));
@@ -108,6 +109,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
                 otherwise,
                 scale_config,
                 legend_config,
+                axis_config,
                 share_mode,
             }
         }
@@ -115,6 +117,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
             expr,
             scale_config,
             legend_config,
+            axis_config,
             scale_name: _,
             band: _,
             share_mode,
@@ -123,6 +126,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
             otherwise: ConditionalValue::Scaled { expr },
             scale_config,
             legend_config,
+            axis_config,
             share_mode,
         },
         ChannelValue::Value { expr } => ChannelValue::Conditional {
@@ -130,6 +134,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
             otherwise: ConditionalValue::Value { expr },
             scale_config: None,
             legend_config: None,
+            axis_config: None,
             share_mode: None,
         },
     }
@@ -147,6 +152,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
             otherwise,
             scale_config,
             legend_config,
+            axis_config,
             share_mode,
         } => {
             conditions.push((condition_node, new_branch));
@@ -155,6 +161,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
                 otherwise,
                 scale_config,
                 legend_config,
+                axis_config,
                 share_mode,
             }
         }
@@ -162,6 +169,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
             expr,
             scale_config,
             legend_config,
+            axis_config,
             scale_name: _,
             band: _,
             share_mode,
@@ -170,6 +178,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
             otherwise: ConditionalValue::Scaled { expr },
             scale_config,
             legend_config,
+            axis_config,
             share_mode,
         },
         ChannelValue::Value { expr } => ChannelValue::Conditional {
@@ -177,6 +186,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
             otherwise: ConditionalValue::Value { expr },
             scale_config: None,
             legend_config: None,
+            axis_config: None,
             share_mode: None,
         },
     }

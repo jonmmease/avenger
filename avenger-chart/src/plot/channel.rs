@@ -6,13 +6,31 @@ use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    Auto, AxisSpec, ChannelValue, CoordinateSystem, Legend, Mark, Scale, resolve_all_channel_refs,
-    strip_trailing_numbers,
+    Auto, Axis, AxisSpec, ChannelValue, CoordinateSystem, Legend, Mark, Scale,
+    resolve_all_channel_refs, strip_trailing_numbers,
 };
 use avenger_chart_scales::PlotScaleSpec as ScaleSpec;
 
 fn coord_channel_for_scale_channel(channel_name: &str) -> String {
     strip_trailing_numbers(channel_name).to_string()
+}
+
+fn merge_axis_config(
+    axis_specs: &mut HashMap<String, AxisSpec>,
+    channel_name: &str,
+    axis_config: &dyn Axis,
+) {
+    match axis_specs.entry(channel_name.to_string()) {
+        Entry::Occupied(mut occupied) => {
+            let AxisSpec::Local(existing) = occupied.get();
+            let mut updated = existing.box_clone();
+            updated.update(axis_config);
+            occupied.insert(AxisSpec::Local(updated));
+        }
+        Entry::Vacant(vacant) => {
+            vacant.insert(AxisSpec::Local(axis_config.box_clone()));
+        }
+    }
 }
 
 /// Extract scale, legend, and axis configurations from a mark's channels
@@ -24,22 +42,6 @@ pub(crate) fn extract_channel_configs<C: CoordinateSystem>(
     scale_specs: &mut HashMap<String, ScaleSpec>,
     scale_to_coord_channel: &mut HashMap<String, String>,
 ) {
-    // Extract axis configurations from the mark
-    for (channel_name, axis_config) in mark.state().axis_configs.iter() {
-        match axis_specs.entry(channel_name.clone()) {
-            Entry::Occupied(mut occupied) => {
-                // Update existing axis with new configuration
-                let AxisSpec::Local(existing) = occupied.get();
-                let mut updated = existing.box_clone();
-                updated.update(axis_config.as_ref());
-                occupied.insert(AxisSpec::Local(updated.box_clone()));
-            }
-            Entry::Vacant(vacant) => {
-                vacant.insert(AxisSpec::Local(axis_config.box_clone()));
-            }
-        }
-    }
-
     // Get all channel encodings from the mark
     let encodings = mark.data_context().channels();
 
@@ -53,6 +55,10 @@ pub(crate) fn extract_channel_configs<C: CoordinateSystem>(
     };
 
     for (channel_name, channel_value) in resolved_encodings {
+        if let Some(axis_config) = channel_value.get_axis_config() {
+            merge_axis_config(axis_specs, &channel_name, axis_config);
+        }
+
         // Extract scale and legend configs
         let (scale_config, legend_config) = match channel_value.clone() {
             ChannelValue::Scaled {
@@ -122,5 +128,78 @@ pub(crate) fn extract_channel_configs<C: CoordinateSystem>(
             };
             legends.insert(channel_name.clone(), configured);
         }
+    }
+
+    // Extract explicit position-channel axis configurations from the mark after
+    // ChannelValue defaults, so `.x_with(..., |c| c.axis(...))` overrides or
+    // augments defaults carried by the value itself.
+    for (channel_name, axis_config) in mark.state().axis_configs.iter() {
+        merge_axis_config(axis_specs, channel_name, axis_config.as_ref());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use avenger_chart_cartesian::{
+        Cartesian, CartesianAxis, marks::CartesianSymbolPositionChannels,
+    };
+    use avenger_chart_core::serialization::DefaultLogicalExprNodeExt;
+    use avenger_chart_marks::Symbol;
+    use datafusion::{
+        common::ScalarValue,
+        logical_expr::Expr,
+        prelude::{SessionContext, col},
+    };
+
+    fn axis_for_channel(axis_specs: &HashMap<String, AxisSpec>, channel: &str) -> CartesianAxis {
+        let AxisSpec::Local(axis) = axis_specs.get(channel).expect("axis config");
+        axis.as_any()
+            .downcast_ref::<CartesianAxis>()
+            .expect("cartesian axis")
+            .clone()
+    }
+
+    fn axis_title(axis: &CartesianAxis, ctx: &SessionContext) -> String {
+        let title_node = axis
+            .title
+            .as_option()
+            .and_then(|value| value.as_ref())
+            .expect("axis title");
+        match title_node.to_default_expr(ctx).expect("axis title expr") {
+            Expr::Literal(ScalarValue::Utf8(Some(title)), _) => title,
+            Expr::Literal(ScalarValue::LargeUtf8(Some(title)), _) => title,
+            other => other.to_string(),
+        }
+    }
+
+    #[test]
+    fn channel_value_axis_config_is_extracted_and_explicit_axis_updates_it() {
+        let ctx = SessionContext::new();
+        let value = ChannelValue::from(col("x"))
+            .with_axis_config(CartesianAxis::new().title("Default title").grid(true));
+        let mark =
+            Symbol::<Cartesian>::new().x_with(value, |c| c.axis(|a| a.title("Explicit title")));
+
+        let mut axis_specs = HashMap::new();
+        let mut legends = IndexMap::new();
+        let mut scale_specs = HashMap::new();
+        let mut scale_to_coord_channel = HashMap::new();
+        extract_channel_configs(
+            &mark,
+            &ctx,
+            &mut axis_specs,
+            &mut legends,
+            &mut scale_specs,
+            &mut scale_to_coord_channel,
+        );
+
+        let axis = axis_for_channel(&axis_specs, "x");
+        assert_eq!(axis_title(&axis, &ctx), "Explicit title");
+        assert!(
+            axis.grid.is_set(),
+            "ChannelValue axis defaults should preserve fields not overwritten explicitly"
+        );
     }
 }

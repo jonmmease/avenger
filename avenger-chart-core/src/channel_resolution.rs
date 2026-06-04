@@ -28,6 +28,7 @@
 //!     band: None,
 //!     scale_config: None,
 //!     legend_config: None,
+//!     axis_config: None,
 //!     share_mode: None,
 //! });
 //! channels.insert("y2".to_string(), ChannelValue::Scaled {
@@ -36,6 +37,7 @@
 //!     band: None,
 //!     scale_config: None,
 //!     legend_config: None,
+//!     axis_config: None,
 //!     share_mode: None,
 //! });
 //!
@@ -415,7 +417,8 @@ pub fn resolve_all_channel_refs(
                     band,
                     scale_config,
                     legend_config,
-                    ..
+                    axis_config,
+                    share_mode,
                 } => {
                     let resolved_expr = resolve_channel_refs(expr.clone(), &resolved_channels, ctx);
                     ChannelValue::Scaled {
@@ -424,7 +427,8 @@ pub fn resolve_all_channel_refs(
                         band: *band,
                         scale_config: scale_config.clone(),
                         legend_config: legend_config.clone(),
-                        share_mode: None,
+                        axis_config: axis_config.clone(),
+                        share_mode: *share_mode,
                     }
                 }
                 ChannelValue::Value { expr } => {
@@ -438,7 +442,8 @@ pub fn resolve_all_channel_refs(
                     otherwise,
                     scale_config,
                     legend_config,
-                    ..
+                    axis_config,
+                    share_mode,
                 } => {
                     // Resolve channel references in conditions and otherwise
                     let resolved_conditions = conditions
@@ -480,7 +485,8 @@ pub fn resolve_all_channel_refs(
                         otherwise: resolved_otherwise,
                         scale_config: scale_config.clone(),
                         legend_config: legend_config.clone(),
-                        share_mode: None,
+                        axis_config: axis_config.clone(),
+                        share_mode: *share_mode,
                     }
                 }
             };
@@ -510,6 +516,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                axis_config: None,
                 share_mode: None,
             },
         );
@@ -522,6 +529,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                axis_config: None,
                 share_mode: None,
             },
         );
@@ -553,6 +561,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                axis_config: None,
                 share_mode: None,
             },
         );
@@ -565,6 +574,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                axis_config: None,
                 share_mode: None,
             },
         );
@@ -577,6 +587,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                axis_config: None,
                 share_mode: None,
             },
         );
@@ -615,6 +626,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                axis_config: None,
                 share_mode: None,
             },
         );
@@ -642,6 +654,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                axis_config: None,
                 share_mode: None,
             },
         );
@@ -653,6 +666,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                axis_config: None,
                 share_mode: None,
             },
         );
@@ -687,6 +701,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                axis_config: None,
                 share_mode: None,
             },
         );
@@ -698,6 +713,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                axis_config: None,
                 share_mode: None,
             },
         );
@@ -733,6 +749,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                axis_config: None,
                 share_mode: None,
             },
         );
@@ -744,6 +761,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                axis_config: None,
                 share_mode: None,
             },
         );
@@ -756,6 +774,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                axis_config: None,
                 share_mode: None,
             },
         );
@@ -824,6 +843,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                axis_config: None,
                 share_mode: None,
             },
         );
@@ -836,6 +856,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                axis_config: None,
                 share_mode: None,
             },
         );
@@ -848,6 +869,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                axis_config: None,
                 share_mode: None,
             },
         );
@@ -860,6 +882,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                axis_config: None,
                 share_mode: None,
             },
         );
@@ -885,6 +908,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                axis_config: None,
                 share_mode: None,
             },
         );
@@ -896,6 +920,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                axis_config: None,
                 share_mode: None,
             },
         );

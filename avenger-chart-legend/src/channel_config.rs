@@ -42,6 +42,7 @@ fn apply_legend_config(value: ChannelValue, legend_config: Legend) -> ChannelVal
             scale_name,
             band,
             scale_config,
+            axis_config,
             share_mode,
             ..
         } => ChannelValue::Scaled {
@@ -50,12 +51,14 @@ fn apply_legend_config(value: ChannelValue, legend_config: Legend) -> ChannelVal
             band,
             scale_config,
             legend_config: Some(legend_config),
+            axis_config,
             share_mode,
         },
         ChannelValue::Conditional {
             conditions,
             otherwise,
             scale_config,
+            axis_config,
             share_mode,
             ..
         } => ChannelValue::Conditional {
@@ -63,6 +66,7 @@ fn apply_legend_config(value: ChannelValue, legend_config: Legend) -> ChannelVal
             otherwise,
             scale_config,
             legend_config: Some(legend_config),
+            axis_config,
             share_mode,
         },
         ChannelValue::Value { .. } => value,

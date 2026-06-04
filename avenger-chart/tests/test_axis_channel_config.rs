@@ -37,3 +37,25 @@ fn test_axis_config_precedence() {
 
     // In practice, "Channel Level X" should be used since marks are processed after plot axes
 }
+
+#[test]
+fn test_axis_config_on_channel_value_roundtrip() {
+    let value: ChannelValue = col("x").into();
+    let value = value.with_axis_config(
+        CartesianAxis::new()
+            .title("Binned x")
+            .ticks_start_step(0.0, 2.5),
+    );
+
+    let json = serde_json::to_string(&value).expect("serialize channel value");
+    let decoded: ChannelValue = serde_json::from_str(&json).expect("deserialize channel value");
+    let axis = decoded
+        .get_axis_config()
+        .expect("axis config")
+        .as_any()
+        .downcast_ref::<CartesianAxis>()
+        .expect("cartesian axis");
+
+    assert!(axis.title.is_set());
+    assert!(axis.tick_spacing.is_set());
+}

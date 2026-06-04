@@ -685,7 +685,7 @@ fn get_radius_expression(
                                         return expr_df;
                                     }
                                 }
-                                ChannelValue::Value { expr } => {
+                                ChannelValue::Value { expr, .. } => {
                                     if let Ok(expr_df) = expr.to_expr(ctx) {
                                         return expr_df;
                                     }
@@ -884,7 +884,7 @@ async fn cache_domain_data(
                                                 }
                                                 expr.to_expr(ctx).unwrap_or(lit(0.0))
                                             }
-                                            ChannelValue::Value { expr } => {
+                                            ChannelValue::Value { expr, .. } => {
                                                 expr.to_expr(ctx).unwrap_or(lit(0.0))
                                             }
                                             _ => lit(0.0),
