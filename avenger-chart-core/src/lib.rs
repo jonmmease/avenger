@@ -71,6 +71,7 @@ pub mod theme;
 pub mod theme_context;
 pub mod title_spec;
 pub mod tools;
+pub mod transform;
 pub mod zero_d;
 
 #[doc(hidden)]
@@ -238,5 +239,9 @@ pub use title_spec::{TitleAlign, TitleSpan};
 pub use tools::{
     ChartTool, ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamExpansion,
     ToolParamSharing, ToolScaleEdit,
+};
+pub use transform::{
+    CompiledDataTransform, DataTransform, DataTransformExecutionContext,
+    apply_compiled_data_transforms,
 };
 pub use zero_d::ZeroDCoord;

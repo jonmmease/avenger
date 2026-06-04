@@ -27,9 +27,10 @@ use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    CompiledSelectionSpec, MarkDataMode, SelectionClause, SelectionCombine, SelectionPredicateSpec,
-    color::parse_color_string, contains_aggregate, params_to_datafusion,
-    selection_clause_value_id_from_placeholder, selection_id_from_predicate_placeholder,
+    CompiledSelectionSpec, DataTransformExecutionContext, MarkDataMode, SelectionClause,
+    SelectionCombine, SelectionPredicateSpec, color::parse_color_string, contains_aggregate,
+    params_to_datafusion, selection_clause_value_id_from_placeholder,
+    selection_id_from_predicate_placeholder,
 };
 
 use crate::{
@@ -132,6 +133,23 @@ fn aggregate_channels_need_preparation(
         .values()
         .flat_map(|channel_value| channel_value.all_exprs(ctx))
         .any(|expr| contains_aggregate(&expr))
+}
+
+async fn apply_mark_data_transforms(
+    dataframe: Option<DataFrame>,
+    transforms: &[Box<dyn avenger_chart_core::CompiledDataTransform>],
+    ctx: &SessionContext,
+) -> Result<Option<DataFrame>, AvengerChartError> {
+    if transforms.is_empty() {
+        return Ok(dataframe);
+    }
+    let dataframe = dataframe.unwrap_or_else(|| empty_dataframe(ctx));
+    let transform_ctx = DataTransformExecutionContext {
+        session_context: ctx,
+    };
+    avenger_chart_core::apply_compiled_data_transforms(dataframe, transforms, &transform_ctx)
+        .await
+        .map(Some)
 }
 
 fn validate_runtime_aggregate_channels(
@@ -610,6 +628,9 @@ pub(crate) async fn prepare_logical_mark_data(
         ctx,
         request.eval_ctx,
     )?;
+    let dataframe =
+        apply_mark_data_transforms(dataframe, request.mark.data_context().transforms(), ctx)
+            .await?;
     let available_columns = dataframe.as_ref().map(|df| {
         df.schema()
             .fields()

@@ -38,6 +38,9 @@ pub mod selection;
 pub mod serialization;
 pub mod theme;
 pub mod tools;
+pub mod transforms {
+    pub use avenger_chart_transforms::*;
+}
 pub mod utils;
 pub mod zerod;
 

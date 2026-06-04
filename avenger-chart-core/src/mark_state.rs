@@ -89,9 +89,17 @@ impl CompiledMarkState {
     /// Convert MarkState to CompiledMarkState with an optional serialized DataFrame.
     pub fn from_mark_state(state: &MarkState, transformed_df: Option<DataFrame>) -> Self {
         let data = if let Some(store_data) = state.data.store_data_ref() {
-            CompiledDataContext::new_store_data(store_data.clone(), state.data.channels().clone())
+            CompiledDataContext::new_store_data(
+                store_data.clone(),
+                state.data.transforms().to_vec(),
+                state.data.channels().clone(),
+            )
         } else {
-            CompiledDataContext::new(transformed_df, state.data.channels().clone())
+            CompiledDataContext::new(
+                transformed_df,
+                state.data.transforms().to_vec(),
+                state.data.channels().clone(),
+            )
         };
         Self {
             id: state.id.clone(),

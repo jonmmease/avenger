@@ -5,7 +5,9 @@ use serde_with::{FromInto, serde_as};
 use datafusion::{dataframe::DataFrame, prelude::SessionContext};
 use datafusion_proto::protobuf::LogicalPlanNode;
 
-use crate::{ChannelValue, LogicalPlanNodeExt, SerializableDataFrame, StoreData};
+use crate::{
+    ChannelValue, CompiledDataTransform, LogicalPlanNodeExt, SerializableDataFrame, StoreData,
+};
 
 /// Compiled version of DataContext - stores serialized LogicalPlanNode
 /// This is created during plot compilation and is immutable thereafter
@@ -15,12 +17,18 @@ pub struct CompiledDataContext {
     #[serde_as(as = "Option<FromInto<SerializableDataFrame>>")]
     logical_plan: Option<LogicalPlanNode>,
     store_data: Option<StoreData>,
+    #[serde(default)]
+    transforms: Vec<Box<dyn CompiledDataTransform>>,
     channels: IndexMap<String, ChannelValue>,
 }
 
 impl CompiledDataContext {
     /// Create a new CompiledDataContext from a DataFrame
-    pub fn new(dataframe: Option<DataFrame>, channels: IndexMap<String, ChannelValue>) -> Self {
+    pub fn new(
+        dataframe: Option<DataFrame>,
+        transforms: Vec<Box<dyn CompiledDataTransform>>,
+        channels: IndexMap<String, ChannelValue>,
+    ) -> Self {
         let logical_plan = if let Some(df) = dataframe {
             let plan = df.logical_plan().clone();
             LogicalPlanNode::from_logical_plan(&plan).ok()
@@ -30,14 +38,20 @@ impl CompiledDataContext {
         Self {
             logical_plan,
             store_data: None,
+            transforms,
             channels,
         }
     }
 
-    pub fn new_store_data(store_data: StoreData, channels: IndexMap<String, ChannelValue>) -> Self {
+    pub fn new_store_data(
+        store_data: StoreData,
+        transforms: Vec<Box<dyn CompiledDataTransform>>,
+        channels: IndexMap<String, ChannelValue>,
+    ) -> Self {
         Self {
             logical_plan: None,
             store_data: Some(store_data),
+            transforms,
             channels,
         }
     }
@@ -45,11 +59,13 @@ impl CompiledDataContext {
     /// Create from an existing LogicalPlanNode (for backwards compatibility)
     pub fn from_logical_plan_node(
         logical_plan: Option<LogicalPlanNode>,
+        transforms: Vec<Box<dyn CompiledDataTransform>>,
         channels: IndexMap<String, ChannelValue>,
     ) -> Self {
         Self {
             logical_plan,
             store_data: None,
+            transforms,
             channels,
         }
     }
@@ -75,6 +91,10 @@ impl CompiledDataContext {
     /// Get a reference to the channels
     pub fn channels(&self) -> &IndexMap<String, ChannelValue> {
         &self.channels
+    }
+
+    pub fn transforms(&self) -> &[Box<dyn CompiledDataTransform>] {
+        &self.transforms
     }
 
     /// Get a specific channel value

@@ -524,6 +524,7 @@ dependencies = [
  "avenger-chart-polar",
  "avenger-chart-scales",
  "avenger-chart-tools",
+ "avenger-chart-transforms",
  "avenger-common",
  "avenger-eventstream",
  "avenger-geometry",
@@ -777,6 +778,24 @@ dependencies = [
  "avenger-chart-core",
  "avenger-chart-marks",
  "datafusion",
+]
+
+[[package]]
+name = "avenger-chart-transforms"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "async-trait",
+ "avenger-chart-core",
+ "datafusion",
+ "datafusion-common",
+ "datafusion-functions-aggregate",
+ "datafusion-proto",
+ "indexmap 2.9.0",
+ "serde",
+ "serde_with",
+ "tokio",
+ "typetag",
 ]
 
 [[package]]

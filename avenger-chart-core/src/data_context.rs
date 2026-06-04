@@ -2,7 +2,7 @@ use indexmap::IndexMap;
 
 use datafusion::{dataframe::DataFrame, prelude::SessionContext};
 
-use crate::{ChannelValue, StoreData};
+use crate::{ChannelValue, CompiledDataTransform, StoreData};
 
 /// Stores a mark's data source and channel-to-expression mappings during construction
 /// This is the uncompiled version that holds a live DataFrame that can be transformed
@@ -11,6 +11,7 @@ use crate::{ChannelValue, StoreData};
 pub struct DataContext {
     dataframe: Option<DataFrame>,
     store_data: Option<StoreData>,
+    transforms: Vec<Box<dyn CompiledDataTransform>>,
     channels: IndexMap<String, ChannelValue>,
 }
 
@@ -19,6 +20,7 @@ impl Default for DataContext {
         Self {
             dataframe: None,
             store_data: None,
+            transforms: Vec::new(),
             channels: IndexMap::new(),
         }
     }
@@ -29,6 +31,7 @@ impl DataContext {
         Self {
             dataframe: Some(dataframe),
             store_data: None,
+            transforms: Vec::new(),
             channels: IndexMap::new(),
         }
     }
@@ -37,6 +40,7 @@ impl DataContext {
         Self {
             dataframe: None,
             store_data: Some(data),
+            transforms: Vec::new(),
             channels: IndexMap::new(),
         }
     }
@@ -65,12 +69,21 @@ impl DataContext {
         self
     }
 
+    pub fn with_transform(mut self, transform: Box<dyn CompiledDataTransform>) -> Self {
+        self.transforms.push(transform);
+        self
+    }
+
     pub fn channel(&self, channel: &str) -> Option<&ChannelValue> {
         self.channels.get(channel)
     }
 
     pub fn channels(&self) -> &IndexMap<String, ChannelValue> {
         &self.channels
+    }
+
+    pub fn transforms(&self) -> &[Box<dyn CompiledDataTransform>] {
+        &self.transforms
     }
 
     // Compatibility methods for tests

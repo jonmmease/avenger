@@ -47,6 +47,7 @@ pub use avenger_chart_core::{
     ToolParamSharing, ToolScaleEdit,
 };
 pub use avenger_chart_tools::{BoxZoom, LassoSelection, PanScrollZoom, PointSelection};
+pub use avenger_chart_transforms::{Aggregate, AggregateOutput, Stack, StackOffset, StackOutput};
 
 // Re-export theme types
 pub use avenger_chart_core::Theme;
@@ -68,7 +69,8 @@ pub use avenger_chart_polar::PolarSymbolPositionChannels;
 
 // Re-export mark traits and types
 pub use avenger_chart_core::{
-    ChannelValue, ConditionalValue, FacetDataScope, Mark, MarkState, RadiusExpression,
+    ChannelValue, ConditionalValue, DataTransform, FacetDataScope, Mark, MarkState,
+    RadiusExpression,
 };
 
 // Re-export channel config traits - ESSENTIAL for using channel methods

@@ -10,6 +10,7 @@ avenger-chart-legend = { path = "../avenger-chart-legend" }
 avenger-chart-marks = { path = "../avenger-chart-marks" }
 avenger-chart-scales = { path = "../avenger-chart-scales" }
 avenger-chart-tools = { path = "../avenger-chart-tools" }
+avenger-chart-transforms = { path = "../avenger-chart-transforms" }
 avenger-chart-cartesian = { path = "../avenger-chart-cartesian" }
 avenger-chart-polar = { path = "../avenger-chart-polar" }
 avenger-scales = { path = "../avenger-scales" }

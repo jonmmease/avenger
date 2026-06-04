@@ -78,6 +78,19 @@ macro_rules! impl_mark_base {
                 self
             }
 
+            /// Apply a data transform and configure this mark using the transform output handle.
+            pub fn transform<T, F>(mut self, transform: T, f: F) -> Self
+            where
+                T: $crate::DataTransform,
+                F: FnOnce(Self, T::Output) -> Self,
+            {
+                let (compiled_transform, output) = transform
+                    .into_compiled_and_output()
+                    .expect("Failed to build data transform");
+                self.state.data = self.state.data.with_transform(compiled_transform);
+                f(self, output)
+            }
+
             /// Control faceting behavior.
             pub fn facet_data_scope(mut self, scope: $crate::FacetDataScope) -> Self {
                 self.state.facet_data_scope = scope;

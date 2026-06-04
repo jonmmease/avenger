@@ -1266,6 +1266,7 @@ fn synthetic_column_state_for_wrap(
     let mut state = compiled_state.clone();
     state.data = CompiledDataContext::from_logical_plan_node(
         compiled_state.data.logical_plan_node().cloned(),
+        compiled_state.data.transforms().to_vec(),
         channels,
     );
     Ok(state)
