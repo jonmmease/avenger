@@ -354,6 +354,7 @@ impl CompiledMark for CompiledCartesianLine {
                 stroke_join,
                 defined,
                 zindex: self.state.zindex,
+                interactive: true,
             };
 
             return Ok(vec![SceneMark::Line(line_mark)]);
@@ -608,6 +609,7 @@ impl CompiledMark for CompiledCartesianLine {
                 stroke_join,
                 defined: avenger_common::value::ScalarOrArray::from(group_defined),
                 zindex: self.state.zindex,
+                interactive: true,
             };
 
             scene_marks.push(SceneMark::Line(line_mark));

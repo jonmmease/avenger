@@ -14,12 +14,14 @@ use lyon_path::Path;
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
-use super::mark::SceneMark;
+use super::mark::{default_interactive, SceneMark};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct ScenePathMark {
     pub name: String,
+    #[serde(default = "default_interactive")]
+    pub interactive: bool,
     pub clip: bool,
     pub len: u32,
     pub gradients: Vec<Gradient>,
@@ -37,6 +39,7 @@ pub struct ScenePathMark {
 impl std::hash::Hash for ScenePathMark {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.name.hash(state);
+        self.interactive.hash(state);
         self.clip.hash(state);
         self.len.hash(state);
         self.gradients.hash(state);
@@ -59,6 +62,7 @@ impl std::hash::Hash for ScenePathMark {
 impl PartialEq for ScenePathMark {
     fn eq(&self, other: &Self) -> bool {
         if self.name != other.name
+            || self.interactive != other.interactive
             || self.clip != other.clip
             || self.len != other.len
             || self.gradients != other.gradients
@@ -161,6 +165,7 @@ impl Default for ScenePathMark {
     fn default() -> Self {
         Self {
             name: "rule_mark".to_string(),
+            interactive: true,
             clip: true,
             len: 1,
             gradients: vec![],

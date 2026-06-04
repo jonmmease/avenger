@@ -4,12 +4,14 @@ use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
 use serde::{Deserialize, Serialize};
 
-use super::mark::SceneMark;
+use super::mark::{default_interactive, SceneMark};
 
 #[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneTextMark {
     pub name: String,
+    #[serde(default = "default_interactive")]
+    pub interactive: bool,
     pub clip: bool,
     pub len: u32,
     pub text: ScalarOrArray<String>,
@@ -83,6 +85,7 @@ impl Default for SceneTextMark {
     fn default() -> Self {
         Self {
             name: "text_mark".to_string(),
+            interactive: true,
             clip: true,
             len: 1,
             text: ScalarOrArray::new_scalar(String::new()),

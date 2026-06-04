@@ -264,6 +264,7 @@ impl CompiledPlot {
         }
 
         let mut types = IndexMap::new();
+        collect_reserved_event_datum_types(&requested, &mut types);
         self.collect_event_datum_types(ctx, &requested, &mut types)?;
         let missing = requested
             .iter()
@@ -428,6 +429,30 @@ impl CompiledPlot {
             params,
         ))
         .await
+    }
+}
+
+fn collect_reserved_event_datum_types(
+    requested: &BTreeSet<String>,
+    out: &mut IndexMap<String, DataType>,
+) {
+    use avenger_chart_core::event::{
+        LEGEND_CHANNEL_FIELD, LEGEND_ID_FIELD, LEGEND_INDEX_FIELD, LEGEND_LABEL_FIELD,
+        LEGEND_NAME_FIELD, LEGEND_SURFACE_KEY_FIELD, LEGEND_VALUE_FIELD,
+    };
+
+    for (name, data_type) in [
+        (LEGEND_VALUE_FIELD, DataType::Utf8),
+        (LEGEND_LABEL_FIELD, DataType::Utf8),
+        (LEGEND_NAME_FIELD, DataType::Utf8),
+        (LEGEND_CHANNEL_FIELD, DataType::Utf8),
+        (LEGEND_INDEX_FIELD, DataType::Int64),
+        (LEGEND_ID_FIELD, DataType::Utf8),
+        (LEGEND_SURFACE_KEY_FIELD, DataType::Utf8),
+    ] {
+        if requested.contains(name) && !out.contains_key(name) {
+            out.insert(name.to_string(), data_type);
+        }
     }
 }
 
@@ -631,4 +656,7 @@ pub struct PlotComponents {
 
     /// Event datum rows produced by data marks, keyed by local scene-mark path.
     pub event_datums: Vec<crate::render::EvaluatedEventDatumRows>,
+
+    /// Event datum rows produced by frame chrome, keyed by component-local scene-mark path.
+    pub chrome_event_datums: Vec<crate::render::EvaluatedEventDatumRows>,
 }

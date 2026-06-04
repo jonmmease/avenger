@@ -8,6 +8,10 @@ use crate::marks::{
     symbol::SceneSymbolMark, text::SceneTextMark, trail::SceneTrailMark,
 };
 
+pub fn default_interactive() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 pub enum SceneMark {
     Arc(SceneArcMark),
@@ -38,6 +42,43 @@ impl SceneMark {
             Self::Image(mark) => mark.zindex,
             Self::Group(mark) => mark.zindex,
         }
+    }
+
+    pub fn interactive(&self) -> bool {
+        match self {
+            Self::Arc(mark) => mark.interactive,
+            Self::Area(mark) => mark.interactive,
+            Self::Path(mark) => mark.interactive,
+            Self::Symbol(mark) => mark.interactive,
+            Self::Line(mark) => mark.interactive,
+            Self::Trail(mark) => mark.interactive,
+            Self::Rect(mark) => mark.interactive,
+            Self::Rule(mark) => mark.interactive,
+            Self::Text(mark) => mark.interactive,
+            Self::Image(mark) => mark.interactive,
+            Self::Group(mark) => mark.interactive,
+        }
+    }
+
+    pub fn set_interactive(&mut self, interactive: bool) {
+        match self {
+            Self::Arc(mark) => mark.interactive = interactive,
+            Self::Area(mark) => mark.interactive = interactive,
+            Self::Path(mark) => mark.interactive = interactive,
+            Self::Symbol(mark) => mark.interactive = interactive,
+            Self::Line(mark) => mark.interactive = interactive,
+            Self::Trail(mark) => mark.interactive = interactive,
+            Self::Rect(mark) => mark.interactive = interactive,
+            Self::Rule(mark) => mark.interactive = interactive,
+            Self::Text(mark) => Arc::make_mut(mark).interactive = interactive,
+            Self::Image(mark) => Arc::make_mut(mark).interactive = interactive,
+            Self::Group(mark) => mark.interactive = interactive,
+        }
+    }
+
+    pub fn with_interactive(mut self, interactive: bool) -> Self {
+        self.set_interactive(interactive);
+        self
     }
 
     pub fn children(&self) -> &[SceneMark] {

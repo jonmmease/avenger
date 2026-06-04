@@ -9,12 +9,14 @@ use lyon_extra::euclid::Point2D;
 use lyon_path::{builder::BorderRadii, geom::Box2D, Path, Winding};
 use serde::{Deserialize, Serialize};
 
-use super::mark::SceneMark;
+use super::mark::{default_interactive, SceneMark};
 
 #[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneRectMark {
     pub name: String,
+    #[serde(default = "default_interactive")]
+    pub interactive: bool,
     pub clip: bool,
     pub len: u32,
     pub gradients: Vec<Gradient>,
@@ -223,6 +225,7 @@ impl Default for SceneRectMark {
     fn default() -> Self {
         Self {
             name: "rule_mark".to_string(),
+            interactive: true,
             clip: true,
             len: 1,
             gradients: vec![],

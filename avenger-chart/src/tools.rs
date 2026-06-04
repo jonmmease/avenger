@@ -94,6 +94,21 @@ impl ToolCompileContext {
         Ok(())
     }
 
+    pub(crate) fn register_local_legend_event_bindings(
+        &self,
+        bindings: &[ChartEventBinding],
+    ) -> Result<(), AvengerChartError> {
+        if bindings.is_empty() {
+            return Ok(());
+        }
+        self.state
+            .lock()
+            .expect("tool compile state lock poisoned")
+            .event_bindings
+            .extend(bindings.iter().cloned());
+        Ok(())
+    }
+
     pub(crate) fn register_local_stores(&self, stores: &[Store]) -> Result<(), AvengerChartError> {
         let mut state = self.state.lock().expect("tool compile state lock poisoned");
         for store in stores {
@@ -177,13 +192,13 @@ impl ToolCompileContext {
     }
 
     fn localize_event_bindings(&self, bindings: &mut [ChartEventBinding]) {
-        if self.coord_node_path.is_empty() {
-            return;
-        }
         for binding in bindings {
-            *binding = binding
-                .clone()
-                .with_resolved_coord_node_path_target(self.coord_node_path.clone());
+            let mut localized = binding.clone().with_plot_surface_target();
+            if !self.coord_node_path.is_empty() {
+                localized =
+                    localized.with_resolved_coord_node_path_target(self.coord_node_path.clone());
+            }
+            *binding = localized;
         }
     }
 }

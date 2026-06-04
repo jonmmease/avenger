@@ -14,7 +14,10 @@ use avenger_text::{
     types::{FontStyle, FontWeight, TextAlign, TextBaseline},
 };
 
-use crate::{error::AvengerGuidesError, legend::compute_encoding_length};
+use crate::{
+    error::AvengerGuidesError,
+    legend::{compute_encoding_length, GuideLegendItem, GuideLegendOutput},
+};
 
 /// Symbol legends
 #[derive(Debug, Clone)]
@@ -93,7 +96,48 @@ impl Default for SymbolLegendConfig {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn itemized_symbol_legend_reports_interactive_hit_rects() {
+        let output = make_symbol_legend_itemized(&SymbolLegendConfig {
+            text: ScalarOrArray::new_array(vec!["A".to_string(), "B".to_string()]),
+            fill: ScalarOrArray::new_array(vec![
+                ColorOrGradient::Color([1.0, 0.0, 0.0, 1.0]),
+                ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0]),
+            ]),
+            ..Default::default()
+        })
+        .expect("symbol legend renders");
+
+        assert_eq!(output.items.len(), 2);
+        assert_eq!(output.items[0].group_path, vec![1]);
+        assert_eq!(output.items[0].hit_rect_path, vec![1, 0]);
+        assert!(!output.group.marks[0].interactive());
+
+        let SceneMark::Group(item_group) = &output.group.marks[1] else {
+            panic!("legend item should be a group");
+        };
+        assert!(item_group.marks[0].interactive());
+        assert!(!item_group.marks[1].interactive());
+        assert!(!item_group.marks[2].interactive());
+        let SceneMark::Rect(hit_rect) = &item_group.marks[0] else {
+            panic!("first item mark should be hit rect");
+        };
+        assert!(hit_rect.width.is_some());
+        assert!(hit_rect.height.is_some());
+    }
+}
+
 pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, AvengerGuidesError> {
+    Ok(make_symbol_legend_itemized(config)?.group)
+}
+
+pub fn make_symbol_legend_itemized(
+    config: &SymbolLegendConfig,
+) -> Result<GuideLegendOutput, AvengerGuidesError> {
     // Compute the common encoding length
     let len = compute_encoding_length(&[
         config.text.len(),
@@ -186,7 +230,7 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
             baseline: TextBaseline::Top.into(),
             ..Default::default()
         };
-        groups.push(SceneMark::Text(Arc::new(title_mark)));
+        groups.push(SceneMark::Text(Arc::new(title_mark)).with_interactive(false));
 
         // Advance content offset by measured height plus a small gap (2px)
         content_offset_y = (title_y + title_bounds.height + 2.0).round();
@@ -195,8 +239,10 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
     let mut y = content_offset_y.round();
 
     let text_strs = config.text.as_vec(len, None);
+    let mut items = Vec::with_capacity(len);
 
     for (i, text_str) in text_strs.iter().enumerate() {
+        let group_path = vec![groups.len() + 1];
         let group = make_symbol_group(
             &symbol_mark,
             text_str,
@@ -215,6 +261,12 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
             tracing::debug!(height = height, "First symbol group height");
         }
         groups.push(SceneMark::Group(group));
+        items.push(GuideLegendItem {
+            index: i,
+            label: text_str.clone(),
+            hit_rect_path: vec![group_path[0], 0],
+            group_path,
+        });
         // Round y position after adding height to stay on pixel boundaries
         y = (y + height).round();
     }
@@ -257,6 +309,7 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
         },
         corner_radius: config.background_corner_radius.unwrap_or(0.0).into(),
         zindex: Some(0), // Background should be behind content
+        interactive: false,
         ..Default::default()
     };
 
@@ -264,10 +317,13 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
     let mut final_marks = vec![SceneMark::Rect(bg)];
     final_marks.extend(groups);
 
-    Ok(SceneGroup {
-        marks: final_marks,
-        clip: avenger_scenegraph::marks::group::Clip::None,
-        ..Default::default()
+    Ok(GuideLegendOutput {
+        group: SceneGroup {
+            marks: final_marks,
+            clip: avenger_scenegraph::marks::group::Clip::None,
+            ..Default::default()
+        },
+        items,
     })
 }
 
@@ -298,7 +354,6 @@ fn make_symbol_group(
     let padding = 0.5; // Further reduced vertical padding between legend items
     let bbox = single_symbol_mark.bounding_box();
     let symbol_height = bbox.height();
-    let symbol_width = bbox.width();
 
     if index == 0 && text.len() > 3 {
         // Only debug for shape legend (has longer text like "circle")
@@ -323,22 +378,28 @@ fn make_symbol_group(
         color: ColorOrGradient::Color(label_color.unwrap_or([0.235, 0.235, 0.235, 1.0])).into(),
         ..Default::default()
     };
+    let text_bounds = text_mark.bounding_box();
+    let row_width = (max_width + text_padding + text_bounds.width()).ceil();
+    let row_height = (symbol_height + padding * 2.0)
+        .max(text_bounds.height())
+        .round();
 
     SceneGroup {
         origin,
         marks: vec![
-            // Rect is so that bounding box calculations on group are correct
+            // Full-row transparent hit rect for interactions.
             SceneMark::Rect(SceneRectMark {
                 x: 0.0.into(),
                 y: 0.0.into(),
-                width: Some(symbol_width.round().into()),
-                height: Some((symbol_height + padding * 2.0).round().into()),
+                width: Some(row_width.into()),
+                height: Some(row_height.into()),
+                fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
                 stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
-                stroke_width: 0.1.into(),
+                stroke_width: 0.0.into(),
                 ..Default::default()
             }),
-            SceneMark::Symbol(single_symbol_mark),
-            SceneMark::Text(Arc::new(text_mark)),
+            SceneMark::Symbol(single_symbol_mark).with_interactive(false),
+            SceneMark::Text(Arc::new(text_mark)).with_interactive(false),
         ],
 
         stroke_width: Some(1.0),

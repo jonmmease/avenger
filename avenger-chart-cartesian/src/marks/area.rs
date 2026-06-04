@@ -365,6 +365,7 @@ impl CompiledMark for CompiledCartesianArea {
                     stroke_join,
                     stroke_dash,
                     zindex: self.state.zindex,
+                    interactive: true,
                 }
                 .into(),
             ]);
@@ -563,6 +564,7 @@ impl CompiledMark for CompiledCartesianArea {
                 stroke_join,
                 stroke_dash,
                 zindex: self.state.zindex,
+                interactive: true,
             }));
         }
 

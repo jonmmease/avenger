@@ -11,7 +11,10 @@ use avenger_scenegraph::marks::{
 };
 use avenger_text::types::{FontWeight, TextAlign, TextBaseline};
 
-use crate::{error::AvengerGuidesError, legend::compute_encoding_length};
+use crate::{
+    error::AvengerGuidesError,
+    legend::{compute_encoding_length, GuideLegendItem, GuideLegendOutput},
+};
 
 /// Symbol legends
 #[derive(Debug)]
@@ -100,7 +103,48 @@ impl Default for LineLegendConfig {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn itemized_line_legend_reports_interactive_hit_rects() {
+        let output = make_line_legend_itemized(&LineLegendConfig {
+            text: ScalarOrArray::new_array(vec!["A".to_string(), "B".to_string()]),
+            stroke: ScalarOrArray::new_array(vec![
+                ColorOrGradient::Color([1.0, 0.0, 0.0, 1.0]),
+                ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0]),
+            ]),
+            ..Default::default()
+        })
+        .expect("line legend renders");
+
+        assert_eq!(output.items.len(), 2);
+        assert_eq!(output.items[0].group_path, vec![1]);
+        assert_eq!(output.items[0].hit_rect_path, vec![1, 0]);
+        assert!(!output.group.marks[0].interactive());
+
+        let SceneMark::Group(item_group) = &output.group.marks[1] else {
+            panic!("legend item should be a group");
+        };
+        assert!(item_group.marks[0].interactive());
+        assert!(!item_group.marks[1].interactive());
+        assert!(!item_group.marks[2].interactive());
+        let SceneMark::Rect(hit_rect) = &item_group.marks[0] else {
+            panic!("first item mark should be hit rect");
+        };
+        assert!(hit_rect.width.is_some());
+        assert!(hit_rect.height.is_some());
+    }
+}
+
 pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, AvengerGuidesError> {
+    Ok(make_line_legend_itemized(config)?.group)
+}
+
+pub fn make_line_legend_itemized(
+    config: &LineLegendConfig,
+) -> Result<GuideLegendOutput, AvengerGuidesError> {
     // Compute the common encoding length
     let len = compute_encoding_length(&[
         config.text.len(),
@@ -181,7 +225,7 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
             baseline: TextBaseline::Middle.into(),
             ..Default::default()
         };
-        groups.push(SceneMark::Text(Arc::new(title_mark)));
+        groups.push(SceneMark::Text(Arc::new(title_mark)).with_interactive(false));
 
         let title_space = title_font_size + 4.0;
         line_group_y += title_space;
@@ -196,11 +240,13 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
     let stroke_dashes = config.stroke_dash.as_vec(len, None);
     let stroke_colors = config.stroke.as_vec(len, None);
     let line_lengths = config.line_length.as_vec(len, None);
+    let mut items = Vec::with_capacity(len);
 
     // Find the maximum line length for text alignment
     let max_line_length = line_lengths.iter().fold(0.0f32, |max, &len| max.max(len));
 
     for i in 0..len {
+        let group_path = vec![groups.len() + 1];
         let group = make_line_group(
             line_group_y,
             bg_padding,
@@ -219,6 +265,12 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
             config.label_font_weight.as_ref(),
         );
         groups.push(SceneMark::Group(group));
+        items.push(GuideLegendItem {
+            index: i,
+            label: text_strs[i].clone(),
+            hit_rect_path: vec![group_path[0], 0],
+            group_path,
+        });
         // Advance by group height (no additional per-entry spacing by default)
         line_group_y = (line_group_y + legend_group_height).round();
     }
@@ -261,6 +313,7 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
         },
         corner_radius: config.background_corner_radius.unwrap_or(0.0).into(),
         zindex: Some(0), // Background should be behind content
+        interactive: false,
         ..Default::default()
     };
 
@@ -268,10 +321,13 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
     let mut final_marks = vec![SceneMark::Rect(bg)];
     final_marks.extend(groups);
 
-    Ok(SceneGroup {
-        marks: final_marks,
-        clip: avenger_scenegraph::marks::group::Clip::None,
-        ..Default::default()
+    Ok(GuideLegendOutput {
+        group: SceneGroup {
+            marks: final_marks,
+            clip: avenger_scenegraph::marks::group::Clip::None,
+            ..Default::default()
+        },
+        items,
     })
 }
 
@@ -344,12 +400,25 @@ fn make_line_group(
         color: ColorOrGradient::Color(label_color.unwrap_or([0.235, 0.235, 0.235, 1.0])).into(),
         ..Default::default()
     };
+    let text_bounds = text_mark.bounding_box();
+    let row_width = (max_line_length + text_padding + text_bounds.width()).ceil();
+    let row_height = text_bounds.height().max(stroke_width.max(1.0)).ceil();
 
     SceneGroup {
         origin: [x_offset, y],
         marks: vec![
-            SceneMark::Line(single_line_mark),
-            SceneMark::Text(Arc::new(text_mark)),
+            SceneMark::Rect(SceneRectMark {
+                x: 0.0.into(),
+                y: (-row_height / 2.0).into(),
+                width: Some(row_width.into()),
+                height: Some(row_height.into()),
+                fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
+                stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
+                stroke_width: 0.0.into(),
+                ..Default::default()
+            }),
+            SceneMark::Line(single_line_mark).with_interactive(false),
+            SceneMark::Text(Arc::new(text_mark)).with_interactive(false),
         ],
         ..Default::default()
     }

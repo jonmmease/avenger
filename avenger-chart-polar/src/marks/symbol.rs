@@ -332,6 +332,7 @@ impl CompiledMark for CompiledPolarSymbol {
             zindex: self.state.zindex,
             x_adjustment: None,
             y_adjustment: None,
+            interactive: true,
         };
 
         Ok(vec![SceneMark::Symbol(symbol_mark)])

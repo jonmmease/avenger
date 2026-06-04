@@ -307,6 +307,7 @@ impl CompiledMark for CompiledCartesianPath {
             transform,
             indices: None,
             zindex: self.state.zindex,
+            interactive: true,
         })])
     }
 }

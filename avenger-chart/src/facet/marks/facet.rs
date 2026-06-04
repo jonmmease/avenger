@@ -506,6 +506,7 @@ async fn render_facet_band_with_placement(
                     stroke_width: None,
                     stroke_offset: None,
                     zindex: None,
+                    interactive: true,
                 };
                 scene_marks.push(SceneMark::Group(empty_group));
             }
@@ -544,6 +545,18 @@ async fn render_facet_band_with_placement(
                     });
                     context.eval.push_event_datums(translated);
                 }
+                let cell_chrome_event_datums = std::mem::take(&mut components.chrome_event_datums);
+                if !cell_chrome_event_datums.is_empty() {
+                    let translated = cell_chrome_event_datums.into_iter().map(|mut rows| {
+                        let mut path = Vec::with_capacity(rows.mark_path.len() + 1);
+                        path.push(group_index);
+                        path.extend(rows.mark_path);
+                        rows.mark_path = path;
+                        rows.prepend_subplot_id(subplot_id);
+                        rows
+                    });
+                    context.eval.push_event_datums(translated);
+                }
 
                 let data_marks_group = SceneGroup {
                     origin: [0.0, 0.0],
@@ -570,6 +583,7 @@ async fn render_facet_band_with_placement(
                     stroke_width: None,
                     stroke_offset: None,
                     zindex: None,
+                    interactive: true,
                 };
                 scene_marks.push(SceneMark::Group(subplot_group));
                 ops.trace_position(idx, subplot_origin, position, band_size);

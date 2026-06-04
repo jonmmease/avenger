@@ -8,7 +8,8 @@ use avenger_app::error::AvengerAppError;
 use avenger_chart::{
     event::{
         self, ChartEventAssignmentScope, ChartEventBinding, ChartEventEvaluationMode,
-        ChartEventScopeTarget, ChartEventStream, ChartEventType, InteractionColumnRequests,
+        ChartEventScopeTarget, ChartEventStream, ChartEventSurfaceTarget, ChartEventType,
+        InteractionColumnRequests,
     },
     plot::{
         CompiledPlot, ScopedParamAssignment, ScopedParamStoreSnapshot, ScopedStoreAssignment,
@@ -143,6 +144,7 @@ struct CompiledChartEventBinding {
     interaction_requests: InteractionColumnRequests,
     event_path_min_distance_px: f32,
     scope_target: Option<ChartEventScopeTarget>,
+    surface_target: Option<ChartEventSurfaceTarget>,
     scope_target_uses_start_scope: bool,
     cursor_params: Arc<HashSet<String>>,
 }
@@ -713,6 +715,7 @@ impl CompiledChartEventBinding {
                 .event_path_min_distance_px
                 .unwrap_or(event::DEFAULT_EVENT_PATH_MIN_DISTANCE_PX),
             scope_target: binding.scope_target.clone(),
+            surface_target: binding.surface_target.clone(),
             scope_target_uses_start_scope: binding.between.is_some(),
             cursor_params: Arc::new(cursor_params.iter().cloned().collect()),
         })
@@ -1681,6 +1684,24 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
         let mut app = state.runtime.lock().await;
         let eval_start = Instant::now();
         let event_mark_instance = event.mark_instance().or(context.mark_instance.as_ref());
+        let legend_surface_match = match surface_target_matches(
+            self.runtime.surface_target.as_ref(),
+            &app.last_event_datum_state,
+            event_mark_instance,
+        ) {
+            SurfaceMatch::Accept { legend_item } => legend_item,
+            SurfaceMatch::Reject { reason } => {
+                trace_chart_event_rejection(
+                    self.runtime.binding_index,
+                    event,
+                    event_mark_instance,
+                    context.mark_instance.as_ref(),
+                    reason,
+                );
+                record_event_eval_elapsed(&mut app.event_metrics, eval_start);
+                return UpdateStatus::default();
+            }
+        };
 
         let requests = &self.runtime.interaction_requests;
         let required_channels = requests.all_channels();
@@ -1949,8 +1970,11 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                 ChartEventAssignmentScope::Current => current_scope.as_ref(),
                 ChartEventAssignmentScope::Start => start_scope.as_ref(),
             };
-            let Some(owner_path) = assignment_owner_path(assignment.sharing, assignment_scope)
-            else {
+            let Some(owner_path) = assignment_owner_path_for_surface(
+                assignment.sharing,
+                assignment_scope,
+                legend_surface_match,
+            ) else {
                 // Non-shared param with no routed scope: skip rather than write
                 // to the wrong owner.
                 tracing::debug!(
@@ -1961,9 +1985,13 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                 );
                 continue;
             };
-            let comparison_owner_paths = assignment_scope
-                .map(|scope| scope.sharing_owner_paths.clone())
-                .unwrap_or_default();
+            let comparison_owner_paths = if legend_surface_match {
+                HashMap::new()
+            } else {
+                assignment_scope
+                    .map(|scope| scope.sharing_owner_paths.clone())
+                    .unwrap_or_default()
+            };
             let comparison_params = app
                 .session
                 .effective_params_for_owner_paths(&comparison_owner_paths);
@@ -1985,8 +2013,11 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                 ChartEventAssignmentScope::Current => current_scope.as_ref(),
                 ChartEventAssignmentScope::Start => start_scope.as_ref(),
             };
-            let Some(owner_path) = assignment_owner_path(assignment.sharing, assignment_scope)
-            else {
+            let Some(owner_path) = assignment_owner_path_for_surface(
+                assignment.sharing,
+                assignment_scope,
+                legend_surface_match,
+            ) else {
                 tracing::debug!(
                     target: "avenger_chart_app::event_binding",
                     binding = self.runtime.binding_index,
@@ -2023,6 +2054,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                     &values,
                     self.runtime.filter_count,
                     assignment_scope,
+                    legend_surface_match,
                     &app.last_interaction_state.scopes,
                     self.runtime.scope_target.as_ref(),
                     rtree,
@@ -2035,6 +2067,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                     &values,
                     self.runtime.filter_count,
                     assignment_scope,
+                    legend_surface_match,
                 ))
             };
             match update_result {
@@ -2445,31 +2478,60 @@ fn selection_state_update_from_values(
     values: &[ScalarValue],
     filter_count: usize,
     scope: Option<&EvaluatedInteractionScope>,
+    root_owner_surface: bool,
 ) -> Option<SelectionStateUpdate> {
     Some(match update {
         CompiledSelectionUpdate::Clear => SelectionStateUpdate::Clear,
         CompiledSelectionUpdate::ClearInScope {
             scope: clause_scope,
         } => SelectionStateUpdate::ClearInScope {
-            scope_owner_path: selection_owner_path(*clause_scope, scope)?,
+            scope_owner_path: selection_owner_path(*clause_scope, scope, root_owner_surface)?,
         },
         CompiledSelectionUpdate::ReplaceAllClauses { clauses } => {
             SelectionStateUpdate::ReplaceAllClauses {
-                clauses: selection_clauses_from_values(clauses, spec, values, filter_count, scope)?,
+                clauses: selection_clauses_from_values(
+                    clauses,
+                    spec,
+                    values,
+                    filter_count,
+                    scope,
+                    root_owner_surface,
+                )?,
             }
         }
         CompiledSelectionUpdate::ReplaceClausesInScope {
             scope: replace_scope,
             clauses,
         } => SelectionStateUpdate::ReplaceClausesInScope {
-            scope_owner_path: selection_owner_path(*replace_scope, scope)?,
-            clauses: selection_clauses_from_values(clauses, spec, values, filter_count, scope)?,
+            scope_owner_path: selection_owner_path(*replace_scope, scope, root_owner_surface)?,
+            clauses: selection_clauses_from_values(
+                clauses,
+                spec,
+                values,
+                filter_count,
+                scope,
+                root_owner_surface,
+            )?,
         },
         CompiledSelectionUpdate::UpsertClauses { clauses } => SelectionStateUpdate::UpsertClauses {
-            clauses: selection_clauses_from_values(clauses, spec, values, filter_count, scope)?,
+            clauses: selection_clauses_from_values(
+                clauses,
+                spec,
+                values,
+                filter_count,
+                scope,
+                root_owner_surface,
+            )?,
         },
         CompiledSelectionUpdate::ToggleClauses { clauses } => SelectionStateUpdate::ToggleClauses {
-            clauses: selection_clauses_from_values(clauses, spec, values, filter_count, scope)?,
+            clauses: selection_clauses_from_values(
+                clauses,
+                spec,
+                values,
+                filter_count,
+                scope,
+                root_owner_surface,
+            )?,
         },
         CompiledSelectionUpdate::DeleteClauses { ids } => SelectionStateUpdate::DeleteClauses {
             ids: ids
@@ -2481,7 +2543,7 @@ fn selection_state_update_from_values(
             scope: delete_scope,
             ids,
         } => SelectionStateUpdate::DeleteClausesInScope {
-            scope_owner_path: selection_owner_path(*delete_scope, scope)?,
+            scope_owner_path: selection_owner_path(*delete_scope, scope, root_owner_surface)?,
             ids: ids
                 .iter()
                 .map(|id| selection_clause_id_from_value(values.get(filter_count + *id)?))
@@ -2510,6 +2572,7 @@ fn scene_query_selection_state_update_from_values(
     values: &[ScalarValue],
     filter_count: usize,
     scope: Option<&EvaluatedInteractionScope>,
+    root_owner_surface: bool,
     all_scopes: &[EvaluatedInteractionScope],
     scope_target: Option<&ChartEventScopeTarget>,
     rtree: &SceneGraphRTree,
@@ -2532,7 +2595,7 @@ fn scene_query_selection_state_update_from_values(
             "Only scene-space geometry queries are supported".to_string(),
         ));
     }
-    let Some(owner_path) = selection_owner_path(query.sharing, scope) else {
+    let Some(owner_path) = selection_owner_path(query.sharing, scope, root_owner_surface) else {
         return Ok(None);
     };
     let Some(shape) = scene_query_shape_from_values(&query.query.geometry, values, filter_count)?
@@ -2922,10 +2985,20 @@ fn selection_clauses_from_values(
     values: &[ScalarValue],
     filter_count: usize,
     scope: Option<&EvaluatedInteractionScope>,
+    root_owner_surface: bool,
 ) -> Option<Vec<SelectionClause>> {
     clauses
         .iter()
-        .map(|clause| selection_clause_from_values(clause, spec, values, filter_count, scope))
+        .map(|clause| {
+            selection_clause_from_values(
+                clause,
+                spec,
+                values,
+                filter_count,
+                scope,
+                root_owner_surface,
+            )
+        })
         .collect()
 }
 
@@ -2935,9 +3008,10 @@ fn selection_clause_from_values(
     values: &[ScalarValue],
     filter_count: usize,
     scope: Option<&EvaluatedInteractionScope>,
+    root_owner_surface: bool,
 ) -> Option<SelectionClause> {
     let id = selection_clause_id_from_value(values.get(filter_count + clause.id)?)?;
-    let owner_path = selection_owner_path(clause.facet_scope, scope)?;
+    let owner_path = selection_owner_path(clause.facet_scope, scope, root_owner_surface)?;
     let facet_context = selection_facet_context_values(spec, &owner_path);
     let predicate = match &clause.predicate {
         CompiledSelectionPredicate::Interval { dimensions } => SelectionPredicateSpec::Interval {
@@ -3001,8 +3075,9 @@ fn selection_clause_from_values(
 fn selection_owner_path(
     sharing: Sharing,
     scope: Option<&EvaluatedInteractionScope>,
+    root_owner_surface: bool,
 ) -> Option<Vec<ScalarValue>> {
-    assignment_owner_path(sharing, scope)
+    assignment_owner_path_for_surface(sharing, scope, root_owner_surface)
 }
 
 fn selection_facet_context_values(
@@ -3111,6 +3186,17 @@ fn assignment_owner_path(
     sharing: Sharing,
     scope: Option<&EvaluatedInteractionScope>,
 ) -> Option<Vec<ScalarValue>> {
+    assignment_owner_path_for_surface(sharing, scope, false)
+}
+
+fn assignment_owner_path_for_surface(
+    sharing: Sharing,
+    scope: Option<&EvaluatedInteractionScope>,
+    root_owner_surface: bool,
+) -> Option<Vec<ScalarValue>> {
+    if root_owner_surface {
+        return Some(Vec::new());
+    }
     let level = sharing.to_level();
     if level == u8::MAX {
         return Some(Vec::new());
@@ -3375,6 +3461,67 @@ fn filters_pass(values: &[ScalarValue]) -> bool {
         ScalarValue::Boolean(Some(value)) => *value,
         _ => false,
     })
+}
+
+enum SurfaceMatch {
+    Accept { legend_item: bool },
+    Reject { reason: &'static str },
+}
+
+fn surface_target_matches(
+    target: Option<&ChartEventSurfaceTarget>,
+    event_datums: &EvaluatedEventDatumState,
+    mark_instance: Option<&MarkInstance>,
+) -> SurfaceMatch {
+    let legend_surface_keys = legend_surface_keys_for_mark_instance(event_datums, mark_instance);
+    match target {
+        None | Some(ChartEventSurfaceTarget::All) => SurfaceMatch::Accept {
+            legend_item: !legend_surface_keys.is_empty(),
+        },
+        Some(ChartEventSurfaceTarget::PlotSurface) => {
+            if legend_surface_keys.is_empty() {
+                SurfaceMatch::Accept { legend_item: false }
+            } else {
+                SurfaceMatch::Reject {
+                    reason: "surface_plot_excludes_legend",
+                }
+            }
+        }
+        Some(ChartEventSurfaceTarget::LegendItemSurface { surface_keys }) => {
+            if legend_surface_keys.is_empty() {
+                return SurfaceMatch::Reject {
+                    reason: "surface_legend_requires_legend_item",
+                };
+            }
+            if surface_keys.is_empty()
+                || surface_keys
+                    .iter()
+                    .any(|key| legend_surface_keys.iter().any(|candidate| candidate == key))
+            {
+                SurfaceMatch::Accept { legend_item: true }
+            } else {
+                SurfaceMatch::Reject {
+                    reason: "surface_legend_key_mismatch",
+                }
+            }
+        }
+    }
+}
+
+fn legend_surface_keys_for_mark_instance(
+    event_datums: &EvaluatedEventDatumState,
+    mark_instance: Option<&MarkInstance>,
+) -> Vec<String> {
+    let Some(ScalarValue::Utf8(Some(surface_key))) =
+        event_datums.datum_for_mark_instance(mark_instance, event::LEGEND_SURFACE_KEY_FIELD)
+    else {
+        return Vec::new();
+    };
+    surface_key
+        .split('\u{1f}')
+        .filter(|key| !key.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 fn target_scope_matches(
@@ -5376,6 +5523,30 @@ mod tests {
         fills
     }
 
+    async fn legend_symbol_alpha_for_value(
+        state: &ChartAppState,
+        scene: &SceneGraph,
+        value: &str,
+    ) -> f32 {
+        let hit_rect_instance = retained_event_datum_mark_instance(
+            state,
+            "__legend_value",
+            ScalarValue::Utf8(Some(value.to_string())),
+        )
+        .await;
+        let mut symbol_path = hit_rect_instance.mark_path.clone();
+        let Some(last) = symbol_path.last_mut() else {
+            panic!("legend item hit rect should have a mark path");
+        };
+        *last = 1;
+        let (mark, _) = scene_mark_at_path_with_origin(&scene.marks, &symbol_path, scene.origin)
+            .expect("legend item symbol mark");
+        let SceneMark::Symbol(symbol) = mark else {
+            panic!("legend item visual mark should be a symbol");
+        };
+        symbol.fill_vec()[0].color_or_transparent()[3]
+    }
+
     fn has_blue_fill(fills: &[[f32; 4]]) -> bool {
         fills
             .iter()
@@ -6019,6 +6190,281 @@ mod tests {
             ScalarValue::Utf8(Some("Beta".to_string())),
             "ev::datum should use the clicked aggregate bar's logical category"
         );
+    }
+
+    #[tokio::test]
+    async fn legend_item_click_writes_equality_selection_clause() {
+        let ctx = SessionContext::new();
+        let picked = Selection::new("picked").empty_selects_nothing();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    (1.0, 1.0, 'Low'),
+                    (2.0, 1.4, 'High'),
+                    (3.0, 1.2, 'Low'),
+                    (4.0, 1.8, 'High')
+                ) AS t(x_val, y_val, category)",
+            )
+            .await
+            .expect("legend click data");
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::datum("channel").eq(lit("fill")))
+            .set_selection(
+                "picked",
+                SelectionUpdate::toggle_clause(
+                    SelectionClauseUpdate::equality_value(col("category"), event::datum("value"))
+                        .facet_scope(Sharing::Free),
+                ),
+            )
+            .exact();
+        let plot = Plot::<Cartesian>::new()
+            .canvas_size(420.0, 320.0)
+            .add_selection(picked)
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x(col("x_val"))
+                    .y(col("y_val"))
+                    .size(80.0)
+                    .fill_with(col("category"), |c| {
+                        c.legend(|l| l.id("category_legend").event_binding(binding))
+                    }),
+            );
+        let compiled = plot.compile(&ctx).await.expect("compile legend click plot");
+        assert_eq!(compiled.event_bindings().len(), 1);
+        let handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial build");
+        let legend_mark_instance = retained_event_datum_mark_instance(
+            &state,
+            "__legend_value",
+            ScalarValue::Utf8(Some("High".to_string())),
+        )
+        .await;
+        let position = rect_instance_point(&scene, &legend_mark_instance);
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let mark_instance = rtree
+            .pick_top_mark_at_point(&position)
+            .cloned()
+            .expect("rtree should pick the legend hit rect");
+        assert_eq!(mark_instance.mark_path, legend_mark_instance.mark_path);
+        assert_eq!(
+            mark_instance.instance_index,
+            legend_mark_instance.instance_index
+        );
+
+        let status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
+        assert!(status.rerender);
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+        assert_eq!(clauses.len(), 1);
+        assert_eq!(clauses[0].id, "High");
+        assert!(clauses[0].scope.owner_path.is_empty());
+        let SelectionPredicateSpec::Equality { dimensions } = &clauses[0].predicate else {
+            panic!("expected equality predicate");
+        };
+        assert_eq!(dimensions.len(), 1);
+        assert_eq!(dimensions[0].id, "category");
+        assert_eq!(
+            dimensions[0].value,
+            ScalarValue::Utf8(Some("High".to_string()))
+        );
+    }
+
+    #[tokio::test]
+    async fn legend_item_click_updates_related_conditional_opacity_swatch() {
+        let ctx = SessionContext::new();
+        let picked = Selection::new("picked").empty_selects_all();
+        let selected = picked.predicate();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    (1.0, 1.0, 'Low'),
+                    (2.0, 1.4, 'High'),
+                    (3.0, 1.2, 'Low'),
+                    (4.0, 1.8, 'High')
+                ) AS t(x_val, y_val, category)",
+            )
+            .await
+            .expect("legend opacity data");
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::datum("channel").eq(lit("fill")))
+            .set_selection(
+                "picked",
+                SelectionUpdate::toggle_clause(
+                    SelectionClauseUpdate::equality_value(col("category"), event::datum("value"))
+                        .facet_scope(Sharing::Shared),
+                ),
+            )
+            .exact();
+        let clear_binding = ChartEventBinding::on(ChartEventType::DoubleClick)
+            .filter(event::datum("channel").eq(lit("fill")))
+            .set_selection("picked", SelectionUpdate::clear())
+            .exact();
+        let plot = Plot::<Cartesian>::new()
+            .canvas_size(420.0, 320.0)
+            .add_selection(picked)
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x(col("x_val"))
+                    .y(col("y_val"))
+                    .size(80.0)
+                    .fill_with(col("category"), |c| {
+                        c.legend(|l| {
+                            l.id("category_legend")
+                                .event_binding(binding)
+                                .event_binding(clear_binding)
+                        })
+                    })
+                    .opacity_with(lit(0.4), |c| {
+                        c.no_scale()
+                            .when_value(selected.clone(), lit(1.0))
+                            .no_legend()
+                    }),
+            );
+        let compiled = plot
+            .compile(&ctx)
+            .await
+            .expect("compile legend opacity plot");
+        let handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
+        let clear_handler = compile_handler_for_binding_index(&compiled, &ctx, 1);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial build");
+        assert!((legend_symbol_alpha_for_value(&state, &scene, "Low").await - 1.0).abs() < 0.001);
+        assert!((legend_symbol_alpha_for_value(&state, &scene, "High").await - 1.0).abs() < 0.001);
+
+        let legend_mark_instance = retained_event_datum_mark_instance(
+            &state,
+            "__legend_value",
+            ScalarValue::Utf8(Some("High".to_string())),
+        )
+        .await;
+        let position = rect_instance_point(&scene, &legend_mark_instance);
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let mark_instance = rtree
+            .pick_top_mark_at_point(&position)
+            .cloned()
+            .expect("rtree should pick the legend hit rect");
+        let status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
+        assert!(status.rerender);
+
+        let updated_scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("updated build");
+        assert!(
+            (legend_symbol_alpha_for_value(&state, &updated_scene, "Low").await - 0.4).abs()
+                < 0.001
+        );
+        assert!(
+            (legend_symbol_alpha_for_value(&state, &updated_scene, "High").await - 1.0).abs()
+                < 0.001
+        );
+
+        let clear_status = double_click_mark(
+            &mut state,
+            &clear_handler,
+            Some(legend_mark_instance),
+            position,
+        )
+        .await;
+        assert!(clear_status.rerender);
+        let cleared_scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("cleared build");
+        assert!(
+            (legend_symbol_alpha_for_value(&state, &cleared_scene, "Low").await - 1.0).abs()
+                < 0.001
+        );
+        assert!(
+            (legend_symbol_alpha_for_value(&state, &cleared_scene, "High").await - 1.0).abs()
+                < 0.001
+        );
+    }
+
+    #[tokio::test]
+    async fn plot_surface_binding_ignores_legend_item_click() {
+        let ctx = SessionContext::new();
+        let picked = Selection::new("picked").empty_selects_nothing();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    (1.0, 1.0, 'Low'),
+                    (2.0, 1.4, 'High'),
+                    (3.0, 1.2, 'Low'),
+                    (4.0, 1.8, 'High')
+                ) AS t(x_val, y_val, category)",
+            )
+            .await
+            .expect("legend click data");
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::is_legend_item())
+            .set_selection(
+                "picked",
+                SelectionUpdate::toggle_clause(
+                    SelectionClauseUpdate::equality_value(col("category"), event::legend_value())
+                        .facet_scope(Sharing::Shared),
+                ),
+            )
+            .exact();
+        let plot = Plot::<Cartesian>::new()
+            .canvas_size(420.0, 320.0)
+            .add_selection(picked)
+            .data(df)
+            .event_binding(binding)
+            .mark(
+                Symbol::new()
+                    .x(col("x_val"))
+                    .y(col("y_val"))
+                    .size(80.0)
+                    .fill(col("category")),
+            );
+        let compiled = plot
+            .compile(&ctx)
+            .await
+            .expect("compile plot-surface legend click plot");
+        let handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial build");
+        let legend_mark_instance = retained_event_datum_mark_instance(
+            &state,
+            "__legend_value",
+            ScalarValue::Utf8(Some("High".to_string())),
+        )
+        .await;
+        let position = rect_instance_point(&scene, &legend_mark_instance);
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let mark_instance = rtree
+            .pick_top_mark_at_point(&position)
+            .cloned()
+            .expect("rtree should pick the legend hit rect");
+
+        let status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
+        assert!(!status.rerender);
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+        assert!(clauses.is_empty());
     }
 
     #[tokio::test]

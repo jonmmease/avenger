@@ -35,6 +35,7 @@ pub enum GeometryQueryHitPolicy {
 #[derive(Debug, Clone)]
 pub struct GeometryInstance {
     pub mark_instance: MarkInstance,
+    pub interactive: bool,
     pub z_index: usize,
     pub geometry: Geometry<f32>,
     pub half_stroke_width: f32,
@@ -121,7 +122,11 @@ impl SceneGraphRTree {
         for (group_index, group) in scene_graph.marks.iter().enumerate() {
             let mark_path = vec![group_index];
             let origin = [scene_graph.origin[0], scene_graph.origin[1]];
-            geometry_instances.extend(group.geometry_iter(mark_path, origin));
+            geometry_instances.extend(
+                group
+                    .geometry_iter(mark_path, origin)
+                    .filter(|instance| instance.interactive),
+            );
         }
 
         SceneGraphRTree::new(
@@ -515,6 +520,10 @@ impl EnvelopeUtils for AABB<[f32; 2]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use avenger_scenegraph::{
+        marks::{mark::SceneMark, rect::SceneRectMark},
+        scene_graph::SceneGraph,
+    };
     use geo_types::{Point, Rect};
 
     fn point_instance(
@@ -529,6 +538,7 @@ mod tests {
                 mark_path,
                 instance_index: Some(instance_index),
             },
+            interactive: true,
             z_index: 0,
             geometry: Geometry::Point(Point::new(x, y)),
             half_stroke_width: 0.0,
@@ -549,6 +559,7 @@ mod tests {
                 mark_path,
                 instance_index: Some(instance_index),
             },
+            interactive: true,
             z_index: 0,
             geometry: Geometry::Rect(Rect::new(
                 geo_types::Coord { x: x0, y: y0 },
@@ -560,6 +571,32 @@ mod tests {
 
     fn test_tree(geometries: Vec<GeometryInstance>) -> SceneGraphRTree {
         SceneGraphRTree::new(geometries, HashMap::new(), HashMap::new())
+    }
+
+    #[test]
+    fn noninteractive_marks_are_excluded_from_scene_graph_rtree_but_not_bounds() {
+        let rect = SceneRectMark {
+            interactive: false,
+            x: 10.0.into(),
+            y: 20.0.into(),
+            width: Some(30.0.into()),
+            height: Some(40.0.into()),
+            ..Default::default()
+        };
+        let scene_mark = SceneMark::Rect(rect);
+        let bounds = scene_mark.bounding_box();
+        assert_eq!(bounds.lower(), [10.0, 20.0]);
+        assert_eq!(bounds.upper(), [40.0, 60.0]);
+
+        let scene = SceneGraph {
+            marks: vec![scene_mark],
+            width: 100.0,
+            height: 100.0,
+            origin: [0.0, 0.0],
+        };
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        assert_eq!(rtree.size(), 0);
+        assert!(rtree.pick_top_mark_at_point(&[20.0, 30.0]).is_none());
     }
 
     #[test]

@@ -7,7 +7,10 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
-use crate::{IntoExpr, Maybe, MaybeOptionalExpr, SerializableNestedScalarMap};
+use crate::{
+    ChartEventBinding, IntoExpr, Maybe, MaybeOptionalExpr, SerializableNestedScalarMap,
+    validate_structural_id,
+};
 
 trait LogicalExprNodeExt {
     fn from_expr(expr: Expr) -> Result<LogicalExprNode, String>;
@@ -24,6 +27,12 @@ impl LogicalExprNodeExt for LogicalExprNode {
 #[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Legend {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub explicit_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub event_bindings: Vec<ChartEventBinding>,
     #[serde_as(as = "MaybeOptionalExpr")]
     pub visible: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
@@ -93,6 +102,9 @@ pub struct Legend {
 impl std::fmt::Debug for Legend {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Legend")
+            .field("id", &self.id)
+            .field("explicit_ids", &self.explicit_ids)
+            .field("event_bindings", &self.event_bindings.len())
             .field("visible", &self.visible)
             .field("title", &self.title)
             .field("position", &self.position)
@@ -130,6 +142,9 @@ impl std::fmt::Debug for Legend {
 impl Legend {
     pub fn new() -> Self {
         Self {
+            id: None,
+            explicit_ids: Vec::new(),
+            event_bindings: Vec::new(),
             visible: Maybe::Set(Some(
                 LogicalExprNode::from_expr(lit(true)).expect("Failed to serialize visible expr"),
             )),
@@ -167,6 +182,11 @@ impl Legend {
 
     /// Apply updates from another Legend, overriding only Set properties
     pub fn update(mut self, other: Legend) -> Self {
+        if self.id.is_none() {
+            self.id = other.id.clone();
+        }
+        self.explicit_ids.extend(other.explicit_ids);
+        self.event_bindings.extend(other.event_bindings);
         if other.visible.is_set() {
             self.visible = other.visible;
         }
@@ -257,6 +277,43 @@ impl Legend {
             self.tick_color = other.tick_color;
         }
         self
+    }
+
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        let id = id.into();
+        self.id = Some(id.clone());
+        self.explicit_ids.push(id);
+        self
+    }
+
+    pub fn event_binding(mut self, binding: ChartEventBinding) -> Self {
+        self.event_bindings.push(binding);
+        self
+    }
+
+    pub fn event_bindings(mut self, bindings: impl IntoIterator<Item = ChartEventBinding>) -> Self {
+        self.event_bindings.extend(bindings);
+        self
+    }
+
+    pub fn validate_event_surface(&self) -> Result<(), crate::AvengerChartError> {
+        for id in &self.explicit_ids {
+            validate_structural_id("legend id", id)?;
+        }
+        let distinct = self
+            .explicit_ids
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>();
+        if distinct.len() > 1 {
+            return Err(crate::AvengerChartError::InvalidArgument(format!(
+                "Merged legend has conflicting explicit ids: {}",
+                distinct.into_iter().cloned().collect::<Vec<_>>().join(", ")
+            )));
+        }
+        for binding in &self.event_bindings {
+            binding.validate()?;
+        }
+        Ok(())
     }
 
     pub fn visible(mut self, visible: impl IntoExpr) -> Self {
@@ -499,5 +556,38 @@ impl Legend {
 impl Default for Legend {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use datafusion::prelude::lit;
+
+    use crate::{ChartEventBinding, ChartEventType};
+
+    use super::*;
+
+    #[test]
+    fn legend_event_bindings_update_and_validate() {
+        let binding = ChartEventBinding::on(ChartEventType::Click).filter(lit(true));
+        let merged = Legend::new()
+            .id("primary")
+            .update(Legend::new().event_binding(binding));
+
+        merged
+            .validate_event_surface()
+            .expect("merged legend binding validates");
+        assert_eq!(merged.id.as_deref(), Some("primary"));
+        assert_eq!(merged.explicit_ids, vec!["primary".to_string()]);
+        assert_eq!(merged.event_bindings.len(), 1);
+    }
+
+    #[test]
+    fn merged_legend_conflicting_ids_error() {
+        let merged = Legend::new().id("left").update(Legend::new().id("right"));
+        let err = merged
+            .validate_event_surface()
+            .expect_err("conflicting legend ids should fail");
+        assert!(err.to_string().contains("conflicting explicit ids"));
     }
 }

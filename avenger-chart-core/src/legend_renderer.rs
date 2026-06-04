@@ -73,7 +73,7 @@ pub trait LegendRenderer: Send + Sync + 'static {
         false // Default: fixed size
     }
 
-    /// Evaluate the legend to scene marks
+    /// Evaluate the legend to scene marks and optional item hit targets.
     async fn evaluate(
         &self,
         channels: &[LegendChannel],
@@ -85,7 +85,7 @@ pub trait LegendRenderer: Send + Sync + 'static {
         theme: &Theme,
         params: &IndexMap<String, ScalarValue>,
         ctx: &SessionContext,
-    ) -> Result<Option<SceneGroup>, AvengerChartError>;
+    ) -> Result<Option<LegendRenderOutput>, AvengerChartError>;
 
     /// Measure the size this legend will require by rendering it
     async fn measure(
@@ -99,7 +99,7 @@ pub trait LegendRenderer: Send + Sync + 'static {
     ) -> Result<Size2D, AvengerChartError> {
         // Default implementation: render at origin and measure bounds
 
-        if let Some(group) = self
+        if let Some(output) = self
             .evaluate(
                 channels,
                 config,
@@ -113,7 +113,7 @@ pub trait LegendRenderer: Send + Sync + 'static {
             )
             .await?
         {
-            let bounds = group.bounding_box();
+            let bounds = output.group.bounding_box();
 
             // Account for stroke width on background if present
             // Background strokes extend 0.5 pixels outside on each side (total 1.0 pixel)
@@ -132,6 +132,34 @@ pub trait LegendRenderer: Send + Sync + 'static {
                 width: 0.0,
                 height: 0.0,
             })
+        }
+    }
+}
+
+/// One interactive item emitted by a discrete legend renderer.
+#[derive(Clone, Debug)]
+pub struct LegendRenderItem {
+    pub index: usize,
+    pub label: String,
+    pub channel: String,
+    pub value: String,
+    pub name: String,
+    pub group_path: Vec<usize>,
+    pub hit_rect_path: Vec<usize>,
+}
+
+/// Rendered legend scene plus optional item metadata for event datum lookup.
+#[derive(Clone, Debug)]
+pub struct LegendRenderOutput {
+    pub group: SceneGroup,
+    pub items: Vec<LegendRenderItem>,
+}
+
+impl From<SceneGroup> for LegendRenderOutput {
+    fn from(group: SceneGroup) -> Self {
+        Self {
+            group,
+            items: Vec::new(),
         }
     }
 }

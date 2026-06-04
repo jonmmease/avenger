@@ -304,6 +304,7 @@ impl CompiledMark for CompiledCartesianRect {
             corner_radius,
             indices: None,
             zindex: self.state.zindex,
+            interactive: true,
         };
 
         Ok(vec![SceneMark::Rect(rect_mark)])

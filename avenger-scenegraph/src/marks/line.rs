@@ -7,12 +7,14 @@ use lyon_path::{geom::point, Path};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
-use super::mark::SceneMark;
+use super::mark::{default_interactive, SceneMark};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneLineMark {
     pub name: String,
+    #[serde(default = "default_interactive")]
+    pub interactive: bool,
     pub clip: bool,
     pub len: u32,
     pub gradients: Vec<Gradient>,
@@ -30,6 +32,7 @@ pub struct SceneLineMark {
 impl std::hash::Hash for SceneLineMark {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.name.hash(state);
+        self.interactive.hash(state);
         self.clip.hash(state);
         self.len.hash(state);
         self.gradients.hash(state);
@@ -169,6 +172,7 @@ impl Default for SceneLineMark {
     fn default() -> Self {
         Self {
             name: "line_mark".to_string(),
+            interactive: true,
             clip: true,
             len: 1,
             gradients: vec![],

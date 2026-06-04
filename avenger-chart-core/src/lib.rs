@@ -156,8 +156,9 @@ pub use layout_types::{
 };
 pub use legend::{LegendOrientation, LegendPosition, LegendRendererKind};
 pub use legend_renderer::{
-    ChannelInfo, ChannelLegendCapability, LegendChannel, LegendGroup, LegendRenderer,
-    LegendRendererSelection, MergeKey, compute_range_hash, helpers, normalize_expression,
+    ChannelInfo, ChannelLegendCapability, LegendChannel, LegendGroup, LegendRenderItem,
+    LegendRenderOutput, LegendRenderer, LegendRendererSelection, MergeKey, compute_range_hash,
+    helpers, normalize_expression,
 };
 pub use legend_spec::Legend;
 pub use mark::{CompileContext, Mark};

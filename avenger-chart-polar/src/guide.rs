@@ -304,6 +304,7 @@ impl CompiledGuide for PolarGuide {
                 stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
                 stroke_width: ScalarOrArray::new_scalar(0.0),
                 indices: None,
+                interactive: true,
                 zindex: Some(-2), // Behind grid lines (which are at -1)
             };
             marks.push(SceneMark::Arc(bg_circle));

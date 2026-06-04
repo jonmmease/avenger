@@ -4418,6 +4418,7 @@ impl CompiledPlot {
             debug_marks: cached_components.debug_marks.clone(),
             interaction_scopes,
             event_datums,
+            chrome_event_datums: cached_components.chrome_event_datums.clone(),
         };
         eval_ctx.record_build_plot_components_duration(build_start.elapsed());
         Ok(Some(components))
@@ -4540,6 +4541,7 @@ impl CompiledPlot {
             title_marks,
             subtitle_marks,
             debug_marks,
+            chrome_event_datums,
         ) = {
             let layout_initial = layout_solution;
             // Check if this is a top-level plot (canvas mode) or subplot (plot area mode)
@@ -4570,14 +4572,20 @@ impl CompiledPlot {
                     )
                     .await?;
 
-                let legend_marks = self
+                let rendered_legends = self
                     .render_legends_from_plan(
+                        &eval_ctx,
                         &legend_plan_initial,
                         &layout_initial.frame_layout,
                         ctx,
                         &merged_params,
                     )
                     .await?;
+                let legend_event_datums = offset_flat_event_datum_rows(
+                    rendered_legends.event_datums,
+                    1 + guide_marks.len(),
+                );
+                let legend_marks = rendered_legends.marks;
 
                 let title_marks = if let Some(title_bounds) = &layout_initial.frame_layout.title {
                     self.create_title(Some(*title_bounds), ctx, &merged_params)
@@ -4614,6 +4622,7 @@ impl CompiledPlot {
                     title_marks,
                     subtitle_marks,
                     debug_marks,
+                    legend_event_datums,
                 )
             } else {
                 // Plot area mode (subplots): plot_bounds.y = 0
@@ -4650,17 +4659,23 @@ impl CompiledPlot {
                 // Create legend marks from the computed layout
                 // Legend positions from layout include the plot area offset, but we need them at (0,0)
                 let plot_bounds = layout_initial.plot_area_bounds();
-                let legend_marks_raw = self
+                let rendered_legends = self
                     .render_legends_from_plan(
+                        &eval_ctx,
                         &legend_plan_initial,
                         &layout_initial.frame_layout,
                         ctx,
                         &merged_params,
                     )
                     .await?;
+                let legend_event_datums = offset_flat_event_datum_rows(
+                    rendered_legends.event_datums,
+                    1 + guide_marks.len(),
+                );
 
                 // Translate frame chrome to be relative to the child plot-area origin.
-                let legend_marks: Vec<_> = legend_marks_raw
+                let legend_marks: Vec<_> = rendered_legends
+                    .marks
                     .into_iter()
                     .map(|mark| translate_scene_mark(mark, -plot_bounds.x, -plot_bounds.y))
                     .collect();
@@ -4716,6 +4731,7 @@ impl CompiledPlot {
                     title_marks,
                     subtitle_marks,
                     debug_marks,
+                    legend_event_datums,
                 )
             }
         };
@@ -4777,6 +4793,7 @@ impl CompiledPlot {
             debug_marks,
             interaction_scopes,
             event_datums,
+            chrome_event_datums,
         };
         let build_elapsed = build_start.elapsed();
         eval_ctx.record_build_plot_components_duration(build_elapsed);
@@ -4974,8 +4991,14 @@ impl CompiledPlot {
         };
 
         let rtree = build_scene_rtree.then(|| SceneGraphRTree::from_scene_graph(&scene_graph));
+        let mut event_datum_rows =
+            prefix_event_datum_rows(components.event_datums, &[0, data_group_index]);
+        event_datum_rows.extend(prefix_event_datum_rows(
+            offset_flat_event_datum_rows(components.chrome_event_datums, data_group_index),
+            &[0],
+        ));
         let event_datums = EvaluatedEventDatumState {
-            rows: prefix_event_datum_rows(components.event_datums, &[0, data_group_index]),
+            rows: event_datum_rows,
         };
 
         let evaluated = EvaluatedPlot {
@@ -7533,6 +7556,93 @@ mod tests {
             )
             .compile(ctx)
             .await
+    }
+
+    #[tokio::test]
+    async fn discrete_legend_items_register_event_datum_rows() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let df = legend_sharing_dataframe(&ctx).await;
+        let compiled = Plot::<Cartesian>::new()
+            .data(df)
+            .canvas_size(520.0, 360.0)
+            .event_binding(
+                ChartEventBinding::on(crate::event::ChartEventType::Click)
+                    .filter(crate::event::is_legend_item())
+                    .filter(crate::event::legend_value().is_not_null())
+                    .filter(crate::event::legend_channel().eq(lit("fill"))),
+            )
+            .mark(build_unshared_fill_legend_symbol(LegendPosition::Right))
+            .compile(&ctx)
+            .await?;
+        let event_datum_types = compiled.event_datum_types();
+        assert_eq!(
+            event_datum_types.get("__legend_value"),
+            Some(&DataType::Utf8)
+        );
+        assert_eq!(
+            event_datum_types.get("__legend_channel"),
+            Some(&DataType::Utf8)
+        );
+
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let legend_rows = evaluated
+            .event_datums
+            .rows
+            .iter()
+            .filter(|rows| rows.rows.column_by_name("__legend_channel").is_some())
+            .collect::<Vec<_>>();
+        assert_eq!(legend_rows.len(), 2);
+
+        let first = legend_rows[0];
+        assert!(first.mark_path.len() >= 3);
+        let value =
+            ScalarValue::try_from_array(first.rows.column_by_name("__legend_value").unwrap(), 0)?;
+        let label =
+            ScalarValue::try_from_array(first.rows.column_by_name("__legend_label").unwrap(), 0)?;
+        let channel =
+            ScalarValue::try_from_array(first.rows.column_by_name("__legend_channel").unwrap(), 0)?;
+        let index =
+            ScalarValue::try_from_array(first.rows.column_by_name("__legend_index").unwrap(), 0)?;
+        assert_eq!(value, ScalarValue::Utf8(Some("High".to_string())));
+        assert_eq!(label, ScalarValue::Utf8(Some("High".to_string())));
+        assert_eq!(channel, ScalarValue::Utf8(Some("fill".to_string())));
+        assert_eq!(index, ScalarValue::Int64(Some(0)));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn colorbar_legend_item_binding_errors_clearly() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let df = deeply_nested_dataframe(&ctx);
+        let compiled = Plot::<Cartesian>::new()
+            .data(df)
+            .canvas_size(420.0, 320.0)
+            .mark(
+                Symbol::new()
+                    .x(col("value"))
+                    .y(col("value"))
+                    .size(24.0)
+                    .fill_with(col("value"), |c| {
+                        c.legend(|l| {
+                            l.event_binding(ChartEventBinding::on(
+                                crate::event::ChartEventType::Click,
+                            ))
+                        })
+                    }),
+            )
+            .compile(&ctx)
+            .await?;
+
+        let err = match compiled.evaluate(&ctx, None).await {
+            Ok(_) => panic!("colorbar legend item binding should error"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string()
+                .contains("event bindings but does not expose discrete legend items"),
+            "{err}"
+        );
+        Ok(())
     }
 
     async fn compile_domain_param_regular_plot(

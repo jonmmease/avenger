@@ -3,17 +3,16 @@
 use std::{collections::HashMap, sync::Arc};
 
 use avenger_chart_core::{
-    AvengerChartError, ChannelValue, Legend, Theme, color::parse_color_string_strict,
-    evaluate_f32_expr, evaluate_string_expr,
+    AvengerChartError, ChannelValue, Legend, LegendRenderItem, LegendRenderOutput, Theme,
+    color::parse_color_string_strict, evaluate_f32_expr, evaluate_string_expr,
 };
 use avenger_chart_core::{ConfiguredScaleLegendExt, DefaultLogicalExprNodeExt, DomainValues};
 use avenger_common::{
     types::{ColorOrGradient, StrokeCap, StrokeJoin},
     value::ScalarOrArray,
 };
-use avenger_guides::legend::line::{LineLegendConfig, make_line_legend};
+use avenger_guides::legend::line::{LineLegendConfig, make_line_legend_itemized};
 use avenger_scales::scales::coerce::Coercer;
-use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_text::types::FontWeight;
 use datafusion::{
     arrow::array::{ArrayRef, StringArray},
@@ -159,7 +158,7 @@ impl LegendRenderer for CompiledLineLegend {
         theme: &Theme,
         params: &IndexMap<String, ScalarValue>,
         ctx: &SessionContext,
-    ) -> Result<Option<SceneGroup>, AvengerChartError> {
+    ) -> Result<Option<LegendRenderOutput>, AvengerChartError> {
         if channels.is_empty() {
             return Ok(None);
         }
@@ -169,9 +168,12 @@ impl LegendRenderer for CompiledLineLegend {
         let channel_name = &primary_channel.channel_type;
 
         // Extract domain values
-        let domain_values = match primary_channel.scale.domain_values()? {
-            DomainValues::Discrete(values) => values,
-            DomainValues::Interval(min, max) => vec![min, max],
+        let (domain_values, item_values) = match primary_channel.scale.domain_values()? {
+            DomainValues::Discrete(values) => {
+                let item_values = values.iter().map(format_scalar_value).collect::<Vec<_>>();
+                (values, Some(item_values))
+            }
+            DomainValues::Interval(min, max) => (vec![min, max], None),
         };
 
         if domain_values.is_empty() {
@@ -535,13 +537,34 @@ impl LegendRenderer for CompiledLineLegend {
             "Line legend config"
         );
 
-        let mut legend_group = make_line_legend(&legend_config)?;
+        let mut output = make_line_legend_itemized(&legend_config)?;
 
         // Update position and add debug stroke
-        legend_group.origin = [x, y];
-        legend_group.zindex = Some(10);
+        output.group.origin = [x, y];
+        output.group.zindex = Some(10);
+        let items = item_values
+            .map(|values| {
+                output
+                    .items
+                    .iter()
+                    .zip(values)
+                    .map(|(item, value)| LegendRenderItem {
+                        index: item.index,
+                        label: item.label.clone(),
+                        channel: primary_channel.channel_type.clone(),
+                        name: item.label.clone(),
+                        value,
+                        group_path: item.group_path.clone(),
+                        hit_rect_path: item.hit_rect_path.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
 
-        Ok(Some(legend_group))
+        Ok(Some(LegendRenderOutput {
+            group: output.group,
+            items,
+        }))
     }
 }
 

@@ -937,6 +937,7 @@ impl WindowCanvas<'_> {
             corner_radius: ScalarOrArray::new_scalar(0.0),
             indices: None,
             zindex: None,
+            interactive: true,
         };
 
         let mut renderer = MultiMarkRenderer::new(self.dimensions);

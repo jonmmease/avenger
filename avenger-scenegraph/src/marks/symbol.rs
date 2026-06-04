@@ -13,12 +13,14 @@ use lyon_path::{geom::Angle, Path};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
-use super::mark::SceneMark;
+use super::mark::{default_interactive, SceneMark};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneSymbolMark {
     pub name: String,
+    #[serde(default = "default_interactive")]
+    pub interactive: bool,
     pub clip: bool,
     pub len: u32,
     pub gradients: Vec<Gradient>,
@@ -40,6 +42,7 @@ pub struct SceneSymbolMark {
 impl Hash for SceneSymbolMark {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.name.hash(state);
+        self.interactive.hash(state);
         self.clip.hash(state);
         self.len.hash(state);
         self.gradients.hash(state);
@@ -197,6 +200,7 @@ impl Default for SceneSymbolMark {
     fn default() -> Self {
         Self {
             name: "".to_string(),
+            interactive: true,
             clip: true,
             shapes: vec![Default::default()],
             stroke_width: None,

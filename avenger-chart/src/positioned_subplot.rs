@@ -97,6 +97,18 @@ pub(crate) async fn render_positioned_subplot_with_context(
             });
             context.eval.push_event_datums(translated);
         }
+        let child_chrome_event_datums = std::mem::take(&mut components.chrome_event_datums);
+        if !child_chrome_event_datums.is_empty() {
+            let translated = child_chrome_event_datums.into_iter().map(|mut rows| {
+                let mut path = Vec::with_capacity(rows.mark_path.len() + 1);
+                path.push(group_index);
+                path.extend(rows.mark_path);
+                rows.mark_path = path;
+                rows.prepend_subplot_id(subplot.state().id.as_deref());
+                rows
+            });
+            context.eval.push_event_datums(translated);
+        }
 
         let data_marks_group = SceneGroup {
             origin: [0.0, 0.0],
@@ -123,6 +135,7 @@ pub(crate) async fn render_positioned_subplot_with_context(
             stroke_width: None,
             stroke_offset: None,
             zindex: None,
+            interactive: true,
         }));
     }
 

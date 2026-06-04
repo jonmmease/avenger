@@ -3,16 +3,16 @@
 use std::collections::HashMap;
 
 use avenger_chart_core::{
-    AvengerChartError, ChannelValue, Legend, ScalarValueHelpers, Theme,
-    color::parse_color_string_strict, evaluate_f32_expr, evaluate_string_expr,
+    AvengerChartError, ChannelValue, Legend, LegendRenderItem, LegendRenderOutput,
+    ScalarValueHelpers, Theme, color::parse_color_string_strict, evaluate_f32_expr,
+    evaluate_string_expr,
 };
 use avenger_chart_core::{ConfiguredScaleLegendExt, DefaultLogicalExprNodeExt, DomainValues};
 use avenger_common::{
     types::{ColorOrGradient, SymbolShape},
     value::ScalarOrArray,
 };
-use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend};
-use avenger_scenegraph::marks::group::SceneGroup;
+use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend_itemized};
 use avenger_text::types::FontWeight;
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
@@ -76,7 +76,7 @@ impl LegendRenderer for CompiledRectLegend {
         theme: &Theme,
         params: &IndexMap<String, ScalarValue>,
         ctx: &SessionContext,
-    ) -> Result<Option<SceneGroup>, AvengerChartError> {
+    ) -> Result<Option<LegendRenderOutput>, AvengerChartError> {
         if channels.is_empty() {
             return Ok(None);
         }
@@ -359,14 +359,29 @@ impl LegendRenderer for CompiledRectLegend {
         legend_config.text = ScalarOrArray::new_array(text_values);
 
         // Create the legend marks
-        let mut legend_group = make_symbol_legend(&legend_config)?;
+        let mut output = make_symbol_legend_itemized(&legend_config)?;
 
         // Position the legend
-        legend_group.origin = [x, y];
+        output.group.origin = [x, y];
 
         // Set z-index
-        legend_group.zindex = Some(10);
+        output.group.zindex = Some(10);
+        let mut items = Vec::new();
+        for (item, value) in output.items.iter().zip(domain_values.iter()) {
+            items.push(LegendRenderItem {
+                index: item.index,
+                label: item.label.clone(),
+                channel: primary_channel.channel_type.clone(),
+                value: value.as_scalar_string()?,
+                name: item.label.clone(),
+                group_path: item.group_path.clone(),
+                hit_rect_path: item.hit_rect_path.clone(),
+            });
+        }
 
-        Ok(Some(legend_group))
+        Ok(Some(LegendRenderOutput {
+            group: output.group,
+            items,
+        }))
     }
 }

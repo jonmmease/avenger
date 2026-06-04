@@ -263,6 +263,7 @@ impl CompiledMark for CompiledCartesianText {
                 limit,
                 indices: None,
                 zindex: self.state.zindex,
+                interactive: true,
             }
             .into(),
         ])

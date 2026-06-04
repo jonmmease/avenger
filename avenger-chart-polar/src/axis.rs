@@ -472,6 +472,7 @@ impl PolarAxisEvaluateExt for PolarAxis {
                     stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
                     stroke_width: ScalarOrArray::new_scalar(0.0),
                     indices: None,
+                    interactive: true,
                     zindex: Some(-1),
                 };
 
@@ -570,6 +571,7 @@ impl PolarAxisEvaluateExt for PolarAxis {
                 angle: ScalarOrArray::new_scalar(0.0),
                 limit: ScalarOrArray::new_scalar(200.0),
                 indices: None,
+                interactive: true,
                 zindex: Some(0),
             };
             marks.push(SceneMark::Text(Arc::new(text_mark)));
@@ -691,6 +693,7 @@ impl PolarAxisEvaluateExt for PolarAxis {
                 stroke_cap: ScalarOrArray::new_scalar(StrokeCap::Butt),
                 stroke_dash: None,
                 indices: None,
+                interactive: true,
                 zindex: Some(-1),
             };
 
@@ -834,6 +837,7 @@ impl PolarAxisEvaluateExt for PolarAxis {
                 angle: ScalarOrArray::new_scalar(0.0),
                 limit: ScalarOrArray::new_scalar(200.0),
                 indices: None,
+                interactive: true,
                 zindex: Some(0),
             };
             marks.push(SceneMark::Text(Arc::new(text_mark)));

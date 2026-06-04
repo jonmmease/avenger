@@ -3,17 +3,17 @@
 use std::collections::HashMap;
 
 use avenger_chart_core::{
-    AvengerChartError, ChannelValue, Legend, ScalarValueHelpers, ScaleRange, SerializableScalarMap,
-    Theme, color::parse_color_string_strict, evaluate_f32_expr, evaluate_string_expr,
+    AvengerChartError, ChannelValue, Legend, LegendRenderItem, LegendRenderOutput,
+    ScalarValueHelpers, ScaleRange, SerializableScalarMap, Theme, color::parse_color_string_strict,
+    evaluate_f32_expr, evaluate_string_expr,
 };
 use avenger_chart_core::{ConfiguredScaleLegendExt, DefaultLogicalExprNodeExt, DomainValues};
 use avenger_common::{
     types::{ColorOrGradient, SymbolShape},
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
-use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend};
+use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend_itemized};
 use avenger_scales::scales::RangeKind;
-use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_text::types::FontWeight;
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
@@ -103,7 +103,7 @@ impl LegendRenderer for CompiledSymbolLegend {
         theme: &Theme,
         params: &IndexMap<String, ScalarValue>,
         ctx: &SessionContext,
-    ) -> Result<Option<SceneGroup>, AvengerChartError> {
+    ) -> Result<Option<LegendRenderOutput>, AvengerChartError> {
         // Determine if this is a measure call (x=0, y=0) or actual render
         let is_measure = x == 0.0 && y == 0.0;
         let context = if is_measure { "measure" } else { "render" };
@@ -125,7 +125,7 @@ impl LegendRenderer for CompiledSymbolLegend {
         let channel_name = &primary_channel.channel_type;
 
         // Extract domain values
-        let domain_values = match primary_channel.scale.domain_values()? {
+        let (domain_values, item_values) = match primary_channel.scale.domain_values()? {
             DomainValues::Discrete(values) => {
                 tracing::debug!(
                     channel = channel_name.as_str(),
@@ -133,9 +133,10 @@ impl LegendRenderer for CompiledSymbolLegend {
                     values = ?values,
                     "Symbol legend domain values"
                 );
-                values
+                let item_values = values.iter().map(format_scalar_value).collect::<Vec<_>>();
+                (values, Some(item_values))
             }
-            DomainValues::Interval(min, max) => vec![min, max],
+            DomainValues::Interval(min, max) => (vec![min, max], None),
         };
 
         if domain_values.is_empty() {
@@ -680,13 +681,34 @@ impl LegendRenderer for CompiledSymbolLegend {
         );
 
         // Create the legend marks
-        let mut legend_group = make_symbol_legend(&legend_config)?;
+        let mut output = make_symbol_legend_itemized(&legend_config)?;
 
         // Position the legend
-        legend_group.origin = [x, y];
-        legend_group.zindex = Some(LEGEND_ZINDEX);
+        output.group.origin = [x, y];
+        output.group.zindex = Some(LEGEND_ZINDEX);
+        let items = item_values
+            .map(|values| {
+                output
+                    .items
+                    .iter()
+                    .zip(values)
+                    .map(|(item, value)| LegendRenderItem {
+                        index: item.index,
+                        label: item.label.clone(),
+                        channel: primary_channel.channel_type.clone(),
+                        name: item.label.clone(),
+                        value,
+                        group_path: item.group_path.clone(),
+                        hit_rect_path: item.hit_rect_path.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
 
-        Ok(Some(legend_group))
+        Ok(Some(LegendRenderOutput {
+            group: output.group,
+            items,
+        }))
     }
 }
 

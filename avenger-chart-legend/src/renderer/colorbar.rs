@@ -1,7 +1,7 @@
 //! Colorbar legend renderer for continuous color scales
 
 use avenger_chart_core::{
-    AvengerChartError, Legend, LegendPosition, Theme,
+    AvengerChartError, Legend, LegendPosition, LegendRenderOutput, Theme,
     color::{parse_color_string, parse_color_string_strict},
     evaluate_f32_expr, evaluate_f64_expr, evaluate_legend_position_expr, evaluate_string_expr,
 };
@@ -10,7 +10,6 @@ use avenger_common::types::ColorOrGradient;
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_guides::legend::colorbar::{ColorbarConfig, ColorbarOrientation, make_colorbar_marks};
 use avenger_scales::scales::{DomainKind, RangeKind};
-use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_text::types::FontWeight;
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
@@ -66,7 +65,7 @@ impl LegendRenderer for CompiledColorbar {
         theme: &Theme,
         params: &IndexMap<String, ScalarValue>,
         ctx: &SessionContext,
-    ) -> Result<Option<SceneGroup>, AvengerChartError> {
+    ) -> Result<Option<LegendRenderOutput>, AvengerChartError> {
         if channels.is_empty() {
             return Ok(None);
         }
@@ -427,6 +426,6 @@ impl LegendRenderer for CompiledColorbar {
         // Set z-index
         colorbar_group.zindex = Some(10); // Legends above data but below title
 
-        Ok(Some(colorbar_group))
+        Ok(Some(colorbar_group.into()))
     }
 }

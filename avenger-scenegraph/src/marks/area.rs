@@ -7,12 +7,14 @@ use lyon_path::{builder::WithSvg, geom::point, BuilderImpl, Path};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
-use super::mark::SceneMark;
+use super::mark::{default_interactive, SceneMark};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneAreaMark {
     pub name: String,
+    #[serde(default = "default_interactive")]
+    pub interactive: bool,
     pub clip: bool,
     pub len: u32,
     pub orientation: AreaOrientation,
@@ -34,6 +36,7 @@ pub struct SceneAreaMark {
 impl std::hash::Hash for SceneAreaMark {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.name.hash(state);
+        self.interactive.hash(state);
         self.clip.hash(state);
         self.len.hash(state);
         self.orientation.hash(state);
@@ -148,6 +151,7 @@ impl Default for SceneAreaMark {
     fn default() -> Self {
         Self {
             name: "area_mark".to_string(),
+            interactive: true,
             clip: true,
             len: 1,
             orientation: Default::default(),

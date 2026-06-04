@@ -287,6 +287,7 @@ impl CompiledMark for CompiledCartesianTrail {
                     size,
                     defined,
                     zindex: self.state.zindex,
+                    interactive: true,
                 }
                 .into(),
             ]);
@@ -384,6 +385,7 @@ impl CompiledMark for CompiledCartesianTrail {
                 size: util::gather_by_indices(&size, len, &indices),
                 defined: util::gather_by_indices(&defined, len, &indices),
                 zindex: self.state.zindex,
+                interactive: true,
             }));
         }
 

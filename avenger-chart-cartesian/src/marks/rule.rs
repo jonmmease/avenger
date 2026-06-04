@@ -223,6 +223,7 @@ impl CompiledMark for CompiledCartesianRule {
             stroke_cap,
             indices: None,
             zindex: self.state.zindex,
+            interactive: true,
         })])
     }
 }

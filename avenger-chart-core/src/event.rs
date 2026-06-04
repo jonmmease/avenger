@@ -18,6 +18,7 @@ use datafusion::{
     logical_expr::expr::Placeholder,
     prelude::{Expr, SessionContext, col, lit, when},
 };
+use datafusion_common::tree_node::Transformed;
 use datafusion_common::tree_node::{TreeNode, TreeNodeRecursion};
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
@@ -71,6 +72,13 @@ pub const PREVIOUS_COORD_PREFIX: &str = "__previous_coord_";
 pub const EVENT_DOMAIN_PREFIX: &str = "__event_domain_";
 pub const START_DOMAIN_PREFIX: &str = "__start_domain_";
 pub const EVENT_DATUM_PREFIX: &str = "__event_datum_";
+pub const LEGEND_VALUE_FIELD: &str = "__legend_value";
+pub const LEGEND_LABEL_FIELD: &str = "__legend_label";
+pub const LEGEND_NAME_FIELD: &str = "__legend_name";
+pub const LEGEND_CHANNEL_FIELD: &str = "__legend_channel";
+pub const LEGEND_INDEX_FIELD: &str = "__legend_index";
+pub const LEGEND_ID_FIELD: &str = "__legend_id";
+pub const LEGEND_SURFACE_KEY_FIELD: &str = "__legend_surface_key";
 pub const EVENT_PLOT_WIDTH_FIELD: &str = "__event_plot_width";
 pub const EVENT_PLOT_HEIGHT_FIELD: &str = "__event_plot_height";
 pub const START_PLOT_WIDTH_FIELD: &str = "__start_plot_width";
@@ -193,6 +201,38 @@ impl ChartEventScopeTarget {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChartEventSurfaceTarget {
+    All,
+    PlotSurface,
+    LegendItemSurface {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        surface_keys: Vec<String>,
+    },
+}
+
+impl ChartEventSurfaceTarget {
+    pub fn validate(&self) -> Result<(), AvengerChartError> {
+        if let ChartEventSurfaceTarget::LegendItemSurface { surface_keys } = self {
+            for key in surface_keys {
+                if key.is_empty() {
+                    return Err(AvengerChartError::InvalidArgument(
+                        "Legend event surface key must not be empty".to_string(),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn legend_surface_keys(&self) -> Option<&[String]> {
+        match self {
+            ChartEventSurfaceTarget::LegendItemSurface { surface_keys } => Some(surface_keys),
+            _ => None,
+        }
+    }
+}
+
 #[serde_as]
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ChartEventStream {
@@ -303,6 +343,8 @@ pub struct ChartEventBinding {
     pub settle_exact: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope_target: Option<ChartEventScopeTarget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surface_target: Option<ChartEventSurfaceTarget>,
 }
 
 impl ChartEventBinding {
@@ -320,6 +362,7 @@ impl ChartEventBinding {
             evaluation_mode: ChartEventEvaluationMode::Preview,
             settle_exact: false,
             scope_target: None,
+            surface_target: None,
         }
     }
 
@@ -344,6 +387,7 @@ impl ChartEventBinding {
             evaluation_mode: ChartEventEvaluationMode::Preview,
             settle_exact: false,
             scope_target: None,
+            surface_target: None,
         }
     }
 
@@ -364,6 +408,26 @@ impl ChartEventBinding {
         S: Into<String>,
     {
         self.scope_target = Some(ChartEventScopeTarget::within_subplots(ids));
+        self
+    }
+
+    /// Allow this binding to receive events from any chart interaction surface.
+    pub fn all_surfaces(mut self) -> Self {
+        self.surface_target = Some(ChartEventSurfaceTarget::All);
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn with_plot_surface_target(mut self) -> Self {
+        if !matches!(self.surface_target, Some(ChartEventSurfaceTarget::All)) {
+            self.surface_target = Some(ChartEventSurfaceTarget::PlotSurface);
+        }
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn with_legend_item_surface_target(mut self, surface_keys: Vec<String>) -> Self {
+        self.surface_target = Some(ChartEventSurfaceTarget::LegendItemSurface { surface_keys });
         self
     }
 
@@ -567,6 +631,9 @@ impl ChartEventBinding {
             ));
         }
         if let Some(target) = &self.scope_target {
+            target.validate()?;
+        }
+        if let Some(target) = &self.surface_target {
             target.validate()?;
         }
         if let Some(between) = &self.between {
@@ -804,6 +871,46 @@ pub fn datum(field: &str) -> Expr {
     col(event_datum_column_name(field))
 }
 
+/// Domain value associated with a clicked/hovered discrete legend item.
+pub fn legend_value() -> Expr {
+    datum(LEGEND_VALUE_FIELD)
+}
+
+/// Display label associated with a clicked/hovered discrete legend item.
+pub fn legend_label() -> Expr {
+    datum(LEGEND_LABEL_FIELD)
+}
+
+/// Stable item name associated with a clicked/hovered discrete legend item.
+pub fn legend_name() -> Expr {
+    datum(LEGEND_NAME_FIELD)
+}
+
+/// Visual channel associated with a clicked/hovered discrete legend item.
+pub fn legend_channel() -> Expr {
+    datum(LEGEND_CHANNEL_FIELD)
+}
+
+/// Zero-based item index associated with a clicked/hovered discrete legend item.
+pub fn legend_index() -> Expr {
+    datum(LEGEND_INDEX_FIELD)
+}
+
+/// Public legend id associated with a clicked/hovered discrete legend item.
+pub fn legend_id() -> Expr {
+    datum(LEGEND_ID_FIELD)
+}
+
+#[doc(hidden)]
+pub fn legend_surface_key() -> Expr {
+    datum(LEGEND_SURFACE_KEY_FIELD)
+}
+
+/// True for events whose hit mark is a discrete legend item hit rectangle.
+pub fn is_legend_item() -> Expr {
+    legend_surface_key().is_not_null()
+}
+
 /// Current routed plot-area width in scene pixels.
 pub fn event_plot_width() -> Expr {
     col(EVENT_PLOT_WIDTH_FIELD)
@@ -895,6 +1002,183 @@ pub fn interval_start(interval: impl IntoExpr) -> Expr {
 /// Extract the second element from a two-element interval list.
 pub fn interval_end(interval: impl IntoExpr) -> Expr {
     array_element(interval.into_expr(), lit(2_i64))
+}
+
+pub fn rewrite_legend_event_binding_local_datums(
+    mut binding: ChartEventBinding,
+    ctx: &SessionContext,
+) -> Result<ChartEventBinding, AvengerChartError> {
+    for filter in &mut binding.filters {
+        rewrite_expr_node_legend_datums(filter, ctx)?;
+    }
+    for assignment in &mut binding.assignments {
+        rewrite_expr_node_legend_datums(&mut assignment.expr, ctx)?;
+    }
+    for assignment in &mut binding.store_assignments {
+        rewrite_store_update_legend_datums(&mut assignment.update, ctx)?;
+    }
+    for assignment in &mut binding.selection_assignments {
+        rewrite_selection_update_legend_datums(&mut assignment.update, ctx)?;
+    }
+    if let Some(between) = &mut binding.between {
+        rewrite_event_stream_legend_datums(&mut between.start, ctx)?;
+        rewrite_event_stream_legend_datums(&mut between.end, ctx)?;
+    }
+    Ok(binding)
+}
+
+fn rewrite_event_stream_legend_datums(
+    stream: &mut ChartEventStream,
+    ctx: &SessionContext,
+) -> Result<(), AvengerChartError> {
+    for filter in &mut stream.filters {
+        rewrite_expr_node_legend_datums(filter, ctx)?;
+    }
+    Ok(())
+}
+
+fn rewrite_store_update_legend_datums(
+    update: &mut StoreUpdate,
+    ctx: &SessionContext,
+) -> Result<(), AvengerChartError> {
+    match update {
+        StoreUpdate::Clear => {}
+        StoreUpdate::ReplaceRows { rows }
+        | StoreUpdate::InsertRows { rows }
+        | StoreUpdate::UpsertRows { rows }
+        | StoreUpdate::ToggleRows { rows } => {
+            for row in rows {
+                for value in row.fields.values_mut() {
+                    rewrite_expr_node_legend_datums(&mut value.expr, ctx)?;
+                }
+            }
+        }
+        StoreUpdate::UpdateByKey { key, fields } => {
+            for value in key.fields.values_mut() {
+                rewrite_expr_node_legend_datums(&mut value.expr, ctx)?;
+            }
+            for value in fields.fields.values_mut() {
+                rewrite_expr_node_legend_datums(&mut value.expr, ctx)?;
+            }
+        }
+        StoreUpdate::DeleteByKey { key } => {
+            for value in key.fields.values_mut() {
+                rewrite_expr_node_legend_datums(&mut value.expr, ctx)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn rewrite_selection_update_legend_datums(
+    update: &mut SelectionUpdate,
+    ctx: &SessionContext,
+) -> Result<(), AvengerChartError> {
+    match update {
+        SelectionUpdate::Clear | SelectionUpdate::ClearInScope { .. } => {}
+        SelectionUpdate::ReplaceAllClauses { clauses }
+        | SelectionUpdate::ReplaceClausesInScope { clauses, .. }
+        | SelectionUpdate::UpsertClauses { clauses }
+        | SelectionUpdate::ToggleClauses { clauses } => {
+            for clause in clauses {
+                rewrite_expr_node_legend_datums(&mut clause.id.expr, ctx)?;
+                match &mut clause.predicate {
+                    crate::SelectionPredicateUpdate::Interval { dimensions } => {
+                        for dimension in dimensions {
+                            rewrite_expr_node_legend_datums(&mut dimension.min.expr, ctx)?;
+                            rewrite_expr_node_legend_datums(&mut dimension.max.expr, ctx)?;
+                        }
+                    }
+                    crate::SelectionPredicateUpdate::Equality { dimensions } => {
+                        for dimension in dimensions {
+                            rewrite_expr_node_legend_datums(&mut dimension.value.expr, ctx)?;
+                        }
+                    }
+                    crate::SelectionPredicateUpdate::Predicate { values, .. } => {
+                        for value in values {
+                            rewrite_expr_node_legend_datums(&mut value.value.expr, ctx)?;
+                        }
+                    }
+                }
+            }
+        }
+        SelectionUpdate::DeleteClauses { ids }
+        | SelectionUpdate::DeleteClausesInScope { ids, .. } => {
+            for id in ids {
+                rewrite_expr_node_legend_datums(&mut id.expr, ctx)?;
+            }
+        }
+        SelectionUpdate::ReplaceAllFromSceneQuery { query }
+        | SelectionUpdate::ReplaceFromSceneQueryInScope { query }
+        | SelectionUpdate::UpsertFromSceneQuery { query }
+        | SelectionUpdate::ToggleFromSceneQuery { query } => {
+            rewrite_scene_query_legend_datums(query, ctx)?;
+        }
+    }
+    Ok(())
+}
+
+fn rewrite_scene_query_legend_datums(
+    query: &mut SelectionSceneQuery,
+    ctx: &SessionContext,
+) -> Result<(), AvengerChartError> {
+    match &mut query.query.geometry {
+        SceneGeometryQueryGeometry::Rect { x0, y0, x1, y1 } => {
+            rewrite_expr_node_legend_datums(x0, ctx)?;
+            rewrite_expr_node_legend_datums(y0, ctx)?;
+            rewrite_expr_node_legend_datums(x1, ctx)?;
+            rewrite_expr_node_legend_datums(y1, ctx)?;
+        }
+        SceneGeometryQueryGeometry::Circle { cx, cy, radius } => {
+            rewrite_expr_node_legend_datums(cx, ctx)?;
+            rewrite_expr_node_legend_datums(cy, ctx)?;
+            rewrite_expr_node_legend_datums(radius, ctx)?;
+        }
+        SceneGeometryQueryGeometry::Polygon { points } => {
+            rewrite_expr_node_legend_datums(points, ctx)?;
+        }
+    }
+    if let SceneQueryClauseId::Expr(expr) = &mut query.clause_id {
+        rewrite_expr_node_legend_datums(expr, ctx)?;
+    }
+    Ok(())
+}
+
+fn rewrite_expr_node_legend_datums(
+    node: &mut LogicalExprNode,
+    ctx: &SessionContext,
+) -> Result<(), AvengerChartError> {
+    let expr = node.to_expr(ctx)?;
+    let rewritten = rewrite_expr_legend_datums(expr)?;
+    *node = expr_node(rewritten, "legend event local datum expression");
+    Ok(())
+}
+
+fn rewrite_expr_legend_datums(expr: Expr) -> Result<Expr, AvengerChartError> {
+    expr.transform(|candidate| {
+        if let Expr::Column(column) = &candidate
+            && let Some(field) = legend_local_datum_reserved_field(&column.name)
+        {
+            return Ok(Transformed::yes(col(event_datum_column_name(field))));
+        }
+        Ok(Transformed::no(candidate))
+    })
+    .map(|transformed| transformed.data)
+    .map_err(|err| AvengerChartError::InvalidArgument(err.to_string()))
+}
+
+fn legend_local_datum_reserved_field(column_name: &str) -> Option<&'static str> {
+    let local = column_name.strip_prefix(EVENT_DATUM_PREFIX)?;
+    match local {
+        "value" => Some(LEGEND_VALUE_FIELD),
+        "label" => Some(LEGEND_LABEL_FIELD),
+        "name" => Some(LEGEND_NAME_FIELD),
+        "channel" => Some(LEGEND_CHANNEL_FIELD),
+        "index" => Some(LEGEND_INDEX_FIELD),
+        "legend_id" => Some(LEGEND_ID_FIELD),
+        "surface_key" => Some(LEGEND_SURFACE_KEY_FIELD),
+        _ => None,
+    }
 }
 
 pub fn event_coord_column_name(channel: &str) -> String {
@@ -1232,7 +1516,7 @@ fn expr_node(expr: Expr, label: &str) -> LogicalExprNode {
 #[cfg(test)]
 mod tests {
     use crate::{SceneGeometryQuery, SceneQueryDatumField, Sharing};
-    use datafusion::prelude::lit;
+    use datafusion::prelude::{SessionContext, lit};
 
     use super::*;
 
@@ -1266,9 +1550,36 @@ mod tests {
         assert_eq!(start_event_id(), col("__start_event_id"));
         assert_eq!(event_facet_value(2), col("__event_facet_value_2"));
         assert_eq!(datum("category"), col("__event_datum_category"));
+        assert_eq!(legend_value(), col("__event_datum___legend_value"));
+        assert_eq!(legend_label(), col("__event_datum___legend_label"));
+        assert_eq!(legend_name(), col("__event_datum___legend_name"));
+        assert_eq!(legend_channel(), col("__event_datum___legend_channel"));
+        assert_eq!(legend_index(), col("__event_datum___legend_index"));
+        assert_eq!(legend_id(), col("__event_datum___legend_id"));
         // The public helper expressions reference those reserved columns.
         assert_eq!(event_coord("x"), col("__event_coord_x"));
         assert_eq!(start_domain("y"), col("__start_domain_y"));
+    }
+
+    #[test]
+    fn legend_event_binding_rewrites_local_datum_fields() {
+        let ctx = SessionContext::new();
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(datum("value").eq(lit("A")))
+            .set_selection(
+                "picked",
+                SelectionUpdate::toggle_clause(crate::SelectionClauseUpdate::equality_value(
+                    col("category"),
+                    datum("value"),
+                )),
+            );
+
+        let rewritten = rewrite_legend_event_binding_local_datums(binding, &ctx)
+            .expect("legend local datum rewrite succeeds");
+        let requests = scan_chart_event_binding_interaction_columns(&rewritten, &ctx)
+            .expect("scan rewritten binding");
+        assert!(requests.current_datum.contains(LEGEND_VALUE_FIELD));
+        assert!(!requests.current_datum.contains("value"));
     }
 
     #[test]

@@ -4,7 +4,23 @@ pub mod symbol;
 
 use std::collections::HashSet;
 
+use avenger_scenegraph::marks::group::SceneGroup;
+
 use crate::error::AvengerGuidesError;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GuideLegendItem {
+    pub index: usize,
+    pub label: String,
+    pub group_path: Vec<usize>,
+    pub hit_rect_path: Vec<usize>,
+}
+
+#[derive(Debug, Clone)]
+pub struct GuideLegendOutput {
+    pub group: SceneGroup,
+    pub items: Vec<GuideLegendItem>,
+}
 
 fn compute_encoding_length(lengths: &[usize]) -> Result<usize, AvengerGuidesError> {
     let lengths = lengths

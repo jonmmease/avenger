@@ -18,7 +18,7 @@ use avenger_chart_core::{
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
 
 use crate::{
-    event::ChartEventBinding,
+    event::{ChartEventBinding, rewrite_legend_event_binding_local_datums},
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint, SizeMode},
     serialization::serializable_expr_from_expr,
     tools::ToolCompileContext,
@@ -289,11 +289,23 @@ impl<C: CoordinateSystem> Plot<C> {
         // add_param_with_sharing.
         let mut param_source_specs = self.param_specs.clone();
         let mut store_source_specs = Vec::new();
+        let legend_event_bindings = legend_event_bindings(&legends, session_context)?;
+        if !is_root {
+            tool_context.register_local_legend_event_bindings(&legend_event_bindings)?;
+        }
+
         let mut event_bindings = if is_root {
-            self.event_bindings.clone()
+            self.event_bindings
+                .iter()
+                .cloned()
+                .map(ChartEventBinding::with_plot_surface_target)
+                .collect()
         } else {
             Vec::new()
         };
+        if is_root {
+            event_bindings.extend(legend_event_bindings);
+        }
         let cursor_params = self.cursor_params.clone();
         let mut tool_metadata = Vec::new();
         if is_root {
@@ -624,6 +636,23 @@ fn validate_sibling_mark_ids<C: CoordinateSystem>(
         }
     }
     Ok(())
+}
+
+fn legend_event_bindings(
+    legends: &IndexMap<String, Legend>,
+    session_context: &datafusion::prelude::SessionContext,
+) -> Result<Vec<ChartEventBinding>, AvengerChartError> {
+    let mut bindings = Vec::new();
+    for (channel_name, legend) in legends {
+        legend.validate_event_surface()?;
+        for binding in &legend.event_bindings {
+            let binding =
+                rewrite_legend_event_binding_local_datums(binding.clone(), session_context)?
+                    .with_legend_item_surface_target(vec![channel_name.clone()]);
+            bindings.push(binding);
+        }
+    }
+    Ok(bindings)
 }
 
 #[cfg(test)]

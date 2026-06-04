@@ -1,19 +1,34 @@
 //! Legend construction and configuration for CompiledPlot
 
 use std::{
-    collections::{HashMap, hash_map::DefaultHasher},
+    collections::{HashMap, HashSet, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
     sync::Arc,
 };
 
+use avenger_common::{
+    types::ColorOrGradient,
+    value::{ScalarOrArray, ScalarOrArrayValue},
+};
 use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::{common::ScalarValue, logical_expr::lit, prelude::SessionContext};
+use datafusion::{
+    arrow::{
+        array::Array,
+        datatypes::{DataType, Field, Schema},
+        record_batch::RecordBatch,
+    },
+    common::ScalarValue,
+    logical_expr::{Expr, lit},
+    prelude::SessionContext,
+};
 use indexmap::IndexMap;
 use tracing::debug;
 
 use avenger_chart_core::{
-    ChannelInfo, LegendChannel, LegendPosition, LegendRenderer, LegendRendererSelection, MergeKey,
-    SharingLevel,
+    ChannelInfo, CompiledSelectionSpec, ConfiguredScaleLegendExt, DomainValues, LegendChannel,
+    LegendPosition, LegendRenderItem, LegendRenderer, LegendRendererSelection, MergeKey,
+    ScalarValueHelpers, SharingLevel, apply_opacity_to_color, one_row_batch_from_scalars,
+    params_to_datafusion,
 };
 
 use crate::{
@@ -28,7 +43,9 @@ use crate::{
         ChildFrameSharingPath, ContainerPathSegment, CoordinationKind, EdgeOwnershipRequest,
         edge_ownership_scope_for_request,
     },
-    render::{EvaluationContext, LegendMeasurements, types::LegendMeasurement},
+    render::{
+        EvaluatedEventDatumRows, EvaluationContext, LegendMeasurements, types::LegendMeasurement,
+    },
     scales::ConfiguredScaleWithSpec,
     serialization::LogicalExprNodeExt,
 };
@@ -37,6 +54,255 @@ use avenger_chart_legend::{
 };
 
 use super::CompiledPlot;
+use super::mark_data_runtime::expand_selection_predicates_with_fallback_specs;
+
+pub(super) struct RenderedLegendMarks {
+    pub marks: Vec<SceneMark>,
+    pub event_datums: Vec<EvaluatedEventDatumRows>,
+}
+
+fn legend_item_event_datums(
+    legend_index: usize,
+    surface_keys: &[String],
+    legend_id: Option<&str>,
+    items: Vec<LegendRenderItem>,
+) -> Result<Vec<EvaluatedEventDatumRows>, AvengerChartError> {
+    use avenger_chart_core::event::{
+        LEGEND_CHANNEL_FIELD, LEGEND_ID_FIELD, LEGEND_INDEX_FIELD, LEGEND_LABEL_FIELD,
+        LEGEND_NAME_FIELD, LEGEND_SURFACE_KEY_FIELD, LEGEND_VALUE_FIELD,
+    };
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new(LEGEND_VALUE_FIELD, DataType::Utf8, true),
+        Field::new(LEGEND_LABEL_FIELD, DataType::Utf8, true),
+        Field::new(LEGEND_NAME_FIELD, DataType::Utf8, true),
+        Field::new(LEGEND_CHANNEL_FIELD, DataType::Utf8, true),
+        Field::new(LEGEND_INDEX_FIELD, DataType::Int64, true),
+        Field::new(LEGEND_ID_FIELD, DataType::Utf8, true),
+        Field::new(LEGEND_SURFACE_KEY_FIELD, DataType::Utf8, true),
+    ]));
+
+    items
+        .into_iter()
+        .map(|item| {
+            let mut values = HashMap::new();
+            values.insert(
+                LEGEND_VALUE_FIELD.to_string(),
+                ScalarValue::Utf8(Some(item.value)),
+            );
+            values.insert(
+                LEGEND_LABEL_FIELD.to_string(),
+                ScalarValue::Utf8(Some(item.label)),
+            );
+            values.insert(
+                LEGEND_NAME_FIELD.to_string(),
+                ScalarValue::Utf8(Some(item.name)),
+            );
+            values.insert(
+                LEGEND_CHANNEL_FIELD.to_string(),
+                ScalarValue::Utf8(Some(item.channel)),
+            );
+            values.insert(
+                LEGEND_INDEX_FIELD.to_string(),
+                ScalarValue::Int64(Some(item.index as i64)),
+            );
+            values.insert(
+                LEGEND_ID_FIELD.to_string(),
+                ScalarValue::Utf8(legend_id.map(str::to_string)),
+            );
+            values.insert(
+                LEGEND_SURFACE_KEY_FIELD.to_string(),
+                ScalarValue::Utf8(Some(surface_keys.join("\u{1f}"))),
+            );
+            let rows: RecordBatch = one_row_batch_from_scalars(schema.clone(), &values)?;
+            let mut mark_path = Vec::with_capacity(item.hit_rect_path.len() + 1);
+            mark_path.push(legend_index);
+            mark_path.extend(item.hit_rect_path);
+            Ok(EvaluatedEventDatumRows {
+                mark_path,
+                subplot_id_path: Vec::new(),
+                rows,
+            })
+        })
+        .collect()
+}
+
+async fn apply_related_legend_item_opacity(
+    eval_ctx: &EvaluationContext,
+    selection_specs: &IndexMap<String, CompiledSelectionSpec>,
+    channels: &[LegendChannel],
+    legend_group: &mut avenger_scenegraph::marks::group::SceneGroup,
+    items: &[LegendRenderItem],
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+) -> Result<(), AvengerChartError> {
+    if channels
+        .iter()
+        .any(|channel| channel.channel_type == "opacity")
+    {
+        return Ok(());
+    }
+    let Some(primary_channel) = channels.first() else {
+        return Ok(());
+    };
+    let Some(opacity_expr) = primary_channel
+        .related_channels
+        .get("opacity")
+        .and_then(related_channel_expression)
+    else {
+        return Ok(());
+    };
+    let Some(primary_expr) = &primary_channel.expression else {
+        return Ok(());
+    };
+    let primary_refs = primary_expr.column_refs();
+    if primary_refs.len() != 1 {
+        return Ok(());
+    }
+    let primary_column = primary_refs
+        .iter()
+        .next()
+        .map(|column| column.name.clone())
+        .unwrap_or_default();
+    if primary_column.is_empty() {
+        return Ok(());
+    }
+    let domain_values = match primary_channel.scale.domain_values()? {
+        DomainValues::Discrete(values) => values,
+        DomainValues::Interval(_, _) => return Ok(()),
+    };
+    if domain_values.is_empty() || items.is_empty() {
+        return Ok(());
+    }
+
+    let mut available_columns = HashSet::new();
+    available_columns.insert(primary_column.clone());
+    let opacity_expr = expand_selection_predicates_with_fallback_specs(
+        opacity_expr,
+        eval_ctx,
+        Some(&available_columns),
+        Some(selection_specs),
+    )?;
+    let domain_array = ScalarValue::iter_to_array(domain_values.into_iter())?;
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        primary_column,
+        domain_array.data_type().clone(),
+        true,
+    )]));
+    let batch = RecordBatch::try_new(schema, vec![domain_array])?;
+    let mut df = ctx.read_batch(batch)?;
+    df = df.select(vec![opacity_expr.alias("__legend_item_opacity")])?;
+    if let Some(datafusion_params) = params_to_datafusion(params) {
+        df = df.with_param_values(datafusion_params)?;
+    }
+    let batches = df.collect().await?;
+    let Some(batch) = batches.first() else {
+        return Ok(());
+    };
+    let Some(opacity_array) = batch.column_by_name("__legend_item_opacity") else {
+        return Ok(());
+    };
+    for (index, item) in items.iter().enumerate() {
+        if index >= opacity_array.len() {
+            break;
+        }
+        let opacity = ScalarValue::try_from_array(opacity_array.as_ref(), index)?
+            .as_f32()
+            .unwrap_or(1.0)
+            .clamp(0.0, 1.0);
+        apply_opacity_to_legend_item(legend_group, &item.group_path, opacity);
+    }
+    Ok(())
+}
+
+fn related_channel_expression(info: &ChannelInfo) -> Option<Expr> {
+    match info {
+        ChannelInfo::Constant { expr }
+        | ChannelInfo::Scaled {
+            expr: Some(expr), ..
+        } => Some(expr.clone()),
+        ChannelInfo::Scaled { expr: None, .. } => None,
+    }
+}
+
+fn apply_opacity_to_legend_item(
+    legend_group: &mut avenger_scenegraph::marks::group::SceneGroup,
+    group_path: &[usize],
+    opacity: f32,
+) {
+    let Some(SceneMark::Group(item_group)) = scene_group_mark_at_path_mut(legend_group, group_path)
+    else {
+        return;
+    };
+    for mark in item_group
+        .marks
+        .iter_mut()
+        .filter(|mark| !mark.interactive())
+    {
+        apply_opacity_to_scene_mark(mark, opacity);
+    }
+}
+
+fn scene_group_mark_at_path_mut<'a>(
+    group: &'a mut avenger_scenegraph::marks::group::SceneGroup,
+    path: &[usize],
+) -> Option<&'a mut SceneMark> {
+    let (first, rest) = path.split_first()?;
+    let mark = group.marks.get_mut(*first)?;
+    if rest.is_empty() {
+        return Some(mark);
+    }
+    match mark {
+        SceneMark::Group(child_group) => scene_group_mark_at_path_mut(child_group, rest),
+        _ => None,
+    }
+}
+
+fn apply_opacity_to_scene_mark(mark: &mut SceneMark, opacity: f32) {
+    match mark {
+        SceneMark::Symbol(symbol) => {
+            apply_opacity_to_color_values(&mut symbol.fill, opacity);
+            apply_opacity_to_color_values(&mut symbol.stroke, opacity);
+        }
+        SceneMark::Rect(rect) => {
+            apply_opacity_to_color_values(&mut rect.fill, opacity);
+            apply_opacity_to_color_values(&mut rect.stroke, opacity);
+        }
+        SceneMark::Line(line) => {
+            line.stroke = apply_opacity_to_color(&line.stroke, opacity);
+        }
+        SceneMark::Rule(rule) => {
+            apply_opacity_to_color_values(&mut rule.stroke, opacity);
+        }
+        SceneMark::Area(area) => {
+            area.fill = apply_opacity_to_color(&area.fill, opacity);
+        }
+        SceneMark::Group(group) => {
+            for child in &mut group.marks {
+                apply_opacity_to_scene_mark(child, opacity);
+            }
+        }
+        SceneMark::Arc(_)
+        | SceneMark::Path(_)
+        | SceneMark::Trail(_)
+        | SceneMark::Text(_)
+        | SceneMark::Image(_) => {}
+    }
+}
+
+fn apply_opacity_to_color_values(values: &mut ScalarOrArray<ColorOrGradient>, opacity: f32) {
+    *values = match values.value() {
+        ScalarOrArrayValue::Scalar(color) => {
+            ScalarOrArray::new_scalar(apply_opacity_to_color(color, opacity))
+        }
+        ScalarOrArrayValue::Array(colors) => ScalarOrArray::new_array(
+            colors
+                .iter()
+                .map(|color| apply_opacity_to_color(color, opacity))
+                .collect(),
+        ),
+    };
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LegendPlanScope {
@@ -468,7 +734,10 @@ impl CompiledPlot {
                         expr: other_value.expr(ctx),
                         scale: other_scale.configured().clone(),
                     }
-                } else if let Some(expr) = other_value.expr(ctx) {
+                } else if let Some(expr) = other_value
+                    .expr(ctx)
+                    .or_else(|| other_value.expr_for_domain(ctx))
+                {
                     // Channel has a constant expression
                     ChannelInfo::Constant { expr: expr.clone() }
                 } else {
@@ -753,8 +1022,13 @@ impl CompiledPlot {
                         true // Default to visible
                     };
                     if visible {
-                        // Clone the legend config and add merged channel information
                         let mut legend_with_merged = legend_config.clone();
+                        for channel in channels.iter().skip(1) {
+                            if let Some(other) = all_legends.get(&channel.name) {
+                                legend_with_merged = legend_with_merged.update(other.clone());
+                            }
+                        }
+                        legend_with_merged.validate_event_surface()?;
                         // Populate merged_channels with all channel types in this group
                         legend_with_merged.merged_channels =
                             channels.iter().map(|ch| ch.channel_type.clone()).collect();
@@ -997,13 +1271,15 @@ impl CompiledPlot {
 
     pub(super) async fn render_legends_from_plan(
         &self,
+        eval_ctx: &EvaluationContext,
         legend_plan: &PreparedLegendPlan,
         layout: &FrameLayout,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+    ) -> Result<RenderedLegendMarks, AvengerChartError> {
         let theme = self.get_theme();
         let mut legend_marks = Vec::new();
+        let mut event_datums = Vec::new();
 
         for group in &legend_plan.groups {
             let Some(bounds) = layout.legends.get(&group.layout_key) else {
@@ -1023,12 +1299,42 @@ impl CompiledPlot {
                     ctx,
                 )
                 .await?;
-            if let Some(rendered_group) = group_opt {
-                legend_marks.push(SceneMark::Group(rendered_group));
+            if let Some(mut rendered) = group_opt {
+                apply_related_legend_item_opacity(
+                    eval_ctx,
+                    &self.selection_specs,
+                    &group.channels,
+                    &mut rendered.group,
+                    &rendered.items,
+                    ctx,
+                    params,
+                )
+                .await?;
+                if !group.legend.event_bindings.is_empty() && rendered.items.is_empty() {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "Legend '{}' has event bindings but does not expose discrete legend items",
+                        group.primary_channel
+                    )));
+                }
+                let legend_index = legend_marks.len();
+                event_datums.extend(legend_item_event_datums(
+                    legend_index,
+                    &group
+                        .channels
+                        .iter()
+                        .map(|channel| channel.name.clone())
+                        .collect::<Vec<_>>(),
+                    group.legend.id.as_deref(),
+                    rendered.items,
+                )?);
+                legend_marks.push(SceneMark::Group(rendered.group));
             }
         }
 
-        Ok(legend_marks)
+        Ok(RenderedLegendMarks {
+            marks: legend_marks,
+            event_datums,
+        })
     }
 
     pub(super) async fn add_measured_hoisted_legends_to_plan(

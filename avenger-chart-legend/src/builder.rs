@@ -1,4 +1,4 @@
-use avenger_chart_core::{IntoExpr, Legend};
+use avenger_chart_core::{ChartEventBinding, IntoExpr, Legend};
 
 /// Base trait for legend builders - just for common functionality
 /// Each concrete builder implements this for shared methods
@@ -13,6 +13,24 @@ pub trait LegendBuilder: Sized {
     fn visible(mut self, visible: impl IntoExpr) -> Self {
         let legend = self.legend_mut().clone();
         *self.legend_mut() = legend.visible(visible);
+        self
+    }
+
+    fn id(mut self, id: impl Into<String>) -> Self {
+        let legend = self.legend_mut().clone();
+        *self.legend_mut() = legend.id(id);
+        self
+    }
+
+    fn event_binding(mut self, binding: ChartEventBinding) -> Self {
+        let legend = self.legend_mut().clone();
+        *self.legend_mut() = legend.event_binding(binding);
+        self
+    }
+
+    fn event_bindings(mut self, bindings: impl IntoIterator<Item = ChartEventBinding>) -> Self {
+        let legend = self.legend_mut().clone();
+        *self.legend_mut() = legend.event_bindings(bindings);
         self
     }
 }

@@ -7,9 +7,10 @@ use avenger_chart_core::{
     define_common_mark_channels, define_position_channels, impl_mark_base, impl_mark_trait_common,
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
     CompiledMarkState, CoordinateSystemCore, CoordinateSystemTransformCore, Legend, LegendChannel,
-    LegendRenderer, LegendRendererSelection, Mark, MarkRuntimeContext, MarkState, Size2D, Theme,
+    LegendRenderOutput, LegendRenderer, LegendRendererSelection, Mark, MarkRuntimeContext,
+    MarkState, Size2D, Theme,
 };
-use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
+use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::{arrow::record_batch::RecordBatch, prelude::SessionContext, scalar::ScalarValue};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -184,7 +185,7 @@ impl LegendRenderer for HexBinLegendRenderer {
         _theme: &Theme,
         _params: &IndexMap<String, ScalarValue>,
         _ctx: &SessionContext,
-    ) -> Result<Option<SceneGroup>, AvengerChartError> {
+    ) -> Result<Option<LegendRenderOutput>, AvengerChartError> {
         Ok(None)
     }
 

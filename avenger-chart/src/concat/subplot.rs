@@ -291,6 +291,18 @@ impl CompiledConcatSubplot {
                 });
                 context.eval.push_event_datums(translated);
             }
+            let child_chrome_event_datums = std::mem::take(&mut components.chrome_event_datums);
+            if !child_chrome_event_datums.is_empty() {
+                let translated = child_chrome_event_datums.into_iter().map(|mut rows| {
+                    let mut path = Vec::with_capacity(rows.mark_path.len() + 1);
+                    path.push(0);
+                    path.extend(rows.mark_path);
+                    rows.mark_path = path;
+                    rows.prepend_subplot_id(self.compiled_state().id.as_deref());
+                    rows
+                });
+                context.eval.push_event_datums(translated);
+            }
 
             let data_marks_group = SceneGroup {
                 origin: [0.0, 0.0],
@@ -317,6 +329,7 @@ impl CompiledConcatSubplot {
                 stroke_width: None,
                 stroke_offset: None,
                 zindex: None,
+                interactive: true,
             })])
         })
     }

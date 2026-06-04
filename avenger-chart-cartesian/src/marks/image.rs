@@ -204,6 +204,7 @@ impl CompiledMark for CompiledCartesianImage {
                 baseline,
                 indices: None,
                 zindex: self.state.zindex,
+                interactive: true,
             }
             .into(),
         ])

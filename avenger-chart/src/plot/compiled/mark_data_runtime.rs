@@ -280,19 +280,33 @@ fn expand_selection_predicates_in_channels(
     Ok(updated)
 }
 
-fn expand_selection_predicates(
+pub(crate) fn expand_selection_predicates(
     expr: Expr,
     eval_ctx: &EvaluationContext,
     available_columns: Option<&HashSet<String>>,
+) -> Result<Expr, AvengerChartError> {
+    expand_selection_predicates_with_fallback_specs(expr, eval_ctx, available_columns, None)
+}
+
+pub(crate) fn expand_selection_predicates_with_fallback_specs(
+    expr: Expr,
+    eval_ctx: &EvaluationContext,
+    available_columns: Option<&HashSet<String>>,
+    fallback_specs: Option<&IndexMap<String, CompiledSelectionSpec>>,
 ) -> Result<Expr, AvengerChartError> {
     let ctx = eval_ctx.session_context.as_ref();
     expr.transform(|candidate| {
         if let Expr::Placeholder(placeholder) = &candidate
             && let Some(selection_id) = selection_id_from_predicate_placeholder(&placeholder.id)
         {
-            let replacement =
-                selection_predicate_expr(selection_id, eval_ctx, ctx, available_columns)
-                    .map_err(|err| datafusion::error::DataFusionError::Plan(err.to_string()))?;
+            let replacement = selection_predicate_expr(
+                selection_id,
+                eval_ctx,
+                ctx,
+                available_columns,
+                fallback_specs,
+            )
+            .map_err(|err| datafusion::error::DataFusionError::Plan(err.to_string()))?;
             return Ok(Transformed::yes(replacement));
         }
         Ok(Transformed::no(candidate))
@@ -306,18 +320,28 @@ fn selection_predicate_expr(
     eval_ctx: &EvaluationContext,
     ctx: &SessionContext,
     available_columns: Option<&HashSet<String>>,
+    fallback_specs: Option<&IndexMap<String, CompiledSelectionSpec>>,
 ) -> Result<Expr, AvengerChartError> {
-    let Some(selection_store) = eval_ctx.scoped_selection_store.as_ref() else {
+    let (spec, clauses) = if let Some(selection_store) = eval_ctx.scoped_selection_store.as_ref() {
+        let Some(spec) = selection_store.specs().get(selection_id) else {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Selection predicate references unknown selection '{selection_id}'"
+            )));
+        };
+        let clauses = selection_store
+            .clauses_for_selection(selection_id)
+            .unwrap_or_default();
+        (spec, clauses)
+    } else if let Some(specs) = fallback_specs {
+        let Some(spec) = specs.get(selection_id) else {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Selection predicate references unknown selection '{selection_id}'"
+            )));
+        };
+        (spec, Vec::new())
+    } else {
         return Ok(lit(false));
     };
-    let Some(spec) = selection_store.specs().get(selection_id) else {
-        return Err(AvengerChartError::InvalidArgument(format!(
-            "Selection predicate references unknown selection '{selection_id}'"
-        )));
-    };
-    let clauses = selection_store
-        .clauses_for_selection(selection_id)
-        .unwrap_or_default();
     if clauses.is_empty() {
         return Ok(lit(matches!(
             spec.empty,
