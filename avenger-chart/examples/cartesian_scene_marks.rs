@@ -107,7 +107,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .x(0.35)
                 .y(1.85)
                 .path("M 0 -14 L 12 10 L -12 10 Z")
-                .transform("rotate(-20)")
+                .path_transform("rotate(-20)")
                 .fill("#22c55e")
                 .stroke("#14532d")
                 .stroke_width(1.4)

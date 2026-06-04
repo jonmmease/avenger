@@ -238,12 +238,12 @@ async fn test_path_and_transform_with_no_scale_and_scaled_config() {
             .x(col("x"))
             .y(col("y"))
             .path_with(col("svg_path"), |c| c.no_scale())
-            .transform_with(col("svg_transform"), |c| c.no_scale()),
+            .path_transform_with(col("svg_transform"), |c| c.no_scale()),
     );
 
     let raw_compiled = compile_and_check!(raw_path_plot);
     assert!(!raw_compiled.scale_specs().contains_key("path"));
-    assert!(!raw_compiled.scale_specs().contains_key("transform"));
+    assert!(!raw_compiled.scale_specs().contains_key("path_transform"));
 
     let scaled_path_plot =
         Plot::<Cartesian>::new().mark(PathMark::new().x(col("x")).y(col("y")).path_with(
@@ -267,7 +267,7 @@ async fn test_path_and_transform_with_no_scale_and_scaled_config() {
             .x(col("x"))
             .y(col("y"))
             .path("M -8 -8 L 8 -8 L 0 8 Z")
-            .transform_with(col("rotation"), |c| {
+            .path_transform_with(col("rotation"), |c| {
                 c.scale_with::<Ordinal>(|s| {
                     s.domain_discrete(vec![lit("tilt_left"), lit("tilt_right")])
                         .range_discrete(vec!["rotate(-20)", "rotate(20)"])
@@ -279,7 +279,7 @@ async fn test_path_and_transform_with_no_scale_and_scaled_config() {
     assert!(
         scaled_transform_compiled
             .scale_specs()
-            .contains_key("transform")
+            .contains_key("path_transform")
     );
 }
 

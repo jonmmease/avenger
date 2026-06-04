@@ -85,7 +85,7 @@ impl CompiledMarkCore for CompiledCartesianPath {
                 allow_column_ref: true,
             },
             ChannelDescriptor {
-                name: "transform",
+                name: "path_transform",
                 required: false,
                 default_value: None,
                 allow_column_ref: true,
@@ -145,7 +145,7 @@ impl CompiledMarkCore for CompiledCartesianPath {
             ("fill" | "stroke", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
                 Some(ScaleTypePreference::Ordinal)
             }
-            ("path" | "transform" | "stroke_cap" | "stroke_join", _) => None,
+            ("path" | "path_transform" | "stroke_cap" | "stroke_join", _) => None,
             _ => default_scale_type_for_data_type(data_type),
         }
     }
@@ -166,7 +166,7 @@ impl CompiledMarkCore for CompiledCartesianPath {
             "stroke" | "stroke_width" => {
                 Some(LegendRendererSelection::BuiltIn(LegendRendererKind::Line))
             }
-            "x" | "y" | "path" | "transform" | "stroke_cap" | "stroke_join" => None,
+            "x" | "y" | "path" | "path_transform" | "stroke_cap" | "stroke_join" => None,
             _ => Some(LegendRendererSelection::BuiltIn(LegendRendererKind::Rect)),
         }
     }
@@ -218,25 +218,25 @@ impl CompiledMark for CompiledCartesianPath {
         } else {
             ScenePathMark::default().path
         };
-        let transform = if let Some(array) = data.and_then(|data| data.column_by_name("transform"))
-        {
-            coercer.to_path_transform(array).map_err(|error| {
-                AvengerChartError::InternalError(format!(
-                    "Error coercing channel 'transform': {error}"
-                ))
-            })?
-        } else if let Some(array) = scalars.column_by_name("transform") {
-            coercer
-                .to_path_transform(array)
-                .map(|values| values.to_scalar_if_len_one())
-                .map_err(|error| {
+        let transform =
+            if let Some(array) = data.and_then(|data| data.column_by_name("path_transform")) {
+                coercer.to_path_transform(array).map_err(|error| {
                     AvengerChartError::InternalError(format!(
-                        "Error coercing channel 'transform': {error}"
+                        "Error coercing channel 'path_transform': {error}"
                     ))
                 })?
-        } else {
-            ScenePathMark::default().transform
-        };
+            } else if let Some(array) = scalars.column_by_name("path_transform") {
+                coercer
+                    .to_path_transform(array)
+                    .map(|values| values.to_scalar_if_len_one())
+                    .map_err(|error| {
+                        AvengerChartError::InternalError(format!(
+                            "Error coercing channel 'path_transform': {error}"
+                        ))
+                    })?
+            } else {
+                ScenePathMark::default().transform
+            };
         let transform = translate_transforms(transform, &position.x, &position.y, len);
 
         let fill = coerce_color_channel_with_renderer(

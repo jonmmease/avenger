@@ -280,7 +280,7 @@ async fn image_and_path_channel_descriptors_expose_scene_mark_channels() {
             .x(col("x"))
             .y(col("y"))
             .path("M -8 -8 L 8 -8 L 0 8 Z")
-            .transform("rotate(15)")
+            .path_transform("rotate(15)")
             .fill(col("fill"))
             .stroke_width(col("width"))
             .opacity(col("opacity")),
@@ -288,7 +288,7 @@ async fn image_and_path_channel_descriptors_expose_scene_mark_channels() {
     let path = path_plot.compile(&ctx).await.unwrap().marks()[0].clone();
     let path_channels = path.supported_channels();
     assert!(channel(&path_channels, "path").allow_column_ref);
-    assert!(channel(&path_channels, "transform").allow_column_ref);
+    assert!(channel(&path_channels, "path_transform").allow_column_ref);
     assert!(channel(&path_channels, "opacity").allow_column_ref);
     assert!(!channel(&path_channels, "stroke_width").allow_column_ref);
 }

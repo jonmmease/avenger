@@ -103,8 +103,8 @@ The Cartesian data mark set covers these scenegraph-oriented marks:
 - `PathMark<Cartesian>` for SVG/path geometry with scene-space transforms.
 
 `PathMark` keeps the explicit suffix to avoid collisions with filesystem and
-geometry path types. `PathMark::transform` is scene-space geometry; Cartesian
-`x` and `y` channels provide an optional transformed anchor.
+geometry path types. `PathMark::path_transform` is scene-space SVG/path
+geometry; Cartesian `x` and `y` channels provide an optional transformed anchor.
 
 See [scales-domains-and-sharing.md](scales-domains-and-sharing.md) for scale
 planning and [legends-and-guides.md](legends-and-guides.md) for legend

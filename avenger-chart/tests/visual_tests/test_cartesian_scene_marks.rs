@@ -271,7 +271,7 @@ fn path_transform_data() -> DataFrame {
         "M -18 -10 L 0 -18 L 18 -10 L 10 16 L -10 16 Z",
         "M -16 12 L 0 -16 L 16 12 Z",
     ]);
-    let transform = StringArray::from(vec![
+    let path_transform = StringArray::from(vec![
         "rotate(-20) scale(1.0)",
         "rotate(12) scale(0.85)",
         "rotate(28) scale(1.05)",
@@ -285,7 +285,7 @@ fn path_transform_data() -> DataFrame {
         Field::new("x", DataType::Float64, false),
         Field::new("y", DataType::Float64, false),
         Field::new("path", DataType::Utf8, false),
-        Field::new("transform", DataType::Utf8, false),
+        Field::new("path_transform", DataType::Utf8, false),
         Field::new("group", DataType::Utf8, false),
         Field::new("opacity", DataType::Float64, false),
     ]));
@@ -296,7 +296,7 @@ fn path_transform_data() -> DataFrame {
             Arc::new(x),
             Arc::new(y),
             Arc::new(path),
-            Arc::new(transform),
+            Arc::new(path_transform),
             Arc::new(group),
             Arc::new(opacity),
         ],
@@ -567,7 +567,7 @@ async fn test_cartesian_path_svg_transform_styles() {
                 .x(col("x"))
                 .y(col("y"))
                 .path_with(col("path"), |c| c.no_scale())
-                .transform_with(col("transform"), |c| c.no_scale())
+                .path_transform_with(col("path_transform"), |c| c.no_scale())
                 .fill_with(col("group"), |c| c.legend(|l| l.visible(false)))
                 .stroke("#111827")
                 .stroke_width(1.6)
