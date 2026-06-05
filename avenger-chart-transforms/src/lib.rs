@@ -1483,42 +1483,39 @@ mod tests {
 
     #[tokio::test]
     async fn timeunit_week_start_changes_week_anchor() {
+        const DAY_MS: i64 = 86_400_000;
+        const SUNDAY_JAN_7_2024_MS: i64 = 1_704_585_600_000;
         let ctx = SessionContext::new();
-        let dataframe = time_dataframe(&ctx, vec![Some(1_704_585_600_000)]);
-        let (sunday_transform, _) = compile_transform(
-            TimeUnit::new(col("timestamp"))
-                .unit(TimeUnitPart::Week)
-                .time_context(TimeContext::new().week_start(WeekStart::Sunday)),
-        );
-        let sunday_rows = timeunit_rows_from_batches(
-            &transformed_batches(&ctx, dataframe, vec![sunday_transform]).await,
-        );
-        assert_eq!(
-            sunday_rows,
-            vec![(
-                Some(1_704_585_600_000),
-                Some(1_704_585_600_000),
-                Some(1_705_190_400_000)
-            )]
-        );
+        let starts = [
+            (WeekStart::Sunday, SUNDAY_JAN_7_2024_MS),
+            (WeekStart::Monday, SUNDAY_JAN_7_2024_MS - 6 * DAY_MS),
+            (WeekStart::Tuesday, SUNDAY_JAN_7_2024_MS - 5 * DAY_MS),
+            (WeekStart::Wednesday, SUNDAY_JAN_7_2024_MS - 4 * DAY_MS),
+            (WeekStart::Thursday, SUNDAY_JAN_7_2024_MS - 3 * DAY_MS),
+            (WeekStart::Friday, SUNDAY_JAN_7_2024_MS - 2 * DAY_MS),
+            (WeekStart::Saturday, SUNDAY_JAN_7_2024_MS - DAY_MS),
+        ];
 
-        let dataframe = time_dataframe(&ctx, vec![Some(1_704_585_600_000)]);
-        let (monday_transform, _) = compile_transform(
-            TimeUnit::new(col("timestamp"))
-                .unit(TimeUnitPart::Week)
-                .time_context(TimeContext::new().week_start(WeekStart::Monday)),
-        );
-        let monday_rows = timeunit_rows_from_batches(
-            &transformed_batches(&ctx, dataframe, vec![monday_transform]).await,
-        );
-        assert_eq!(
-            monday_rows,
-            vec![(
-                Some(1_704_585_600_000),
-                Some(1_704_067_200_000),
-                Some(1_704_672_000_000)
-            )]
-        );
+        for (week_start, expected_start) in starts {
+            let dataframe = time_dataframe(&ctx, vec![Some(SUNDAY_JAN_7_2024_MS)]);
+            let (transform, _) = compile_transform(
+                TimeUnit::new(col("timestamp"))
+                    .unit(TimeUnitPart::Week)
+                    .time_context(TimeContext::new().week_start(week_start)),
+            );
+            let rows = timeunit_rows_from_batches(
+                &transformed_batches(&ctx, dataframe, vec![transform]).await,
+            );
+            assert_eq!(
+                rows,
+                vec![(
+                    Some(SUNDAY_JAN_7_2024_MS),
+                    Some(expected_start),
+                    Some(expected_start + 7 * DAY_MS)
+                )],
+                "{week_start:?}"
+            );
+        }
     }
 
     #[tokio::test]
