@@ -6,6 +6,7 @@ mod filter;
 mod fold;
 mod impute;
 mod join_aggregate;
+mod kde;
 pub mod lump;
 mod select;
 mod stack;
@@ -22,6 +23,7 @@ pub use filter::{CompiledFilterTransform, Filter};
 pub use fold::{CompiledFoldTransform, Fold, FoldFieldSpec, FoldOutput};
 pub use impute::{CompiledImputeTransform, Impute, ImputeMethodSpec, ImputeOutput};
 pub use join_aggregate::{CompiledJoinAggregateTransform, JoinAggregate};
+pub use kde::{CompiledKdeTransform, Kde, KdeOutput, KdeResolve};
 pub use lump::{CompiledLumpTransform, Lump, LumpOtherMode, LumpOutput};
 pub use select::{CompiledSelectTransform, Select, SelectExprSpec};
 pub use stack::{CompiledStackTransform, Stack, StackOffset, StackOutput, TransformSortSpec};
@@ -89,6 +91,47 @@ mod tests {
                 true,
             )])),
             vec![Arc::new(Float64Array::from(values)) as _],
+        )
+        .unwrap();
+        ctx.read_batch(batch).unwrap()
+    }
+
+    fn kde_dataframe(ctx: &SessionContext) -> DataFrame {
+        kde_dataframe_from_values(
+            ctx,
+            vec![
+                Some("A"),
+                Some("A"),
+                Some("A"),
+                Some("B"),
+                Some("B"),
+                Some("B"),
+            ],
+            vec![
+                Some(0.0),
+                Some(1.0),
+                Some(2.0),
+                Some(10.0),
+                Some(11.0),
+                Some(12.0),
+            ],
+        )
+    }
+
+    fn kde_dataframe_from_values(
+        ctx: &SessionContext,
+        series: Vec<Option<&str>>,
+        values: Vec<Option<f64>>,
+    ) -> DataFrame {
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("series", DataType::Utf8, true),
+                Field::new("value", DataType::Float64, true),
+            ])),
+            vec![
+                Arc::new(StringArray::from(series)) as _,
+                Arc::new(Float64Array::from(values)) as _,
+            ],
         )
         .unwrap();
         ctx.read_batch(batch).unwrap()
@@ -327,6 +370,75 @@ mod tests {
         batches: &[RecordBatch],
     ) -> Vec<(Option<f64>, Option<f64>, Option<f64>, Option<i64>)> {
         batches.iter().flat_map(bin_rows).collect()
+    }
+
+    fn kde_rows(batch: &RecordBatch, value_name: &str, density_name: &str) -> Vec<(f64, f64)> {
+        let value = batch
+            .column_by_name(value_name)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let density = batch
+            .column_by_name(density_name)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        (0..batch.num_rows())
+            .map(|row| (value.value(row), density.value(row)))
+            .collect()
+    }
+
+    fn kde_rows_from_batches(
+        batches: &[RecordBatch],
+        value_name: &str,
+        density_name: &str,
+    ) -> Vec<(f64, f64)> {
+        batches
+            .iter()
+            .flat_map(|batch| kde_rows(batch, value_name, density_name))
+            .collect()
+    }
+
+    fn kde_group_rows(batch: &RecordBatch, series_name: &str) -> Vec<(String, f64, f64)> {
+        let series = batch
+            .column_by_name("series")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let value = batch
+            .column_by_name(series_name)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let density = batch
+            .column_by_name("density")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        (0..batch.num_rows())
+            .map(|row| {
+                (
+                    series.value(row).to_string(),
+                    value.value(row),
+                    density.value(row),
+                )
+            })
+            .collect()
+    }
+
+    fn kde_group_rows_from_batches(
+        batches: &[RecordBatch],
+        value_name: &str,
+    ) -> Vec<(String, f64, f64)> {
+        batches
+            .iter()
+            .flat_map(|batch| kde_group_rows(batch, value_name))
+            .collect()
     }
 
     fn stack_rows(batch: &RecordBatch) -> Vec<(String, String, f64, f64)> {
@@ -2532,6 +2644,222 @@ mod tests {
                 .derived_scalars
                 .contains_key("value_bin_tick_spacing")
         );
+    }
+
+    #[tokio::test]
+    async fn kde_default_and_custom_output_names() {
+        let ctx = SessionContext::new();
+        let dataframe = bin_dataframe_from_values(&ctx, vec![Some(0.0), Some(1.0), Some(2.0)]);
+        let (compiled_transform, output) =
+            compile_transform(Kde::new(col("value")).bandwidth(1.0).steps(3));
+        assert_eq!(output.value().to_string(), "value");
+        assert_eq!(output.density().to_string(), "density");
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        assert_eq!(batches[0].num_rows(), 4);
+        assert!(batches[0].column_by_name("value").is_some());
+        assert!(batches[0].column_by_name("density").is_some());
+
+        let dataframe = bin_dataframe_from_values(&ctx, vec![Some(0.0), Some(1.0), Some(2.0)]);
+        let (compiled_transform, output) = compile_transform(
+            Kde::new(col("value"))
+                .bandwidth(1.0)
+                .steps(2)
+                .as_fields("sample", "estimate"),
+        );
+        assert_eq!(output.value().to_string(), "sample");
+        assert_eq!(output.density().to_string(), "estimate");
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        assert_eq!(batches[0].num_rows(), 3);
+        assert!(batches[0].column_by_name("sample").is_some());
+        assert!(batches[0].column_by_name("estimate").is_some());
+    }
+
+    #[tokio::test]
+    async fn kde_fixed_bandwidth_steps_and_grouped_grids() {
+        let ctx = SessionContext::new();
+        let dataframe = kde_dataframe(&ctx);
+        let (compiled_transform, _) = compile_transform(
+            Kde::new(col("value"))
+                .group_by([col("series")])
+                .bandwidth(1.0)
+                .steps(2),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let rows = kde_group_rows_from_batches(&batches, "value");
+        assert_eq!(rows.len(), 6);
+        assert_eq!(
+            rows.iter().map(|row| (&row.0, row.1)).collect::<Vec<_>>(),
+            vec![
+                (&"A".to_string(), 0.0),
+                (&"A".to_string(), 1.0),
+                (&"A".to_string(), 2.0),
+                (&"B".to_string(), 10.0),
+                (&"B".to_string(), 11.0),
+                (&"B".to_string(), 12.0),
+            ]
+        );
+
+        let dataframe = kde_dataframe(&ctx);
+        let (compiled_transform, _) = compile_transform(
+            Kde::new(col("value"))
+                .group_by([col("series")])
+                .bandwidth(1.0)
+                .steps(2)
+                .resolve(KdeResolve::Shared),
+        );
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let rows = kde_group_rows_from_batches(&batches, "value");
+        assert_eq!(
+            rows.iter().map(|row| (&row.0, row.1)).collect::<Vec<_>>(),
+            vec![
+                (&"A".to_string(), 0.0),
+                (&"A".to_string(), 6.0),
+                (&"A".to_string(), 12.0),
+                (&"B".to_string(), 0.0),
+                (&"B".to_string(), 6.0),
+                (&"B".to_string(), 12.0),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn kde_counts_scales_density_by_group_count() {
+        let ctx = SessionContext::new();
+        let dataframe = bin_dataframe_from_values(&ctx, vec![Some(0.0), Some(1.0), Some(2.0)]);
+        let (compiled_transform, _) = compile_transform(
+            Kde::new(col("value"))
+                .bandwidth(1.0)
+                .steps(2)
+                .extent(0.0, 2.0),
+        );
+        let density = kde_rows_from_batches(
+            &transformed_batches(&ctx, dataframe, vec![compiled_transform]).await,
+            "value",
+            "density",
+        );
+
+        let dataframe = bin_dataframe_from_values(&ctx, vec![Some(0.0), Some(1.0), Some(2.0)]);
+        let (compiled_transform, _) = compile_transform(
+            Kde::new(col("value"))
+                .bandwidth(1.0)
+                .steps(2)
+                .extent(0.0, 2.0)
+                .counts(true),
+        );
+        let counts = kde_rows_from_batches(
+            &transformed_batches(&ctx, dataframe, vec![compiled_transform]).await,
+            "value",
+            "density",
+        );
+        for (density, counts) in density.iter().zip(counts.iter()) {
+            assert!((counts.1 - density.1 * 3.0).abs() < 1e-12);
+        }
+    }
+
+    #[tokio::test]
+    async fn kde_cumulative_is_monotonic_and_ends_near_one() {
+        let ctx = SessionContext::new();
+        let dataframe = bin_dataframe_from_values(&ctx, vec![Some(0.0), Some(1.0), Some(2.0)]);
+        let (compiled_transform, _) = compile_transform(
+            Kde::new(col("value"))
+                .bandwidth(0.35)
+                .steps(40)
+                .extent(-5.0, 7.0)
+                .cumulative(true),
+        );
+
+        let rows = kde_rows_from_batches(
+            &transformed_batches(&ctx, dataframe, vec![compiled_transform]).await,
+            "value",
+            "density",
+        );
+        for window in rows.windows(2) {
+            assert!(window[1].1 >= window[0].1, "{rows:?}");
+        }
+        assert!(rows.last().unwrap().1 > 0.999, "{rows:?}");
+    }
+
+    #[tokio::test]
+    async fn kde_auto_bandwidth_is_positive_for_edge_cases() {
+        assert!(super::kde::auto_bandwidth(&[0.0, 1.0, 2.0]).is_sign_positive());
+        assert!(super::kde::auto_bandwidth(&[7.0, 7.0, 7.0]).is_sign_positive());
+        assert!(super::kde::auto_bandwidth(&[7.0]).is_sign_positive());
+        assert!(super::kde::auto_bandwidth(&[]).is_sign_positive());
+    }
+
+    #[tokio::test]
+    async fn kde_params_work_for_config_expressions() {
+        let ctx = SessionContext::new();
+        let dataframe = bin_dataframe_from_values(&ctx, vec![Some(0.0), Some(1.0), Some(2.0)]);
+        let steps = Param::new("kde_steps", ScalarValue::Int64(Some(3)));
+        let bandwidth = Param::new("kde_bandwidth", ScalarValue::Float64(Some(0.5)));
+        let params = IndexMap::from([
+            (steps.name.clone(), steps.default.clone()),
+            (bandwidth.name.clone(), bandwidth.default.clone()),
+        ]);
+        let (compiled_transform, _) = compile_transform(
+            Kde::new(col("value"))
+                .steps(steps.expr())
+                .bandwidth(bandwidth.expr()),
+        );
+
+        let batches =
+            transformed_batches_with_params(&ctx, dataframe, vec![compiled_transform], &params)
+                .await;
+        assert_eq!(batches[0].num_rows(), 4);
+    }
+
+    #[tokio::test]
+    async fn kde_config_rejects_column_refs() {
+        let ctx = SessionContext::new();
+        let dataframe = bin_dataframe_from_values(&ctx, vec![Some(0.0), Some(1.0), Some(2.0)]);
+        let (compiled_transform, _) =
+            compile_transform(Kde::new(col("value")).steps(col("value")).bandwidth(1.0));
+        let err = match avenger_chart_core::apply_compiled_data_transforms(
+            dataframe,
+            &[compiled_transform],
+            &DataTransformExecutionContext {
+                session_context: &ctx,
+                params: &IndexMap::new(),
+                time_context: TimeContext::default(),
+            },
+        )
+        .await
+        {
+            Ok(_) => panic!("column ref config should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("column references"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn kde_skips_null_and_non_finite_values() {
+        let ctx = SessionContext::new();
+        let dataframe = kde_dataframe_from_values(
+            &ctx,
+            vec![Some("A"), Some("A"), Some("A"), Some("A")],
+            vec![Some(0.0), None, Some(f64::NAN), Some(f64::INFINITY)],
+        );
+        let (compiled_transform, _) = compile_transform(
+            Kde::new(col("value"))
+                .group_by([col("series")])
+                .bandwidth(1.0)
+                .steps(2),
+        );
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        assert_eq!(batches[0].num_rows(), 3);
+
+        let dataframe = kde_dataframe_from_values(
+            &ctx,
+            vec![Some("A"), Some("A"), Some("A")],
+            vec![None, Some(f64::NAN), Some(f64::INFINITY)],
+        );
+        let (compiled_transform, _) =
+            compile_transform(Kde::new(col("value")).bandwidth(1.0).steps(2));
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        assert_eq!(batches[0].num_rows(), 0);
     }
 
     #[tokio::test]
