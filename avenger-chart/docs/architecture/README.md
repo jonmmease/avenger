@@ -12,7 +12,8 @@ agents. User-facing chart documentation lives in `avenger-chart/book/src`.
 - To debug authoring, compilation, evaluation, or rendering, read
   [compile-evaluate-render-pipeline.md](compile-evaluate-render-pipeline.md),
   [plot-sessions-and-fast-evaluation.md](plot-sessions-and-fast-evaluation.md),
-  [marks-and-channels.md](marks-and-channels.md), and
+  [marks-and-channels.md](marks-and-channels.md),
+  [data-transforms.md](data-transforms.md), and
   [rendering-and-scenegraph.md](rendering-and-scenegraph.md).
 - To work on interactive chart apps or resize behavior, read
   [chart-apps-and-interaction.md](chart-apps-and-interaction.md) and
@@ -37,6 +38,7 @@ flowchart TD
     Author["Authoring APIs\nPlot, marks, channel configs"]
     Compile["Compile\nCompiledPlot, CompiledMark, CompiledGuide"]
     Session["Session evaluation\nPlotSession, EvaluationRequest"]
+    Transforms["Data transforms\nDataTransformStage, derived scalars"]
     ScaleLegend["Scale and legend planning\nScaleBuilder, PreparedLegendPlan"]
     Layout["Layout and measurement\nComponentsMeasurement, child frames"]
     Coord["Coordinate measurement\nfacet, concat, positioned subplots"]
@@ -47,7 +49,8 @@ flowchart TD
 
     Author --> Compile
     Compile --> Session
-    Session --> ScaleLegend
+    Session --> Transforms
+    Transforms --> ScaleLegend
     ScaleLegend --> Layout
     Layout --> Coord
     Coord --> Layout
@@ -58,6 +61,7 @@ flowchart TD
     Apps --> Wgpu
 
     Compile -. details .-> Marks["marks-and-channels.md"]
+    Transforms -. details .-> TransformDocs["data-transforms.md"]
     ScaleLegend -. details .-> Scales["scales-domains-and-sharing.md"]
     Layout -. details .-> ChildFrames["layout-and-child-frames.md"]
     Coord -. details .-> Containers["facet-system.md / concat-system.md / positioned-subplots.md"]
@@ -85,6 +89,9 @@ flowchart TD
   sharing scope, and tool expansion shape for interaction state.
 - [marks-and-channels.md](marks-and-channels.md): mark traits, mark state,
   channel values, channel configs, and channel extraction.
+- [data-transforms.md](data-transforms.md): transform contracts, transform
+  stage sharing, derived scalars, built-in transform ownership, and time
+  context propagation.
 - [scales-domains-and-sharing.md](scales-domains-and-sharing.md): scale
   authoring, built-in scale implementation, domain inference, and sharing.
 - [legends-and-guides.md](legends-and-guides.md): legend renderer selection,

@@ -11,6 +11,8 @@ The extension boundary is narrower:
 - custom scales depend on `avenger-chart-core` and usually `avenger-scales`
   when they implement scale math,
 - custom legend renderers depend on `avenger-chart-core`,
+- custom data transforms depend on `avenger-chart-core` plus lower-level
+  runtime crates needed by the transform implementation,
 - custom chart tools depend on `avenger-chart-core`,
 - custom coordinate systems depend on `avenger-chart-core` and lower-level
   runtime crates needed by the coordinate implementation,
@@ -30,6 +32,7 @@ flowchart TD
     Core["avenger-chart-core"]
     Marks["avenger-chart-marks"]
     Scales["avenger-chart-scales"]
+    Transforms["avenger-chart-transforms"]
     Legend["avenger-chart-legend"]
     Tools["avenger-chart-tools"]
     Cartesian["avenger-chart-cartesian"]
@@ -39,6 +42,7 @@ flowchart TD
     Core --> Marks
     Core --> Scales
     Core --> Legend
+    Core --> Transforms
     Core --> Tools
     Core --> Cartesian
     Core --> Polar
@@ -47,6 +51,7 @@ flowchart TD
     Marks --> Polar
     Marks --> Chart
     Scales --> Chart
+    Transforms --> Chart
     Legend --> Chart
     Tools --> Chart
     Cartesian --> Chart
@@ -63,14 +68,15 @@ apps, or extension crates.
 
 | Crate | Owns |
 | --- | --- |
-| `avenger-chart-core` | Shared chart contracts and value types: `Mark`, `CompiledMark`, `CompiledMarkCore`, `MarkState`, `CompiledMarkState`, `DataContext`, `CompiledDataContext`, `FacetDataScope`, `CoordinateSystem`, `CoordinateSystemTransform`, `CoordinateGuide`, `CompiledGuide`, `Scale`, `ScaleSpec`, `ScaleChannelConfig`, `Legend`, `LegendRenderer`, `LegendRendererSelection`, `ChartEventBinding`, `ChartTool`, `ToolExpansion`, `Store`, `StoreData`, `StoreUpdate`, `Selection`, `SelectionUpdate`, `SelectionClauseUpdate`, `SubplotContainerCoordinateSystem`, `PositionedSubplotSpec`, `CompiledPositionedSubplot`, `Sharing`, `SharingLevel`, `AxisPosition`, `FacetAxis`, core `EvaluationContext`, theme values, and geometry/layout value types. |
+| `avenger-chart-core` | Shared chart contracts and value types: `Mark`, `CompiledMark`, `CompiledMarkCore`, `MarkState`, `CompiledMarkState`, `DataContext`, `CompiledDataContext`, `FacetDataScope`, `DataTransform`, `CompiledDataTransform`, `DataTransformStage`, `DataTransformExecutionContext`, `DataTransformResult`, `DerivedScalarMap`, `TimeContext`, `CoordinateSystem`, `CoordinateSystemTransform`, `CoordinateGuide`, `CompiledGuide`, `Scale`, `ScaleSpec`, `ScaleChannelConfig`, `Legend`, `LegendRenderer`, `LegendRendererSelection`, `ChartEventBinding`, `ChartTool`, `ToolExpansion`, `Store`, `StoreData`, `StoreUpdate`, `Selection`, `SelectionUpdate`, `SelectionClauseUpdate`, `SubplotContainerCoordinateSystem`, `PositionedSubplotSpec`, `CompiledPositionedSubplot`, `Sharing`, `SharingLevel`, `AxisPosition`, `FacetAxis`, core `EvaluationContext`, theme values, and geometry/layout value types. |
 | `avenger-chart-marks` | Neutral built-in mark authoring types: `Area<C>`, `Image<C>`, `Line<C>`, `PathMark<C>`, `Rect<C>`, `Rule<C>`, `Subplot<C>`, `Symbol<C>`, `Text<C>`, `Trail<C>`, `ZeroD` support, and shared mark helpers. Coordinate-specific render implementations live in coordinate crates or the facade. |
 | `avenger-chart-scales` | Built-in chart scale marker types, built-in scale option extension traits, `ScaleBuilder`, `ConfiguredScaleWithSpec`, `DomainExtent`, DataFusion scale UDF/codec helpers, domain inference, and `build_scale_builder_from_marks`. |
+| `avenger-chart-transforms` | Built-in data transform authoring and compiled implementations: `Aggregate`, `Bin`, `Calculate`, `Filter`, `Fold`, `Impute`, `JoinAggregate`, `Lump`, `Select`, `Stack`, `TimeUnit`, `Window`, and their output handle types. |
 | `avenger-chart-legend` | Built-in legend builders and renderers: `LegendBuilder`, `LegendableChannel`, `CompiledSymbolLegend`, `CompiledLineLegend`, `CompiledRectLegend`, `CompiledColorbar`, `renderer_for_kind`, `LegendMeasurement`, and legend theme defaults. |
 | `avenger-chart-tools` | Built-in chart tools that expand into core tool contracts. `PanScrollZoom`, `BoxZoom`, `PointSelection`, and `LassoSelection` live here and emit generated params, selections, raw-domain scale edits, event bindings, marks, and tool metadata as needed. |
 | `avenger-chart-cartesian` | `Cartesian`, `CartesianGuide`, `CartesianAxis`, Cartesian channel/axis behavior, Cartesian render implementations for built-in data marks, and Cartesian `Subplot` placement channels `subplot_x` and `subplot_y`. |
 | `avenger-chart-polar` | `Polar`, `PolarGuide`, `PolarAxis`, polar channel/axis behavior, Polar `Symbol` render implementation, and Polar `Subplot` placement channels `r` and `theta`. |
-| `avenger-chart` | Facade exports plus `Plot`, `CompiledPlot`, facade `render::EvaluationContext`, facet, concat, partitioning, child-frame measurement, layout solvers, generic positioned subplot measurement/rendering, plot-level scale and legend planning, tool expansion application, WGPU/canvas rendering, and integration tests. |
+| `avenger-chart` | Facade exports plus `Plot`, `CompiledPlot`, facade `render::EvaluationContext`, facet, concat, partitioning, child-frame measurement, layout solvers, generic positioned subplot measurement/rendering, transform runtime application, plot-level scale and legend planning, tool expansion application, WGPU/canvas rendering, and integration tests. |
 | `avenger-chart-app` | Chart-specific app bridge: `ChartAppState`, `ChartResizeBinding`, `ChartAppOptions`, `chart_avenger_app`, resize handlers, and Winit/WGPU helper exports behind the `winit-wgpu` feature. |
 | `avenger-winit-wgpu` | Desktop/WASM host integration: `WinitWgpuAvengerApp`, `WinitWgpuAvengerAppOptions`, `WindowSceneSizing`, `CanvasFrameOptions`, Winit event-loop handling, virtual canvas frame input, scenegraph installation, and WGPU surface rendering. |
 
@@ -84,6 +90,7 @@ crate still defines the behavior.
 | `avenger_chart::prelude` | Common types from `avenger-chart-core`, built-in marks, built-in scales, built-in legend builders, Cartesian, Polar, facet, concat, rendering helpers. |
 | `avenger_chart::scales` | Core scale contracts plus built-in scale types and runtime helpers from `avenger-chart-scales`. |
 | `avenger_chart::legend` | Core legend contracts plus built-in legend builders and renderers from `avenger-chart-legend`. |
+| `avenger_chart::transforms` | Built-in transform authoring types and output handles from `avenger-chart-transforms`. |
 | `avenger_chart::tools` | Core tool contracts plus built-in tools from `avenger-chart-tools`. |
 | `avenger_chart::coords` | Core coordinate traits plus facade-owned coordinate measurement dispatch helpers. |
 
