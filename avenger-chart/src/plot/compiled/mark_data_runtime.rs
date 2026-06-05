@@ -1215,7 +1215,9 @@ pub(crate) async fn prepare_mark_data(
 mod tests {
     use std::{collections::HashMap, sync::Arc};
 
-    use avenger_chart_transforms::{Aggregate, Bin, Calculate, Filter, JoinAggregate, Select};
+    use avenger_chart_transforms::{
+        Aggregate, Bin, Calculate, Filter, Fold, JoinAggregate, Select,
+    };
     use avenger_scales::scales::{ConfiguredScale, ScaleConfig};
     use datafusion::{
         arrow::{
@@ -2006,6 +2008,28 @@ mod tests {
         )
         .await?;
         assert_eq!(values, vec![0.0, 2.0]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn shared_fold_preserves_facet_columns_for_narrowing() -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let df = scoped_facet_dataframe(&session).await;
+        let facet_tree = scoped_facet_tree(df.clone(), &session).await?;
+        let full_path = vec![
+            ScalarValue::Utf8(Some("North".to_string())),
+            ScalarValue::Utf8(Some("West".to_string())),
+        ];
+
+        let mark = Symbol::<Cartesian>::new().transform_shared(
+            Fold::new().field("x", col("x")).field("y", col("y")),
+            |mark, fold| mark.x(fold.value()).y(lit(0.5)),
+        );
+        let mut values =
+            prepared_x_values_for_facet_mark(mark, session, &df, &facet_tree, &full_path).await?;
+        values.sort_by(f64::total_cmp);
+
+        assert_eq!(values, vec![0.0, 0.2, 0.4, 2.0]);
         Ok(())
     }
 
