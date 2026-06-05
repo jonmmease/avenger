@@ -1442,8 +1442,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn timeunit_explicit_month_outputs_start_and_end() {
+    async fn timeunit_explicit_month_collapses_to_anchor_year() {
         const DAY_MS: i64 = 86_400_000;
+        const JAN_2012_MS: i64 = 1_325_376_000_000;
+        const FEB_2012_MS: i64 = 1_328_054_400_000;
+        const MAR_2012_MS: i64 = 1_330_560_000_000;
         let ctx = SessionContext::new();
         let dataframe = time_dataframe(&ctx, vec![Some(14 * DAY_MS), Some(32 * DAY_MS), None]);
         let (compiled_transform, output) =
@@ -1457,6 +1460,27 @@ mod tests {
             rows,
             vec![
                 (None, None, None),
+                (Some(14 * DAY_MS), Some(JAN_2012_MS), Some(FEB_2012_MS)),
+                (Some(32 * DAY_MS), Some(FEB_2012_MS), Some(MAR_2012_MS)),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn timeunit_explicit_year_month_preserves_input_year() {
+        const DAY_MS: i64 = 86_400_000;
+        let ctx = SessionContext::new();
+        let dataframe = time_dataframe(&ctx, vec![Some(14 * DAY_MS), Some(32 * DAY_MS)]);
+        let (compiled_transform, _) = compile_transform(
+            TimeUnit::new(col("timestamp")).units([TimeUnitPart::Year, TimeUnitPart::Month]),
+        );
+        let mut rows = timeunit_rows_from_batches(
+            &transformed_batches(&ctx, dataframe, vec![compiled_transform]).await,
+        );
+        rows.sort();
+        assert_eq!(
+            rows,
+            vec![
                 (Some(14 * DAY_MS), Some(0), Some(31 * DAY_MS)),
                 (Some(32 * DAY_MS), Some(31 * DAY_MS), Some(59 * DAY_MS)),
             ]

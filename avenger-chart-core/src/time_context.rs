@@ -24,6 +24,18 @@ impl WeekStart {
             WeekStart::Saturday => "2000-01-01T00:00:00Z",
         }
     }
+
+    pub fn anchor_year(&self) -> i32 {
+        match self {
+            WeekStart::Sunday => 2012,
+            WeekStart::Monday => 2024,
+            WeekStart::Tuesday => 2008,
+            WeekStart::Wednesday => 2020,
+            WeekStart::Thursday => 2004,
+            WeekStart::Friday => 2016,
+            WeekStart::Saturday => 2000,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

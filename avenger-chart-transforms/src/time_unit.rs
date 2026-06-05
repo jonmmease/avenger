@@ -9,17 +9,21 @@ use avenger_chart_core::{
 use datafusion::{
     arrow::{
         array::Float64Array,
-        datatypes::{DataType, Field, Schema},
+        datatypes::{DataType, Field, Schema, TimeUnit as ArrowTimeUnit},
         record_batch::RecordBatch,
     },
     common::ScalarValue,
     dataframe::DataFrame,
     functions::{
-        datetime::expr_fn::{date_bin, to_timestamp_nanos, to_unixtime},
+        datetime::expr_fn::{date_bin, date_part, make_date, to_timestamp_nanos, to_unixtime},
         expr_fn::{abs, floor, ln},
     },
     functions_aggregate::expr_fn::{max, min},
-    logical_expr::{Expr, ExprSchemable, JoinType, col, expr_fn::scalar_subquery, lit, when},
+    logical_expr::{
+        Expr, ExprSchemable, JoinType, col,
+        expr_fn::{cast, scalar_subquery},
+        lit, when,
+    },
 };
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
@@ -386,18 +390,14 @@ fn apply_time_unit_with_plan(
     let mut dataframe = cross_join(dataframe, plan)?;
     let candidates = payload_candidates(payload)?;
     let start = candidate_case_expr(&candidates, |candidate| {
-        date_bin(
-            interval_literal(candidate),
-            col(TIME_VALUE),
-            to_timestamp_nanos(vec![lit(candidate.origin.clone())]),
-        )
+        candidate_start_expr(candidate, payload)
     })?;
     dataframe = dataframe
         .with_column(&payload.start_name, start)
         .map_err(AvengerChartError::DataFusionError)?;
     let end = if payload.interval {
         candidate_case_expr(&candidates, |candidate| {
-            col(&payload.start_name) + interval_literal(candidate)
+            Ok(col(&payload.start_name) + interval_literal(candidate))
         })?
     } else {
         col(&payload.start_name)
@@ -415,6 +415,64 @@ fn apply_time_unit_with_plan(
     dataframe
         .select(projection)
         .map_err(AvengerChartError::DataFusionError)
+}
+
+fn candidate_start_expr(
+    candidate: &TimeUnitCandidate,
+    payload: &CompiledTimeUnitTransform,
+) -> Result<Expr, AvengerChartError> {
+    if let Some(units) = &candidate.explicit_units {
+        if let Some(start) =
+            cyclic_calendar_start_expr(units, payload.time_context.resolved_week_start())?
+        {
+            return Ok(start);
+        }
+    }
+    Ok(date_bin(
+        interval_literal(candidate),
+        col(TIME_VALUE),
+        to_timestamp_nanos(vec![lit(candidate.origin.clone())]),
+    ))
+}
+
+fn cyclic_calendar_start_expr(
+    units: &[TimeUnitPart],
+    week_start: WeekStart,
+) -> Result<Option<Expr>, AvengerChartError> {
+    if units.contains(&TimeUnitPart::Year) {
+        return Ok(None);
+    }
+    if units.iter().any(|unit| {
+        !matches!(
+            unit,
+            TimeUnitPart::Quarter | TimeUnitPart::Month | TimeUnitPart::Day
+        )
+    }) {
+        return Ok(None);
+    }
+
+    let month = if units.contains(&TimeUnitPart::Month) {
+        cast(date_part(lit("month"), col(TIME_VALUE)), DataType::Int32)
+    } else if units.contains(&TimeUnitPart::Quarter) {
+        (cast(date_part(lit("quarter"), col(TIME_VALUE)), DataType::Int32) - lit(1_i32))
+            * lit(3_i32)
+            + lit(1_i32)
+    } else {
+        lit(1_i32)
+    };
+    let day = if units.contains(&TimeUnitPart::Day) {
+        cast(date_part(lit("day"), col(TIME_VALUE)), DataType::Int32)
+    } else {
+        lit(1_i32)
+    };
+    let start = cast(
+        make_date(lit(week_start.anchor_year()), month, day),
+        DataType::Timestamp(ArrowTimeUnit::Millisecond, None),
+    );
+    let start = when(col(TIME_VALUE).is_not_null(), start)
+        .otherwise(lit(ScalarValue::TimestampMillisecond(None, None)))
+        .map_err(AvengerChartError::DataFusionError)?;
+    Ok(Some(start))
 }
 
 fn time_unit_derived_scalars(
@@ -466,6 +524,7 @@ struct TimeUnitCandidate {
     nanos: i64,
     seconds: f64,
     origin: String,
+    explicit_units: Option<Vec<TimeUnitPart>>,
 }
 
 fn candidate_for_unit(unit: TimeUnitPart, week_start: WeekStart) -> TimeUnitCandidate {
@@ -485,10 +544,12 @@ fn explicit_candidate(
     units: &[TimeUnitPart],
     payload: &CompiledTimeUnitTransform,
 ) -> Result<TimeUnitCandidate, AvengerChartError> {
-    Ok(candidate_for_unit(
+    let mut candidate = candidate_for_unit(
         finest_unit(units)?,
         payload.time_context.resolved_week_start(),
-    ))
+    );
+    candidate.explicit_units = Some(units.to_vec());
+    Ok(candidate)
 }
 
 fn payload_candidates(
@@ -520,6 +581,7 @@ fn candidate(
         nanos,
         seconds,
         origin: origin.to_string(),
+        explicit_units: None,
     }
 }
 
@@ -570,7 +632,7 @@ fn interval_literal(candidate: &TimeUnitCandidate) -> Expr {
 
 fn candidate_case_expr(
     candidates: &[TimeUnitCandidate],
-    mut branch: impl FnMut(&TimeUnitCandidate) -> Expr,
+    mut branch: impl FnMut(&TimeUnitCandidate) -> Result<Expr, AvengerChartError>,
 ) -> Result<Expr, AvengerChartError> {
     let mut iter = candidates.iter();
     let Some(first) = iter.next() else {
@@ -578,11 +640,11 @@ fn candidate_case_expr(
             "TimeUnit requires at least one candidate interval".to_string(),
         ));
     };
-    let mut builder = when(col(TIME_SECONDS).eq(lit(first.seconds)), branch(first));
+    let mut builder = when(col(TIME_SECONDS).eq(lit(first.seconds)), branch(first)?);
     for candidate in iter {
         builder = builder.when(
             col(TIME_SECONDS).eq(lit(candidate.seconds)),
-            branch(candidate),
+            branch(candidate)?,
         );
     }
     builder
