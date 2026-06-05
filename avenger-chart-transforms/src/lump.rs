@@ -3,7 +3,8 @@ use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, CompiledDataTransform, DataTransform,
     DataTransformCompileContext, DataTransformExecutionContext, DataTransformResult,
-    DefaultLogicalExprNodeExt, ScaleChannelValue, SerializableExpr,
+    DefaultLogicalExprNodeExt, ScaleChannelValue, SerializableExpr, eval_to_scalars,
+    params_to_datafusion,
 };
 use datafusion::{
     arrow::datatypes::DataType,
@@ -62,6 +63,8 @@ pub struct CompiledLumpTransform {
     #[serde_as(as = "FromInto<SerializableExpr>")]
     pub value: LogicalExprNode,
     #[serde_as(as = "FromInto<SerializableExpr>")]
+    pub top_n: LogicalExprNode,
+    #[serde_as(as = "FromInto<SerializableExpr>")]
     pub order_by: LogicalExprNode,
     pub order_descending: bool,
     #[serde_as(as = "FromInto<SerializableExpr>")]
@@ -98,7 +101,7 @@ pub struct Lump {
     keep: Expr,
     other_mode: LumpOtherModeAuthoring,
     name: Option<String>,
-    top_n: usize,
+    top_n: Expr,
 }
 
 #[derive(Clone, Debug)]
@@ -108,14 +111,46 @@ enum LumpOtherModeAuthoring {
     Drop,
 }
 
+pub trait IntoTopNExpr {
+    fn into_top_n_expr(self) -> Expr;
+}
+
+impl IntoTopNExpr for Expr {
+    fn into_top_n_expr(self) -> Expr {
+        self
+    }
+}
+
+macro_rules! impl_into_top_n_expr_for_int {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl IntoTopNExpr for $ty {
+                fn into_top_n_expr(self) -> Expr {
+                    lit(self)
+                }
+            }
+        )*
+    };
+}
+
+impl_into_top_n_expr_for_int!(i8, i16, i32, i64, u8, u16, u32, u64);
+
+impl IntoTopNExpr for usize {
+    fn into_top_n_expr(self) -> Expr {
+        lit(self as i64)
+    }
+}
+
 impl Lump {
-    pub fn top_n(value: Expr, n: usize) -> Self {
+    pub fn top_n(value: Expr, n: impl IntoTopNExpr) -> Self {
+        let n = n.into_top_n_expr();
+        let keep = window_value().lt_eq(n.clone());
         Self {
             value,
             order_by: count(lit(1)),
             order_descending: true,
             window: row_number(),
-            keep: window_value().lt_eq(lit(n as i64)),
+            keep,
             other_mode: LumpOtherModeAuthoring::DefaultStringOther,
             name: None,
             top_n: n,
@@ -175,9 +210,9 @@ impl DataTransform for Lump {
         self,
         ctx: DataTransformCompileContext,
     ) -> Result<(Box<dyn CompiledDataTransform>, Self::Output), AvengerChartError> {
-        if self.top_n == 0 {
+        if avenger_chart_core::contains_aggregate(&self.top_n) || self.top_n.any_column_refs() {
             return Err(AvengerChartError::InvalidArgument(
-                "Lump::top_n(..., n) requires n to be positive".to_string(),
+                "Lump::top_n(..., n) requires a scalar integer expression such as a literal or parameter".to_string(),
             ));
         }
         if avenger_chart_core::contains_aggregate(&self.value) {
@@ -212,6 +247,7 @@ impl DataTransform for Lump {
         };
         let transform = CompiledLumpTransform {
             value: expr_node(self.value, "lump value expression"),
+            top_n: expr_node(self.top_n, "lump top_n expression"),
             order_by: expr_node(self.order_by, "lump order_by expression"),
             order_descending: self.order_descending,
             window: expr_node(self.window, "lump window expression"),
@@ -299,9 +335,54 @@ impl CompiledDataTransform for CompiledLumpTransform {
                 self.order_rank_name.as_str(),
             ],
         )?;
+        validate_top_n(self.top_n.to_default_expr(ctx.session_context)?, ctx).await?;
         let dataframe = apply_lump(dataframe, self, ctx.session_context)?;
         Ok(DataTransformResult::dataframe(dataframe))
     }
+}
+
+async fn validate_top_n(
+    expr: Expr,
+    ctx: &DataTransformExecutionContext<'_>,
+) -> Result<(), AvengerChartError> {
+    let params = params_to_datafusion(ctx.params);
+    let mut values = eval_to_scalars(vec![expr], Some(ctx.session_context), params.as_ref())
+        .await
+        .map_err(AvengerChartError::DataFusionError)?;
+    let value = values.pop().ok_or_else(|| {
+        AvengerChartError::InternalError("Lump top_n returned no value".to_string())
+    })?;
+    let n = match value {
+        ScalarValue::Int8(Some(value)) => i64::from(value),
+        ScalarValue::Int16(Some(value)) => i64::from(value),
+        ScalarValue::Int32(Some(value)) => i64::from(value),
+        ScalarValue::Int64(Some(value)) => value,
+        ScalarValue::UInt8(Some(value)) => i64::from(value),
+        ScalarValue::UInt16(Some(value)) => i64::from(value),
+        ScalarValue::UInt32(Some(value)) => i64::from(value),
+        ScalarValue::UInt64(Some(value)) => i64::try_from(value).map_err(|_| {
+            AvengerChartError::InvalidArgument(
+                "Lump::top_n(..., n) must evaluate to a positive integer that fits in Int64"
+                    .to_string(),
+            )
+        })?,
+        other if other.is_null() => {
+            return Err(AvengerChartError::InvalidArgument(
+                "Lump::top_n(..., n) must not evaluate to null".to_string(),
+            ));
+        }
+        other => {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Lump::top_n(..., n) must evaluate to an integer scalar, got {other:?}"
+            )));
+        }
+    };
+    if n <= 0 {
+        return Err(AvengerChartError::InvalidArgument(
+            "Lump::top_n(..., n) must evaluate to a positive integer".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_window_function_shape(expr: &Expr) -> Result<(), AvengerChartError> {

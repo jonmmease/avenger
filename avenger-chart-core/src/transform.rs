@@ -1,11 +1,13 @@
 use async_trait::async_trait;
-use datafusion::{dataframe::DataFrame, prelude::SessionContext};
+use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::{AvengerChartError, DerivedScalarMap, Sharing};
 
 pub struct DataTransformExecutionContext<'a> {
     pub session_context: &'a SessionContext,
+    pub params: &'a IndexMap<String, ScalarValue>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -182,6 +184,7 @@ mod tests {
             &cloned,
             &DataTransformExecutionContext {
                 session_context: &ctx,
+                params: &IndexMap::new(),
             },
         )
         .await;
@@ -213,6 +216,7 @@ mod tests {
             &transforms,
             &DataTransformExecutionContext {
                 session_context: &ctx,
+                params: &IndexMap::new(),
             },
         )
         .await
@@ -248,6 +252,7 @@ mod tests {
             &transforms,
             &DataTransformExecutionContext {
                 session_context: &ctx,
+                params: &IndexMap::new(),
             },
         )
         .await;

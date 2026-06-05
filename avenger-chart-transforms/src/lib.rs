@@ -22,13 +22,15 @@ mod tests {
     };
     use avenger_chart_core::{
         ChannelValue, DataTransform, DataTransformCompileContext, DataTransformExecutionContext,
-        DataTransformStage, Sharing, collect_derived_scalar_ids,
+        DataTransformStage, Param, Sharing, collect_derived_scalar_ids,
     };
+    use datafusion::common::ScalarValue;
     use datafusion::dataframe::DataFrame;
     use datafusion::functions_aggregate::expr_fn::sum;
     use datafusion::functions_window::expr_fn::{ntile, percent_rank, rank};
     use datafusion::logical_expr::{col, lit};
     use datafusion::prelude::SessionContext;
+    use indexmap::IndexMap;
     use std::sync::Arc;
 
     fn sample_dataframe(ctx: &SessionContext) -> DataFrame {
@@ -92,19 +94,36 @@ mod tests {
         dataframe: DataFrame,
         transforms: Vec<DataTransformStage>,
     ) -> Vec<RecordBatch> {
-        avenger_chart_core::apply_compiled_data_transforms(
+        transformed_batches_with_params(ctx, dataframe, transforms, &IndexMap::new()).await
+    }
+
+    async fn transformed_batches_with_params(
+        ctx: &SessionContext,
+        dataframe: DataFrame,
+        transforms: Vec<DataTransformStage>,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Vec<RecordBatch> {
+        let result = avenger_chart_core::apply_compiled_data_transforms(
             dataframe,
             &transforms,
             &DataTransformExecutionContext {
                 session_context: ctx,
+                params,
             },
         )
         .await
-        .unwrap()
-        .dataframe
-        .collect()
-        .await
-        .unwrap()
+        .unwrap();
+        if let Some(param_values) = avenger_chart_core::params_to_datafusion(params) {
+            result
+                .dataframe
+                .with_param_values(param_values)
+                .unwrap()
+                .collect()
+                .await
+                .unwrap()
+        } else {
+            result.dataframe.collect().await.unwrap()
+        }
     }
 
     fn compile_transform<T: DataTransform>(transform: T) -> (DataTransformStage, T::Output) {
@@ -292,6 +311,7 @@ mod tests {
             &[compiled_transform],
             &DataTransformExecutionContext {
                 session_context: &ctx,
+                params: &IndexMap::new(),
             },
         )
         .await
@@ -430,6 +450,98 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn lump_top_n_accepts_param_expr() {
+        let ctx = SessionContext::new();
+        let dataframe = lump_dataframe(
+            &ctx,
+            vec![
+                Some("Alpha"),
+                Some("Alpha"),
+                Some("Beta"),
+                Some("Gamma"),
+                Some("Delta"),
+            ],
+            vec![50.0, 40.0, 30.0, 20.0, 10.0],
+        );
+        let top_n = Param::new("lump_top_n", ScalarValue::Int64(Some(3)));
+        let params = IndexMap::from([(top_n.name.clone(), top_n.default.clone())]);
+        let (compiled_transform, _) = compile_transform(
+            Lump::top_n(col("category"), top_n.expr())
+                .order_by(sum(col("value")))
+                .name("category_lump"),
+        );
+
+        let batches =
+            transformed_batches_with_params(&ctx, dataframe, vec![compiled_transform], &params)
+                .await;
+        let rows = lump_rows_from_batches(&batches);
+        let retained = rows
+            .iter()
+            .filter(|row| !row.4)
+            .map(|row| row.0.clone().unwrap())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            retained,
+            ["Alpha", "Beta", "Gamma"]
+                .into_iter()
+                .map(String::from)
+                .collect()
+        );
+    }
+
+    #[tokio::test]
+    async fn lump_top_n_zero_errors_at_runtime() {
+        let ctx = SessionContext::new();
+        let dataframe = lump_dataframe(&ctx, vec![Some("Alpha"), Some("Beta")], vec![50.0, 40.0]);
+        let (compiled_transform, _) = compile_transform(
+            Lump::top_n(col("category"), 0)
+                .order_by(sum(col("value")))
+                .name("category_lump"),
+        );
+
+        let err = match avenger_chart_core::apply_compiled_data_transforms(
+            dataframe,
+            &[compiled_transform],
+            &DataTransformExecutionContext {
+                session_context: &ctx,
+                params: &IndexMap::new(),
+            },
+        )
+        .await
+        {
+            Ok(_) => panic!("top_n zero should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("positive integer"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn lump_top_n_float_errors_at_runtime() {
+        let ctx = SessionContext::new();
+        let dataframe = lump_dataframe(&ctx, vec![Some("Alpha"), Some("Beta")], vec![50.0, 40.0]);
+        let (compiled_transform, _) = compile_transform(
+            Lump::top_n(col("category"), lit(2.5))
+                .order_by(sum(col("value")))
+                .name("category_lump"),
+        );
+
+        let err = match avenger_chart_core::apply_compiled_data_transforms(
+            dataframe,
+            &[compiled_transform],
+            &DataTransformExecutionContext {
+                session_context: &ctx,
+                params: &IndexMap::new(),
+            },
+        )
+        .await
+        {
+            Ok(_) => panic!("top_n float should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("integer scalar"), "{err}");
     }
 
     #[tokio::test]
@@ -707,6 +819,7 @@ mod tests {
             &[compiled_transform],
             &DataTransformExecutionContext {
                 session_context: &ctx,
+                params: &IndexMap::new(),
             },
         )
         .await
@@ -868,6 +981,7 @@ mod tests {
             &[compiled_transform],
             &DataTransformExecutionContext {
                 session_context: &ctx,
+                params: &IndexMap::new(),
             },
         )
         .await
@@ -900,6 +1014,7 @@ mod tests {
             &[compiled_transform],
             &DataTransformExecutionContext {
                 session_context: &ctx,
+                params: &IndexMap::new(),
             },
         )
         .await
