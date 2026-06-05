@@ -36,7 +36,8 @@ pub(crate) async fn build_scale_builder_from_marks(
         eval_ctx.session_context().clone(),
         eval_ctx.params().clone(),
         Arc::new(EvaluatedFacetTree::empty()),
-    );
+    )
+    .with_time_context(eval_ctx.time_context().clone());
     let mut prepared_marks = Vec::with_capacity(compiled_marks.len());
     for mark in compiled_marks {
         let prepared = Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {
@@ -216,8 +217,8 @@ mod tests {
     use crate::render::RenderContext;
     use avenger_chart_core::{EmptyCoordMeasurement, channel::strip_trailing_numbers};
     use avenger_chart_scales::ConfiguredScaleWithSpec;
-    use datafusion::arrow::array::Float64Array;
-    use datafusion::arrow::datatypes::{DataType, Field, Schema};
+    use datafusion::arrow::array::{Float64Array, TimestampMillisecondArray};
+    use datafusion::arrow::datatypes::{DataType, Field, Schema, TimeUnit as ArrowTimeUnit};
     use datafusion::arrow::record_batch::RecordBatch;
     use datafusion::prelude::SessionContext;
     use indexmap::IndexMap;
@@ -243,7 +244,8 @@ mod tests {
                 compiled.get_theme(),
                 Arc::new(ctx.clone()),
                 params.clone(),
-            ),
+            )
+            .with_time_context(compiled.time_context.clone()),
             compiled.get_theme().as_ref(),
         )
         .await?;
@@ -341,6 +343,49 @@ mod tests {
             y_max > 5.0,
             "y_max should be greater than data maximum (5.0), got {}",
             y_max
+        );
+    }
+
+    #[tokio::test]
+    async fn plot_time_context_sets_temporal_scale_timezone_default() {
+        let ctx = SessionContext::new();
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new(
+                "timestamp",
+                DataType::Timestamp(ArrowTimeUnit::Millisecond, None),
+                false,
+            ),
+            Field::new("value", DataType::Float64, false),
+        ]));
+
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(TimestampMillisecondArray::from(vec![
+                    1_704_067_200_000,
+                    1_704_153_600_000,
+                ])),
+                Arc::new(Float64Array::from(vec![1.0, 2.0])),
+            ],
+        )
+        .unwrap();
+        let df = ctx.read_batch(batch).unwrap();
+
+        let plot = Plot::<Cartesian>::new()
+            .time_context(TimeContext::new().timezone("America/New_York"))
+            .data(df)
+            .mark(Symbol::new().x(col("timestamp")).y(col("value")));
+
+        let compiled = plot.compile(&ctx).await.expect("compile plot");
+        let scales = two_phase_build_scales(&compiled, 400.0, 300.0, &ctx, &IndexMap::new())
+            .await
+            .expect("build scales two-phase");
+
+        let x_scale = scales.get("x").expect("x scale").configured();
+        assert_eq!(
+            x_scale.option_string("timezone", "missing"),
+            "America/New_York"
         );
     }
 

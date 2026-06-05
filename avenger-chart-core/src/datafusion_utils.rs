@@ -380,6 +380,9 @@ impl ScalarValueHelpers for ScalarValue {
             ScalarValue::Int64(Some(v)) => Scalar::from_f32(*v as f32),
             ScalarValue::Int32(Some(v)) => Scalar::from_f32(*v as f32),
             ScalarValue::Boolean(Some(v)) => Scalar::from_bool(*v),
+            ScalarValue::Utf8(Some(v))
+            | ScalarValue::LargeUtf8(Some(v))
+            | ScalarValue::Utf8View(Some(v)) => Scalar::from_string(v),
             _ => {
                 return Err(DataFusionError::Internal(format!(
                     "Cannot convert {self} to avenger_scales::scalar::Scalar"
@@ -616,6 +619,14 @@ mod tests {
             .collect();
         values.sort();
         assert_eq!(values, vec!["A", "B", "C", "D"]);
+    }
+
+    #[test]
+    fn scale_scalar_accepts_string_values() {
+        let scalar = ScalarValue::Utf8(Some("America/New_York".to_string()))
+            .as_scale_scalar()
+            .unwrap();
+        assert_eq!(scalar.as_string().unwrap(), "America/New_York");
     }
 
     #[tokio::test]

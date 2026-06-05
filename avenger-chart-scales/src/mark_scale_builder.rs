@@ -31,9 +31,10 @@ use tracing::trace;
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, CompiledMark, CoordinateSystemTransformCore, DerivedScalarMap,
     EvaluationContext as CoreEvaluationContext, MarkDataMode, Maybe, RadiusExpression,
-    ScaleOrderingSpec, ScaleRange, Theme, array_value_to_f64, collect_derived_scalar_ids,
-    contains_aggregate, default_channel_value_for_eval, params_to_datafusion,
-    resolve_all_channel_refs, resolve_derived_scalars, scalar_total_cmp, strip_trailing_numbers,
+    ScaleOrderingSpec, ScaleRange, Theme, TimeContext, array_value_to_f64,
+    collect_derived_scalar_ids, contains_aggregate, default_channel_value_for_eval,
+    params_to_datafusion, resolve_all_channel_refs, resolve_derived_scalars, scalar_total_cmp,
+    strip_trailing_numbers,
 };
 
 use crate::{
@@ -352,6 +353,7 @@ where
                 &HashMap::new(), // no phase1 scales yet
                 scale_specs,
                 coord_transform,
+                eval_ctx.time_context(),
             ))
             .await?
         {
@@ -410,6 +412,7 @@ where
                 &phase1_configured,
                 scale_specs,
                 coord_transform,
+                eval_ctx.time_context(),
             ))
             .await?
         {
@@ -466,6 +469,7 @@ async fn build_scale_for_channel<C>(
     // Plot-level scale overrides to apply before extracting options/domain
     plot_scale_specs: &HashMap<String, PlotScaleSpec>,
     coord_transform: &C,
+    time_context: &TimeContext,
 ) -> Result<
     Option<(
         Box<dyn ScaleSpec>,
@@ -646,6 +650,13 @@ where
                 continue;
             }
             scale = scale.option(&k, lit(v));
+        }
+
+        if scale_impl.domain_kind() == DomainKind::Temporal {
+            scale = scale.option(
+                "timezone",
+                lit(time_context.resolved_timezone().to_string()),
+            );
         }
 
         // Find mark that has a channel mapping to this scale
