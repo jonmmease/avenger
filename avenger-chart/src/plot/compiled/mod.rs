@@ -39,7 +39,7 @@ use avenger_chart_core::{
     CompiledSelectionSpec, CompiledStoreSpec, CompiledSubplotChildPlot, CompiledSubplotPayload,
     CoordMeasurement, CoordinateSystemTransform, EvaluationContext as CoreEvaluationContext,
     Legend, LogicalPlanNodeExt, ScaleRangeBinding, SerializableDataFrame, SerializableDataType,
-    SerializableScalarMap, Theme, ToolMetadata, channel::strip_trailing_numbers,
+    SerializableScalarMap, Theme, TimeContext, ToolMetadata, channel::strip_trailing_numbers,
 };
 use avenger_chart_scales::{ConfiguredScaleWithSpec, PlotScaleSpec as ScaleSpec, ScaleBuilder};
 
@@ -154,6 +154,10 @@ pub struct CompiledPlot {
 
     /// Theme
     pub(crate) theme: Option<Arc<Theme>>,
+
+    /// Time handling defaults for temporal transforms, scales, and guides.
+    #[serde(default)]
+    pub(crate) time_context: TimeContext,
 
     /// Mapping from scale names to coordinate channel
     pub(crate) scale_to_coord_channel: HashMap<String, String>,
@@ -419,7 +423,8 @@ impl CompiledPlot {
         params: &IndexMap<String, ScalarValue>,
     ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
         let eval_ctx =
-            CoreEvaluationContext::new(self.get_theme(), Arc::new(ctx.clone()), params.clone());
+            CoreEvaluationContext::new(self.get_theme(), Arc::new(ctx.clone()), params.clone())
+                .with_time_context(self.time_context.clone());
         let scale_builder = Box::pin(scales::build_scale_builder_from_marks(
             &self.marks,
             &self.scale_specs,

@@ -13,7 +13,8 @@ use avenger_chart_core::{
     AvengerChartError, AxisSpec, ChartTool, CompileContext, CompiledMark, CompiledMarkState,
     CompiledParamSpec, CompiledSelectionSpec, CompiledSubplotChildPlot, CoordinateGuide,
     CoordinateSystem, IntoExpr, Legend, LegendSurfaceKind, Mark, MarkDataMode, Param, Selection,
-    Sharing, Store, SubplotChildPlotSpec, Theme, compile_selections, validate_structural_id,
+    Sharing, Store, SubplotChildPlotSpec, Theme, TimeContext, compile_selections,
+    validate_structural_id,
 };
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
 
@@ -57,6 +58,9 @@ pub struct Plot<C: CoordinateSystem> {
 
     /// Theme for visual styling
     pub(crate) theme: Option<Arc<Theme>>,
+
+    /// Time handling defaults for temporal transforms, scales, and guides.
+    pub(crate) time_context: TimeContext,
 
     /// Guide configuration
     pub(crate) guide_config: Option<C::Guide>,
@@ -126,6 +130,7 @@ impl<C: CoordinateSystem> Plot<C> {
             title: None,
             subtitle: None,
             theme: None,
+            time_context: TimeContext::default(),
             guide_config: None,
             param_specs: Vec::new(),
             event_bindings: Vec::new(),
@@ -155,7 +160,7 @@ impl<C: CoordinateSystem> Plot<C> {
         self,
         session_context: &datafusion::prelude::SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let root_tool_context = ToolCompileContext::root();
+        let root_tool_context = ToolCompileContext::root(self.time_context.clone());
         self.compile_with_tool_context(session_context, Some(&root_tool_context), true)
             .await
     }
@@ -166,7 +171,15 @@ impl<C: CoordinateSystem> Plot<C> {
         inherited_tool_context: Option<&ToolCompileContext>,
         is_root: bool,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let tool_context = ToolCompileContext::from_parent(inherited_tool_context);
+        let inherited_time_context = inherited_tool_context
+            .map(|context| context.time_context())
+            .cloned()
+            .unwrap_or_default();
+        let effective_time_context = self
+            .time_context
+            .resolved_with_parent(&inherited_time_context);
+        let tool_context = ToolCompileContext::from_parent(inherited_tool_context)
+            .with_time_context(effective_time_context.clone());
         let active_tool_expansions = tool_context.expand_local_tools(&self.tools)?;
         tool_context.register_local_stores(&self.stores)?;
         if !is_root {
@@ -375,6 +388,7 @@ impl<C: CoordinateSystem> Plot<C> {
             title: self.title,
             subtitle: self.subtitle,
             theme: self.theme,
+            time_context: effective_time_context,
             scale_to_coord_channel,
             scale_specs,
             data: data_plan_node,
@@ -577,6 +591,12 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Set the theme for the plot
     pub fn theme(mut self, theme: Theme) -> Self {
         self.theme = Some(Arc::new(theme));
+        self
+    }
+
+    /// Set time handling defaults for temporal transforms, scales, and guides.
+    pub fn time_context(mut self, time_context: TimeContext) -> Self {
+        self.time_context = time_context;
         self
     }
 

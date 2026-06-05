@@ -146,6 +146,7 @@ async fn apply_mark_data_transforms(
     transforms: &[DataTransformStage],
     ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
+    time_context: &avenger_chart_core::TimeContext,
     facet_data_scope: Option<FacetDataScopeContext<'_>>,
     mark_facet_data_scope: FacetDataScope,
 ) -> Result<(Option<DataFrame>, DerivedScalarMap), AvengerChartError> {
@@ -157,6 +158,7 @@ async fn apply_mark_data_transforms(
     let transform_ctx = DataTransformExecutionContext {
         session_context: ctx,
         params,
+        time_context: time_context.clone(),
     };
     let mut dataframe = dataframe;
     let mut derived_scalars = DerivedScalarMap::new();
@@ -783,6 +785,7 @@ pub(crate) async fn prepare_logical_mark_data(
         request.mark.data_context().transforms(),
         ctx,
         request.eval_ctx.params(),
+        request.eval_ctx.time_context(),
         request.facet_data_scope,
         request.mark.state().facet_data_scope,
     )

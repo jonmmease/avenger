@@ -19,7 +19,7 @@ use indexmap::IndexMap;
 
 use avenger_chart_core::{
     EvaluationContext as CoreEvaluationContext, EvaluationDiagnostics,
-    MarkRenderContext as CoreMarkRenderContext, MarkRuntimeContext,
+    MarkRenderContext as CoreMarkRenderContext, MarkRuntimeContext, TimeContext,
 };
 
 use crate::{
@@ -346,6 +346,12 @@ impl EvaluationContext {
     pub(crate) fn with_event_datum_fields(&self, fields: Arc<IndexMap<String, DataType>>) -> Self {
         let mut ctx = self.clone();
         ctx.event_datum_fields = fields;
+        ctx
+    }
+
+    pub(crate) fn with_time_context(&self, time_context: TimeContext) -> Self {
+        let mut ctx = self.clone();
+        ctx.core = ctx.core.with_time_context(time_context);
         ctx
     }
 

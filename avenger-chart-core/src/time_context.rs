@@ -66,4 +66,11 @@ impl TimeContext {
     pub fn resolved_timezone(&self) -> &str {
         self.timezone.as_deref().unwrap_or("UTC")
     }
+
+    pub fn resolved_with_parent(&self, parent: &TimeContext) -> TimeContext {
+        TimeContext {
+            timezone: self.timezone.clone().or_else(|| parent.timezone.clone()),
+            week_start: self.week_start.or(parent.week_start),
+        }
+    }
 }

@@ -215,12 +215,46 @@ mod tests {
         transforms: Vec<DataTransformStage>,
         params: &IndexMap<String, ScalarValue>,
     ) -> Vec<RecordBatch> {
+        transformed_batches_with_params_and_time_context(
+            ctx,
+            dataframe,
+            transforms,
+            params,
+            TimeContext::default(),
+        )
+        .await
+    }
+
+    async fn transformed_batches_with_time_context(
+        ctx: &SessionContext,
+        dataframe: DataFrame,
+        transforms: Vec<DataTransformStage>,
+        time_context: TimeContext,
+    ) -> Vec<RecordBatch> {
+        transformed_batches_with_params_and_time_context(
+            ctx,
+            dataframe,
+            transforms,
+            &IndexMap::new(),
+            time_context,
+        )
+        .await
+    }
+
+    async fn transformed_batches_with_params_and_time_context(
+        ctx: &SessionContext,
+        dataframe: DataFrame,
+        transforms: Vec<DataTransformStage>,
+        params: &IndexMap<String, ScalarValue>,
+        time_context: TimeContext,
+    ) -> Vec<RecordBatch> {
         let result = avenger_chart_core::apply_compiled_data_transforms(
             dataframe,
             &transforms,
             &DataTransformExecutionContext {
                 session_context: ctx,
                 params,
+                time_context,
             },
         )
         .await
@@ -923,6 +957,7 @@ mod tests {
             &DataTransformExecutionContext {
                 session_context: &ctx,
                 params: &IndexMap::new(),
+                time_context: TimeContext::default(),
             },
         )
         .await
@@ -1366,6 +1401,7 @@ mod tests {
             &DataTransformExecutionContext {
                 session_context: &ctx,
                 params: &IndexMap::new(),
+                time_context: TimeContext::default(),
             },
         )
         .await;
@@ -1666,6 +1702,7 @@ mod tests {
                 &DataTransformExecutionContext {
                     session_context: &ctx,
                     params: &IndexMap::new(),
+                    time_context: TimeContext::default(),
                 },
             )
             .await
@@ -1715,6 +1752,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn timeunit_inherits_week_start_from_execution_context() {
+        const DAY_MS: i64 = 86_400_000;
+        const SUNDAY_JAN_7_2024_MS: i64 = 1_704_585_600_000;
+        let ctx = SessionContext::new();
+        let dataframe = time_dataframe(&ctx, vec![Some(SUNDAY_JAN_7_2024_MS)]);
+        let (transform, _) =
+            compile_transform(TimeUnit::new(col("timestamp")).unit(TimeUnitPart::Week));
+        let rows = timeunit_rows_from_batches(
+            &transformed_batches_with_time_context(
+                &ctx,
+                dataframe,
+                vec![transform],
+                TimeContext::new().week_start(WeekStart::Monday),
+            )
+            .await,
+        );
+        assert_eq!(
+            rows,
+            vec![(
+                Some(SUNDAY_JAN_7_2024_MS),
+                Some(SUNDAY_JAN_7_2024_MS - 6 * DAY_MS),
+                Some(SUNDAY_JAN_7_2024_MS + DAY_MS)
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn timeunit_local_week_start_overrides_execution_context() {
+        const DAY_MS: i64 = 86_400_000;
+        const SUNDAY_JAN_7_2024_MS: i64 = 1_704_585_600_000;
+        let ctx = SessionContext::new();
+        let dataframe = time_dataframe(&ctx, vec![Some(SUNDAY_JAN_7_2024_MS)]);
+        let (transform, _) = compile_transform(
+            TimeUnit::new(col("timestamp"))
+                .unit(TimeUnitPart::Week)
+                .time_context(TimeContext::new().week_start(WeekStart::Sunday)),
+        );
+        let rows = timeunit_rows_from_batches(
+            &transformed_batches_with_time_context(
+                &ctx,
+                dataframe,
+                vec![transform],
+                TimeContext::new().week_start(WeekStart::Monday),
+            )
+            .await,
+        );
+        assert_eq!(
+            rows,
+            vec![(
+                Some(SUNDAY_JAN_7_2024_MS),
+                Some(SUNDAY_JAN_7_2024_MS),
+                Some(SUNDAY_JAN_7_2024_MS + 7 * DAY_MS)
+            )]
+        );
+    }
+
+    #[tokio::test]
     async fn timeunit_returns_temporal_tick_spacing_derived_scalar() {
         const DAY_MS: i64 = 86_400_000;
         let ctx = SessionContext::new();
@@ -1727,6 +1821,7 @@ mod tests {
             &DataTransformExecutionContext {
                 session_context: &ctx,
                 params: &IndexMap::new(),
+                time_context: TimeContext::default(),
             },
         )
         .await
@@ -1944,6 +2039,7 @@ mod tests {
             &DataTransformExecutionContext {
                 session_context: &ctx,
                 params: &IndexMap::new(),
+                time_context: TimeContext::default(),
             },
         )
         .await
@@ -1970,6 +2066,7 @@ mod tests {
             &DataTransformExecutionContext {
                 session_context: &ctx,
                 params: &IndexMap::new(),
+                time_context: TimeContext::default(),
             },
         )
         .await
@@ -2256,6 +2353,7 @@ mod tests {
             &DataTransformExecutionContext {
                 session_context: &ctx,
                 params: &IndexMap::new(),
+                time_context: TimeContext::default(),
             },
         )
         .await
@@ -2418,6 +2516,7 @@ mod tests {
             &DataTransformExecutionContext {
                 session_context: &ctx,
                 params: &IndexMap::new(),
+                time_context: TimeContext::default(),
             },
         )
         .await
@@ -2451,6 +2550,7 @@ mod tests {
             &DataTransformExecutionContext {
                 session_context: &ctx,
                 params: &IndexMap::new(),
+                time_context: TimeContext::default(),
             },
         )
         .await

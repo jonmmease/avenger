@@ -3,7 +3,7 @@ use std::sync::Arc;
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 
-use crate::{Theme, ThemeContext, ThemeValue};
+use crate::{Theme, ThemeContext, ThemeValue, TimeContext};
 
 /// Diagnostics hook used by higher-level runtime crates to observe expensive
 /// evaluation work without making lower-level crates depend on the facade.
@@ -25,6 +25,8 @@ pub struct EvaluationContext {
     pub session_context: Arc<SessionContext>,
     /// Parameter values for prepared statements and theme/media evaluation.
     pub params: IndexMap<String, ScalarValue>,
+    /// Time handling defaults used by temporal transforms, scales, and guides.
+    pub time_context: TimeContext,
     #[doc(hidden)]
     pub diagnostics: Option<Arc<dyn EvaluationDiagnostics>>,
 }
@@ -39,6 +41,7 @@ impl EvaluationContext {
             theme,
             session_context,
             params,
+            time_context: TimeContext::default(),
             diagnostics: None,
         }
     }
@@ -58,12 +61,28 @@ impl EvaluationContext {
         &self.params
     }
 
+    /// Get time handling defaults.
+    pub fn time_context(&self) -> &TimeContext {
+        &self.time_context
+    }
+
     /// Create a new context with different params, reusing other fields.
     pub fn with_params(&self, params: IndexMap<String, ScalarValue>) -> Self {
         Self {
             theme: self.theme.clone(),
             session_context: self.session_context.clone(),
             params,
+            time_context: self.time_context.clone(),
+            diagnostics: self.diagnostics.clone(),
+        }
+    }
+
+    pub fn with_time_context(&self, time_context: TimeContext) -> Self {
+        Self {
+            theme: self.theme.clone(),
+            session_context: self.session_context.clone(),
+            params: self.params.clone(),
+            time_context,
             diagnostics: self.diagnostics.clone(),
         }
     }
@@ -74,6 +93,7 @@ impl EvaluationContext {
             theme: self.theme.clone(),
             session_context: self.session_context.clone(),
             params: self.params.clone(),
+            time_context: self.time_context.clone(),
             diagnostics: Some(diagnostics),
         }
     }

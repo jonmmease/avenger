@@ -228,20 +228,30 @@ impl CompiledDataTransform for CompiledTimeUnitTransform {
         dataframe: DataFrame,
         ctx: &DataTransformExecutionContext<'_>,
     ) -> Result<DataTransformResult, AvengerChartError> {
+        let payload = self.with_parent_time_context(&ctx.time_context);
         validate_output_names(
             dataframe.schema().fields().iter().map(|field| field.name()),
-            [self.start_name.as_str(), self.end_name.as_str()],
+            [payload.start_name.as_str(), payload.end_name.as_str()],
         )?;
-        let maxbins = validated_maxbins_expr(self, ctx).await?;
+        let maxbins = validated_maxbins_expr(&payload, ctx).await?;
         let (prepared, original_columns) =
-            prepared_time_value_dataframe(dataframe, self, ctx.session_context)?;
-        let plan = time_unit_plan_dataframe(prepared.clone(), self, ctx, maxbins)?;
-        let dataframe = apply_time_unit_with_plan(prepared, plan.clone(), self, original_columns)?;
-        let derived_scalars = time_unit_derived_scalars(dataframe.clone(), plan, self)?;
+            prepared_time_value_dataframe(dataframe, &payload, ctx.session_context)?;
+        let plan = time_unit_plan_dataframe(prepared.clone(), &payload, ctx, maxbins)?;
+        let dataframe =
+            apply_time_unit_with_plan(prepared, plan.clone(), &payload, original_columns)?;
+        let derived_scalars = time_unit_derived_scalars(dataframe.clone(), plan, &payload)?;
         Ok(DataTransformResult {
             dataframe,
             derived_scalars,
         })
+    }
+}
+
+impl CompiledTimeUnitTransform {
+    fn with_parent_time_context(&self, parent: &TimeContext) -> Self {
+        let mut payload = self.clone();
+        payload.time_context = payload.time_context.resolved_with_parent(parent);
+        payload
     }
 }
 

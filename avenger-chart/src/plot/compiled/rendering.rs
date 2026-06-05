@@ -1521,7 +1521,8 @@ impl CompiledPlot {
             self.get_theme(),
             Arc::new(ctx.clone()),
             merged_params.clone(),
-        );
+        )
+        .with_time_context(self.time_context.clone());
         let scale_builder = Box::pin(build_scale_builder_from_marks(
             &self.marks,
             &self.scale_specs,
@@ -1544,6 +1545,7 @@ impl CompiledPlot {
             merged_params,
             facet_tree,
         )
+        .with_time_context(self.time_context.clone())
         .with_event_datum_fields(Arc::new(self.event_datum_types()))
         .with_facet_data_root(dataframe_from_compiled_plot_data(&self.data, ctx)?)
         .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode())
@@ -5623,7 +5625,8 @@ impl CompiledPlot {
             self.get_theme(),
             Arc::new(ctx.clone()),
             merged_params.clone(),
-        );
+        )
+        .with_time_context(self.time_context.clone());
         if let Some(metrics) = &evaluation_metrics {
             scale_eval_ctx = scale_eval_ctx
                 .with_diagnostics(Arc::new(EvaluationMetricsDiagnostics::new(metrics.clone())));
@@ -5697,6 +5700,7 @@ impl CompiledPlot {
             merged_params,
             facet_tree.clone(),
         )
+        .with_time_context(self.time_context.clone())
         .with_event_datum_fields(Arc::new(self.event_datum_types()))
         .with_facet_data_root(dataframe_from_compiled_plot_data(&self.data, ctx)?)
         .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode())
@@ -6170,6 +6174,7 @@ impl CompiledPlot {
             merged_params,
             facet_tree.clone(),
         )
+        .with_time_context(self.time_context.clone())
         .with_event_datum_fields(Arc::new(self.event_datum_types()))
         .with_facet_data_root(dataframe_from_compiled_plot_data(&self.data, ctx)?)
         .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode())
@@ -6272,6 +6277,7 @@ impl CompiledPlot {
                 Arc::new(ctx.clone()),
                 scale_domain_params.clone(),
             )
+            .with_time_context(self.time_context.clone())
             .with_diagnostics(Arc::new(EvaluationMetricsDiagnostics::new(metrics.clone())));
             Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
                 metrics.record_preview_scale_context_setup_duration(
@@ -8065,7 +8071,8 @@ mod tests {
             compiled.get_theme(),
             Arc::new(ctx.clone()),
             merged_params.clone(),
-        );
+        )
+        .with_time_context(compiled.time_context.clone());
         let scale_builder = build_scale_builder_from_marks(
             &compiled.marks,
             &compiled.scale_specs,
@@ -8087,6 +8094,7 @@ mod tests {
             merged_params,
             facet_tree,
         )
+        .with_time_context(compiled.time_context.clone())
         .with_event_datum_fields(Arc::new(compiled.event_datum_types()))
         .with_facet_data_root(dataframe_from_compiled_plot_data(&compiled.data, ctx)?)
         .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode());

@@ -3,11 +3,12 @@ use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionCont
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::{AvengerChartError, DerivedScalarMap, Sharing};
+use crate::{AvengerChartError, DerivedScalarMap, Sharing, TimeContext};
 
 pub struct DataTransformExecutionContext<'a> {
     pub session_context: &'a SessionContext,
     pub params: &'a IndexMap<String, ScalarValue>,
+    pub time_context: TimeContext,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -185,6 +186,7 @@ mod tests {
             &DataTransformExecutionContext {
                 session_context: &ctx,
                 params: &IndexMap::new(),
+                time_context: TimeContext::default(),
             },
         )
         .await;
@@ -217,6 +219,7 @@ mod tests {
             &DataTransformExecutionContext {
                 session_context: &ctx,
                 params: &IndexMap::new(),
+                time_context: TimeContext::default(),
             },
         )
         .await
@@ -253,6 +256,7 @@ mod tests {
             &DataTransformExecutionContext {
                 session_context: &ctx,
                 params: &IndexMap::new(),
+                time_context: TimeContext::default(),
             },
         )
         .await;

@@ -8,7 +8,7 @@ use std::{
 use avenger_chart_core::{
     Auto, AvengerChartError, ChartEventBinding, CompiledParamSpec, CompiledSelectionSpec,
     CompiledStoreSpec, CoordinateSystemCore, CoordinateSystemTransform, DefaultLogicalExprNodeExt,
-    Param, Scale, Selection, Sharing, Store,
+    Param, Scale, Selection, Sharing, Store, TimeContext,
 };
 use avenger_chart_scales::PlotScaleSpec;
 use datafusion::prelude::lit;
@@ -24,13 +24,15 @@ pub use avenger_chart_tools::{BoxZoom, LassoSelection, PanScrollZoom, PointSelec
 pub(crate) struct ToolCompileContext {
     state: Arc<Mutex<ToolCompileState>>,
     coord_node_path: Vec<usize>,
+    time_context: TimeContext,
 }
 
 impl ToolCompileContext {
-    pub(crate) fn root() -> Self {
+    pub(crate) fn root(time_context: TimeContext) -> Self {
         Self {
             state: Arc::new(Mutex::new(ToolCompileState::default())),
             coord_node_path: Vec::new(),
+            time_context,
         }
     }
 
@@ -42,7 +44,19 @@ impl ToolCompileContext {
             coord_node_path: parent
                 .map(|ctx| ctx.coord_node_path.clone())
                 .unwrap_or_default(),
+            time_context: parent
+                .map(|ctx| ctx.time_context.clone())
+                .unwrap_or_default(),
         }
+    }
+
+    pub(crate) fn with_time_context(mut self, time_context: TimeContext) -> Self {
+        self.time_context = time_context;
+        self
+    }
+
+    pub(crate) fn time_context(&self) -> &TimeContext {
+        &self.time_context
     }
 
     pub(crate) fn with_coord_node_path_appended(&self, child_index: usize) -> Self {
@@ -51,6 +65,7 @@ impl ToolCompileContext {
         Self {
             state: self.state.clone(),
             coord_node_path,
+            time_context: self.time_context.clone(),
         }
     }
 
