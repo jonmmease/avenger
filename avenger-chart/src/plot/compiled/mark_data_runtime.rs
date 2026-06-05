@@ -1889,6 +1889,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn shared_calculate_preserves_facet_columns_for_narrowing()
+    -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let df = scoped_facet_dataframe(&session).await;
+        let facet_tree = scoped_facet_tree(df.clone(), &session).await?;
+        let full_path = vec![
+            ScalarValue::Utf8(Some("North".to_string())),
+            ScalarValue::Utf8(Some("West".to_string())),
+        ];
+
+        let mark = Symbol::<Cartesian>::new().transform_shared_no_output(
+            Calculate::new().expr("x_plus_y", col("x") + col("y")),
+            |mark| mark.x(col("x_plus_y")).y(col("y")),
+        );
+        let values =
+            prepared_x_values_for_facet_mark(mark, session, &df, &facet_tree, &full_path).await?;
+
+        assert_eq!(values, vec![0.2, 2.4]);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn filter_transform_preserves_columns() -> Result<(), AvengerChartError> {
         let session = Arc::new(SessionContext::new());
         let df = xy_dataframe(&session);
