@@ -1137,8 +1137,10 @@ async fn build_temp_configured_scale(
             let configured =
                 Box::pin(scale.create_configured_scale(width, height, ctx, params)).await?;
 
-            // Wrap in ConfiguredScaleWithSpec
-            Ok(Some(ConfiguredScaleWithSpec::new(scale, configured)))
+            Ok(Some(
+                ConfiguredScaleWithSpec::new(scale, configured)
+                    .with_derived_scalars(derived_scalars.clone()),
+            ))
         }
         ChannelScaleData::ExplicitDomain {
             scale_spec,
@@ -1178,7 +1180,10 @@ async fn build_temp_configured_scale(
             let configured =
                 Box::pin(scale.create_configured_scale(width, height, ctx, params)).await?;
 
-            Ok(Some(ConfiguredScaleWithSpec::new(scale, configured)))
+            Ok(Some(
+                ConfiguredScaleWithSpec::new(scale, configured)
+                    .with_derived_scalars(derived_scalars.clone()),
+            ))
         }
         ChannelScaleData::RadiusAware { .. } => {
             // Radius‑aware scales are not expected here

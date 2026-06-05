@@ -27,10 +27,10 @@ use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    CompiledSelectionSpec, DataTransformExecutionContext, DerivedScalarMap, MarkDataMode,
-    SelectionClause, SelectionCombine, SelectionPredicateSpec, color::parse_color_string,
-    contains_aggregate, params_to_datafusion, selection_clause_value_id_from_placeholder,
-    selection_id_from_predicate_placeholder,
+    CompiledSelectionSpec, DataTransformExecutionContext, DataTransformStage, DerivedScalarMap,
+    FacetDataScope, MarkDataMode, SelectionClause, SelectionCombine, SelectionPredicateSpec,
+    SharingLevel, color::parse_color_string, contains_aggregate, params_to_datafusion,
+    selection_clause_value_id_from_placeholder, selection_id_from_predicate_placeholder,
 };
 
 use crate::{
@@ -138,20 +138,149 @@ fn aggregate_channels_need_preparation(
 
 async fn apply_mark_data_transforms(
     dataframe: Option<DataFrame>,
-    transforms: &[Box<dyn avenger_chart_core::CompiledDataTransform>],
+    transforms: &[DataTransformStage],
     ctx: &SessionContext,
+    facet_data_scope: Option<FacetDataScopeContext<'_>>,
+    mark_facet_data_scope: FacetDataScope,
 ) -> Result<(Option<DataFrame>, DerivedScalarMap), AvengerChartError> {
     if transforms.is_empty() {
         return Ok((dataframe, DerivedScalarMap::new()));
     }
     let dataframe = dataframe.unwrap_or_else(|| empty_dataframe(ctx));
+    let transforms = scoped_transform_stages(transforms, mark_facet_data_scope)?;
     let transform_ctx = DataTransformExecutionContext {
         session_context: ctx,
     };
-    let result =
-        avenger_chart_core::apply_compiled_data_transforms(dataframe, transforms, &transform_ctx)
-            .await?;
-    Ok((Some(result.dataframe), result.derived_scalars))
+    let mut dataframe = dataframe;
+    let mut derived_scalars = DerivedScalarMap::new();
+    let mut current_level = transforms
+        .first()
+        .map(|stage| stage.level)
+        .unwrap_or_else(|| mark_facet_data_scope.sharing_level());
+
+    dataframe = filter_dataframe_to_transform_scope(
+        dataframe,
+        facet_data_scope,
+        current_level,
+        "initial transform scope",
+    )?;
+
+    for stage in transforms {
+        if stage.level > current_level {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Transform stage scope {:?} is broader than the preceding stage scope {:?}; transform scopes must stay the same or get narrower through a chain",
+                stage.level, current_level
+            )));
+        }
+        if stage.level < current_level {
+            dataframe = filter_dataframe_to_transform_scope(
+                dataframe,
+                facet_data_scope,
+                stage.level,
+                "narrower transform scope",
+            )?;
+            current_level = stage.level;
+        }
+
+        let result = stage.transform.apply(dataframe, &transform_ctx).await?;
+        dataframe = result.dataframe;
+        for (id, expr) in result.derived_scalars {
+            if derived_scalars.insert(id.clone(), expr).is_some() {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Derived scalar '{id}' was produced more than once in the same data scope"
+                )));
+            }
+        }
+    }
+
+    let final_level = mark_facet_data_scope.sharing_level();
+    if final_level < current_level {
+        dataframe = filter_dataframe_to_transform_scope(
+            dataframe,
+            facet_data_scope,
+            final_level,
+            "final mark facet data scope",
+        )?;
+    }
+
+    Ok((Some(dataframe), derived_scalars))
+}
+
+struct ScopedTransformStage<'a> {
+    level: SharingLevel,
+    transform: &'a dyn avenger_chart_core::CompiledDataTransform,
+}
+
+fn scoped_transform_stages(
+    transforms: &[DataTransformStage],
+    mark_facet_data_scope: FacetDataScope,
+) -> Result<Vec<ScopedTransformStage<'_>>, AvengerChartError> {
+    let mark_level = mark_facet_data_scope.sharing_level();
+    let mut stages = Vec::with_capacity(transforms.len());
+    let mut previous_level: Option<SharingLevel> = None;
+    for stage in transforms {
+        let stage_level = SharingLevel::from(stage.scope);
+        let effective_level = stage_level.max(mark_level);
+        if let Some(previous_level) = previous_level
+            && effective_level > previous_level
+        {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Transform stage scope {:?} is broader than the preceding stage scope {:?}; transform scopes must stay the same or get narrower through a chain",
+                effective_level, previous_level
+            )));
+        }
+        previous_level = Some(effective_level);
+        stages.push(ScopedTransformStage {
+            level: effective_level,
+            transform: stage.transform.as_ref(),
+        });
+    }
+    Ok(stages)
+}
+
+fn transform_initial_facet_scope(
+    transforms: &[DataTransformStage],
+    mark_facet_data_scope: FacetDataScope,
+) -> FacetDataScope {
+    let mut level = mark_facet_data_scope.sharing_level();
+    for stage in transforms {
+        level = level.max(SharingLevel::from(stage.scope));
+    }
+    FacetDataScope::from_sharing_level(level)
+}
+
+fn filter_dataframe_to_transform_scope(
+    dataframe: DataFrame,
+    facet_data_scope: Option<FacetDataScopeContext<'_>>,
+    level: SharingLevel,
+    label: &str,
+) -> Result<DataFrame, AvengerChartError> {
+    let Some(scope) = facet_data_scope else {
+        return Ok(dataframe);
+    };
+    if scope.full_path.is_empty() {
+        return Ok(dataframe);
+    }
+    let Some(predicate) = scope
+        .facet_tree
+        .cell_predicate(scope.full_path, level.raw())
+    else {
+        return Ok(dataframe);
+    };
+    let available_columns = dataframe
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| field.name().clone())
+        .collect::<HashSet<_>>();
+    if !expr_columns_are_available(&predicate, Some(&available_columns)) {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Transform output cannot be filtered to {label}; it no longer contains the facet columns required for this scope"
+        )));
+    }
+    dataframe
+        .filter(predicate)
+        .map_err(AvengerChartError::DataFusionError)
 }
 
 fn validate_runtime_aggregate_channels(
@@ -218,6 +347,7 @@ fn expand_selection_predicates_in_channels(
                 legend_config,
                 axis_config,
                 share_mode,
+                transform_scope,
             } => {
                 let expanded =
                     expand_selection_predicates(expr.to_expr(ctx)?, eval_ctx, available_columns)?;
@@ -229,6 +359,7 @@ fn expand_selection_predicates_in_channels(
                     legend_config,
                     axis_config,
                     share_mode,
+                    transform_scope,
                 }
             }
             ChannelValue::Value { expr } => {
@@ -245,6 +376,7 @@ fn expand_selection_predicates_in_channels(
                 legend_config,
                 axis_config,
                 share_mode,
+                transform_scope,
             } => {
                 let expanded_conditions = conditions
                     .into_iter()
@@ -296,6 +428,7 @@ fn expand_selection_predicates_in_channels(
                     legend_config,
                     axis_config,
                     share_mode,
+                    transform_scope,
                 }
             }
         };
@@ -568,6 +701,7 @@ fn dataframe_for_mark(
     plot_data: Option<&LogicalPlanNode>,
     provided_plot_df: Option<&DataFrame>,
     facet_data_scope: Option<FacetDataScopeContext<'_>>,
+    mark_facet_data_scope: FacetDataScope,
     channels: &IndexMap<String, ChannelValue>,
     ctx: &SessionContext,
     eval_ctx: &EvaluationContext,
@@ -584,11 +718,9 @@ fn dataframe_for_mark(
         return Ok(Some(mark_df));
     }
 
-    if let Some(df_override) = inherited_data_for_scope(
-        provided_plot_df,
-        mark.state().facet_data_scope,
-        facet_data_scope,
-    )? {
+    if let Some(df_override) =
+        inherited_data_for_scope(provided_plot_df, mark_facet_data_scope, facet_data_scope)?
+    {
         return Ok(Some(df_override));
     }
 
@@ -625,18 +757,28 @@ pub(crate) async fn prepare_logical_mark_data(
 ) -> Result<PreparedLogicalMarkData, AvengerChartError> {
     let ctx = request.eval_ctx.session_context.as_ref();
     let channels = resolve_all_channel_refs(request.mark.data_context().channels(), ctx)?;
+    let transform_initial_scope = transform_initial_facet_scope(
+        request.mark.data_context().transforms(),
+        request.mark.state().facet_data_scope,
+    );
     let dataframe = dataframe_for_mark(
         request.mark,
         request.plot_data,
         request.provided_plot_df,
         request.facet_data_scope,
+        transform_initial_scope,
         &channels,
         ctx,
         request.eval_ctx,
     )?;
-    let (dataframe, derived_scalars) =
-        apply_mark_data_transforms(dataframe, request.mark.data_context().transforms(), ctx)
-            .await?;
+    let (dataframe, derived_scalars) = apply_mark_data_transforms(
+        dataframe,
+        request.mark.data_context().transforms(),
+        ctx,
+        request.facet_data_scope,
+        request.mark.state().facet_data_scope,
+    )
+    .await?;
     let available_columns = dataframe.as_ref().map(|df| {
         df.schema()
             .fields()
@@ -1057,6 +1199,7 @@ pub(crate) async fn prepare_mark_data(
 mod tests {
     use std::{collections::HashMap, sync::Arc};
 
+    use avenger_chart_transforms::{Aggregate, Bin};
     use avenger_scales::scales::{ConfiguredScale, ScaleConfig};
     use datafusion::{
         arrow::{
@@ -1213,6 +1356,35 @@ mod tests {
         let schema = batches[0].schema();
         let batch = concat_batches(&schema, &batches)?;
         Ok(values_as_f64(&batch, channel))
+    }
+
+    async fn prepared_x_values_for_facet_mark(
+        mark: Symbol<Cartesian>,
+        session: Arc<SessionContext>,
+        root_df: &datafusion::dataframe::DataFrame,
+        facet_tree: &EvaluatedFacetTree,
+        full_path: &[ScalarValue],
+    ) -> Result<Vec<f64>, AvengerChartError> {
+        let leaf_df = root_df.clone().filter(
+            facet_tree
+                .cell_predicate(full_path, 0)
+                .expect("leaf facet predicate"),
+        )?;
+        let compiled_mark = mark.compile_untransformed(&session).await?;
+        let eval_ctx = eval_context(session.clone()).with_facet_tree(Arc::new(facet_tree.clone()));
+        let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
+            mark: compiled_mark.as_ref(),
+            plot_data: None,
+            provided_plot_df: Some(&leaf_df),
+            facet_data_scope: Some(FacetDataScopeContext::new(
+                facet_tree,
+                Some(root_df),
+                full_path,
+            )),
+            eval_ctx: &eval_ctx,
+        })
+        .await?;
+        prepared_channel_values(prepared, &session, "x").await
     }
 
     async fn collect_prepared_dataframe(
@@ -1618,6 +1790,142 @@ mod tests {
         assert_eq!(filtered, 1.0);
         assert_eq!(row_level, 6.0);
         assert_eq!(global, 56.0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn transform_scope_controls_bin_owner_data() -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let df = scoped_facet_dataframe(&session).await;
+        let facet_tree = scoped_facet_tree(df.clone(), &session).await?;
+        let north_west = vec![
+            ScalarValue::Utf8(Some("North".to_string())),
+            ScalarValue::Utf8(Some("West".to_string())),
+        ];
+        let north_east = vec![
+            ScalarValue::Utf8(Some("North".to_string())),
+            ScalarValue::Utf8(Some("East".to_string())),
+        ];
+
+        let free_values = prepared_x_values_for_facet_mark(
+            Symbol::<Cartesian>::new()
+                .transform_free(Bin::new(col("x")).maxbins(2), |mark, bin| {
+                    mark.x(bin.start()).y(col("y"))
+                }),
+            session.clone(),
+            &df,
+            &facet_tree,
+            &north_west,
+        )
+        .await?;
+        let row_level_values = prepared_x_values_for_facet_mark(
+            Symbol::<Cartesian>::new().transform_level(
+                1,
+                Bin::new(col("x")).maxbins(2),
+                |mark, bin| mark.x(bin.start()).y(col("y")),
+            ),
+            session.clone(),
+            &df,
+            &facet_tree,
+            &north_east,
+        )
+        .await?;
+        let shared_values = prepared_x_values_for_facet_mark(
+            Symbol::<Cartesian>::new()
+                .transform_shared(Bin::new(col("x")).maxbins(2), |mark, bin| {
+                    mark.x(bin.start()).y(col("y"))
+                }),
+            session.clone(),
+            &df,
+            &facet_tree,
+            &north_west,
+        )
+        .await?;
+
+        assert_eq!(free_values, vec![0.0, 1.0]);
+        assert_eq!(row_level_values, vec![6.0, 6.0]);
+        assert_eq!(shared_values, vec![0.0, 0.0]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn transform_stage_scopes_must_not_broaden() -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let df = xy_dataframe(&session);
+        let eval_ctx = eval_context(session.clone());
+        let mark = Symbol::<Cartesian>::new()
+            .transform_free(
+                Bin::new(col("x")).maxbins(2).name("local_bin"),
+                |mark, bin| mark.x(bin.start()),
+            )
+            .transform_shared(
+                Bin::new(col("x")).maxbins(2).name("shared_bin"),
+                |mark, _| mark.y(col("y")),
+            );
+        let compiled_mark = mark.compile_untransformed(&session).await?;
+        let err = match prepare_logical_mark_data(LogicalMarkDataRequest {
+            mark: compiled_mark.as_ref(),
+            plot_data: None,
+            provided_plot_df: Some(&df),
+            facet_data_scope: None,
+            eval_ctx: &eval_ctx,
+        })
+        .await
+        {
+            Ok(_) => panic!("narrow-to-broad transform scopes should error"),
+            Err(err) => err,
+        };
+
+        assert!(
+            err.to_string().contains("broader than the preceding"),
+            "{err}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn shared_transform_must_keep_facet_columns_for_narrowing()
+    -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let df = scoped_facet_dataframe(&session).await;
+        let facet_tree = scoped_facet_tree(df.clone(), &session).await?;
+        let full_path = vec![
+            ScalarValue::Utf8(Some("North".to_string())),
+            ScalarValue::Utf8(Some("West".to_string())),
+        ];
+
+        let dropped_columns_mark = Symbol::<Cartesian>::new()
+            .transform_shared(Aggregate::new().mean("mean_x", col("x")), |mark, agg| {
+                mark.x(agg.output("mean_x")).y(lit(0.5))
+            });
+        let err = match prepared_x_values_for_facet_mark(
+            dropped_columns_mark,
+            session.clone(),
+            &df,
+            &facet_tree,
+            &full_path,
+        )
+        .await
+        {
+            Ok(_) => panic!("shared aggregate without facet columns should error"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string()
+                .contains("no longer contains the facet columns"),
+            "{err}"
+        );
+
+        let grouped_mark = Symbol::<Cartesian>::new().transform_shared(
+            Aggregate::new()
+                .group_by([col("facet_row"), col("facet_col")])
+                .mean("mean_x", col("x")),
+            |mark, agg| mark.x(agg.output("mean_x")).y(lit(0.5)),
+        );
+        let values =
+            prepared_x_values_for_facet_mark(grouped_mark, session, &df, &facet_tree, &full_path)
+                .await?;
+        assert_eq!(values, vec![1.0]);
         Ok(())
     }
 

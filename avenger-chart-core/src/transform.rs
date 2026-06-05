@@ -1,10 +1,24 @@
 use async_trait::async_trait;
 use datafusion::{dataframe::DataFrame, prelude::SessionContext};
+use serde::{Deserialize, Serialize};
 
-use crate::{AvengerChartError, DerivedScalarMap};
+use crate::{AvengerChartError, DerivedScalarMap, Sharing};
 
 pub struct DataTransformExecutionContext<'a> {
     pub session_context: &'a SessionContext,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DataTransformCompileContext {
+    pub scope: Sharing,
+}
+
+impl DataTransformCompileContext {
+    pub fn new(scope: Sharing) -> Self {
+        Self {
+            scope: scope.to_normalized(),
+        }
+    }
 }
 
 #[typetag::serde(tag = "type")]
@@ -25,6 +39,21 @@ impl Clone for Box<dyn CompiledDataTransform> {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+pub struct DataTransformStage {
+    pub scope: Sharing,
+    pub transform: Box<dyn CompiledDataTransform>,
+}
+
+impl DataTransformStage {
+    pub fn new(scope: Sharing, transform: Box<dyn CompiledDataTransform>) -> Self {
+        Self {
+            scope: scope.to_normalized(),
+            transform,
+        }
+    }
+}
+
 /// Authoring-side transform builder contract.
 ///
 /// Implemented by built-in and external transform crates. The output handle is
@@ -35,6 +64,7 @@ pub trait DataTransform: Clone + Send + Sync + 'static {
 
     fn into_compiled_and_output(
         self,
+        ctx: DataTransformCompileContext,
     ) -> Result<(Box<dyn CompiledDataTransform>, Self::Output), AvengerChartError>;
 }
 
@@ -55,12 +85,12 @@ impl DataTransformResult {
 
 pub async fn apply_compiled_data_transforms(
     mut dataframe: DataFrame,
-    transforms: &[Box<dyn CompiledDataTransform>],
+    transforms: &[DataTransformStage],
     ctx: &DataTransformExecutionContext<'_>,
 ) -> Result<DataTransformResult, AvengerChartError> {
     let mut derived_scalars = DerivedScalarMap::new();
-    for transform in transforms {
-        let result = transform.apply(dataframe, ctx).await?;
+    for stage in transforms {
+        let result = stage.transform.apply(dataframe, ctx).await?;
         dataframe = result.dataframe;
         for (id, expr) in result.derived_scalars {
             if derived_scalars.insert(id.clone(), expr).is_some() {
@@ -142,7 +172,10 @@ mod tests {
     async fn boxed_compiled_transform_clones_and_applies() {
         let ctx = SessionContext::new();
         let dataframe = empty_dataframe(&ctx);
-        let transforms: Vec<Box<dyn CompiledDataTransform>> = vec![Box::new(IdentityTransform)];
+        let transforms = vec![DataTransformStage::new(
+            Sharing::Free,
+            Box::new(IdentityTransform),
+        )];
         let cloned = transforms.clone();
         let result = apply_compiled_data_transforms(
             dataframe,
@@ -158,15 +191,21 @@ mod tests {
     #[tokio::test]
     async fn transform_results_accumulate_derived_scalars() {
         let ctx = SessionContext::new();
-        let transforms: Vec<Box<dyn CompiledDataTransform>> = vec![
-            Box::new(DerivedScalarTransform {
-                id: "first".to_string(),
-                value: 1.0,
-            }),
-            Box::new(DerivedScalarTransform {
-                id: "second".to_string(),
-                value: 2.0,
-            }),
+        let transforms = vec![
+            DataTransformStage::new(
+                Sharing::Free,
+                Box::new(DerivedScalarTransform {
+                    id: "first".to_string(),
+                    value: 1.0,
+                }),
+            ),
+            DataTransformStage::new(
+                Sharing::Free,
+                Box::new(DerivedScalarTransform {
+                    id: "second".to_string(),
+                    value: 2.0,
+                }),
+            ),
         ];
 
         let result = apply_compiled_data_transforms(
@@ -187,15 +226,21 @@ mod tests {
     #[tokio::test]
     async fn duplicate_derived_scalar_ids_error() {
         let ctx = SessionContext::new();
-        let transforms: Vec<Box<dyn CompiledDataTransform>> = vec![
-            Box::new(DerivedScalarTransform {
-                id: "duplicate".to_string(),
-                value: 1.0,
-            }),
-            Box::new(DerivedScalarTransform {
-                id: "duplicate".to_string(),
-                value: 2.0,
-            }),
+        let transforms = vec![
+            DataTransformStage::new(
+                Sharing::Free,
+                Box::new(DerivedScalarTransform {
+                    id: "duplicate".to_string(),
+                    value: 1.0,
+                }),
+            ),
+            DataTransformStage::new(
+                Sharing::Free,
+                Box::new(DerivedScalarTransform {
+                    id: "duplicate".to_string(),
+                    value: 2.0,
+                }),
+            ),
         ];
 
         let result = apply_compiled_data_transforms(
@@ -225,6 +270,18 @@ mod tests {
         let decoded: Box<dyn CompiledDataTransform> =
             bincode::deserialize(&bytes).expect("deserialize transform");
         let json = serde_json::to_string(&decoded).expect("serialize decoded transform as json");
+        assert!(json.contains("test_identity"));
+    }
+
+    #[test]
+    fn transform_stage_serializes_scope_and_transform() {
+        let stage = DataTransformStage::new(Sharing::Level(2), Box::new(IdentityTransform));
+        let bytes = bincode::serialize(&stage).expect("serialize transform stage");
+        let decoded: DataTransformStage =
+            bincode::deserialize(&bytes).expect("deserialize transform stage");
+        assert_eq!(decoded.scope, Sharing::Level(2));
+
+        let json = serde_json::to_string(&decoded).expect("serialize decoded stage as json");
         assert!(json.contains("test_identity"));
     }
 }

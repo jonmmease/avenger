@@ -84,10 +84,55 @@ macro_rules! impl_mark_base {
                 T: $crate::DataTransform,
                 F: FnOnce(Self, T::Output) -> Self,
             {
+                self.transform_free(transform, f)
+            }
+
+            /// Apply a data transform at fully filtered/free facet scope.
+            pub fn transform_free<T, F>(self, transform: T, f: F) -> Self
+            where
+                T: $crate::DataTransform,
+                F: FnOnce(Self, T::Output) -> Self,
+            {
+                self.transform_with_scope($crate::Sharing::Free, transform, f)
+            }
+
+            /// Apply a data transform at a specific logical facet sharing level.
+            pub fn transform_level<T, F>(self, level: u8, transform: T, f: F) -> Self
+            where
+                T: $crate::DataTransform,
+                F: FnOnce(Self, T::Output) -> Self,
+            {
+                self.transform_with_scope($crate::Sharing::Level(level), transform, f)
+            }
+
+            /// Apply a data transform at shared/global facet scope.
+            pub fn transform_shared<T, F>(self, transform: T, f: F) -> Self
+            where
+                T: $crate::DataTransform,
+                F: FnOnce(Self, T::Output) -> Self,
+            {
+                self.transform_with_scope($crate::Sharing::Shared, transform, f)
+            }
+
+            /// Apply a data transform at the specified facet sharing scope.
+            pub fn transform_with_scope<T, F>(
+                mut self,
+                scope: $crate::Sharing,
+                transform: T,
+                f: F,
+            ) -> Self
+            where
+                T: $crate::DataTransform,
+                F: FnOnce(Self, T::Output) -> Self,
+            {
+                let scope = scope.to_normalized();
                 let (compiled_transform, output) = transform
-                    .into_compiled_and_output()
+                    .into_compiled_and_output($crate::DataTransformCompileContext::new(scope))
                     .expect("Failed to build data transform");
-                self.state.data = self.state.data.with_transform(compiled_transform);
+                self.state.data = self
+                    .state
+                    .data
+                    .with_transform_stage(scope, compiled_transform);
                 f(self, output)
             }
 

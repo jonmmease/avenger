@@ -5,9 +5,9 @@ use avenger_chart_core::{
     AvengerChartError, Axis, AxisVisibility, CoordinationAxis, GuideSharingContext,
     INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM, IntoExpr, LayoutBounds, Maybe,
     MaybeOptionalExpr, ScalarValueHelpers, SharingGroupEdge, SharingLevel, Theme,
-    axis_ownership_mode_from_params, eval_to_scalars, evaluate_axis_position_expr,
-    evaluate_bool_expr, evaluate_f32_expr, evaluate_string_expr, owner_for_edge,
-    params_to_datafusion, project_container_edge_levels, resolve_derived_scalars,
+    axis_ownership_mode_from_params, collect_derived_scalar_ids, eval_to_scalars,
+    evaluate_axis_position_expr, evaluate_bool_expr, evaluate_f32_expr, evaluate_string_expr,
+    owner_for_edge, params_to_datafusion, project_container_edge_levels, resolve_derived_scalars,
     serialization::DefaultLogicalExprNodeExt,
 };
 use avenger_guides::axis::{
@@ -653,6 +653,9 @@ async fn evaluate_tick_spacing(
     };
     let spacing_expr =
         resolve_axis_expr(spacing_node.to_default_expr(ctx)?, channel, sharing_context)?;
+    if !collect_derived_scalar_ids(&spacing_expr)?.is_empty() {
+        return Ok(None);
+    }
     let spacing = evaluate_scalar_expr(&spacing_expr, ctx, params).await?;
     Ok(Some(extract_tick_spacing(spacing)?))
 }

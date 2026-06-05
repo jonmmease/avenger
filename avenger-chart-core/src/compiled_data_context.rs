@@ -6,7 +6,7 @@ use datafusion::{dataframe::DataFrame, prelude::SessionContext};
 use datafusion_proto::protobuf::LogicalPlanNode;
 
 use crate::{
-    ChannelValue, CompiledDataTransform, LogicalPlanNodeExt, SerializableDataFrame, StoreData,
+    ChannelValue, DataTransformStage, LogicalPlanNodeExt, SerializableDataFrame, StoreData,
 };
 
 /// Compiled version of DataContext - stores serialized LogicalPlanNode
@@ -18,7 +18,7 @@ pub struct CompiledDataContext {
     logical_plan: Option<LogicalPlanNode>,
     store_data: Option<StoreData>,
     #[serde(default)]
-    transforms: Vec<Box<dyn CompiledDataTransform>>,
+    transforms: Vec<DataTransformStage>,
     channels: IndexMap<String, ChannelValue>,
 }
 
@@ -26,7 +26,7 @@ impl CompiledDataContext {
     /// Create a new CompiledDataContext from a DataFrame
     pub fn new(
         dataframe: Option<DataFrame>,
-        transforms: Vec<Box<dyn CompiledDataTransform>>,
+        transforms: Vec<DataTransformStage>,
         channels: IndexMap<String, ChannelValue>,
     ) -> Self {
         let logical_plan = if let Some(df) = dataframe {
@@ -45,7 +45,7 @@ impl CompiledDataContext {
 
     pub fn new_store_data(
         store_data: StoreData,
-        transforms: Vec<Box<dyn CompiledDataTransform>>,
+        transforms: Vec<DataTransformStage>,
         channels: IndexMap<String, ChannelValue>,
     ) -> Self {
         Self {
@@ -59,7 +59,7 @@ impl CompiledDataContext {
     /// Create from an existing LogicalPlanNode (for backwards compatibility)
     pub fn from_logical_plan_node(
         logical_plan: Option<LogicalPlanNode>,
-        transforms: Vec<Box<dyn CompiledDataTransform>>,
+        transforms: Vec<DataTransformStage>,
         channels: IndexMap<String, ChannelValue>,
     ) -> Self {
         Self {
@@ -93,7 +93,7 @@ impl CompiledDataContext {
         &self.channels
     }
 
-    pub fn transforms(&self) -> &[Box<dyn CompiledDataTransform>] {
+    pub fn transforms(&self) -> &[DataTransformStage] {
         &self.transforms
     }
 

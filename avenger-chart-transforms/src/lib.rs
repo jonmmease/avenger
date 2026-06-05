@@ -2,8 +2,9 @@ use async_trait::async_trait;
 use avenger_chart_cartesian::CartesianAxis;
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, CompiledDataTransform, DataTransform,
-    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt,
-    DerivedScalarMap, ScaleChannelValue, SerializableExpr, derived_scalar,
+    DataTransformCompileContext, DataTransformExecutionContext, DataTransformResult,
+    DefaultLogicalExprNodeExt, DerivedScalarMap, ScaleChannelValue, SerializableExpr,
+    derived_scalar,
 };
 use datafusion::{
     arrow::datatypes::DataType,
@@ -130,6 +131,7 @@ impl DataTransform for Aggregate {
 
     fn into_compiled_and_output(
         self,
+        _ctx: DataTransformCompileContext,
     ) -> Result<(Box<dyn CompiledDataTransform>, Self::Output), AvengerChartError> {
         let mut names = IndexMap::new();
         for group in &self.group_by {
@@ -279,6 +281,7 @@ impl DataTransform for Stack {
 
     fn into_compiled_and_output(
         self,
+        _ctx: DataTransformCompileContext,
     ) -> Result<(Box<dyn CompiledDataTransform>, Self::Output), AvengerChartError> {
         if avenger_chart_core::contains_aggregate(&self.value) {
             return Err(AvengerChartError::InvalidArgument(
@@ -363,6 +366,7 @@ impl DataTransform for Bin {
 
     fn into_compiled_and_output(
         self,
+        ctx: DataTransformCompileContext,
     ) -> Result<(Box<dyn CompiledDataTransform>, Self::Output), AvengerChartError> {
         if self.maxbins == 0 {
             return Err(AvengerChartError::InvalidArgument(
@@ -405,6 +409,7 @@ impl DataTransform for Bin {
                 domain_start_scalar_id,
                 domain_end_scalar_id,
                 tick_spacing_scalar_id,
+                scope: ctx.scope,
             },
         ))
     }
@@ -418,14 +423,23 @@ pub struct BinOutput {
     domain_start_scalar_id: String,
     domain_end_scalar_id: String,
     tick_spacing_scalar_id: String,
+    scope: avenger_chart_core::Sharing,
 }
 
 impl BinOutput {
     pub fn start(&self) -> ChannelValue {
+        self.position_channel(&self.start_name)
+    }
+
+    pub fn end(&self) -> ChannelValue {
+        self.position_channel(&self.end_name)
+    }
+
+    fn position_channel(&self, column_name: &str) -> ChannelValue {
         let domain_start_scalar_id = self.domain_start_scalar_id.clone();
         let domain_end_scalar_id = self.domain_end_scalar_id.clone();
         let tick_spacing_scalar_id = self.tick_spacing_scalar_id.clone();
-        ChannelValue::from(col(&self.start_name))
+        ChannelValue::from(col(column_name))
             .scale(move |scale| {
                 scale
                     .domain_interval(
@@ -438,10 +452,7 @@ impl BinOutput {
             .with_axis_config(
                 CartesianAxis::new().tick_spacing(derived_scalar(&tick_spacing_scalar_id, None)),
             )
-    }
-
-    pub fn end(&self) -> ChannelValue {
-        ChannelValue::from(col(&self.end_name))
+            .with_transform_scope(self.scope)
     }
 
     pub fn index(&self) -> Expr {
@@ -1091,7 +1102,7 @@ mod tests {
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     };
-    use avenger_chart_core::collect_derived_scalar_ids;
+    use avenger_chart_core::{DataTransformStage, Sharing, collect_derived_scalar_ids};
     use datafusion::prelude::SessionContext;
     use std::sync::Arc;
 
@@ -1135,7 +1146,7 @@ mod tests {
     async fn transformed_batches(
         ctx: &SessionContext,
         dataframe: DataFrame,
-        transforms: Vec<Box<dyn CompiledDataTransform>>,
+        transforms: Vec<DataTransformStage>,
     ) -> Vec<RecordBatch> {
         avenger_chart_core::apply_compiled_data_transforms(
             dataframe,
@@ -1150,6 +1161,20 @@ mod tests {
         .collect()
         .await
         .unwrap()
+    }
+
+    fn compile_transform<T: DataTransform>(transform: T) -> (DataTransformStage, T::Output) {
+        compile_transform_with_scope(Sharing::Free, transform)
+    }
+
+    fn compile_transform_with_scope<T: DataTransform>(
+        scope: Sharing,
+        transform: T,
+    ) -> (DataTransformStage, T::Output) {
+        let (compiled, output) = transform
+            .into_compiled_and_output(DataTransformCompileContext::new(scope))
+            .unwrap();
+        (DataTransformStage::new(scope, compiled), output)
     }
 
     fn bin_rows(batch: &RecordBatch) -> Vec<(Option<f64>, Option<f64>, Option<f64>, Option<i64>)> {
@@ -1264,7 +1289,7 @@ mod tests {
         let transform = Aggregate::new()
             .group_by([col("category"), col("series")])
             .sum("total_value", col("value"));
-        let (compiled_transform, output) = transform.into_compiled_and_output().unwrap();
+        let (compiled_transform, output) = compile_transform(transform);
         assert_eq!(output.output("total_value").to_string(), "total_value");
         let result = avenger_chart_core::apply_compiled_data_transforms(
             dataframe,
@@ -1285,7 +1310,7 @@ mod tests {
         let output = Bin::new(col("value"))
             .maxbins(4)
             .name("custom_bin")
-            .into_compiled_and_output()
+            .into_compiled_and_output(DataTransformCompileContext::new(Sharing::Free))
             .unwrap()
             .1;
 
@@ -1316,8 +1341,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn bin_output_uses_stage_scope_as_default_scale_sharing() {
+        let output = Bin::new(col("value"))
+            .maxbins(4)
+            .into_compiled_and_output(DataTransformCompileContext::new(Sharing::Level(1)))
+            .unwrap()
+            .1;
+
+        let start = output.start();
+        let end = output.end();
+        assert_eq!(start.get_share_mode(), Some(Sharing::Level(1)));
+        assert_eq!(start.get_transform_scope(), Some(Sharing::Level(1)));
+        assert_eq!(end.get_share_mode(), Some(Sharing::Level(1)));
+        assert_eq!(end.get_transform_scope(), Some(Sharing::Level(1)));
+    }
+
+    #[tokio::test]
     async fn bin_maxbins_zero_errors() {
-        let err = match Bin::new(col("value")).maxbins(0).into_compiled_and_output() {
+        let err = match Bin::new(col("value"))
+            .maxbins(0)
+            .into_compiled_and_output(DataTransformCompileContext::new(Sharing::Free))
+        {
             Ok(_) => panic!("maxbins zero should fail"),
             Err(err) => err,
         };
@@ -1328,10 +1372,7 @@ mod tests {
     async fn bin_exact_count_clamps_max_and_preserves_nulls() {
         let ctx = SessionContext::new();
         let dataframe = bin_dataframe(&ctx);
-        let (compiled_transform, output) = Bin::new(col("value"))
-            .maxbins(4)
-            .into_compiled_and_output()
-            .unwrap();
+        let (compiled_transform, output) = compile_transform(Bin::new(col("value")).maxbins(4));
         assert_eq!(output.index().to_string(), "value_bin_index");
 
         let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
@@ -1362,10 +1403,7 @@ mod tests {
         )
         .unwrap();
         let dataframe = ctx.read_batch(batch).unwrap();
-        let (compiled_transform, _) = Bin::new(col("value"))
-            .maxbins(3)
-            .into_compiled_and_output()
-            .unwrap();
+        let (compiled_transform, _) = compile_transform(Bin::new(col("value")).maxbins(3));
 
         let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
         let rows = bin_rows_from_batches(&batches);
@@ -1382,10 +1420,7 @@ mod tests {
     async fn bin_returns_derived_scalars() {
         let ctx = SessionContext::new();
         let dataframe = bin_dataframe(&ctx);
-        let (compiled_transform, _) = Bin::new(col("value"))
-            .maxbins(4)
-            .into_compiled_and_output()
-            .unwrap();
+        let (compiled_transform, _) = compile_transform(Bin::new(col("value")).maxbins(4));
         let result = avenger_chart_core::apply_compiled_data_transforms(
             dataframe,
             &[compiled_transform],
@@ -1416,7 +1451,7 @@ mod tests {
             .group_by([col("category")])
             .sort_by_exprs([col("series")])
             .name("value_stack");
-        let (compiled_transform, output) = transform.into_compiled_and_output().unwrap();
+        let (compiled_transform, output) = compile_transform(transform);
         assert!(matches!(output.start(), ChannelValue::Scaled { .. }));
         let result = avenger_chart_core::apply_compiled_data_transforms(
             dataframe,
@@ -1436,12 +1471,12 @@ mod tests {
     async fn stack_zero_computes_positive_and_negative_extents() {
         let ctx = SessionContext::new();
         let dataframe = sample_dataframe(&ctx);
-        let (compiled_transform, _) = Stack::new(col("value"))
-            .group_by([col("category")])
-            .sort_by_exprs([col("series")])
-            .name("value_stack")
-            .into_compiled_and_output()
-            .unwrap();
+        let (compiled_transform, _) = compile_transform(
+            Stack::new(col("value"))
+                .group_by([col("category")])
+                .sort_by_exprs([col("series")])
+                .name("value_stack"),
+        );
         let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
         assert_stack_rows(
             stack_rows_from_batches(&batches),
@@ -1458,13 +1493,13 @@ mod tests {
     async fn stack_normalize_uses_absolute_group_totals() {
         let ctx = SessionContext::new();
         let dataframe = sample_dataframe(&ctx);
-        let (compiled_transform, _) = Stack::new(col("value"))
-            .group_by([col("category")])
-            .sort_by_exprs([col("series")])
-            .offset(StackOffset::Normalize)
-            .name("value_stack")
-            .into_compiled_and_output()
-            .unwrap();
+        let (compiled_transform, _) = compile_transform(
+            Stack::new(col("value"))
+                .group_by([col("category")])
+                .sort_by_exprs([col("series")])
+                .offset(StackOffset::Normalize)
+                .name("value_stack"),
+        );
         let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
         assert_stack_rows(
             stack_rows_from_batches(&batches),
@@ -1481,13 +1516,13 @@ mod tests {
     async fn stack_center_offsets_smaller_groups() {
         let ctx = SessionContext::new();
         let dataframe = sample_dataframe(&ctx);
-        let (compiled_transform, _) = Stack::new(col("value"))
-            .group_by([col("category")])
-            .sort_by_exprs([col("series")])
-            .offset(StackOffset::Center)
-            .name("value_stack")
-            .into_compiled_and_output()
-            .unwrap();
+        let (compiled_transform, _) = compile_transform(
+            Stack::new(col("value"))
+                .group_by([col("category")])
+                .sort_by_exprs([col("series")])
+                .offset(StackOffset::Center)
+                .name("value_stack"),
+        );
         let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
         assert_stack_rows(
             stack_rows_from_batches(&batches),
@@ -1504,17 +1539,17 @@ mod tests {
     async fn aggregate_output_feeds_stack_transform() {
         let ctx = SessionContext::new();
         let dataframe = sample_dataframe(&ctx);
-        let (aggregate_transform, aggregate) = Aggregate::new()
-            .group_by([col("category"), col("series")])
-            .sum("total_value", col("value"))
-            .into_compiled_and_output()
-            .unwrap();
-        let (stack_transform, _) = Stack::new(aggregate.output("total_value"))
-            .group_by([col("category")])
-            .sort_by_exprs([col("series")])
-            .name("value_stack")
-            .into_compiled_and_output()
-            .unwrap();
+        let (aggregate_transform, aggregate) = compile_transform(
+            Aggregate::new()
+                .group_by([col("category"), col("series")])
+                .sum("total_value", col("value")),
+        );
+        let (stack_transform, _) = compile_transform(
+            Stack::new(aggregate.output("total_value"))
+                .group_by([col("category")])
+                .sort_by_exprs([col("series")])
+                .name("value_stack"),
+        );
         let batches =
             transformed_batches(&ctx, dataframe, vec![aggregate_transform, stack_transform]).await;
         assert_stack_rows(

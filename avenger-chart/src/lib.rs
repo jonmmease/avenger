@@ -70,6 +70,7 @@ mod serialization_tests {
             legend_config: None,
             axis_config: None,
             share_mode: None,
+            transform_scope: None,
         };
 
         // Serialize to JSON

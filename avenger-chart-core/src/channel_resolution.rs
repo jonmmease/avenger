@@ -419,6 +419,7 @@ pub fn resolve_all_channel_refs(
                     legend_config,
                     axis_config,
                     share_mode,
+                    transform_scope,
                 } => {
                     let resolved_expr = resolve_channel_refs(expr.clone(), &resolved_channels, ctx);
                     ChannelValue::Scaled {
@@ -429,6 +430,7 @@ pub fn resolve_all_channel_refs(
                         legend_config: legend_config.clone(),
                         axis_config: axis_config.clone(),
                         share_mode: *share_mode,
+                        transform_scope: *transform_scope,
                     }
                 }
                 ChannelValue::Value { expr } => {
@@ -444,6 +446,7 @@ pub fn resolve_all_channel_refs(
                     legend_config,
                     axis_config,
                     share_mode,
+                    transform_scope,
                 } => {
                     // Resolve channel references in conditions and otherwise
                     let resolved_conditions = conditions
@@ -487,6 +490,7 @@ pub fn resolve_all_channel_refs(
                         legend_config: legend_config.clone(),
                         axis_config: axis_config.clone(),
                         share_mode: *share_mode,
+                        transform_scope: *transform_scope,
                     }
                 }
             };
@@ -518,6 +522,7 @@ mod tests {
                 legend_config: None,
                 axis_config: None,
                 share_mode: None,
+                transform_scope: None,
             },
         );
         channels.insert(
@@ -531,6 +536,7 @@ mod tests {
                 legend_config: None,
                 axis_config: None,
                 share_mode: None,
+                transform_scope: None,
             },
         );
 
@@ -563,6 +569,7 @@ mod tests {
                 legend_config: None,
                 axis_config: None,
                 share_mode: None,
+                transform_scope: None,
             },
         );
         channels.insert(
@@ -576,6 +583,7 @@ mod tests {
                 legend_config: None,
                 axis_config: None,
                 share_mode: None,
+                transform_scope: None,
             },
         );
         channels.insert(
@@ -589,6 +597,7 @@ mod tests {
                 legend_config: None,
                 axis_config: None,
                 share_mode: None,
+                transform_scope: None,
             },
         );
 
@@ -628,6 +637,7 @@ mod tests {
                 legend_config: None,
                 axis_config: None,
                 share_mode: None,
+                transform_scope: None,
             },
         );
 
@@ -656,6 +666,7 @@ mod tests {
                 legend_config: None,
                 axis_config: None,
                 share_mode: None,
+                transform_scope: None,
             },
         );
         channels.insert(
@@ -668,6 +679,7 @@ mod tests {
                 legend_config: None,
                 axis_config: None,
                 share_mode: None,
+                transform_scope: None,
             },
         );
 
@@ -703,6 +715,7 @@ mod tests {
                 legend_config: None,
                 axis_config: None,
                 share_mode: None,
+                transform_scope: None,
             },
         );
         channels.insert(
@@ -715,6 +728,7 @@ mod tests {
                 legend_config: None,
                 axis_config: None,
                 share_mode: None,
+                transform_scope: None,
             },
         );
 
@@ -751,6 +765,7 @@ mod tests {
                 legend_config: None,
                 axis_config: None,
                 share_mode: None,
+                transform_scope: None,
             },
         );
         channels.insert(
@@ -763,6 +778,7 @@ mod tests {
                 legend_config: None,
                 axis_config: None,
                 share_mode: None,
+                transform_scope: None,
             },
         );
         channels.insert(
@@ -776,6 +792,7 @@ mod tests {
                 legend_config: None,
                 axis_config: None,
                 share_mode: None,
+                transform_scope: None,
             },
         );
 
@@ -845,6 +862,7 @@ mod tests {
                 legend_config: None,
                 axis_config: None,
                 share_mode: None,
+                transform_scope: None,
             },
         );
         channels.insert(
@@ -858,6 +876,7 @@ mod tests {
                 legend_config: None,
                 axis_config: None,
                 share_mode: None,
+                transform_scope: None,
             },
         );
         channels.insert(
@@ -871,6 +890,7 @@ mod tests {
                 legend_config: None,
                 axis_config: None,
                 share_mode: None,
+                transform_scope: None,
             },
         );
         channels.insert(
@@ -884,6 +904,7 @@ mod tests {
                 legend_config: None,
                 axis_config: None,
                 share_mode: None,
+                transform_scope: None,
             },
         );
 
@@ -910,6 +931,7 @@ mod tests {
                 legend_config: None,
                 axis_config: None,
                 share_mode: None,
+                transform_scope: None,
             },
         );
         channels.insert(
@@ -922,6 +944,7 @@ mod tests {
                 legend_config: None,
                 axis_config: None,
                 share_mode: None,
+                transform_scope: None,
             },
         );
 

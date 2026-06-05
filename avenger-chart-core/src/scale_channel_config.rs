@@ -41,6 +41,7 @@ pub trait ScaleChannelConfig: ChannelConfig {
                 scale_config,
                 legend_config,
                 axis_config,
+                transform_scope,
                 ..
             } => ChannelValue::Scaled {
                 expr,
@@ -50,6 +51,7 @@ pub trait ScaleChannelConfig: ChannelConfig {
                 legend_config,
                 axis_config,
                 share_mode: Some(normalized),
+                transform_scope,
             },
             ChannelValue::Conditional {
                 conditions,
@@ -57,6 +59,7 @@ pub trait ScaleChannelConfig: ChannelConfig {
                 scale_config,
                 legend_config,
                 axis_config,
+                transform_scope,
                 ..
             } => ChannelValue::Conditional {
                 conditions,
@@ -65,6 +68,7 @@ pub trait ScaleChannelConfig: ChannelConfig {
                 legend_config,
                 axis_config,
                 share_mode: Some(normalized),
+                transform_scope,
             },
             other => other,
         };
@@ -128,6 +132,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             legend_config,
             axis_config,
             share_mode,
+            transform_scope,
             ..
         } => ChannelValue::Scaled {
             expr,
@@ -137,6 +142,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             legend_config,
             axis_config,
             share_mode,
+            transform_scope,
         },
         ChannelValue::Conditional {
             conditions,
@@ -144,6 +150,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             legend_config,
             axis_config,
             share_mode,
+            transform_scope,
             ..
         } => ChannelValue::Conditional {
             conditions,
@@ -152,6 +159,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             legend_config,
             axis_config,
             share_mode,
+            transform_scope,
         },
         ChannelValue::Value { .. } => value,
     }

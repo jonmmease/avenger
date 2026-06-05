@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 use avenger_chart::prelude::*;
 use avenger_chart_core::{
-    AvengerChartError, CompiledDataTransform, DataTransformExecutionContext, DataTransformResult,
+    AvengerChartError, CompiledDataTransform, DataTransformCompileContext,
+    DataTransformExecutionContext, DataTransformResult,
 };
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
@@ -48,6 +49,7 @@ impl DataTransform for AddConstant {
 
     fn into_compiled_and_output(
         self,
+        _ctx: DataTransformCompileContext,
     ) -> Result<(Box<dyn CompiledDataTransform>, Self::Output), AvengerChartError> {
         let compiled = CompiledAddConstantTransform {
             output_name: self.output_name.clone(),
@@ -115,5 +117,74 @@ async fn custom_data_transform_can_live_outside_builtin_transform_crate()
 
     assert!(evaluated.scene_graph.width > 0.0);
     assert!(evaluated.scene_graph.height > 0.0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn transform_output_scale_cannot_be_shared_broader_than_transform_scope()
+-> Result<(), Box<dyn std::error::Error>> {
+    let ctx = SessionContext::new();
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "source_value",
+        DataType::Float64,
+        false,
+    )]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0]))],
+    )?;
+    let df = ctx.read_batch(batch)?;
+
+    let plot = Plot::<Cartesian>::new()
+        .data(df)
+        .mark(Symbol::new().transform_free(
+            Bin::new(col("source_value")).maxbins(3),
+            |mark, bin| {
+                mark.x_with(bin.start(), |c| c.share_scale())
+                    .y(col("source_value"))
+                    .size(64.0)
+            },
+        ));
+
+    let err = match plot.compile(&ctx).await {
+        Ok(_) => panic!("broader shared scale should be rejected"),
+        Err(err) => err,
+    };
+    assert!(
+        err.to_string()
+            .contains("scale cannot be shared more broadly"),
+        "{err}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn transform_output_scale_can_be_shared_narrower_than_transform_scope()
+-> Result<(), Box<dyn std::error::Error>> {
+    let ctx = SessionContext::new();
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "source_value",
+        DataType::Float64,
+        false,
+    )]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0]))],
+    )?;
+    let df = ctx.read_batch(batch)?;
+
+    let plot = Plot::<Cartesian>::new()
+        .data(df)
+        .mark(Symbol::new().transform_shared(
+            Bin::new(col("source_value")).maxbins(3),
+            |mark, bin| {
+                mark.x_with(bin.start(), |c| c.free_scale())
+                    .y(col("source_value"))
+                    .size(64.0)
+            },
+        ));
+
+    let compiled = plot.compile(&ctx).await?;
+    assert!(!compiled.marks().is_empty());
     Ok(())
 }

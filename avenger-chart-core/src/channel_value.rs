@@ -173,6 +173,9 @@ pub enum ChannelValue {
         /// Share this channel's scale across facets using Sharing enum
         #[serde(default)]
         share_mode: Option<Sharing>,
+        /// Scope of the transform stage that produced this value, if any.
+        #[serde(default)]
+        transform_scope: Option<Sharing>,
     },
     /// Expression that bypasses scaling (identity transformation)
     Value {
@@ -196,6 +199,9 @@ pub enum ChannelValue {
         /// Share this channel's scale across facets using Sharing enum
         #[serde(default)]
         share_mode: Option<Sharing>,
+        /// Scope of the transform stage that produced this value, if any.
+        #[serde(default)]
+        transform_scope: Option<Sharing>,
     },
 }
 
@@ -203,7 +209,10 @@ impl std::fmt::Debug for ChannelValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ChannelValue::Scaled {
-                scale_name, band, ..
+                scale_name,
+                band,
+                transform_scope,
+                ..
             } => f
                 .debug_struct("Scaled")
                 .field("expr", &"<SerializableExpr>".to_string())
@@ -212,6 +221,7 @@ impl std::fmt::Debug for ChannelValue {
                 .field("has_scale_config", &self.has_scale_config())
                 .field("has_legend_config", &self.has_legend_config())
                 .field("has_axis_config", &self.has_axis_config())
+                .field("transform_scope", transform_scope)
                 .finish(),
             ChannelValue::Value { expr: _ } => f
                 .debug_struct("Identity")
@@ -293,6 +303,63 @@ impl ChannelValue {
         }
     }
 
+    /// Get the transform scope that produced this channel value, if any.
+    pub fn get_transform_scope(&self) -> Option<Sharing> {
+        match self {
+            ChannelValue::Scaled {
+                transform_scope, ..
+            }
+            | ChannelValue::Conditional {
+                transform_scope, ..
+            } => *transform_scope,
+            ChannelValue::Value { .. } => None,
+        }
+    }
+
+    /// Attach transform-scope metadata and use it as default scale sharing.
+    pub fn with_transform_scope(self, scope: Sharing) -> Self {
+        let scope = scope.to_normalized();
+        match self {
+            ChannelValue::Scaled {
+                expr,
+                scale_name,
+                band,
+                scale_config,
+                legend_config,
+                axis_config,
+                share_mode,
+                ..
+            } => ChannelValue::Scaled {
+                expr,
+                scale_name,
+                band,
+                scale_config,
+                legend_config,
+                axis_config,
+                share_mode: share_mode.or(Some(scope)),
+                transform_scope: Some(scope),
+            },
+            ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                legend_config,
+                axis_config,
+                share_mode,
+                ..
+            } => ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                legend_config,
+                axis_config,
+                share_mode: share_mode.or(Some(scope)),
+                transform_scope: Some(scope),
+            },
+            ChannelValue::Value { expr } => ChannelValue::Value { expr },
+        }
+    }
+
     /// Attach default axis configuration to this channel value.
     ///
     /// The defaults apply only when this value is used on a coordinate position
@@ -312,6 +379,7 @@ impl ChannelValue {
                 scale_config,
                 legend_config,
                 share_mode,
+                transform_scope,
                 ..
             } => ChannelValue::Scaled {
                 expr,
@@ -321,6 +389,7 @@ impl ChannelValue {
                 legend_config,
                 axis_config: Some(axis_config),
                 share_mode,
+                transform_scope,
             },
             ChannelValue::Value { expr } => ChannelValue::Value { expr },
             ChannelValue::Conditional {
@@ -329,6 +398,7 @@ impl ChannelValue {
                 scale_config,
                 legend_config,
                 share_mode,
+                transform_scope,
                 ..
             } => ChannelValue::Conditional {
                 conditions,
@@ -337,6 +407,7 @@ impl ChannelValue {
                 legend_config,
                 axis_config: Some(axis_config),
                 share_mode,
+                transform_scope,
             },
         }
     }
@@ -506,6 +577,7 @@ impl ChannelValue {
                 legend_config,
                 axis_config,
                 share_mode,
+                transform_scope,
                 ..
             } => ChannelValue::Scaled {
                 expr: expr.clone(),
@@ -515,6 +587,7 @@ impl ChannelValue {
                 legend_config: legend_config.clone(),
                 axis_config: axis_config.clone(),
                 share_mode,
+                transform_scope,
             },
             other => other, // No-op for identity and conditional values
         }
@@ -531,6 +604,7 @@ impl ChannelValue {
                 legend_config,
                 axis_config,
                 share_mode,
+                transform_scope,
                 ..
             } => ChannelValue::Scaled {
                 expr: new_expr,
@@ -540,6 +614,7 @@ impl ChannelValue {
                 legend_config,
                 axis_config,
                 share_mode,
+                transform_scope,
             },
             ChannelValue::Value { .. } => ChannelValue::Value { expr: new_expr },
             ChannelValue::Conditional { .. } => {
@@ -552,6 +627,7 @@ impl ChannelValue {
                     legend_config: None,
                     axis_config: None,
                     share_mode: None,
+                    transform_scope: None,
                 }
             }
         }
@@ -566,6 +642,8 @@ impl ChannelValue {
                 scale_config,
                 legend_config,
                 axis_config,
+                share_mode,
+                transform_scope,
                 ..
             } => ChannelValue::Scaled {
                 expr: expr.clone(),
@@ -574,7 +652,8 @@ impl ChannelValue {
                 scale_config: scale_config.clone(),
                 legend_config: legend_config.clone(),
                 axis_config: axis_config.clone(),
-                share_mode: None,
+                share_mode,
+                transform_scope,
             },
             ChannelValue::Value { expr } => {
                 // Convert to scaled with custom scale
@@ -586,6 +665,7 @@ impl ChannelValue {
                     legend_config: None,
                     axis_config: None,
                     share_mode: None,
+                    transform_scope: None,
                 }
             }
             ChannelValue::Conditional { .. } => {
@@ -666,6 +746,7 @@ impl From<Expr> for ChannelValue {
             legend_config: None,
             axis_config: None,
             share_mode: None,
+            transform_scope: None,
         }
     }
 }
@@ -1015,6 +1096,7 @@ mod tests {
                 legend_config: None,
                 axis_config: None,
                 share_mode: None,
+                transform_scope: None,
             };
             // Conditional values don't have a single column name
             assert_eq!(cv.as_column_name(&ctx), None);
@@ -1077,6 +1159,7 @@ mod tests {
             legend_config: None,
             axis_config: None,
             share_mode: None,
+            transform_scope: None,
         };
 
         // expr() returns None for conditional
@@ -1141,6 +1224,7 @@ mod tests {
             legend_config: None,
             axis_config: None,
             share_mode: None,
+            transform_scope: None,
         };
 
         let domain_expr = cv.expr_for_domain(&ctx);
@@ -1209,6 +1293,7 @@ mod tests {
             legend_config: None,
             axis_config: None,
             share_mode: None,
+            transform_scope: None,
         };
 
         // scale_input_expr() should return CASE with NULL for literal branches
@@ -1262,6 +1347,7 @@ mod tests {
             legend_config: None,
             axis_config: None,
             share_mode: None,
+            transform_scope: None,
         };
 
         // scale_input_expr() should return None when all branches are literals
@@ -1298,6 +1384,7 @@ mod tests {
             legend_config: None,
             axis_config: None,
             share_mode: None,
+            transform_scope: None,
         };
 
         // scale_input_expr() should return CASE without NULL (all branches use scale)

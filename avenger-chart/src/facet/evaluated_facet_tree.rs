@@ -1668,9 +1668,17 @@ fn extract_channel_domain_sharing_levels(marks: &[Arc<dyn CompiledMark>]) -> Has
             // Non-facet mark - extract channel-domain sharing levels.
             let data_context = mark.data_context();
             for (channel, channel_value) in data_context.channels() {
-                if let Some(sharing) = channel_value.get_share_mode() {
-                    result.insert(channel.clone(), sharing.to_level());
-                }
+                let Some(sharing) = channel_value.get_share_mode() else {
+                    continue;
+                };
+                let Some(scale_name) = channel_value.get_scale_name(channel) else {
+                    continue;
+                };
+                let level = sharing.to_level();
+                result
+                    .entry(scale_name)
+                    .and_modify(|existing| *existing = (*existing).max(level))
+                    .or_insert(level);
             }
         }
     }

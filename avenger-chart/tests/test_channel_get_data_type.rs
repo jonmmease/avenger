@@ -18,6 +18,7 @@ fn test_channel_value_get_data_type() {
         legend_config: None,
         axis_config: None,
         share_mode: None,
+        transform_scope: None,
     };
 
     // Create a schema with the column

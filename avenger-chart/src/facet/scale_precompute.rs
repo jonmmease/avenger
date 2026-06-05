@@ -533,8 +533,8 @@ pub(crate) async fn build_node_artifacts(
     let child_facet_slot_sharing = resolve_child_facet_slot_sharing(compiled_subplot);
     let has_free_ordered_channel_domain_sharing =
         plot_has_free_ordered_channel_domain_sharing(compiled_subplot);
-    let requires_per_cell_channel_domain_sharing = has_free_ordered_channel_domain_sharing
-        || (facet_tree.has_wrap_levels() && facet_tree.has_free_channel_domain_sharing());
+    let requires_per_cell_channel_domain_sharing =
+        has_free_ordered_channel_domain_sharing || facet_tree.has_free_channel_domain_sharing();
 
     let ancestor_scale_builder_cache = if let Some(sharing_level) = child_facet_slot_sharing {
         if sharing_level > 0 && sharing_level < child_facet_depth {

@@ -113,6 +113,10 @@ impl CompiledPlot {
         self.validate_raw_domain_sharing_recursive(ctx, &param_levels)
     }
 
+    pub(crate) fn validate_transform_output_scale_sharing(&self) -> Result<(), AvengerChartError> {
+        self.validate_transform_output_scale_sharing_recursive()
+    }
+
     fn collect_param_sharing_levels(&self, out: &mut HashMap<String, u8>) {
         for (name, spec) in &self.param_specs {
             out.entry(name.clone())
@@ -166,6 +170,40 @@ impl CompiledPlot {
                 facet
                     .compiled_subplot()
                     .validate_raw_domain_sharing_recursive(ctx, param_levels)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_transform_output_scale_sharing_recursive(&self) -> Result<(), AvengerChartError> {
+        let scale_share_levels = scale_domain_share_levels(&self.marks);
+        for mark in &self.marks {
+            if let Some(facet) = facet_subplot_ref(mark.as_ref()) {
+                facet
+                    .compiled_subplot()
+                    .validate_transform_output_scale_sharing_recursive()?;
+                continue;
+            }
+            for (channel_name, channel_value) in mark.data_context().channels() {
+                let Some(transform_scope) = channel_value.get_transform_scope() else {
+                    continue;
+                };
+                let Some(scale_name) = channel_value.get_scale_name(channel_name) else {
+                    continue;
+                };
+                let transform_level = transform_scope.to_level();
+                let scale_level = scale_share_levels.get(&scale_name).copied().unwrap_or(0);
+                if scale_level > transform_level {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "channel '{channel}' uses values produced by a transform at {transform_sharing}, \
+                         but scale '{scale}' is shared at {scale_sharing}; the scale cannot be shared \
+                         more broadly than the transform output that feeds it",
+                        channel = channel_name,
+                        transform_sharing = describe_sharing_level(transform_level),
+                        scale = scale_name,
+                        scale_sharing = describe_sharing_level(scale_level),
+                    )));
+                }
             }
         }
         Ok(())

@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use avenger_chart::prelude::*;
 use avenger_chart_core::{
-    AvengerChartError, CompiledDataTransform, DataTransformExecutionContext, DataTransformResult,
-    DerivedScalarMap,
+    AvengerChartError, CompiledDataTransform, DataTransformCompileContext,
+    DataTransformExecutionContext, DataTransformResult, DerivedScalarMap,
 };
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::{
@@ -89,6 +89,7 @@ impl DataTransform for AxisTickSpacingTransform {
 
     fn into_compiled_and_output(
         self,
+        _ctx: DataTransformCompileContext,
     ) -> Result<(Box<dyn CompiledDataTransform>, Self::Output), AvengerChartError> {
         Ok((Box::new(CompiledAxisTickSpacingTransform), ()))
     }

@@ -246,7 +246,8 @@ pub use tools::{
     ToolParamSharing, ToolScaleEdit,
 };
 pub use transform::{
-    CompiledDataTransform, DataTransform, DataTransformExecutionContext, DataTransformResult,
+    CompiledDataTransform, DataTransform, DataTransformCompileContext,
+    DataTransformExecutionContext, DataTransformResult, DataTransformStage,
     apply_compiled_data_transforms,
 };
 pub use zero_d::ZeroDCoord;

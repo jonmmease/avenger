@@ -392,6 +392,7 @@ impl<C: CoordinateSystem> Plot<C> {
         // 6. Validate scoped raw-domain params are shared at least as broadly as
         // the scales they drive (catches Free/Level pan misconfigurations early).
         compiled.validate_scoped_raw_domain_sharing(session_context)?;
+        compiled.validate_transform_output_scale_sharing()?;
 
         Ok(compiled)
     }
