@@ -8,7 +8,7 @@ use avenger_chart_core::{
 use datafusion::{
     dataframe::DataFrame,
     logical_expr::{
-        Expr, WindowFrame,
+        Expr, WindowFrame, WindowFunctionDefinition,
         expr::{Sort, WindowFunction},
     },
 };
@@ -195,10 +195,17 @@ fn configure_window_expr(
         }
     }
     if window.params.order_by.is_empty() {
-        return Err(AvengerChartError::InvalidArgument(format!(
-            "Window transform output '{name}' requires an explicit order_by(...) for deterministic results"
-        )));
+        if !is_order_independent_aggregate_window(&window) {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Window transform output '{name}' requires an explicit order_by(...) for deterministic results"
+            )));
+        }
     }
 
     Ok(Expr::from(window).alias(name))
+}
+
+fn is_order_independent_aggregate_window(window: &WindowFunction) -> bool {
+    matches!(window.fun, WindowFunctionDefinition::AggregateUDF(_))
+        && window.params.window_frame == WindowFrame::new(None)
 }

@@ -1079,7 +1079,7 @@ mod tests {
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
-        rows.sort();
+        rows.sort_by(|a, b| (&a.0, a.1).cmp(&(&b.0, b.1)));
         assert_eq!(
             rows,
             vec![
@@ -1280,7 +1280,7 @@ mod tests {
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
-        rows.sort();
+        rows.sort_by(|a, b| (&a.0, a.1).cmp(&(&b.0, b.1)));
         assert_eq!(
             rows,
             vec![
@@ -1289,6 +1289,66 @@ mod tests {
                 ("A".to_string(), 3, 1),
                 ("B".to_string(), 1, 2),
                 ("B".to_string(), 2, 1),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn window_allows_unordered_partition_aggregate() {
+        let ctx = SessionContext::new();
+        let dataframe = window_dataframe(&ctx);
+        let series_total = Expr::from(WindowFunction::new(
+            WindowFunctionDefinition::AggregateUDF(sum_udaf()),
+            vec![col("value")],
+        ));
+        let (compiled_transform, _) = compile_transform(
+            Window::new()
+                .partition_by([col("series")])
+                .expr("series_total", series_total),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let mut rows = batches
+            .iter()
+            .flat_map(|batch| {
+                let series = batch
+                    .column_by_name("series")
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .unwrap();
+                let day = batch
+                    .column_by_name("day")
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap();
+                let total = batch
+                    .column_by_name("series_total")
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<Float64Array>()
+                    .unwrap();
+                (0..batch.num_rows())
+                    .map(|row| {
+                        (
+                            series.value(row).to_string(),
+                            day.value(row),
+                            total.value(row),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        rows.sort_by(|a, b| (&a.0, a.1).cmp(&(&b.0, b.1)));
+        assert_eq!(
+            rows,
+            vec![
+                ("A".to_string(), 1, 7.0),
+                ("A".to_string(), 2, 7.0),
+                ("A".to_string(), 3, 7.0),
+                ("B".to_string(), 1, 8.0),
+                ("B".to_string(), 2, 8.0),
             ]
         );
     }
