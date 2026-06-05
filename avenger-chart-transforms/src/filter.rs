@@ -5,7 +5,11 @@ use avenger_chart_core::{
     DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt,
     SerializableExpr,
 };
-use datafusion::{dataframe::DataFrame, logical_expr::Expr};
+use datafusion::{
+    arrow::datatypes::DataType,
+    dataframe::DataFrame,
+    logical_expr::{Expr, cast},
+};
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
@@ -56,9 +60,13 @@ impl CompiledDataTransform for CompiledFilterTransform {
         dataframe: DataFrame,
         ctx: &DataTransformExecutionContext<'_>,
     ) -> Result<DataTransformResult, AvengerChartError> {
+        let predicate = cast(
+            self.predicate.to_default_expr(ctx.session_context)?,
+            DataType::Boolean,
+        );
         Ok(DataTransformResult::dataframe(
             dataframe
-                .filter(self.predicate.to_default_expr(ctx.session_context)?)
+                .filter(predicate)
                 .map_err(AvengerChartError::DataFusionError)?,
         ))
     }

@@ -546,6 +546,25 @@ mod tests {
             .collect()
     }
 
+    fn int_values(batch: &RecordBatch, column: &str) -> Vec<Option<i64>> {
+        let values = batch
+            .column_by_name(column)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        (0..batch.num_rows())
+            .map(|index| (!values.is_null(index)).then(|| values.value(index)))
+            .collect()
+    }
+
+    fn int_values_from_batches(batches: &[RecordBatch], column: &str) -> Vec<Option<i64>> {
+        batches
+            .iter()
+            .flat_map(|batch| int_values(batch, column))
+            .collect()
+    }
+
     fn impute_rows(batch: &RecordBatch) -> Vec<(String, i64, f64, bool)> {
         let series = batch
             .column_by_name("series")
@@ -698,6 +717,24 @@ mod tests {
         assert_eq!(
             float_values_from_batches(&batches, "value"),
             vec![Some(4.0), Some(5.0)]
+        );
+    }
+
+    #[tokio::test]
+    async fn filter_casts_predicate_to_nullable_boolean() {
+        let ctx = SessionContext::new();
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new("keep", DataType::Int64, true)])),
+            vec![Arc::new(Int64Array::from(vec![Some(1), Some(0), Some(-2), None])) as _],
+        )
+        .unwrap();
+        let dataframe = ctx.read_batch(batch).unwrap();
+        let (compiled_transform, _) = compile_transform(Filter::new(col("keep")));
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        assert_eq!(
+            int_values_from_batches(&batches, "keep"),
+            vec![Some(1), Some(-2)]
         );
     }
 
