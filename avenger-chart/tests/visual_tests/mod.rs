@@ -91,6 +91,7 @@ pub mod test_transform_fold;
 pub mod test_transform_join_aggregate;
 pub mod test_transform_lump;
 pub mod test_transform_stack;
+pub mod test_transform_time_unit;
 pub mod test_wrapped_facet_sugar;
 pub mod test_zerod_symbol;
 pub mod test_zindex;

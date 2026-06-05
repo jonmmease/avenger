@@ -8,6 +8,7 @@ mod join_aggregate;
 pub mod lump;
 mod select;
 mod stack;
+mod time_unit;
 
 pub use aggregate::{
     Aggregate, AggregateGroupKeySpec, AggregateMeasureSpec, AggregateOp, AggregateOutput,
@@ -21,18 +22,21 @@ pub use join_aggregate::{CompiledJoinAggregateTransform, JoinAggregate};
 pub use lump::{CompiledLumpTransform, Lump, LumpOtherMode, LumpOutput};
 pub use select::{CompiledSelectTransform, Select, SelectExprSpec};
 pub use stack::{CompiledStackTransform, Stack, StackOffset, StackOutput, TransformSortSpec};
+pub use time_unit::{CompiledTimeUnitTransform, TimeUnit, TimeUnitOutput, TimeUnitPart};
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use arrow::{
-        array::{Array, BooleanArray, Float64Array, Int64Array, StringArray},
+        array::{
+            Array, BooleanArray, Float64Array, Int64Array, StringArray, TimestampMillisecondArray,
+        },
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     };
     use avenger_chart_core::{
         ChannelValue, DataTransform, DataTransformCompileContext, DataTransformExecutionContext,
-        DataTransformStage, Param, Sharing, collect_derived_scalar_ids,
+        DataTransformStage, Param, Sharing, TimeContext, WeekStart, collect_derived_scalar_ids,
     };
     use datafusion::common::ScalarValue;
     use datafusion::dataframe::DataFrame;
@@ -113,6 +117,19 @@ mod tests {
                 Arc::new(Float64Array::from(vec![2.0, 4.0])) as _,
                 Arc::new(Float64Array::from(vec![5.0, 2.0])) as _,
             ],
+        )
+        .unwrap();
+        ctx.read_batch(batch).unwrap()
+    }
+
+    fn time_dataframe(ctx: &SessionContext, values: Vec<Option<i64>>) -> DataFrame {
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new(
+                "timestamp",
+                DataType::Timestamp(datafusion::arrow::datatypes::TimeUnit::Millisecond, None),
+                true,
+            )])),
+            vec![Arc::new(TimestampMillisecondArray::from(values)) as _],
         )
         .unwrap();
         ctx.read_batch(batch).unwrap()
@@ -396,6 +413,42 @@ mod tests {
 
     fn joinaggregate_rows_from_batches(batches: &[RecordBatch]) -> Vec<(String, String, f64, f64)> {
         batches.iter().flat_map(joinaggregate_rows).collect()
+    }
+
+    fn timeunit_rows(batch: &RecordBatch) -> Vec<(Option<i64>, Option<i64>, Option<i64>)> {
+        let value = batch
+            .column_by_name("timestamp")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<TimestampMillisecondArray>()
+            .unwrap();
+        let start = batch
+            .column_by_name("timestamp_timeunit_start")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<TimestampMillisecondArray>()
+            .unwrap();
+        let end = batch
+            .column_by_name("timestamp_timeunit_end")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<TimestampMillisecondArray>()
+            .unwrap();
+        (0..batch.num_rows())
+            .map(|row| {
+                (
+                    (!value.is_null(row)).then(|| value.value(row)),
+                    (!start.is_null(row)).then(|| start.value(row)),
+                    (!end.is_null(row)).then(|| end.value(row)),
+                )
+            })
+            .collect()
+    }
+
+    fn timeunit_rows_from_batches(
+        batches: &[RecordBatch],
+    ) -> Vec<(Option<i64>, Option<i64>, Option<i64>)> {
+        batches.iter().flat_map(timeunit_rows).collect()
     }
 
     fn float_values(batch: &RecordBatch, column: &str) -> Vec<Option<f64>> {
@@ -825,6 +878,86 @@ mod tests {
                 ("A".to_string(), "s3".to_string(), -3.0, 0.0),
                 ("B".to_string(), "s1".to_string(), 4.0, 8.0),
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn timeunit_explicit_month_outputs_start_and_end() {
+        const DAY_MS: i64 = 86_400_000;
+        let ctx = SessionContext::new();
+        let dataframe = time_dataframe(&ctx, vec![Some(14 * DAY_MS), Some(32 * DAY_MS), None]);
+        let (compiled_transform, output) =
+            compile_transform(TimeUnit::new(col("timestamp")).unit(TimeUnitPart::Month));
+        assert!(matches!(output.start(), ChannelValue::Scaled { .. }));
+        assert!(matches!(output.end(), ChannelValue::Scaled { .. }));
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let mut rows = timeunit_rows_from_batches(&batches);
+        rows.sort();
+        assert_eq!(
+            rows,
+            vec![
+                (None, None, None),
+                (Some(14 * DAY_MS), Some(0), Some(31 * DAY_MS)),
+                (Some(32 * DAY_MS), Some(31 * DAY_MS), Some(59 * DAY_MS)),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn timeunit_maxbins_selects_lazy_month_candidate() {
+        const DAY_MS: i64 = 86_400_000;
+        let ctx = SessionContext::new();
+        let dataframe = time_dataframe(&ctx, vec![Some(14 * DAY_MS), Some(58 * DAY_MS)]);
+        let (compiled_transform, _) = compile_transform(TimeUnit::new(col("timestamp")).maxbins(2));
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let mut rows = timeunit_rows_from_batches(&batches);
+        rows.sort();
+        assert_eq!(
+            rows,
+            vec![
+                (Some(14 * DAY_MS), Some(0), Some(31 * DAY_MS)),
+                (Some(58 * DAY_MS), Some(31 * DAY_MS), Some(59 * DAY_MS)),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn timeunit_week_start_changes_week_anchor() {
+        let ctx = SessionContext::new();
+        let dataframe = time_dataframe(&ctx, vec![Some(1_704_585_600_000)]);
+        let (sunday_transform, _) = compile_transform(
+            TimeUnit::new(col("timestamp"))
+                .unit(TimeUnitPart::Week)
+                .time_context(TimeContext::new().week_start(WeekStart::Sunday)),
+        );
+        let sunday_rows = timeunit_rows_from_batches(
+            &transformed_batches(&ctx, dataframe, vec![sunday_transform]).await,
+        );
+        assert_eq!(
+            sunday_rows,
+            vec![(
+                Some(1_704_585_600_000),
+                Some(1_704_585_600_000),
+                Some(1_705_190_400_000)
+            )]
+        );
+
+        let dataframe = time_dataframe(&ctx, vec![Some(1_704_585_600_000)]);
+        let (monday_transform, _) = compile_transform(
+            TimeUnit::new(col("timestamp"))
+                .unit(TimeUnitPart::Week)
+                .time_context(TimeContext::new().week_start(WeekStart::Monday)),
+        );
+        let monday_rows = timeunit_rows_from_batches(
+            &transformed_batches(&ctx, dataframe, vec![monday_transform]).await,
+        );
+        assert_eq!(
+            monday_rows,
+            vec![(
+                Some(1_704_585_600_000),
+                Some(1_704_067_200_000),
+                Some(1_704_672_000_000)
+            )]
         );
     }
 

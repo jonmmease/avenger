@@ -103,8 +103,6 @@ impl CoordinateSystemTransformCore for Cartesian {
 
                 options.insert("nice".to_string(), ScalarValue::Boolean(Some(true)));
                 options.insert("round".to_string(), ScalarValue::Boolean(Some(true)));
-            } else if domain_kind == DomainKind::Temporal && range_kind == RangeKind::Continuous {
-                options.insert("round".to_string(), ScalarValue::Boolean(Some(true)));
             } else if domain_kind == DomainKind::Categorical && range_kind == RangeKind::Continuous
             {
                 let option_defs = scale_impl.option_definitions();

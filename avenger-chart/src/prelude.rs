@@ -28,7 +28,8 @@ pub use avenger_chart_cartesian::Cartesian;
 pub use avenger_chart_core::{
     CursorStyle, EmptySelectionBehavior, FacetEmptyCellPolicy, Selection, SelectionClauseUpdate,
     SelectionCombine, SelectionSceneQuery, SelectionUpdate, Sharing, Store, StoreData,
-    StoreFieldPatch, StoreFieldRef, StoreKey, StoreRow, StoreUpdate, ZeroDCoord,
+    StoreFieldPatch, StoreFieldRef, StoreKey, StoreRow, StoreUpdate, TimeContext, WeekStart,
+    ZeroDCoord,
 };
 pub use avenger_chart_core::{
     SceneGeometryHitPolicy, SceneGeometryQuery, SceneQueryClauseId, SceneQueryDatumField,
@@ -50,7 +51,8 @@ pub use avenger_chart_tools::{BoxZoom, LassoSelection, PanScrollZoom, PointSelec
 pub use avenger_chart_transforms::lump;
 pub use avenger_chart_transforms::{
     Aggregate, AggregateOutput, Bin, BinOutput, Calculate, Filter, Fold, FoldOutput, JoinAggregate,
-    Lump, LumpOutput, Select, Stack, StackOffset, StackOutput,
+    Lump, LumpOutput, Select, Stack, StackOffset, StackOutput, TimeUnit, TimeUnitOutput,
+    TimeUnitPart,
 };
 
 // Re-export theme types
