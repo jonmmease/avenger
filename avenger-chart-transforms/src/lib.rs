@@ -9,6 +9,7 @@ pub mod lump;
 mod select;
 mod stack;
 mod time_unit;
+mod window;
 
 pub use aggregate::{
     Aggregate, AggregateGroupKeySpec, AggregateMeasureSpec, AggregateOp, AggregateOutput,
@@ -23,6 +24,7 @@ pub use lump::{CompiledLumpTransform, Lump, LumpOtherMode, LumpOutput};
 pub use select::{CompiledSelectTransform, Select, SelectExprSpec};
 pub use stack::{CompiledStackTransform, Stack, StackOffset, StackOutput, TransformSortSpec};
 pub use time_unit::{CompiledTimeUnitTransform, TimeUnit, TimeUnitOutput, TimeUnitPart};
+pub use window::{CompiledWindowTransform, Window, WindowExprSpec, WindowSortSpec};
 
 #[cfg(test)]
 mod tests {
@@ -30,6 +32,7 @@ mod tests {
     use arrow::{
         array::{
             Array, BooleanArray, Float64Array, Int64Array, StringArray, TimestampMillisecondArray,
+            UInt64Array,
         },
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
@@ -40,9 +43,11 @@ mod tests {
     };
     use datafusion::common::ScalarValue;
     use datafusion::dataframe::DataFrame;
-    use datafusion::functions_aggregate::expr_fn::sum;
-    use datafusion::functions_window::expr_fn::{ntile, percent_rank, rank};
-    use datafusion::logical_expr::{col, lit};
+    use datafusion::functions_aggregate::{expr_fn::sum, sum::sum_udaf};
+    use datafusion::functions_window::expr_fn::{lag, ntile, percent_rank, rank, row_number};
+    use datafusion::logical_expr::{
+        Expr, WindowFunctionDefinition, col, expr::WindowFunction, lit,
+    };
     use datafusion::prelude::SessionContext;
     use indexmap::IndexMap;
     use std::sync::Arc;
@@ -130,6 +135,23 @@ mod tests {
                 true,
             )])),
             vec![Arc::new(TimestampMillisecondArray::from(values)) as _],
+        )
+        .unwrap();
+        ctx.read_batch(batch).unwrap()
+    }
+
+    fn window_dataframe(ctx: &SessionContext) -> DataFrame {
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("series", DataType::Utf8, false),
+                Field::new("day", DataType::Int64, false),
+                Field::new("value", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(StringArray::from(vec!["A", "A", "A", "B", "B"])) as _,
+                Arc::new(Int64Array::from(vec![1, 2, 3, 1, 2])) as _,
+                Arc::new(Float64Array::from(vec![2.0, 4.0, 1.0, 5.0, 3.0])) as _,
+            ],
         )
         .unwrap();
         ctx.read_batch(batch).unwrap()
@@ -467,6 +489,25 @@ mod tests {
         batches
             .iter()
             .flat_map(|batch| float_values(batch, column))
+            .collect()
+    }
+
+    fn uint64_values(batch: &RecordBatch, column: &str) -> Vec<Option<u64>> {
+        let values = batch
+            .column_by_name(column)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .unwrap();
+        (0..batch.num_rows())
+            .map(|index| (!values.is_null(index)).then(|| values.value(index)))
+            .collect()
+    }
+
+    fn uint64_values_from_batches(batches: &[RecordBatch], column: &str) -> Vec<Option<u64>> {
+        batches
+            .iter()
+            .flat_map(|batch| uint64_values(batch, column))
             .collect()
     }
 
@@ -878,6 +919,178 @@ mod tests {
                 ("A".to_string(), "s3".to_string(), -3.0, 0.0),
                 ("B".to_string(), "s1".to_string(), 4.0, 8.0),
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn window_row_number_uses_partition_and_order() {
+        let ctx = SessionContext::new();
+        let dataframe = window_dataframe(&ctx);
+        let (compiled_transform, _) = compile_transform(
+            Window::new()
+                .partition_by([col("series")])
+                .order_by([col("value").sort(false, false)])
+                .expr("value_rank", row_number()),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let mut rows = batches
+            .iter()
+            .flat_map(|batch| {
+                let series = batch
+                    .column_by_name("series")
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .unwrap();
+                let day = batch
+                    .column_by_name("day")
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap();
+                let rank = batch
+                    .column_by_name("value_rank")
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<UInt64Array>()
+                    .unwrap();
+                (0..batch.num_rows())
+                    .map(|row| {
+                        (
+                            series.value(row).to_string(),
+                            day.value(row),
+                            rank.value(row),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        rows.sort();
+        assert_eq!(
+            rows,
+            vec![
+                ("A".to_string(), 1, 2),
+                ("A".to_string(), 2, 1),
+                ("A".to_string(), 3, 3),
+                ("B".to_string(), 1, 1),
+                ("B".to_string(), 2, 2),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn window_running_sum_and_lag_work() {
+        let ctx = SessionContext::new();
+        let dataframe = window_dataframe(&ctx);
+        let running_sum = Expr::from(WindowFunction::new(
+            WindowFunctionDefinition::AggregateUDF(sum_udaf()),
+            vec![col("value")],
+        ));
+        let (compiled_transform, _) = compile_transform(
+            Window::new()
+                .partition_by([col("series")])
+                .order_by([col("day").sort(true, false)])
+                .expr("running_total", running_sum)
+                .expr("previous_value", lag(col("value"), Some(1), None)),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let mut rows = batches
+            .iter()
+            .flat_map(|batch| {
+                let series = batch
+                    .column_by_name("series")
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .unwrap();
+                let day = batch
+                    .column_by_name("day")
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap();
+                let total = batch
+                    .column_by_name("running_total")
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<Float64Array>()
+                    .unwrap();
+                let previous = batch
+                    .column_by_name("previous_value")
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<Float64Array>()
+                    .unwrap();
+                (0..batch.num_rows())
+                    .map(|row| {
+                        (
+                            series.value(row).to_string(),
+                            day.value(row),
+                            total.value(row),
+                            (!previous.is_null(row)).then(|| previous.value(row)),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        rows.sort_by(|a, b| (&a.0, a.1).cmp(&(&b.0, b.1)));
+        assert_eq!(
+            rows,
+            vec![
+                ("A".to_string(), 1, 2.0, None),
+                ("A".to_string(), 2, 6.0, Some(2.0)),
+                ("A".to_string(), 3, 7.0, Some(4.0)),
+                ("B".to_string(), 1, 5.0, None),
+                ("B".to_string(), 2, 8.0, Some(5.0)),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn window_rank_peers_use_datafusion_expression_semantics() {
+        let ctx = SessionContext::new();
+        let dataframe = window_dataframe(&ctx);
+        let (compiled_transform, _) = compile_transform(
+            Window::new()
+                .partition_by([col("series")])
+                .order_by([col("value").sort(false, false)])
+                .expr("ranked", rank()),
+        );
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        assert_eq!(
+            uint64_values_from_batches(&batches, "ranked")
+                .into_iter()
+                .flatten()
+                .count(),
+            5
+        );
+    }
+
+    #[tokio::test]
+    async fn window_rejects_missing_order_by() {
+        let ctx = SessionContext::new();
+        let dataframe = window_dataframe(&ctx);
+        let (compiled_transform, _) =
+            compile_transform(Window::new().expr("row_number", row_number()));
+
+        let result = avenger_chart_core::apply_compiled_data_transforms(
+            dataframe,
+            &[compiled_transform],
+            &DataTransformExecutionContext {
+                session_context: &ctx,
+                params: &IndexMap::new(),
+            },
+        )
+        .await;
+        let err = match result {
+            Ok(_) => panic!("window without order_by should fail"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string().contains("requires an explicit order_by"),
+            "{err}"
         );
     }
 

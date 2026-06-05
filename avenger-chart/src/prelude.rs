@@ -52,7 +52,7 @@ pub use avenger_chart_transforms::lump;
 pub use avenger_chart_transforms::{
     Aggregate, AggregateOutput, Bin, BinOutput, Calculate, Filter, Fold, FoldOutput, JoinAggregate,
     Lump, LumpOutput, Select, Stack, StackOffset, StackOutput, TimeUnit, TimeUnitOutput,
-    TimeUnitPart,
+    TimeUnitPart, Window,
 };
 
 // Re-export theme types
