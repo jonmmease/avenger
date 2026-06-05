@@ -231,7 +231,8 @@ async fn axis_config_resolves_bin_derived_tick_spacing() -> Result<(), Box<dyn s
         collect_text_labels(mark, &mut labels);
     }
 
-    assert!(labels.iter().any(|label| label == "2.8"), "{labels:?}");
-    assert!(labels.iter().any(|label| label == "5.3"), "{labels:?}");
+    assert!(labels.iter().any(|label| label == "0"), "{labels:?}");
+    assert!(labels.iter().any(|label| label == "5"), "{labels:?}");
+    assert!(labels.iter().any(|label| label == "10"), "{labels:?}");
     Ok(())
 }

@@ -56,7 +56,7 @@ derived columns explicit through a typed output handle:
 
 ```rust
 Rect::new()
-    .transform(Bin::new(col("value")).max_bins(30), |mark, bin| {
+    .transform(Bin::new(col("value")).maxbins(30), |mark, bin| {
         mark.x(bin.start())
             .x2(bin.end())
             .y(lit(0.0))
@@ -156,8 +156,8 @@ and bin edges.
 
 ## Facets And Sharing
 
-Resolved bin parameters should follow the sharing scope of the scale that owns
-the binned channel:
+Resolved bin parameters follow the sharing scope of the transform stage that
+produces the binned channel:
 
 - `Sharing::Free` computes bins independently for each cell.
 - `Sharing::Level(n)` computes bins at the matching ancestor sharing scope.
@@ -165,7 +165,7 @@ the binned channel:
 
 This prevents shared histograms from producing different bin steps or extents in
 linked cells. Explicit bin step or extent options remain deterministic at every
-scope; inferred options such as `max_bins` require raw-row extent calculation at
+scope; inferred options such as `maxbins` require raw-row extent calculation at
 the owning sharing scope.
 
 ## Implementation Direction

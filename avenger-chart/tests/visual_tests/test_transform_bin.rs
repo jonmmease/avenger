@@ -84,7 +84,7 @@ async fn histogram_exact_maxbins_messy_edges() {
         .canvas_size(640.0, 420.0)
         .data(messy_histogram_data(&ctx))
         .mark(
-            Rect::new().transform(Bin::new(col("value")).maxbins(7), |mark, bin| {
+            Rect::new().transform(Bin::new(col("value")).maxbins(7).exact(), |mark, bin| {
                 mark.x(bin.start())
                     .x2(bin.end())
                     .y(lit(0.0))
@@ -102,6 +102,37 @@ async fn histogram_exact_maxbins_messy_edges() {
         None,
         "transform_bin",
         "histogram_exact_maxbins_messy_edges",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn histogram_nice_maxbins_friendly_edges() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Nice maxbins histogram")
+        .subtitle("Bin edges expand to friendly boundaries")
+        .canvas_size(640.0, 420.0)
+        .data(messy_histogram_data(&ctx))
+        .mark(
+            Rect::new().transform(Bin::new(col("value")).maxbins(7), |mark, bin| {
+                mark.x(bin.start())
+                    .x2(bin.end())
+                    .y(lit(0.0))
+                    .y2(count(col("value")))
+                    .fill("#1f9d6a")
+                    .stroke("#ffffff")
+                    .stroke_width(1.0)
+            }),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("compile histogram");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "transform_bin",
+        "histogram_nice_maxbins_friendly_edges",
     )
     .await;
 }
