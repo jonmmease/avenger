@@ -1216,7 +1216,7 @@ mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use avenger_chart_transforms::{
-        Aggregate, Bin, Calculate, Filter, Fold, JoinAggregate, Select, Window,
+        Aggregate, Bin, Calculate, Filter, Fold, Impute, JoinAggregate, Select, Window,
     };
     use avenger_scales::scales::{ConfiguredScale, ScaleConfig};
     use datafusion::{
@@ -2056,6 +2056,32 @@ mod tests {
             prepared_x_values_for_facet_mark(mark, session, &df, &facet_tree, &full_path).await?;
 
         assert_eq!(values, vec![1.0, 2.0]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn shared_impute_grouped_by_facet_columns_narrows_predictably()
+    -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let df = scoped_facet_dataframe(&session).await;
+        let facet_tree = scoped_facet_tree(df.clone(), &session).await?;
+        let full_path = vec![
+            ScalarValue::Utf8(Some("North".to_string())),
+            ScalarValue::Utf8(Some("West".to_string())),
+        ];
+
+        let mark = Symbol::<Cartesian>::new().transform_shared(
+            Impute::new(col("x"))
+                .key(col("y"))
+                .group_by([col("facet_row"), col("facet_col")])
+                .value(lit(0.0)),
+            |mark, imputed| mark.x(imputed.value()).y(col("y")),
+        );
+        let mut values =
+            prepared_x_values_for_facet_mark(mark, session, &df, &facet_tree, &full_path).await?;
+        values.sort_by(f64::total_cmp);
+
+        assert_eq!(values, vec![0.0, 0.0, 0.0, 2.0]);
         Ok(())
     }
 
