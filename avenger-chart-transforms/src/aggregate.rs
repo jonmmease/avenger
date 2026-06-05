@@ -206,7 +206,7 @@ impl CompiledDataTransform for CompiledAggregateTransform {
     }
 }
 
-fn aggregate_expr(
+pub(crate) fn aggregate_expr(
     measure: &AggregateMeasureSpec,
     ctx: &datafusion::prelude::SessionContext,
 ) -> Result<Expr, AvengerChartError> {

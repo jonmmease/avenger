@@ -88,6 +88,7 @@ pub mod test_title;
 pub mod test_transform_bin;
 pub mod test_transform_expression;
 pub mod test_transform_fold;
+pub mod test_transform_join_aggregate;
 pub mod test_transform_lump;
 pub mod test_transform_stack;
 pub mod test_wrapped_facet_sugar;

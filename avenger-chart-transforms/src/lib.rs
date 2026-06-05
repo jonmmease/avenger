@@ -4,6 +4,7 @@ mod calculate;
 mod common;
 mod filter;
 mod fold;
+mod join_aggregate;
 pub mod lump;
 mod select;
 mod stack;
@@ -16,6 +17,7 @@ pub use bin::{Bin, BinExtentSpec, BinOutput, CompiledBinTransform};
 pub use calculate::{Calculate, CalculateExprSpec, CompiledCalculateTransform};
 pub use filter::{CompiledFilterTransform, Filter};
 pub use fold::{CompiledFoldTransform, Fold, FoldFieldSpec, FoldOutput};
+pub use join_aggregate::{CompiledJoinAggregateTransform, JoinAggregate};
 pub use lump::{CompiledLumpTransform, Lump, LumpOtherMode, LumpOutput};
 pub use select::{CompiledSelectTransform, Select, SelectExprSpec};
 pub use stack::{CompiledStackTransform, Stack, StackOffset, StackOutput, TransformSortSpec};
@@ -355,6 +357,47 @@ mod tests {
             .collect()
     }
 
+    fn joinaggregate_rows(batch: &RecordBatch) -> Vec<(String, String, f64, f64)> {
+        let category = batch
+            .column_by_name("category")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let series = batch
+            .column_by_name("series")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let value = batch
+            .column_by_name("value")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let total = batch
+            .column_by_name("category_total")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        (0..batch.num_rows())
+            .map(|index| {
+                (
+                    category.value(index).to_string(),
+                    series.value(index).to_string(),
+                    value.value(index),
+                    total.value(index),
+                )
+            })
+            .collect()
+    }
+
+    fn joinaggregate_rows_from_batches(batches: &[RecordBatch]) -> Vec<(String, String, f64, f64)> {
+        batches.iter().flat_map(joinaggregate_rows).collect()
+    }
+
     fn float_values(batch: &RecordBatch, column: &str) -> Vec<Option<f64>> {
         let values = batch
             .column_by_name(column)
@@ -680,6 +723,109 @@ mod tests {
         let batches = result.dataframe.collect().await.unwrap();
         let rows: usize = batches.iter().map(|batch| batch.num_rows()).sum();
         assert_eq!(rows, 4);
+    }
+
+    #[tokio::test]
+    async fn joinaggregate_global_repeats_aggregate_on_each_row() {
+        let ctx = SessionContext::new();
+        let dataframe = sample_dataframe(&ctx);
+        let (compiled_transform, _) =
+            compile_transform(JoinAggregate::new().sum("category_total", col("value")));
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let mut rows = joinaggregate_rows_from_batches(&batches);
+        rows.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+        assert_eq!(
+            rows,
+            vec![
+                ("A".to_string(), "s1".to_string(), 1.0, 4.0),
+                ("A".to_string(), "s2".to_string(), 2.0, 4.0),
+                ("A".to_string(), "s3".to_string(), -3.0, 4.0),
+                ("B".to_string(), "s1".to_string(), 4.0, 4.0),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn joinaggregate_grouped_repeats_group_values() {
+        let ctx = SessionContext::new();
+        let dataframe = sample_dataframe(&ctx);
+        let (compiled_transform, _) = compile_transform(
+            JoinAggregate::new()
+                .group_by([col("category")])
+                .sum("category_total", col("value")),
+        );
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let mut rows = joinaggregate_rows_from_batches(&batches);
+        rows.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+        assert_eq!(
+            rows,
+            vec![
+                ("A".to_string(), "s1".to_string(), 1.0, 0.0),
+                ("A".to_string(), "s2".to_string(), 2.0, 0.0),
+                ("A".to_string(), "s3".to_string(), -3.0, 0.0),
+                ("B".to_string(), "s1".to_string(), 4.0, 4.0),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn joinaggregate_multiple_measures_and_count_work() {
+        let ctx = SessionContext::new();
+        let dataframe = sample_dataframe(&ctx);
+        let (compiled_transform, _) = compile_transform(
+            JoinAggregate::new()
+                .group_by([col("category")])
+                .sum("category_total", col("value"))
+                .count("category_count"),
+        );
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        assert!(
+            batches
+                .iter()
+                .any(|batch| batch.column_by_name("category_total").is_some())
+        );
+        let mut counts = batches
+            .iter()
+            .flat_map(|batch| {
+                let count = batch
+                    .column_by_name("category_count")
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap();
+                (0..batch.num_rows())
+                    .map(|index| count.value(index))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        counts.sort();
+        assert_eq!(counts, vec![1, 3, 3, 3]);
+    }
+
+    #[tokio::test]
+    async fn joinaggregate_params_inside_measure_expressions_work() {
+        let ctx = SessionContext::new();
+        let dataframe = sample_dataframe(&ctx);
+        let (compiled_transform, _) =
+            compile_transform(JoinAggregate::new().group_by([col("category")]).sum(
+                "category_total",
+                col("value") * Param::new("factor", 1.0).expr(),
+            ));
+        let params = IndexMap::from([("factor".to_string(), ScalarValue::Float64(Some(2.0)))]);
+        let batches =
+            transformed_batches_with_params(&ctx, dataframe, vec![compiled_transform], &params)
+                .await;
+        let mut rows = joinaggregate_rows_from_batches(&batches);
+        rows.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+        assert_eq!(
+            rows,
+            vec![
+                ("A".to_string(), "s1".to_string(), 1.0, 0.0),
+                ("A".to_string(), "s2".to_string(), 2.0, 0.0),
+                ("A".to_string(), "s3".to_string(), -3.0, 0.0),
+                ("B".to_string(), "s1".to_string(), 4.0, 8.0),
+            ]
+        );
     }
 
     #[tokio::test]
