@@ -49,7 +49,8 @@ pub use avenger_chart_core::{
 pub use avenger_chart_tools::{BoxZoom, LassoSelection, PanScrollZoom, PointSelection};
 pub use avenger_chart_transforms::lump;
 pub use avenger_chart_transforms::{
-    Aggregate, AggregateOutput, Bin, BinOutput, Lump, LumpOutput, Stack, StackOffset, StackOutput,
+    Aggregate, AggregateOutput, Bin, BinOutput, Calculate, Filter, Lump, LumpOutput, Select, Stack,
+    StackOffset, StackOutput,
 };
 
 // Re-export theme types

@@ -96,8 +96,6 @@ Transforms with user-named outputs should expose lookup methods:
 
 ```rust
 join.output("total_value")
-window.output("rank")
-calculate.output("residual")
 ```
 
 This keeps generated column names internal to the transform while still allowing
@@ -105,6 +103,48 @@ authors to reference every output. Output handle methods may return `Expr` or
 `ChannelValue` depending on the output's role. Plain derived values can return
 `Expr`; positional interval outputs that need scale defaults can return
 `ChannelValue`.
+
+`Calculate` is an exception to this lookup-handle pattern. It should use a
+builder with one or more explicit named expressions, and authors should
+reference those outputs as ordinary columns:
+
+```rust
+Calculate::new()
+    .expr("residual", col("actual") - col("predicted"))
+    .expr("ratio", col("actual") / col("predicted"));
+
+col("residual")
+col("ratio")
+```
+
+Because the user provides the exact column names, `calculate.output(...)` would
+only add redundancy.
+
+Transforms whose output type is `()` should use the no-output mark convenience
+methods, such as `transform_no_output(...)`, when authors do not need a
+generated output handle:
+
+```rust
+mark.transform_no_output(
+    Calculate::new().expr("residual", col("actual") - col("predicted")),
+    |mark| mark.fill(col("residual")),
+)
+```
+
+The ordinary `.transform(...)` method remains the two-argument form for
+transforms with structural output handles, such as `Bin`, `Fold`, and `Stack`.
+
+The same rule should apply to `Window`, whose `.expr(name, expr)` builder also
+creates explicit named columns:
+
+```rust
+Window::new()
+    .expr("rank", row_number())
+    .expr("running_total", running_sum(col("value")));
+
+col("rank")
+col("running_total")
+```
 
 ## Other Transform Fits
 
@@ -114,13 +154,15 @@ The same model applies to other Vega-Lite-style transforms:
   joins them back onto each input row. Its output handle exposes user-named
   aggregate columns such as `join.output("group_total")`.
 - `Window` is row-preserving and order-sensitive. It computes values such as
-  ranks, lag/lead values, running sums, or frame aggregates. Its output handle
-  exposes named window results.
+  ranks, lag/lead values, running sums, or frame aggregates. It uses explicit
+  output column names that downstream encodings reference with ordinary
+  `col("...")` expressions.
 - `Stack` creates interval columns such as start, end, and midpoint. A stacked
   bar or area remains an ordinary `Rect` or `Area` mark that references
   `stack.start()` and `stack.end()`.
 - `Calculate`, `Filter`, `Fold`, and `Pivot` can use the same table-transform
-  pipeline, even when their output shape is not row-preserving.
+  pipeline, even when their output shape is not row-preserving. `Calculate`
+  preserves all input columns and adds/replaces explicit named columns.
 
 Explicit transforms form a pipeline over effective mark data. Some transforms,
 such as `Stack`, may perform aggregation internally before producing derived

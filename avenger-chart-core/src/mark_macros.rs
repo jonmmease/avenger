@@ -136,6 +136,56 @@ macro_rules! impl_mark_base {
                 f(self, output)
             }
 
+            /// Apply a no-output data transform and configure this mark without a dummy output argument.
+            pub fn transform_no_output<T, F>(self, transform: T, f: F) -> Self
+            where
+                T: $crate::DataTransform<Output = ()>,
+                F: FnOnce(Self) -> Self,
+            {
+                self.transform_free_no_output(transform, f)
+            }
+
+            /// Apply a no-output data transform at fully filtered/free facet scope.
+            pub fn transform_free_no_output<T, F>(self, transform: T, f: F) -> Self
+            where
+                T: $crate::DataTransform<Output = ()>,
+                F: FnOnce(Self) -> Self,
+            {
+                self.transform_with_scope_no_output($crate::Sharing::Free, transform, f)
+            }
+
+            /// Apply a no-output data transform at a specific logical facet sharing level.
+            pub fn transform_level_no_output<T, F>(self, level: u8, transform: T, f: F) -> Self
+            where
+                T: $crate::DataTransform<Output = ()>,
+                F: FnOnce(Self) -> Self,
+            {
+                self.transform_with_scope_no_output($crate::Sharing::Level(level), transform, f)
+            }
+
+            /// Apply a no-output data transform at shared/global facet scope.
+            pub fn transform_shared_no_output<T, F>(self, transform: T, f: F) -> Self
+            where
+                T: $crate::DataTransform<Output = ()>,
+                F: FnOnce(Self) -> Self,
+            {
+                self.transform_with_scope_no_output($crate::Sharing::Shared, transform, f)
+            }
+
+            /// Apply a no-output data transform at the specified facet sharing scope.
+            pub fn transform_with_scope_no_output<T, F>(
+                self,
+                scope: $crate::Sharing,
+                transform: T,
+                f: F,
+            ) -> Self
+            where
+                T: $crate::DataTransform<Output = ()>,
+                F: FnOnce(Self) -> Self,
+            {
+                self.transform_with_scope(scope, transform, |mark, ()| f(mark))
+            }
+
             /// Control faceting behavior.
             pub fn facet_data_scope(mut self, scope: $crate::FacetDataScope) -> Self {
                 self.state.facet_data_scope = scope;

@@ -1215,7 +1215,7 @@ pub(crate) async fn prepare_mark_data(
 mod tests {
     use std::{collections::HashMap, sync::Arc};
 
-    use avenger_chart_transforms::{Aggregate, Bin};
+    use avenger_chart_transforms::{Aggregate, Bin, Calculate, Filter, Select};
     use avenger_scales::scales::{ConfiguredScale, ScaleConfig};
     use datafusion::{
         arrow::{
@@ -1859,8 +1859,109 @@ mod tests {
         .await?;
 
         assert_eq!(free_values, vec![0.0, 1.0]);
-        assert_eq!(row_level_values, vec![6.0, 6.0]);
+        assert_eq!(row_level_values, vec![10.0, 10.0]);
         assert_eq!(shared_values, vec![0.0, 0.0]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn no_output_transform_closure_configures_mark() -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let df = xy_dataframe(&session);
+        let eval_ctx = eval_context(session.clone());
+        let mark = Symbol::<Cartesian>::new().transform_no_output(
+            Calculate::new().expr("x_shifted", col("x") + lit(1.0)),
+            |mark| mark.x(col("x_shifted")).y(col("y")),
+        );
+        let compiled_mark = mark.compile_untransformed(&session).await?;
+        let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
+            mark: compiled_mark.as_ref(),
+            plot_data: None,
+            provided_plot_df: Some(&df),
+            facet_data_scope: None,
+            eval_ctx: &eval_ctx,
+        })
+        .await?;
+
+        let values = prepared_channel_values(prepared, &session, "x").await?;
+        assert_eq!(values, vec![1.0, 6.0, 11.0]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn filter_transform_preserves_columns() -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let df = xy_dataframe(&session);
+        let eval_ctx = eval_context(session.clone());
+        let mark = Symbol::<Cartesian>::new()
+            .transform_no_output(Filter::new(col("x").gt(lit(0.0))), |mark| {
+                mark.x(col("x")).y(col("y"))
+            });
+        let compiled_mark = mark.compile_untransformed(&session).await?;
+        let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
+            mark: compiled_mark.as_ref(),
+            plot_data: None,
+            provided_plot_df: Some(&df),
+            facet_data_scope: None,
+            eval_ctx: &eval_ctx,
+        })
+        .await?;
+
+        let values = prepared_channel_values(prepared, &session, "x").await?;
+        assert_eq!(values, vec![5.0, 10.0]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn shared_select_must_keep_facet_columns_for_narrowing() -> Result<(), AvengerChartError>
+    {
+        let session = Arc::new(SessionContext::new());
+        let df = scoped_facet_dataframe(&session).await;
+        let facet_tree = scoped_facet_tree(df.clone(), &session).await?;
+        let full_path = vec![
+            ScalarValue::Utf8(Some("North".to_string())),
+            ScalarValue::Utf8(Some("West".to_string())),
+        ];
+
+        let dropped_columns_mark = Symbol::<Cartesian>::new()
+            .transform_shared_no_output(Select::new().expr(col("x")).expr(col("y")), |mark| {
+                mark.x(col("x")).y(col("y"))
+            });
+        let err = match prepared_x_values_for_facet_mark(
+            dropped_columns_mark,
+            session.clone(),
+            &df,
+            &facet_tree,
+            &full_path,
+        )
+        .await
+        {
+            Ok(_) => panic!("shared select without facet columns should error"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string()
+                .contains("no longer contains the facet columns"),
+            "{err}"
+        );
+
+        let preserved_columns_mark = Symbol::<Cartesian>::new().transform_shared_no_output(
+            Select::new()
+                .expr(col("facet_row"))
+                .expr(col("facet_col"))
+                .expr(col("x"))
+                .expr(col("y")),
+            |mark| mark.x(col("x")).y(col("y")),
+        );
+        let values = prepared_x_values_for_facet_mark(
+            preserved_columns_mark,
+            session,
+            &df,
+            &facet_tree,
+            &full_path,
+        )
+        .await?;
+        assert_eq!(values, vec![0.0, 2.0]);
         Ok(())
     }
 

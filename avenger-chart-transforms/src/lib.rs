@@ -1,7 +1,10 @@
 mod aggregate;
 mod bin;
+mod calculate;
 mod common;
+mod filter;
 pub mod lump;
+mod select;
 mod stack;
 
 pub use aggregate::{
@@ -9,7 +12,10 @@ pub use aggregate::{
     CompiledAggregateTransform,
 };
 pub use bin::{Bin, BinExtentSpec, BinOutput, CompiledBinTransform};
+pub use calculate::{Calculate, CalculateExprSpec, CompiledCalculateTransform};
+pub use filter::{CompiledFilterTransform, Filter};
 pub use lump::{CompiledLumpTransform, Lump, LumpOtherMode, LumpOutput};
+pub use select::{CompiledSelectTransform, Select, SelectExprSpec};
 pub use stack::{CompiledStackTransform, Stack, StackOffset, StackOutput, TransformSortSpec};
 
 #[cfg(test)]
@@ -272,6 +278,25 @@ mod tests {
         batches.iter().flat_map(lump_rows).collect()
     }
 
+    fn float_values(batch: &RecordBatch, column: &str) -> Vec<Option<f64>> {
+        let values = batch
+            .column_by_name(column)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        (0..batch.num_rows())
+            .map(|index| (!values.is_null(index)).then(|| values.value(index)))
+            .collect()
+    }
+
+    fn float_values_from_batches(batches: &[RecordBatch], column: &str) -> Vec<Option<f64>> {
+        batches
+            .iter()
+            .flat_map(|batch| float_values(batch, column))
+            .collect()
+    }
+
     fn stack_rows_from_batches(batches: &[RecordBatch]) -> Vec<(String, String, f64, f64)> {
         batches.iter().flat_map(stack_rows).collect()
     }
@@ -295,6 +320,168 @@ mod tests {
             assert_close(actual.2, expected.2);
             assert_close(actual.3, expected.3);
         }
+    }
+
+    #[tokio::test]
+    async fn calculate_appends_multiple_columns() {
+        let ctx = SessionContext::new();
+        let dataframe = sample_dataframe(&ctx);
+        let (compiled_transform, _) = compile_transform(
+            Calculate::new()
+                .expr("double_value", col("value") * lit(2.0))
+                .expr("shifted_value", col("value") + lit(10.0)),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        assert_eq!(
+            float_values_from_batches(&batches, "double_value"),
+            vec![Some(2.0), Some(4.0), Some(-6.0), Some(8.0)]
+        );
+        assert_eq!(
+            float_values_from_batches(&batches, "shifted_value"),
+            vec![Some(11.0), Some(12.0), Some(7.0), Some(14.0)]
+        );
+    }
+
+    #[tokio::test]
+    async fn calculate_can_replace_existing_column_and_use_params() {
+        let ctx = SessionContext::new();
+        let dataframe = sample_dataframe(&ctx);
+        let offset = Param::new("offset", ScalarValue::Float64(Some(5.0)));
+        let (compiled_transform, _) =
+            compile_transform(Calculate::new().expr("value", col("value") + offset.expr()));
+        let mut params = IndexMap::new();
+        params.insert(offset.name.clone(), ScalarValue::Float64(Some(5.0)));
+
+        let batches =
+            transformed_batches_with_params(&ctx, dataframe, vec![compiled_transform], &params)
+                .await;
+        assert_eq!(
+            float_values_from_batches(&batches, "value"),
+            vec![Some(6.0), Some(7.0), Some(2.0), Some(9.0)]
+        );
+    }
+
+    #[tokio::test]
+    async fn calculate_repeated_expr_name_overwrites_builder_value() {
+        let ctx = SessionContext::new();
+        let dataframe = sample_dataframe(&ctx);
+        let (compiled_transform, _) = compile_transform(
+            Calculate::new()
+                .expr("derived", col("value") + lit(100.0))
+                .expr("derived", col("value") * lit(3.0)),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        assert_eq!(
+            float_values_from_batches(&batches, "derived"),
+            vec![Some(3.0), Some(6.0), Some(-9.0), Some(12.0)]
+        );
+    }
+
+    #[tokio::test]
+    async fn filter_threshold_removes_false_and_null_rows() {
+        let ctx = SessionContext::new();
+        let dataframe = bin_dataframe(&ctx);
+        let (compiled_transform, _) = compile_transform(Filter::new(col("value").gt(lit(2.0))));
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        assert_eq!(
+            float_values_from_batches(&batches, "value"),
+            vec![Some(3.0), Some(4.0), Some(5.0)]
+        );
+    }
+
+    #[tokio::test]
+    async fn filter_predicate_can_use_params() {
+        let ctx = SessionContext::new();
+        let dataframe = bin_dataframe(&ctx);
+        let threshold = Param::new("threshold", ScalarValue::Float64(Some(3.0)));
+        let (compiled_transform, _) =
+            compile_transform(Filter::new(col("value").gt(threshold.expr())));
+        let mut params = IndexMap::new();
+        params.insert(threshold.name.clone(), ScalarValue::Float64(Some(3.0)));
+
+        let batches =
+            transformed_batches_with_params(&ctx, dataframe, vec![compiled_transform], &params)
+                .await;
+        assert_eq!(
+            float_values_from_batches(&batches, "value"),
+            vec![Some(4.0), Some(5.0)]
+        );
+    }
+
+    #[tokio::test]
+    async fn select_projects_columns_and_aliased_expressions() {
+        let ctx = SessionContext::new();
+        let dataframe = sample_dataframe(&ctx);
+        let (compiled_transform, _) = compile_transform(
+            Select::new()
+                .expr(col("category"))
+                .expr((col("value") - lit(1.0)).alias("residual")),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let schema = batches[0].schema();
+        let names = schema
+            .fields()
+            .iter()
+            .map(|field| field.name())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["category", "residual"]);
+        assert_eq!(
+            float_values_from_batches(&batches, "residual"),
+            vec![Some(0.0), Some(1.0), Some(-4.0), Some(3.0)]
+        );
+    }
+
+    #[tokio::test]
+    async fn select_expression_can_use_params() {
+        let ctx = SessionContext::new();
+        let dataframe = sample_dataframe(&ctx);
+        let offset = Param::new("select_offset", ScalarValue::Float64(Some(2.5)));
+        let (compiled_transform, _) = compile_transform(
+            Select::new().expr((col("value") + offset.expr()).alias("shifted_value")),
+        );
+        let mut params = IndexMap::new();
+        params.insert(offset.name.clone(), ScalarValue::Float64(Some(2.5)));
+
+        let batches =
+            transformed_batches_with_params(&ctx, dataframe, vec![compiled_transform], &params)
+                .await;
+        assert_eq!(
+            float_values_from_batches(&batches, "shifted_value"),
+            vec![Some(3.5), Some(4.5), Some(-0.5), Some(6.5)]
+        );
+    }
+
+    #[tokio::test]
+    async fn select_rejects_unaliased_computed_expression() {
+        let err = match Select::new()
+            .expr(col("value") - lit(1.0))
+            .into_compiled_and_output(DataTransformCompileContext::new(Sharing::Free))
+        {
+            Ok(_) => panic!("unaliased computed select expression should fail"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string()
+                .contains("must be a source column or have an explicit alias"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn select_rejects_duplicate_output_names() {
+        let err = match Select::new()
+            .expr(col("value"))
+            .expr((col("value") + lit(1.0)).alias("value"))
+            .into_compiled_and_output(DataTransformCompileContext::new(Sharing::Free))
+        {
+            Ok(_) => panic!("duplicate select output names should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("duplicated"), "{err}");
     }
 
     #[tokio::test]
