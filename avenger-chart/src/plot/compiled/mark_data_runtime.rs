@@ -1216,7 +1216,7 @@ mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use avenger_chart_transforms::{
-        Aggregate, Bin, Calculate, Filter, Fold, JoinAggregate, Select,
+        Aggregate, Bin, Calculate, Filter, Fold, JoinAggregate, Select, Window,
     };
     use avenger_scales::scales::{ConfiguredScale, ScaleConfig};
     use datafusion::{
@@ -1227,6 +1227,7 @@ mod tests {
             record_batch::RecordBatch,
         },
         functions_aggregate::average::avg,
+        functions_window::expr_fn::row_number,
         logical_expr::{Expr, col},
         prelude::SessionContext,
     };
@@ -2030,6 +2031,31 @@ mod tests {
         values.sort_by(f64::total_cmp);
 
         assert_eq!(values, vec![0.0, 0.2, 0.4, 2.0]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn shared_window_partitioned_by_facet_columns_narrows_predictably()
+    -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let df = scoped_facet_dataframe(&session).await;
+        let facet_tree = scoped_facet_tree(df.clone(), &session).await?;
+        let full_path = vec![
+            ScalarValue::Utf8(Some("South".to_string())),
+            ScalarValue::Utf8(Some("East".to_string())),
+        ];
+
+        let mark = Symbol::<Cartesian>::new().transform_shared_no_output(
+            Window::new()
+                .partition_by([col("facet_row"), col("facet_col")])
+                .order_by([col("x").sort(true, false)])
+                .expr("cell_order", row_number()),
+            |mark| mark.x(col("cell_order")).y(col("y")),
+        );
+        let values =
+            prepared_x_values_for_facet_mark(mark, session, &df, &facet_tree, &full_path).await?;
+
+        assert_eq!(values, vec![1.0, 2.0]);
         Ok(())
     }
 
