@@ -87,6 +87,7 @@ pub mod test_theme_font_size;
 pub mod test_title;
 pub mod test_transform_bin;
 pub mod test_transform_expression;
+pub mod test_transform_fold;
 pub mod test_transform_lump;
 pub mod test_transform_stack;
 pub mod test_wrapped_facet_sugar;

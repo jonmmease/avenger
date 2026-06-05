@@ -3,6 +3,7 @@ mod bin;
 mod calculate;
 mod common;
 mod filter;
+mod fold;
 pub mod lump;
 mod select;
 mod stack;
@@ -14,6 +15,7 @@ pub use aggregate::{
 pub use bin::{Bin, BinExtentSpec, BinOutput, CompiledBinTransform};
 pub use calculate::{Calculate, CalculateExprSpec, CompiledCalculateTransform};
 pub use filter::{CompiledFilterTransform, Filter};
+pub use fold::{CompiledFoldTransform, Fold, FoldFieldSpec, FoldOutput};
 pub use lump::{CompiledLumpTransform, Lump, LumpOtherMode, LumpOutput};
 pub use select::{CompiledSelectTransform, Select, SelectExprSpec};
 pub use stack::{CompiledStackTransform, Stack, StackOffset, StackOutput, TransformSortSpec};
@@ -89,6 +91,25 @@ mod tests {
             vec![
                 Arc::new(StringArray::from(categories)) as _,
                 Arc::new(Float64Array::from(values)) as _,
+            ],
+        )
+        .unwrap();
+        ctx.read_batch(batch).unwrap()
+    }
+
+    fn fold_dataframe(ctx: &SessionContext) -> DataFrame {
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("region", DataType::Utf8, false),
+                Field::new("gold", DataType::Float64, false),
+                Field::new("silver", DataType::Float64, false),
+                Field::new("bronze", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(StringArray::from(vec!["North", "South"])) as _,
+                Arc::new(Float64Array::from(vec![3.0, 1.0])) as _,
+                Arc::new(Float64Array::from(vec![2.0, 4.0])) as _,
+                Arc::new(Float64Array::from(vec![5.0, 2.0])) as _,
             ],
         )
         .unwrap();
@@ -276,6 +297,62 @@ mod tests {
         batches: &[RecordBatch],
     ) -> Vec<(Option<String>, f64, Option<String>, Option<f64>, bool)> {
         batches.iter().flat_map(lump_rows).collect()
+    }
+
+    fn fold_rows(
+        batch: &RecordBatch,
+        key_name: &str,
+        value_name: &str,
+        index_name: Option<&str>,
+    ) -> Vec<(String, String, f64, Option<i64>)> {
+        let region = batch
+            .column_by_name("region")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let key = batch
+            .column_by_name(key_name)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let value = batch
+            .column_by_name(value_name)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let index = index_name.map(|name| {
+            batch
+                .column_by_name(name)
+                .unwrap()
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .unwrap()
+        });
+        (0..batch.num_rows())
+            .map(|row| {
+                (
+                    region.value(row).to_string(),
+                    key.value(row).to_string(),
+                    value.value(row),
+                    index.as_ref().map(|array| array.value(row)),
+                )
+            })
+            .collect()
+    }
+
+    fn fold_rows_from_batches(
+        batches: &[RecordBatch],
+        key_name: &str,
+        value_name: &str,
+        index_name: Option<&str>,
+    ) -> Vec<(String, String, f64, Option<i64>)> {
+        batches
+            .iter()
+            .flat_map(|batch| fold_rows(batch, key_name, value_name, index_name))
+            .collect()
     }
 
     fn float_values(batch: &RecordBatch, column: &str) -> Vec<Option<f64>> {
@@ -479,6 +556,103 @@ mod tests {
             .into_compiled_and_output(DataTransformCompileContext::new(Sharing::Free))
         {
             Ok(_) => panic!("duplicate select output names should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("duplicated"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn fold_two_fields_produces_rows_per_input() {
+        let ctx = SessionContext::new();
+        let dataframe = fold_dataframe(&ctx);
+        let (compiled_transform, output) = compile_transform(
+            Fold::new()
+                .field("gold", col("gold"))
+                .field("silver", col("silver")),
+        );
+        assert_eq!(output.key().to_string(), "key");
+        assert_eq!(output.value().to_string(), "value");
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let mut rows = fold_rows_from_batches(&batches, "key", "value", None);
+        rows.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+        assert_eq!(
+            rows,
+            vec![
+                ("North".to_string(), "gold".to_string(), 3.0, None),
+                ("North".to_string(), "silver".to_string(), 2.0, None),
+                ("South".to_string(), "gold".to_string(), 1.0, None),
+                ("South".to_string(), "silver".to_string(), 4.0, None),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn fold_computed_values_params_names_and_index_work() {
+        let ctx = SessionContext::new();
+        let dataframe = fold_dataframe(&ctx);
+        let bonus = Param::new("fold_bonus", ScalarValue::Float64(Some(10.0)));
+        let (compiled_transform, output) = compile_transform(
+            Fold::new()
+                .field("medal_score", col("gold") * lit(3.0) + col("silver"))
+                .field("bonus_score", col("bronze") + bonus.expr())
+                .as_key("medal")
+                .as_value("score")
+                .index("medal_index"),
+        );
+        assert_eq!(output.key().to_string(), "medal");
+        assert_eq!(output.value().to_string(), "score");
+        assert_eq!(output.index().to_string(), "medal_index");
+        let params = IndexMap::from([(bonus.name.clone(), bonus.default.clone())]);
+
+        let batches =
+            transformed_batches_with_params(&ctx, dataframe, vec![compiled_transform], &params)
+                .await;
+        let mut rows = fold_rows_from_batches(&batches, "medal", "score", Some("medal_index"));
+        rows.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    "North".to_string(),
+                    "bonus_score".to_string(),
+                    15.0,
+                    Some(1)
+                ),
+                (
+                    "North".to_string(),
+                    "medal_score".to_string(),
+                    11.0,
+                    Some(0)
+                ),
+                (
+                    "South".to_string(),
+                    "bonus_score".to_string(),
+                    12.0,
+                    Some(1)
+                ),
+                ("South".to_string(), "medal_score".to_string(), 7.0, Some(0)),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn fold_rejects_missing_fields_and_duplicate_outputs() {
+        let err = match Fold::new()
+            .into_compiled_and_output(DataTransformCompileContext::new(Sharing::Free))
+        {
+            Ok(_) => panic!("fold without fields should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("at least one field"), "{err}");
+
+        let err = match Fold::new()
+            .field("gold", col("gold"))
+            .as_key("folded")
+            .as_value("folded")
+            .into_compiled_and_output(DataTransformCompileContext::new(Sharing::Free))
+        {
+            Ok(_) => panic!("duplicate fold output names should fail"),
             Err(err) => err,
         };
         assert!(err.to_string().contains("duplicated"), "{err}");
