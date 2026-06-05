@@ -1,5 +1,6 @@
 use crate::common::{expr_node, sanitize_output_name, validate_output_names};
 use async_trait::async_trait;
+use avenger_chart_cartesian::CartesianAxis;
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, CompiledDataTransform, DataTransform,
     DataTransformCompileContext, DataTransformExecutionContext, DataTransformResult,
@@ -8,7 +9,7 @@ use avenger_chart_core::{
 };
 use datafusion::{
     arrow::{
-        array::Float64Array,
+        array::{Float64Array, Int32Array, Int64Array},
         datatypes::{DataType, Field, Schema, TimeUnit as ArrowTimeUnit},
         record_batch::RecordBatch,
     },
@@ -24,6 +25,7 @@ use datafusion::{
         expr_fn::{cast, scalar_subquery},
         lit, when,
     },
+    prelude::named_struct,
 };
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
@@ -152,6 +154,7 @@ impl DataTransform for TimeUnit {
             end_name: end_name.clone(),
             domain_start_scalar_id: domain_start_scalar_id.clone(),
             domain_end_scalar_id: domain_end_scalar_id.clone(),
+            tick_spacing_scalar_id: tick_spacing_scalar_id.clone(),
             scope: ctx.scope,
         };
         Ok((
@@ -180,6 +183,7 @@ pub struct TimeUnitOutput {
     end_name: String,
     domain_start_scalar_id: String,
     domain_end_scalar_id: String,
+    tick_spacing_scalar_id: String,
     scope: avenger_chart_core::Sharing,
 }
 
@@ -195,6 +199,7 @@ impl TimeUnitOutput {
     fn position_channel(&self, column_name: &str) -> ChannelValue {
         let domain_start_scalar_id = self.domain_start_scalar_id.clone();
         let domain_end_scalar_id = self.domain_end_scalar_id.clone();
+        let tick_spacing_scalar_id = self.tick_spacing_scalar_id.clone();
         ChannelValue::from(col(column_name))
             .scale(move |scale| {
                 scale
@@ -204,6 +209,9 @@ impl TimeUnitOutput {
                     )
                     .option("nice", lit(false))
             })
+            .with_axis_config(
+                CartesianAxis::new().tick_spacing(derived_scalar(&tick_spacing_scalar_id, None)),
+            )
             .with_transform_scope(self.scope)
     }
 }
@@ -228,8 +236,8 @@ impl CompiledDataTransform for CompiledTimeUnitTransform {
         let (prepared, original_columns) =
             prepared_time_value_dataframe(dataframe, self, ctx.session_context)?;
         let plan = time_unit_plan_dataframe(prepared.clone(), self, ctx, maxbins)?;
-        let dataframe = apply_time_unit_with_plan(prepared, plan, self, original_columns)?;
-        let derived_scalars = time_unit_derived_scalars(dataframe.clone(), self)?;
+        let dataframe = apply_time_unit_with_plan(prepared, plan.clone(), self, original_columns)?;
+        let derived_scalars = time_unit_derived_scalars(dataframe.clone(), plan, self)?;
         Ok(DataTransformResult {
             dataframe,
             derived_scalars,
@@ -245,6 +253,9 @@ const TIME_SPAN_SECONDS: &str = "__avenger_timeunit_span_seconds";
 const TIME_MAXBINS: &str = "__avenger_timeunit_maxbins";
 const TIME_TARGET_SECONDS: &str = "__avenger_timeunit_target_seconds";
 const TIME_SCORE: &str = "__avenger_timeunit_score";
+const TIME_MONTHS: &str = "__avenger_timeunit_months";
+const TIME_DAYS: &str = "__avenger_timeunit_days";
+const TIME_NANOS: &str = "__avenger_timeunit_nanos";
 
 fn prepared_time_value_dataframe(
     dataframe: DataFrame,
@@ -325,7 +336,12 @@ fn time_unit_plan_dataframe(
         .map_err(AvengerChartError::DataFusionError)?
         .limit(0, Some(1))
         .map_err(AvengerChartError::DataFusionError)?
-        .select(vec![col(TIME_SECONDS)])
+        .select(vec![
+            col(TIME_SECONDS),
+            col(TIME_MONTHS),
+            col(TIME_DAYS),
+            col(TIME_NANOS),
+        ])
         .map_err(AvengerChartError::DataFusionError)
 }
 
@@ -477,6 +493,7 @@ fn cyclic_calendar_start_expr(
 
 fn time_unit_derived_scalars(
     dataframe: DataFrame,
+    plan: DataFrame,
     payload: &CompiledTimeUnitTransform,
 ) -> Result<DerivedScalarMap, AvengerChartError> {
     let extent = dataframe
@@ -495,7 +512,21 @@ fn time_unit_derived_scalars(
     );
     derived_scalars.insert(
         payload.domain_end_scalar_id.clone(),
-        scalar_from_dataframe(extent, col(TIME_MAX))?,
+        scalar_from_dataframe(extent.clone(), col(TIME_MAX))?,
+    );
+    derived_scalars.insert(
+        payload.tick_spacing_scalar_id.clone(),
+        scalar_from_dataframe(
+            cross_join(extent, plan)?,
+            named_struct(vec![
+                lit("start"),
+                col(TIME_MIN),
+                lit("step"),
+                candidate_case_expr(&payload_candidates(payload)?, |candidate| {
+                    Ok(interval_literal(candidate))
+                })?,
+            ]),
+        )?,
     );
     Ok(derived_scalars)
 }
@@ -609,13 +640,34 @@ fn candidate_dataframe(
         .iter()
         .map(|candidate| candidate.seconds)
         .collect::<Vec<_>>();
-    let schema = Arc::new(Schema::new(vec![Field::new(
-        TIME_SECONDS,
-        DataType::Float64,
-        false,
-    )]));
-    let batch = RecordBatch::try_new(schema, vec![Arc::new(Float64Array::from(seconds)) as _])
-        .map_err(AvengerChartError::ArrowError)?;
+    let months = candidates
+        .iter()
+        .map(|candidate| candidate.months)
+        .collect::<Vec<_>>();
+    let days = candidates
+        .iter()
+        .map(|candidate| candidate.days)
+        .collect::<Vec<_>>();
+    let nanos = candidates
+        .iter()
+        .map(|candidate| candidate.nanos)
+        .collect::<Vec<_>>();
+    let schema = Arc::new(Schema::new(vec![
+        Field::new(TIME_SECONDS, DataType::Float64, false),
+        Field::new(TIME_MONTHS, DataType::Int32, false),
+        Field::new(TIME_DAYS, DataType::Int32, false),
+        Field::new(TIME_NANOS, DataType::Int64, false),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(Float64Array::from(seconds)) as _,
+            Arc::new(Int32Array::from(months)) as _,
+            Arc::new(Int32Array::from(days)) as _,
+            Arc::new(Int64Array::from(nanos)) as _,
+        ],
+    )
+    .map_err(AvengerChartError::ArrowError)?;
     ctx.read_batch(batch)
         .map_err(AvengerChartError::DataFusionError)
 }

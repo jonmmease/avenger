@@ -13,13 +13,13 @@ use avenger_chart_core::{
 use avenger_guides::axis::{
     band::make_band_axis_marks,
     numeric::make_numeric_axis_marks,
-    opts::{AxisConfig, AxisOrientation},
+    opts::{AxisConfig, AxisOrientation, AxisTickSpacing},
     point::make_point_axis_marks,
 };
 use avenger_scales::scales::{DomainKind, band::BandScale};
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 use datafusion::{
-    arrow::array::Array,
+    arrow::array::{Array, StructArray},
     common::ScalarValue,
     prelude::{Expr, SessionContext, lit, named_struct},
 };
@@ -647,7 +647,7 @@ async fn evaluate_tick_spacing(
     ctx: &SessionContext,
     params: &indexmap::IndexMap<String, ScalarValue>,
     sharing_context: GuideSharingContext<'_>,
-) -> Result<Option<[f32; 2]>, AvengerChartError> {
+) -> Result<Option<AxisTickSpacing>, AvengerChartError> {
     let Some(spacing_node) = axis.tick_spacing.as_option().and_then(|o| o.as_ref()) else {
         return Ok(None);
     };
@@ -681,7 +681,7 @@ async fn evaluate_scalar_expr(
         .ok_or_else(|| AvengerChartError::InternalError("No value returned".to_string()))
 }
 
-fn extract_tick_spacing(spacing: ScalarValue) -> Result<[f32; 2], AvengerChartError> {
+fn extract_tick_spacing(spacing: ScalarValue) -> Result<AxisTickSpacing, AvengerChartError> {
     let ScalarValue::Struct(struct_array) = spacing else {
         return Err(AvengerChartError::InvalidArgument(format!(
             "Axis tick_spacing must evaluate to a struct with start and step fields, got {spacing}"
@@ -694,16 +694,26 @@ fn extract_tick_spacing(spacing: ScalarValue) -> Result<[f32; 2], AvengerChartEr
         ));
     }
 
-    Ok([
-        tick_spacing_field(&struct_array, "start")?,
-        tick_spacing_field(&struct_array, "step")?,
-    ])
+    let start = tick_spacing_field(&struct_array, "start")?;
+    let step = tick_spacing_field(&struct_array, "step")?;
+    if let (Ok(start), Ok(step)) = (start.as_f32(), step.as_f32()) {
+        return Ok(AxisTickSpacing::Numeric { start, step });
+    }
+
+    let start_millis = tick_spacing_start_millis(&start)?;
+    let (months, days, nanos) = tick_spacing_interval_parts(&step)?;
+    Ok(AxisTickSpacing::Temporal {
+        start_millis,
+        months,
+        days,
+        nanos,
+    })
 }
 
 fn tick_spacing_field(
-    struct_array: &datafusion::arrow::array::StructArray,
+    struct_array: &StructArray,
     name: &str,
-) -> Result<f32, AvengerChartError> {
+) -> Result<ScalarValue, AvengerChartError> {
     let (field_index, _) = struct_array
         .fields()
         .iter()
@@ -720,11 +730,35 @@ fn tick_spacing_field(
                 "Failed to read axis tick_spacing field '{name}': {err}"
             ))
         })?;
-    value.as_f32().map_err(|err| {
-        AvengerChartError::InvalidArgument(format!(
-            "Axis tick_spacing field '{name}' must be numeric: {err}"
-        ))
-    })
+    if value.is_null() {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Axis tick_spacing field '{name}' must not be null"
+        )));
+    }
+    Ok(value)
+}
+
+fn tick_spacing_start_millis(start: &ScalarValue) -> Result<i64, AvengerChartError> {
+    match start {
+        ScalarValue::Date32(Some(days)) => Ok(i64::from(*days) * 86_400_000),
+        ScalarValue::Date64(Some(millis)) => Ok(*millis),
+        ScalarValue::TimestampSecond(Some(value), _) => Ok(*value * 1_000),
+        ScalarValue::TimestampMillisecond(Some(value), _) => Ok(*value),
+        ScalarValue::TimestampMicrosecond(Some(value), _) => Ok(*value / 1_000),
+        ScalarValue::TimestampNanosecond(Some(value), _) => Ok(*value / 1_000_000),
+        _ => Err(AvengerChartError::InvalidArgument(format!(
+            "Axis temporal tick_spacing start must be a date or timestamp, got {start}"
+        ))),
+    }
+}
+
+fn tick_spacing_interval_parts(step: &ScalarValue) -> Result<(i32, i32, i64), AvengerChartError> {
+    let ScalarValue::IntervalMonthDayNano(Some(value)) = step else {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Axis tick_spacing step must be numeric or an IntervalMonthDayNano scalar, got {step}"
+        )));
+    };
+    Ok(datafusion::arrow::array::types::IntervalMonthDayNanoType::to_parts(*value))
 }
 
 #[cfg(test)]
@@ -739,8 +773,12 @@ mod tests {
         ChildFrameGuideSharingView, CoordinationAxis, FacetGuideSharingView, GuideSharingContext,
         SharingLevel, axis_owner_ignore_empty_cells_from_params, axis_ownership_mode_from_params,
     };
+    use avenger_guides::axis::opts::AxisTickSpacing;
     use datafusion::arrow::{
-        array::{ArrayRef, Float64Array, StructArray},
+        array::{
+            ArrayRef, Float64Array, IntervalMonthDayNanoArray, StructArray,
+            TimestampMillisecondArray,
+        },
         datatypes::{DataType, Field},
     };
     use datafusion::common::ScalarValue;
@@ -922,7 +960,46 @@ mod tests {
             ),
         ])));
 
-        assert_eq!(extract_tick_spacing(spacing).expect("spacing"), [1.5, 2.5]);
+        assert_eq!(
+            extract_tick_spacing(spacing).expect("spacing"),
+            AxisTickSpacing::Numeric {
+                start: 1.5,
+                step: 2.5
+            }
+        );
+    }
+
+    #[test]
+    fn tick_spacing_extracts_temporal_start_interval_struct() {
+        let step = datafusion::arrow::array::types::IntervalMonthDayNanoType::make_value(1, 0, 0);
+        let spacing = ScalarValue::Struct(Arc::new(StructArray::from(vec![
+            (
+                Arc::new(Field::new(
+                    "start",
+                    DataType::Timestamp(datafusion::arrow::datatypes::TimeUnit::Millisecond, None),
+                    false,
+                )),
+                Arc::new(TimestampMillisecondArray::from(vec![1_325_376_000_000])) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new(
+                    "step",
+                    DataType::Interval(datafusion::arrow::datatypes::IntervalUnit::MonthDayNano),
+                    false,
+                )),
+                Arc::new(IntervalMonthDayNanoArray::from(vec![step])) as ArrayRef,
+            ),
+        ])));
+
+        assert_eq!(
+            extract_tick_spacing(spacing).expect("spacing"),
+            AxisTickSpacing::Temporal {
+                start_millis: 1_325_376_000_000,
+                months: 1,
+                days: 0,
+                nanos: 0,
+            }
+        );
     }
 
     #[test]

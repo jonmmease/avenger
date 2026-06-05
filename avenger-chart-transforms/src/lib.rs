@@ -33,8 +33,8 @@ mod tests {
     use super::*;
     use arrow::{
         array::{
-            Array, BooleanArray, Float64Array, Int64Array, StringArray, TimestampMillisecondArray,
-            UInt64Array,
+            Array, BooleanArray, Float64Array, Int64Array, StringArray, StructArray,
+            TimestampMillisecondArray, UInt64Array,
         },
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
@@ -42,6 +42,7 @@ mod tests {
     use avenger_chart_core::{
         ChannelValue, DataTransform, DataTransformCompileContext, DataTransformExecutionContext,
         DataTransformStage, Param, Sharing, TimeContext, WeekStart, collect_derived_scalar_ids,
+        eval_to_scalars,
     };
     use datafusion::common::ScalarValue;
     use datafusion::dataframe::DataFrame;
@@ -514,6 +515,16 @@ mod tests {
         batches: &[RecordBatch],
     ) -> Vec<(Option<i64>, Option<i64>, Option<i64>)> {
         batches.iter().flat_map(timeunit_rows).collect()
+    }
+
+    fn scalar_struct_field(struct_array: &StructArray, name: &str) -> ScalarValue {
+        let (field_index, _) = struct_array
+            .fields()
+            .iter()
+            .enumerate()
+            .find(|(_, field)| field.name() == name)
+            .unwrap();
+        ScalarValue::try_from_array(struct_array.column(field_index), 0).unwrap()
     }
 
     fn float_values(batch: &RecordBatch, column: &str) -> Vec<Option<f64>> {
@@ -1604,6 +1615,49 @@ mod tests {
                 "{week_start:?}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn timeunit_returns_temporal_tick_spacing_derived_scalar() {
+        const DAY_MS: i64 = 86_400_000;
+        let ctx = SessionContext::new();
+        let dataframe = time_dataframe(&ctx, vec![Some(14 * DAY_MS), Some(58 * DAY_MS)]);
+        let (compiled_transform, _) =
+            compile_transform(TimeUnit::new(col("timestamp")).unit(TimeUnitPart::Month));
+        let result = avenger_chart_core::apply_compiled_data_transforms(
+            dataframe,
+            &[compiled_transform],
+            &DataTransformExecutionContext {
+                session_context: &ctx,
+                params: &IndexMap::new(),
+            },
+        )
+        .await
+        .unwrap();
+        let tick_spacing = result
+            .derived_scalars
+            .get("timestamp_timeunit_tick_spacing")
+            .expect("tick spacing scalar")
+            .clone();
+        let scalars = eval_to_scalars(vec![tick_spacing], Some(&ctx), None)
+            .await
+            .expect("evaluate tick spacing");
+        let ScalarValue::Struct(struct_array) = &scalars[0] else {
+            panic!("expected struct tick spacing, got {:?}", scalars[0]);
+        };
+        let start = scalar_struct_field(struct_array, "start");
+        let step = scalar_struct_field(struct_array, "step");
+        assert_eq!(
+            start,
+            ScalarValue::TimestampMillisecond(Some(1_325_376_000_000), None)
+        );
+        let ScalarValue::IntervalMonthDayNano(Some(step)) = step else {
+            panic!("expected interval step, got {step:?}");
+        };
+        assert_eq!(
+            datafusion::arrow::array::types::IntervalMonthDayNanoType::to_parts(step),
+            (1, 0, 0)
+        );
     }
 
     #[tokio::test]

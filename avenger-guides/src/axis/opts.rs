@@ -29,7 +29,21 @@ pub struct AxisConfig {
     pub title_visible: Option<bool>,
     pub labels_visible: Option<bool>,
     pub tick_count: Option<f32>,
-    pub tick_start_step: Option<[f32; 2]>,
+    pub tick_start_step: Option<AxisTickSpacing>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AxisTickSpacing {
+    Numeric {
+        start: f32,
+        step: f32,
+    },
+    Temporal {
+        start_millis: i64,
+        months: i32,
+        days: i32,
+        nanos: i64,
+    },
 }
 
 impl Default for AxisConfig {

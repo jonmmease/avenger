@@ -23,6 +23,8 @@ use super::{
     RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
+const MAX_START_STEP_TICKS: usize = 10_000;
+
 /// Time scale for temporal data visualization.
 ///
 /// The time scale is a variant of a linear scale that operates on temporal data types (dates,
@@ -1250,6 +1252,32 @@ enum TimeInterval {
 }
 
 impl TimeInterval {
+    fn from_month_day_nano(months: i32, days: i32, nanos: i64) -> Result<Self, AvengerScaleError> {
+        match (months, days, nanos) {
+            (months, 0, 0) if months > 0 && months % 12 == 0 => {
+                Ok(TimeInterval::Year(months / 12))
+            }
+            (months, 0, 0) if months > 0 => Ok(TimeInterval::Month(months)),
+            (0, days, 0) if days > 0 && days % 7 == 0 => Ok(TimeInterval::Week(days / 7)),
+            (0, days, 0) if days > 0 => Ok(TimeInterval::Day(days)),
+            (0, 0, nanos) if nanos > 0 && nanos % 3_600_000_000_000 == 0 => {
+                Ok(TimeInterval::Hour((nanos / 3_600_000_000_000) as i32))
+            }
+            (0, 0, nanos) if nanos > 0 && nanos % 60_000_000_000 == 0 => {
+                Ok(TimeInterval::Minute((nanos / 60_000_000_000) as i32))
+            }
+            (0, 0, nanos) if nanos > 0 && nanos % 1_000_000_000 == 0 => {
+                Ok(TimeInterval::Second((nanos / 1_000_000_000) as i32))
+            }
+            (0, 0, nanos) if nanos > 0 && nanos % 1_000_000 == 0 => {
+                Ok(TimeInterval::Millisecond((nanos / 1_000_000) as i32))
+            }
+            _ => Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+                "temporal tick spacing step must be a positive single-unit interval, got months={months}, days={days}, nanos={nanos}"
+            ))),
+        }
+    }
+
     /// Get duration in milliseconds (approximate for months/years)
     fn approx_millis(&self) -> i64 {
         match self {
@@ -1592,6 +1620,63 @@ fn generate_temporal_ticks(
     }
 
     Ok(ticks)
+}
+
+pub(crate) fn generate_temporal_start_step_ticks(
+    config: &ScaleConfig,
+    start_millis: i64,
+    months: i32,
+    days: i32,
+    nanos: i64,
+) -> Result<ArrayRef, AvengerScaleError> {
+    let domain_type = config.domain.data_type();
+    let handler = TemporalHandler::from_data_type(domain_type)?;
+    let domain_start = get_temporal_value(&config.domain, 0, &handler)?;
+    let domain_end = get_temporal_value(&config.domain, 1, &handler)?;
+    let domain_min = domain_start.min(domain_end);
+    let domain_max = domain_start.max(domain_end);
+    let interval = TimeInterval::from_month_day_nano(months, days, nanos)?;
+    let tz_str = config.option_string("timezone", "UTC");
+    let tz = parse_timezone(&tz_str)?;
+
+    let mut current = convert_to_timezone(start_millis, &tz);
+    let mut ticks = Vec::new();
+    let mut previous_millis = None;
+
+    while current.timestamp_millis() < domain_min {
+        let next = interval.offset(current, 1);
+        if next <= current {
+            return Err(AvengerScaleError::InvalidScalePropertyValue(
+                "temporal tick spacing must make forward progress".to_string(),
+            ));
+        }
+        current = next;
+    }
+
+    while current.timestamp_millis() <= domain_max {
+        let current_millis = current.timestamp_millis();
+        if current_millis >= domain_min
+            && previous_millis.is_none_or(|previous| current_millis > previous)
+        {
+            ticks.push(current_millis);
+            previous_millis = Some(current_millis);
+        }
+        if ticks.len() > MAX_START_STEP_TICKS {
+            return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+                "temporal start-step ticks exceeded maximum of {MAX_START_STEP_TICKS}"
+            )));
+        }
+
+        let next = interval.offset(current, 1);
+        if next <= current {
+            return Err(AvengerScaleError::InvalidScalePropertyValue(
+                "temporal tick spacing must make forward progress".to_string(),
+            ));
+        }
+        current = next;
+    }
+
+    create_temporal_array_from_millis_vec(&ticks, domain_type)
 }
 
 /// Create temporal array from vector of millisecond timestamps

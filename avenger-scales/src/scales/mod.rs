@@ -1199,6 +1199,21 @@ impl ConfiguredScale {
         self.scale_impl.ticks(&config, count)
     }
 
+    pub fn temporal_start_step_ticks(
+        &self,
+        start_millis: i64,
+        months: i32,
+        days: i32,
+        nanos: i64,
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        let config = if self.needs_normalization() {
+            self.get_normalized_config()?
+        } else {
+            self.config.clone()
+        };
+        time::generate_temporal_start_step_ticks(&config, start_millis, months, days, nanos)
+    }
+
     /// Scale to color values
     pub fn scale_to_color(
         &self,

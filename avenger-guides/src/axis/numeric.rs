@@ -15,7 +15,7 @@ use avenger_text::{
 };
 use rstar::AABB;
 
-use super::opts::{AxisConfig, AxisOrientation};
+use super::opts::{AxisConfig, AxisOrientation, AxisTickSpacing};
 use crate::error::AvengerGuidesError;
 
 const TEXT_MARGIN: f32 = 3.0;
@@ -50,8 +50,16 @@ pub fn make_numeric_axis_marks(
         ..Default::default()
     };
 
-    let ticks = if let Some([start, step]) = config.tick_start_step {
-        start_step_ticks(&scale, start, step)?
+    let ticks = if let Some(tick_spacing) = config.tick_start_step {
+        match tick_spacing {
+            AxisTickSpacing::Numeric { start, step } => start_step_ticks(&scale, start, step)?,
+            AxisTickSpacing::Temporal {
+                start_millis,
+                months,
+                days,
+                nanos,
+            } => scale.temporal_start_step_ticks(start_millis, months, days, nanos)?,
+        }
     } else {
         // Compute tick count: use explicit value, or adapt to available pixel space.
         let tick_count = config.tick_count.or_else(|| adaptive_tick_count(config));
