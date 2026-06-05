@@ -138,6 +138,37 @@ async fn histogram_nice_maxbins_friendly_edges() {
 }
 
 #[tokio::test]
+async fn histogram_maxbins_nice_false() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Histogram with nice=false")
+        .subtitle("Raw min/max are divided into seven exact bins")
+        .canvas_size(640.0, 420.0)
+        .data(messy_histogram_data(&ctx))
+        .mark(
+            Rect::new().transform(Bin::new(col("value")).maxbins(7).exact(), |mark, bin| {
+                mark.x(bin.start())
+                    .x2(bin.end())
+                    .y(lit(0.0))
+                    .y2(count(col("value")))
+                    .fill("#8b5cf6")
+                    .stroke("#ffffff")
+                    .stroke_width(1.0)
+            }),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("compile histogram");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "transform_bin",
+        "histogram_maxbins_nice_false",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn faceted_histogram_free_bin_edges() {
     let ctx = SessionContext::new();
     let plot = faceted_histogram_plot(
