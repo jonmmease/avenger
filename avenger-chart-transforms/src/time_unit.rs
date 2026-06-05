@@ -4,7 +4,7 @@ use avenger_chart_core::{
     AvengerChartError, ChannelValue, CompiledDataTransform, DataTransform,
     DataTransformCompileContext, DataTransformExecutionContext, DataTransformResult,
     DefaultLogicalExprNodeExt, DerivedScalarMap, IntoExpr, ScaleChannelValue, SerializableExpr,
-    TimeContext, WeekStart, derived_scalar,
+    TimeContext, WeekStart, derived_scalar, eval_to_scalars, params_to_datafusion,
 };
 use datafusion::{
     arrow::{
@@ -69,7 +69,7 @@ impl TimeUnit {
     pub fn new(value: Expr) -> Self {
         Self {
             value,
-            maxbins: Some(lit(10.0)),
+            maxbins: Some(lit(10_i64)),
             units: None,
             time_context: TimeContext::new(),
             interval: true,
@@ -220,9 +220,10 @@ impl CompiledDataTransform for CompiledTimeUnitTransform {
             dataframe.schema().fields().iter().map(|field| field.name()),
             [self.start_name.as_str(), self.end_name.as_str()],
         )?;
+        let maxbins = validated_maxbins_expr(self, ctx).await?;
         let (prepared, original_columns) =
             prepared_time_value_dataframe(dataframe, self, ctx.session_context)?;
-        let plan = time_unit_plan_dataframe(prepared.clone(), self, ctx)?;
+        let plan = time_unit_plan_dataframe(prepared.clone(), self, ctx, maxbins)?;
         let dataframe = apply_time_unit_with_plan(prepared, plan, self, original_columns)?;
         let derived_scalars = time_unit_derived_scalars(dataframe.clone(), self)?;
         Ok(DataTransformResult {
@@ -263,6 +264,7 @@ fn time_unit_plan_dataframe(
     dataframe: DataFrame,
     payload: &CompiledTimeUnitTransform,
     ctx: &DataTransformExecutionContext<'_>,
+    maxbins: Option<Expr>,
 ) -> Result<DataFrame, AvengerChartError> {
     if let Some(units) = &payload.units {
         return candidate_dataframe(
@@ -271,12 +273,11 @@ fn time_unit_plan_dataframe(
         );
     }
 
-    let Some(maxbins) = &payload.maxbins else {
+    let Some(maxbins) = maxbins else {
         return Err(AvengerChartError::InvalidArgument(
             "TimeUnit requires either explicit units or maxbins".to_string(),
         ));
     };
-    let maxbins = maxbins.to_default_expr(ctx.session_context)?;
     let extent = dataframe
         .aggregate(
             Vec::<Expr>::new(),
@@ -322,6 +323,58 @@ fn time_unit_plan_dataframe(
         .map_err(AvengerChartError::DataFusionError)?
         .select(vec![col(TIME_SECONDS)])
         .map_err(AvengerChartError::DataFusionError)
+}
+
+async fn validated_maxbins_expr(
+    payload: &CompiledTimeUnitTransform,
+    ctx: &DataTransformExecutionContext<'_>,
+) -> Result<Option<Expr>, AvengerChartError> {
+    let Some(maxbins) = &payload.maxbins else {
+        return Ok(None);
+    };
+    let expr = maxbins.to_default_expr(ctx.session_context)?;
+    let params = params_to_datafusion(ctx.params);
+    let mut values = eval_to_scalars(vec![expr], Some(ctx.session_context), params.as_ref())
+        .await
+        .map_err(|err| {
+            AvengerChartError::InvalidArgument(format!(
+                "TimeUnit::maxbins(...) must evaluate to a positive integer scalar: {err}"
+            ))
+        })?;
+    let value = values.pop().ok_or_else(|| {
+        AvengerChartError::InternalError("TimeUnit::maxbins(...) returned no value".to_string())
+    })?;
+    let maxbins = match value {
+        ScalarValue::Int8(Some(value)) => i64::from(value),
+        ScalarValue::Int16(Some(value)) => i64::from(value),
+        ScalarValue::Int32(Some(value)) => i64::from(value),
+        ScalarValue::Int64(Some(value)) => value,
+        ScalarValue::UInt8(Some(value)) => i64::from(value),
+        ScalarValue::UInt16(Some(value)) => i64::from(value),
+        ScalarValue::UInt32(Some(value)) => i64::from(value),
+        ScalarValue::UInt64(Some(value)) => i64::try_from(value).map_err(|_| {
+            AvengerChartError::InvalidArgument(
+                "TimeUnit::maxbins(...) must evaluate to a positive integer that fits in Int64"
+                    .to_string(),
+            )
+        })?,
+        other if other.is_null() => {
+            return Err(AvengerChartError::InvalidArgument(
+                "TimeUnit::maxbins(...) must not evaluate to null".to_string(),
+            ));
+        }
+        other => {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "TimeUnit::maxbins(...) must evaluate to an integer scalar, got {other:?}"
+            )));
+        }
+    };
+    if maxbins <= 0 {
+        return Err(AvengerChartError::InvalidArgument(
+            "TimeUnit::maxbins(...) must evaluate to a positive integer".to_string(),
+        ));
+    }
+    Ok(Some(lit(maxbins)))
 }
 
 fn apply_time_unit_with_plan(

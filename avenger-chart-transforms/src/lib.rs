@@ -1482,6 +1482,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn timeunit_maxbins_accepts_param_integer() {
+        const DAY_MS: i64 = 86_400_000;
+        let ctx = SessionContext::new();
+        let dataframe = time_dataframe(&ctx, vec![Some(14 * DAY_MS), Some(58 * DAY_MS)]);
+        let maxbins = Param::new("time_maxbins", ScalarValue::Int64(Some(2)));
+        let (compiled_transform, _) =
+            compile_transform(TimeUnit::new(col("timestamp")).maxbins(maxbins.expr()));
+        let mut params = IndexMap::new();
+        params.insert(maxbins.name.clone(), ScalarValue::Int64(Some(2)));
+
+        let batches =
+            transformed_batches_with_params(&ctx, dataframe, vec![compiled_transform], &params)
+                .await;
+        let mut rows = timeunit_rows_from_batches(&batches);
+        rows.sort();
+        assert_eq!(
+            rows,
+            vec![
+                (Some(14 * DAY_MS), Some(0), Some(31 * DAY_MS)),
+                (Some(58 * DAY_MS), Some(31 * DAY_MS), Some(59 * DAY_MS)),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn timeunit_maxbins_rejects_non_positive_non_integer_and_null() {
+        let cases = [
+            ("zero", lit(0_i64), "must evaluate to a positive integer"),
+            (
+                "negative",
+                lit(-1_i64),
+                "must evaluate to a positive integer",
+            ),
+            ("float", lit(2.5), "must evaluate to an integer scalar"),
+            (
+                "null",
+                lit(ScalarValue::Int64(None)),
+                "must not evaluate to null",
+            ),
+        ];
+
+        for (name, maxbins_expr, expected) in cases {
+            let ctx = SessionContext::new();
+            let dataframe = time_dataframe(&ctx, vec![Some(0), Some(86_400_000)]);
+            let (compiled_transform, _) =
+                compile_transform(TimeUnit::new(col("timestamp")).maxbins(maxbins_expr));
+            let err = match avenger_chart_core::apply_compiled_data_transforms(
+                dataframe,
+                &[compiled_transform],
+                &DataTransformExecutionContext {
+                    session_context: &ctx,
+                    params: &IndexMap::new(),
+                },
+            )
+            .await
+            {
+                Ok(_) => panic!("invalid maxbins should error"),
+                Err(err) => err,
+            };
+            assert!(err.to_string().contains(expected), "{name}: {err}");
+        }
+    }
+
+    #[tokio::test]
     async fn timeunit_week_start_changes_week_anchor() {
         const DAY_MS: i64 = 86_400_000;
         const SUNDAY_JAN_7_2024_MS: i64 = 1_704_585_600_000;
