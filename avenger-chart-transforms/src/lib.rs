@@ -1330,6 +1330,97 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn impute_min_and_max_fill_use_group_statistics() {
+        for (method, expected_fill) in [("min", 2.0), ("max", 6.0)] {
+            let ctx = SessionContext::new();
+            let dataframe = impute_dataframe(&ctx);
+            let impute = Impute::new(col("value"))
+                .key(col("month"))
+                .group_by([col("series")])
+                .flag("was_imputed");
+            let impute = match method {
+                "min" => impute.min(),
+                "max" => impute.max(),
+                _ => unreachable!(),
+            };
+            let (compiled_transform, _) = compile_transform(impute);
+
+            let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+            let mut rows = impute_rows_from_batches(&batches);
+            rows.sort_by(|a, b| (&a.0, a.1).cmp(&(&b.0, b.1)));
+            assert_eq!(
+                rows,
+                vec![
+                    ("A".to_string(), 1, 2.0, false),
+                    ("A".to_string(), 2, expected_fill, true),
+                    ("A".to_string(), 3, 6.0, false),
+                    ("B".to_string(), 1, 1.0, false),
+                    ("B".to_string(), 2, 1.0, false),
+                    ("B".to_string(), 3, 1.0, true),
+                ],
+                "{method}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn impute_value_fill_accepts_params() {
+        let ctx = SessionContext::new();
+        let dataframe = impute_dataframe(&ctx);
+        let fill = Param::new("fill", 7.0);
+        let (compiled_transform, _) = compile_transform(
+            Impute::new(col("value"))
+                .key(col("month"))
+                .group_by([col("series")])
+                .value(fill.expr())
+                .flag("was_imputed"),
+        );
+        let params = IndexMap::from([("fill".to_string(), ScalarValue::Float64(Some(7.0)))]);
+
+        let batches =
+            transformed_batches_with_params(&ctx, dataframe, vec![compiled_transform], &params)
+                .await;
+        let mut rows = impute_rows_from_batches(&batches);
+        rows.sort_by(|a, b| (&a.0, a.1).cmp(&(&b.0, b.1)));
+        assert_eq!(
+            rows,
+            vec![
+                ("A".to_string(), 1, 2.0, false),
+                ("A".to_string(), 2, 7.0, true),
+                ("A".to_string(), 3, 6.0, false),
+                ("B".to_string(), 1, 1.0, false),
+                ("B".to_string(), 2, 7.0, false),
+                ("B".to_string(), 3, 7.0, true),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn impute_without_group_by_uses_global_key_domain() {
+        let ctx = SessionContext::new();
+        let dataframe = impute_dataframe(&ctx);
+        let (compiled_transform, _) = compile_transform(
+            Impute::new(col("value"))
+                .key(col("month"))
+                .value(lit(0.0))
+                .flag("was_imputed"),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let mut rows = impute_rows_from_batches(&batches);
+        rows.sort_by(|a, b| (&a.0, a.1).cmp(&(&b.0, b.1)));
+        assert_eq!(
+            rows,
+            vec![
+                ("A".to_string(), 1, 2.0, false),
+                ("A".to_string(), 3, 6.0, false),
+                ("B".to_string(), 1, 1.0, false),
+                ("B".to_string(), 2, 0.0, false),
+            ]
+        );
+    }
+
+    #[tokio::test]
     async fn impute_requires_key_and_method() {
         let err = match Impute::new(col("value"))
             .value(lit(0.0))
