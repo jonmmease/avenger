@@ -4,6 +4,7 @@ mod calculate;
 mod common;
 mod filter;
 mod fold;
+mod impute;
 mod join_aggregate;
 pub mod lump;
 mod select;
@@ -19,6 +20,7 @@ pub use bin::{Bin, BinExtentSpec, BinOutput, CompiledBinTransform};
 pub use calculate::{Calculate, CalculateExprSpec, CompiledCalculateTransform};
 pub use filter::{CompiledFilterTransform, Filter};
 pub use fold::{CompiledFoldTransform, Fold, FoldFieldSpec, FoldOutput};
+pub use impute::{CompiledImputeTransform, Impute, ImputeMethodSpec, ImputeOutput};
 pub use join_aggregate::{CompiledJoinAggregateTransform, JoinAggregate};
 pub use lump::{CompiledLumpTransform, Lump, LumpOtherMode, LumpOutput};
 pub use select::{CompiledSelectTransform, Select, SelectExprSpec};
@@ -151,6 +153,28 @@ mod tests {
                 Arc::new(StringArray::from(vec!["A", "A", "A", "B", "B"])) as _,
                 Arc::new(Int64Array::from(vec![1, 2, 3, 1, 2])) as _,
                 Arc::new(Float64Array::from(vec![2.0, 4.0, 1.0, 5.0, 3.0])) as _,
+            ],
+        )
+        .unwrap();
+        ctx.read_batch(batch).unwrap()
+    }
+
+    fn impute_dataframe(ctx: &SessionContext) -> DataFrame {
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("series", DataType::Utf8, false),
+                Field::new("month", DataType::Int64, false),
+                Field::new("value", DataType::Float64, true),
+            ])),
+            vec![
+                Arc::new(StringArray::from(vec!["A", "A", "B", "B"])) as _,
+                Arc::new(Int64Array::from(vec![1, 3, 1, 2])) as _,
+                Arc::new(Float64Array::from(vec![
+                    Some(2.0),
+                    Some(6.0),
+                    Some(1.0),
+                    None,
+                ])) as _,
             ],
         )
         .unwrap();
@@ -509,6 +533,47 @@ mod tests {
             .iter()
             .flat_map(|batch| uint64_values(batch, column))
             .collect()
+    }
+
+    fn impute_rows(batch: &RecordBatch) -> Vec<(String, i64, f64, bool)> {
+        let series = batch
+            .column_by_name("series")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let month = batch
+            .column_by_name("month")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        let value = batch
+            .column_by_name("value")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let imputed = batch
+            .column_by_name("was_imputed")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .unwrap();
+        (0..batch.num_rows())
+            .map(|row| {
+                (
+                    series.value(row).to_string(),
+                    month.value(row),
+                    value.value(row),
+                    imputed.value(row),
+                )
+            })
+            .collect()
+    }
+
+    fn impute_rows_from_batches(batches: &[RecordBatch]) -> Vec<(String, i64, f64, bool)> {
+        batches.iter().flat_map(impute_rows).collect()
     }
 
     fn stack_rows_from_batches(batches: &[RecordBatch]) -> Vec<(String, String, f64, f64)> {
@@ -1092,6 +1157,85 @@ mod tests {
             err.to_string().contains("requires an explicit order_by"),
             "{err}"
         );
+    }
+
+    #[tokio::test]
+    async fn impute_value_fill_creates_missing_key_rows_per_group() {
+        let ctx = SessionContext::new();
+        let dataframe = impute_dataframe(&ctx);
+        let (compiled_transform, output) = compile_transform(
+            Impute::new(col("value"))
+                .key(col("month"))
+                .group_by([col("series")])
+                .value(lit(0.0))
+                .flag("was_imputed"),
+        );
+        assert_eq!(output.value().to_string(), "value");
+        assert_eq!(output.flag().to_string(), "was_imputed");
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let mut rows = impute_rows_from_batches(&batches);
+        rows.sort_by(|a, b| (&a.0, a.1).cmp(&(&b.0, b.1)));
+        assert_eq!(
+            rows,
+            vec![
+                ("A".to_string(), 1, 2.0, false),
+                ("A".to_string(), 2, 0.0, true),
+                ("A".to_string(), 3, 6.0, false),
+                ("B".to_string(), 1, 1.0, false),
+                ("B".to_string(), 2, 0.0, false),
+                ("B".to_string(), 3, 0.0, true),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn impute_mean_fill_uses_group_statistic() {
+        let ctx = SessionContext::new();
+        let dataframe = impute_dataframe(&ctx);
+        let (compiled_transform, _) = compile_transform(
+            Impute::new(col("value"))
+                .key(col("month"))
+                .group_by([col("series")])
+                .mean()
+                .flag("was_imputed"),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let mut rows = impute_rows_from_batches(&batches);
+        rows.sort_by(|a, b| (&a.0, a.1).cmp(&(&b.0, b.1)));
+        assert_eq!(
+            rows,
+            vec![
+                ("A".to_string(), 1, 2.0, false),
+                ("A".to_string(), 2, 4.0, true),
+                ("A".to_string(), 3, 6.0, false),
+                ("B".to_string(), 1, 1.0, false),
+                ("B".to_string(), 2, 1.0, false),
+                ("B".to_string(), 3, 1.0, true),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn impute_requires_key_and_method() {
+        let err = match Impute::new(col("value"))
+            .value(lit(0.0))
+            .into_compiled_and_output(DataTransformCompileContext::new(Sharing::Free))
+        {
+            Ok(_) => panic!("impute without key should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("requires a key"), "{err}");
+
+        let err = match Impute::new(col("value"))
+            .key(col("month"))
+            .into_compiled_and_output(DataTransformCompileContext::new(Sharing::Free))
+        {
+            Ok(_) => panic!("impute without method should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("requires a fill method"), "{err}");
     }
 
     #[tokio::test]

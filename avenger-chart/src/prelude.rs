@@ -50,9 +50,9 @@ pub use avenger_chart_core::{
 pub use avenger_chart_tools::{BoxZoom, LassoSelection, PanScrollZoom, PointSelection};
 pub use avenger_chart_transforms::lump;
 pub use avenger_chart_transforms::{
-    Aggregate, AggregateOutput, Bin, BinOutput, Calculate, Filter, Fold, FoldOutput, JoinAggregate,
-    Lump, LumpOutput, Select, Stack, StackOffset, StackOutput, TimeUnit, TimeUnitOutput,
-    TimeUnitPart, Window,
+    Aggregate, AggregateOutput, Bin, BinOutput, Calculate, Filter, Fold, FoldOutput, Impute,
+    ImputeOutput, JoinAggregate, Lump, LumpOutput, Select, Stack, StackOffset, StackOutput,
+    TimeUnit, TimeUnitOutput, TimeUnitPart, Window,
 };
 
 // Re-export theme types
