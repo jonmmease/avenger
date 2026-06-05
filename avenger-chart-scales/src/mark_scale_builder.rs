@@ -52,6 +52,8 @@ pub struct PreparedScaleMark {
     pub mark: Arc<dyn CompiledMark>,
     pub dataframe: Option<DataFrame>,
     pub channels: IndexMap<String, ChannelValue>,
+    pub domain_dataframe: Option<DataFrame>,
+    pub domain_channels: IndexMap<String, ChannelValue>,
     pub derived_scalars: DerivedScalarMap,
 }
 
@@ -124,8 +126,28 @@ impl PreparedScaleMark {
     ) -> Self {
         Self {
             mark,
+            domain_dataframe: dataframe.clone(),
+            domain_channels: channels.clone(),
             dataframe,
             channels,
+            derived_scalars,
+        }
+    }
+
+    pub fn new_with_domain_source(
+        mark: Arc<dyn CompiledMark>,
+        dataframe: Option<DataFrame>,
+        channels: IndexMap<String, ChannelValue>,
+        domain_dataframe: Option<DataFrame>,
+        domain_channels: IndexMap<String, ChannelValue>,
+        derived_scalars: DerivedScalarMap,
+    ) -> Self {
+        Self {
+            mark,
+            dataframe,
+            channels,
+            domain_dataframe,
+            domain_channels,
             derived_scalars,
         }
     }
@@ -900,24 +922,52 @@ async fn cache_domain_data(
                 continue;
             }
             let mark = &prepared.mark;
-            let df = if let Some(mark_df) = prepared
+            let render_df = prepared
                 .dataframe
                 .clone()
                 .filter(|df| !is_empty_relation(df))
-            {
-                Arc::new(mark_df)
-            } else {
+                .map(Arc::new);
+            let domain_df = prepared
+                .domain_dataframe
+                .clone()
+                .filter(|df| !is_empty_relation(df))
+                .map(Arc::new);
+            if render_df.is_none() && domain_df.is_none() {
                 continue;
-            };
+            }
 
-            let channels = &prepared.channels;
-            let resolved =
-                resolve_all_channel_refs(channels, ctx).unwrap_or_else(|_| channels.clone());
+            let resolved = resolve_all_channel_refs(&prepared.channels, ctx)
+                .unwrap_or_else(|_| prepared.channels.clone());
+            let domain_resolved = resolve_all_channel_refs(&prepared.domain_channels, ctx)
+                .unwrap_or_else(|_| prepared.domain_channels.clone());
 
-            for (channel_name, channel_value) in &resolved {
-                if let Some(channel_scale_name) = channel_value.get_scale_name(channel_name)
+            for (channel_name, domain_channel_value) in &domain_resolved {
+                if let Some(channel_scale_name) = domain_channel_value.get_scale_name(channel_name)
                     && channel_scale_name == channel
                 {
+                    let domain_scale_input = domain_channel_value.scale_input_expr(ctx);
+                    let use_domain_source = domain_scale_input
+                        .as_ref()
+                        .is_some_and(|expr| !contains_aggregate(expr))
+                        && domain_df.is_some();
+                    let df = if use_domain_source {
+                        domain_df.as_ref().expect("checked domain df").clone()
+                    } else if let Some(render_df) = render_df.as_ref() {
+                        render_df.clone()
+                    } else {
+                        domain_df.as_ref().expect("checked domain df").clone()
+                    };
+                    let channel_value = if use_domain_source {
+                        domain_channel_value
+                    } else {
+                        resolved.get(channel_name).unwrap_or(domain_channel_value)
+                    };
+                    let source_resolved = if use_domain_source {
+                        &domain_resolved
+                    } else {
+                        &resolved
+                    };
+
                     // Helper to push (df, expr_df, per_mark_radius)
                     let mut push_entry = |expr_df: Expr| -> Result<(), AvengerChartError> {
                         // Compute per-mark radius (if supported by this scale)
@@ -927,7 +977,7 @@ async fn cache_domain_data(
                             if scale_impl.supports_radius_expansion() {
                                 // Build resolve_channel as in get_radius_expression
                                 let resolve_channel = |ch_name: &str| -> Expr {
-                                    if let Some(ch_val) = resolved.get(ch_name) {
+                                    if let Some(ch_val) = source_resolved.get(ch_name) {
                                         match ch_val {
                                             ChannelValue::Scaled {
                                                 expr, scale_name, ..
@@ -999,7 +1049,12 @@ async fn cache_domain_data(
                     // For conditionals, this returns a CASE expression with NULL for
                     // literal Value branches (they bypass the scale and shouldn't
                     // affect domain computation like min/max or distinct values).
-                    if let Some(expr_df) = channel_value.scale_input_expr(ctx) {
+                    let scale_input = if use_domain_source {
+                        domain_scale_input
+                    } else {
+                        channel_value.scale_input_expr(ctx)
+                    };
+                    if let Some(expr_df) = scale_input {
                         push_entry(expr_df)?;
                     }
                 }

@@ -51,6 +51,11 @@ use crate::{
 pub(crate) struct PreparedLogicalMarkData {
     pub(crate) dataframe: Option<DataFrame>,
     pub(crate) channels: IndexMap<String, ChannelValue>,
+    /// Data after scope selection and transforms, before aggregate channel
+    /// preparation. Scale-domain inference can use this for non-aggregate
+    /// channels so transform-produced helper columns remain available.
+    pub(crate) domain_dataframe: Option<DataFrame>,
+    pub(crate) domain_channels: IndexMap<String, ChannelValue>,
     pub(crate) derived_scalars: DerivedScalarMap,
 }
 
@@ -791,11 +796,15 @@ pub(crate) async fn prepare_logical_mark_data(
         request.eval_ctx,
         available_columns.as_ref(),
     )?;
+    let domain_dataframe = dataframe.clone();
+    let domain_channels = channels.clone();
 
     if !aggregate_channels_need_preparation(&channels, ctx) {
         return Ok(PreparedLogicalMarkData {
             dataframe,
             channels,
+            domain_dataframe,
+            domain_channels,
             derived_scalars,
         });
     }
@@ -857,6 +866,8 @@ pub(crate) async fn prepare_logical_mark_data(
         return Ok(PreparedLogicalMarkData {
             dataframe: Some(df),
             channels,
+            domain_dataframe,
+            domain_channels,
             derived_scalars,
         });
     }
@@ -903,6 +914,8 @@ pub(crate) async fn prepare_logical_mark_data(
     Ok(PreparedLogicalMarkData {
         dataframe: Some(agg_df),
         channels: updated_channels,
+        domain_dataframe,
+        domain_channels,
         derived_scalars,
     })
 }

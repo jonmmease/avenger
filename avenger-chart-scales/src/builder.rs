@@ -1043,6 +1043,10 @@ mod tests {
         None
     }
 
+    fn empty_scalars() -> DerivedScalarMap {
+        DerivedScalarMap::new()
+    }
+
     #[test]
     fn test_scale_builder_new() {
         let builder = ScaleBuilder::new();
@@ -1056,7 +1060,13 @@ mod tests {
         let data_extents = DataExtents::Interval(0.0, 100.0);
         let options = HashMap::new();
 
-        builder.add_standard("x".to_string(), scale_spec, data_extents, options);
+        builder.add_standard(
+            "x".to_string(),
+            scale_spec,
+            data_extents,
+            options,
+            empty_scalars(),
+        );
 
         assert_eq!(builder.channel_scale_data.len(), 1);
         assert!(builder.channel_scale_data.contains_key("x"));
@@ -1078,6 +1088,7 @@ mod tests {
             radius_lower,
             radius_upper,
             options,
+            empty_scalars(),
         );
 
         assert_eq!(builder.channel_scale_data.len(), 1);
@@ -1136,7 +1147,13 @@ mod tests {
         let data_extents = DataExtents::Interval(0.0, 100.0);
         let options = HashMap::new();
 
-        builder.add_standard("x".to_string(), scale_spec, data_extents, options);
+        builder.add_standard(
+            "x".to_string(),
+            scale_spec,
+            data_extents,
+            options,
+            empty_scalars(),
+        );
 
         let mut coord_ranges = HashMap::new();
         coord_ranges.insert(
@@ -1180,6 +1197,7 @@ mod tests {
             scale_spec,
             DataExtents::Interval(0.0, 100.0),
             HashMap::new(),
+            empty_scalars(),
         );
 
         let mut coord_ranges = HashMap::new();
@@ -1224,6 +1242,7 @@ mod tests {
             vec![500.0, 500.0, 500.0],
             vec![500.0, 500.0, 500.0],
             HashMap::new(),
+            empty_scalars(),
         );
 
         let raw_domain = Scale::<Auto>::from_spec(Box::new(Linear))
@@ -1266,6 +1285,7 @@ mod tests {
             Box::new(Linear),
             HashMap::new(),
             ScaleDomain::new_interval(lit(0.0), lit(100.0)),
+            empty_scalars(),
         );
 
         let mut coord_ranges = HashMap::new();
@@ -1316,6 +1336,7 @@ mod tests {
             radius_lower,
             radius_upper,
             options,
+            empty_scalars(),
         );
 
         let mut coord_ranges = HashMap::new();
@@ -1373,6 +1394,7 @@ mod tests {
             radius_lower,
             radius_upper,
             options,
+            empty_scalars(),
         );
 
         let ctx = SessionContext::new();
@@ -1454,7 +1476,13 @@ mod tests {
         let data_extents = DataExtents::Interval(0.0, 100.0);
         let options = HashMap::new();
 
-        builder.add_standard("x".to_string(), scale_spec, data_extents, options);
+        builder.add_standard(
+            "x".to_string(),
+            scale_spec,
+            data_extents,
+            options,
+            empty_scalars(),
+        );
 
         let extents = builder.extract_domain_extents(&["x"]);
 
@@ -1480,6 +1508,7 @@ mod tests {
             radius_lower,
             radius_upper,
             options,
+            empty_scalars(),
         );
 
         let extents = builder.extract_domain_extents(&["y"]);
@@ -1506,6 +1535,7 @@ mod tests {
             scale_spec1,
             DataExtents::Interval(0.0, 100.0),
             HashMap::new(),
+            empty_scalars(),
         );
 
         // Add radius-aware scale
@@ -1517,6 +1547,7 @@ mod tests {
             vec![2.0, 3.0],
             vec![4.0, 5.0],
             HashMap::new(),
+            empty_scalars(),
         );
 
         // Add discrete scale
@@ -1529,6 +1560,7 @@ mod tests {
                 ScalarValue::Utf8(Some("blue".to_string())),
             ]),
             HashMap::new(),
+            empty_scalars(),
         );
 
         let extents = builder.extract_domain_extents(&["x", "y", "color", "missing"]);
@@ -1561,6 +1593,7 @@ mod tests {
             scale_spec,
             DataExtents::Interval(10.0, 50.0),
             HashMap::new(),
+            empty_scalars(),
         );
 
         // Create shared extent with wider range
@@ -1586,6 +1619,7 @@ mod tests {
             vec![2.0, 3.0],
             vec![4.0, 5.0],
             HashMap::new(),
+            empty_scalars(),
         );
 
         // Create shared extent WITH radius info
@@ -1620,6 +1654,7 @@ mod tests {
             vec![2.0, 3.0],
             vec![4.0, 5.0],
             HashMap::new(),
+            empty_scalars(),
         );
 
         // Create shared extent WITHOUT radius info
@@ -1651,6 +1686,7 @@ mod tests {
             scale_spec,
             DataExtents::Discrete(vec![ScalarValue::Utf8(Some("red".to_string()))]),
             HashMap::new(),
+            empty_scalars(),
         );
 
         // Create shared discrete extent with more values

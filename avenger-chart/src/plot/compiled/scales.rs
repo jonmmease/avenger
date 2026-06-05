@@ -47,10 +47,12 @@ pub(crate) async fn build_scale_builder_from_marks(
             eval_ctx: &render_eval_ctx,
         }))
         .await?;
-        prepared_marks.push(PreparedScaleMark::new(
+        prepared_marks.push(PreparedScaleMark::new_with_domain_source(
             mark.clone(),
             prepared.dataframe,
             prepared.channels,
+            prepared.domain_dataframe,
+            prepared.domain_channels,
             prepared.derived_scalars,
         ));
     }
@@ -123,10 +125,12 @@ pub(crate) async fn build_scale_builder_from_marks_with_facet_scope(
             eval_ctx,
         }))
         .await?;
-        prepared_marks.push(PreparedScaleMark::new(
+        prepared_marks.push(PreparedScaleMark::new_with_domain_source(
             mark.clone(),
             prepared.dataframe,
             prepared.channels,
+            prepared.domain_dataframe,
+            prepared.domain_channels,
             prepared.derived_scalars,
         ));
     }

@@ -1,6 +1,7 @@
 mod aggregate;
 mod bin;
 mod common;
+pub mod lump;
 mod stack;
 
 pub use aggregate::{
@@ -8,13 +9,14 @@ pub use aggregate::{
     CompiledAggregateTransform,
 };
 pub use bin::{Bin, BinExtentSpec, BinOutput, CompiledBinTransform};
+pub use lump::{CompiledLumpTransform, Lump, LumpOtherMode, LumpOutput};
 pub use stack::{CompiledStackTransform, Stack, StackOffset, StackOutput, TransformSortSpec};
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use arrow::{
-        array::{Array, Float64Array, Int64Array, StringArray},
+        array::{Array, BooleanArray, Float64Array, Int64Array, StringArray},
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     };
@@ -23,7 +25,9 @@ mod tests {
         DataTransformStage, Sharing, collect_derived_scalar_ids,
     };
     use datafusion::dataframe::DataFrame;
-    use datafusion::logical_expr::col;
+    use datafusion::functions_aggregate::expr_fn::sum;
+    use datafusion::functions_window::expr_fn::{ntile, percent_rank, rank};
+    use datafusion::logical_expr::{col, lit};
     use datafusion::prelude::SessionContext;
     use std::sync::Arc;
 
@@ -59,6 +63,25 @@ mod tests {
                 true,
             )])),
             vec![Arc::new(Float64Array::from(values)) as _],
+        )
+        .unwrap();
+        ctx.read_batch(batch).unwrap()
+    }
+
+    fn lump_dataframe(
+        ctx: &SessionContext,
+        categories: Vec<Option<&str>>,
+        values: Vec<f64>,
+    ) -> DataFrame {
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("category", DataType::Utf8, true),
+                Field::new("value", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(StringArray::from(categories)) as _,
+                Arc::new(Float64Array::from(values)) as _,
+            ],
         )
         .unwrap();
         ctx.read_batch(batch).unwrap()
@@ -178,6 +201,58 @@ mod tests {
             .collect()
     }
 
+    fn lump_rows(
+        batch: &RecordBatch,
+    ) -> Vec<(Option<String>, f64, Option<String>, Option<f64>, bool)> {
+        let category = batch
+            .column_by_name("category")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let value = batch
+            .column_by_name("value")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let lump_value = batch
+            .column_by_name("category_lump_value")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let rank = batch
+            .column_by_name("category_lump_rank")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let is_other = batch
+            .column_by_name("category_lump_is_other")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .unwrap();
+        (0..batch.num_rows())
+            .map(|index| {
+                (
+                    (!category.is_null(index)).then(|| category.value(index).to_string()),
+                    value.value(index),
+                    (!lump_value.is_null(index)).then(|| lump_value.value(index).to_string()),
+                    (!rank.is_null(index)).then(|| rank.value(index)),
+                    is_other.value(index),
+                )
+            })
+            .collect()
+    }
+
+    fn lump_rows_from_batches(
+        batches: &[RecordBatch],
+    ) -> Vec<(Option<String>, f64, Option<String>, Option<f64>, bool)> {
+        batches.iter().flat_map(lump_rows).collect()
+    }
+
     fn stack_rows_from_batches(batches: &[RecordBatch]) -> Vec<(String, String, f64, f64)> {
         batches.iter().flat_map(stack_rows).collect()
     }
@@ -275,6 +350,371 @@ mod tests {
         assert_eq!(start.get_transform_scope(), Some(Sharing::Level(1)));
         assert_eq!(end.get_share_mode(), Some(Sharing::Level(1)));
         assert_eq!(end.get_transform_scope(), Some(Sharing::Level(1)));
+    }
+
+    #[tokio::test]
+    async fn lump_value_output_carries_default_ordering_and_scope() {
+        let output = Lump::top_n(col("category"), 3)
+            .into_compiled_and_output(DataTransformCompileContext::new(Sharing::Level(1)))
+            .unwrap()
+            .1;
+        let value = output.value();
+        assert_eq!(value.get_share_mode(), Some(Sharing::Level(1)));
+        assert_eq!(value.get_transform_scope(), Some(Sharing::Level(1)));
+        let scale = value.get_scale_config().expect("scale config");
+        let ordering = scale.ordering.as_option().expect("ordering");
+        assert!(ordering.has_order_expr());
+        assert!(!ordering.order_descending());
+    }
+
+    #[tokio::test]
+    async fn lump_default_string_other_groups_rows() {
+        let ctx = SessionContext::new();
+        let dataframe = lump_dataframe(
+            &ctx,
+            vec![
+                Some("Alpha"),
+                Some("Alpha"),
+                Some("Beta"),
+                Some("Gamma"),
+                Some("Delta"),
+            ],
+            vec![50.0, 40.0, 30.0, 20.0, 10.0],
+        );
+        let (compiled_transform, _) = compile_transform(
+            Lump::top_n(col("category"), 2)
+                .order_by(sum(col("value")))
+                .name("category_lump"),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let mut rows = lump_rows_from_batches(&batches);
+        rows.sort_by(|a, b| a.1.total_cmp(&b.1));
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    Some("Delta".to_string()),
+                    10.0,
+                    Some("Other".to_string()),
+                    None,
+                    true
+                ),
+                (
+                    Some("Gamma".to_string()),
+                    20.0,
+                    Some("Other".to_string()),
+                    None,
+                    true
+                ),
+                (
+                    Some("Beta".to_string()),
+                    30.0,
+                    Some("Beta".to_string()),
+                    Some(2.0),
+                    false
+                ),
+                (
+                    Some("Alpha".to_string()),
+                    40.0,
+                    Some("Alpha".to_string()),
+                    Some(1.0),
+                    false
+                ),
+                (
+                    Some("Alpha".to_string()),
+                    50.0,
+                    Some("Alpha".to_string()),
+                    Some(1.0),
+                    false
+                ),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn lump_null_category_is_retained_when_it_passes_predicate() {
+        let ctx = SessionContext::new();
+        let dataframe = lump_dataframe(
+            &ctx,
+            vec![None, None, Some("Alpha"), Some("Beta")],
+            vec![100.0, 1.0, 50.0, 40.0],
+        );
+        let (compiled_transform, _) = compile_transform(
+            Lump::top_n(col("category"), 1)
+                .order_by(sum(col("value")))
+                .name("category_lump"),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let mut rows = lump_rows_from_batches(&batches);
+        rows.sort_by(|a, b| a.1.total_cmp(&b.1));
+        assert_eq!(
+            rows,
+            vec![
+                (None, 1.0, None, Some(1.0), false),
+                (
+                    Some("Beta".to_string()),
+                    40.0,
+                    Some("Other".to_string()),
+                    None,
+                    true
+                ),
+                (
+                    Some("Alpha".to_string()),
+                    50.0,
+                    Some("Other".to_string()),
+                    None,
+                    true
+                ),
+                (None, 100.0, None, Some(1.0), false),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn lump_null_category_is_lumped_when_it_fails_predicate() {
+        let ctx = SessionContext::new();
+        let dataframe = lump_dataframe(
+            &ctx,
+            vec![None, None, Some("Alpha"), Some("Beta")],
+            vec![1.0, 1.0, 100.0, 40.0],
+        );
+        let (compiled_transform, _) = compile_transform(
+            Lump::top_n(col("category"), 1)
+                .order_by(sum(col("value")))
+                .name("category_lump"),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let mut rows = lump_rows_from_batches(&batches);
+        rows.sort_by(|a, b| a.1.total_cmp(&b.1));
+        assert_eq!(
+            rows,
+            vec![
+                (None, 1.0, Some("Other".to_string()), None, true),
+                (None, 1.0, Some("Other".to_string()), None, true),
+                (
+                    Some("Beta".to_string()),
+                    40.0,
+                    Some("Other".to_string()),
+                    None,
+                    true
+                ),
+                (
+                    Some("Alpha".to_string()),
+                    100.0,
+                    Some("Alpha".to_string()),
+                    Some(1.0),
+                    false
+                ),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn lump_drop_other_filters_rows() {
+        let ctx = SessionContext::new();
+        let dataframe = lump_dataframe(
+            &ctx,
+            vec![
+                Some("Alpha"),
+                Some("Alpha"),
+                Some("Beta"),
+                Some("Gamma"),
+                Some("Delta"),
+            ],
+            vec![50.0, 40.0, 30.0, 20.0, 10.0],
+        );
+        let (compiled_transform, _) = compile_transform(
+            Lump::top_n(col("category"), 2)
+                .order_by(sum(col("value")))
+                .drop_other()
+                .name("category_lump"),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let mut rows = lump_rows_from_batches(&batches);
+        rows.sort_by(|a, b| a.1.total_cmp(&b.1));
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    Some("Beta".to_string()),
+                    30.0,
+                    Some("Beta".to_string()),
+                    Some(2.0),
+                    false
+                ),
+                (
+                    Some("Alpha".to_string()),
+                    40.0,
+                    Some("Alpha".to_string()),
+                    Some(1.0),
+                    false
+                ),
+                (
+                    Some("Alpha".to_string()),
+                    50.0,
+                    Some("Alpha".to_string()),
+                    Some(1.0),
+                    false
+                ),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn lump_rank_keeps_ties() {
+        let ctx = SessionContext::new();
+        let dataframe = lump_dataframe(
+            &ctx,
+            vec![
+                Some("Alpha"),
+                Some("Beta"),
+                Some("Gamma"),
+                Some("Delta"),
+                Some("Epsilon"),
+            ],
+            vec![90.0, 80.0, 60.0, 60.0, 10.0],
+        );
+        let (compiled_transform, _) = compile_transform(
+            Lump::top_n(col("category"), 3)
+                .order_by(sum(col("value")))
+                .window(rank())
+                .keep(lump::window_value().lt_eq(lit(3)))
+                .name("category_lump"),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let rows = lump_rows_from_batches(&batches);
+        let retained = rows
+            .iter()
+            .filter(|row| !row.4)
+            .map(|row| row.0.clone().unwrap())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            retained,
+            ["Alpha", "Beta", "Delta", "Gamma"]
+                .into_iter()
+                .map(String::from)
+                .collect()
+        );
+    }
+
+    #[tokio::test]
+    async fn lump_percent_rank_predicate() {
+        let ctx = SessionContext::new();
+        let dataframe = lump_dataframe(
+            &ctx,
+            vec![
+                Some("Alpha"),
+                Some("Beta"),
+                Some("Gamma"),
+                Some("Delta"),
+                Some("Epsilon"),
+            ],
+            vec![90.0, 80.0, 70.0, 60.0, 10.0],
+        );
+        let (compiled_transform, _) = compile_transform(
+            Lump::top_n(col("category"), 5)
+                .order_by(sum(col("value")))
+                .window(percent_rank())
+                .keep(lump::window_value().lt_eq(lit(0.5)))
+                .name("category_lump"),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let rows = lump_rows_from_batches(&batches);
+        let retained = rows
+            .iter()
+            .filter(|row| !row.4)
+            .map(|row| row.0.clone().unwrap())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            retained,
+            ["Alpha", "Beta", "Gamma"]
+                .into_iter()
+                .map(String::from)
+                .collect()
+        );
+    }
+
+    #[tokio::test]
+    async fn lump_ntile_predicate() {
+        let ctx = SessionContext::new();
+        let dataframe = lump_dataframe(
+            &ctx,
+            vec![
+                Some("Alpha"),
+                Some("Beta"),
+                Some("Gamma"),
+                Some("Delta"),
+                Some("Epsilon"),
+                Some("Zeta"),
+                Some("Eta"),
+                Some("Theta"),
+            ],
+            vec![80.0, 70.0, 60.0, 50.0, 40.0, 30.0, 20.0, 10.0],
+        );
+        let (compiled_transform, _) = compile_transform(
+            Lump::top_n(col("category"), 8)
+                .order_by(sum(col("value")))
+                .window(ntile(lit(4)))
+                .keep(lump::window_value().lt_eq(lit(2)))
+                .name("category_lump"),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let rows = lump_rows_from_batches(&batches);
+        let retained = rows
+            .iter()
+            .filter(|row| !row.4)
+            .map(|row| row.0.clone().unwrap())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            retained,
+            ["Alpha", "Beta", "Delta", "Gamma"]
+                .into_iter()
+                .map(String::from)
+                .collect()
+        );
+    }
+
+    #[tokio::test]
+    async fn lump_non_string_without_other_value_errors() {
+        let ctx = SessionContext::new();
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("category_id", DataType::Int64, false),
+                Field::new("value", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(Int64Array::from(vec![1, 2, 3])) as _,
+                Arc::new(Float64Array::from(vec![10.0, 5.0, 1.0])) as _,
+            ],
+        )
+        .unwrap();
+        let dataframe = ctx.read_batch(batch).unwrap();
+        let (compiled_transform, _) = compile_transform(
+            Lump::top_n(col("category_id"), 1)
+                .order_by(sum(col("value")))
+                .name("category_lump"),
+        );
+
+        let err = match avenger_chart_core::apply_compiled_data_transforms(
+            dataframe,
+            &[compiled_transform],
+            &DataTransformExecutionContext {
+                session_context: &ctx,
+            },
+        )
+        .await
+        {
+            Ok(_) => panic!("non-string default Other should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("other_value"), "{err}");
     }
 
     #[tokio::test]
