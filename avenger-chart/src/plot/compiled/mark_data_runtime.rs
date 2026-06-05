@@ -1935,6 +1935,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn shared_filter_preserves_facet_columns_for_narrowing() -> Result<(), AvengerChartError>
+    {
+        let session = Arc::new(SessionContext::new());
+        let df = scoped_facet_dataframe(&session).await;
+        let facet_tree = scoped_facet_tree(df.clone(), &session).await?;
+        let full_path = vec![
+            ScalarValue::Utf8(Some("North".to_string())),
+            ScalarValue::Utf8(Some("East".to_string())),
+        ];
+
+        let mark = Symbol::<Cartesian>::new()
+            .transform_shared_no_output(Filter::new(col("x").lt(lit(20.0))), |mark| {
+                mark.x(col("x")).y(col("y"))
+            });
+        let values =
+            prepared_x_values_for_facet_mark(mark, session, &df, &facet_tree, &full_path).await?;
+
+        assert_eq!(values, vec![10.0, 12.0]);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn shared_select_must_keep_facet_columns_for_narrowing() -> Result<(), AvengerChartError>
     {
         let session = Arc::new(SessionContext::new());
