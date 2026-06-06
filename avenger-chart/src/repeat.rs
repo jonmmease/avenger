@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use avenger_chart_core::{
     AvengerChartError, CompileContext, CompiledSubplotChildPlot, CoordinateSystem,
-    CoordinateSystemCore, CoordinateSystemTransform, DefaultLogicalExprNodeExt,
+    CoordinateSystemCore, CoordinateSystemTransform, CoordinationScope, DefaultLogicalExprNodeExt,
     FacetWrapColumnMode, IntoExpr, RepeatContext as CoreRepeatContext,
     RepeatVariable as CoreRepeatVariable, SubplotChildPlotSpec,
 };
@@ -82,6 +82,7 @@ impl RepeatCellTemplates {
 pub struct RepeatColumns {
     columns: Vec<CoreRepeatVariable>,
     cells: RepeatCellTemplates,
+    domain_coordination: RepeatDomainCoordination,
 }
 
 impl RepeatColumns {
@@ -112,12 +113,21 @@ impl RepeatColumns {
     pub(crate) fn cell_templates(&self) -> &RepeatCellTemplates {
         &self.cells
     }
+
+    pub(crate) fn set_domain_coordination(&mut self, mode: RepeatDomainCoordination) {
+        self.domain_coordination = mode;
+    }
+
+    pub(crate) fn domain_coordination_config(&self) -> &RepeatDomainCoordination {
+        &self.domain_coordination
+    }
 }
 
 #[derive(Clone, Default)]
 pub struct RepeatRows {
     rows: Vec<CoreRepeatVariable>,
     cells: RepeatCellTemplates,
+    domain_coordination: RepeatDomainCoordination,
 }
 
 impl RepeatRows {
@@ -148,6 +158,14 @@ impl RepeatRows {
     pub(crate) fn cell_templates(&self) -> &RepeatCellTemplates {
         &self.cells
     }
+
+    pub(crate) fn set_domain_coordination(&mut self, mode: RepeatDomainCoordination) {
+        self.domain_coordination = mode;
+    }
+
+    pub(crate) fn domain_coordination_config(&self) -> &RepeatDomainCoordination {
+        &self.domain_coordination
+    }
 }
 
 #[derive(Clone, Default)]
@@ -155,6 +173,7 @@ pub struct RepeatGrid {
     rows: Vec<CoreRepeatVariable>,
     columns: Vec<CoreRepeatVariable>,
     cells: RepeatCellTemplates,
+    domain_coordination: RepeatDomainCoordination,
 }
 
 impl RepeatGrid {
@@ -193,6 +212,18 @@ impl RepeatGrid {
     pub(crate) fn cell_templates(&self) -> &RepeatCellTemplates {
         &self.cells
     }
+
+    pub(crate) fn set_domain_coordination(&mut self, mode: RepeatDomainCoordination) {
+        self.domain_coordination = mode;
+    }
+
+    pub(crate) fn matrix_domains(&mut self, scope: CoordinationScope) {
+        self.domain_coordination = RepeatDomainCoordination::by_variable(scope);
+    }
+
+    pub(crate) fn domain_coordination_config(&self) -> &RepeatDomainCoordination {
+        &self.domain_coordination
+    }
 }
 
 #[derive(Clone)]
@@ -200,6 +231,7 @@ pub struct RepeatWrap {
     items: Vec<CoreRepeatVariable>,
     column_mode: FacetWrapColumnMode,
     cells: RepeatCellTemplates,
+    domain_coordination: RepeatDomainCoordination,
 }
 
 impl Default for RepeatWrap {
@@ -208,6 +240,7 @@ impl Default for RepeatWrap {
             items: Vec::new(),
             column_mode: FacetWrapColumnMode::Auto,
             cells: RepeatCellTemplates::default(),
+            domain_coordination: RepeatDomainCoordination::Independent,
         }
     }
 }
@@ -257,6 +290,18 @@ impl RepeatWrap {
 
     pub(crate) fn cell_templates(&self) -> &RepeatCellTemplates {
         &self.cells
+    }
+
+    pub(crate) fn set_domain_coordination(&mut self, mode: RepeatDomainCoordination) {
+        self.domain_coordination = mode;
+    }
+
+    pub(crate) fn item_domains(&mut self, scope: CoordinationScope) {
+        self.domain_coordination = RepeatDomainCoordination::by_variable(scope);
+    }
+
+    pub(crate) fn domain_coordination_config(&self) -> &RepeatDomainCoordination {
+        &self.domain_coordination
     }
 }
 

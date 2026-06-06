@@ -199,11 +199,11 @@ pub use param::{CompiledParamSpec, Param};
 pub use position_config::{GenericPositionConfig, PositionConfig};
 pub use radius_expression::RadiusExpression;
 pub use repeat::{
-    RepeatContext, RepeatPlaceholderKind, RepeatTypeHint, RepeatVariable, ResolvedRepeatVariable,
-    collect_repeat_placeholder_kinds, column, column_id, column_index, column_title,
-    evaluate_repeat_predicate, item, item_id, item_index, item_title, repeat_placeholder_id,
-    repeat_placeholder_kind_from_id, resolve_repeat_channel_expr, resolve_repeat_channel_value,
-    resolve_repeat_placeholders, row, row_id, row_index, row_title,
+    RepeatContext, RepeatDomainCoordination, RepeatPlaceholderKind, RepeatTypeHint, RepeatVariable,
+    ResolvedRepeatVariable, collect_repeat_placeholder_kinds, column, column_id, column_index,
+    column_title, evaluate_repeat_predicate, item, item_id, item_index, item_title,
+    repeat_placeholder_id, repeat_placeholder_kind_from_id, resolve_repeat_channel_expr,
+    resolve_repeat_channel_value, resolve_repeat_placeholders, row, row_id, row_index, row_title,
 };
 pub use resolved_domain::ResolvedDomain;
 pub use scalar_cmp::scalar_total_cmp;

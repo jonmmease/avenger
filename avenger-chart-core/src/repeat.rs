@@ -11,10 +11,10 @@ use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 use crate::{
-    AvengerChartError, Axis, ChannelExpr, ChannelValue, ConditionalValue,
-    DefaultLogicalExprNodeExt, IntoExpr, Legend, Maybe, RadiusExpression, ScaleConfigSpec,
-    ScaleDefaultDomain, ScaleDomain, ScaleOrderingSpec, ScaleRange, SerializableExpr,
-    scale_domain::DomainExpr, simplify_to_scalar_sync,
+    AvengerChartError, Axis, ChannelExpr, ChannelValue, ConditionalValue, CoordinationScope,
+    DefaultLogicalExprNodeExt, DomainCoordination, IntoExpr, Legend, Maybe, RadiusExpression,
+    ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, ScaleOrderingSpec, ScaleRange,
+    SerializableExpr, scale_domain::DomainExpr, simplify_to_scalar_sync,
 };
 
 const REPEAT_PLACEHOLDER_PREFIX: &str = "$__repeat_";
@@ -93,6 +93,26 @@ pub enum RepeatTypeHint {
     Nominal,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RepeatDomainCoordination {
+    Independent,
+    ByVariable { scope: CoordinationScope },
+}
+
+impl Default for RepeatDomainCoordination {
+    fn default() -> Self {
+        Self::Independent
+    }
+}
+
+impl RepeatDomainCoordination {
+    pub fn by_variable(scope: CoordinationScope) -> Self {
+        Self::ByVariable {
+            scope: scope.to_normalized(),
+        }
+    }
+}
+
 #[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RepeatVariable {
@@ -169,6 +189,7 @@ pub struct RepeatContext {
     pub row_count: usize,
     pub column_count: usize,
     pub item_count: Option<usize>,
+    pub domain_coordination: RepeatDomainCoordination,
 }
 
 impl RepeatContext {
@@ -209,6 +230,11 @@ impl RepeatContext {
         self.item = Some(variable);
         self.item_index = Some(index);
         self.item_count = Some(count);
+        self
+    }
+
+    pub fn with_domain_coordination(mut self, coordination: RepeatDomainCoordination) -> Self {
+        self.domain_coordination = coordination;
         self
     }
 }
@@ -316,17 +342,104 @@ pub fn resolve_repeat_channel_expr(
     value: ChannelExpr,
     ctx: &RepeatContext,
 ) -> Result<ChannelExpr, AvengerChartError> {
+    let origin = repeat_domain_origin(value.data_expr())?;
     let expr = resolve_repeat_placeholders(value.clone().into_data_expr(), ctx)?;
     let channel_value = resolve_repeat_channel_value(value.into_channel_value(), ctx)?;
-    Ok(ChannelExpr::new(expr, channel_value))
+    let value = ChannelExpr::new(expr, channel_value);
+    apply_repeat_domain_coordination(value, origin, ctx)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum RepeatDomainOrigin {
+    Row,
+    Column,
+    Item,
+}
+
+fn repeat_domain_origin(expr: &Expr) -> Result<Option<RepeatDomainOrigin>, AvengerChartError> {
+    let kinds = collect_repeat_placeholder_kinds(expr)?;
+    let mut origins = Vec::new();
+    if kinds.contains(&RepeatPlaceholderKind::RowExpr) {
+        origins.push(RepeatDomainOrigin::Row);
+    }
+    if kinds.contains(&RepeatPlaceholderKind::ColumnExpr) {
+        origins.push(RepeatDomainOrigin::Column);
+    }
+    if kinds.contains(&RepeatPlaceholderKind::ItemExpr) {
+        origins.push(RepeatDomainOrigin::Item);
+    }
+    Ok(if origins.len() == 1 {
+        Some(origins[0])
+    } else {
+        None
+    })
+}
+
+fn apply_repeat_domain_coordination(
+    value: ChannelExpr,
+    origin: Option<RepeatDomainOrigin>,
+    ctx: &RepeatContext,
+) -> Result<ChannelExpr, AvengerChartError> {
+    let Some(origin) = origin else {
+        return Ok(value);
+    };
+    let RepeatDomainCoordination::ByVariable { scope } = ctx.domain_coordination else {
+        return Ok(value);
+    };
+    let group = match origin {
+        RepeatDomainOrigin::Row => ctx
+            .row
+            .as_ref()
+            .map(|variable| variable.id.as_str())
+            .ok_or_else(|| missing_repeat_variable_error("row"))?,
+        RepeatDomainOrigin::Column => ctx
+            .column
+            .as_ref()
+            .map(|variable| variable.id.as_str())
+            .ok_or_else(|| missing_repeat_variable_error("column"))?,
+        RepeatDomainOrigin::Item => ctx
+            .item
+            .as_ref()
+            .map(|variable| variable.id.as_str())
+            .ok_or_else(|| missing_repeat_variable_error("item"))?,
+    };
+    let generated = DomainCoordination::named(scope, group)?;
+    validate_or_apply_generated_domain_coordination(value, generated)
+}
+
+fn validate_or_apply_generated_domain_coordination(
+    value: ChannelExpr,
+    generated: DomainCoordination,
+) -> Result<ChannelExpr, AvengerChartError> {
+    let existing = value.get_domain_coordination().cloned();
+    let Some(existing) = existing else {
+        return Ok(value.with_domain_coordination(generated));
+    };
+
+    if existing.group == generated.group && existing.scope.to_level() <= generated.scope.to_level()
+    {
+        return Ok(value);
+    }
+
+    Err(AvengerChartError::InvalidArgument(format!(
+        "Repeat-generated domain coordination target {:?} conflicts with authored channel domain coordination {:?}",
+        generated, existing
+    )))
+}
+
+fn missing_repeat_variable_error(role: &str) -> AvengerChartError {
+    AvengerChartError::InvalidArgument(format!(
+        "repeat::{role}() was used without a resolved repeat {role} variable"
+    ))
 }
 
 pub fn resolve_repeat_channel_value(
     value: ChannelValue,
     ctx: &RepeatContext,
 ) -> Result<ChannelValue, AvengerChartError> {
+    let origin = repeat_domain_origin_channel_value(&value)?;
     let proto = |expr: Expr| LogicalExprNode::from_default_expr(expr);
-    match value {
+    let resolved: ChannelValue = match value {
         ChannelValue::Scaled {
             expr,
             scale_name,
@@ -336,7 +449,7 @@ pub fn resolve_repeat_channel_value(
             axis_config,
             domain_coordination,
             transform_scope,
-        } => Ok(ChannelValue::Scaled {
+        } => ChannelValue::Scaled {
             expr: resolve_expr_node(expr, ctx)?,
             scale_name,
             band,
@@ -345,10 +458,10 @@ pub fn resolve_repeat_channel_value(
             axis_config: resolve_axis_config(axis_config, ctx)?,
             domain_coordination,
             transform_scope,
-        }),
-        ChannelValue::Value { expr } => Ok(ChannelValue::Value {
+        },
+        ChannelValue::Value { expr } => ChannelValue::Value {
             expr: resolve_expr_node(expr, ctx)?,
-        }),
+        },
         ChannelValue::Conditional {
             conditions,
             otherwise,
@@ -371,7 +484,7 @@ pub fn resolve_repeat_channel_value(
                 })
                 .collect::<Result<Vec<_>, AvengerChartError>>()?;
             let otherwise = resolve_repeat_conditional_value(otherwise, ctx)?;
-            Ok(ChannelValue::Conditional {
+            ChannelValue::Conditional {
                 conditions,
                 otherwise,
                 scale_config: resolve_scale_config(scale_config, ctx)?,
@@ -379,9 +492,61 @@ pub fn resolve_repeat_channel_value(
                 axis_config: resolve_axis_config(axis_config, ctx)?,
                 domain_coordination,
                 transform_scope,
+            }
+        }
+    };
+    apply_repeat_domain_coordination_to_channel_value(resolved, origin, ctx)
+}
+
+fn repeat_domain_origin_channel_value(
+    value: &ChannelValue,
+) -> Result<Option<RepeatDomainOrigin>, AvengerChartError> {
+    let ctx = session_context();
+    match value {
+        ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
+            repeat_domain_origin(&expr.to_default_expr(&ctx)?)
+        }
+        ChannelValue::Conditional {
+            conditions,
+            otherwise,
+            ..
+        } => {
+            let mut origins = BTreeSet::new();
+            for (_, value) in conditions {
+                if let Some(origin) = repeat_domain_origin_conditional_value(value)? {
+                    origins.insert(origin);
+                }
+            }
+            if let Some(origin) = repeat_domain_origin_conditional_value(otherwise)? {
+                origins.insert(origin);
+            }
+            Ok(if origins.len() == 1 {
+                origins.iter().next().copied()
+            } else {
+                None
             })
         }
     }
+}
+
+fn repeat_domain_origin_conditional_value(
+    value: &ConditionalValue,
+) -> Result<Option<RepeatDomainOrigin>, AvengerChartError> {
+    let ctx = session_context();
+    match value {
+        ConditionalValue::Scaled { expr } | ConditionalValue::Value { expr } => {
+            repeat_domain_origin(&expr.to_default_expr(&ctx)?)
+        }
+    }
+}
+
+fn apply_repeat_domain_coordination_to_channel_value(
+    value: ChannelValue,
+    origin: Option<RepeatDomainOrigin>,
+    ctx: &RepeatContext,
+) -> Result<ChannelValue, AvengerChartError> {
+    let value = ChannelExpr::new(lit(0), value);
+    apply_repeat_domain_coordination(value, origin, ctx).map(ChannelExpr::into_channel_value)
 }
 
 pub fn evaluate_repeat_predicate(

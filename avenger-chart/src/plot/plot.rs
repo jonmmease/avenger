@@ -15,8 +15,8 @@ use avenger_chart_core::{
     CompiledMark, CompiledMarkState, CompiledParamSpec, CompiledSelectionSpec,
     CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, CoordinationScope,
     DomainCoordination, IntoExpr, Legend, LegendSurfaceKind, Mark, MarkDataMode, MarkState, Param,
-    RepeatContext, RepeatVariable, Selection, Store, SubplotChildPlotSpec, Theme, TimeContext,
-    compile_selections, validate_structural_id,
+    RepeatContext, RepeatDomainCoordination, RepeatVariable, Selection, Store,
+    SubplotChildPlotSpec, Theme, TimeContext, compile_selections, validate_structural_id,
 };
 use avenger_chart_marks::Subplot;
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
@@ -202,6 +202,11 @@ impl Plot<RepeatColumns> {
         self.coord_system.add_cell_when(predicate, Box::new(cell));
         self
     }
+
+    pub fn with_repeat_domain_coordination(mut self, mode: RepeatDomainCoordination) -> Self {
+        self.coord_system.set_domain_coordination(mode);
+        self
+    }
 }
 
 impl Plot<RepeatRows> {
@@ -223,6 +228,11 @@ impl Plot<RepeatRows> {
         P: SubplotChildPlotSpec + 'static,
     {
         self.coord_system.add_cell_when(predicate, Box::new(cell));
+        self
+    }
+
+    pub fn with_repeat_domain_coordination(mut self, mode: RepeatDomainCoordination) -> Self {
+        self.coord_system.set_domain_coordination(mode);
         self
     }
 }
@@ -251,6 +261,21 @@ impl Plot<RepeatGrid> {
         P: SubplotChildPlotSpec + 'static,
     {
         self.coord_system.add_cell_when(predicate, Box::new(cell));
+        self
+    }
+
+    pub fn matrix_domains(mut self) -> Self {
+        self.coord_system.matrix_domains(CoordinationScope::Shared);
+        self
+    }
+
+    pub fn matrix_domains_with_scope(mut self, scope: CoordinationScope) -> Self {
+        self.coord_system.matrix_domains(scope);
+        self
+    }
+
+    pub fn with_repeat_domain_coordination(mut self, mode: RepeatDomainCoordination) -> Self {
+        self.coord_system.set_domain_coordination(mode);
         self
     }
 }
@@ -284,6 +309,21 @@ impl Plot<RepeatWrap> {
         P: SubplotChildPlotSpec + 'static,
     {
         self.coord_system.add_cell_when(predicate, Box::new(cell));
+        self
+    }
+
+    pub fn item_domains(mut self) -> Self {
+        self.coord_system.item_domains(CoordinationScope::Shared);
+        self
+    }
+
+    pub fn item_domains_with_scope(mut self, scope: CoordinationScope) -> Self {
+        self.coord_system.item_domains(scope);
+        self
+    }
+
+    pub fn with_repeat_domain_coordination(mut self, mode: RepeatDomainCoordination) -> Self {
+        self.coord_system.set_domain_coordination(mode);
         self
     }
 }
@@ -1038,8 +1078,9 @@ fn lower_repeat_columns_plot<C: CoordinateSystem>(
             let key = format!("repeat_col:{}", column.id);
             let id = format!("repeat_col_{}", column.id);
             let label = column.title.clone();
-            let repeat_context =
-                RepeatContext::new().with_column(column, column_index, column_count);
+            let repeat_context = RepeatContext::new()
+                .with_column(column, column_index, column_count)
+                .with_domain_coordination(repeat.domain_coordination_config().clone());
             let cell = repeat.cell_templates().select(
                 "RepeatColumns",
                 &key,
@@ -1073,7 +1114,9 @@ fn lower_repeat_rows_plot<C: CoordinateSystem>(
             let key = format!("repeat_row:{}", row.id);
             let id = format!("repeat_row_{}", row.id);
             let label = row.title.clone();
-            let repeat_context = RepeatContext::new().with_row(row, row_index, row_count);
+            let repeat_context = RepeatContext::new()
+                .with_row(row, row_index, row_count)
+                .with_domain_coordination(repeat.domain_coordination_config().clone());
             let cell = repeat.cell_templates().select(
                 "RepeatRows",
                 &key,
@@ -1114,7 +1157,8 @@ fn lower_repeat_grid_plot<C: CoordinateSystem>(
             let id = format!("repeat_cell_{}_{}", row.id, column.id);
             let repeat_context = RepeatContext::new()
                 .with_row(row.clone(), row_index, row_count)
-                .with_column(column.clone(), column_index, column_count);
+                .with_column(column.clone(), column_index, column_count)
+                .with_domain_coordination(repeat.domain_coordination_config().clone());
             let cell = repeat.cell_templates().select(
                 "RepeatGrid",
                 &key,
@@ -1156,7 +1200,9 @@ fn lower_repeat_wrap_plot<C: CoordinateSystem>(
             let key = format!("repeat_item:{}", item.id);
             let id = format!("repeat_item_{}", item.id);
             let label = item.title.clone();
-            let repeat_context = RepeatContext::new().with_item(item, item_index, item_count);
+            let repeat_context = RepeatContext::new()
+                .with_item(item, item_index, item_count)
+                .with_domain_coordination(repeat.domain_coordination_config().clone());
             let cell = repeat.cell_templates().select(
                 "RepeatWrap",
                 &key,
@@ -1342,10 +1388,12 @@ mod tests {
     use crate::zerod::ZeroDCoord;
     use avenger_chart_cartesian::CartesianSymbolPositionChannels;
     use avenger_chart_core::{
-        RepeatContext, RepeatVariable, ResolvedRepeatVariable, SubplotDataSource,
+        DomainCoordinationGroup, RepeatContext, RepeatDomainCoordination, RepeatVariable,
+        ResolvedRepeatVariable, ScaleChannelConfig, SubplotDataSource,
         collect_repeat_placeholder_kinds, repeat,
     };
-    use avenger_chart_marks::Symbol;
+    use avenger_chart_marks::{Subplot, Symbol};
+    use avenger_chart_tools::PanScrollZoom;
     use avenger_chart_transforms::Calculate;
     use datafusion::{
         arrow::{
@@ -1419,6 +1467,19 @@ mod tests {
             .expr(ctx)
             .expect("child expr")
             .to_string()
+    }
+
+    fn child_channel_domain_coordination(
+        subplot: &crate::concat::CompiledConcatSubplot,
+        channel: &str,
+    ) -> Option<DomainCoordination> {
+        subplot.compiled_subplot().marks[0]
+            .data_context()
+            .channels()
+            .get(channel)
+            .expect("child channel")
+            .get_domain_coordination()
+            .cloned()
     }
 
     fn lowered_children<'a>(
@@ -1523,6 +1584,226 @@ mod tests {
         assert_eq!(child_channel_expr(children[0], "y", &ctx), "r1");
         assert_eq!(child_channel_expr(children[5], "x", &ctx), "c3");
         assert_eq!(child_channel_expr(children[5], "y", &ctx), "r2");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn repeat_grid_matrix_domains_generate_variable_groups() -> Result<(), AvengerChartError>
+    {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<RepeatGrid>::new()
+            .rows(repeat_vars(&["a", "b"]))
+            .columns(repeat_vars(&["a", "b"]))
+            .cell(repeated_grid_cell())
+            .matrix_domains()
+            .compile(&ctx)
+            .await?;
+
+        let children = lowered_children(&compiled);
+        let top_left_x = child_channel_domain_coordination(children[0], "x").expect("x domain");
+        let top_left_y = child_channel_domain_coordination(children[0], "y").expect("y domain");
+        let top_right_x = child_channel_domain_coordination(children[1], "x").expect("x domain");
+        assert_eq!(top_left_x.scope, CoordinationScope::Level(u8::MAX));
+        assert_eq!(
+            top_left_x.group,
+            DomainCoordinationGroup::Named("a".to_string())
+        );
+        assert_eq!(
+            top_left_y.group,
+            DomainCoordinationGroup::Named("a".to_string())
+        );
+        assert_eq!(
+            top_right_x.group,
+            DomainCoordinationGroup::Named("b".to_string())
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn repeat_grid_matrix_domains_preserve_explicit_scope_and_independent_mode()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let level_compiled = Plot::<RepeatGrid>::new()
+            .rows(repeat_vars(&["a"]))
+            .columns(repeat_vars(&["b"]))
+            .cell(repeated_grid_cell())
+            .matrix_domains_with_scope(CoordinationScope::Level(1))
+            .compile(&ctx)
+            .await?;
+        let level_child = lowered_children(&level_compiled);
+        let x_coordination =
+            child_channel_domain_coordination(level_child[0], "x").expect("x domain");
+        assert_eq!(x_coordination.scope, CoordinationScope::Level(1));
+        assert_eq!(
+            x_coordination.group,
+            DomainCoordinationGroup::Named("b".to_string())
+        );
+
+        let independent_compiled = Plot::<RepeatGrid>::new()
+            .rows(repeat_vars(&["a"]))
+            .columns(repeat_vars(&["b"]))
+            .cell(repeated_grid_cell())
+            .compile(&ctx)
+            .await?;
+        let independent_child = lowered_children(&independent_compiled);
+        assert!(child_channel_domain_coordination(independent_child[0], "x").is_none());
+        assert!(child_channel_domain_coordination(independent_child[0], "y").is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn repeat_grid_matrix_domains_reject_conflicting_authored_domain_group() {
+        let ctx = SessionContext::new();
+        let conflicting_cell = Plot::<Cartesian>::new().mark(
+            Symbol::new()
+                .x_with(repeat::column(), |c| c.with_domain_group("other"))
+                .y(repeat::row())
+                .size(64.0),
+        );
+        let err = match Plot::<RepeatGrid>::new()
+            .rows(repeat_vars(&["a"]))
+            .columns(repeat_vars(&["a"]))
+            .cell(conflicting_cell)
+            .matrix_domains()
+            .compile(&ctx)
+            .await
+        {
+            Ok(_) => panic!("conflicting repeat domain group should fail"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string()
+                .contains("Repeat-generated domain coordination target"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn repeat_wrap_item_domains_generate_item_groups() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<RepeatWrap>::new()
+            .items(repeat_vars(&["a", "b"]))
+            .columns(2)
+            .cell(repeated_item_cell())
+            .item_domains_with_scope(CoordinationScope::Level(1))
+            .compile(&ctx)
+            .await?;
+
+        let children = lowered_children(&compiled);
+        let first_y = child_channel_domain_coordination(children[0], "y").expect("y domain");
+        let second_y = child_channel_domain_coordination(children[1], "y").expect("y domain");
+        assert_eq!(first_y.scope, CoordinationScope::Level(1));
+        assert_eq!(
+            first_y.group,
+            DomainCoordinationGroup::Named("a".to_string())
+        );
+        assert_eq!(
+            second_y.group,
+            DomainCoordinationGroup::Named("b".to_string())
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn repeat_grid_matrix_domains_match_manual_grid_concat() -> Result<(), AvengerChartError>
+    {
+        let ctx = SessionContext::new();
+        let repeat_compiled = Plot::<RepeatGrid>::new()
+            .rows(repeat_vars(&["a", "b"]))
+            .columns(repeat_vars(&["a", "b"]))
+            .cell(repeated_grid_cell())
+            .matrix_domains()
+            .compile(&ctx)
+            .await?;
+
+        let manual_cell = |x: &'static str, y: &'static str| {
+            Plot::<Cartesian>::new().mark(
+                Symbol::new()
+                    .x_with(col(x), move |c| c.with_domain_group(x).share_domain())
+                    .y_with(col(y), move |c| c.with_domain_group(y).share_domain())
+                    .size(64.0),
+            )
+        };
+        let manual_compiled = Plot::<GridConcat>::new()
+            .rows(2)
+            .columns(2)
+            .mark(Subplot::new(manual_cell("a", "a")).grid_cell(0, 0))
+            .mark(Subplot::new(manual_cell("b", "a")).grid_cell(0, 1))
+            .mark(Subplot::new(manual_cell("a", "b")).grid_cell(1, 0))
+            .mark(Subplot::new(manual_cell("b", "b")).grid_cell(1, 1))
+            .compile(&ctx)
+            .await?;
+
+        let repeat_children = lowered_children(&repeat_compiled);
+        let manual_children = lowered_children(&manual_compiled);
+        let repeat_targets = repeat_children
+            .iter()
+            .map(|child| {
+                (
+                    child_channel_domain_coordination(child, "x"),
+                    child_channel_domain_coordination(child, "y"),
+                )
+            })
+            .collect::<Vec<_>>();
+        let manual_targets = manual_children
+            .iter()
+            .map(|child| {
+                (
+                    child_channel_domain_coordination(child, "x"),
+                    child_channel_domain_coordination(child, "y"),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(repeat_targets, manual_targets);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn repeat_grid_matrix_domains_are_visible_to_pan_scroll_zoom()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let repeat_context = RepeatContext::new()
+            .with_row(resolved_repeat("a"), 0, 2)
+            .with_column(resolved_repeat("b"), 1, 2)
+            .with_domain_coordination(RepeatDomainCoordination::by_variable(
+                CoordinationScope::Shared,
+            ));
+        let compiled = compile_with_repeat_context(
+            repeated_grid_cell().tool(PanScrollZoom::cartesian()),
+            &ctx,
+            repeat_context,
+        )
+        .await;
+
+        assert!(
+            compiled
+                .param_specs()
+                .contains_key("__tool_pan_scroll_zoom__domain__a")
+        );
+        assert!(
+            compiled
+                .param_specs()
+                .contains_key("__tool_pan_scroll_zoom__domain__b")
+        );
+        assert!(
+            !compiled
+                .param_specs()
+                .contains_key("__tool_pan_scroll_zoom__x_domain")
+        );
+        assert!(
+            !compiled
+                .param_specs()
+                .contains_key("__tool_pan_scroll_zoom__y_domain")
+        );
+        assert_eq!(
+            compiled.param_specs()["__tool_pan_scroll_zoom__domain__a"].sharing,
+            CoordinationScope::Level(u8::MAX)
+        );
+        assert_eq!(
+            compiled.param_specs()["__tool_pan_scroll_zoom__domain__b"].sharing,
+            CoordinationScope::Level(u8::MAX)
+        );
         Ok(())
     }
 

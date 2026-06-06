@@ -34,7 +34,8 @@ pub use avenger_chart_core::{
     StoreFieldRef, StoreKey, StoreRow, StoreUpdate, TimeContext, WeekStart, ZeroDCoord,
 };
 pub use avenger_chart_core::{
-    RepeatContext, RepeatPlaceholderKind, RepeatTypeHint, RepeatVariable, ResolvedRepeatVariable,
+    RepeatContext, RepeatDomainCoordination, RepeatPlaceholderKind, RepeatTypeHint, RepeatVariable,
+    ResolvedRepeatVariable,
 };
 pub use avenger_chart_core::{
     SceneGeometryHitPolicy, SceneGeometryQuery, SceneQueryClauseId, SceneQueryDatumField,

@@ -180,6 +180,31 @@ async fn repeat_grid_scatter_matrix_independent() {
 }
 
 #[tokio::test]
+async fn repeat_grid_scatter_matrix_domains() {
+    let ctx = SessionContext::new();
+    let variables = repeat_variables();
+    let plot = Plot::<RepeatGrid>::new()
+        .data(repeat_data(&ctx).await)
+        .plot_size(120.0, 105.0)
+        .rows(variables.clone())
+        .columns(variables)
+        .cell(grid_cell())
+        .matrix_domains();
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile repeat grid with matrix domains");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "repeat",
+        "repeat_grid_scatter_matrix_domains",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn repeat_grid_scatter_with_diagonal_histograms() {
     let ctx = SessionContext::new();
     let variables = repeat_variables();
