@@ -17,6 +17,15 @@ pub trait Axis: Send + Sync {
 
     fn box_clone(&self) -> Box<dyn Axis>;
 
+    /// Set a title expression only if this axis type supports titles and the
+    /// title has not already been set.
+    ///
+    /// Returns `true` when the title was applied. Coordinate systems without
+    /// axis titles can keep the default no-op implementation.
+    fn set_default_title_expr(&mut self, _title: Expr) -> Result<bool, AvengerChartError> {
+        Ok(false)
+    }
+
     /// Return expressions referenced by this axis configuration.
     fn all_exprs(&self, _ctx: &SessionContext) -> Vec<Expr> {
         Vec::new()

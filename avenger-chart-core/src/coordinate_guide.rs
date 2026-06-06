@@ -200,7 +200,7 @@ impl<'a> GuideSharingContext<'a> {
 /// coordinate system. This includes both axes configured at the channel level
 /// and coordinate-specific options configured at the plot level.
 pub trait CoordinateGuide: Clone + Default + Send + Sync {
-    type Axis: Axis + Clone;
+    type Axis: Axis + Clone + Default;
 
     /// Set axes that were configured at the channel level.
     fn set_axes(&mut self, axes: HashMap<String, Self::Axis>);

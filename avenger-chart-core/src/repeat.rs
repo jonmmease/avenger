@@ -190,6 +190,7 @@ pub struct RepeatContext {
     pub column_count: usize,
     pub item_count: Option<usize>,
     pub domain_coordination: RepeatDomainCoordination,
+    pub matrix_axis_defaults: bool,
 }
 
 impl RepeatContext {
@@ -235,6 +236,11 @@ impl RepeatContext {
 
     pub fn with_domain_coordination(mut self, coordination: RepeatDomainCoordination) -> Self {
         self.domain_coordination = coordination;
+        self
+    }
+
+    pub fn with_matrix_axis_defaults(mut self, enabled: bool) -> Self {
+        self.matrix_axis_defaults = enabled;
         self
     }
 }

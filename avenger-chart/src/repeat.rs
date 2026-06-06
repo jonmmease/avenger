@@ -6,10 +6,10 @@
 use std::sync::Arc;
 
 use avenger_chart_core::{
-    AvengerChartError, CompileContext, CompiledSubplotChildPlot, CoordinateSystem,
-    CoordinateSystemCore, CoordinateSystemTransform, CoordinationScope, DefaultLogicalExprNodeExt,
-    FacetWrapColumnMode, IntoExpr, RepeatContext as CoreRepeatContext,
-    RepeatVariable as CoreRepeatVariable, SubplotChildPlotSpec,
+    AvengerChartError, AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, CompileContext,
+    CompiledSubplotChildPlot, CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
+    CoordinationScope, DefaultLogicalExprNodeExt, FacetWrapColumnMode, IntoExpr,
+    RepeatContext as CoreRepeatContext, RepeatVariable as CoreRepeatVariable, SubplotChildPlotSpec,
 };
 use datafusion::prelude::SessionContext;
 use datafusion_proto::protobuf::LogicalExprNode;
@@ -174,6 +174,8 @@ pub struct RepeatGrid {
     columns: Vec<CoreRepeatVariable>,
     cells: RepeatCellTemplates,
     domain_coordination: RepeatDomainCoordination,
+    axis_guide_visibility: AxisGuideVisibilityConfig,
+    matrix_axis_defaults: bool,
 }
 
 impl RepeatGrid {
@@ -223,6 +225,26 @@ impl RepeatGrid {
 
     pub(crate) fn domain_coordination_config(&self) -> &RepeatDomainCoordination {
         &self.domain_coordination
+    }
+
+    pub(crate) fn axis_guide_visibility(&mut self, policy: AxisGuideVisibilityPolicy) {
+        self.axis_guide_visibility = AxisGuideVisibilityConfig::same(policy);
+        self.matrix_axis_defaults = false;
+    }
+
+    pub(crate) fn matrix_axes(&mut self) {
+        self.axis_guide_visibility = AxisGuideVisibilityConfig::same(
+            AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups,
+        );
+        self.matrix_axis_defaults = true;
+    }
+
+    pub(crate) fn axis_guide_visibility_config(&self) -> AxisGuideVisibilityConfig {
+        self.axis_guide_visibility
+    }
+
+    pub(crate) fn matrix_axis_defaults(&self) -> bool {
+        self.matrix_axis_defaults
     }
 }
 

@@ -244,6 +244,14 @@ impl Axis for CartesianAxis {
         Box::new(self.clone())
     }
 
+    fn set_default_title_expr(&mut self, title: Expr) -> Result<bool, AvengerChartError> {
+        if self.title.is_set() {
+            return Ok(false);
+        }
+        self.title = Maybe::Set(Some(LogicalExprNode::from_default_expr(title)?));
+        Ok(true)
+    }
+
     fn all_exprs(&self, ctx: &SessionContext) -> Vec<Expr> {
         [
             &self.visible,

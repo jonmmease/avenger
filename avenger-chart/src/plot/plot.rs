@@ -6,17 +6,18 @@ use std::{
     sync::Arc,
 };
 
-use datafusion::{common::ScalarValue, dataframe::DataFrame};
+use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::lit};
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    AvengerChartError, AxisGuideVisibilityPolicy, AxisSpec, ChartTool, CompileContext,
+    AvengerChartError, Axis, AxisGuideVisibilityPolicy, AxisSpec, ChartTool, CompileContext,
     CompiledMark, CompiledMarkState, CompiledParamSpec, CompiledSelectionSpec,
     CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, CoordinationScope,
-    DomainCoordination, IntoExpr, Legend, LegendSurfaceKind, Mark, MarkDataMode, MarkState, Param,
-    RepeatContext, RepeatDomainCoordination, RepeatVariable, Selection, Store,
-    SubplotChildPlotSpec, Theme, TimeContext, compile_selections, validate_structural_id,
+    DomainCoordination, DomainCoordinationGroup, IntoExpr, Legend, LegendSurfaceKind, Mark,
+    MarkDataMode, MarkState, Param, RepeatContext, RepeatDomainCoordination, RepeatVariable,
+    Selection, Store, SubplotChildPlotSpec, Theme, TimeContext, compile_selections,
+    validate_structural_id,
 };
 use avenger_chart_marks::Subplot;
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
@@ -271,6 +272,16 @@ impl Plot<RepeatGrid> {
 
     pub fn matrix_domains_with_scope(mut self, scope: CoordinationScope) -> Self {
         self.coord_system.matrix_domains(scope);
+        self
+    }
+
+    pub fn axis_guide_visibility(mut self, policy: AxisGuideVisibilityPolicy) -> Self {
+        self.coord_system.axis_guide_visibility(policy);
+        self
+    }
+
+    pub fn matrix_axes(mut self) -> Self {
+        self.coord_system.matrix_axes();
         self
     }
 
@@ -1158,7 +1169,8 @@ fn lower_repeat_grid_plot<C: CoordinateSystem>(
             let repeat_context = RepeatContext::new()
                 .with_row(row.clone(), row_index, row_count)
                 .with_column(column.clone(), column_index, column_count)
-                .with_domain_coordination(repeat.domain_coordination_config().clone());
+                .with_domain_coordination(repeat.domain_coordination_config().clone())
+                .with_matrix_axis_defaults(repeat.matrix_axis_defaults());
             let cell = repeat.cell_templates().select(
                 "RepeatGrid",
                 &key,
@@ -1176,7 +1188,10 @@ fn lower_repeat_grid_plot<C: CoordinateSystem>(
     let parts = split_repeat_plot(plot, "RepeatGrid")?;
     Ok(finish_lowered_repeat_plot(
         parts,
-        GridConcat::new().rows(row_count).columns(column_count),
+        GridConcat::new()
+            .rows(row_count)
+            .columns(column_count)
+            .with_axis_guide_visibility_config(repeat.axis_guide_visibility_config()),
         marks,
     ))
 }
@@ -1305,8 +1320,67 @@ fn resolve_mark_states<C: CoordinateSystem>(
     };
     marks
         .iter()
-        .map(|mark| mark.state().resolve_repeat(repeat_context))
+        .map(|mark| {
+            let mut state = mark.state().resolve_repeat(repeat_context)?;
+            apply_repeat_matrix_axis_defaults::<C>(&mut state, repeat_context)?;
+            Ok(state)
+        })
         .collect()
+}
+
+fn apply_repeat_matrix_axis_defaults<C: CoordinateSystem>(
+    state: &mut MarkState,
+    repeat_context: &RepeatContext,
+) -> Result<(), AvengerChartError>
+where
+    <C::Guide as CoordinateGuide>::Axis: 'static,
+{
+    if !repeat_context.matrix_axis_defaults {
+        return Ok(());
+    }
+
+    let updates = state
+        .data
+        .channels()
+        .iter()
+        .filter_map(|(channel, value)| {
+            if value.get_axis_config().is_some() || state.axis_configs.contains_key(channel) {
+                return None;
+            }
+            repeat_matrix_axis_title(channel, value, repeat_context)
+                .map(|title| (channel.clone(), value.clone(), title))
+        })
+        .collect::<Vec<_>>();
+
+    for (channel, value, title) in updates {
+        let mut axis = <C::Guide as CoordinateGuide>::Axis::default();
+        if axis.set_default_title_expr(lit(title))? {
+            state.data = state
+                .data
+                .clone()
+                .with_channel_value(&channel, value.with_boxed_axis_config(Box::new(axis)));
+        }
+    }
+
+    Ok(())
+}
+
+fn repeat_matrix_axis_title(
+    channel: &str,
+    value: &avenger_chart_core::ChannelValue,
+    repeat_context: &RepeatContext,
+) -> Option<String> {
+    let variable = match channel {
+        "x" => repeat_context.column.as_ref()?,
+        "y" => repeat_context.row.as_ref()?,
+        _ => return None,
+    };
+    let coordination = value.get_domain_coordination()?;
+    if coordination.group == DomainCoordinationGroup::Named(variable.id.clone()) {
+        Some(variable.title.clone())
+    } else {
+        None
+    }
 }
 
 fn validate_sibling_mark_ids<C: CoordinateSystem>(
@@ -1386,11 +1460,12 @@ mod tests {
     use crate::repeat::{RepeatColumns, RepeatGrid, RepeatRows, RepeatWrap};
     use crate::tools::ToolCompileContext;
     use crate::zerod::ZeroDCoord;
-    use avenger_chart_cartesian::CartesianSymbolPositionChannels;
+    use avenger_chart_cartesian::{CartesianAxis, CartesianSymbolPositionChannels};
     use avenger_chart_core::{
-        DomainCoordinationGroup, RepeatContext, RepeatDomainCoordination, RepeatVariable,
-        ResolvedRepeatVariable, ScaleChannelConfig, SubplotDataSource,
-        collect_repeat_placeholder_kinds, repeat,
+        AxisGuideVisibilityPolicy, DefaultLogicalExprNodeExt, DomainCoordinationGroup,
+        RepeatContext, RepeatDomainCoordination, RepeatVariable, ResolvedRepeatVariable,
+        ScaleChannelConfig, SubplotDataSource, collect_repeat_placeholder_kinds, repeat,
+        simplify_to_scalar_sync,
     };
     use avenger_chart_marks::{Subplot, Symbol};
     use avenger_chart_tools::PanScrollZoom;
@@ -1480,6 +1555,21 @@ mod tests {
             .expect("child channel")
             .get_domain_coordination()
             .cloned()
+    }
+
+    fn child_axis_title(
+        subplot: &crate::concat::CompiledConcatSubplot,
+        channel: &str,
+        ctx: &SessionContext,
+    ) -> Option<String> {
+        let AxisSpec::Local(axis) = subplot.compiled_subplot().axis_specs.get(channel)?;
+        let axis = axis.as_any().downcast_ref::<CartesianAxis>()?;
+        let title = axis.title.as_option()?.as_ref()?;
+        let scalar = simplify_to_scalar_sync(title.to_default_expr(ctx).ok()?).ok()?;
+        match scalar {
+            ScalarValue::Utf8(Some(value)) => Some(value),
+            other => Some(other.to_string()),
+        }
     }
 
     fn lowered_children<'a>(
@@ -1804,6 +1894,81 @@ mod tests {
             compiled.param_specs()["__tool_pan_scroll_zoom__domain__b"].sharing,
             CoordinationScope::Level(u8::MAX)
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn repeat_grid_matrix_axes_generate_title_defaults_and_policy()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<RepeatGrid>::new()
+            .rows(repeat_vars(&["a", "b"]))
+            .columns(repeat_vars(&["a", "b"]))
+            .cell(repeated_grid_cell())
+            .matrix_domains()
+            .matrix_axes()
+            .compile(&ctx)
+            .await?;
+
+        let grid = compiled
+            .coord_transform
+            .as_any()
+            .downcast_ref::<GridConcat>()
+            .expect("lowered to GridConcat");
+        assert_eq!(
+            grid.axis_guide_visibility_config().labels,
+            AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups
+        );
+        assert_eq!(
+            grid.axis_guide_visibility_config().title,
+            AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups
+        );
+
+        let children = lowered_children(&compiled);
+        assert_eq!(
+            child_axis_title(children[0], "x", &ctx).as_deref(),
+            Some("Title a")
+        );
+        assert_eq!(
+            child_axis_title(children[0], "y", &ctx).as_deref(),
+            Some("Title a")
+        );
+        assert_eq!(
+            child_axis_title(children[1], "x", &ctx).as_deref(),
+            Some("Title b")
+        );
+        assert_eq!(
+            child_axis_title(children[2], "y", &ctx).as_deref(),
+            Some("Title b")
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn repeat_grid_matrix_axes_preserve_explicit_titles_and_skip_non_repeat_axes()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let explicit_cell = Plot::<Cartesian>::new().mark(
+            Symbol::new()
+                .x_with(repeat::column(), |c| c.axis(|a| a.title("authored x")))
+                .y(lit(1.0))
+                .size(64.0),
+        );
+        let compiled = Plot::<RepeatGrid>::new()
+            .rows(repeat_vars(&["a"]))
+            .columns(repeat_vars(&["b"]))
+            .cell(explicit_cell)
+            .matrix_domains()
+            .matrix_axes()
+            .compile(&ctx)
+            .await?;
+
+        let children = lowered_children(&compiled);
+        assert_eq!(
+            child_axis_title(children[0], "x", &ctx).as_deref(),
+            Some("authored x")
+        );
+        assert_eq!(child_axis_title(children[0], "y", &ctx), None);
         Ok(())
     }
 

@@ -97,7 +97,36 @@ fn grid_cell_no_legend() -> Plot<Cartesian> {
     )
 }
 
+fn grid_cell_matrix_axes() -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().mark(
+        Symbol::new()
+            .x(repeat::column())
+            .y(repeat::row())
+            .fill("#2f7ed8")
+            .opacity(0.78)
+            .stroke("#ffffff")
+            .stroke_width(0.75)
+            .size(52.0),
+    )
+}
+
 fn diagonal_histogram_cell() -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().mark(Rect::new().transform(
+        Bin::new(repeat::column()).maxbins(5),
+        |mark, bin| {
+            mark.x_with(bin.start(), |c| c.axis(|a| a.title(repeat::column_title())))
+                .x2(bin.end())
+                .y_with(lit(0.0), |c| c.axis(|a| a.title("count")))
+                .y2(count(lit(1)))
+                .fill("#2f7ed8")
+                .stroke("#ffffff")
+                .stroke_width(1.0)
+                .opacity(0.7)
+        },
+    ))
+}
+
+fn diagonal_histogram_cell_matrix_axes() -> Plot<Cartesian> {
     Plot::<Cartesian>::new().mark(Rect::new().transform(
         Bin::new(repeat::column()).maxbins(5),
         |mark, bin| {
@@ -205,6 +234,32 @@ async fn repeat_grid_scatter_matrix_domains() {
 }
 
 #[tokio::test]
+async fn repeat_grid_matrix_axes_scatter() {
+    let ctx = SessionContext::new();
+    let variables = repeat_variables();
+    let plot = Plot::<RepeatGrid>::new()
+        .data(repeat_data(&ctx).await)
+        .plot_size(120.0, 105.0)
+        .rows(variables.clone())
+        .columns(variables)
+        .cell(grid_cell_matrix_axes())
+        .matrix_domains()
+        .matrix_axes();
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile repeat grid with matrix axes");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "repeat",
+        "repeat_grid_matrix_axes_scatter",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn repeat_grid_scatter_with_diagonal_histograms() {
     let ctx = SessionContext::new();
     let variables = repeat_variables();
@@ -228,6 +283,37 @@ async fn repeat_grid_scatter_with_diagonal_histograms() {
         None,
         "repeat",
         "repeat_grid_scatter_with_diagonal_histograms",
+        0.999,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn repeat_grid_matrix_axes_diagonal_histograms() {
+    let ctx = SessionContext::new();
+    let variables = repeat_variables();
+    let plot = Plot::<RepeatGrid>::new()
+        .data(repeat_data(&ctx).await)
+        .plot_size(120.0, 105.0)
+        .rows(variables.clone())
+        .columns(variables)
+        .cell(grid_cell_matrix_axes())
+        .cell_when(
+            repeat::row_index().eq(repeat::column_index()),
+            diagonal_histogram_cell_matrix_axes(),
+        )
+        .matrix_domains()
+        .matrix_axes();
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile repeat grid with matrix axes and diagonal histograms");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "repeat",
+        "repeat_grid_matrix_axes_diagonal_histograms",
         0.999,
     )
     .await;

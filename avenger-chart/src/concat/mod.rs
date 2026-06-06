@@ -160,6 +160,14 @@ impl GridConcat {
         self
     }
 
+    pub(crate) fn with_axis_guide_visibility_config(
+        mut self,
+        config: AxisGuideVisibilityConfig,
+    ) -> Self {
+        self.axis_guide_visibility = config;
+        self
+    }
+
     pub(crate) fn rows_config(&self) -> Option<usize> {
         self.rows
     }
