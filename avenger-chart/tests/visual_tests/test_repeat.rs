@@ -1,7 +1,8 @@
 use avenger_chart::prelude::*;
+use datafusion::functions_aggregate::expr_fn::count;
 use datafusion::prelude::*;
 
-use super::helpers::assert_visual_match_default;
+use super::helpers::{assert_visual_match, assert_visual_match_default};
 
 async fn repeat_data(ctx: &SessionContext) -> DataFrame {
     ctx.sql(
@@ -81,6 +82,37 @@ fn grid_cell() -> Plot<Cartesian> {
     )
 }
 
+fn grid_cell_no_legend() -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().mark(
+        Symbol::new()
+            .x_with(repeat::column(), |c| {
+                c.axis(|a| a.title(repeat::column_title()))
+            })
+            .y_with(repeat::row(), |c| c.axis(|a| a.title(repeat::row_title())))
+            .fill("#2f7ed8")
+            .opacity(0.78)
+            .stroke("#ffffff")
+            .stroke_width(0.75)
+            .size(52.0),
+    )
+}
+
+fn diagonal_histogram_cell() -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().mark(Rect::new().transform(
+        Bin::new(repeat::column()).maxbins(5),
+        |mark, bin| {
+            mark.x_with(bin.start(), |c| c.axis(|a| a.title(repeat::column_title())))
+                .x2(bin.end())
+                .y_with(lit(0.0), |c| c.axis(|a| a.title("count")))
+                .y2(count(lit(1)))
+                .fill("#2f7ed8")
+                .stroke("#ffffff")
+                .stroke_width(1.0)
+                .opacity(0.7)
+        },
+    ))
+}
+
 fn wrap_cell() -> Plot<Cartesian> {
     Plot::<Cartesian>::new().mark(
         Symbol::new()
@@ -143,6 +175,35 @@ async fn repeat_grid_scatter_matrix_independent() {
         None,
         "repeat",
         "repeat_grid_scatter_matrix_independent",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn repeat_grid_scatter_with_diagonal_histograms() {
+    let ctx = SessionContext::new();
+    let variables = repeat_variables();
+    let plot = Plot::<RepeatGrid>::new()
+        .data(repeat_data(&ctx).await)
+        .plot_size(120.0, 105.0)
+        .rows(variables.clone())
+        .columns(variables)
+        .cell(grid_cell_no_legend())
+        .cell_when(
+            repeat::row_index().eq(repeat::column_index()),
+            diagonal_histogram_cell(),
+        );
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile repeat grid with conditional cells");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "repeat",
+        "repeat_grid_scatter_with_diagonal_histograms",
+        0.999,
     )
     .await;
 }

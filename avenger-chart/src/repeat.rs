@@ -21,10 +21,67 @@ use crate::{
 
 pub use avenger_chart_core::repeat::*;
 
+#[derive(Clone)]
+pub(crate) struct RepeatCellBranch {
+    predicate: LogicalExprNode,
+    cell: Box<dyn SubplotChildPlotSpec>,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct RepeatCellTemplates {
+    default: Option<Box<dyn SubplotChildPlotSpec>>,
+    branches: Vec<RepeatCellBranch>,
+}
+
+impl RepeatCellTemplates {
+    pub(crate) fn set_default(&mut self, cell: Box<dyn SubplotChildPlotSpec>) {
+        self.default = Some(cell);
+    }
+
+    pub(crate) fn add_branch(
+        &mut self,
+        predicate: impl IntoExpr,
+        cell: Box<dyn SubplotChildPlotSpec>,
+    ) {
+        let predicate = LogicalExprNode::from_default_expr(predicate.into_expr())
+            .expect("Failed to serialize repeat cell branch predicate");
+        self.branches.push(RepeatCellBranch { predicate, cell });
+    }
+
+    pub(crate) fn select(
+        &self,
+        kind: &str,
+        cell_key: &str,
+        repeat_context: &CoreRepeatContext,
+        session_context: &SessionContext,
+    ) -> Result<Box<dyn SubplotChildPlotSpec>, AvengerChartError> {
+        let Some(default) = self.default.as_ref() else {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "{kind} requires a default repeated child plot via `.cell(...)`"
+            )));
+        };
+
+        for (branch_index, branch) in self.branches.iter().enumerate() {
+            let predicate = branch.predicate.to_default_expr(session_context)?;
+            let matches =
+                avenger_chart_core::evaluate_repeat_predicate(predicate, repeat_context).map_err(|err| {
+                    AvengerChartError::InvalidArgument(format!(
+                        "{kind} repeat cell '{cell_key}' branch {branch_index} predicate failed: {err}"
+                    ))
+                })?;
+            if matches {
+                return Ok(branch.cell.clone());
+            }
+        }
+
+        Ok(default.clone())
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct RepeatColumns {
     columns: Vec<CoreRepeatVariable>,
-    cell: Option<Box<dyn SubplotChildPlotSpec>>,
+    cells: RepeatCellTemplates,
 }
 
 impl RepeatColumns {
@@ -37,22 +94,30 @@ impl RepeatColumns {
     }
 
     pub(crate) fn set_cell(&mut self, cell: Box<dyn SubplotChildPlotSpec>) {
-        self.cell = Some(cell);
+        self.cells.set_default(cell);
+    }
+
+    pub(crate) fn add_cell_when(
+        &mut self,
+        predicate: impl IntoExpr,
+        cell: Box<dyn SubplotChildPlotSpec>,
+    ) {
+        self.cells.add_branch(predicate, cell);
     }
 
     pub(crate) fn columns_config(&self) -> &[CoreRepeatVariable] {
         &self.columns
     }
 
-    pub(crate) fn cell_config(&self) -> Option<&dyn SubplotChildPlotSpec> {
-        self.cell.as_deref()
+    pub(crate) fn cell_templates(&self) -> &RepeatCellTemplates {
+        &self.cells
     }
 }
 
 #[derive(Clone, Default)]
 pub struct RepeatRows {
     rows: Vec<CoreRepeatVariable>,
-    cell: Option<Box<dyn SubplotChildPlotSpec>>,
+    cells: RepeatCellTemplates,
 }
 
 impl RepeatRows {
@@ -65,15 +130,23 @@ impl RepeatRows {
     }
 
     pub(crate) fn set_cell(&mut self, cell: Box<dyn SubplotChildPlotSpec>) {
-        self.cell = Some(cell);
+        self.cells.set_default(cell);
+    }
+
+    pub(crate) fn add_cell_when(
+        &mut self,
+        predicate: impl IntoExpr,
+        cell: Box<dyn SubplotChildPlotSpec>,
+    ) {
+        self.cells.add_branch(predicate, cell);
     }
 
     pub(crate) fn rows_config(&self) -> &[CoreRepeatVariable] {
         &self.rows
     }
 
-    pub(crate) fn cell_config(&self) -> Option<&dyn SubplotChildPlotSpec> {
-        self.cell.as_deref()
+    pub(crate) fn cell_templates(&self) -> &RepeatCellTemplates {
+        &self.cells
     }
 }
 
@@ -81,7 +154,7 @@ impl RepeatRows {
 pub struct RepeatGrid {
     rows: Vec<CoreRepeatVariable>,
     columns: Vec<CoreRepeatVariable>,
-    cell: Option<Box<dyn SubplotChildPlotSpec>>,
+    cells: RepeatCellTemplates,
 }
 
 impl RepeatGrid {
@@ -98,7 +171,15 @@ impl RepeatGrid {
     }
 
     pub(crate) fn set_cell(&mut self, cell: Box<dyn SubplotChildPlotSpec>) {
-        self.cell = Some(cell);
+        self.cells.set_default(cell);
+    }
+
+    pub(crate) fn add_cell_when(
+        &mut self,
+        predicate: impl IntoExpr,
+        cell: Box<dyn SubplotChildPlotSpec>,
+    ) {
+        self.cells.add_branch(predicate, cell);
     }
 
     pub(crate) fn rows_config(&self) -> &[CoreRepeatVariable] {
@@ -109,8 +190,8 @@ impl RepeatGrid {
         &self.columns
     }
 
-    pub(crate) fn cell_config(&self) -> Option<&dyn SubplotChildPlotSpec> {
-        self.cell.as_deref()
+    pub(crate) fn cell_templates(&self) -> &RepeatCellTemplates {
+        &self.cells
     }
 }
 
@@ -118,7 +199,7 @@ impl RepeatGrid {
 pub struct RepeatWrap {
     items: Vec<CoreRepeatVariable>,
     column_mode: FacetWrapColumnMode,
-    cell: Option<Box<dyn SubplotChildPlotSpec>>,
+    cells: RepeatCellTemplates,
 }
 
 impl Default for RepeatWrap {
@@ -126,7 +207,7 @@ impl Default for RepeatWrap {
         Self {
             items: Vec::new(),
             column_mode: FacetWrapColumnMode::Auto,
-            cell: None,
+            cells: RepeatCellTemplates::default(),
         }
     }
 }
@@ -155,7 +236,15 @@ impl RepeatWrap {
     }
 
     pub(crate) fn set_cell(&mut self, cell: Box<dyn SubplotChildPlotSpec>) {
-        self.cell = Some(cell);
+        self.cells.set_default(cell);
+    }
+
+    pub(crate) fn add_cell_when(
+        &mut self,
+        predicate: impl IntoExpr,
+        cell: Box<dyn SubplotChildPlotSpec>,
+    ) {
+        self.cells.add_branch(predicate, cell);
     }
 
     pub(crate) fn items_config(&self) -> &[CoreRepeatVariable] {
@@ -166,8 +255,8 @@ impl RepeatWrap {
         &self.column_mode
     }
 
-    pub(crate) fn cell_config(&self) -> Option<&dyn SubplotChildPlotSpec> {
-        self.cell.as_deref()
+    pub(crate) fn cell_templates(&self) -> &RepeatCellTemplates {
+        &self.cells
     }
 }
 

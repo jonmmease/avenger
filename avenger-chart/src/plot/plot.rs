@@ -194,6 +194,14 @@ impl Plot<RepeatColumns> {
         self.coord_system.set_cell(Box::new(cell));
         self
     }
+
+    pub fn cell_when<P>(mut self, predicate: impl IntoExpr, cell: P) -> Self
+    where
+        P: SubplotChildPlotSpec + 'static,
+    {
+        self.coord_system.add_cell_when(predicate, Box::new(cell));
+        self
+    }
 }
 
 impl Plot<RepeatRows> {
@@ -207,6 +215,14 @@ impl Plot<RepeatRows> {
         P: SubplotChildPlotSpec + 'static,
     {
         self.coord_system.set_cell(Box::new(cell));
+        self
+    }
+
+    pub fn cell_when<P>(mut self, predicate: impl IntoExpr, cell: P) -> Self
+    where
+        P: SubplotChildPlotSpec + 'static,
+    {
+        self.coord_system.add_cell_when(predicate, Box::new(cell));
         self
     }
 }
@@ -227,6 +243,14 @@ impl Plot<RepeatGrid> {
         P: SubplotChildPlotSpec + 'static,
     {
         self.coord_system.set_cell(Box::new(cell));
+        self
+    }
+
+    pub fn cell_when<P>(mut self, predicate: impl IntoExpr, cell: P) -> Self
+    where
+        P: SubplotChildPlotSpec + 'static,
+    {
+        self.coord_system.add_cell_when(predicate, Box::new(cell));
         self
     }
 }
@@ -252,6 +276,14 @@ impl Plot<RepeatWrap> {
         P: SubplotChildPlotSpec + 'static,
     {
         self.coord_system.set_cell(Box::new(cell));
+        self
+    }
+
+    pub fn cell_when<P>(mut self, predicate: impl IntoExpr, cell: P) -> Self
+    where
+        P: SubplotChildPlotSpec + 'static,
+    {
+        self.coord_system.add_cell_when(predicate, Box::new(cell));
         self
     }
 }
@@ -998,7 +1030,6 @@ fn lower_repeat_columns_plot<C: CoordinateSystem>(
         repeat.columns_config(),
         session_context,
     )?;
-    let cell = repeat_cell_template("RepeatColumns", repeat.cell_config())?;
     let column_count = variables.len();
     let marks = variables
         .into_iter()
@@ -1009,17 +1040,20 @@ fn lower_repeat_columns_plot<C: CoordinateSystem>(
             let label = column.title.clone();
             let repeat_context =
                 RepeatContext::new().with_column(column, column_index, column_count);
-            Arc::new(
-                Subplot::<HConcat>::new(RepeatResolvedChildPlotSpec::new(
-                    cell.clone(),
-                    repeat_context,
-                ))
-                .key(key)
-                .id(id)
-                .label(label),
-            ) as Arc<dyn Mark<HConcat>>
+            let cell = repeat.cell_templates().select(
+                "RepeatColumns",
+                &key,
+                &repeat_context,
+                session_context,
+            )?;
+            Ok(Arc::new(
+                Subplot::<HConcat>::new(RepeatResolvedChildPlotSpec::new(cell, repeat_context))
+                    .key(key)
+                    .id(id)
+                    .label(label),
+            ) as Arc<dyn Mark<HConcat>>)
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, AvengerChartError>>()?;
     let parts = split_repeat_plot(plot, "RepeatColumns")?;
     Ok(finish_lowered_repeat_plot(parts, HConcat::new(), marks))
 }
@@ -1031,7 +1065,6 @@ fn lower_repeat_rows_plot<C: CoordinateSystem>(
 ) -> Result<Plot<VConcat>, AvengerChartError> {
     let variables =
         resolve_repeat_variables("RepeatRows", "rows", repeat.rows_config(), session_context)?;
-    let cell = repeat_cell_template("RepeatRows", repeat.cell_config())?;
     let row_count = variables.len();
     let marks = variables
         .into_iter()
@@ -1041,17 +1074,20 @@ fn lower_repeat_rows_plot<C: CoordinateSystem>(
             let id = format!("repeat_row_{}", row.id);
             let label = row.title.clone();
             let repeat_context = RepeatContext::new().with_row(row, row_index, row_count);
-            Arc::new(
-                Subplot::<VConcat>::new(RepeatResolvedChildPlotSpec::new(
-                    cell.clone(),
-                    repeat_context,
-                ))
-                .key(key)
-                .id(id)
-                .label(label),
-            ) as Arc<dyn Mark<VConcat>>
+            let cell = repeat.cell_templates().select(
+                "RepeatRows",
+                &key,
+                &repeat_context,
+                session_context,
+            )?;
+            Ok(Arc::new(
+                Subplot::<VConcat>::new(RepeatResolvedChildPlotSpec::new(cell, repeat_context))
+                    .key(key)
+                    .id(id)
+                    .label(label),
+            ) as Arc<dyn Mark<VConcat>>)
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, AvengerChartError>>()?;
     let parts = split_repeat_plot(plot, "RepeatRows")?;
     Ok(finish_lowered_repeat_plot(parts, VConcat::new(), marks))
 }
@@ -1069,7 +1105,6 @@ fn lower_repeat_grid_plot<C: CoordinateSystem>(
         repeat.columns_config(),
         session_context,
     )?;
-    let cell = repeat_cell_template("RepeatGrid", repeat.cell_config())?;
     let row_count = rows.len();
     let column_count = columns.len();
     let mut marks = Vec::new();
@@ -1080,14 +1115,17 @@ fn lower_repeat_grid_plot<C: CoordinateSystem>(
             let repeat_context = RepeatContext::new()
                 .with_row(row.clone(), row_index, row_count)
                 .with_column(column.clone(), column_index, column_count);
+            let cell = repeat.cell_templates().select(
+                "RepeatGrid",
+                &key,
+                &repeat_context,
+                session_context,
+            )?;
             marks.push(Arc::new(
-                Subplot::<GridConcat>::new(RepeatResolvedChildPlotSpec::new(
-                    cell.clone(),
-                    repeat_context,
-                ))
-                .key(key)
-                .id(id)
-                .grid_cell(row_index, column_index),
+                Subplot::<GridConcat>::new(RepeatResolvedChildPlotSpec::new(cell, repeat_context))
+                    .key(key)
+                    .id(id)
+                    .grid_cell(row_index, column_index),
             ) as Arc<dyn Mark<GridConcat>>);
         }
     }
@@ -1110,7 +1148,6 @@ fn lower_repeat_wrap_plot<C: CoordinateSystem>(
         repeat.items_config(),
         session_context,
     )?;
-    let cell = repeat_cell_template("RepeatWrap", repeat.cell_config())?;
     let item_count = variables.len();
     let marks = variables
         .into_iter()
@@ -1120,17 +1157,20 @@ fn lower_repeat_wrap_plot<C: CoordinateSystem>(
             let id = format!("repeat_item_{}", item.id);
             let label = item.title.clone();
             let repeat_context = RepeatContext::new().with_item(item, item_index, item_count);
-            Arc::new(
-                Subplot::<WrapConcat>::new(RepeatResolvedChildPlotSpec::new(
-                    cell.clone(),
-                    repeat_context,
-                ))
-                .key(key)
-                .id(id)
-                .label(label),
-            ) as Arc<dyn Mark<WrapConcat>>
+            let cell = repeat.cell_templates().select(
+                "RepeatWrap",
+                &key,
+                &repeat_context,
+                session_context,
+            )?;
+            Ok(Arc::new(
+                Subplot::<WrapConcat>::new(RepeatResolvedChildPlotSpec::new(cell, repeat_context))
+                    .key(key)
+                    .id(id)
+                    .label(label),
+            ) as Arc<dyn Mark<WrapConcat>>)
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, AvengerChartError>>()?;
     let parts = split_repeat_plot(plot, "RepeatWrap")?;
     Ok(finish_lowered_repeat_plot(
         parts,
@@ -1163,17 +1203,6 @@ fn resolve_repeat_variables(
         resolved.push(variable);
     }
     Ok(resolved)
-}
-
-fn repeat_cell_template(
-    kind: &str,
-    cell: Option<&dyn SubplotChildPlotSpec>,
-) -> Result<Box<dyn SubplotChildPlotSpec>, AvengerChartError> {
-    cell.map(SubplotChildPlotSpec::clone_box).ok_or_else(|| {
-        AvengerChartError::InvalidArgument(format!(
-            "{kind} requires a default repeated child plot via `.cell(...)`"
-        ))
-    })
 }
 
 fn scale_domain_coordinations_from_states(
@@ -1310,6 +1339,7 @@ mod tests {
     use crate::event::{ChartEventBinding, ChartEventType};
     use crate::repeat::{RepeatColumns, RepeatGrid, RepeatRows, RepeatWrap};
     use crate::tools::ToolCompileContext;
+    use crate::zerod::ZeroDCoord;
     use avenger_chart_cartesian::CartesianSymbolPositionChannels;
     use avenger_chart_core::{
         RepeatContext, RepeatVariable, ResolvedRepeatVariable, SubplotDataSource,
@@ -1364,8 +1394,16 @@ mod tests {
         )
     }
 
+    fn constant_y_grid_cell(value: f64) -> Plot<Cartesian> {
+        Plot::<Cartesian>::new().mark(Symbol::new().x(repeat::column()).y(lit(value)).size(64.0))
+    }
+
     fn repeated_item_cell() -> Plot<Cartesian> {
         Plot::<Cartesian>::new().mark(Symbol::new().x(lit(1.0)).y(repeat::item()).size(64.0))
+    }
+
+    fn zerod_branch_cell() -> Plot<ZeroDCoord> {
+        Plot::<ZeroDCoord>::new().mark(Symbol::new().fill("#2f7ed8").size(64.0))
     }
 
     fn child_channel_expr(
@@ -1485,6 +1523,97 @@ mod tests {
         assert_eq!(child_channel_expr(children[0], "y", &ctx), "r1");
         assert_eq!(child_channel_expr(children[5], "x", &ctx), "c3");
         assert_eq!(child_channel_expr(children[5], "y", &ctx), "r2");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn repeat_grid_cell_when_selects_diagonal_branch() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<RepeatGrid>::new()
+            .rows(repeat_vars(&["a", "b"]))
+            .columns(repeat_vars(&["a", "b"]))
+            .cell(repeated_grid_cell())
+            .cell_when(
+                repeat::row_index().eq(repeat::column_index()),
+                constant_y_grid_cell(99.0),
+            )
+            .compile(&ctx)
+            .await?;
+
+        let children = lowered_children(&compiled);
+        assert_eq!(children.len(), 4);
+        assert_eq!(children[0].key(), Some("repeat_cell:a:a"));
+        assert_eq!(children[1].key(), Some("repeat_cell:a:b"));
+        assert_eq!(children[3].key(), Some("repeat_cell:b:b"));
+        assert!(
+            child_channel_expr(children[0], "y", &ctx).contains("99"),
+            "diagonal cell should use branch template"
+        );
+        assert_eq!(child_channel_expr(children[1], "y", &ctx), "a");
+        assert_eq!(child_channel_expr(children[2], "y", &ctx), "b");
+        assert!(
+            child_channel_expr(children[3], "y", &ctx).contains("99"),
+            "diagonal cell should use branch template"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn repeat_cell_when_uses_author_order_priority() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<RepeatGrid>::new()
+            .rows(repeat_vars(&["a", "b"]))
+            .columns(repeat_vars(&["a", "b"]))
+            .cell(repeated_grid_cell())
+            .cell_when(
+                repeat::row_index().eq(repeat::column_index()),
+                constant_y_grid_cell(10.0),
+            )
+            .cell_when(lit(true), constant_y_grid_cell(20.0))
+            .compile(&ctx)
+            .await?;
+
+        let children = lowered_children(&compiled);
+        assert!(
+            child_channel_expr(children[0], "y", &ctx).contains("10"),
+            "first matching branch should win on diagonal cells"
+        );
+        assert!(
+            child_channel_expr(children[1], "y", &ctx).contains("20"),
+            "later broad branch should handle off-diagonal cells"
+        );
+        assert!(
+            child_channel_expr(children[3], "y", &ctx).contains("10"),
+            "first matching branch should win on diagonal cells"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn repeat_cell_when_allows_heterogeneous_child_plot_specs()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<RepeatGrid>::new()
+            .rows(repeat_vars(&["a"]))
+            .columns(repeat_vars(&["a"]))
+            .cell(repeated_grid_cell())
+            .cell_when(
+                repeat::row_index().eq(repeat::column_index()),
+                zerod_branch_cell(),
+            )
+            .compile(&ctx)
+            .await?;
+
+        let children = lowered_children(&compiled);
+        assert_eq!(children.len(), 1);
+        assert!(
+            children[0]
+                .compiled_subplot()
+                .coord_transform
+                .as_any()
+                .is::<ZeroDCoord>(),
+            "diagonal branch should compile as the selected ZeroD child plot"
+        );
         Ok(())
     }
 
@@ -1613,6 +1742,27 @@ mod tests {
             empty
                 .to_string()
                 .contains("requires at least one repeat rows variable")
+        );
+
+        let data_dependent_predicate = match Plot::<RepeatGrid>::new()
+            .rows(repeat_vars(&["a"]))
+            .columns(repeat_vars(&["a"]))
+            .cell(repeated_grid_cell())
+            .cell_when(
+                col("datum_value").eq(lit(1_i64)),
+                constant_y_grid_cell(99.0),
+            )
+            .compile(&ctx)
+            .await
+        {
+            Ok(_) => panic!("data-dependent repeat branch predicate should fail"),
+            Err(err) => err,
+        };
+        assert!(
+            data_dependent_predicate
+                .to_string()
+                .contains("branch 0 predicate failed"),
+            "{data_dependent_predicate}"
         );
     }
 
