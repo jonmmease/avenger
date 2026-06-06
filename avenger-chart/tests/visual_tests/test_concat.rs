@@ -153,6 +153,32 @@ fn grid_shared_axes_child(
     )
 }
 
+fn grid_splom_child(x: &'static str, y: &'static str) -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().mark(
+        Symbol::<Cartesian>::new()
+            .x_with(col(x), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                    .with_domain_group(x)
+                    .share_domain()
+                    .axis(|a| a.title(x))
+            })
+            .y_with(col(y), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                    .with_domain_group(y)
+                    .share_domain()
+                    .axis(|a| a.title(y))
+            })
+            .fill_with(col("species"), |c| {
+                c.with_domain_scope(CoordinationScope::Shared)
+                    .legend(|l| l.title("Species"))
+            })
+            .opacity(0.78)
+            .stroke("#ffffff")
+            .stroke_width(0.5)
+            .size(34.0),
+    )
+}
+
 fn shared_color_child(data: DataFrame, title: &str, position: LegendPosition) -> Plot<Cartesian> {
     Plot::<Cartesian>::new().data(data).title(title).mark(
         Symbol::<Cartesian>::new()
@@ -536,6 +562,42 @@ async fn grid_concat_holey_shared_axes() {
         None,
         "concat",
         "grid_concat_holey_shared_axes",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn grid_concat_splom_named_domains() {
+    let ctx = SessionContext::new();
+    let df = iris_with_petal_width_bin(&ctx).await;
+    let variables = ["sepal_length", "sepal_width", "petal_length"];
+    let mut plot = Plot::<GridConcat>::new()
+        .canvas_size(820.0, 760.0)
+        .data(df)
+        .title("Manual GridConcat SPLOM")
+        .rows(3)
+        .columns(3);
+
+    for (row, y) in variables.iter().enumerate() {
+        for (column, x) in variables.iter().enumerate() {
+            plot = plot.mark(
+                Subplot::new(grid_splom_child(x, y))
+                    .grid_cell(row, column)
+                    .key(format!("{y}__{x}")),
+            );
+        }
+    }
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile manual GridConcat SPLOM chart");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "concat",
+        "grid_concat_splom_named_domains",
     )
     .await;
 }
