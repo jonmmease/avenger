@@ -375,6 +375,39 @@ fn child_frame_axis_title_scope(
     )
 }
 
+fn child_frame_axis_policy_scope(
+    role: ChildFrameAxisOwnershipRole,
+    channel: &str,
+    sharing_context: GuideSharingContext<'_>,
+    axis_position: AxisPosition,
+    sharing_level: SharingLevel,
+    policy: AxisGuideVisibilityPolicy,
+) -> Option<CartesianAxisOwnershipScope> {
+    match policy {
+        AxisGuideVisibilityPolicy::Auto => match role {
+            ChildFrameAxisOwnershipRole::Labels => child_frame_axis_ownership_scope(
+                role,
+                channel,
+                sharing_context,
+                axis_position,
+                sharing_level,
+            ),
+            ChildFrameAxisOwnershipRole::Title => {
+                child_frame_axis_title_scope(channel, sharing_context, axis_position, sharing_level)
+            }
+        },
+        AxisGuideVisibilityPolicy::All => None,
+        AxisGuideVisibilityPolicy::OuterEdges => child_frame_axis_ownership_scope(
+            role,
+            channel,
+            sharing_context,
+            axis_position,
+            SharingLevel::GLOBAL,
+        ),
+        AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups => None,
+    }
+}
+
 fn facet_axis_ownership_applies(sharing_context: GuideSharingContext<'_>) -> bool {
     if sharing_context.is_root_facet_path() {
         return false;
@@ -553,18 +586,23 @@ pub async fn evaluate_cartesian_axis(
         && !facet_sharing_level.is_free()
         && sharing_context.facet_is_jagged_for_axis(position);
 
-    let child_frame_labels_visible = axis_owner_for_scope(child_frame_axis_ownership_scope(
+    let child_frame_policy = sharing_context
+        .child_frame_axis_guide_visibility_config(child_frame_axis_for_position(position));
+    let child_frame_labels_visible = axis_owner_for_scope(child_frame_axis_policy_scope(
         ChildFrameAxisOwnershipRole::Labels,
         channel,
         sharing_context,
         position,
         child_frame_sharing_level,
+        child_frame_policy.labels,
     ));
-    let child_frame_title_visible = axis_owner_for_scope(child_frame_axis_title_scope(
+    let child_frame_title_visible = axis_owner_for_scope(child_frame_axis_policy_scope(
+        ChildFrameAxisOwnershipRole::Title,
         channel,
         sharing_context,
         position,
         child_frame_sharing_level,
+        child_frame_policy.title,
     ));
 
     let show_title = show_title_expr && facet_visibility.show_title && child_frame_title_visible;
@@ -770,13 +808,15 @@ fn tick_spacing_interval_parts(step: &ScalarValue) -> Result<(i32, i32, i64), Av
 mod tests {
     use super::{
         AxisPosition, ChildFrameAxisOwnershipRole, child_frame_axis_ownership_scope,
-        child_frame_axis_title_scope, default_axis_position_for_channel, extract_tick_spacing,
-        facet_axis_ownership_applies, facet_axis_visibility_for_cartesian_axis,
+        child_frame_axis_policy_scope, child_frame_axis_title_scope,
+        default_axis_position_for_channel, extract_tick_spacing, facet_axis_ownership_applies,
+        facet_axis_visibility_for_cartesian_axis,
     };
     use avenger_chart_core::{
-        AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, AxisOwnershipMode, AxisVisibility,
-        ChildFrameGuideSharingView, CoordinationAxis, FacetGuideSharingView, GuideSharingContext,
-        SharingLevel, axis_owner_ignore_empty_cells_from_params, axis_ownership_mode_from_params,
+        AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, AxisGuideVisibilityPolicy, AxisOwnershipMode,
+        AxisVisibility, ChildFrameGuideSharingView, CoordinationAxis, FacetGuideSharingView,
+        GuideSharingContext, SharingLevel, axis_owner_ignore_empty_cells_from_params,
+        axis_ownership_mode_from_params,
     };
     use avenger_guides::axis::opts::AxisTickSpacing;
     use datafusion::arrow::{
@@ -1196,5 +1236,65 @@ mod tests {
         )
         .expect("grid should project y-axis ownership through column levels");
         assert!(!top_middle_scope.current_position_owns());
+    }
+
+    #[test]
+    fn child_frame_outer_edges_compacts_free_x_axis() {
+        let facet_view = EmptyFacetView;
+        let top_left = TestChildFrameView::grid(0, 2, 0, 3);
+        let top_left_context = sharing_context(&facet_view, &top_left);
+        assert!(
+            child_frame_axis_policy_scope(
+                ChildFrameAxisOwnershipRole::Labels,
+                "x",
+                top_left_context,
+                AxisPosition::Bottom,
+                SharingLevel::FREE,
+                AxisGuideVisibilityPolicy::Auto,
+            )
+            .is_none()
+        );
+        let top_left_context = sharing_context(&facet_view, &top_left);
+        let outer_scope = child_frame_axis_policy_scope(
+            ChildFrameAxisOwnershipRole::Labels,
+            "x",
+            top_left_context,
+            AxisPosition::Bottom,
+            SharingLevel::FREE,
+            AxisGuideVisibilityPolicy::OuterEdges,
+        )
+        .expect("OuterEdges should project x-axis ownership");
+        assert!(!outer_scope.current_position_owns());
+
+        let bottom_left = TestChildFrameView::grid(1, 2, 0, 3);
+        let bottom_left_context = sharing_context(&facet_view, &bottom_left);
+        let bottom_outer_scope = child_frame_axis_policy_scope(
+            ChildFrameAxisOwnershipRole::Labels,
+            "x",
+            bottom_left_context,
+            AxisPosition::Bottom,
+            SharingLevel::FREE,
+            AxisGuideVisibilityPolicy::OuterEdges,
+        )
+        .expect("OuterEdges should project x-axis ownership");
+        assert!(bottom_outer_scope.current_position_owns());
+    }
+
+    #[test]
+    fn child_frame_all_policy_keeps_every_axis_visible() {
+        let facet_view = EmptyFacetView;
+        let top_left = TestChildFrameView::grid(0, 2, 0, 3);
+        let top_left_context = sharing_context(&facet_view, &top_left);
+        assert!(
+            child_frame_axis_policy_scope(
+                ChildFrameAxisOwnershipRole::Labels,
+                "x",
+                top_left_context,
+                AxisPosition::Bottom,
+                SharingLevel::GLOBAL,
+                AxisGuideVisibilityPolicy::All,
+            )
+            .is_none()
+        );
     }
 }

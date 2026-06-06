@@ -44,8 +44,8 @@ use crate::{
     theme::Theme,
 };
 use avenger_chart_core::{
-    DefaultLogicalExprNodeExt, ExprHelpers, FacetWrapColumnMode, IntoExpr, contains_aggregate,
-    params_to_datafusion,
+    AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, DefaultLogicalExprNodeExt, ExprHelpers,
+    FacetWrapColumnMode, IntoExpr, contains_aggregate, params_to_datafusion,
 };
 use datafusion_proto::protobuf::LogicalExprNode;
 
@@ -78,18 +78,23 @@ impl VConcat {
 pub struct GridConcat {
     rows: Option<usize>,
     columns: Option<usize>,
+    #[serde(default)]
+    axis_guide_visibility: AxisGuideVisibilityConfig,
 }
 
 /// Row-major wrapped concatenation of `Subplot` marks.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WrapConcat {
     column_mode: FacetWrapColumnMode,
+    #[serde(default)]
+    axis_guide_visibility: AxisGuideVisibilityConfig,
 }
 
 impl Default for WrapConcat {
     fn default() -> Self {
         Self {
             column_mode: FacetWrapColumnMode::Auto,
+            axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
         }
     }
 }
@@ -115,8 +120,17 @@ impl WrapConcat {
         self
     }
 
+    pub fn axis_guide_visibility(mut self, policy: AxisGuideVisibilityPolicy) -> Self {
+        self.axis_guide_visibility = AxisGuideVisibilityConfig::same(policy);
+        self
+    }
+
     pub(crate) fn column_mode(&self) -> &FacetWrapColumnMode {
         &self.column_mode
+    }
+
+    pub(crate) fn axis_guide_visibility_config(&self) -> AxisGuideVisibilityConfig {
+        self.axis_guide_visibility
     }
 }
 
@@ -135,12 +149,21 @@ impl GridConcat {
         self
     }
 
+    pub fn axis_guide_visibility(mut self, policy: AxisGuideVisibilityPolicy) -> Self {
+        self.axis_guide_visibility = AxisGuideVisibilityConfig::same(policy);
+        self
+    }
+
     pub(crate) fn rows_config(&self) -> Option<usize> {
         self.rows
     }
 
     pub(crate) fn columns_config(&self) -> Option<usize> {
         self.columns
+    }
+
+    pub(crate) fn axis_guide_visibility_config(&self) -> AxisGuideVisibilityConfig {
+        self.axis_guide_visibility
     }
 }
 
@@ -502,6 +525,7 @@ pub struct ConcatCoordMeasurement {
     pub(crate) children: Vec<ConcatChildMeasurement>,
     pub(crate) placement: ConcatChildPlacement,
     pub(crate) fallback_content_size: Size2D,
+    pub(crate) axis_guide_visibility: AxisGuideVisibilityConfig,
 }
 
 impl ConcatCoordMeasurement {
@@ -531,6 +555,10 @@ impl ConcatCoordMeasurement {
 
     pub(crate) fn grid_shape(&self) -> Option<GridShape> {
         self.placement.grid_shape()
+    }
+
+    pub(crate) fn axis_guide_visibility_config(&self) -> AxisGuideVisibilityConfig {
+        self.axis_guide_visibility
     }
 }
 
@@ -853,6 +881,7 @@ pub(crate) async fn measure_concat_coord_system(
         children,
         placement: ConcatChildPlacement::Band(child_band_layout),
         fallback_content_size: Size2D::new(plot_width, plot_height),
+        axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
     }))
 }
 
@@ -917,6 +946,7 @@ pub(crate) async fn measure_grid_concat_coord_system(
                     prepared.key(),
                     placement,
                     &guide_sharing_slots,
+                    grid.axis_guide_visibility_config(),
                 ),
                 child_plot_area,
                 eval_ctx,
@@ -936,6 +966,7 @@ pub(crate) async fn measure_grid_concat_coord_system(
             shape: grid_shape,
         },
         fallback_content_size: Size2D::new(plot_width, plot_height),
+        axis_guide_visibility: grid.axis_guide_visibility_config(),
     }))
 }
 
@@ -1009,6 +1040,7 @@ pub(crate) async fn measure_wrap_concat_coord_system(
                     column_span: 1,
                 },
                 &guide_sharing_slots,
+                wrap.axis_guide_visibility_config(),
             ),
             child_plot_area,
             eval_ctx,
@@ -1034,6 +1066,7 @@ pub(crate) async fn measure_wrap_concat_coord_system(
             shape: grid_shape,
         },
         fallback_content_size: Size2D::new(plot_width, plot_height),
+        axis_guide_visibility: wrap.axis_guide_visibility_config(),
     }))
 }
 
@@ -1153,14 +1186,17 @@ pub(crate) fn grid_concat_sharing_levels(
     key: Option<&str>,
     placement: GridPlacementConfig,
     slots: &GridGuideSharingSlots,
+    axis_guide_visibility: AxisGuideVisibilityConfig,
 ) -> Vec<ChildFrameSharingLevel> {
     let row_index = slots.row_slot_index(placement.column, placement.row);
     let row_count = slots.row_slot_count(placement.column);
     let column_index = slots.column_slot_index(placement.row, placement.column);
     let column_count = slots.column_slot_count(placement.row);
     vec![
-        ChildFrameSharingLevel::grid_concat_row(child_index, key, row_index, row_count),
-        ChildFrameSharingLevel::grid_concat_column(column_index, column_count),
+        ChildFrameSharingLevel::grid_concat_row(child_index, key, row_index, row_count)
+            .with_axis_guide_visibility(axis_guide_visibility),
+        ChildFrameSharingLevel::grid_concat_column(column_index, column_count)
+            .with_axis_guide_visibility(axis_guide_visibility),
     ]
 }
 
@@ -1859,6 +1895,7 @@ mod tests {
                 column_span: 1,
             },
             &slots,
+            AxisGuideVisibilityConfig::auto(),
         );
         assert_eq!(top_right.len(), 2);
         assert_eq!(top_right[0].axis, CoordinationAxis::Vertical);
@@ -1878,6 +1915,7 @@ mod tests {
                 column_span: 1,
             },
             &slots,
+            AxisGuideVisibilityConfig::auto(),
         );
         assert_eq!(bottom_middle[0].index, 0);
         assert_eq!(bottom_middle[0].count, 1);

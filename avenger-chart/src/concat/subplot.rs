@@ -520,6 +520,7 @@ impl CompiledConcatSubplot {
                         self.key(),
                         grid_placement,
                         &guide_sharing_slots,
+                        concat_measurement.axis_guide_visibility_config(),
                     )
                 }
             };

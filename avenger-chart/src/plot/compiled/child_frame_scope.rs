@@ -7,7 +7,10 @@
 
 use datafusion::common::ScalarValue;
 
-use avenger_chart_core::{ChildFrameGuideSharingView, CoordinationAxis, FacetAxis};
+use avenger_chart_core::{
+    AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, ChildFrameGuideSharingView,
+    CoordinationAxis, FacetAxis,
+};
 
 /// Stable identity for one measured child frame within a container.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -133,6 +136,7 @@ pub(crate) struct ChildFrameSharingLevel {
     pub(crate) index: usize,
     pub(crate) count: usize,
     pub(crate) segment: Option<ContainerPathSegment>,
+    pub(crate) axis_guide_visibility: AxisGuideVisibilityConfig,
 }
 
 impl ChildFrameSharingLevel {
@@ -142,6 +146,7 @@ impl ChildFrameSharingLevel {
             index,
             count,
             segment: Some(ContainerPathSegment::concat_child(index, key)),
+            axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
         }
     }
 
@@ -151,6 +156,7 @@ impl ChildFrameSharingLevel {
             index,
             count,
             segment: Some(ContainerPathSegment::concat_child(index, key)),
+            axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
         }
     }
 
@@ -165,6 +171,7 @@ impl ChildFrameSharingLevel {
             index: row_index,
             count: row_count,
             segment: Some(ContainerPathSegment::concat_child(child_index, key)),
+            axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
         }
     }
 
@@ -174,6 +181,7 @@ impl ChildFrameSharingLevel {
             index: column_index,
             count: column_count,
             segment: None,
+            axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
         }
     }
 
@@ -191,6 +199,7 @@ impl ChildFrameSharingLevel {
             segment: Some(ContainerPathSegment::positioned_subplot(
                 mark_index, row_index, key,
             )),
+            axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
         }
     }
 
@@ -208,7 +217,16 @@ impl ChildFrameSharingLevel {
             segment: Some(ContainerPathSegment::positioned_partition(
                 mark_index, value, key,
             )),
+            axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
         }
+    }
+
+    pub(crate) fn with_axis_guide_visibility(
+        mut self,
+        axis_guide_visibility: AxisGuideVisibilityConfig,
+    ) -> Self {
+        self.axis_guide_visibility = axis_guide_visibility;
+        self
     }
 }
 
@@ -252,6 +270,22 @@ impl ChildFrameSharingPath {
         self.levels.iter().map(|level| level.axis).collect()
     }
 
+    pub(crate) fn axis_guide_visibility_config(
+        &self,
+        axis: CoordinationAxis,
+    ) -> AxisGuideVisibilityConfig {
+        let mut config = AxisGuideVisibilityConfig::auto();
+        for level in self.levels.iter().filter(|level| level.axis == axis) {
+            if level.axis_guide_visibility.labels != AxisGuideVisibilityPolicy::Auto {
+                config.labels = level.axis_guide_visibility.labels;
+            }
+            if level.axis_guide_visibility.title != AxisGuideVisibilityPolicy::Auto {
+                config.title = level.axis_guide_visibility.title;
+            }
+        }
+        config
+    }
+
     #[cfg(test)]
     pub(crate) fn has_axis(&self, axis: CoordinationAxis) -> bool {
         self.levels.iter().any(|level| level.axis == axis)
@@ -269,6 +303,13 @@ impl ChildFrameGuideSharingView for ChildFrameSharingPath {
 
     fn level_axes(&self) -> Vec<CoordinationAxis> {
         self.level_axes()
+    }
+
+    fn axis_guide_visibility_config_for_axis(
+        &self,
+        axis: CoordinationAxis,
+    ) -> AxisGuideVisibilityConfig {
+        self.axis_guide_visibility_config(axis)
     }
 
     fn relevant_depth(&self, axis: CoordinationAxis) -> usize {

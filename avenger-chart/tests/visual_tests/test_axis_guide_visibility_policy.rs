@@ -30,6 +30,31 @@ fn axis_policy_test_data(ctx: &SessionContext) -> DataFrame {
     ctx.read_batch(batch).expect("axis policy test data")
 }
 
+fn axis_policy_cell_data(ctx: &SessionContext, x_offset: f64, y_offset: f64) -> DataFrame {
+    let x = Float64Array::from(vec![x_offset, x_offset + 1.0, x_offset + 2.0]);
+    let y = Float64Array::from(vec![y_offset + 1.0, y_offset + 2.0, y_offset + 1.5]);
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("x", DataType::Float64, false),
+        Field::new("y", DataType::Float64, false),
+    ]));
+    let batch = RecordBatch::try_new(schema, vec![Arc::new(x), Arc::new(y)])
+        .expect("axis policy cell batch");
+
+    ctx.read_batch(batch).expect("axis policy cell data")
+}
+
+fn axis_policy_cell_plot(ctx: &SessionContext, x_offset: f64, y_offset: f64) -> Plot<Cartesian> {
+    Plot::<Cartesian>::new()
+        .data(axis_policy_cell_data(ctx, x_offset, y_offset))
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |c| c.axis(|a| a.title("local x")))
+                .y_with(col("y"), |c| c.axis(|a| a.title("local y")))
+                .size(56.0)
+                .fill("#2f7ed8"),
+        )
+}
+
 fn facet_row_axis_policy_plot(df: DataFrame, policy: AxisGuideVisibilityPolicy) -> Plot<FacetRow> {
     Plot::<FacetRow>::new().data(df).mark(
         Subplot::new(
@@ -76,6 +101,50 @@ async fn facet_axis_visibility_outer_edges() {
         None,
         "axis_guide_visibility",
         "facet_axis_visibility_outer_edges",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn grid_concat_axis_visibility_outer_edges() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<GridConcat>::new()
+        .rows(2)
+        .columns(2)
+        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .mark(Subplot::new(axis_policy_cell_plot(&ctx, 0.0, 0.0)).grid_cell(0, 0))
+        .mark(Subplot::new(axis_policy_cell_plot(&ctx, 10.0, 10.0)).grid_cell(0, 1))
+        .mark(Subplot::new(axis_policy_cell_plot(&ctx, 100.0, 100.0)).grid_cell(1, 0))
+        .mark(Subplot::new(axis_policy_cell_plot(&ctx, 200.0, 200.0)).grid_cell(1, 1));
+    let compiled = plot.compile(&ctx).await.expect("compile grid policy plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "axis_guide_visibility",
+        "grid_concat_axis_visibility_outer_edges",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn wrap_concat_axis_visibility_outer_edges() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<WrapConcat>::new()
+        .columns(3.0)
+        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .mark(Subplot::new(axis_policy_cell_plot(&ctx, 0.0, 0.0)))
+        .mark(Subplot::new(axis_policy_cell_plot(&ctx, 10.0, 10.0)))
+        .mark(Subplot::new(axis_policy_cell_plot(&ctx, 20.0, 20.0)))
+        .mark(Subplot::new(axis_policy_cell_plot(&ctx, 100.0, 100.0)))
+        .mark(Subplot::new(axis_policy_cell_plot(&ctx, 200.0, 200.0)));
+    let compiled = plot.compile(&ctx).await.expect("compile wrap policy plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "axis_guide_visibility",
+        "wrap_concat_axis_visibility_outer_edges",
     )
     .await;
 }

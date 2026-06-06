@@ -83,6 +83,15 @@ impl<'a> GuideSharingContext<'a> {
     }
 
     #[doc(hidden)]
+    pub fn child_frame_axis_guide_visibility_config(
+        &self,
+        axis: CoordinationAxis,
+    ) -> AxisGuideVisibilityConfig {
+        self.child_frame_view
+            .axis_guide_visibility_config_for_axis(axis)
+    }
+
+    #[doc(hidden)]
     pub fn with_facet_path<'b>(&self, facet_path: &'b [ScalarValue]) -> GuideSharingContext<'b>
     where
         'a: 'b,

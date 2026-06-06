@@ -10,11 +10,11 @@ use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    AvengerChartError, AxisSpec, ChartTool, CompileContext, CompiledMark, CompiledMarkState,
-    CompiledParamSpec, CompiledSelectionSpec, CompiledSubplotChildPlot, CoordinateGuide,
-    CoordinateSystem, CoordinationScope, DomainCoordination, IntoExpr, Legend, LegendSurfaceKind,
-    Mark, MarkDataMode, Param, Selection, Store, SubplotChildPlotSpec, Theme, TimeContext,
-    compile_selections, validate_structural_id,
+    AvengerChartError, AxisGuideVisibilityPolicy, AxisSpec, ChartTool, CompileContext,
+    CompiledMark, CompiledMarkState, CompiledParamSpec, CompiledSelectionSpec,
+    CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, CoordinationScope,
+    DomainCoordination, IntoExpr, Legend, LegendSurfaceKind, Mark, MarkDataMode, Param, Selection,
+    Store, SubplotChildPlotSpec, Theme, TimeContext, compile_selections, validate_structural_id,
 };
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
 
@@ -152,6 +152,11 @@ impl Plot<crate::concat::GridConcat> {
         self.coord_system = self.coord_system.clone().columns(columns);
         self
     }
+
+    pub fn axis_guide_visibility(mut self, policy: AxisGuideVisibilityPolicy) -> Self {
+        self.coord_system = self.coord_system.clone().axis_guide_visibility(policy);
+        self
+    }
 }
 
 impl Plot<crate::concat::WrapConcat> {
@@ -162,6 +167,11 @@ impl Plot<crate::concat::WrapConcat> {
 
     pub fn responsive_columns(mut self, width: impl IntoExpr) -> Self {
         self.coord_system = self.coord_system.clone().responsive_columns(width);
+        self
+    }
+
+    pub fn axis_guide_visibility(mut self, policy: AxisGuideVisibilityPolicy) -> Self {
+        self.coord_system = self.coord_system.clone().axis_guide_visibility(policy);
         self
     }
 }

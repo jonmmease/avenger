@@ -165,6 +165,13 @@ pub trait ChildFrameGuideSharingView: Send + Sync {
 
     fn level_axes(&self) -> Vec<CoordinationAxis>;
 
+    fn axis_guide_visibility_config_for_axis(
+        &self,
+        _axis: CoordinationAxis,
+    ) -> AxisGuideVisibilityConfig {
+        AxisGuideVisibilityConfig::auto()
+    }
+
     fn relevant_depth(&self, axis: CoordinationAxis) -> usize {
         self.level_axes()
             .into_iter()
