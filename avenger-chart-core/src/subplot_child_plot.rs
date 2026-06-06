@@ -83,6 +83,22 @@ pub trait SubplotMarkCore: Send + Sync {
 
     fn key_config(&self) -> Option<&str>;
 
+    fn grid_row_config(&self) -> Option<usize> {
+        None
+    }
+
+    fn grid_column_config(&self) -> Option<usize> {
+        None
+    }
+
+    fn grid_row_span_config(&self) -> usize {
+        1
+    }
+
+    fn grid_column_span_config(&self) -> usize {
+        1
+    }
+
     fn plot_width_config(&self) -> Option<f32> {
         None
     }

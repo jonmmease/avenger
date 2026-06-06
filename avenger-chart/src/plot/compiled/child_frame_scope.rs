@@ -154,6 +154,15 @@ impl ChildFrameSharingLevel {
         }
     }
 
+    pub(crate) fn grid_concat_child(index: usize, count: usize, key: Option<&str>) -> Self {
+        Self {
+            axis: CoordinationAxis::Positioned,
+            index,
+            count,
+            segment: ContainerPathSegment::concat_child(index, key),
+        }
+    }
+
     pub(crate) fn positioned_subplot(
         index: usize,
         count: usize,

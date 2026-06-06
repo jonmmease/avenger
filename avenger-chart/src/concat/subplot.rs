@@ -14,7 +14,7 @@ use avenger_chart_core::{
 };
 
 use crate::{
-    concat::{HConcat, VConcat, concat_coord_ref},
+    concat::{GridConcat, HConcat, VConcat, concat_coord_ref},
     coords::CoordinateSystemTransformCore,
     error::AvengerChartError,
     layout::BandDirection,
@@ -135,15 +135,110 @@ impl SubplotContainerCoordinateSystem for VConcat {
     }
 }
 
+#[async_trait::async_trait]
+impl SubplotContainerCoordinateSystem for GridConcat {
+    async fn compile_subplot_mark(
+        subplot: &dyn SubplotMarkCore,
+        compiled_state: CompiledMarkState,
+        session_context: &SessionContext,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        subplot.validate_no_facet_channels("GridConcat")?;
+
+        Ok(Arc::new(CompiledConcatSubplot::new_with_grid_placement(
+            compile_subplot_payload(subplot, compiled_state, session_context).await?,
+            GridPlacementConfig::from_subplot(subplot)?,
+        )))
+    }
+
+    async fn compile_subplot_mark_with_context(
+        subplot: &dyn SubplotMarkCore,
+        compiled_state: CompiledMarkState,
+        session_context: &SessionContext,
+        compile_context: Option<CompileContext<'_>>,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        subplot.validate_no_facet_channels("GridConcat")?;
+        let child_tool_context;
+        let compile_context =
+            if let Some(tool_context) = compile_context.and_then(ToolCompileContext::downcast) {
+                child_tool_context =
+                    tool_context.with_coord_node_path_appended(compiled_state.mark_index());
+                Some(&child_tool_context as CompileContext<'_>)
+            } else {
+                compile_context
+            };
+
+        Ok(Arc::new(CompiledConcatSubplot::new_with_grid_placement(
+            compile_subplot_payload_with_context(
+                subplot,
+                compiled_state,
+                session_context,
+                compile_context,
+            )
+            .await?,
+            GridPlacementConfig::from_subplot(subplot)?,
+        )))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct GridPlacementConfig {
+    pub(crate) row: usize,
+    pub(crate) column: usize,
+    pub(crate) row_span: usize,
+    pub(crate) column_span: usize,
+}
+
+impl GridPlacementConfig {
+    fn from_subplot(subplot: &dyn SubplotMarkCore) -> Result<Self, AvengerChartError> {
+        let row = subplot.grid_row_config().ok_or_else(|| {
+            AvengerChartError::InvalidArgument(
+                "GridConcat subplots require `.grid_cell(row, column)`".to_string(),
+            )
+        })?;
+        let column = subplot.grid_column_config().ok_or_else(|| {
+            AvengerChartError::InvalidArgument(
+                "GridConcat subplots require `.grid_cell(row, column)`".to_string(),
+            )
+        })?;
+        let row_span = subplot.grid_row_span_config();
+        let column_span = subplot.grid_column_span_config();
+        if row_span == 0 || column_span == 0 {
+            return Err(AvengerChartError::InvalidArgument(
+                "GridConcat subplot spans must be greater than zero".to_string(),
+            ));
+        }
+        Ok(Self {
+            row,
+            column,
+            row_span,
+            column_span,
+        })
+    }
+}
+
 /// Compiled child-plot mark for concat coordinate systems.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledConcatSubplot {
     payload: CompiledSubplotPayload,
+    grid_placement: Option<GridPlacementConfig>,
 }
 
 impl CompiledConcatSubplot {
     pub(crate) fn new(payload: CompiledSubplotPayload) -> Self {
-        Self { payload }
+        Self {
+            payload,
+            grid_placement: None,
+        }
+    }
+
+    pub(crate) fn new_with_grid_placement(
+        payload: CompiledSubplotPayload,
+        grid_placement: GridPlacementConfig,
+    ) -> Self {
+        Self {
+            payload,
+            grid_placement: Some(grid_placement),
+        }
     }
 
     pub fn compiled_subplot(&self) -> &CompiledPlot {
@@ -168,6 +263,10 @@ impl CompiledConcatSubplot {
 
     pub fn child_index(&self) -> usize {
         self.payload.mark_index()
+    }
+
+    pub(crate) fn grid_placement(&self) -> Option<GridPlacementConfig> {
+        self.grid_placement
     }
 
     pub fn inherits_parent_data(&self) -> bool {
@@ -229,13 +328,18 @@ impl CompiledConcatSubplot {
             let mut params = self.compiled_subplot().get_default_params().clone();
             params.extend(context.eval.params.clone());
             let child_count = concat_measurement.children().len();
-            let sharing_level = match concat_measurement.child_band_layout.direction {
-                BandDirection::Horizontal => ChildFrameSharingLevel::hconcat_child(
+            let sharing_level = match concat_measurement.band_direction() {
+                Some(BandDirection::Horizontal) => ChildFrameSharingLevel::hconcat_child(
                     self.child_index(),
                     child_count,
                     self.key(),
                 ),
-                BandDirection::Vertical => ChildFrameSharingLevel::vconcat_child(
+                Some(BandDirection::Vertical) => ChildFrameSharingLevel::vconcat_child(
+                    self.child_index(),
+                    child_count,
+                    self.key(),
+                ),
+                None => ChildFrameSharingLevel::grid_concat_child(
                     self.child_index(),
                     child_count,
                     self.key(),

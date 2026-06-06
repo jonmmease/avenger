@@ -11,7 +11,7 @@ use avenger_chart_core::{
     SubplotContainerCoordinateSystem, SubplotMarkCore,
 };
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct SubplotConfig {
     pub(crate) label: Option<String>,
     pub(crate) key: Option<String>,
@@ -39,6 +39,47 @@ pub(crate) struct SubplotConfig {
     pub(crate) facet_wrap_order_expr: Option<LogicalExprNode>,
     pub(crate) facet_wrap_order_descending: bool,
     pub(crate) facet_wrap_column_mode: FacetWrapColumnMode,
+    pub(crate) grid_row: Option<usize>,
+    pub(crate) grid_column: Option<usize>,
+    pub(crate) grid_row_span: usize,
+    pub(crate) grid_column_span: usize,
+}
+
+impl Default for SubplotConfig {
+    fn default() -> Self {
+        Self {
+            label: None,
+            key: None,
+            plot_width: None,
+            plot_height: None,
+            facet_row_title: None,
+            facet_col_title: None,
+            facet_row_slot_sharing: None,
+            facet_col_slot_sharing: None,
+            facet_row_position: None,
+            facet_col_position: None,
+            facet_row_guide_visible: None,
+            facet_col_guide_visible: None,
+            facet_row_empty_cell_policy: None,
+            facet_col_empty_cell_policy: None,
+            facet_row_order_expr: None,
+            facet_col_order_expr: None,
+            facet_row_order_descending: false,
+            facet_col_order_descending: false,
+            facet_wrap_title: None,
+            facet_wrap_slot_sharing: None,
+            facet_wrap_position: None,
+            facet_wrap_guide_visible: None,
+            facet_wrap_empty_cell_policy: None,
+            facet_wrap_order_expr: None,
+            facet_wrap_order_descending: false,
+            facet_wrap_column_mode: FacetWrapColumnMode::Auto,
+            grid_row: None,
+            grid_column: None,
+            grid_row_span: 1,
+            grid_column_span: 1,
+        }
+    }
 }
 
 /// Mark that owns one child plot inside an outer coordinate system.
@@ -106,6 +147,25 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         self
     }
 
+    /// Place this subplot in an explicit `GridConcat` row and column.
+    pub fn grid_cell(mut self, row: usize, column: usize) -> Self {
+        self.config.grid_row = Some(row);
+        self.config.grid_column = Some(column);
+        self
+    }
+
+    /// Set the row span used by `GridConcat`.
+    pub fn grid_row_span(mut self, span: usize) -> Self {
+        self.config.grid_row_span = span;
+        self
+    }
+
+    /// Set the column span used by `GridConcat`.
+    pub fn grid_column_span(mut self, span: usize) -> Self {
+        self.config.grid_column_span = span;
+        self
+    }
+
     #[doc(hidden)]
     pub fn data_context_ref(&self) -> &DataContext {
         &self.state.data
@@ -119,6 +179,26 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     #[doc(hidden)]
     pub fn key_config(&self) -> Option<&str> {
         self.config.key.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn grid_row_config(&self) -> Option<usize> {
+        self.config.grid_row
+    }
+
+    #[doc(hidden)]
+    pub fn grid_column_config(&self) -> Option<usize> {
+        self.config.grid_column
+    }
+
+    #[doc(hidden)]
+    pub fn grid_row_span_config(&self) -> usize {
+        self.config.grid_row_span
+    }
+
+    #[doc(hidden)]
+    pub fn grid_column_span_config(&self) -> usize {
+        self.config.grid_column_span
     }
 
     #[doc(hidden)]
@@ -372,6 +452,22 @@ impl<OuterC: CoordinateSystemCore> SubplotMarkCore for Subplot<OuterC> {
 
     fn key_config(&self) -> Option<&str> {
         self.config.key.as_deref()
+    }
+
+    fn grid_row_config(&self) -> Option<usize> {
+        self.config.grid_row
+    }
+
+    fn grid_column_config(&self) -> Option<usize> {
+        self.config.grid_column
+    }
+
+    fn grid_row_span_config(&self) -> usize {
+        self.config.grid_row_span
+    }
+
+    fn grid_column_span_config(&self) -> usize {
+        self.config.grid_column_span
     }
 
     fn plot_width_config(&self) -> Option<f32> {

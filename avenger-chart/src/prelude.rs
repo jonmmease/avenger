@@ -19,7 +19,7 @@
 //! ```
 
 // Re-export coordinate systems
-pub use crate::concat::{ConcatGuide, HConcat, VConcat};
+pub use crate::concat::{ConcatGuide, GridConcat, HConcat, VConcat};
 pub use crate::event::{
     ChartEventBinding, ChartEventEvaluationMode, ChartEventStream, ChartEventType,
 };

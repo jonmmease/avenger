@@ -142,6 +142,18 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 }
 
+impl Plot<crate::concat::GridConcat> {
+    pub fn rows(mut self, rows: usize) -> Self {
+        self.coord_system = self.coord_system.clone().rows(rows);
+        self
+    }
+
+    pub fn columns(mut self, columns: usize) -> Self {
+        self.coord_system = self.coord_system.clone().columns(columns);
+        self
+    }
+}
+
 impl<C: CoordinateSystem + Default> Default for Plot<C> {
     fn default() -> Self {
         Self::with_coord(C::default())

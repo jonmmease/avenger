@@ -202,6 +202,19 @@ pub(crate) async fn measure_coordinate_system_transform(
         .await;
     }
 
+    if let Some(grid) = any.downcast_ref::<crate::concat::GridConcat>() {
+        return Box::pin(crate::concat::measure_grid_concat_coord_system(
+            grid,
+            request.plot_width(),
+            request.plot_height(),
+            request.eval_ctx(),
+            request.data(),
+            request.compiled_marks(),
+            request.facet_path(),
+        ))
+        .await;
+    }
+
     if any.is::<crate::facet::coord::FacetRow>() {
         return Box::pin(crate::facet::coord::measure_facet_row(
             request.scales(),
