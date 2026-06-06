@@ -14,11 +14,11 @@ use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 use crate::{
-    AvengerChartError, ChannelDescriptor, ColumnDimensionConfig, CompileContext,
-    CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState, CoordinateSystem,
-    CoordinateSystemTransformCore, CoordinationScope, DataContext, DefaultLogicalExprNodeExt,
-    FacetDimensionConfig, FacetEmptyCellPolicy, FacetWrapColumnMode, MarkRuntimeContext,
-    RadiusExpression, RowDimensionConfig, SerializableExpr, contains_aggregate,
+    AvengerChartError, AxisGuideVisibilityConfig, ChannelDescriptor, ColumnDimensionConfig,
+    CompileContext, CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState,
+    CoordinateSystem, CoordinateSystemTransformCore, CoordinationScope, DataContext,
+    DefaultLogicalExprNodeExt, FacetDimensionConfig, FacetEmptyCellPolicy, FacetWrapColumnMode,
+    MarkRuntimeContext, RadiusExpression, RowDimensionConfig, SerializableExpr, contains_aggregate,
 };
 
 /// Data source selected for a compiled subplot's child plot.
@@ -123,6 +123,10 @@ pub trait SubplotMarkCore: Send + Sync {
         None
     }
 
+    fn facet_row_axis_guide_visibility_config(&self) -> Option<AxisGuideVisibilityConfig> {
+        None
+    }
+
     fn facet_row_empty_cell_policy_config(&self) -> Option<FacetEmptyCellPolicy> {
         None
     }
@@ -151,6 +155,10 @@ pub trait SubplotMarkCore: Send + Sync {
         None
     }
 
+    fn facet_col_axis_guide_visibility_config(&self) -> Option<AxisGuideVisibilityConfig> {
+        None
+    }
+
     fn facet_col_empty_cell_policy_config(&self) -> Option<FacetEmptyCellPolicy> {
         None
     }
@@ -176,6 +184,10 @@ pub trait SubplotMarkCore: Send + Sync {
     }
 
     fn facet_wrap_guide_visible_config(&self) -> Option<bool> {
+        None
+    }
+
+    fn facet_wrap_axis_guide_visibility_config(&self) -> Option<AxisGuideVisibilityConfig> {
         None
     }
 

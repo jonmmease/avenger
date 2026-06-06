@@ -5,6 +5,7 @@ pub mod helpers;
 pub mod test_aggregate_encodings;
 pub mod test_axis_conditional_config;
 pub mod test_axis_expression_title;
+pub mod test_axis_guide_visibility_policy;
 pub mod test_bar;
 pub mod test_bar_defaults;
 pub mod test_bar_scale_color;

@@ -8,9 +8,10 @@ use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionCont
 use indexmap::IndexMap;
 
 use crate::{
-    AvengerChartError, Axis, AxisPosition, CompiledMarkCore, CoordMeasurement, CoordinationAxis,
-    DerivedScalarMap, DerivedScalarsByChannel, GuideOverflowPhase, LayoutBounds, MeasurementResult,
-    OverflowSpaceRequirement, SharingLevel, Theme,
+    AvengerChartError, Axis, AxisGuideVisibilityConfig, AxisPosition, CompiledMarkCore,
+    CoordMeasurement, CoordinationAxis, DerivedScalarMap, DerivedScalarsByChannel,
+    GuideOverflowPhase, LayoutBounds, MeasurementResult, OverflowSpaceRequirement, SharingLevel,
+    Theme,
     guide_sharing::{
         AxisOwnershipMode, AxisVisibility, ChildFrameGuideSharingView, FacetGuideSharingView,
     },
@@ -131,6 +132,15 @@ impl<'a> GuideSharingContext<'a> {
     #[doc(hidden)]
     pub fn channel_domain_sharing_level(&self, channel: &str) -> SharingLevel {
         self.facet_view.channel_domain_sharing_level(channel)
+    }
+
+    #[doc(hidden)]
+    pub fn axis_guide_visibility_config(
+        &self,
+        axis_position: AxisPosition,
+    ) -> Option<AxisGuideVisibilityConfig> {
+        self.facet_view
+            .axis_guide_visibility_config_for_path(self.facet_path, axis_position)
     }
 
     #[doc(hidden)]

@@ -1,7 +1,50 @@
 use datafusion::common::ScalarValue;
 use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
 
 use crate::{AxisPosition, CoordinationAxis, SharingLevel};
+
+/// Policy for deciding which repeated/faceted axes should show labels and titles.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AxisGuideVisibilityPolicy {
+    /// Preserve the container's current/default guide compaction behavior.
+    #[default]
+    Auto,
+    /// Show labels/titles on every axis.
+    All,
+    /// Show labels/titles only on physical outer/non-empty edge axes.
+    OuterEdges,
+    /// Compact only when aligned axes are semantically equivalent.
+    ///
+    /// This variant is reserved for repeat/matrix-style semantics. Containers
+    /// that do not have enough equivalence metadata should fall back to their
+    /// safe default behavior.
+    OuterForEquivalentDomainGroups,
+}
+
+/// Separate visibility policies for tick labels and axis titles.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AxisGuideVisibilityConfig {
+    pub labels: AxisGuideVisibilityPolicy,
+    pub title: AxisGuideVisibilityPolicy,
+}
+
+impl AxisGuideVisibilityConfig {
+    pub fn new(labels: AxisGuideVisibilityPolicy, title: AxisGuideVisibilityPolicy) -> Self {
+        Self { labels, title }
+    }
+
+    pub fn same(policy: AxisGuideVisibilityPolicy) -> Self {
+        Self {
+            labels: policy,
+            title: policy,
+        }
+    }
+
+    pub fn auto() -> Self {
+        Self::same(AxisGuideVisibilityPolicy::Auto)
+    }
+}
 
 #[doc(hidden)]
 pub const INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM: &str =
@@ -98,6 +141,14 @@ pub trait FacetGuideSharingView: Send + Sync {
     fn is_jagged_for_axis(&self, axis_position: AxisPosition) -> bool;
 
     fn channel_domain_sharing_level(&self, channel: &str) -> SharingLevel;
+
+    fn axis_guide_visibility_config_for_path(
+        &self,
+        _path: &[ScalarValue],
+        _axis_position: AxisPosition,
+    ) -> Option<AxisGuideVisibilityConfig> {
+        None
+    }
 
     fn effective_edge_indices_for_values_at_path(
         &self,

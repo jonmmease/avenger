@@ -26,10 +26,10 @@ pub use crate::event::{
 pub use crate::facet::coord::{FacetColumn, FacetRow, FacetWrap};
 pub use avenger_chart_cartesian::Cartesian;
 pub use avenger_chart_core::{
-    CoordinationScope, CursorStyle, EmptySelectionBehavior, FacetEmptyCellPolicy, Selection,
-    SelectionClauseUpdate, SelectionCombine, SelectionSceneQuery, SelectionUpdate, Store,
-    StoreData, StoreFieldPatch, StoreFieldRef, StoreKey, StoreRow, StoreUpdate, TimeContext,
-    WeekStart, ZeroDCoord,
+    AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, CoordinationScope, CursorStyle,
+    EmptySelectionBehavior, FacetEmptyCellPolicy, Selection, SelectionClauseUpdate,
+    SelectionCombine, SelectionSceneQuery, SelectionUpdate, Store, StoreData, StoreFieldPatch,
+    StoreFieldRef, StoreKey, StoreRow, StoreUpdate, TimeContext, WeekStart, ZeroDCoord,
 };
 pub use avenger_chart_core::{
     SceneGeometryHitPolicy, SceneGeometryQuery, SceneQueryClauseId, SceneQueryDatumField,

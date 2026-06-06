@@ -40,8 +40,9 @@ use crate::{
 pub(crate) use avenger_chart_core::AxisOwnershipMode;
 pub use avenger_chart_core::AxisVisibility;
 use avenger_chart_core::{
-    AxisPosition, CompiledMark, DefaultLogicalExprNodeExt, ExprHelpers, FacetWrapColumnMode,
-    LogicalPlanNodeExt, SharingLevel, contains_aggregate, params_to_datafusion,
+    AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, AxisPosition, CompiledMark,
+    DefaultLogicalExprNodeExt, ExprHelpers, FacetWrapColumnMode, LogicalPlanNodeExt, SharingLevel,
+    contains_aggregate, params_to_datafusion,
 };
 
 /// Evaluated facet structure - built once from data at evaluate() time, queried throughout.
@@ -121,6 +122,8 @@ pub struct ResolvedFacetPathInfo {
     pub local_level_counts: Vec<usize>,
     /// Facet direction at each depth for the provided path.
     pub level_directions: Vec<FacetDirection>,
+    /// Axis guide visibility config at each depth for the provided path.
+    pub axis_guide_visibility: Vec<AxisGuideVisibilityConfig>,
     /// Facet direction at the resolved depth.
     pub direction: FacetDirection,
 }
@@ -259,11 +262,12 @@ impl EvaluatedFacetTree {
         let values = node.values().cloned().collect::<Vec<_>>();
         let observed_values = node.observed_values().cloned().collect::<Vec<_>>();
         key.push(format!(
-            "node:path={:?};direction={:?};sharing={};field={};values={:?};observed={:?}",
+            "node:path={:?};direction={:?};sharing={};field={};axis_policy={:?};values={:?};observed={:?}",
             Self::canonical_path(path),
             node.direction,
             node.sharing,
             node.field,
+            node.axis_guide_visibility,
             values,
             observed_values
         ));
@@ -289,11 +293,12 @@ impl EvaluatedFacetTree {
         let values = node.values().cloned().collect::<Vec<_>>();
         let observed_values = node.observed_values().cloned().collect::<Vec<_>>();
         key.push(format!(
-            "node:path={:?};direction={:?};sharing={};field={};values={:?};observed={:?}",
+            "node:path={:?};direction={:?};sharing={};field={};axis_policy={:?};values={:?};observed={:?}",
             Self::canonical_path(logical_path),
             node.direction,
             node.sharing,
             node.field,
+            node.axis_guide_visibility,
             values,
             observed_values
         ));
@@ -323,11 +328,12 @@ impl EvaluatedFacetTree {
         }
 
         key.push(format!(
-            "wrap:path={:?};direction={:?};sharing={};field={};values={:?};observed={:?}",
+            "wrap:path={:?};direction={:?};sharing={};field={};axis_policy={:?};values={:?};observed={:?}",
             Self::canonical_path(logical_path),
             FacetDirection::Column,
             node.sharing,
             field,
+            node.axis_guide_visibility,
             values,
             observed_values
         ));
@@ -636,6 +642,7 @@ impl EvaluatedFacetTree {
                 indices: Vec::new(),
                 local_level_counts: Vec::new(),
                 level_directions: Vec::new(),
+                axis_guide_visibility: Vec::new(),
                 direction: node.direction,
             });
         }
@@ -643,10 +650,12 @@ impl EvaluatedFacetTree {
         let mut indices = Vec::with_capacity(path.len());
         let mut local_level_counts = Vec::with_capacity(path.len());
         let mut level_directions = Vec::with_capacity(path.len());
+        let mut axis_guide_visibility = Vec::with_capacity(path.len());
 
         for (level, value) in path.iter().enumerate() {
             local_level_counts.push(node.domain_count());
             level_directions.push(node.direction);
+            axis_guide_visibility.push(node.axis_guide_visibility);
 
             let idx = node
                 .values
@@ -663,6 +672,7 @@ impl EvaluatedFacetTree {
             indices,
             local_level_counts,
             level_directions,
+            axis_guide_visibility,
             direction: node.direction,
         })
     }
@@ -1160,6 +1170,80 @@ impl EvaluatedFacetTree {
         }
     }
 
+    fn axis_guide_visibility_config_for_cartesian_axis(
+        resolved: &ResolvedFacetPathInfo,
+        axis_position: AxisPosition,
+    ) -> AxisGuideVisibilityConfig {
+        let relevant_direction = Self::cartesian_relevant_direction_for_axis(axis_position);
+        let mut config = AxisGuideVisibilityConfig::auto();
+
+        for (direction, level_config) in resolved
+            .level_directions
+            .iter()
+            .zip(resolved.axis_guide_visibility.iter())
+        {
+            if *direction != relevant_direction {
+                continue;
+            }
+            if level_config.labels != AxisGuideVisibilityPolicy::Auto {
+                config.labels = level_config.labels;
+            }
+            if level_config.title != AxisGuideVisibilityPolicy::Auto {
+                config.title = level_config.title;
+            }
+        }
+
+        config
+    }
+
+    fn resolve_axis_policy_visibility(
+        &self,
+        path: &[ScalarValue],
+        resolved: &ResolvedFacetPathInfo,
+        axis_position: AxisPosition,
+        policy: AxisGuideVisibilityPolicy,
+        auto_visible: bool,
+    ) -> bool {
+        match policy {
+            AxisGuideVisibilityPolicy::Auto => auto_visible,
+            AxisGuideVisibilityPolicy::All => true,
+            AxisGuideVisibilityPolicy::OuterEdges => {
+                let relevant_depth = resolved
+                    .level_directions
+                    .iter()
+                    .filter(|&&direction| {
+                        direction == Self::cartesian_relevant_direction_for_axis(axis_position)
+                    })
+                    .count();
+                if relevant_depth == 0 || resolved.indices.len() != resolved.level_directions.len()
+                {
+                    return true;
+                }
+
+                self.non_empty_owner_visible_for_cartesian_axis(
+                    path,
+                    resolved,
+                    axis_position,
+                    SharingLevel::from_raw(relevant_depth as u8),
+                    auto_visible,
+                )
+            }
+            AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups => auto_visible,
+        }
+    }
+
+    pub(crate) fn axis_guide_visibility_config_for_path(
+        &self,
+        path: &[ScalarValue],
+        axis_position: AxisPosition,
+    ) -> Option<AxisGuideVisibilityConfig> {
+        let resolved = self.resolve_path_info(path)?;
+        Some(Self::axis_guide_visibility_config_for_cartesian_axis(
+            &resolved,
+            axis_position,
+        ))
+    }
+
     fn collect_non_empty_paths_for_axis_strip(
         &self,
         path: &[ScalarValue],
@@ -1353,13 +1437,31 @@ impl EvaluatedFacetTree {
             SharingLevel::from_raw(path.len().saturating_sub(owner_path.len()) as u8);
 
         if matches!(ownership_mode, AxisOwnershipMode::DomainSlots) {
-            return self.channel_axis_visibility_from_resolved(
+            let auto = self.channel_axis_visibility_from_resolved(
                 &resolved.indices,
                 &resolved.local_level_counts,
                 &resolved.level_directions,
                 axis_position,
                 physical_sharing_level,
             );
+            let policy =
+                Self::axis_guide_visibility_config_for_cartesian_axis(resolved, axis_position);
+            return AxisVisibility {
+                show_labels: self.resolve_axis_policy_visibility(
+                    path,
+                    resolved,
+                    axis_position,
+                    policy.labels,
+                    auto.show_labels,
+                ),
+                show_title: self.resolve_axis_policy_visibility(
+                    path,
+                    resolved,
+                    axis_position,
+                    policy.title,
+                    auto.show_title,
+                ),
+            };
         }
 
         let relevant_depth = resolved
@@ -1391,23 +1493,39 @@ impl EvaluatedFacetTree {
         );
         let title_sharing = SharingLevel::from_raw(relevant_depth as u8);
 
+        let auto_labels = self.non_empty_owner_visible_for_cartesian_axis(
+            path,
+            resolved,
+            axis_position,
+            labels_sharing,
+            labels_fallback,
+        );
+        let auto_title = self.non_empty_owner_visible_for_cartesian_axis(
+            path,
+            resolved,
+            axis_position,
+            title_sharing,
+            title_fallback,
+        );
+        let policy = Self::axis_guide_visibility_config_for_cartesian_axis(resolved, axis_position);
+
         AxisVisibility {
-            show_labels: self.non_empty_owner_visible_for_cartesian_axis(
+            show_labels: self.resolve_axis_policy_visibility(
                 path,
                 resolved,
                 axis_position,
-                labels_sharing,
-                labels_fallback,
+                policy.labels,
+                auto_labels,
             ),
             // In hole mode, title ownership follows the same non-empty edge
             // owner as labels. Otherwise a ragged row/column can lose its axis
             // title entirely when its geometric edge owner is a hole.
-            show_title: self.non_empty_owner_visible_for_cartesian_axis(
+            show_title: self.resolve_axis_policy_visibility(
                 path,
                 resolved,
                 axis_position,
-                title_sharing,
-                title_fallback,
+                policy.title,
+                auto_title,
             ),
         }
     }
@@ -1776,6 +1894,7 @@ impl<'a> FacetPartitionMarkSpec<'a> {
             slot_sharing,
             order_expr_node,
             order_descending,
+            axis_guide_visibility,
             column_mode,
             kind,
         ) = match facet_mark {
@@ -1787,6 +1906,7 @@ impl<'a> FacetPartitionMarkSpec<'a> {
                 facet_row.facet_slot_sharing(),
                 facet_row.facet_order_expr(),
                 facet_row.facet_order_descending(),
+                facet_row.axis_guide_visibility(),
                 FacetWrapColumnMode::Auto,
                 FacetPartitionKind::Band,
             ),
@@ -1798,6 +1918,7 @@ impl<'a> FacetPartitionMarkSpec<'a> {
                 facet_col.facet_slot_sharing(),
                 facet_col.facet_order_expr(),
                 facet_col.facet_order_descending(),
+                facet_col.axis_guide_visibility(),
                 FacetWrapColumnMode::Auto,
                 FacetPartitionKind::Band,
             ),
@@ -1809,6 +1930,7 @@ impl<'a> FacetPartitionMarkSpec<'a> {
                 facet_wrap.facet_slot_sharing(),
                 facet_wrap.facet_order_expr(),
                 facet_wrap.facet_order_descending(),
+                facet_wrap.axis_guide_visibility(),
                 facet_wrap.facet_column_mode(),
                 FacetPartitionKind::Wrap,
             ),
@@ -1829,7 +1951,8 @@ impl<'a> FacetPartitionMarkSpec<'a> {
         Ok(Some(Self {
             kind,
             dimension: PartitionDimensionSpec::new(direction, sharing, field_expr)
-                .with_ordering(order_expr, order_descending),
+                .with_ordering(order_expr, order_descending)
+                .with_axis_guide_visibility(axis_guide_visibility.unwrap_or_default()),
             subplot,
             column_mode: FacetWrapColumnModeExpr::from_mode(column_mode, ctx)?,
         }))
@@ -1963,35 +2086,44 @@ async fn build_partition_node(
 
         if children.is_empty() {
             // No valid children - make leaf
-            Ok(Some(PartitionNode::leaf_with_observed(
-                dimension.direction,
-                dimension.sharing,
-                dimension.field.clone(),
-                Some(dimension.field_expr.clone()),
-                values,
-                observed_values,
-            )))
+            Ok(Some(
+                PartitionNode::leaf_with_observed(
+                    dimension.direction,
+                    dimension.sharing,
+                    dimension.field.clone(),
+                    Some(dimension.field_expr.clone()),
+                    values,
+                    observed_values,
+                )
+                .with_axis_guide_visibility(dimension.axis_guide_visibility),
+            ))
         } else {
-            Ok(Some(PartitionNode::branch_with_values_and_observed(
-                dimension.direction,
-                dimension.sharing,
-                dimension.field.clone(),
-                Some(dimension.field_expr.clone()),
-                values,
-                observed_values,
-                children,
-            )))
+            Ok(Some(
+                PartitionNode::branch_with_values_and_observed(
+                    dimension.direction,
+                    dimension.sharing,
+                    dimension.field.clone(),
+                    Some(dimension.field_expr.clone()),
+                    values,
+                    observed_values,
+                    children,
+                )
+                .with_axis_guide_visibility(dimension.axis_guide_visibility),
+            ))
         }
     } else {
         // No nested facets - leaf node
-        Ok(Some(PartitionNode::leaf_with_observed(
-            dimension.direction,
-            dimension.sharing,
-            dimension.field.clone(),
-            Some(dimension.field_expr.clone()),
-            values,
-            observed_values,
-        )))
+        Ok(Some(
+            PartitionNode::leaf_with_observed(
+                dimension.direction,
+                dimension.sharing,
+                dimension.field.clone(),
+                Some(dimension.field_expr.clone()),
+                values,
+                observed_values,
+            )
+            .with_axis_guide_visibility(dimension.axis_guide_visibility),
+        ))
     }
 }
 
@@ -2349,6 +2481,7 @@ async fn build_wrap_partition_node(
                     row_slice,
                     row_observed,
                 )
+                .with_axis_guide_visibility(dimension.axis_guide_visibility)
             } else {
                 PartitionNode::branch_with_values_and_observed(
                     FacetDirection::Column,
@@ -2359,6 +2492,7 @@ async fn build_wrap_partition_node(
                     row_observed,
                     value_children,
                 )
+                .with_axis_guide_visibility(dimension.axis_guide_visibility)
             }
         } else {
             PartitionNode::leaf_with_observed(
@@ -2369,19 +2503,23 @@ async fn build_wrap_partition_node(
                 row_slice,
                 row_observed,
             )
+            .with_axis_guide_visibility(dimension.axis_guide_visibility)
         };
         row_children.insert(row_value.clone(), Box::new(column_node));
     }
 
-    Ok(Some(PartitionNode::branch_with_values_and_observed(
-        FacetDirection::Row,
-        dimension.sharing,
-        wrap_row_field_name(&dimension.field),
-        None,
-        row_values,
-        observed_rows,
-        row_children,
-    )))
+    Ok(Some(
+        PartitionNode::branch_with_values_and_observed(
+            FacetDirection::Row,
+            dimension.sharing,
+            wrap_row_field_name(&dimension.field),
+            None,
+            row_values,
+            observed_rows,
+            row_children,
+        )
+        .with_axis_guide_visibility(dimension.axis_guide_visibility),
+    ))
 }
 
 fn combine_filters(filters: &[Expr]) -> Option<Expr> {
@@ -3583,6 +3721,36 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn facet_config_axis_guide_visibility_reaches_evaluated_tree()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('top', 1.0, 1.0),
+                    ('bottom', 2.0, 2.0)
+                ) AS t(facet, x, y)",
+            )
+            .await?;
+        let plot = Plot::<FacetRow>::new().data(df).mark(
+            Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))))
+                .row_with(col("facet"), |c| {
+                    c.axis_guide_visibility(AxisGuideVisibilityPolicy::All)
+                }),
+        );
+        let compiled = plot.compile(&ctx).await?;
+        let tree = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx).await?;
+        let top_path = vec![scalar("top")];
+        let visibility = tree
+            .channel_axis_visibility_for_path_checked(&top_path, AxisPosition::Bottom, 255)
+            .expect("top facet path");
+
+        assert!(visibility.show_labels);
+        assert!(visibility.show_title);
+        Ok(())
+    }
+
     #[test]
     fn test_axis_visibility_for_path_checked_valid_path_returns_some() {
         use avenger_chart_core::AxisPosition;
@@ -3645,6 +3813,57 @@ mod tests {
         let visibility = tree.channel_axis_visibility_for_path(&path, AxisPosition::Bottom, 1);
         assert!(visibility.show_labels);
         assert!(visibility.show_title);
+    }
+
+    fn two_row_policy_tree(policy: AxisGuideVisibilityPolicy) -> EvaluatedFacetTree {
+        let rows = PartitionNode::leaf(
+            FacetDirection::Row,
+            0,
+            "row".to_string(),
+            None,
+            vec![scalar("top"), scalar("bottom")],
+        )
+        .with_axis_guide_visibility(AxisGuideVisibilityConfig::same(policy));
+        let mut columns = IndexMap::new();
+        columns.insert(scalar("only"), Box::new(rows));
+        EvaluatedFacetTree::new(Some(PartitionNode::branch(
+            FacetDirection::Column,
+            0,
+            "column".to_string(),
+            None,
+            columns,
+        )))
+    }
+
+    #[test]
+    fn axis_guide_visibility_all_shows_inner_axis_labels() {
+        let tree = two_row_policy_tree(AxisGuideVisibilityPolicy::All);
+        let top_path = vec![scalar("only"), scalar("top")];
+        let visibility = tree
+            .channel_axis_visibility_for_path_checked(&top_path, AxisPosition::Bottom, 255)
+            .expect("valid path");
+
+        assert!(visibility.show_labels);
+        assert!(visibility.show_title);
+    }
+
+    #[test]
+    fn axis_guide_visibility_outer_edges_hides_inner_axis_labels_even_when_free() {
+        let tree = two_row_policy_tree(AxisGuideVisibilityPolicy::OuterEdges);
+        let top_path = vec![scalar("only"), scalar("top")];
+        let bottom_path = vec![scalar("only"), scalar("bottom")];
+
+        let top = tree
+            .channel_axis_visibility_for_path_checked(&top_path, AxisPosition::Bottom, 0)
+            .expect("valid top path");
+        let bottom = tree
+            .channel_axis_visibility_for_path_checked(&bottom_path, AxisPosition::Bottom, 0)
+            .expect("valid bottom path");
+
+        assert!(!top.show_labels);
+        assert!(!top.show_title);
+        assert!(bottom.show_labels);
+        assert!(bottom.show_title);
     }
 
     #[test]

@@ -185,6 +185,14 @@ impl FacetGuideSharingView for EvaluatedFacetTree {
         self.channel_domain_sharing_level_typed(channel)
     }
 
+    fn axis_guide_visibility_config_for_path(
+        &self,
+        path: &[ScalarValue],
+        axis_position: AxisPosition,
+    ) -> Option<avenger_chart_core::AxisGuideVisibilityConfig> {
+        self.axis_guide_visibility_config_for_path(path, axis_position)
+    }
+
     fn effective_edge_indices_for_values_at_path(
         &self,
         facet_path: &[ScalarValue],

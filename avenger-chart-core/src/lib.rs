@@ -154,8 +154,8 @@ pub use geometry::{
 pub use guide_context::GuideContext;
 pub use guide_overflow_phase::GuideOverflowPhase;
 pub use guide_sharing::{
-    AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, AxisOwnershipMode, AxisVisibility,
-    ChildFrameGuideSharingView, FacetGuideSharingView,
+    AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy,
+    AxisOwnershipMode, AxisVisibility, ChildFrameGuideSharingView, FacetGuideSharingView,
     INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM, axis_owner_ignore_empty_cells_from_params,
     axis_ownership_mode_from_params,
 };

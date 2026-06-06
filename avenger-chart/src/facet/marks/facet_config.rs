@@ -1,6 +1,6 @@
 use avenger_chart_core::{
-    CoordinationScope, DefaultLogicalExprNodeExt, FacetEmptyCellPolicy, FacetWrapColumnMode,
-    IntoExpr,
+    AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, CoordinationScope,
+    DefaultLogicalExprNodeExt, FacetEmptyCellPolicy, FacetWrapColumnMode, IntoExpr,
 };
 use datafusion_proto::protobuf::LogicalExprNode;
 
@@ -10,6 +10,7 @@ pub struct FacetRowChannelConfig {
     pub(crate) slot_sharing: Option<CoordinationScope>,
     pub(crate) position: Option<String>,
     pub(crate) visible: Option<bool>,
+    pub(crate) axis_guide_visibility: Option<AxisGuideVisibilityConfig>,
     pub(crate) empty_cell_policy: Option<FacetEmptyCellPolicy>,
     pub(crate) order_expr: Option<LogicalExprNode>,
     pub(crate) order_descending: bool,
@@ -119,6 +120,11 @@ impl FacetRowChannelConfig {
         self.visible = opts.visible;
         self
     }
+
+    pub fn axis_guide_visibility(mut self, policy: AxisGuideVisibilityPolicy) -> Self {
+        self.axis_guide_visibility = Some(AxisGuideVisibilityConfig::same(policy));
+        self
+    }
 }
 
 #[derive(Clone, Default)]
@@ -127,6 +133,7 @@ pub struct FacetColChannelConfig {
     pub(crate) slot_sharing: Option<CoordinationScope>,
     pub(crate) position: Option<String>,
     pub(crate) visible: Option<bool>,
+    pub(crate) axis_guide_visibility: Option<AxisGuideVisibilityConfig>,
     pub(crate) empty_cell_policy: Option<FacetEmptyCellPolicy>,
     pub(crate) order_expr: Option<LogicalExprNode>,
     pub(crate) order_descending: bool,
@@ -207,6 +214,11 @@ impl FacetColChannelConfig {
         self.visible = opts.visible;
         self
     }
+
+    pub fn axis_guide_visibility(mut self, policy: AxisGuideVisibilityPolicy) -> Self {
+        self.axis_guide_visibility = Some(AxisGuideVisibilityConfig::same(policy));
+        self
+    }
 }
 
 #[derive(Clone, Default)]
@@ -215,6 +227,7 @@ pub struct FacetWrapChannelConfig {
     pub(crate) slot_sharing: Option<CoordinationScope>,
     pub(crate) position: Option<String>,
     pub(crate) visible: Option<bool>,
+    pub(crate) axis_guide_visibility: Option<AxisGuideVisibilityConfig>,
     pub(crate) empty_cell_policy: Option<FacetEmptyCellPolicy>,
     pub(crate) order_expr: Option<LogicalExprNode>,
     pub(crate) order_descending: bool,
@@ -311,6 +324,11 @@ impl FacetWrapChannelConfig {
         self.title = opts.title;
         self.position = opts.position;
         self.visible = opts.visible;
+        self
+    }
+
+    pub fn axis_guide_visibility(mut self, policy: AxisGuideVisibilityPolicy) -> Self {
+        self.axis_guide_visibility = Some(AxisGuideVisibilityConfig::same(policy));
         self
     }
 }

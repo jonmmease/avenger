@@ -512,15 +512,20 @@ impl CompiledGuide for CartesianGuide {
                 .channel_axis_visibility_for_path_checked(position, sharing_level.raw())
                 .unwrap_or_else(avenger_chart_core::AxisVisibility::visible);
             let jagged = sharing_context.facet_is_jagged_for_axis(position);
+            let axis_policy = sharing_context.axis_guide_visibility_config(position);
+            let axis_policy_key = axis_policy
+                .map(|config| format!("{:?}/{:?}", config.labels, config.title))
+                .unwrap_or_else(|| "none".to_string());
             parts.push(format!(
-                "{channel}:{position:?}:{}:{}:{}:{}",
+                "{channel}:{position:?}:{}:{}:{}:{}:{}",
                 sharing_level.raw(),
                 visibility.show_labels,
                 visibility.show_title,
-                jagged
+                jagged,
+                axis_policy_key
             ));
         }
-        Some(format!("cartesian:v1:{}", parts.join("|")))
+        Some(format!("cartesian:v2:{}", parts.join("|")))
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

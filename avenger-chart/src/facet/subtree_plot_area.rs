@@ -135,29 +135,11 @@ mod tests {
 
     fn leaf_node(direction: FacetDirection, count: usize) -> PartitionNode {
         let values: Vec<ScalarValue> = (0..count).map(|idx| value(&idx.to_string())).collect();
-        PartitionNode {
-            direction,
-            sharing: 0,
-            field: "field".to_string(),
-            field_expr: None,
-            values: values.clone(),
-            observed_values: Vec::new(),
-            content: PartitionContent::Leaf { values },
-        }
+        PartitionNode::leaf(direction, 0, "field".to_string(), None, values)
     }
 
     fn empty_branch_node(direction: FacetDirection) -> PartitionNode {
-        PartitionNode {
-            direction,
-            sharing: 0,
-            field: "field".to_string(),
-            field_expr: None,
-            values: Vec::new(),
-            observed_values: Vec::new(),
-            content: PartitionContent::Branch {
-                children: IndexMap::new(),
-            },
-        }
+        PartitionNode::branch(direction, 0, "field".to_string(), None, IndexMap::new())
     }
 
     fn branch_node(
@@ -168,15 +150,7 @@ mod tests {
             .into_iter()
             .map(|(key, child)| (value(key), Box::new(child)))
             .collect::<IndexMap<_, _>>();
-        PartitionNode {
-            direction,
-            sharing: 0,
-            field: "field".to_string(),
-            field_expr: None,
-            values: children.keys().cloned().collect(),
-            observed_values: Vec::new(),
-            content: PartitionContent::Branch { children },
-        }
+        PartitionNode::branch(direction, 0, "field".to_string(), None, children)
     }
 
     #[test]

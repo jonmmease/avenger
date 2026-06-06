@@ -16,7 +16,9 @@ use datafusion::{
 use datafusion_common::tree_node::{TreeNode, TreeNodeRecursion};
 use indexmap::IndexMap;
 
-use avenger_chart_core::{contains_aggregate, params_to_datafusion, scalar_total_cmp};
+use avenger_chart_core::{
+    AxisGuideVisibilityConfig, contains_aggregate, params_to_datafusion, scalar_total_cmp,
+};
 
 use crate::{error::AvengerChartError, facet::FacetDirection};
 
@@ -104,6 +106,8 @@ pub(crate) struct PartitionDimensionSpec {
     pub(crate) order_expr: Option<Expr>,
     /// Sort order for `order_expr`; ties always use partition value ascending.
     pub(crate) order_descending: bool,
+    /// Axis guide visibility policy for this partition dimension.
+    pub(crate) axis_guide_visibility: AxisGuideVisibilityConfig,
 }
 
 /// A node in a nested data-partition tree.
@@ -121,6 +125,8 @@ pub struct PartitionNode {
     pub field: String,
     /// Field expression for filtering.
     pub field_expr: Option<Expr>,
+    /// Axis guide visibility policy for this partition level.
+    pub axis_guide_visibility: AxisGuideVisibilityConfig,
     /// Domain slot values for this node.
     pub values: Vec<ScalarValue>,
     /// Values observed under the concrete parent-path filter for this node.
@@ -184,6 +190,7 @@ impl PartitionDimensionSpec {
             field_expr,
             order_expr: None,
             order_descending: false,
+            axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
         }
     }
 
@@ -194,6 +201,14 @@ impl PartitionDimensionSpec {
     ) -> Self {
         self.order_expr = order_expr;
         self.order_descending = order_descending;
+        self
+    }
+
+    pub(crate) fn with_axis_guide_visibility(
+        mut self,
+        visibility: AxisGuideVisibilityConfig,
+    ) -> Self {
+        self.axis_guide_visibility = visibility;
         self
     }
 
@@ -505,6 +520,7 @@ impl PartitionNode {
             sharing,
             field,
             field_expr,
+            axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
             values: values.clone(),
             observed_values: values.clone(),
             content: PartitionContent::Leaf { values },
@@ -525,6 +541,7 @@ impl PartitionNode {
             sharing,
             field,
             field_expr,
+            axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
             values: values.clone(),
             observed_values,
             content: PartitionContent::Leaf { values },
@@ -545,6 +562,7 @@ impl PartitionNode {
             sharing,
             field,
             field_expr,
+            axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
             values: values.clone(),
             observed_values: values,
             content: PartitionContent::Branch { children },
@@ -566,6 +584,7 @@ impl PartitionNode {
             sharing,
             field,
             field_expr,
+            axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
             values,
             observed_values,
             content: PartitionContent::Branch { children },
@@ -587,6 +606,7 @@ impl PartitionNode {
             sharing,
             field,
             field_expr,
+            axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
             values,
             observed_values,
             content: PartitionContent::Branch { children },
@@ -605,6 +625,14 @@ impl PartitionNode {
 
     pub fn observed_values(&self) -> impl Iterator<Item = &ScalarValue> {
         self.observed_values.iter()
+    }
+
+    pub(crate) fn with_axis_guide_visibility(
+        mut self,
+        visibility: AxisGuideVisibilityConfig,
+    ) -> Self {
+        self.axis_guide_visibility = visibility;
+        self
     }
 
     /// Get the number of partition slot values at this level.

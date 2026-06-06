@@ -4,11 +4,11 @@ use datafusion::prelude::SessionContext;
 use datafusion_proto::protobuf::LogicalExprNode;
 
 use avenger_chart_core::{
-    AvengerChartError, ChannelValue, ColumnDimensionConfig, CompileContext, CompiledMark,
-    CompiledMarkState, CompiledSubplotChildPlot, CoordinateSystemCore, CoordinationScope,
-    DataContext, FacetDataScope, FacetDimensionConfig, FacetEmptyCellPolicy, FacetWrapColumnMode,
-    Mark, MarkDataMode, MarkState, RowDimensionConfig, SubplotChildPlotSpec,
-    SubplotContainerCoordinateSystem, SubplotMarkCore,
+    AvengerChartError, AxisGuideVisibilityConfig, ChannelValue, ColumnDimensionConfig,
+    CompileContext, CompiledMark, CompiledMarkState, CompiledSubplotChildPlot,
+    CoordinateSystemCore, CoordinationScope, DataContext, FacetDataScope, FacetDimensionConfig,
+    FacetEmptyCellPolicy, FacetWrapColumnMode, Mark, MarkDataMode, MarkState, RowDimensionConfig,
+    SubplotChildPlotSpec, SubplotContainerCoordinateSystem, SubplotMarkCore,
 };
 
 #[derive(Clone)]
@@ -25,6 +25,8 @@ pub(crate) struct SubplotConfig {
     pub(crate) facet_col_position: Option<String>,
     pub(crate) facet_row_guide_visible: Option<bool>,
     pub(crate) facet_col_guide_visible: Option<bool>,
+    pub(crate) facet_row_axis_guide_visibility: Option<AxisGuideVisibilityConfig>,
+    pub(crate) facet_col_axis_guide_visibility: Option<AxisGuideVisibilityConfig>,
     pub(crate) facet_row_empty_cell_policy: Option<FacetEmptyCellPolicy>,
     pub(crate) facet_col_empty_cell_policy: Option<FacetEmptyCellPolicy>,
     pub(crate) facet_row_order_expr: Option<LogicalExprNode>,
@@ -35,6 +37,7 @@ pub(crate) struct SubplotConfig {
     pub(crate) facet_wrap_slot_sharing: Option<CoordinationScope>,
     pub(crate) facet_wrap_position: Option<String>,
     pub(crate) facet_wrap_guide_visible: Option<bool>,
+    pub(crate) facet_wrap_axis_guide_visibility: Option<AxisGuideVisibilityConfig>,
     pub(crate) facet_wrap_empty_cell_policy: Option<FacetEmptyCellPolicy>,
     pub(crate) facet_wrap_order_expr: Option<LogicalExprNode>,
     pub(crate) facet_wrap_order_descending: bool,
@@ -60,6 +63,8 @@ impl Default for SubplotConfig {
             facet_col_position: None,
             facet_row_guide_visible: None,
             facet_col_guide_visible: None,
+            facet_row_axis_guide_visibility: None,
+            facet_col_axis_guide_visibility: None,
             facet_row_empty_cell_policy: None,
             facet_col_empty_cell_policy: None,
             facet_row_order_expr: None,
@@ -70,6 +75,7 @@ impl Default for SubplotConfig {
             facet_wrap_slot_sharing: None,
             facet_wrap_position: None,
             facet_wrap_guide_visible: None,
+            facet_wrap_axis_guide_visibility: None,
             facet_wrap_empty_cell_policy: None,
             facet_wrap_order_expr: None,
             facet_wrap_order_descending: false,
@@ -229,6 +235,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         slot_sharing: Option<CoordinationScope>,
         position: Option<String>,
         guide_visible: Option<bool>,
+        axis_guide_visibility: Option<AxisGuideVisibilityConfig>,
         empty_cell_policy: Option<FacetEmptyCellPolicy>,
         order_expr: Option<LogicalExprNode>,
         order_descending: bool,
@@ -237,6 +244,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         self.config.facet_row_slot_sharing = slot_sharing;
         self.config.facet_row_position = position;
         self.config.facet_row_guide_visible = guide_visible;
+        self.config.facet_row_axis_guide_visibility = axis_guide_visibility;
         self.config.facet_row_empty_cell_policy = empty_cell_policy;
         self.config.facet_row_order_expr = order_expr;
         self.config.facet_row_order_descending = order_descending;
@@ -263,6 +271,11 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     }
 
     #[doc(hidden)]
+    pub fn facet_row_axis_guide_visibility_config(&self) -> Option<AxisGuideVisibilityConfig> {
+        self.config.facet_row_axis_guide_visibility
+    }
+
+    #[doc(hidden)]
     pub fn facet_row_empty_cell_policy_config(&self) -> Option<FacetEmptyCellPolicy> {
         self.config.facet_row_empty_cell_policy
     }
@@ -285,6 +298,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         slot_sharing: Option<CoordinationScope>,
         position: Option<String>,
         guide_visible: Option<bool>,
+        axis_guide_visibility: Option<AxisGuideVisibilityConfig>,
         empty_cell_policy: Option<FacetEmptyCellPolicy>,
         order_expr: Option<LogicalExprNode>,
         order_descending: bool,
@@ -293,6 +307,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         self.config.facet_col_slot_sharing = slot_sharing;
         self.config.facet_col_position = position;
         self.config.facet_col_guide_visible = guide_visible;
+        self.config.facet_col_axis_guide_visibility = axis_guide_visibility;
         self.config.facet_col_empty_cell_policy = empty_cell_policy;
         self.config.facet_col_order_expr = order_expr;
         self.config.facet_col_order_descending = order_descending;
@@ -319,6 +334,11 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     }
 
     #[doc(hidden)]
+    pub fn facet_col_axis_guide_visibility_config(&self) -> Option<AxisGuideVisibilityConfig> {
+        self.config.facet_col_axis_guide_visibility
+    }
+
+    #[doc(hidden)]
     pub fn facet_col_empty_cell_policy_config(&self) -> Option<FacetEmptyCellPolicy> {
         self.config.facet_col_empty_cell_policy
     }
@@ -341,6 +361,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         slot_sharing: Option<CoordinationScope>,
         position: Option<String>,
         guide_visible: Option<bool>,
+        axis_guide_visibility: Option<AxisGuideVisibilityConfig>,
         empty_cell_policy: Option<FacetEmptyCellPolicy>,
         order_expr: Option<LogicalExprNode>,
         order_descending: bool,
@@ -350,6 +371,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         self.config.facet_wrap_slot_sharing = slot_sharing;
         self.config.facet_wrap_position = position;
         self.config.facet_wrap_guide_visible = guide_visible;
+        self.config.facet_wrap_axis_guide_visibility = axis_guide_visibility;
         self.config.facet_wrap_empty_cell_policy = empty_cell_policy;
         self.config.facet_wrap_order_expr = order_expr;
         self.config.facet_wrap_order_descending = order_descending;
@@ -374,6 +396,11 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     #[doc(hidden)]
     pub fn facet_wrap_guide_visible_config(&self) -> Option<bool> {
         self.config.facet_wrap_guide_visible
+    }
+
+    #[doc(hidden)]
+    pub fn facet_wrap_axis_guide_visibility_config(&self) -> Option<AxisGuideVisibilityConfig> {
+        self.config.facet_wrap_axis_guide_visibility
     }
 
     #[doc(hidden)]
@@ -494,6 +521,10 @@ impl<OuterC: CoordinateSystemCore> SubplotMarkCore for Subplot<OuterC> {
         self.config.facet_row_guide_visible
     }
 
+    fn facet_row_axis_guide_visibility_config(&self) -> Option<AxisGuideVisibilityConfig> {
+        self.config.facet_row_axis_guide_visibility
+    }
+
     fn facet_row_empty_cell_policy_config(&self) -> Option<FacetEmptyCellPolicy> {
         self.config.facet_row_empty_cell_policy
     }
@@ -522,6 +553,10 @@ impl<OuterC: CoordinateSystemCore> SubplotMarkCore for Subplot<OuterC> {
         self.config.facet_col_guide_visible
     }
 
+    fn facet_col_axis_guide_visibility_config(&self) -> Option<AxisGuideVisibilityConfig> {
+        self.config.facet_col_axis_guide_visibility
+    }
+
     fn facet_col_empty_cell_policy_config(&self) -> Option<FacetEmptyCellPolicy> {
         self.config.facet_col_empty_cell_policy
     }
@@ -548,6 +583,10 @@ impl<OuterC: CoordinateSystemCore> SubplotMarkCore for Subplot<OuterC> {
 
     fn facet_wrap_guide_visible_config(&self) -> Option<bool> {
         self.config.facet_wrap_guide_visible
+    }
+
+    fn facet_wrap_axis_guide_visibility_config(&self) -> Option<AxisGuideVisibilityConfig> {
+        self.config.facet_wrap_axis_guide_visibility
     }
 
     fn facet_wrap_empty_cell_policy_config(&self) -> Option<FacetEmptyCellPolicy> {

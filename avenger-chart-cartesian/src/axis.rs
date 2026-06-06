@@ -2,9 +2,9 @@ use std::any::Any;
 
 pub use avenger_chart_core::AxisPosition;
 use avenger_chart_core::{
-    AvengerChartError, Axis, AxisVisibility, CoordinationAxis, GuideSharingContext,
-    INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM, IntoExpr, LayoutBounds, Maybe,
-    MaybeOptionalExpr, ScalarValueHelpers, SharingGroupEdge, SharingLevel, Theme,
+    AvengerChartError, Axis, AxisGuideVisibilityPolicy, AxisVisibility, CoordinationAxis,
+    GuideSharingContext, INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM, IntoExpr, LayoutBounds,
+    Maybe, MaybeOptionalExpr, ScalarValueHelpers, SharingGroupEdge, SharingLevel, Theme,
     axis_ownership_mode_from_params, collect_derived_scalar_ids, eval_to_scalars,
     evaluate_axis_position_expr, evaluate_bool_expr, evaluate_f32_expr, evaluate_string_expr,
     owner_for_edge, params_to_datafusion, project_container_edge_levels, resolve_derived_scalars,
@@ -544,7 +544,12 @@ pub async fn evaluate_cartesian_axis(
         hide_invalid_facet_path_axes,
     );
 
-    let jagged_labels_override = facet_axis_ownership_applies(sharing_context)
+    let labels_policy_is_auto = sharing_context
+        .axis_guide_visibility_config(position)
+        .map(|config| config.labels == AxisGuideVisibilityPolicy::Auto)
+        .unwrap_or(true);
+    let jagged_labels_override = labels_policy_is_auto
+        && facet_axis_ownership_applies(sharing_context)
         && !facet_sharing_level.is_free()
         && sharing_context.facet_is_jagged_for_axis(position);
 

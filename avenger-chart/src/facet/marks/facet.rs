@@ -16,13 +16,14 @@ use crate::plot::compiled::{
 };
 use crate::render::{EvaluationContext, EvaluationMetrics, RenderContext};
 use avenger_chart_core::{
-    AvengerChartError, ChannelDescriptor, ChannelValue, ColumnDimensionConfig, CompileContext,
-    CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState, CompiledSubplotPayload,
-    CoordinateGuide, CoordinateSystemTransformCore, CoordinationScope, DefaultLogicalExprNodeExt,
-    FacetAxis, FacetDimensionConfig, FacetEmptyCellPolicy, FacetWrapColumnMode, MarkRuntimeContext,
-    RowDimensionConfig, ScaleTypePreference, SerializableExpr, Size2D,
-    SubplotContainerCoordinateSystem, SubplotDataSource, SubplotMarkCore, WrapDimensionConfig,
-    channel_value::expr_to_string, default_scale_type_for_data_type,
+    AvengerChartError, AxisGuideVisibilityConfig, ChannelDescriptor, ChannelValue,
+    ColumnDimensionConfig, CompileContext, CompiledDataContext, CompiledMark, CompiledMarkCore,
+    CompiledMarkState, CompiledSubplotPayload, CoordinateGuide, CoordinateSystemTransformCore,
+    CoordinationScope, DefaultLogicalExprNodeExt, FacetAxis, FacetDimensionConfig,
+    FacetEmptyCellPolicy, FacetWrapColumnMode, MarkRuntimeContext, RowDimensionConfig,
+    ScaleTypePreference, SerializableExpr, Size2D, SubplotContainerCoordinateSystem,
+    SubplotDataSource, SubplotMarkCore, WrapDimensionConfig, channel_value::expr_to_string,
+    default_scale_type_for_data_type,
 };
 use avenger_chart_marks::Subplot;
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
@@ -657,6 +658,7 @@ impl FacetRowSubplotChannels for Subplot<FacetRow> {
             cfg.slot_sharing,
             cfg.position,
             cfg.visible,
+            cfg.axis_guide_visibility,
             cfg.empty_cell_policy,
             cfg.order_expr,
             cfg.order_descending,
@@ -700,6 +702,7 @@ impl FacetColumnSubplotChannels for Subplot<FacetColumn> {
             cfg.slot_sharing,
             cfg.position,
             cfg.visible,
+            cfg.axis_guide_visibility,
             cfg.empty_cell_policy,
             cfg.order_expr,
             cfg.order_descending,
@@ -746,6 +749,7 @@ impl FacetWrapSubplotChannels for Subplot<FacetWrap> {
             cfg.slot_sharing,
             cfg.position,
             cfg.visible,
+            cfg.axis_guide_visibility,
             cfg.empty_cell_policy,
             cfg.order_expr,
             cfg.order_descending,
@@ -811,6 +815,8 @@ pub struct CompiledFacetRowSubplot {
     #[serde(default = "default_true")]
     pub(crate) facet_guide_visible: bool,
     #[serde(default)]
+    pub(crate) axis_guide_visibility: Option<AxisGuideVisibilityConfig>,
+    #[serde(default)]
     pub(crate) facet_empty_cell_policy: FacetEmptyCellPolicy,
     #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
     pub(crate) facet_order_expr: Option<LogicalExprNode>,
@@ -840,6 +846,9 @@ impl CompiledFacetRowSubplot {
     }
     pub fn facet_guide_visible(&self) -> bool {
         self.facet_guide_visible
+    }
+    pub fn axis_guide_visibility(&self) -> Option<AxisGuideVisibilityConfig> {
+        self.axis_guide_visibility
     }
     pub fn facet_empty_cell_policy(&self) -> FacetEmptyCellPolicy {
         self.facet_empty_cell_policy
@@ -915,6 +924,7 @@ async fn compile_facet_row_subplot_mark(
         facet_slot_sharing: subplot.facet_row_slot_sharing_config(),
         facet_position: subplot.facet_row_position_config().map(ToOwned::to_owned),
         facet_guide_visible: subplot.facet_row_guide_visible_config().unwrap_or(true),
+        axis_guide_visibility: subplot.facet_row_axis_guide_visibility_config(),
         facet_empty_cell_policy: subplot
             .facet_row_empty_cell_policy_config()
             .unwrap_or_default(),
@@ -1032,6 +1042,8 @@ pub struct CompiledFacetColumnSubplot {
     #[serde(default = "default_true")]
     pub(crate) facet_guide_visible: bool,
     #[serde(default)]
+    pub(crate) axis_guide_visibility: Option<AxisGuideVisibilityConfig>,
+    #[serde(default)]
     pub(crate) facet_empty_cell_policy: FacetEmptyCellPolicy,
     #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
     pub(crate) facet_order_expr: Option<LogicalExprNode>,
@@ -1061,6 +1073,9 @@ impl CompiledFacetColumnSubplot {
     }
     pub fn facet_guide_visible(&self) -> bool {
         self.facet_guide_visible
+    }
+    pub fn axis_guide_visibility(&self) -> Option<AxisGuideVisibilityConfig> {
+        self.axis_guide_visibility
     }
     pub fn facet_empty_cell_policy(&self) -> FacetEmptyCellPolicy {
         self.facet_empty_cell_policy
@@ -1136,6 +1151,7 @@ async fn compile_facet_column_subplot_mark(
         facet_slot_sharing: subplot.facet_col_slot_sharing_config(),
         facet_position: subplot.facet_col_position_config().map(ToOwned::to_owned),
         facet_guide_visible: subplot.facet_col_guide_visible_config().unwrap_or(true),
+        axis_guide_visibility: subplot.facet_col_axis_guide_visibility_config(),
         facet_empty_cell_policy: subplot
             .facet_col_empty_cell_policy_config()
             .unwrap_or_default(),
@@ -1164,6 +1180,8 @@ pub struct CompiledFacetWrapSubplot {
     pub(crate) facet_position: Option<String>,
     #[serde(default = "default_true")]
     pub(crate) facet_guide_visible: bool,
+    #[serde(default)]
+    pub(crate) axis_guide_visibility: Option<AxisGuideVisibilityConfig>,
     #[serde(default)]
     pub(crate) facet_empty_cell_policy: FacetEmptyCellPolicy,
     #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
@@ -1205,6 +1223,10 @@ impl CompiledFacetWrapSubplot {
 
     pub fn facet_guide_visible(&self) -> bool {
         self.facet_guide_visible
+    }
+
+    pub fn axis_guide_visibility(&self) -> Option<AxisGuideVisibilityConfig> {
+        self.axis_guide_visibility
     }
 
     pub fn facet_empty_cell_policy(&self) -> FacetEmptyCellPolicy {
@@ -1278,6 +1300,7 @@ fn build_physical_wrap_subplot(
     facet_title: Option<String>,
     facet_position: Option<String>,
     facet_guide_visible: bool,
+    axis_guide_visibility: Option<AxisGuideVisibilityConfig>,
     facet_empty_cell_policy: FacetEmptyCellPolicy,
     session_context: &SessionContext,
 ) -> Result<Arc<CompiledPlot>, AvengerChartError> {
@@ -1294,6 +1317,7 @@ fn build_physical_wrap_subplot(
         facet_slot_sharing: Some(CoordinationScope::Free),
         facet_position,
         facet_guide_visible,
+        axis_guide_visibility,
         facet_empty_cell_policy,
         facet_order_expr: None,
         facet_order_descending: false,
@@ -1369,6 +1393,7 @@ async fn compile_facet_wrap_subplot_mark(
     );
     let facet_position = subplot.facet_wrap_position_config().map(ToOwned::to_owned);
     let facet_guide_visible = subplot.facet_wrap_guide_visible_config().unwrap_or(true);
+    let axis_guide_visibility = subplot.facet_wrap_axis_guide_visibility_config();
     let facet_empty_cell_policy = subplot
         .facet_wrap_empty_cell_policy_config()
         .unwrap_or_default();
@@ -1378,6 +1403,7 @@ async fn compile_facet_wrap_subplot_mark(
         facet_title.clone(),
         facet_position.clone(),
         facet_guide_visible,
+        axis_guide_visibility,
         facet_empty_cell_policy,
         session_context,
     )?;
@@ -1395,6 +1421,7 @@ async fn compile_facet_wrap_subplot_mark(
         facet_slot_sharing: subplot.facet_wrap_slot_sharing_config(),
         facet_position,
         facet_guide_visible,
+        axis_guide_visibility,
         facet_empty_cell_policy,
         facet_order_expr: subplot.facet_wrap_order_expr_config().cloned(),
         facet_order_descending: subplot.facet_wrap_order_descending_config(),
@@ -1525,6 +1552,14 @@ impl<'a> FacetSubplotRef<'a> {
             Self::Row(mark) => mark.facet_empty_cell_policy(),
             Self::Col(mark) => mark.facet_empty_cell_policy(),
             Self::Wrap(mark) => mark.facet_empty_cell_policy(),
+        }
+    }
+
+    pub fn axis_guide_visibility(self) -> Option<AxisGuideVisibilityConfig> {
+        match self {
+            Self::Row(mark) => mark.axis_guide_visibility(),
+            Self::Col(mark) => mark.axis_guide_visibility(),
+            Self::Wrap(mark) => mark.axis_guide_visibility(),
         }
     }
 
