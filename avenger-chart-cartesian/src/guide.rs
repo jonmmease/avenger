@@ -532,3 +532,159 @@ impl CompiledGuide for CartesianGuide {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::CartesianGuide;
+    use avenger_chart_core::{
+        AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, AxisOwnershipMode, AxisPosition,
+        AxisVisibility, ChildFrameGuideSharingView, CompiledGuide, CoordinationAxis,
+        FacetGuideSharingView, GuideOverflowPhase, GuideSharingContext, SharingLevel,
+    };
+    use datafusion::common::ScalarValue;
+
+    #[derive(Debug)]
+    struct TestFacetView {
+        sharing: SharingLevel,
+        visibility: AxisVisibility,
+        axis_policy: Option<AxisGuideVisibilityConfig>,
+        jagged: bool,
+    }
+
+    impl TestFacetView {
+        fn new(axis_policy: AxisGuideVisibilityConfig) -> Self {
+            Self {
+                sharing: SharingLevel::GLOBAL,
+                visibility: AxisVisibility::visible(),
+                axis_policy: Some(axis_policy),
+                jagged: false,
+            }
+        }
+    }
+
+    impl FacetGuideSharingView for TestFacetView {
+        fn channel_axis_visibility_for_path_checked(
+            &self,
+            _path: &[ScalarValue],
+            _axis_position: AxisPosition,
+            _sharing_level: u8,
+        ) -> Option<AxisVisibility> {
+            Some(self.visibility)
+        }
+
+        fn channel_axis_visibility_for_path_checked_with_mode(
+            &self,
+            _path: &[ScalarValue],
+            _axis_position: AxisPosition,
+            _sharing_level: u8,
+            _ownership_mode: AxisOwnershipMode,
+        ) -> Option<AxisVisibility> {
+            Some(self.visibility)
+        }
+
+        fn is_jagged_for_axis(&self, _axis_position: AxisPosition) -> bool {
+            self.jagged
+        }
+
+        fn channel_domain_sharing_level(&self, _channel: &str) -> SharingLevel {
+            self.sharing
+        }
+
+        fn axis_guide_visibility_config_for_path(
+            &self,
+            _path: &[ScalarValue],
+            _axis_position: AxisPosition,
+        ) -> Option<AxisGuideVisibilityConfig> {
+            self.axis_policy
+        }
+
+        fn effective_edge_indices_for_values_at_path(
+            &self,
+            _facet_path: &[ScalarValue],
+            _values: &[ScalarValue],
+        ) -> Option<(usize, usize)> {
+            None
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct TestChildFrameView {
+        position_indices: Vec<usize>,
+        level_counts: Vec<usize>,
+        level_axes: Vec<CoordinationAxis>,
+    }
+
+    impl TestChildFrameView {
+        fn root() -> Self {
+            Self::default()
+        }
+
+        fn hconcat_child(index: usize) -> Self {
+            Self {
+                position_indices: vec![index],
+                level_counts: vec![2],
+                level_axes: vec![CoordinationAxis::Horizontal],
+            }
+        }
+    }
+
+    impl ChildFrameGuideSharingView for TestChildFrameView {
+        fn position_indices(&self) -> Vec<usize> {
+            self.position_indices.clone()
+        }
+
+        fn level_counts(&self) -> Vec<usize> {
+            self.level_counts.clone()
+        }
+
+        fn level_axes(&self) -> Vec<CoordinationAxis> {
+            self.level_axes.clone()
+        }
+    }
+
+    #[test]
+    fn overflow_discriminator_includes_axis_visibility_policy() {
+        let all_policy = TestFacetView::new(AxisGuideVisibilityConfig::same(
+            AxisGuideVisibilityPolicy::All,
+        ));
+        let outer_policy = TestFacetView::new(AxisGuideVisibilityConfig::same(
+            AxisGuideVisibilityPolicy::OuterEdges,
+        ));
+        let child_frame = TestChildFrameView::root();
+        let guide = CartesianGuide::new();
+
+        let all_key = guide
+            .overflow_cache_discriminator(
+                GuideSharingContext::new(&all_policy, &[], &child_frame),
+                GuideOverflowPhase::Final,
+            )
+            .expect("root final cartesian guide should provide a discriminator");
+        let outer_key = guide
+            .overflow_cache_discriminator(
+                GuideSharingContext::new(&outer_policy, &[], &child_frame),
+                GuideOverflowPhase::Final,
+            )
+            .expect("root final cartesian guide should provide a discriminator");
+
+        assert_ne!(all_key, outer_key);
+        assert!(all_key.contains("All/All"));
+        assert!(outer_key.contains("OuterEdges/OuterEdges"));
+    }
+
+    #[test]
+    fn overflow_discriminator_opts_out_for_child_frame_paths() {
+        let facet_view = TestFacetView::new(AxisGuideVisibilityConfig::same(
+            AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups,
+        ));
+        let child_frame = TestChildFrameView::hconcat_child(1);
+        let guide = CartesianGuide::new();
+
+        assert_eq!(
+            guide.overflow_cache_discriminator(
+                GuideSharingContext::new(&facet_view, &[], &child_frame),
+                GuideOverflowPhase::Final,
+            ),
+            None
+        );
+    }
+}
