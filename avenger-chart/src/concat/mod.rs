@@ -874,6 +874,12 @@ pub(crate) async fn measure_grid_concat_coord_system(
         plot_width / grid_shape.columns.max(1) as f32,
         plot_height / grid_shape.rows.max(1) as f32,
     );
+    let guide_sharing_slots = GridGuideSharingSlots::from_placements(
+        grid_shape,
+        subplots
+            .iter()
+            .filter_map(|subplot| subplot.grid_placement()),
+    );
 
     let mut prepared_children = Vec::with_capacity(subplots.len());
     for subplot in subplots {
@@ -910,7 +916,7 @@ pub(crate) async fn measure_grid_concat_coord_system(
                     prepared.child_index(),
                     prepared.key(),
                     placement,
-                    grid_shape,
+                    &guide_sharing_slots,
                 ),
                 child_plot_area,
                 eval_ctx,
@@ -960,6 +966,16 @@ pub(crate) async fn measure_wrap_concat_coord_system(
         plot_width / columns.max(1) as f32,
         plot_height / rows.max(1) as f32,
     );
+    let grid_shape = GridShape { rows, columns };
+    let guide_sharing_slots = GridGuideSharingSlots::from_placements(
+        grid_shape,
+        (0..child_count).map(|slot_index| GridPlacementConfig {
+            row: slot_index / columns,
+            column: slot_index % columns,
+            row_span: 1,
+            column_span: 1,
+        }),
+    );
 
     let mut prepared_children = Vec::with_capacity(subplots.len());
     for subplot in subplots {
@@ -992,7 +1008,7 @@ pub(crate) async fn measure_wrap_concat_coord_system(
                     row_span: 1,
                     column_span: 1,
                 },
-                GridShape { rows, columns },
+                &guide_sharing_slots,
             ),
             child_plot_area,
             eval_ctx,
@@ -1010,13 +1026,12 @@ pub(crate) async fn measure_wrap_concat_coord_system(
         children.push(child);
     }
 
-    let placement =
-        grid_child_frame_placement(&children, GridShape { rows, columns }, child_plot_area)?;
+    let placement = grid_child_frame_placement(&children, grid_shape, child_plot_area)?;
     Ok(Box::new(ConcatCoordMeasurement {
         children,
         placement: ConcatChildPlacement::Grid {
             placement,
-            shape: GridShape { rows, columns },
+            shape: grid_shape,
         },
         fallback_content_size: Size2D::new(plot_width, plot_height),
     }))
@@ -1137,11 +1152,15 @@ pub(crate) fn grid_concat_sharing_levels(
     child_index: usize,
     key: Option<&str>,
     placement: GridPlacementConfig,
-    shape: GridShape,
+    slots: &GridGuideSharingSlots,
 ) -> Vec<ChildFrameSharingLevel> {
+    let row_index = slots.row_slot_index(placement.column, placement.row);
+    let row_count = slots.row_slot_count(placement.column);
+    let column_index = slots.column_slot_index(placement.row, placement.column);
+    let column_count = slots.column_slot_count(placement.row);
     vec![
-        ChildFrameSharingLevel::grid_concat_row(child_index, key, placement.row, shape.rows),
-        ChildFrameSharingLevel::grid_concat_column(placement.column, shape.columns),
+        ChildFrameSharingLevel::grid_concat_row(child_index, key, row_index, row_count),
+        ChildFrameSharingLevel::grid_concat_column(column_index, column_count),
     ]
 }
 
@@ -1149,6 +1168,75 @@ pub(crate) fn grid_concat_sharing_levels(
 pub(crate) struct GridShape {
     pub(crate) rows: usize,
     pub(crate) columns: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct GridGuideSharingSlots {
+    rows_by_column: Vec<Vec<usize>>,
+    columns_by_row: Vec<Vec<usize>>,
+}
+
+impl GridGuideSharingSlots {
+    pub(crate) fn from_placements(
+        shape: GridShape,
+        placements: impl IntoIterator<Item = GridPlacementConfig>,
+    ) -> Self {
+        let mut rows_by_column = vec![Vec::<usize>::new(); shape.columns];
+        let mut columns_by_row = vec![Vec::<usize>::new(); shape.rows];
+
+        for placement in placements {
+            if placement.column < shape.columns
+                && !rows_by_column[placement.column].contains(&placement.row)
+            {
+                rows_by_column[placement.column].push(placement.row);
+            }
+            if placement.row < shape.rows
+                && !columns_by_row[placement.row].contains(&placement.column)
+            {
+                columns_by_row[placement.row].push(placement.column);
+            }
+        }
+
+        for rows in &mut rows_by_column {
+            rows.sort_unstable();
+        }
+        for columns in &mut columns_by_row {
+            columns.sort_unstable();
+        }
+
+        Self {
+            rows_by_column,
+            columns_by_row,
+        }
+    }
+
+    fn row_slot_index(&self, column: usize, row: usize) -> usize {
+        self.rows_by_column
+            .get(column)
+            .and_then(|rows| rows.iter().position(|&candidate| candidate == row))
+            .unwrap_or(row)
+    }
+
+    fn row_slot_count(&self, column: usize) -> usize {
+        self.rows_by_column
+            .get(column)
+            .map(|rows| rows.len().max(1))
+            .unwrap_or(1)
+    }
+
+    fn column_slot_index(&self, row: usize, column: usize) -> usize {
+        self.columns_by_row
+            .get(row)
+            .and_then(|columns| columns.iter().position(|&candidate| candidate == column))
+            .unwrap_or(column)
+    }
+
+    fn column_slot_count(&self, row: usize) -> usize {
+        self.columns_by_row
+            .get(row)
+            .map(|columns| columns.len().max(1))
+            .unwrap_or(1)
+    }
 }
 
 fn resolve_grid_shape(
@@ -1720,6 +1808,71 @@ mod tests {
         assert_eq!(origins, vec![(0, [0.0, 0.0]), (1, [200.0, 100.0])]);
         assert_eq!(placement.content_size, Size2D::new(300.0, 200.0));
         Ok(())
+    }
+
+    #[test]
+    fn grid_guide_sharing_slots_compact_empty_edge_cells() {
+        let slots = GridGuideSharingSlots::from_placements(
+            GridShape {
+                rows: 2,
+                columns: 3,
+            },
+            [
+                GridPlacementConfig {
+                    row: 0,
+                    column: 0,
+                    row_span: 1,
+                    column_span: 1,
+                },
+                GridPlacementConfig {
+                    row: 0,
+                    column: 2,
+                    row_span: 1,
+                    column_span: 1,
+                },
+                GridPlacementConfig {
+                    row: 1,
+                    column: 1,
+                    row_span: 1,
+                    column_span: 1,
+                },
+            ],
+        );
+
+        let top_right = grid_concat_sharing_levels(
+            1,
+            Some("top-right"),
+            GridPlacementConfig {
+                row: 0,
+                column: 2,
+                row_span: 1,
+                column_span: 1,
+            },
+            &slots,
+        );
+        assert_eq!(top_right.len(), 2);
+        assert_eq!(top_right[0].axis, CoordinationAxis::Vertical);
+        assert_eq!(top_right[0].index, 0);
+        assert_eq!(top_right[0].count, 1);
+        assert_eq!(top_right[1].axis, CoordinationAxis::Horizontal);
+        assert_eq!(top_right[1].index, 1);
+        assert_eq!(top_right[1].count, 2);
+
+        let bottom_middle = grid_concat_sharing_levels(
+            2,
+            Some("bottom-middle"),
+            GridPlacementConfig {
+                row: 1,
+                column: 1,
+                row_span: 1,
+                column_span: 1,
+            },
+            &slots,
+        );
+        assert_eq!(bottom_middle[0].index, 0);
+        assert_eq!(bottom_middle[0].count, 1);
+        assert_eq!(bottom_middle[1].index, 0);
+        assert_eq!(bottom_middle[1].count, 1);
     }
 
     #[tokio::test]

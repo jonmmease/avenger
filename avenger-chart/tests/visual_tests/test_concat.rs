@@ -127,6 +127,32 @@ fn shared_y_child(data: DataFrame, title: &str) -> Plot<Cartesian> {
     )
 }
 
+fn grid_shared_axes_child(
+    x: &'static str,
+    y: &'static str,
+    _title: &str,
+    fill: &str,
+) -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().mark(
+        Symbol::<Cartesian>::new()
+            .x_with(col(x), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                    .with_domain_scope(CoordinationScope::Shared)
+                    .axis(|a| a.title(x))
+            })
+            .y_with(col(y), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                    .with_domain_scope(CoordinationScope::Shared)
+                    .axis(|a| a.title(y))
+            })
+            .fill(fill)
+            .opacity(0.72)
+            .stroke("#ffffff")
+            .stroke_width(0.75)
+            .size(54.0),
+    )
+}
+
 fn shared_color_child(data: DataFrame, title: &str, position: LegendPosition) -> Plot<Cartesian> {
     Plot::<Cartesian>::new().data(data).title(title).mark(
         Symbol::<Cartesian>::new()
@@ -392,6 +418,286 @@ async fn nested_concat_level1_shared_axis() {
         "nested_concat_level1_shared_axis",
     )
     .await;
+}
+
+#[tokio::test]
+async fn grid_concat_shared_axes_complete() {
+    let ctx = SessionContext::new();
+    let df = iris_with_petal_width_bin(&ctx).await;
+    let plot = Plot::<GridConcat>::new()
+        .canvas_size(820.0, 620.0)
+        .data(df)
+        .title("Grid concat shared axes")
+        .rows(2)
+        .columns(2)
+        .mark(
+            Subplot::new(grid_shared_axes_child(
+                "sepal_length",
+                "sepal_width",
+                "Sepal width",
+                "#2f7ed8",
+            ))
+            .grid_cell(0, 0)
+            .key("sepal_width"),
+        )
+        .mark(
+            Subplot::new(grid_shared_axes_child(
+                "petal_length",
+                "sepal_width",
+                "Sepal by petal",
+                "#8bbc21",
+            ))
+            .grid_cell(0, 1)
+            .key("petal_sepal"),
+        )
+        .mark(
+            Subplot::new(grid_shared_axes_child(
+                "sepal_length",
+                "petal_width",
+                "Petal by sepal",
+                "#f28f43",
+            ))
+            .grid_cell(1, 0)
+            .key("sepal_petal"),
+        )
+        .mark(
+            Subplot::new(grid_shared_axes_child(
+                "petal_length",
+                "petal_width",
+                "Petal width",
+                "#910000",
+            ))
+            .grid_cell(1, 1)
+            .key("petal_width"),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile complete GridConcat chart");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "concat",
+        "grid_concat_shared_axes_complete",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn grid_concat_holey_shared_axes() {
+    let ctx = SessionContext::new();
+    let df = iris_with_petal_width_bin(&ctx).await;
+    let plot = Plot::<GridConcat>::new()
+        .canvas_size(900.0, 560.0)
+        .data(df)
+        .title("Holey grid concat")
+        .rows(2)
+        .columns(3)
+        .mark(
+            Subplot::new(grid_shared_axes_child(
+                "sepal_length",
+                "sepal_width",
+                "Top left",
+                "#2f7ed8",
+            ))
+            .grid_cell(0, 0)
+            .key("top_left"),
+        )
+        .mark(
+            Subplot::new(grid_shared_axes_child(
+                "petal_length",
+                "sepal_width",
+                "Top right",
+                "#8bbc21",
+            ))
+            .grid_cell(0, 2)
+            .key("top_right"),
+        )
+        .mark(
+            Subplot::new(grid_shared_axes_child(
+                "sepal_length",
+                "petal_width",
+                "Bottom middle",
+                "#f28f43",
+            ))
+            .grid_cell(1, 1)
+            .key("bottom_middle"),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile holey GridConcat chart");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "concat",
+        "grid_concat_holey_shared_axes",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn wrap_concat_fixed_columns_shared_axes() {
+    let ctx = SessionContext::new();
+    let df = iris_with_petal_width_bin(&ctx).await;
+    let plot = Plot::<WrapConcat>::new()
+        .plot_size(720.0, 420.0)
+        .data(df)
+        .title("Wrapped concat fixed columns")
+        .columns(3)
+        .mark(
+            Subplot::new(grid_shared_axes_child(
+                "sepal_length",
+                "sepal_width",
+                "A",
+                "#2f7ed8",
+            ))
+            .key("a"),
+        )
+        .mark(
+            Subplot::new(grid_shared_axes_child(
+                "petal_length",
+                "sepal_width",
+                "B",
+                "#8bbc21",
+            ))
+            .key("b"),
+        )
+        .mark(
+            Subplot::new(grid_shared_axes_child(
+                "sepal_length",
+                "petal_width",
+                "C",
+                "#f28f43",
+            ))
+            .key("c"),
+        )
+        .mark(
+            Subplot::new(grid_shared_axes_child(
+                "petal_length",
+                "petal_width",
+                "D",
+                "#910000",
+            ))
+            .key("d"),
+        )
+        .mark(
+            Subplot::new(grid_shared_axes_child(
+                "sepal_width",
+                "petal_width",
+                "E",
+                "#492970",
+            ))
+            .key("e"),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile fixed WrapConcat chart");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "concat",
+        "wrap_concat_fixed_columns_shared_axes",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn wrap_concat_responsive_columns_narrow() {
+    let ctx = SessionContext::new();
+    let df = iris_with_petal_width_bin(&ctx).await;
+    let plot = responsive_wrap_concat_plot(df, 430.0, 520.0);
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile narrow responsive WrapConcat chart");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "concat",
+        "wrap_concat_responsive_columns_narrow",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn wrap_concat_responsive_columns_wide() {
+    let ctx = SessionContext::new();
+    let df = iris_with_petal_width_bin(&ctx).await;
+    let plot = responsive_wrap_concat_plot(df, 760.0, 420.0);
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile wide responsive WrapConcat chart");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "concat",
+        "wrap_concat_responsive_columns_wide",
+    )
+    .await;
+}
+
+fn responsive_wrap_concat_plot(df: DataFrame, width: f64, height: f64) -> Plot<WrapConcat> {
+    Plot::<WrapConcat>::new()
+        .plot_size(width, height)
+        .data(df)
+        .title("Wrapped concat responsive columns")
+        .responsive_columns(220.0)
+        .mark(
+            Subplot::new(grid_shared_axes_child(
+                "sepal_length",
+                "sepal_width",
+                "Sepal",
+                "#2f7ed8",
+            ))
+            .key("sepal"),
+        )
+        .mark(
+            Subplot::new(grid_shared_axes_child(
+                "petal_length",
+                "sepal_width",
+                "Petal x",
+                "#8bbc21",
+            ))
+            .key("petal_x"),
+        )
+        .mark(
+            Subplot::new(grid_shared_axes_child(
+                "sepal_length",
+                "petal_width",
+                "Petal y",
+                "#f28f43",
+            ))
+            .key("petal_y"),
+        )
+        .mark(
+            Subplot::new(grid_shared_axes_child(
+                "petal_length",
+                "petal_width",
+                "Petal",
+                "#910000",
+            ))
+            .key("petal"),
+        )
+        .mark(
+            Subplot::new(grid_shared_axes_child(
+                "sepal_width",
+                "petal_width",
+                "Widths",
+                "#492970",
+            ))
+            .key("widths"),
+        )
 }
 
 #[tokio::test]

@@ -15,7 +15,8 @@ use avenger_chart_core::{
 
 use crate::{
     concat::{
-        GridConcat, HConcat, VConcat, WrapConcat, concat_coord_ref, grid_concat_sharing_levels,
+        GridConcat, GridGuideSharingSlots, HConcat, VConcat, WrapConcat, concat_coord_ref,
+        grid_concat_sharing_levels,
     },
     coords::CoordinateSystemTransformCore,
     error::AvengerChartError,
@@ -390,6 +391,13 @@ impl CompiledConcatSubplot {
                             "Grid/wrap concat measurement missing grid shape".to_string(),
                         )
                     })?;
+                    let guide_sharing_slots = GridGuideSharingSlots::from_placements(
+                        grid_shape,
+                        concat_measurement
+                            .children()
+                            .iter()
+                            .filter_map(|child| child.grid_placement),
+                    );
                     let grid_placement = child.grid_placement.ok_or_else(|| {
                         AvengerChartError::InternalError(format!(
                             "Missing grid/wrap placement for child {}",
@@ -400,7 +408,7 @@ impl CompiledConcatSubplot {
                         self.child_index(),
                         self.key(),
                         grid_placement,
-                        grid_shape,
+                        &guide_sharing_slots,
                     )
                 }
             };
