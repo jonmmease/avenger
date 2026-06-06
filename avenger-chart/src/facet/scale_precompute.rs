@@ -7,7 +7,9 @@ use datafusion::logical_expr::{LogicalPlan, lit};
 use datafusion::{common::ScalarValue, dataframe::DataFrame};
 use tracing::{debug, trace};
 
-use avenger_chart_core::{DefaultLogicalExprNodeExt, PositionedSubplotMarkCore, SharingLevel};
+use avenger_chart_core::{
+    DefaultLogicalExprNodeExt, DomainCoordination, PositionedSubplotMarkCore, SharingLevel,
+};
 
 use crate::{
     concat::compiled_subplot,
@@ -22,7 +24,7 @@ use crate::{
     partition::PartitionKeyExtractor,
     plot::compiled::{
         ChildFrameDomainRequest, CompiledPlot, ContainerPathSegment, CoordinationKind,
-        CoordinationScopeKey, aggregate_domain_requests,
+        CoordinationScopeKey, aggregate_domain_requests, apply_domain_group_to_key,
         child_frame_domain_sharing_levels_for_plot, compiled_subplot_payload_child_plot,
         container_path_without_facet_segments,
         scales::build_scale_builder_from_marks_with_facet_scope,
@@ -88,6 +90,7 @@ struct FacetChildFrameDomainInfoKey {
     relative_child_frame_path: Vec<ContainerPathSegment>,
     canonical_full_cell_path: Vec<ScalarValue>,
     channel: String,
+    domain_coordination: DomainCoordination,
     facet_depth: u8,
     preserve_child_frame_path: bool,
 }
@@ -98,6 +101,7 @@ pub(crate) struct FacetChildFrameDomainInfo {
     pub(crate) full_cell_path: Vec<ScalarValue>,
     pub(crate) channel: String,
     pub(crate) domain_sharing_level: SharingLevel,
+    pub(crate) domain_coordination: DomainCoordination,
     pub(crate) facet_depth: u8,
     pub(crate) preserve_child_frame_path: bool,
     pub(crate) extent: DomainExtent,
@@ -198,6 +202,7 @@ impl FacetScalePrecomputeStore {
                 relative_child_frame_path: info.relative_child_frame_path.clone(),
                 canonical_full_cell_path: canonicalize_path(&info.full_cell_path),
                 channel: info.channel.clone(),
+                domain_coordination: info.domain_coordination.clone(),
                 facet_depth: info.facet_depth,
                 preserve_child_frame_path: info.preserve_child_frame_path,
             };
@@ -237,23 +242,32 @@ impl FacetScalePrecomputeStore {
             }
             sharing_levels
                 .entry(info.channel.clone())
-                .and_modify(|existing: &mut (SharingLevel, bool)| {
+                .and_modify(|existing: &mut (SharingLevel, DomainCoordination, bool)| {
                     if info.domain_sharing_level > existing.0 {
-                        *existing = (info.domain_sharing_level, info.preserve_child_frame_path);
+                        *existing = (
+                            info.domain_sharing_level,
+                            info.domain_coordination.clone(),
+                            info.preserve_child_frame_path,
+                        );
                     }
                 })
-                .or_insert((info.domain_sharing_level, info.preserve_child_frame_path));
+                .or_insert((
+                    info.domain_sharing_level,
+                    info.domain_coordination.clone(),
+                    info.preserve_child_frame_path,
+                ));
         }
 
         let facet_depth = full_cell_path.len() as u8;
         sharing_levels
             .into_iter()
-            .filter_map(|(channel, (sharing_level, preserve_child_frame_path))| {
+            .filter_map(|(channel, (sharing_level, coordination, preserve_child_frame_path))| {
                 let key = child_frame_domain_coordination_scope_key(
                     relative_child_frame_path,
                     &channel,
                     full_cell_path,
                     sharing_level,
+                    &coordination,
                     facet_depth,
                     preserve_child_frame_path,
                 );
@@ -284,18 +298,19 @@ pub(crate) fn child_frame_domain_coordination_scope_key(
     channel: &str,
     full_cell_path: &[ScalarValue],
     sharing_level: SharingLevel,
+    coordination: &DomainCoordination,
     facet_depth: u8,
     preserve_child_frame_path: bool,
 ) -> CoordinationScopeKey {
     if preserve_child_frame_path {
         let ancestor_key =
             sharing_policy::domain_group_key(full_cell_path, sharing_level, facet_depth);
-        return CoordinationScopeKey::partition_path_in_container(
+        let key = CoordinationScopeKey::partition_path_in_container(
             CoordinationKind::ScaleDomain,
             relative_child_frame_path.to_vec(),
             ancestor_key,
-        )
-        .with_channel(channel);
+        );
+        return apply_domain_group_to_key(key, channel, coordination);
     }
 
     let facet_depth = facet_depth as usize;
@@ -315,12 +330,12 @@ pub(crate) fn child_frame_domain_coordination_scope_key(
         .get(..keep_child_frame_count.min(relative_child_frame_path.len()))
         .unwrap_or(relative_child_frame_path)
         .to_vec();
-    CoordinationScopeKey::partition_path_in_container(
+    let key = CoordinationScopeKey::partition_path_in_container(
         CoordinationKind::ScaleDomain,
         container_path,
         ancestor_key,
-    )
-    .with_channel(channel)
+    );
+    apply_domain_group_to_key(key, channel, coordination)
 }
 
 fn child_frame_domain_request_for_info(
@@ -333,6 +348,7 @@ fn child_frame_domain_request_for_info(
                 &info.channel,
                 &info.full_cell_path,
                 info.domain_sharing_level,
+                &info.domain_coordination,
                 info.facet_depth,
                 info.preserve_child_frame_path,
             ),
@@ -769,25 +785,29 @@ fn explicit_dataframe_for_plot(
     })
 }
 
-#[derive(Debug, Clone, Copy)]
-struct EffectiveChildFrameDomainSharing {
+#[derive(Debug, Clone)]
+struct EffectiveChildFrameDomainCoordination {
+    coordination: DomainCoordination,
     level: SharingLevel,
     preserve_child_frame_path: bool,
 }
 
 fn effective_child_frame_domain_sharing(
     channel: &str,
-    explicit_sharing: &HashMap<String, SharingLevel>,
+    explicit_sharing: &HashMap<String, DomainCoordination>,
     facet_tree: &EvaluatedFacetTree,
-) -> EffectiveChildFrameDomainSharing {
-    if let Some(level) = explicit_sharing.get(channel).copied() {
-        EffectiveChildFrameDomainSharing {
-            level,
+) -> EffectiveChildFrameDomainCoordination {
+    if let Some(coordination) = explicit_sharing.get(channel).cloned() {
+        EffectiveChildFrameDomainCoordination {
+            level: SharingLevel::from(coordination.scope),
+            coordination,
             preserve_child_frame_path: false,
         }
     } else {
-        EffectiveChildFrameDomainSharing {
-            level: facet_tree.channel_domain_sharing_level_typed(channel),
+        let level = facet_tree.channel_domain_sharing_level_typed(channel);
+        EffectiveChildFrameDomainCoordination {
+            level,
+            coordination: DomainCoordination::scale_name(level.into()),
             preserve_child_frame_path: true,
         }
     }
@@ -872,6 +892,7 @@ async fn collect_positioned_child_frame_domain_infos_for_mark(
                 full_cell_path: full_cell_path.to_vec(),
                 channel,
                 domain_sharing_level: sharing.level,
+                domain_coordination: sharing.coordination.clone(),
                 facet_depth,
                 preserve_child_frame_path: sharing.preserve_child_frame_path,
                 extent,
@@ -969,6 +990,7 @@ async fn collect_child_frame_domain_infos_for_marks(
                 full_cell_path: full_cell_path.to_vec(),
                 channel,
                 domain_sharing_level: sharing.level,
+                domain_coordination: sharing.coordination.clone(),
                 facet_depth,
                 preserve_child_frame_path: sharing.preserve_child_frame_path,
                 extent,
@@ -1188,6 +1210,7 @@ mod tests {
                 full_cell_path: vec![s_utf8("setosa")],
                 channel: "fill".to_string(),
                 domain_sharing_level: SharingLevel::GLOBAL,
+                domain_coordination: DomainCoordination::scale_name(SharingLevel::GLOBAL.into()),
                 facet_depth: 1,
                 preserve_child_frame_path: false,
                 extent: DomainExtent::discrete(vec![SerializableDomainValue::String(
@@ -1199,6 +1222,7 @@ mod tests {
                 full_cell_path: vec![s_utf8("virginica")],
                 channel: "fill".to_string(),
                 domain_sharing_level: SharingLevel::GLOBAL,
+                domain_coordination: DomainCoordination::scale_name(SharingLevel::GLOBAL.into()),
                 facet_depth: 1,
                 preserve_child_frame_path: false,
                 extent: DomainExtent::discrete(vec![SerializableDomainValue::String(
@@ -1210,6 +1234,7 @@ mod tests {
                 full_cell_path: vec![s_utf8("setosa")],
                 channel: "fill".to_string(),
                 domain_sharing_level: SharingLevel::GLOBAL,
+                domain_coordination: DomainCoordination::scale_name(SharingLevel::GLOBAL.into()),
                 facet_depth: 1,
                 preserve_child_frame_path: false,
                 extent: DomainExtent::discrete(vec![SerializableDomainValue::String(
@@ -1240,6 +1265,47 @@ mod tests {
     }
 
     #[test]
+    fn child_frame_domain_lookup_coordinates_named_groups_across_channels() {
+        let store = FacetScalePrecomputeStore::default();
+        let sepal = vec![ContainerPathSegment::concat_child(0, Some("sepal"))];
+        store.insert_child_frame_domain_infos(vec![
+            FacetChildFrameDomainInfo {
+                relative_child_frame_path: sepal.clone(),
+                full_cell_path: vec![s_utf8("setosa")],
+                channel: "x".to_string(),
+                domain_sharing_level: SharingLevel::GLOBAL,
+                domain_coordination: DomainCoordination::named(
+                    SharingLevel::GLOBAL.into(),
+                    "height",
+                )
+                .unwrap(),
+                facet_depth: 1,
+                preserve_child_frame_path: false,
+                extent: DomainExtent::numeric(0.0, 2.0),
+            },
+            FacetChildFrameDomainInfo {
+                relative_child_frame_path: sepal.clone(),
+                full_cell_path: vec![s_utf8("setosa")],
+                channel: "y".to_string(),
+                domain_sharing_level: SharingLevel::GLOBAL,
+                domain_coordination: DomainCoordination::named(
+                    SharingLevel::GLOBAL.into(),
+                    "height",
+                )
+                .unwrap(),
+                facet_depth: 1,
+                preserve_child_frame_path: false,
+                extent: DomainExtent::numeric(0.0, 101.0),
+            },
+        ]);
+
+        let extents = store.coordinated_child_frame_domain_extents(&sepal, &[s_utf8("setosa")]);
+
+        assert_eq!(extents.get("x"), Some(&DomainExtent::numeric(0.0, 101.0)));
+        assert_eq!(extents.get("y"), Some(&DomainExtent::numeric(0.0, 101.0)));
+    }
+
+    #[test]
     fn default_facet_scoped_child_frame_domains_preserve_child_path() {
         let store = FacetScalePrecomputeStore::default();
         let sepal = vec![ContainerPathSegment::concat_child(0, Some("sepal"))];
@@ -1250,6 +1316,7 @@ mod tests {
                 full_cell_path: vec![s_utf8("setosa")],
                 channel: "fill".to_string(),
                 domain_sharing_level: SharingLevel::GLOBAL,
+                domain_coordination: DomainCoordination::scale_name(SharingLevel::GLOBAL.into()),
                 facet_depth: 1,
                 preserve_child_frame_path: true,
                 extent: DomainExtent::discrete(vec![SerializableDomainValue::String(
@@ -1261,6 +1328,7 @@ mod tests {
                 full_cell_path: vec![s_utf8("virginica")],
                 channel: "fill".to_string(),
                 domain_sharing_level: SharingLevel::GLOBAL,
+                domain_coordination: DomainCoordination::scale_name(SharingLevel::GLOBAL.into()),
                 facet_depth: 1,
                 preserve_child_frame_path: true,
                 extent: DomainExtent::discrete(vec![SerializableDomainValue::String(
@@ -1272,6 +1340,7 @@ mod tests {
                 full_cell_path: vec![s_utf8("setosa")],
                 channel: "fill".to_string(),
                 domain_sharing_level: SharingLevel::GLOBAL,
+                domain_coordination: DomainCoordination::scale_name(SharingLevel::GLOBAL.into()),
                 facet_depth: 1,
                 preserve_child_frame_path: true,
                 extent: DomainExtent::discrete(vec![SerializableDomainValue::String(

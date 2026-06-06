@@ -5,7 +5,7 @@ use crate::{AvengerChartError, CoordinationScope};
 /// The scope chooses the logical owner path, while the group chooses the
 /// semantic bucket within that owner. The default group uses the resolved scale
 /// name, preserving ordinary x/y scale-domain behavior.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct DomainCoordination {
     pub scope: CoordinationScope,
     pub group: DomainCoordinationGroup,
@@ -51,7 +51,7 @@ impl Default for DomainCoordination {
 }
 
 /// Semantic group for scale-domain coordination.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum DomainCoordinationGroup {
     /// Use the resolved scale name as the coordination group.
     ScaleName,

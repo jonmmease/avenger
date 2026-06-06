@@ -38,6 +38,15 @@ impl CoordinationScopeKey {
         self
     }
 
+    pub(crate) fn with_named_group(mut self, group: impl Into<String>) -> Self {
+        self.group = CoordinationGroup::Named {
+            base: Box::new(self.group),
+            group: group.into(),
+        };
+        self.channel = None;
+        self
+    }
+
     pub(crate) fn with_kind(&self, kind: CoordinationKind) -> CoordinationScopeKey {
         Self {
             kind,
@@ -155,6 +164,10 @@ pub(crate) enum CoordinationGroup {
     ContainerGroup {
         depth: usize,
         identity: String,
+    },
+    Named {
+        base: Box<CoordinationGroup>,
+        group: String,
     },
     ContainerLane {
         axis: CoordinationAxis,

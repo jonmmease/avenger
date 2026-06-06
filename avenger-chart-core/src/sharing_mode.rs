@@ -12,7 +12,7 @@
 /// While `Shared` is semantically equivalent to `Level(u8::MAX)`, they currently
 /// follow different code paths internally for historical reasons. When you need to
 /// check if a mode represents "fully shared" behavior, use [`CoordinationScope::is_fully_shared`].
-#[derive(Copy, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CoordinationScope {
     /// Share across all facets.

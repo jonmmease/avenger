@@ -71,8 +71,8 @@ pub(crate) use self::container_band_guide::{
 };
 pub(crate) use self::container_domain_sharing::{
     ChildFrameChannelDomainExtent, ChildFrameDomainSharingInput,
-    child_frame_domain_sharing_levels_for_plot, coordinated_child_frame_domain_extents,
-    extract_child_frame_shared_domain_extents,
+    apply_domain_group_to_key, child_frame_domain_sharing_levels_for_plot,
+    coordinated_child_frame_domain_extents, extract_child_frame_shared_domain_extents,
 };
 pub(crate) use self::container_guide::{
     measure_child_frame_container_guide_overflow, render_child_frame_container_guide_labels,

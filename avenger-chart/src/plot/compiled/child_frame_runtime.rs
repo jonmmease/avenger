@@ -8,7 +8,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{common::ScalarValue, dataframe::DataFrame};
 
-use avenger_chart_core::SharingLevel;
+use avenger_chart_core::DomainCoordination;
 
 use crate::{
     error::AvengerChartError,
@@ -240,7 +240,7 @@ pub(crate) struct PreparedChildFramePlot<'a> {
     facet_data_root: Option<DataFrame>,
     scale_builder: ScaleBuilder,
     local_domain_extents: HashMap<String, ChildFrameChannelDomainExtent>,
-    channel_domain_sharing_levels: HashMap<String, SharingLevel>,
+    channel_domain_sharing_levels: HashMap<String, DomainCoordination>,
 }
 
 impl<'a> PreparedChildFramePlot<'a> {
@@ -248,7 +248,7 @@ impl<'a> PreparedChildFramePlot<'a> {
         &self.local_domain_extents
     }
 
-    pub(crate) fn channel_domain_sharing_levels(&self) -> &HashMap<String, SharingLevel> {
+    pub(crate) fn channel_domain_sharing_levels(&self) -> &HashMap<String, DomainCoordination> {
         &self.channel_domain_sharing_levels
     }
 
