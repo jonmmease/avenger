@@ -22,6 +22,7 @@ pub use avenger_chart_core::{
 };
 pub use avenger_chart_tools::{BoxZoom, LassoSelection, PanScrollZoom, PointSelection};
 
+#[derive(Clone)]
 pub(crate) struct ToolCompileContext {
     state: Arc<Mutex<ToolCompileState>>,
     coord_node_path: Vec<usize>,

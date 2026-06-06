@@ -1,0 +1,184 @@
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+use super::helpers::assert_visual_match_default;
+
+async fn repeat_data(ctx: &SessionContext) -> DataFrame {
+    ctx.sql(
+        "SELECT
+            column1 AS a,
+            column2 AS b,
+            column3 AS c,
+            column4 AS score,
+            column5 AS group_name
+         FROM (VALUES
+            (1.0, 3.2, 6.0, 1.0, 'Alpha'),
+            (1.5, 2.8, 5.5, 1.6, 'Beta'),
+            (2.1, 2.4, 5.0, 2.0, 'Alpha'),
+            (2.6, 2.0, 4.6, 2.8, 'Beta'),
+            (3.2, 1.7, 4.2, 3.1, 'Alpha'),
+            (3.8, 1.3, 3.8, 3.8, 'Beta'),
+            (4.3, 1.0, 3.3, 4.3, 'Alpha'),
+            (4.9, 0.8, 2.9, 4.9, 'Beta')
+         )",
+    )
+    .await
+    .expect("repeat visual data")
+}
+
+fn repeat_variables() -> Vec<RepeatVariable> {
+    vec![
+        RepeatVariable::new("a", col("a")).title("Alpha metric"),
+        RepeatVariable::new("b", col("b")).title("Beta metric"),
+        RepeatVariable::new("c", col("c")).title("Gamma metric"),
+    ]
+}
+
+fn repeat_variables_four() -> Vec<RepeatVariable> {
+    let mut variables = repeat_variables();
+    variables.push(RepeatVariable::new("score", col("score")).title("Score"));
+    variables
+}
+
+fn column_cell() -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().mark(
+        Symbol::new()
+            .x_with(repeat::column(), |c| {
+                c.axis(|a| a.title(repeat::column_title()))
+            })
+            .y_with(col("score"), |c| c.axis(|a| a.title("score")))
+            .fill_with(col("group_name"), |c| c.legend(|l| l.title("group")))
+            .stroke("#ffffff")
+            .stroke_width(1.0)
+            .size(72.0),
+    )
+}
+
+fn row_cell() -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().mark(
+        Symbol::new()
+            .x_with(col("score"), |c| c.axis(|a| a.title("score")))
+            .y_with(repeat::row(), |c| c.axis(|a| a.title(repeat::row_title())))
+            .fill_with(col("group_name"), |c| c.legend(|l| l.title("group")))
+            .stroke("#ffffff")
+            .stroke_width(1.0)
+            .size(72.0),
+    )
+}
+
+fn grid_cell() -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().mark(
+        Symbol::new()
+            .x_with(repeat::column(), |c| {
+                c.axis(|a| a.title(repeat::column_title()))
+            })
+            .y_with(repeat::row(), |c| c.axis(|a| a.title(repeat::row_title())))
+            .fill_with(col("group_name"), |c| c.legend(|l| l.title("group")))
+            .opacity(0.78)
+            .stroke("#ffffff")
+            .stroke_width(0.75)
+            .size(52.0),
+    )
+}
+
+fn wrap_cell() -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().mark(
+        Symbol::new()
+            .x_with(col("score"), |c| c.axis(|a| a.title("score")))
+            .y_with(repeat::item(), |c| {
+                c.axis(|a| a.title(repeat::item_title()))
+            })
+            .fill("#2f7ed8")
+            .stroke("#ffffff")
+            .stroke_width(1.0)
+            .size(72.0),
+    )
+}
+
+#[tokio::test]
+async fn repeat_columns_three_scatter() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<RepeatColumns>::new()
+        .data(repeat_data(&ctx).await)
+        .plot_size(150.0, 140.0)
+        .columns(repeat_variables())
+        .cell(column_cell());
+    let compiled = plot.compile(&ctx).await.expect("compile repeat columns");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "repeat",
+        "repeat_columns_three_scatter",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn repeat_rows_three_scatter() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<RepeatRows>::new()
+        .data(repeat_data(&ctx).await)
+        .plot_size(170.0, 115.0)
+        .rows(repeat_variables())
+        .cell(row_cell());
+    let compiled = plot.compile(&ctx).await.expect("compile repeat rows");
+    assert_visual_match_default(&compiled, &ctx, None, "repeat", "repeat_rows_three_scatter").await;
+}
+
+#[tokio::test]
+async fn repeat_grid_scatter_matrix_independent() {
+    let ctx = SessionContext::new();
+    let variables = repeat_variables();
+    let plot = Plot::<RepeatGrid>::new()
+        .data(repeat_data(&ctx).await)
+        .plot_size(120.0, 105.0)
+        .rows(variables.clone())
+        .columns(variables)
+        .cell(grid_cell());
+    let compiled = plot.compile(&ctx).await.expect("compile repeat grid");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "repeat",
+        "repeat_grid_scatter_matrix_independent",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn repeat_wrap_fixed_columns() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<RepeatWrap>::new()
+        .data(repeat_data(&ctx).await)
+        .plot_size(170.0, 130.0)
+        .items(repeat_variables())
+        .columns(2)
+        .cell(wrap_cell());
+    let compiled = plot.compile(&ctx).await.expect("compile repeat wrap");
+    assert_visual_match_default(&compiled, &ctx, None, "repeat", "repeat_wrap_fixed_columns").await;
+}
+
+#[tokio::test]
+async fn repeat_wrap_responsive_columns() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<RepeatWrap>::new()
+        .data(repeat_data(&ctx).await)
+        .plot_size(500.0, 300.0)
+        .items(repeat_variables_four())
+        .responsive_columns(210.0)
+        .cell(wrap_cell());
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile responsive repeat wrap");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "repeat",
+        "repeat_wrap_responsive_columns",
+    )
+    .await;
+}

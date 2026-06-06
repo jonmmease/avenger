@@ -70,6 +70,34 @@ impl Clone for Box<dyn SubplotChildPlotSpec> {
     }
 }
 
+#[async_trait::async_trait]
+impl SubplotChildPlotSpec for Box<dyn SubplotChildPlotSpec> {
+    fn clone_box(&self) -> Box<dyn SubplotChildPlotSpec> {
+        self.as_ref().clone_box()
+    }
+
+    fn has_plot_level_data(&self) -> bool {
+        self.as_ref().has_plot_level_data()
+    }
+
+    async fn compile_boxed(
+        &self,
+        session_context: &SessionContext,
+    ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
+        self.as_ref().compile_boxed(session_context).await
+    }
+
+    async fn compile_boxed_with_context(
+        &self,
+        session_context: &SessionContext,
+        compile_context: Option<CompileContext<'_>>,
+    ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
+        self.as_ref()
+            .compile_boxed_with_context(session_context, compile_context)
+            .await
+    }
+}
+
 /// Core view over a neutral subplot mark.
 ///
 /// This lets shared subplot helpers live below the top-level facade without

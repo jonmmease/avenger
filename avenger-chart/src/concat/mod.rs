@@ -121,6 +121,11 @@ impl WrapConcat {
         self
     }
 
+    pub(crate) fn with_column_mode(mut self, column_mode: FacetWrapColumnMode) -> Self {
+        self.column_mode = column_mode;
+        self
+    }
+
     pub fn axis_guide_visibility(mut self, policy: AxisGuideVisibilityPolicy) -> Self {
         self.axis_guide_visibility = AxisGuideVisibilityConfig::same(policy);
         self

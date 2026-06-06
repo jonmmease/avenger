@@ -79,6 +79,7 @@ pub mod test_polar_scatter;
 pub mod test_positioned_subplot_legend_sharing;
 pub mod test_positioned_subplot_scale_sharing;
 pub mod test_rect_legend;
+pub mod test_repeat;
 pub mod test_right_axis;
 pub mod test_serialization_path;
 pub mod test_symbol;

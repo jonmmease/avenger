@@ -32,9 +32,7 @@ pub mod prelude;
 pub mod render;
 // render_context moved to render/context
 pub mod maybe;
-pub mod repeat {
-    pub use avenger_chart_core::repeat::*;
-}
+pub mod repeat;
 pub mod scales;
 pub mod scene_query;
 pub mod selection;

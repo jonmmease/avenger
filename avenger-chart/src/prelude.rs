@@ -25,6 +25,7 @@ pub use crate::event::{
 };
 pub use crate::facet::coord::{FacetColumn, FacetRow, FacetWrap};
 pub use crate::repeat;
+pub use crate::repeat::{RepeatColumns, RepeatGrid, RepeatRows, RepeatWrap};
 pub use avenger_chart_cartesian::Cartesian;
 pub use avenger_chart_core::{
     AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, CoordinationScope, CursorStyle,
