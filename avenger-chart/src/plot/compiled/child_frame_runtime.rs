@@ -6,16 +6,18 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use datafusion::{common::ScalarValue, dataframe::DataFrame};
+use datafusion::{
+    common::ScalarValue, dataframe::DataFrame, logical_expr::Expr, prelude::SessionContext,
+};
 
-use avenger_chart_core::DomainCoordination;
+use avenger_chart_core::{AxisSpec, DomainCoordination};
 
 use crate::{
     error::AvengerChartError,
     facet::evaluated_facet_tree::{EvaluatedFacetTree, FacetWrapLayoutContext},
     layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
     render::EvaluationContext,
-    scales::{DomainExtent, ScaleBuilder},
+    scales::{DomainExtent, PlotScaleSpec, ScaleBuilder},
 };
 
 use super::{
@@ -252,6 +254,59 @@ impl<'a> PreparedChildFramePlot<'a> {
         &self.channel_domain_sharing_levels
     }
 
+    pub(crate) fn scale_type_signatures_by_channel(&self) -> HashMap<String, String> {
+        let mut by_channel: HashMap<String, Vec<String>> = HashMap::new();
+        for (scale_name, coord_channel) in &self.plot.scale_to_coord_channel {
+            let scale_type = self
+                .plot
+                .scale_specs
+                .get(scale_name)
+                .map(plot_scale_type_name)
+                .unwrap_or("auto");
+            by_channel
+                .entry(coord_channel.clone())
+                .or_default()
+                .push(scale_type.to_string());
+        }
+        for fallback_channel in ["x", "y"] {
+            if !by_channel.contains_key(fallback_channel)
+                && let Some(spec) = self.plot.scale_specs.get(fallback_channel)
+            {
+                by_channel
+                    .entry(fallback_channel.to_string())
+                    .or_default()
+                    .push(plot_scale_type_name(spec).to_string());
+            }
+        }
+
+        by_channel
+            .into_iter()
+            .map(|(channel, mut scale_types)| {
+                scale_types.sort();
+                (channel, scale_types.join(","))
+            })
+            .collect()
+    }
+
+    pub(crate) fn axis_config_signatures_by_channel(
+        &self,
+        ctx: &SessionContext,
+    ) -> HashMap<String, Vec<String>> {
+        self.plot
+            .axis_specs
+            .iter()
+            .map(|(channel, axis_spec)| {
+                (
+                    channel.clone(),
+                    axis_config_signature(axis_spec, ctx)
+                        .into_iter()
+                        .map(|expr| format!("{expr:?}"))
+                        .collect(),
+                )
+            })
+            .collect()
+    }
+
     pub(crate) fn data_override(&self) -> Option<&DataFrame> {
         self.data_override.as_ref()
     }
@@ -292,6 +347,22 @@ impl<'a> PreparedChildFramePlot<'a> {
             domain_extents,
         ))
         .await
+    }
+}
+
+fn axis_config_signature(axis_spec: &AxisSpec, ctx: &SessionContext) -> Vec<Expr> {
+    match axis_spec {
+        AxisSpec::Local(axis) => axis.all_exprs(ctx),
+    }
+}
+
+fn plot_scale_type_name(scale_spec: &PlotScaleSpec) -> &'static str {
+    match scale_spec {
+        PlotScaleSpec::Local(config) => config
+            .scale_spec
+            .as_option()
+            .map(|spec| spec.name())
+            .unwrap_or("auto"),
     }
 }
 

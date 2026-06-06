@@ -754,6 +754,8 @@ struct GridSemanticChild<'a> {
     child_index: usize,
     placement: GridPlacementConfig,
     channel_domain_coordinations: &'a HashMap<String, avenger_chart_core::DomainCoordination>,
+    scale_type_signatures: HashMap<String, String>,
+    axis_config_signatures: HashMap<String, Vec<String>>,
 }
 
 impl GridSemanticChild<'_> {
@@ -762,6 +764,14 @@ impl GridSemanticChild<'_> {
         channel: &str,
     ) -> Option<&avenger_chart_core::DomainCoordination> {
         self.channel_domain_coordinations.get(channel)
+    }
+
+    fn scale_type_signature_for_channel(&self, channel: &str) -> Option<&str> {
+        self.scale_type_signatures.get(channel).map(String::as_str)
+    }
+
+    fn axis_config_signature_for_channel(&self, channel: &str) -> Option<&[String]> {
+        self.axis_config_signatures.get(channel).map(Vec::as_slice)
     }
 }
 
@@ -830,11 +840,17 @@ fn strip_has_equivalent_domain_coordination(
     if SharingLevel::from(reference.scope).is_free() {
         return false;
     }
+    let reference_scale_type = reference_child.scale_type_signature_for_channel(channel);
+    let reference_axis_config = reference_child.axis_config_signature_for_channel(channel);
 
     semantic_children
         .iter()
         .filter(|child| child_in_same_axis_strip(child.placement, reference_child.placement, axis))
-        .all(|child| child.domain_coordination_for_channel(channel) == Some(reference))
+        .all(|child| {
+            child.domain_coordination_for_channel(channel) == Some(reference)
+                && child.scale_type_signature_for_channel(channel) == reference_scale_type
+                && child.axis_config_signature_for_channel(channel) == reference_axis_config
+        })
 }
 
 fn semantic_axis_guide_visibility_for_child(
@@ -1055,6 +1071,10 @@ pub(crate) async fn measure_grid_concat_coord_system(
                     channel_domain_coordinations: prepared
                         .child_plot
                         .channel_domain_sharing_levels(),
+                    scale_type_signatures: prepared.child_plot.scale_type_signatures_by_channel(),
+                    axis_config_signatures: prepared
+                        .child_plot
+                        .axis_config_signatures_by_channel(eval_ctx.session_context()),
                 })
         })
         .collect::<Vec<_>>();
@@ -1171,6 +1191,10 @@ pub(crate) async fn measure_wrap_concat_coord_system(
                 column_span: 1,
             },
             channel_domain_coordinations: prepared.child_plot.channel_domain_sharing_levels(),
+            scale_type_signatures: prepared.child_plot.scale_type_signatures_by_channel(),
+            axis_config_signatures: prepared
+                .child_plot
+                .axis_config_signatures_by_channel(eval_ctx.session_context()),
         })
         .collect::<Vec<_>>();
 
@@ -2110,6 +2134,14 @@ mod tests {
     fn semantic_child_domains<'a>(
         domains: &'a [HashMap<String, DomainCoordination>],
     ) -> Vec<GridSemanticChild<'a>> {
+        semantic_child_domains_with_compatibility(domains, &[], &[])
+    }
+
+    fn semantic_child_domains_with_compatibility<'a>(
+        domains: &'a [HashMap<String, DomainCoordination>],
+        scale_types: &[HashMap<String, String>],
+        axis_configs: &[HashMap<String, Vec<String>>],
+    ) -> Vec<GridSemanticChild<'a>> {
         domains
             .iter()
             .enumerate()
@@ -2122,6 +2154,8 @@ mod tests {
                     column_span: 1,
                 },
                 channel_domain_coordinations: domain,
+                scale_type_signatures: scale_types.get(slot_index).cloned().unwrap_or_default(),
+                axis_config_signatures: axis_configs.get(slot_index).cloned().unwrap_or_default(),
             })
             .collect()
     }
@@ -2213,6 +2247,66 @@ mod tests {
             config.horizontal.title,
             AxisGuideVisibilityPolicy::OuterEdges
         );
+    }
+
+    #[test]
+    fn semantic_axis_visibility_requires_compatible_scale_and_axis_config() {
+        let domains = vec![
+            HashMap::from([
+                ("x".to_string(), named_domain("a")),
+                ("y".to_string(), named_domain("a")),
+            ]),
+            HashMap::from([
+                ("x".to_string(), named_domain("b")),
+                ("y".to_string(), named_domain("a")),
+            ]),
+            HashMap::from([
+                ("x".to_string(), named_domain("a")),
+                ("y".to_string(), named_domain("b")),
+            ]),
+            HashMap::from([
+                ("x".to_string(), named_domain("b")),
+                ("y".to_string(), named_domain("b")),
+            ]),
+        ];
+        let scale_types = vec![
+            HashMap::from([
+                ("x".to_string(), "linear".to_string()),
+                ("y".to_string(), "linear".to_string()),
+            ]),
+            HashMap::from([
+                ("x".to_string(), "linear".to_string()),
+                ("y".to_string(), "log".to_string()),
+            ]),
+            HashMap::from([
+                ("x".to_string(), "linear".to_string()),
+                ("y".to_string(), "linear".to_string()),
+            ]),
+            HashMap::from([
+                ("x".to_string(), "linear".to_string()),
+                ("y".to_string(), "linear".to_string()),
+            ]),
+        ];
+        let axis_configs = vec![
+            HashMap::from([("x".to_string(), vec!["tick_count=5".to_string()])]),
+            HashMap::from([("x".to_string(), vec!["tick_count=5".to_string()])]),
+            HashMap::from([("x".to_string(), vec!["tick_count=8".to_string()])]),
+            HashMap::from([("x".to_string(), vec!["tick_count=5".to_string()])]),
+        ];
+        let semantic_children =
+            semantic_child_domains_with_compatibility(&domains, &scale_types, &axis_configs);
+        let config = semantic_axis_guide_visibility_for_child(
+            AxisGuideVisibilityConfig::same(
+                AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups,
+            ),
+            &semantic_children,
+            0,
+        );
+
+        assert_eq!(config.vertical.labels, AxisGuideVisibilityPolicy::All);
+        assert_eq!(config.vertical.title, AxisGuideVisibilityPolicy::All);
+        assert_eq!(config.horizontal.labels, AxisGuideVisibilityPolicy::All);
+        assert_eq!(config.horizontal.title, AxisGuideVisibilityPolicy::All);
     }
 
     #[tokio::test]
