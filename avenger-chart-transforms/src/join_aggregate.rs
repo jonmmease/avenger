@@ -1,4 +1,7 @@
-use crate::aggregate::{AggregateGroupKeySpec, AggregateMeasureSpec, AggregateOp, aggregate_expr};
+use crate::aggregate::{
+    AggregateGroupKeySpec, AggregateMeasureSpec, AggregateOp, aggregate_expr,
+    map_aggregate_group_keys, map_aggregate_measures,
+};
 use crate::common::{expr_node, simple_column_name, validate_output_names};
 use async_trait::async_trait;
 use avenger_chart_core::{
@@ -109,6 +112,16 @@ impl DataTransform for JoinAggregate {
 impl CompiledDataTransform for CompiledJoinAggregateTransform {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
         Box::new(self.clone())
+    }
+
+    fn map_exprs(
+        &self,
+        f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Box<dyn CompiledDataTransform>, AvengerChartError> {
+        Ok(Box::new(Self {
+            group_by: map_aggregate_group_keys(&self.group_by, f)?,
+            measures: map_aggregate_measures(&self.measures, f)?,
+        }))
     }
 
     async fn apply(

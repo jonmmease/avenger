@@ -3,7 +3,8 @@ use indexmap::IndexMap;
 use datafusion::{dataframe::DataFrame, prelude::SessionContext};
 
 use crate::{
-    ChannelValue, CompiledDataTransform, CoordinationScope, DataTransformStage, StoreData,
+    AvengerChartError, ChannelValue, CompiledDataTransform, CoordinationScope, DataTransformStage,
+    RepeatContext, StoreData, resolve_repeat_channel_value, resolve_repeat_placeholders,
 };
 
 /// Stores a mark's data source and channel-to-expression mappings during construction
@@ -97,6 +98,28 @@ impl DataContext {
 
     pub fn transforms(&self) -> &[DataTransformStage] {
         &self.transforms
+    }
+
+    pub fn resolve_repeat(&self, ctx: &RepeatContext) -> Result<Self, AvengerChartError> {
+        Ok(Self {
+            dataframe: self.dataframe.clone(),
+            store_data: self.store_data.clone(),
+            transforms: self
+                .transforms
+                .iter()
+                .map(|stage| stage.map_exprs(&mut |expr| resolve_repeat_placeholders(expr, ctx)))
+                .collect::<Result<_, AvengerChartError>>()?,
+            channels: self
+                .channels
+                .iter()
+                .map(|(channel, value)| {
+                    Ok((
+                        channel.clone(),
+                        resolve_repeat_channel_value(value.clone(), ctx)?,
+                    ))
+                })
+                .collect::<Result<_, AvengerChartError>>()?,
+        })
     }
 
     // Compatibility methods for tests

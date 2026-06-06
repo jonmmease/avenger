@@ -8,8 +8,8 @@ use std::{
 use avenger_chart_core::{
     Auto, AvengerChartError, ChartEventBinding, CompiledParamSpec, CompiledSelectionSpec,
     CompiledStoreSpec, CoordinateSystemCore, CoordinateSystemTransform, CoordinationScope,
-    DefaultLogicalExprNodeExt, DomainCoordination, DomainCoordinationGroup, Param, Scale,
-    Selection, Store, TimeContext,
+    DefaultLogicalExprNodeExt, DomainCoordination, DomainCoordinationGroup, Param, RepeatContext,
+    Scale, Selection, Store, TimeContext,
 };
 use avenger_chart_scales::PlotScaleSpec;
 use datafusion::prelude::lit;
@@ -26,6 +26,7 @@ pub(crate) struct ToolCompileContext {
     state: Arc<Mutex<ToolCompileState>>,
     coord_node_path: Vec<usize>,
     time_context: TimeContext,
+    repeat_context: Option<RepeatContext>,
 }
 
 impl ToolCompileContext {
@@ -34,6 +35,7 @@ impl ToolCompileContext {
             state: Arc::new(Mutex::new(ToolCompileState::default())),
             coord_node_path: Vec::new(),
             time_context,
+            repeat_context: None,
         }
     }
 
@@ -48,6 +50,7 @@ impl ToolCompileContext {
             time_context: parent
                 .map(|ctx| ctx.time_context.clone())
                 .unwrap_or_default(),
+            repeat_context: parent.and_then(|ctx| ctx.repeat_context.clone()),
         }
     }
 
@@ -60,6 +63,16 @@ impl ToolCompileContext {
         &self.time_context
     }
 
+    pub(crate) fn repeat_context(&self) -> Option<&RepeatContext> {
+        self.repeat_context.as_ref()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn with_repeat_context(mut self, repeat_context: RepeatContext) -> Self {
+        self.repeat_context = Some(repeat_context);
+        self
+    }
+
     pub(crate) fn with_coord_node_path_appended(&self, child_index: usize) -> Self {
         let mut coord_node_path = self.coord_node_path.clone();
         coord_node_path.push(child_index);
@@ -67,6 +80,7 @@ impl ToolCompileContext {
             state: self.state.clone(),
             coord_node_path,
             time_context: self.time_context.clone(),
+            repeat_context: self.repeat_context.clone(),
         }
     }
 

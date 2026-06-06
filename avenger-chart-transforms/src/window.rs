@@ -1,4 +1,7 @@
-use crate::common::{expr_node, validate_output_names, validate_unique_generated_names};
+use crate::common::{
+    expr_node, map_expr_node, map_expr_nodes, validate_output_names,
+    validate_unique_generated_names,
+};
 use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, CompiledDataTransform, DataTransform, DataTransformCompileContext,
@@ -129,6 +132,36 @@ impl DataTransform for Window {
 impl CompiledDataTransform for CompiledWindowTransform {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
         Box::new(self.clone())
+    }
+
+    fn map_exprs(
+        &self,
+        f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Box<dyn CompiledDataTransform>, AvengerChartError> {
+        Ok(Box::new(Self {
+            partition_by: map_expr_nodes(&self.partition_by, f)?,
+            order_by: self
+                .order_by
+                .iter()
+                .map(|sort| {
+                    Ok(WindowSortSpec {
+                        expr: map_expr_node(&sort.expr, f)?,
+                        ascending: sort.ascending,
+                        nulls_first: sort.nulls_first,
+                    })
+                })
+                .collect::<Result<_, AvengerChartError>>()?,
+            exprs: self
+                .exprs
+                .iter()
+                .map(|spec| {
+                    Ok(WindowExprSpec {
+                        name: spec.name.clone(),
+                        expr: map_expr_node(&spec.expr, f)?,
+                    })
+                })
+                .collect::<Result<_, AvengerChartError>>()?,
+        }))
     }
 
     async fn apply(

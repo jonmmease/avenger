@@ -6,8 +6,8 @@ use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    Auto, Axis, AxisSpec, ChannelValue, CoordinateSystem, Legend, Mark, Scale,
-    resolve_all_channel_refs, strip_trailing_numbers,
+    Auto, Axis, AxisSpec, ChannelValue, Legend, MarkState, Scale, resolve_all_channel_refs,
+    strip_trailing_numbers,
 };
 use avenger_chart_scales::PlotScaleSpec as ScaleSpec;
 
@@ -33,9 +33,9 @@ fn merge_axis_config(
     }
 }
 
-/// Extract scale, legend, and axis configurations from a mark's channels
-pub(crate) fn extract_channel_configs<C: CoordinateSystem>(
-    mark: &dyn Mark<C>,
+/// Extract scale, legend, and axis configurations from a mark state's channels.
+pub(crate) fn extract_channel_configs_from_state(
+    mark_state: &MarkState,
     ctx: &SessionContext,
     axis_specs: &mut HashMap<String, AxisSpec>,
     legends: &mut IndexMap<String, Legend>,
@@ -43,7 +43,7 @@ pub(crate) fn extract_channel_configs<C: CoordinateSystem>(
     scale_to_coord_channel: &mut HashMap<String, String>,
 ) {
     // Get all channel encodings from the mark
-    let encodings = mark.data_context().channels();
+    let encodings = mark_state.data.channels();
 
     // Resolve channel references with the proper SessionContext
     let resolved_encodings = match resolve_all_channel_refs(encodings, ctx) {
@@ -133,7 +133,7 @@ pub(crate) fn extract_channel_configs<C: CoordinateSystem>(
     // Extract explicit position-channel axis configurations from the mark after
     // ChannelValue defaults, so `.x_with(..., |c| c.axis(...))` overrides or
     // augments defaults carried by the value itself.
-    for (channel_name, axis_config) in mark.state().axis_configs.iter() {
+    for (channel_name, axis_config) in mark_state.axis_configs.iter() {
         merge_axis_config(axis_specs, channel_name, axis_config.as_ref());
     }
 }
@@ -186,8 +186,8 @@ mod tests {
         let mut legends = IndexMap::new();
         let mut scale_specs = HashMap::new();
         let mut scale_to_coord_channel = HashMap::new();
-        extract_channel_configs(
-            &mark,
+        extract_channel_configs_from_state(
+            mark.state(),
             &ctx,
             &mut axis_specs,
             &mut legends,

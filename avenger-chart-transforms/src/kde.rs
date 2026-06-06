@@ -1,4 +1,7 @@
-use crate::common::{expr_node, simple_column_name, validate_unique_generated_names};
+use crate::common::{
+    expr_node, map_expr_node, map_optional_expr_node, simple_column_name,
+    validate_unique_generated_names,
+};
 use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, CompiledDataTransform, DataTransform, DataTransformCompileContext,
@@ -213,6 +216,25 @@ impl KdeOutput {
 impl CompiledDataTransform for CompiledKdeTransform {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
         Box::new(self.clone())
+    }
+
+    fn map_exprs(
+        &self,
+        f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Box<dyn CompiledDataTransform>, AvengerChartError> {
+        Ok(Box::new(Self {
+            value: map_expr_node(&self.value, f)?,
+            group_by: self.group_by.clone(),
+            bandwidth: map_expr_node(&self.bandwidth, f)?,
+            counts: self.counts,
+            cumulative: self.cumulative,
+            extent_start: map_optional_expr_node(&self.extent_start, f)?,
+            extent_stop: map_optional_expr_node(&self.extent_stop, f)?,
+            resolve: self.resolve,
+            steps: map_expr_node(&self.steps, f)?,
+            value_name: self.value_name.clone(),
+            density_name: self.density_name.clone(),
+        }))
     }
 
     async fn apply(

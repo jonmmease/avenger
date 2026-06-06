@@ -9,7 +9,8 @@ use datafusion::dataframe::DataFrame;
 use datafusion_proto::protobuf::LogicalExprNode;
 
 use crate::{
-    AvengerChartError, Axis, CompiledDataContext, DataContext, FacetDataScope, SerializableExpr,
+    AvengerChartError, Axis, CompiledDataContext, DataContext, DefaultLogicalExprNodeExt,
+    FacetDataScope, RepeatContext, SerializableExpr, resolve_repeat_placeholders,
 };
 
 pub fn validate_structural_id(kind: &str, id: &str) -> Result<(), AvengerChartError> {
@@ -123,5 +124,33 @@ impl CompiledMarkState {
     pub fn with_mark_index(mut self, mark_index: usize) -> Self {
         self.mark_index = mark_index;
         self
+    }
+}
+
+impl MarkState {
+    pub fn resolve_repeat(&self, ctx: &RepeatContext) -> Result<Self, AvengerChartError> {
+        let mut resolved = self.clone();
+        resolved.data = self.data.resolve_repeat(ctx)?;
+        resolved.visible = self
+            .visible
+            .clone()
+            .map(|node| {
+                LogicalExprNode::from_default_expr(resolve_repeat_placeholders(
+                    node.to_default_expr(&datafusion::prelude::SessionContext::new())?,
+                    ctx,
+                )?)
+            })
+            .transpose()?;
+        resolved.axis_configs = self
+            .axis_configs
+            .iter()
+            .map(|(channel, axis)| {
+                let mapped = axis
+                    .as_ref()
+                    .map_exprs(&mut |expr| resolve_repeat_placeholders(expr, ctx))?;
+                Ok((channel.clone(), Arc::from(mapped)))
+            })
+            .collect::<Result<_, AvengerChartError>>()?;
+        Ok(resolved)
     }
 }

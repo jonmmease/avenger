@@ -1,4 +1,4 @@
-use crate::common::{expr_node, sanitize_output_name, validate_output_names};
+use crate::common::{expr_node, map_expr_node, sanitize_output_name, validate_output_names};
 use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, ChannelExpr, CompiledDataTransform, DataTransform,
@@ -322,6 +322,34 @@ impl LumpOutput {
 impl CompiledDataTransform for CompiledLumpTransform {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
         Box::new(self.clone())
+    }
+
+    fn map_exprs(
+        &self,
+        f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Box<dyn CompiledDataTransform>, AvengerChartError> {
+        Ok(Box::new(Self {
+            value: map_expr_node(&self.value, f)?,
+            top_n: map_expr_node(&self.top_n, f)?,
+            order_by: map_expr_node(&self.order_by, f)?,
+            order_descending: self.order_descending,
+            window: map_expr_node(&self.window, f)?,
+            keep: map_expr_node(&self.keep, f)?,
+            other_mode: match &self.other_mode {
+                LumpOtherMode::DefaultStringOther => LumpOtherMode::DefaultStringOther,
+                LumpOtherMode::Value { expr } => LumpOtherMode::Value {
+                    expr: map_expr_node(expr, f)?,
+                },
+                LumpOtherMode::Drop => LumpOtherMode::Drop,
+            },
+            value_name: self.value_name.clone(),
+            rank_name: self.rank_name.clone(),
+            measure_name: self.measure_name.clone(),
+            is_other_name: self.is_other_name.clone(),
+            order_name: self.order_name.clone(),
+            order_is_other_name: self.order_is_other_name.clone(),
+            order_rank_name: self.order_rank_name.clone(),
+        }))
     }
 
     async fn apply(

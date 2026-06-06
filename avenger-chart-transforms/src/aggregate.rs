@@ -1,4 +1,6 @@
-use crate::common::{expr_node, simple_column_name, validate_output_names};
+use crate::common::{
+    expr_node, map_expr_node, map_optional_expr_node, simple_column_name, validate_output_names,
+};
 use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, CompiledDataTransform, DataTransform, DataTransformCompileContext,
@@ -162,6 +164,16 @@ impl CompiledDataTransform for CompiledAggregateTransform {
         Box::new(self.clone())
     }
 
+    fn map_exprs(
+        &self,
+        f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Box<dyn CompiledDataTransform>, AvengerChartError> {
+        Ok(Box::new(Self {
+            group_by: map_aggregate_group_keys(&self.group_by, f)?,
+            measures: map_aggregate_measures(&self.measures, f)?,
+        }))
+    }
+
     async fn apply(
         &self,
         dataframe: DataFrame,
@@ -206,6 +218,37 @@ impl CompiledDataTransform for CompiledAggregateTransform {
             .map_err(AvengerChartError::DataFusionError)?;
         Ok(DataTransformResult::dataframe(dataframe))
     }
+}
+
+pub(crate) fn map_aggregate_group_keys(
+    group_by: &[AggregateGroupKeySpec],
+    f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+) -> Result<Vec<AggregateGroupKeySpec>, AvengerChartError> {
+    group_by
+        .iter()
+        .map(|group| {
+            Ok(AggregateGroupKeySpec {
+                expr: map_expr_node(&group.expr, f)?,
+                alias: group.alias.clone(),
+            })
+        })
+        .collect()
+}
+
+pub(crate) fn map_aggregate_measures(
+    measures: &[AggregateMeasureSpec],
+    f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+) -> Result<Vec<AggregateMeasureSpec>, AvengerChartError> {
+    measures
+        .iter()
+        .map(|measure| {
+            Ok(AggregateMeasureSpec {
+                name: measure.name.clone(),
+                op: measure.op,
+                expr: map_optional_expr_node(&measure.expr, f)?,
+            })
+        })
+        .collect()
 }
 
 pub(crate) fn aggregate_expr(

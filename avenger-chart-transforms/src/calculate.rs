@@ -1,4 +1,4 @@
-use crate::common::{expr_node, validate_generated_name};
+use crate::common::{expr_node, map_expr_node, validate_generated_name};
 use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, CompiledDataTransform, DataTransform, DataTransformCompileContext,
@@ -68,6 +68,24 @@ impl DataTransform for Calculate {
 impl CompiledDataTransform for CompiledCalculateTransform {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
         Box::new(self.clone())
+    }
+
+    fn map_exprs(
+        &self,
+        f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Box<dyn CompiledDataTransform>, AvengerChartError> {
+        Ok(Box::new(Self {
+            exprs: self
+                .exprs
+                .iter()
+                .map(|spec| {
+                    Ok(CalculateExprSpec {
+                        name: spec.name.clone(),
+                        expr: map_expr_node(&spec.expr, f)?,
+                    })
+                })
+                .collect::<Result<_, AvengerChartError>>()?,
+        }))
     }
 
     async fn apply(

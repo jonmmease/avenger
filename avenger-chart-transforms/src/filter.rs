@@ -1,4 +1,4 @@
-use crate::common::expr_node;
+use crate::common::{expr_node, map_expr_node};
 use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, CompiledDataTransform, DataTransform, DataTransformCompileContext,
@@ -55,6 +55,15 @@ impl DataTransform for Filter {
 impl CompiledDataTransform for CompiledFilterTransform {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
         Box::new(self.clone())
+    }
+
+    fn map_exprs(
+        &self,
+        f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Box<dyn CompiledDataTransform>, AvengerChartError> {
+        Ok(Box::new(Self {
+            predicate: map_expr_node(&self.predicate, f)?,
+        }))
     }
 
     async fn apply(

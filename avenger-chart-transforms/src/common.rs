@@ -1,10 +1,34 @@
 use avenger_chart_core::{AvengerChartError, DefaultLogicalExprNodeExt};
 use datafusion::logical_expr::Expr;
+use datafusion::prelude::SessionContext;
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
 
 pub(crate) fn expr_node(expr: Expr, label: &str) -> LogicalExprNode {
     LogicalExprNode::from_default_expr(expr).expect(label)
+}
+
+pub(crate) fn map_expr_node(
+    node: &LogicalExprNode,
+    f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+) -> Result<LogicalExprNode, AvengerChartError> {
+    let ctx = SessionContext::new();
+    let expr = node.to_default_expr(&ctx)?;
+    LogicalExprNode::from_default_expr(f(expr)?)
+}
+
+pub(crate) fn map_optional_expr_node(
+    node: &Option<LogicalExprNode>,
+    f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+) -> Result<Option<LogicalExprNode>, AvengerChartError> {
+    node.as_ref().map(|node| map_expr_node(node, f)).transpose()
+}
+
+pub(crate) fn map_expr_nodes(
+    nodes: &[LogicalExprNode],
+    f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+) -> Result<Vec<LogicalExprNode>, AvengerChartError> {
+    nodes.iter().map(|node| map_expr_node(node, f)).collect()
 }
 
 pub(crate) fn simple_column_name(expr: &Expr) -> Option<String> {

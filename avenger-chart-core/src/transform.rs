@@ -1,5 +1,7 @@
 use async_trait::async_trait;
-use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
+use datafusion::{
+    common::ScalarValue, dataframe::DataFrame, logical_expr::Expr, prelude::SessionContext,
+};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
@@ -29,6 +31,13 @@ impl DataTransformCompileContext {
 pub trait CompiledDataTransform: Send + Sync {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform>;
 
+    fn map_exprs(
+        &self,
+        _f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Box<dyn CompiledDataTransform>, AvengerChartError> {
+        Ok(self.clone_box())
+    }
+
     async fn apply(
         &self,
         dataframe: DataFrame,
@@ -54,6 +63,16 @@ impl DataTransformStage {
             scope: scope.to_normalized(),
             transform,
         }
+    }
+
+    pub fn map_exprs(
+        &self,
+        f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(Self {
+            scope: self.scope,
+            transform: self.transform.map_exprs(f)?,
+        })
     }
 }
 

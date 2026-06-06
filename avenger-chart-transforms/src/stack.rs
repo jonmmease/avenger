@@ -1,4 +1,6 @@
-use crate::common::{expr_node, sanitize_output_name, validate_output_names};
+use crate::common::{
+    expr_node, map_expr_node, map_expr_nodes, sanitize_output_name, validate_output_names,
+};
 use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, ChannelExpr, CompiledDataTransform, DataTransform,
@@ -194,6 +196,31 @@ impl StackOutput {
 impl CompiledDataTransform for CompiledStackTransform {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
         Box::new(self.clone())
+    }
+
+    fn map_exprs(
+        &self,
+        f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Box<dyn CompiledDataTransform>, AvengerChartError> {
+        Ok(Box::new(Self {
+            value: map_expr_node(&self.value, f)?,
+            group_by: map_expr_nodes(&self.group_by, f)?,
+            sort_by: self
+                .sort_by
+                .iter()
+                .map(|sort| {
+                    Ok(TransformSortSpec {
+                        expr: map_expr_node(&sort.expr, f)?,
+                        ascending: sort.ascending,
+                        nulls_first: sort.nulls_first,
+                    })
+                })
+                .collect::<Result<_, AvengerChartError>>()?,
+            offset: self.offset,
+            start_name: self.start_name.clone(),
+            end_name: self.end_name.clone(),
+            value_name: self.value_name.clone(),
+        }))
     }
 
     async fn apply(

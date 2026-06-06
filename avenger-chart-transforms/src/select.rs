@@ -1,5 +1,6 @@
 use crate::common::{
-    expr_node, select_output_name, validate_generated_name, validate_unique_generated_names,
+    expr_node, map_expr_node, select_output_name, validate_generated_name,
+    validate_unique_generated_names,
 };
 use async_trait::async_trait;
 use avenger_chart_core::{
@@ -65,6 +66,23 @@ impl DataTransform for Select {
 impl CompiledDataTransform for CompiledSelectTransform {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
         Box::new(self.clone())
+    }
+
+    fn map_exprs(
+        &self,
+        f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Box<dyn CompiledDataTransform>, AvengerChartError> {
+        Ok(Box::new(Self {
+            exprs: self
+                .exprs
+                .iter()
+                .map(|spec| {
+                    Ok(SelectExprSpec {
+                        expr: map_expr_node(&spec.expr, f)?,
+                    })
+                })
+                .collect::<Result<_, AvengerChartError>>()?,
+        }))
     }
 
     async fn apply(

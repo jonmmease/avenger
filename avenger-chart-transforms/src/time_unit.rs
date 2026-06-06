@@ -1,4 +1,6 @@
-use crate::common::{expr_node, sanitize_output_name, validate_output_names};
+use crate::common::{
+    expr_node, map_expr_node, map_optional_expr_node, sanitize_output_name, validate_output_names,
+};
 use async_trait::async_trait;
 use avenger_chart_cartesian::CartesianAxis;
 use avenger_chart_core::{
@@ -221,6 +223,24 @@ impl TimeUnitOutput {
 impl CompiledDataTransform for CompiledTimeUnitTransform {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
         Box::new(self.clone())
+    }
+
+    fn map_exprs(
+        &self,
+        f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Box<dyn CompiledDataTransform>, AvengerChartError> {
+        Ok(Box::new(Self {
+            value: map_expr_node(&self.value, f)?,
+            maxbins: map_optional_expr_node(&self.maxbins, f)?,
+            units: self.units.clone(),
+            time_context: self.time_context.clone(),
+            interval: self.interval,
+            start_name: self.start_name.clone(),
+            end_name: self.end_name.clone(),
+            domain_start_scalar_id: self.domain_start_scalar_id.clone(),
+            domain_end_scalar_id: self.domain_end_scalar_id.clone(),
+            tick_spacing_scalar_id: self.tick_spacing_scalar_id.clone(),
+        }))
     }
 
     async fn apply(

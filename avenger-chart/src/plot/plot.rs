@@ -13,8 +13,9 @@ use avenger_chart_core::{
     AvengerChartError, AxisGuideVisibilityPolicy, AxisSpec, ChartTool, CompileContext,
     CompiledMark, CompiledMarkState, CompiledParamSpec, CompiledSelectionSpec,
     CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, CoordinationScope,
-    DomainCoordination, IntoExpr, Legend, LegendSurfaceKind, Mark, MarkDataMode, Param, Selection,
-    Store, SubplotChildPlotSpec, Theme, TimeContext, compile_selections, validate_structural_id,
+    DomainCoordination, IntoExpr, Legend, LegendSurfaceKind, Mark, MarkDataMode, MarkState, Param,
+    RepeatContext, Selection, Store, SubplotChildPlotSpec, Theme, TimeContext, compile_selections,
+    validate_structural_id,
 };
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
 
@@ -220,9 +221,10 @@ impl<C: CoordinateSystem> Plot<C> {
         let mut pre_tool_legends: IndexMap<String, Legend> = self.legends.clone();
         let mut pre_tool_scale_specs: HashMap<String, ScaleSpec> = self.scale_specs.clone();
         let mut pre_tool_scale_to_coord_channel: HashMap<String, String> = HashMap::new();
-        for mark in &self.marks {
-            crate::plot::channel::extract_channel_configs(
-                mark.as_ref(),
+        let pre_tool_mark_states = resolve_mark_states(&self.marks, tool_context.repeat_context())?;
+        for mark_state in &pre_tool_mark_states {
+            crate::plot::channel::extract_channel_configs_from_state(
+                mark_state,
                 session_context,
                 &mut pre_tool_axis_specs,
                 &mut pre_tool_legends,
@@ -230,7 +232,8 @@ impl<C: CoordinateSystem> Plot<C> {
                 &mut pre_tool_scale_to_coord_channel,
             );
         }
-        let pre_tool_scale_coordination = scale_domain_coordinations(&self.marks)?;
+        let pre_tool_scale_coordination =
+            scale_domain_coordinations_from_states(&pre_tool_mark_states)?;
         let tool_scale_targets = discover_tool_scale_targets(
             coord_transform.as_ref(),
             &pre_tool_scale_to_coord_channel,
@@ -258,11 +261,12 @@ impl<C: CoordinateSystem> Plot<C> {
             marks.extend(active.expansion.marks.iter().cloned());
         }
         validate_sibling_mark_ids(&marks)?;
+        let resolved_mark_states = resolve_mark_states(&marks, tool_context.repeat_context())?;
 
         // 1. Extract and merge channel configs from all marks with proper SessionContext
-        for mark in &marks {
-            crate::plot::channel::extract_channel_configs(
-                mark.as_ref(),
+        for mark_state in &resolved_mark_states {
+            crate::plot::channel::extract_channel_configs_from_state(
+                mark_state,
                 session_context,
                 &mut axis_specs,
                 &mut legends,
@@ -271,7 +275,7 @@ impl<C: CoordinateSystem> Plot<C> {
             );
         }
 
-        let scale_coordination = scale_domain_coordinations(&marks)?;
+        let scale_coordination = scale_domain_coordinations_from_states(&resolved_mark_states)?;
         tool_context.apply_scale_edits(
             &active_tool_expansions,
             coord_transform.as_ref(),
@@ -284,8 +288,9 @@ impl<C: CoordinateSystem> Plot<C> {
         // runtime so faceted marks aggregate after mark-level data scope has been
         // resolved.
         let mut compiled_marks: Vec<Arc<dyn CompiledMark>> = Vec::new();
-        for (mark_index, m) in marks.iter().enumerate() {
-            let mark_state = m.state();
+        for (mark_index, (m, mark_state)) in
+            marks.iter().zip(resolved_mark_states.iter()).enumerate()
+        {
             // Get the DataFrame (or use plot-level data)
             let df_opt = if mark_state.data_mode == MarkDataMode::Unit {
                 None
@@ -677,12 +682,19 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 }
 
-fn scale_domain_coordinations<C: CoordinateSystem>(
-    marks: &[Arc<dyn Mark<C>>],
+fn scale_domain_coordinations_from_states(
+    states: &[MarkState],
+) -> Result<HashMap<String, DomainCoordination>, AvengerChartError> {
+    let state_refs = states.iter().collect::<Vec<_>>();
+    scale_domain_coordinations_from_state_refs(&state_refs)
+}
+
+fn scale_domain_coordinations_from_state_refs(
+    states: &[&MarkState],
 ) -> Result<HashMap<String, DomainCoordination>, AvengerChartError> {
     let mut result: HashMap<String, DomainCoordination> = HashMap::new();
-    for mark in marks {
-        for (channel_name, channel_value) in mark.data_context().channels() {
+    for state in states {
+        for (channel_name, channel_value) in state.data.channels() {
             let Some(scale_name) = channel_value.get_scale_name(channel_name) else {
                 continue;
             };
@@ -708,6 +720,24 @@ fn scale_domain_coordinations<C: CoordinateSystem>(
         }
     }
     Ok(result)
+}
+
+fn resolve_mark_states<C: CoordinateSystem>(
+    marks: &[Arc<dyn Mark<C>>],
+    repeat_context: Option<&RepeatContext>,
+) -> Result<Vec<MarkState>, AvengerChartError> {
+    let empty_repeat_context;
+    let repeat_context = match repeat_context {
+        Some(repeat_context) => repeat_context,
+        None => {
+            empty_repeat_context = RepeatContext::default();
+            &empty_repeat_context
+        }
+    };
+    marks
+        .iter()
+        .map(|mark| mark.state().resolve_repeat(repeat_context))
+        .collect()
 }
 
 fn validate_sibling_mark_ids<C: CoordinateSystem>(
@@ -782,9 +812,47 @@ async fn compile_colorbar_overlays(
 mod tests {
     use super::*;
     use crate::cartesian::Cartesian;
+    use crate::tools::ToolCompileContext;
     use avenger_chart_cartesian::CartesianSymbolPositionChannels;
+    use avenger_chart_core::{
+        RepeatContext, ResolvedRepeatVariable, collect_repeat_placeholder_kinds, repeat,
+    };
     use avenger_chart_marks::Symbol;
-    use datafusion::prelude::{SessionContext, lit};
+    use avenger_chart_transforms::Calculate;
+    use datafusion::{
+        arrow::{
+            array::Float64Array,
+            datatypes::{DataType, Field, Schema},
+            record_batch::RecordBatch,
+        },
+        prelude::{SessionContext, col, lit},
+    };
+    use std::sync::Arc;
+
+    fn resolved_repeat(id: &str) -> ResolvedRepeatVariable {
+        ResolvedRepeatVariable {
+            id: id.to_string(),
+            expr: col(id),
+            title: id.to_string(),
+            type_hint: None,
+        }
+    }
+
+    fn column_repeat_context(id: &str, index: usize, count: usize) -> RepeatContext {
+        RepeatContext::new().with_column(resolved_repeat(id), index, count)
+    }
+
+    async fn compile_with_repeat_context(
+        plot: Plot<Cartesian>,
+        ctx: &SessionContext,
+        repeat_context: RepeatContext,
+    ) -> CompiledPlot {
+        let tool_context =
+            ToolCompileContext::root(TimeContext::default()).with_repeat_context(repeat_context);
+        plot.compile_with_tool_context(ctx, Some(&tool_context), true)
+            .await
+            .expect("plot compiles with repeat context")
+    }
 
     #[tokio::test]
     async fn mark_id_is_accepted_on_regular_mark() {
@@ -823,5 +891,103 @@ mod tests {
             Err(err) => err,
         };
         assert!(err.to_string().contains("Duplicate mark id 'points'"));
+    }
+
+    #[tokio::test]
+    async fn repeat_context_resolves_mark_channel_placeholders_during_compile() {
+        let ctx = SessionContext::new();
+        let template = || {
+            Plot::<Cartesian>::new().mark(Symbol::new().x(repeat::column()).y(lit(1.0)).size(64.0))
+        };
+
+        let compiled_a =
+            compile_with_repeat_context(template(), &ctx, column_repeat_context("a", 0, 2)).await;
+        let compiled_b =
+            compile_with_repeat_context(template(), &ctx, column_repeat_context("b", 1, 2)).await;
+
+        let x_a = compiled_a.marks[0]
+            .data_context()
+            .channels()
+            .get("x")
+            .expect("x channel")
+            .expr(&ctx)
+            .expect("x expr");
+        let x_b = compiled_b.marks[0]
+            .data_context()
+            .channels()
+            .get("x")
+            .expect("x channel")
+            .expr(&ctx)
+            .expect("x expr");
+
+        assert_eq!(x_a.to_string(), "a");
+        assert_eq!(x_b.to_string(), "b");
+        assert!(
+            collect_repeat_placeholder_kinds(&x_a)
+                .expect("collect")
+                .is_empty()
+        );
+        assert!(
+            collect_repeat_placeholder_kinds(&x_b)
+                .expect("collect")
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn repeat_context_resolves_transform_inputs_during_evaluate() {
+        let ctx = SessionContext::new();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("a", DataType::Float64, false),
+            Field::new("b", DataType::Float64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0])),
+                Arc::new(Float64Array::from(vec![10.0, 20.0, 30.0])),
+            ],
+        )
+        .expect("record batch");
+        let df = ctx.read_batch(batch).expect("dataframe");
+
+        let template = || {
+            Plot::<Cartesian>::new()
+                .data(df.clone())
+                .mark(Symbol::new().transform_no_output(
+                    Calculate::new().expr("repeated", repeat::column()),
+                    |mark| mark.x(col("repeated")).y(lit(1.0)).size(64.0),
+                ))
+        };
+
+        let compiled_a =
+            compile_with_repeat_context(template(), &ctx, column_repeat_context("a", 0, 2)).await;
+        let evaluated_a = compiled_a
+            .evaluate(&ctx, None)
+            .await
+            .expect("evaluates with repeat-resolved transform input");
+        assert!(evaluated_a.scene_graph.width > 0.0);
+
+        let compiled_b =
+            compile_with_repeat_context(template(), &ctx, column_repeat_context("b", 1, 2)).await;
+        let evaluated_b = compiled_b
+            .evaluate(&ctx, None)
+            .await
+            .expect("evaluates with second repeat-resolved transform input");
+        assert!(evaluated_b.scene_graph.width > 0.0);
+    }
+
+    #[tokio::test]
+    async fn repeat_placeholder_without_context_errors_during_compile() {
+        let ctx = SessionContext::new();
+        let err = match Plot::<Cartesian>::new()
+            .mark(Symbol::new().x(repeat::column()).y(lit(1.0)))
+            .compile(&ctx)
+            .await
+        {
+            Ok(_) => panic!("repeat placeholder without context should error"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("repeat::column()"), "{err}");
     }
 }
