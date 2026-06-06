@@ -154,6 +154,13 @@ impl Plot<crate::concat::GridConcat> {
     }
 }
 
+impl Plot<crate::concat::WrapConcat> {
+    pub fn columns(mut self, expr: impl IntoExpr) -> Self {
+        self.coord_system = self.coord_system.clone().columns(expr);
+        self
+    }
+}
+
 impl<C: CoordinateSystem + Default> Default for Plot<C> {
     fn default() -> Self {
         Self::with_coord(C::default())

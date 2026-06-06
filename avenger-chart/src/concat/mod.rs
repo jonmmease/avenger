@@ -43,6 +43,11 @@ use crate::{
     scales::{DomainExtent, ScaleRangeBinding},
     theme::Theme,
 };
+use avenger_chart_core::{
+    DefaultLogicalExprNodeExt, ExprHelpers, FacetWrapColumnMode, IntoExpr, contains_aggregate,
+    params_to_datafusion,
+};
+use datafusion_proto::protobuf::LogicalExprNode;
 
 use subplot::GridPlacementConfig;
 
@@ -73,6 +78,38 @@ impl VConcat {
 pub struct GridConcat {
     rows: Option<usize>,
     columns: Option<usize>,
+}
+
+/// Row-major wrapped concatenation of `Subplot` marks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WrapConcat {
+    column_mode: FacetWrapColumnMode,
+}
+
+impl Default for WrapConcat {
+    fn default() -> Self {
+        Self {
+            column_mode: FacetWrapColumnMode::Auto,
+        }
+    }
+}
+
+impl WrapConcat {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn columns(mut self, expr: impl IntoExpr) -> Self {
+        self.column_mode = FacetWrapColumnMode::Fixed(
+            LogicalExprNode::from_default_expr(expr.into_expr())
+                .expect("Failed to serialize wrap concat columns expression"),
+        );
+        self
+    }
+
+    pub(crate) fn column_mode(&self) -> &FacetWrapColumnMode {
+        &self.column_mode
+    }
 }
 
 impl GridConcat {
@@ -134,6 +171,20 @@ impl CoordinateSystemCore for GridConcat {
 }
 
 impl CoordinateSystem for GridConcat {
+    type Guide = ConcatGuide;
+
+    fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
+    }
+}
+
+impl CoordinateSystemCore for WrapConcat {
+    fn required_channels(&self) -> &'static [&'static str] {
+        &[]
+    }
+}
+
+impl CoordinateSystem for WrapConcat {
     type Guide = ConcatGuide;
 
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
@@ -356,6 +407,45 @@ impl CoordinateSystemTransformCore for GridConcat {
 
 #[typetag::serde]
 impl CoordinateSystemTransform for GridConcat {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
+    }
+}
+
+impl CoordinateSystemTransformCore for WrapConcat {
+    fn required_channels(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    fn transform(
+        &self,
+        position_channels: &HashMap<&str, ScalarOrArray<f32>>,
+        position_values: Option<&HashMap<&str, Vec<ScalarValue>>>,
+        plot_width: f32,
+        plot_height: f32,
+    ) -> Result<Box<dyn PlotGeometry>, AvengerChartError> {
+        container_point_geometry(position_channels, position_values, plot_width, plot_height)
+    }
+
+    fn default_range_binding(&self, _channel: &str) -> Option<ScaleRangeBinding> {
+        None
+    }
+
+    fn default_scale_options(
+        &self,
+        _channel: &str,
+        _scale_impl: &dyn ScaleImpl,
+    ) -> HashMap<String, ScalarValue> {
+        HashMap::new()
+    }
+}
+
+#[typetag::serde]
+impl CoordinateSystemTransform for WrapConcat {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -807,6 +897,139 @@ pub(crate) async fn measure_grid_concat_coord_system(
     }))
 }
 
+pub(crate) async fn measure_wrap_concat_coord_system(
+    wrap: &WrapConcat,
+    plot_width: f32,
+    plot_height: f32,
+    eval_ctx: &EvaluationContext,
+    data: Option<&DataFrame>,
+    compiled_marks: &[Arc<dyn CompiledMark>],
+    facet_path: &[ScalarValue],
+) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
+    let subplots = compiled_marks
+        .iter()
+        .filter_map(|mark| compiled_subplot(mark.as_ref()))
+        .collect::<Vec<_>>();
+    let child_count = subplots.len();
+    let columns = resolve_wrap_concat_columns(
+        wrap.column_mode(),
+        child_count,
+        eval_ctx.session_context().as_ref(),
+        eval_ctx.params(),
+    )
+    .await?;
+    let rows = child_count.div_ceil(columns).max(1);
+    let child_plot_area = Size2D::new(
+        plot_width / columns.max(1) as f32,
+        plot_height / rows.max(1) as f32,
+    );
+
+    let mut prepared_children = Vec::with_capacity(subplots.len());
+    for subplot in subplots {
+        prepared_children.push(Box::pin(prepare_concat_child(subplot, eval_ctx, data)).await?);
+    }
+
+    let coordinated_domain_extents =
+        coordinated_domain_extents_for_concat_children(&prepared_children);
+
+    let mut children = Vec::with_capacity(prepared_children.len());
+    for (slot_index, (prepared, coordinated_extents)) in prepared_children
+        .iter()
+        .zip(coordinated_domain_extents.iter())
+        .enumerate()
+    {
+        let facet_scoped_extents = eval_ctx
+            .facet_scale_precompute_store()
+            .coordinated_child_frame_domain_extents(
+                &prepared.relative_facet_child_frame_path,
+                facet_path,
+            );
+        let mut child = Box::pin(measure_prepared_concat_child(
+            prepared,
+            ChildFrameSharingLevel::grid_concat_child(
+                prepared.child_index(),
+                child_count,
+                prepared.key(),
+            ),
+            child_plot_area,
+            eval_ctx,
+            facet_path,
+            coordinated_extents,
+            &facet_scoped_extents,
+        ))
+        .await?;
+        child.grid_placement = Some(GridPlacementConfig {
+            row: slot_index / columns,
+            column: slot_index % columns,
+            row_span: 1,
+            column_span: 1,
+        });
+        children.push(child);
+    }
+
+    let placement = grid_child_frame_placement(&children, GridShape { rows, columns })?;
+    Ok(Box::new(ConcatCoordMeasurement {
+        children,
+        placement: ConcatChildPlacement::Grid(placement),
+        fallback_content_size: Size2D::new(plot_width, plot_height),
+    }))
+}
+
+async fn resolve_wrap_concat_columns(
+    column_mode: &FacetWrapColumnMode,
+    child_count: usize,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+) -> Result<usize, AvengerChartError> {
+    match column_mode {
+        FacetWrapColumnMode::Auto => Ok((child_count.max(1) as f64).sqrt().ceil() as usize),
+        FacetWrapColumnMode::Fixed(expr) => {
+            let expr = expr.to_expr(ctx)?;
+            if contains_aggregate(&expr) || expr.any_column_refs() {
+                return Err(AvengerChartError::InvalidArgument(
+                    "WrapConcat columns expression must be a constant or parameter expression"
+                        .to_string(),
+                ));
+            }
+            let datafusion_params = params_to_datafusion(params);
+            let scalar = expr
+                .eval_to_scalar(Some(ctx), datafusion_params.as_ref())
+                .await
+                .map_err(AvengerChartError::DataFusionError)?;
+            scalar_to_columns(scalar, "WrapConcat columns expression")
+        }
+        FacetWrapColumnMode::ResponsiveWidth(_) => Err(AvengerChartError::InvalidArgument(
+            "WrapConcat responsive_columns is not implemented yet".to_string(),
+        )),
+    }
+}
+
+fn scalar_to_columns(value: ScalarValue, label: &str) -> Result<usize, AvengerChartError> {
+    let columns = match value {
+        ScalarValue::Int8(Some(v)) => v as i64,
+        ScalarValue::Int16(Some(v)) => v as i64,
+        ScalarValue::Int32(Some(v)) => v as i64,
+        ScalarValue::Int64(Some(v)) => v,
+        ScalarValue::UInt8(Some(v)) => v as i64,
+        ScalarValue::UInt16(Some(v)) => v as i64,
+        ScalarValue::UInt32(Some(v)) => v as i64,
+        ScalarValue::UInt64(Some(v)) => i64::try_from(v).unwrap_or(i64::MAX),
+        ScalarValue::Float32(Some(v)) => v.round() as i64,
+        ScalarValue::Float64(Some(v)) => v.round() as i64,
+        other => {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "{label} must evaluate to a positive number, got {other:?}"
+            )));
+        }
+    };
+    if columns < 1 {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "{label} must evaluate to a positive number, got {columns}"
+        )));
+    }
+    Ok(columns as usize)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct GridShape {
     rows: usize,
@@ -1198,6 +1421,12 @@ mod tests {
             .mark(Subplot::new(zero_plot()).key(right_key))
     }
 
+    fn wrapped_zero_plot(count: usize) -> Plot<WrapConcat> {
+        (0..count).fold(Plot::<WrapConcat>::new(), |plot, idx| {
+            plot.mark(Subplot::new(zero_plot()).key(format!("child-{idx}")))
+        })
+    }
+
     #[tokio::test]
     async fn hconcat_measurement_exposes_child_frame_container_view()
     -> Result<(), AvengerChartError> {
@@ -1409,6 +1638,103 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(targets, vec![Some(vec![0]), Some(vec![1])]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn wrap_concat_auto_columns_use_ceil_sqrt() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = wrapped_zero_plot(5).compile(&ctx).await?;
+
+        let measurement = measurement_for_plot(&compiled, 300.0, 200.0, &ctx).await?;
+        let concat = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<ConcatCoordMeasurement>()
+            .expect("WrapConcat should measure as ConcatCoordMeasurement");
+        assert_eq!(concat.band_direction(), None);
+        assert_eq!(
+            concat
+                .children()
+                .iter()
+                .map(|child| child
+                    .grid_placement
+                    .map(|placement| (placement.row, placement.column)))
+                .collect::<Vec<_>>(),
+            vec![
+                Some((0, 0)),
+                Some((0, 1)),
+                Some((0, 2)),
+                Some((1, 0)),
+                Some((1, 1))
+            ]
+        );
+
+        let placement = concat.child_frame_placement();
+        let origins = placement
+            .render_placements()
+            .iter()
+            .map(|placement| (placement.child_index, placement.origin))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            origins,
+            vec![
+                (0, [0.0, 0.0]),
+                (1, [100.0, 0.0]),
+                (2, [200.0, 0.0]),
+                (3, [0.0, 100.0]),
+                (4, [100.0, 100.0]),
+            ]
+        );
+        assert_eq!(placement.content_size, Size2D::new(300.0, 200.0));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn wrap_concat_fixed_columns_place_children_row_major() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = wrapped_zero_plot(5).columns(2).compile(&ctx).await?;
+
+        let measurement = measurement_for_plot(&compiled, 200.0, 300.0, &ctx).await?;
+        let concat = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<ConcatCoordMeasurement>()
+            .expect("WrapConcat should measure as ConcatCoordMeasurement");
+        assert_eq!(
+            concat
+                .children()
+                .iter()
+                .map(|child| child
+                    .grid_placement
+                    .map(|placement| (placement.row, placement.column)))
+                .collect::<Vec<_>>(),
+            vec![
+                Some((0, 0)),
+                Some((0, 1)),
+                Some((1, 0)),
+                Some((1, 1)),
+                Some((2, 0))
+            ]
+        );
+
+        let placement = concat.child_frame_placement();
+        let origins = placement
+            .render_placements()
+            .iter()
+            .map(|placement| (placement.child_index, placement.origin))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            origins,
+            vec![
+                (0, [0.0, 0.0]),
+                (1, [100.0, 0.0]),
+                (2, [0.0, 100.0]),
+                (3, [100.0, 100.0]),
+                (4, [0.0, 200.0]),
+            ]
+        );
+        assert_eq!(placement.content_size, Size2D::new(200.0, 300.0));
         Ok(())
     }
 

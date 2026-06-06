@@ -14,7 +14,7 @@ use avenger_chart_core::{
 };
 
 use crate::{
-    concat::{GridConcat, HConcat, VConcat, concat_coord_ref},
+    concat::{GridConcat, HConcat, VConcat, WrapConcat, concat_coord_ref},
     coords::CoordinateSystemTransformCore,
     error::AvengerChartError,
     layout::BandDirection,
@@ -113,6 +113,49 @@ impl SubplotContainerCoordinateSystem for VConcat {
         compile_context: Option<CompileContext<'_>>,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
         subplot.validate_no_facet_channels("VConcat")?;
+        let child_tool_context;
+        let compile_context =
+            if let Some(tool_context) = compile_context.and_then(ToolCompileContext::downcast) {
+                child_tool_context =
+                    tool_context.with_coord_node_path_appended(compiled_state.mark_index());
+                Some(&child_tool_context as CompileContext<'_>)
+            } else {
+                compile_context
+            };
+
+        Ok(Arc::new(CompiledConcatSubplot::new(
+            compile_subplot_payload_with_context(
+                subplot,
+                compiled_state,
+                session_context,
+                compile_context,
+            )
+            .await?,
+        )))
+    }
+}
+
+#[async_trait::async_trait]
+impl SubplotContainerCoordinateSystem for WrapConcat {
+    async fn compile_subplot_mark(
+        subplot: &dyn SubplotMarkCore,
+        compiled_state: CompiledMarkState,
+        session_context: &SessionContext,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        subplot.validate_no_facet_channels("WrapConcat")?;
+
+        Ok(Arc::new(CompiledConcatSubplot::new(
+            compile_subplot_payload(subplot, compiled_state, session_context).await?,
+        )))
+    }
+
+    async fn compile_subplot_mark_with_context(
+        subplot: &dyn SubplotMarkCore,
+        compiled_state: CompiledMarkState,
+        session_context: &SessionContext,
+        compile_context: Option<CompileContext<'_>>,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        subplot.validate_no_facet_channels("WrapConcat")?;
         let child_tool_context;
         let compile_context =
             if let Some(tool_context) = compile_context.and_then(ToolCompileContext::downcast) {
