@@ -3459,6 +3459,41 @@ mod tests {
             .await
     }
 
+    async fn compile_responsive_wrap_concat_width_param_cache_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let width = Param::new("width", ScalarValue::Float64(Some(520.0)));
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    (1.0, 2.0), (2.0, 3.0), (3.0, 4.0), (4.0, 5.0)
+                ) AS t(x, y)",
+            )
+            .await?;
+        let child = || {
+            Plot::<Cartesian>::new().mark(
+                Symbol::new()
+                    .x(col("x"))
+                    .y(col("y"))
+                    .size(20.0)
+                    .fill("#4682b4"),
+            )
+        };
+        Plot::<WrapConcat>::new()
+            .add_param(width.clone())
+            .canvas_constraint(CanvasConstraint::width(width.expr()))
+            .plot_constraint(PlotConstraint::height(120.0))
+            .data(df)
+            .responsive_columns(180.0)
+            .mark(Subplot::new(child()).key("a"))
+            .mark(Subplot::new(child()).key("b"))
+            .mark(Subplot::new(child()).key("c"))
+            .mark(Subplot::new(child()).key("d"))
+            .mark(Subplot::new(child()).key("e"))
+            .compile(ctx)
+            .await
+    }
+
     async fn compile_positioned_child_width_param_scale_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
@@ -5859,6 +5894,106 @@ mod tests {
             assert_eq!(segment.column_count, Some(2));
             assert_eq!(segment.slot_index, Some(slot));
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_preview_responsive_wrap_concat_matches_one_shot_exact_after_column_change()
+    -> Result<(), AvengerChartError> {
+        use crate::render::EvaluatedChildFrameKind;
+
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_responsive_wrap_concat_width_param_cache_plot(&ctx).await?);
+        let mut session = compiled.clone().instantiate(ctx.clone());
+
+        let (_evaluated, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            exact.facet_layout.plot_component_measure_calls > 0,
+            "warm exact evaluation should build the initial responsive WrapConcat measurement"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(700.0)));
+        let (preview_plot, preview) = session
+            .evaluate_with_metrics(
+                EvaluationRequest::new()
+                    .preview()
+                    .param_patch(patch.clone()),
+            )
+            .await?;
+
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(
+            preview.pipeline.preview_profile_reuses, 0,
+            "responsive WrapConcat column changes should not retarget a stale child-frame grid"
+        );
+        assert_eq!(preview.pipeline.preview_fallbacks, 1);
+        assert_eq!(
+            preview.pipeline.preview_profile_fallback_reasons,
+            vec![PreviewProfileFallbackReason::PhysicalStructureMismatch]
+        );
+
+        let mut one_shot_preview_session = compiled.clone().instantiate(ctx.clone());
+        let (one_shot_preview, one_shot_preview_metrics) = one_shot_preview_session
+            .evaluate_with_metrics(
+                EvaluationRequest::new()
+                    .preview()
+                    .param_patch(patch.clone()),
+            )
+            .await?;
+        assert_eq!(one_shot_preview_metrics.mode, EvaluationMode::Preview);
+        assert_eq!(
+            one_shot_preview_metrics
+                .pipeline
+                .preview_profile_fallback_reasons,
+            vec![PreviewProfileFallbackReason::NoPriorProfile]
+        );
+
+        assert_eq!(
+            preview_plot.scene_graph.width,
+            one_shot_preview.scene_graph.width
+        );
+        assert_eq!(
+            preview_plot.scene_graph.height,
+            one_shot_preview.scene_graph.height
+        );
+        assert_eq!(
+            preview_plot.scene_graph.marks.len(),
+            one_shot_preview.scene_graph.marks.len()
+        );
+        assert_symbol_positions_close_with_tolerance(
+            &preview_plot.scene_graph,
+            &one_shot_preview.scene_graph,
+            1.5,
+        );
+
+        let mut scopes = preview_plot.interaction.scopes.clone();
+        scopes.sort_by_key(|scope| scope.child_frame_path[0].child_index);
+        let expected = [(0, 0), (0, 1), (0, 2), (0, 3), (1, 0)];
+        for (scope, (row, column)) in scopes.iter().zip(expected) {
+            let segment = &scope.child_frame_path[0];
+            assert_eq!(segment.kind, EvaluatedChildFrameKind::WrapConcat);
+            assert_eq!(segment.row, Some(row));
+            assert_eq!(segment.column, Some(column));
+            assert_eq!(segment.row_count, Some(2));
+            assert_eq!(segment.column_count, Some(4));
+        }
+
+        let (settled, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        let one_shot = compiled.evaluate(ctx.as_ref(), Some(patch)).await?;
+        assert_eq!(exact.mode, EvaluationMode::Exact);
+        assert_eq!(settled.scene_graph.width, one_shot.scene_graph.width);
+        assert_eq!(settled.scene_graph.height, one_shot.scene_graph.height);
+        assert_symbol_positions_close_with_tolerance(
+            &settled.scene_graph,
+            &one_shot.scene_graph,
+            6.0,
+        );
+
         Ok(())
     }
 

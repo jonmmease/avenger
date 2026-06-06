@@ -29,9 +29,9 @@ use indexmap::IndexMap;
 use tracing::{Level, debug, trace};
 
 use avenger_chart_core::{
-    AxisPosition, DerivedScalarsByChannel, FacetEmptyCellPolicy, LegendPosition,
-    ScalarValueHelpers, eval_to_scalars, evaluate_bool_expr, evaluate_f32_expr, maybe::Maybe,
-    params_to_datafusion,
+    AxisPosition, DerivedScalarsByChannel, FacetEmptyCellPolicy, FacetWrapColumnMode,
+    LegendPosition, ScalarValueHelpers, eval_to_scalars, evaluate_bool_expr, evaluate_f32_expr,
+    maybe::Maybe, params_to_datafusion,
 };
 
 use crate::{
@@ -90,7 +90,7 @@ use crate::{
 use super::{
     ChildFrameContainerView, ChildFrameSharingPath, CompiledPlot, ComponentsMeasurement,
     FacetCellProfileIndex, LayoutProfileSnapshot, MarkDataRequest, PlotComponents,
-    PreparedMarkData,
+    PreparedMarkData, compiled_subplot_payload_child_plot,
     legends::{HoistedLegendAnchor, HoistedLegendRequest, LegendPlanScope, PreparedLegendPlan},
     prepare_mark_data_runtime,
     scale_provider::{DynamicScaleProvider, ScaleProvider},
@@ -104,6 +104,38 @@ use super::{
         scale_domain_cache_key_for_parts_with_scope,
     },
 };
+
+fn plot_contains_responsive_wrap_concat(plot: &CompiledPlot) -> bool {
+    if plot
+        .coord_transform
+        .as_any()
+        .downcast_ref::<crate::concat::WrapConcat>()
+        .is_some_and(|wrap| matches!(wrap.column_mode(), FacetWrapColumnMode::ResponsiveWidth(_)))
+    {
+        return true;
+    }
+
+    plot.marks.iter().any(|mark| {
+        if let Some(subplot) = compiled_concat_subplot(mark.as_ref())
+            && plot_contains_responsive_wrap_concat(subplot.compiled_subplot())
+        {
+            return true;
+        }
+        if let Some(subplot) = facet_subplot_ref(mark.as_ref())
+            && plot_contains_responsive_wrap_concat(subplot.compiled_subplot())
+        {
+            return true;
+        }
+        if let Some(subplot) = mark.as_positioned_subplot()
+            && plot_contains_responsive_wrap_concat(compiled_subplot_payload_child_plot(
+                subplot.payload(),
+            ))
+        {
+            return true;
+        }
+        false
+    })
+}
 
 fn derived_scalars_by_channel(
     scales: &HashMap<String, ConfiguredScaleWithSpec>,
@@ -6160,6 +6192,15 @@ impl CompiledPlot {
                 PreviewProfileFallbackReason::PhysicalStructureMismatch
             };
             return Ok(PreviewLayoutProfileAttempt::fallback(reason));
+        }
+
+        if changed_params_touch_layout_size && plot_contains_responsive_wrap_concat(self) {
+            Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
+                metrics.record_preview_structure_reflow_miss();
+            });
+            return Ok(PreviewLayoutProfileAttempt::fallback(
+                PreviewProfileFallbackReason::PhysicalStructureMismatch,
+            ));
         }
 
         let measured_layout_spec = Self::layout_spec_for_resolved_chart_sizing(
