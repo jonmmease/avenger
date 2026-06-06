@@ -4,7 +4,11 @@ use avenger_chart::legend::LegendPosition;
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
-fn nested_col_row_plot(df: DataFrame, x_sharing: Sharing, y_sharing: Sharing) -> Plot<FacetColumn> {
+fn nested_col_row_plot(
+    df: DataFrame,
+    x_sharing: CoordinationScope,
+    y_sharing: CoordinationScope,
+) -> Plot<FacetColumn> {
     Plot::<FacetColumn>::new()
         .data(df)
         .plot_size(120.0, 90.0)
@@ -31,7 +35,11 @@ fn nested_col_row_plot(df: DataFrame, x_sharing: Sharing, y_sharing: Sharing) ->
         )
 }
 
-fn nested_row_col_plot(df: DataFrame, x_sharing: Sharing, y_sharing: Sharing) -> Plot<FacetRow> {
+fn nested_row_col_plot(
+    df: DataFrame,
+    x_sharing: CoordinationScope,
+    y_sharing: CoordinationScope,
+) -> Plot<FacetRow> {
     Plot::<FacetRow>::new()
         .data(df)
         .plot_size(120.0, 90.0)
@@ -60,7 +68,7 @@ fn nested_row_col_plot(df: DataFrame, x_sharing: Sharing, y_sharing: Sharing) ->
 
 fn two_level_col_legend_plot(
     df: DataFrame,
-    sharing: Sharing,
+    sharing: CoordinationScope,
     position: LegendPosition,
 ) -> Plot<FacetColumn> {
     Plot::<FacetColumn>::new()
@@ -72,8 +80,12 @@ fn two_level_col_legend_plot(
                     Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
-                                .x_with(col("x_val"), |c| c.with_scale_sharing(Sharing::Shared))
-                                .y_with(col("y_val"), |c| c.with_scale_sharing(Sharing::Shared))
+                                .x_with(col("x_val"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Shared)
+                                })
+                                .y_with(col("y_val"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Shared)
+                                })
                                 .fill_with(col("category"), move |c| {
                                     c.with_scale_sharing(sharing.clone())
                                         .legend(|l| l.title("Category").position(position))
@@ -92,7 +104,7 @@ fn two_level_col_legend_plot(
 async fn facet_plot_size_nested_col_row_free_scales() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;
-    let plot = nested_col_row_plot(df, Sharing::Free, Sharing::Free);
+    let plot = nested_col_row_plot(df, CoordinationScope::Free, CoordinationScope::Free);
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     assert_visual_match_default(
         &compiled,
@@ -108,7 +120,7 @@ async fn facet_plot_size_nested_col_row_free_scales() {
 async fn facet_plot_size_nested_col_row_shared_both() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;
-    let plot = nested_col_row_plot(df, Sharing::Shared, Sharing::Shared);
+    let plot = nested_col_row_plot(df, CoordinationScope::Shared, CoordinationScope::Shared);
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     assert_visual_match_default(
         &compiled,
@@ -124,7 +136,7 @@ async fn facet_plot_size_nested_col_row_shared_both() {
 async fn facet_plot_size_nested_col_row_shared_x() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;
-    let plot = nested_col_row_plot(df, Sharing::Shared, Sharing::Free);
+    let plot = nested_col_row_plot(df, CoordinationScope::Shared, CoordinationScope::Free);
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     assert_visual_match_default(
         &compiled,
@@ -140,7 +152,7 @@ async fn facet_plot_size_nested_col_row_shared_x() {
 async fn facet_plot_size_nested_col_row_shared_y() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;
-    let plot = nested_col_row_plot(df, Sharing::Free, Sharing::Shared);
+    let plot = nested_col_row_plot(df, CoordinationScope::Free, CoordinationScope::Shared);
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     assert_visual_match_default(
         &compiled,
@@ -156,7 +168,7 @@ async fn facet_plot_size_nested_col_row_shared_y() {
 async fn facet_plot_size_nested_row_col_free_scales() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;
-    let plot = nested_row_col_plot(df, Sharing::Free, Sharing::Free);
+    let plot = nested_row_col_plot(df, CoordinationScope::Free, CoordinationScope::Free);
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     assert_visual_match_default(
         &compiled,
@@ -172,7 +184,7 @@ async fn facet_plot_size_nested_row_col_free_scales() {
 async fn facet_plot_size_nested_row_col_shared_both() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;
-    let plot = nested_row_col_plot(df, Sharing::Shared, Sharing::Shared);
+    let plot = nested_row_col_plot(df, CoordinationScope::Shared, CoordinationScope::Shared);
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     assert_visual_match_default(
         &compiled,
@@ -188,7 +200,7 @@ async fn facet_plot_size_nested_row_col_shared_both() {
 async fn facet_plot_size_nested_col_col_legend_level1_right() {
     let ctx = SessionContext::new();
     let df = legend_sharing_hierarchy_df(&ctx).await;
-    let plot = two_level_col_legend_plot(df, Sharing::Level(1), LegendPosition::Right);
+    let plot = two_level_col_legend_plot(df, CoordinationScope::Level(1), LegendPosition::Right);
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     assert_visual_match_default(
         &compiled,
@@ -204,7 +216,7 @@ async fn facet_plot_size_nested_col_col_legend_level1_right() {
 async fn facet_plot_size_nested_col_col_legend_level1_left() {
     let ctx = SessionContext::new();
     let df = legend_sharing_hierarchy_df(&ctx).await;
-    let plot = two_level_col_legend_plot(df, Sharing::Level(1), LegendPosition::Left);
+    let plot = two_level_col_legend_plot(df, CoordinationScope::Level(1), LegendPosition::Left);
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     assert_visual_match_default(
         &compiled,

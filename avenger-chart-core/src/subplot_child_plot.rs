@@ -16,9 +16,9 @@ use serde_with::{FromInto, serde_as};
 use crate::{
     AvengerChartError, ChannelDescriptor, ColumnDimensionConfig, CompileContext,
     CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState, CoordinateSystem,
-    CoordinateSystemTransformCore, DataContext, DefaultLogicalExprNodeExt, FacetDimensionConfig,
-    FacetEmptyCellPolicy, FacetWrapColumnMode, MarkRuntimeContext, RadiusExpression,
-    RowDimensionConfig, SerializableExpr, Sharing, contains_aggregate,
+    CoordinateSystemTransformCore, CoordinationScope, DataContext, DefaultLogicalExprNodeExt,
+    FacetDimensionConfig, FacetEmptyCellPolicy, FacetWrapColumnMode, MarkRuntimeContext,
+    RadiusExpression, RowDimensionConfig, SerializableExpr, contains_aggregate,
 };
 
 /// Data source selected for a compiled subplot's child plot.
@@ -95,7 +95,7 @@ pub trait SubplotMarkCore: Send + Sync {
         None
     }
 
-    fn facet_row_slot_sharing_config(&self) -> Option<Sharing> {
+    fn facet_row_slot_sharing_config(&self) -> Option<CoordinationScope> {
         None
     }
 
@@ -123,7 +123,7 @@ pub trait SubplotMarkCore: Send + Sync {
         None
     }
 
-    fn facet_col_slot_sharing_config(&self) -> Option<Sharing> {
+    fn facet_col_slot_sharing_config(&self) -> Option<CoordinationScope> {
         None
     }
 
@@ -151,7 +151,7 @@ pub trait SubplotMarkCore: Send + Sync {
         None
     }
 
-    fn facet_wrap_slot_sharing_config(&self) -> Option<Sharing> {
+    fn facet_wrap_slot_sharing_config(&self) -> Option<CoordinationScope> {
         None
     }
 

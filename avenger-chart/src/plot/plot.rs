@@ -12,8 +12,8 @@ use indexmap::IndexMap;
 use avenger_chart_core::{
     AvengerChartError, AxisSpec, ChartTool, CompileContext, CompiledMark, CompiledMarkState,
     CompiledParamSpec, CompiledSelectionSpec, CompiledSubplotChildPlot, CoordinateGuide,
-    CoordinateSystem, IntoExpr, Legend, LegendSurfaceKind, Mark, MarkDataMode, Param, Selection,
-    Sharing, Store, SubplotChildPlotSpec, Theme, TimeContext, compile_selections,
+    CoordinateSystem, CoordinationScope, IntoExpr, Legend, LegendSurfaceKind, Mark, MarkDataMode,
+    Param, Selection, Store, SubplotChildPlotSpec, Theme, TimeContext, compile_selections,
     validate_structural_id,
 };
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
@@ -430,7 +430,7 @@ impl<C: CoordinateSystem> Plot<C> {
 
     /// Add a parameter that can be used in plot expressions.
     ///
-    /// The parameter is globally shared (`Sharing::Shared`), matching the
+    /// The parameter is globally shared (`CoordinationScope::Shared`), matching the
     /// historical single-value behavior. Use [`Plot::add_param_with_sharing`] to
     /// register a parameter with a finer-grained facet sharing scope.
     pub fn add_param(mut self, param: Param) -> Self {
@@ -447,10 +447,10 @@ impl<C: CoordinateSystem> Plot<C> {
 
     /// Add a parameter with an explicit facet sharing scope.
     ///
-    /// `Sharing::Free`/`Level(0)` gives one value per leaf coordinate scope,
-    /// `Sharing::Level(N)` shares per logical ancestor `N` levels up, and
-    /// `Sharing::Shared` keeps one global value.
-    pub fn add_param_with_sharing(mut self, param: Param, sharing: Sharing) -> Self {
+    /// `CoordinationScope::Free`/`Level(0)` gives one value per leaf coordinate scope,
+    /// `CoordinationScope::Level(N)` shares per logical ancestor `N` levels up, and
+    /// `CoordinationScope::Shared` keeps one global value.
+    pub fn add_param_with_sharing(mut self, param: Param, sharing: CoordinationScope) -> Self {
         self.param_specs
             .push(CompiledParamSpec::new(&param, sharing));
         self
@@ -623,7 +623,7 @@ impl<C: CoordinateSystem> Plot<C> {
 
 fn scale_domain_share_modes<C: CoordinateSystem>(
     marks: &[Arc<dyn Mark<C>>],
-) -> HashMap<String, Sharing> {
+) -> HashMap<String, CoordinationScope> {
     let mut result = HashMap::new();
     for mark in marks {
         for (channel_name, channel_value) in mark.data_context().channels() {
@@ -632,11 +632,11 @@ fn scale_domain_share_modes<C: CoordinateSystem>(
             };
             let sharing = channel_value
                 .get_share_mode()
-                .unwrap_or(Sharing::Free)
+                .unwrap_or(CoordinationScope::Free)
                 .to_normalized();
             result
                 .entry(scale_name)
-                .and_modify(|existing: &mut Sharing| {
+                .and_modify(|existing: &mut CoordinationScope| {
                     if sharing.to_level() > existing.to_level() {
                         *existing = sharing;
                     }

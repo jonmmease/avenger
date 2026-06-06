@@ -72,23 +72,23 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
             &cursor,
             FREE_STORE,
             "free_brush",
-            Sharing::Free,
+            CoordinationScope::Free,
         ))
         .event_binding(selection_add_drag_binding(
             &cursor,
             FREE_STORE,
             "free_brush",
-            Sharing::Free,
+            CoordinationScope::Free,
         ))
         .event_binding(selection_release_binding(
             FREE_STORE,
             "free_brush",
-            Sharing::Free,
+            CoordinationScope::Free,
         ))
         .event_binding(selection_add_release_binding(
             FREE_STORE,
             "free_brush",
-            Sharing::Free,
+            CoordinationScope::Free,
         ))
         .event_binding(selection_clear_binding(FREE_STORE, "free_brush"));
 
@@ -106,30 +106,30 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
             &cursor,
             SHARED_STORE,
             "shared_brush",
-            Sharing::Shared,
+            CoordinationScope::Shared,
         ))
         .event_binding(selection_add_drag_binding(
             &cursor,
             SHARED_STORE,
             "shared_brush",
-            Sharing::Shared,
+            CoordinationScope::Shared,
         ))
         .event_binding(selection_release_binding(
             SHARED_STORE,
             "shared_brush",
-            Sharing::Shared,
+            CoordinationScope::Shared,
         ))
         .event_binding(selection_add_release_binding(
             SHARED_STORE,
             "shared_brush",
-            Sharing::Shared,
+            CoordinationScope::Shared,
         ))
         .event_binding(selection_clear_binding(SHARED_STORE, "shared_brush"));
 
     let plot = Plot::<HConcat>::new()
         .canvas_size(1440.0, 520.0)
-        .add_store(brush_box_store(FREE_STORE, Sharing::Free))
-        .add_store(brush_box_store(SHARED_STORE, Sharing::Shared))
+        .add_store(brush_box_store(FREE_STORE, CoordinationScope::Free))
+        .add_store(brush_box_store(SHARED_STORE, CoordinationScope::Shared))
         .add_selection(free_brush)
         .add_selection(shared_brush)
         .add_param(cursor.clone())
@@ -206,7 +206,7 @@ fn selection_drag_binding(
     cursor: &Param,
     store_name: &str,
     selection_id: &str,
-    facet_scope: Sharing,
+    facet_scope: CoordinationScope,
 ) -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::CursorMoved)
         .between(
@@ -229,7 +229,7 @@ fn selection_add_drag_binding(
     cursor: &Param,
     store_name: &str,
     selection_id: &str,
-    facet_scope: Sharing,
+    facet_scope: CoordinationScope,
 ) -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::CursorMoved)
         .between(
@@ -251,7 +251,7 @@ fn selection_add_drag_binding(
 fn selection_release_binding(
     store_name: &str,
     selection_id: &str,
-    facet_scope: Sharing,
+    facet_scope: CoordinationScope,
 ) -> ChartEventBinding {
     ChartEventBinding::on_between_end(
         ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
@@ -271,7 +271,7 @@ fn selection_release_binding(
 fn selection_add_release_binding(
     store_name: &str,
     selection_id: &str,
-    facet_scope: Sharing,
+    facet_scope: CoordinationScope,
 ) -> ChartEventBinding {
     ChartEventBinding::on_between_end(
         ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
@@ -296,7 +296,7 @@ fn selection_clear_binding(store_name: &str, selection_id: &str) -> ChartEventBi
         .exact()
 }
 
-fn brush_box_store(name: &str, sharing: Sharing) -> Store {
+fn brush_box_store(name: &str, sharing: CoordinationScope) -> Store {
     Store::empty(name)
         .field("id", DataType::Utf8, false)
         .field("x_min", DataType::Float64, false)
@@ -307,7 +307,7 @@ fn brush_box_store(name: &str, sharing: Sharing) -> Store {
         .sharing(sharing)
 }
 
-fn brush_selection_clause(id: Expr, facet_scope: Sharing) -> SelectionClauseUpdate {
+fn brush_selection_clause(id: Expr, facet_scope: CoordinationScope) -> SelectionClauseUpdate {
     SelectionClauseUpdate::interval(id)
         .facet_scope(facet_scope)
         .dimension(col("x"))
@@ -335,11 +335,11 @@ fn brush_selection_clause(id: Expr, facet_scope: Sharing) -> SelectionClauseUpda
         .build()
 }
 
-fn replace_selection_update(facet_scope: Sharing) -> SelectionUpdate {
+fn replace_selection_update(facet_scope: CoordinationScope) -> SelectionUpdate {
     SelectionUpdate::replace_all_clauses([brush_selection_clause(lit("active"), facet_scope)])
 }
 
-fn upsert_selection_update(facet_scope: Sharing) -> SelectionUpdate {
+fn upsert_selection_update(facet_scope: CoordinationScope) -> SelectionUpdate {
     SelectionUpdate::upsert_clauses([brush_selection_clause(ev::start_event_id(), facet_scope)])
 }
 

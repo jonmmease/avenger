@@ -42,9 +42,9 @@ mod tests {
         record_batch::RecordBatch,
     };
     use avenger_chart_core::{
-        ChannelValue, DataTransform, DataTransformCompileContext, DataTransformExecutionContext,
-        DataTransformStage, Param, Sharing, TimeContext, WeekStart, collect_derived_scalar_ids,
-        eval_to_scalars,
+        ChannelValue, CoordinationScope, DataTransform, DataTransformCompileContext,
+        DataTransformExecutionContext, DataTransformStage, Param, TimeContext, WeekStart,
+        collect_derived_scalar_ids, eval_to_scalars,
     };
     use datafusion::common::ScalarValue;
     use datafusion::dataframe::DataFrame;
@@ -316,11 +316,11 @@ mod tests {
     }
 
     fn compile_transform<T: DataTransform>(transform: T) -> (DataTransformStage, T::Output) {
-        compile_transform_with_scope(Sharing::Free, transform)
+        compile_transform_with_scope(CoordinationScope::Free, transform)
     }
 
     fn compile_transform_with_scope<T: DataTransform>(
-        scope: Sharing,
+        scope: CoordinationScope,
         transform: T,
     ) -> (DataTransformStage, T::Output) {
         let (compiled, output) = transform
@@ -932,7 +932,7 @@ mod tests {
     async fn select_rejects_unaliased_computed_expression() {
         let err = match Select::new()
             .expr(col("value") - lit(1.0))
-            .into_compiled_and_output(DataTransformCompileContext::new(Sharing::Free))
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free))
         {
             Ok(_) => panic!("unaliased computed select expression should fail"),
             Err(err) => err,
@@ -949,7 +949,7 @@ mod tests {
         let err = match Select::new()
             .expr(col("value"))
             .expr((col("value") + lit(1.0)).alias("value"))
-            .into_compiled_and_output(DataTransformCompileContext::new(Sharing::Free))
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free))
         {
             Ok(_) => panic!("duplicate select output names should fail"),
             Err(err) => err,
@@ -1035,7 +1035,7 @@ mod tests {
     #[tokio::test]
     async fn fold_rejects_missing_fields_and_duplicate_outputs() {
         let err = match Fold::new()
-            .into_compiled_and_output(DataTransformCompileContext::new(Sharing::Free))
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free))
         {
             Ok(_) => panic!("fold without fields should fail"),
             Err(err) => err,
@@ -1046,7 +1046,7 @@ mod tests {
             .field("gold", col("gold"))
             .as_key("folded")
             .as_value("folded")
-            .into_compiled_and_output(DataTransformCompileContext::new(Sharing::Free))
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free))
         {
             Ok(_) => panic!("duplicate fold output names should fail"),
             Err(err) => err,
@@ -1680,7 +1680,7 @@ mod tests {
     async fn impute_requires_key_and_method() {
         let err = match Impute::new(col("value"))
             .value(lit(0.0))
-            .into_compiled_and_output(DataTransformCompileContext::new(Sharing::Free))
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free))
         {
             Ok(_) => panic!("impute without key should fail"),
             Err(err) => err,
@@ -1689,7 +1689,7 @@ mod tests {
 
         let err = match Impute::new(col("value"))
             .key(col("month"))
-            .into_compiled_and_output(DataTransformCompileContext::new(Sharing::Free))
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free))
         {
             Ok(_) => panic!("impute without method should fail"),
             Err(err) => err,
@@ -1975,7 +1975,7 @@ mod tests {
         let output = Bin::new(col("value"))
             .maxbins(4)
             .name("custom_bin")
-            .into_compiled_and_output(DataTransformCompileContext::new(Sharing::Free))
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free))
             .unwrap()
             .1;
 
@@ -2012,27 +2012,37 @@ mod tests {
     async fn bin_output_uses_stage_scope_as_default_scale_sharing() {
         let output = Bin::new(col("value"))
             .maxbins(4)
-            .into_compiled_and_output(DataTransformCompileContext::new(Sharing::Level(1)))
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Level(
+                1,
+            )))
             .unwrap()
             .1;
 
         let start = output.start();
         let end = output.end();
-        assert_eq!(start.get_share_mode(), Some(Sharing::Level(1)));
-        assert_eq!(start.get_transform_scope(), Some(Sharing::Level(1)));
-        assert_eq!(end.get_share_mode(), Some(Sharing::Level(1)));
-        assert_eq!(end.get_transform_scope(), Some(Sharing::Level(1)));
+        assert_eq!(start.get_share_mode(), Some(CoordinationScope::Level(1)));
+        assert_eq!(
+            start.get_transform_scope(),
+            Some(CoordinationScope::Level(1))
+        );
+        assert_eq!(end.get_share_mode(), Some(CoordinationScope::Level(1)));
+        assert_eq!(end.get_transform_scope(), Some(CoordinationScope::Level(1)));
     }
 
     #[tokio::test]
     async fn lump_value_output_carries_default_ordering_and_scope() {
         let output = Lump::top_n(col("category"), 3)
-            .into_compiled_and_output(DataTransformCompileContext::new(Sharing::Level(1)))
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Level(
+                1,
+            )))
             .unwrap()
             .1;
         let value = output.value();
-        assert_eq!(value.get_share_mode(), Some(Sharing::Level(1)));
-        assert_eq!(value.get_transform_scope(), Some(Sharing::Level(1)));
+        assert_eq!(value.get_share_mode(), Some(CoordinationScope::Level(1)));
+        assert_eq!(
+            value.get_transform_scope(),
+            Some(CoordinationScope::Level(1))
+        );
         let scale = value.get_scale_config().expect("scale config");
         let ordering = scale.ordering.as_option().expect("ordering");
         assert!(ordering.has_order_expr());
@@ -2489,7 +2499,7 @@ mod tests {
     async fn bin_maxbins_zero_errors() {
         let err = match Bin::new(col("value"))
             .maxbins(0)
-            .into_compiled_and_output(DataTransformCompileContext::new(Sharing::Free))
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free))
         {
             Ok(_) => panic!("maxbins zero should fail"),
             Err(err) => err,

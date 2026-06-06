@@ -56,7 +56,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
             "picked",
             SelectionUpdate::toggle_clause(
                 SelectionClauseUpdate::equality_value(col("category"), ev::datum("value"))
-                    .facet_scope(Sharing::Shared),
+                    .facet_scope(CoordinationScope::Shared),
             ),
         )
         .exact();

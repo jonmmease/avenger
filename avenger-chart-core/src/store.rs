@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 use crate::{
-    AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, SerializableDataType, SerializableExpr,
-    SerializableRecordBatch, Sharing,
+    AvengerChartError, CoordinationScope, DefaultLogicalExprNodeExt, IntoExpr,
+    SerializableDataType, SerializableExpr, SerializableRecordBatch,
 };
 
 pub const STORE_METADATA_PREFIX: &str = "__avenger_store_";
@@ -77,7 +77,7 @@ pub struct Store {
     pub fields: Vec<StoreFieldSpec>,
     pub initial: Option<RecordBatch>,
     pub primary_key: Vec<String>,
-    pub sharing: Sharing,
+    pub sharing: CoordinationScope,
 }
 
 impl Store {
@@ -87,7 +87,7 @@ impl Store {
             fields: schema.fields().iter().map(StoreFieldSpec::from).collect(),
             initial: None,
             primary_key: Vec::new(),
-            sharing: Sharing::Shared,
+            sharing: CoordinationScope::Shared,
         }
     }
 
@@ -97,7 +97,7 @@ impl Store {
             fields: Vec::new(),
             initial: None,
             primary_key: Vec::new(),
-            sharing: Sharing::Shared,
+            sharing: CoordinationScope::Shared,
         }
     }
 
@@ -112,7 +112,7 @@ impl Store {
                 .collect(),
             initial: Some(batch),
             primary_key: Vec::new(),
-            sharing: Sharing::Shared,
+            sharing: CoordinationScope::Shared,
         }
     }
 
@@ -127,7 +127,7 @@ impl Store {
         self
     }
 
-    pub fn sharing(mut self, sharing: Sharing) -> Self {
+    pub fn sharing(mut self, sharing: CoordinationScope) -> Self {
         self.sharing = sharing;
         self
     }
@@ -156,7 +156,7 @@ pub struct CompiledStoreSpec {
     #[serde(default)]
     pub primary_key: Vec<String>,
     #[serde(default = "default_store_sharing")]
-    pub sharing: Sharing,
+    pub sharing: CoordinationScope,
 }
 
 impl CompiledStoreSpec {
@@ -289,8 +289,8 @@ impl CompiledStoreSpec {
     }
 }
 
-fn default_store_sharing() -> Sharing {
-    Sharing::Shared
+fn default_store_sharing() -> CoordinationScope {
+    CoordinationScope::Shared
 }
 
 pub fn validate_store_name(name: &str) -> Result<(), AvengerChartError> {
@@ -495,13 +495,13 @@ mod tests {
         let store = Store::empty("selected_ids")
             .field("id", DataType::Utf8, false)
             .primary_key(["id"])
-            .sharing(Sharing::Free);
+            .sharing(CoordinationScope::Free);
         let spec = store.compile().unwrap();
         let json = serde_json::to_string(&spec).unwrap();
         let restored: CompiledStoreSpec = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.name, "selected_ids");
         assert_eq!(restored.primary_key, vec!["id"]);
-        assert_eq!(restored.sharing, Sharing::Free);
+        assert_eq!(restored.sharing, CoordinationScope::Free);
     }
 
     #[test]

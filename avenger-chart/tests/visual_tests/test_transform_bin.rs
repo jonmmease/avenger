@@ -51,7 +51,7 @@ fn faceted_histogram_data(ctx: &SessionContext) -> DataFrame {
 
 fn faceted_histogram_plot(
     df: DataFrame,
-    transform_scope: Sharing,
+    transform_scope: CoordinationScope,
     title: &str,
 ) -> Plot<FacetColumn> {
     let leaf = Plot::<Cartesian>::new().mark(Rect::new().transform_with_scope(
@@ -173,7 +173,7 @@ async fn faceted_histogram_free_bin_edges() {
     let ctx = SessionContext::new();
     let plot = faceted_histogram_plot(
         faceted_histogram_data(&ctx),
-        Sharing::Free,
+        CoordinationScope::Free,
         "Free bin transform: each facet owns its bin edges",
     );
 
@@ -193,7 +193,7 @@ async fn faceted_histogram_shared_bin_edges() {
     let ctx = SessionContext::new();
     let plot = faceted_histogram_plot(
         faceted_histogram_data(&ctx),
-        Sharing::Shared,
+        CoordinationScope::Shared,
         "Shared bin transform: one binning table feeds every facet",
     );
 

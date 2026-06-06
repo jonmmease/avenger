@@ -2,7 +2,7 @@
 //!
 //! A wrap facet lays out one subplot per category, flowing into a fixed grid of
 //! columns (here 3 across, so six categories wrap into 2 rows). The x and y
-//! raw-domain params are declared `Sharing::Free` and each cell's scales are
+//! raw-domain params are declared `CoordinationScope::Free` and each cell's scales are
 //! `free_scale()` (independent per cell). Dragging with the left mouse button
 //! or scrolling inside ONE cell pans/zooms ONLY that cell — the bindings route
 //! the pointer to the cell under it and write the param at that cell's own owner

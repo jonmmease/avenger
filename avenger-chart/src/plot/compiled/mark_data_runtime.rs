@@ -1259,7 +1259,7 @@ mod tests {
         zerod::ZeroDCoord,
     };
     use avenger_chart_core::{
-        STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN, STORE_REVISION_COLUMN, Sharing, Store,
+        CoordinationScope, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN, STORE_REVISION_COLUMN, Store,
         StoreData, StoreRowValue,
     };
     use avenger_chart_marks::Rect;
@@ -1417,7 +1417,9 @@ mod tests {
         Ok(concat_batches(&batches[0].schema(), &batches)?)
     }
 
-    fn brush_store_state(sharing: Sharing) -> Result<ScopedStoreState, AvengerChartError> {
+    fn brush_store_state(
+        sharing: CoordinationScope,
+    ) -> Result<ScopedStoreState, AvengerChartError> {
         let spec = Store::empty("brush_boxes")
             .field("id", DataType::Utf8, false)
             .field("x_min", DataType::Float64, false)
@@ -1583,7 +1585,7 @@ mod tests {
     #[tokio::test]
     async fn prepare_logical_mark_data_reads_store_data_rows() -> Result<(), AvengerChartError> {
         let session = Arc::new(SessionContext::new());
-        let mut store_state = brush_store_state(Sharing::Shared)?;
+        let mut store_state = brush_store_state(CoordinationScope::Shared)?;
         store_state.apply_scoped_patch([replace_store_rows(
             Vec::new(),
             vec![brush_row("a", 1.0, 2.0), brush_row("b", 3.0, 4.0)],
@@ -1635,7 +1637,7 @@ mod tests {
     async fn prepare_mark_data_renders_rect_rows_from_store_data() -> Result<(), AvengerChartError>
     {
         let session = Arc::new(SessionContext::new());
-        let mut store_state = brush_store_state(Sharing::Shared)?;
+        let mut store_state = brush_store_state(CoordinationScope::Shared)?;
         store_state.apply_scoped_patch([replace_store_rows(
             Vec::new(),
             vec![brush_row("a", 1.0, 2.0), brush_row("b", 3.0, 4.0)],
@@ -1687,7 +1689,7 @@ mod tests {
         let north_west_owner = facet_tree.sharing_owner_path(&north_west, 0);
         let north_east_owner = facet_tree.sharing_owner_path(&north_east, 0);
 
-        let mut free_store_state = brush_store_state(Sharing::Free)?;
+        let mut free_store_state = brush_store_state(CoordinationScope::Free)?;
         free_store_state.apply_scoped_patch([
             replace_store_rows(Vec::new(), vec![brush_row("root", 100.0, 101.0)]),
             replace_store_rows(north_west_owner.clone(), vec![brush_row("nw", 1.0, 2.0)]),
@@ -1697,7 +1699,7 @@ mod tests {
             .with_facet_tree(Arc::new(facet_tree.clone()))
             .with_scoped_store_state(Arc::new(free_store_state));
 
-        let mut shared_store_state = brush_store_state(Sharing::Shared)?;
+        let mut shared_store_state = brush_store_state(CoordinationScope::Shared)?;
         shared_store_state.apply_scoped_patch([
             replace_store_rows(Vec::new(), vec![brush_row("root", 100.0, 101.0)]),
             replace_store_rows(north_west_owner, vec![brush_row("nw", 1.0, 2.0)]),

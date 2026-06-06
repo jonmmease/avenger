@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 use crate::{
-    AvengerChartError, Axis, Legend, ScaleConfigSpec, SerializableExpr, Sharing,
+    AvengerChartError, Axis, CoordinationScope, Legend, ScaleConfigSpec, SerializableExpr,
     channel::strip_trailing_numbers,
 };
 
@@ -170,12 +170,12 @@ pub enum ChannelValue {
         /// Optional axis configuration applied when this value is used on a position channel
         #[serde(default)]
         axis_config: Option<Box<dyn Axis>>,
-        /// Share this channel's scale across facets using Sharing enum
+        /// Share this channel's scale across facets using CoordinationScope enum
         #[serde(default)]
-        share_mode: Option<Sharing>,
+        share_mode: Option<CoordinationScope>,
         /// Scope of the transform stage that produced this value, if any.
         #[serde(default)]
-        transform_scope: Option<Sharing>,
+        transform_scope: Option<CoordinationScope>,
     },
     /// Expression that bypasses scaling (identity transformation)
     Value {
@@ -196,12 +196,12 @@ pub enum ChannelValue {
         /// Optional axis configuration applied when this value is used on a position channel
         #[serde(default)]
         axis_config: Option<Box<dyn Axis>>,
-        /// Share this channel's scale across facets using Sharing enum
+        /// Share this channel's scale across facets using CoordinationScope enum
         #[serde(default)]
-        share_mode: Option<Sharing>,
+        share_mode: Option<CoordinationScope>,
         /// Scope of the transform stage that produced this value, if any.
         #[serde(default)]
-        transform_scope: Option<Sharing>,
+        transform_scope: Option<CoordinationScope>,
     },
 }
 
@@ -290,12 +290,12 @@ impl ChannelExpr {
     }
 
     /// Get the underlying channel value's scale sharing mode.
-    pub fn get_share_mode(&self) -> Option<Sharing> {
+    pub fn get_share_mode(&self) -> Option<CoordinationScope> {
         self.channel_value.get_share_mode()
     }
 
     /// Get the transform scope that produced this channel expression, if any.
-    pub fn get_transform_scope(&self) -> Option<Sharing> {
+    pub fn get_transform_scope(&self) -> Option<CoordinationScope> {
         self.channel_value.get_transform_scope()
     }
 
@@ -328,7 +328,7 @@ impl ChannelExpr {
     }
 
     /// Attach transform-scope metadata and use it as default scale sharing.
-    pub fn with_transform_scope(self, scope: Sharing) -> Self {
+    pub fn with_transform_scope(self, scope: CoordinationScope) -> Self {
         self.map_channel_value(|value| value.with_transform_scope(scope))
     }
 
@@ -475,7 +475,7 @@ impl ChannelValue {
     }
 
     /// Get per-channel facet sharing mode
-    pub fn get_share_mode(&self) -> Option<Sharing> {
+    pub fn get_share_mode(&self) -> Option<CoordinationScope> {
         match self {
             ChannelValue::Scaled { share_mode, .. }
             | ChannelValue::Conditional { share_mode, .. } => *share_mode,
@@ -484,7 +484,7 @@ impl ChannelValue {
     }
 
     /// Get the transform scope that produced this channel value, if any.
-    pub fn get_transform_scope(&self) -> Option<Sharing> {
+    pub fn get_transform_scope(&self) -> Option<CoordinationScope> {
         match self {
             ChannelValue::Scaled {
                 transform_scope, ..
@@ -497,7 +497,7 @@ impl ChannelValue {
     }
 
     /// Attach transform-scope metadata and use it as default scale sharing.
-    pub fn with_transform_scope(self, scope: Sharing) -> Self {
+    pub fn with_transform_scope(self, scope: CoordinationScope) -> Self {
         let scope = scope.to_normalized();
         match self {
             ChannelValue::Scaled {

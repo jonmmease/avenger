@@ -1546,7 +1546,7 @@ fn expr_node(expr: Expr, label: &str) -> LogicalExprNode {
 
 #[cfg(test)]
 mod tests {
-    use crate::{SceneGeometryQuery, SceneQueryDatumField, Sharing};
+    use crate::{CoordinationScope, SceneGeometryQuery, SceneQueryDatumField};
     use datafusion::prelude::{SessionContext, lit};
 
     use super::*;
@@ -1749,7 +1749,7 @@ mod tests {
                         .datum_field(SceneQueryDatumField::new("point_id"))
                         .unique_by(["point_id"]),
                 )
-                .sharing(Sharing::Shared),
+                .sharing(CoordinationScope::Shared),
             ),
         )
         .exact();

@@ -84,7 +84,7 @@ fn shared_x_child(data: DataFrame, title: &str) -> Plot<Cartesian> {
         Symbol::<Cartesian>::new()
             .x_with(col("x"), |c| {
                 c.scale_with::<Linear>(|s| s.nice(false).zero(false))
-                    .with_scale_sharing(Sharing::Shared)
+                    .with_scale_sharing(CoordinationScope::Shared)
                     .axis(|a| a.title("Shared x"))
             })
             .y_with(col("y"), |c| c.axis(|a| a.title("y")))
@@ -100,7 +100,7 @@ fn shared_x_child_no_title(data: DataFrame) -> Plot<Cartesian> {
         Symbol::<Cartesian>::new()
             .x_with(col("x"), |c| {
                 c.scale_with::<Linear>(|s| s.nice(false).zero(false))
-                    .with_scale_sharing(Sharing::Shared)
+                    .with_scale_sharing(CoordinationScope::Shared)
                     .axis(|a| a.title("Shared x"))
             })
             .y_with(col("y"), |c| c.axis(|a| a.title("y")))
@@ -117,7 +117,7 @@ fn shared_y_child(data: DataFrame, title: &str) -> Plot<Cartesian> {
             .x_with(col("x"), |c| c.axis(|a| a.title("x")))
             .y_with(col("y"), |c| {
                 c.scale_with::<Linear>(|s| s.nice(false).zero(false))
-                    .with_scale_sharing(Sharing::Shared)
+                    .with_scale_sharing(CoordinationScope::Shared)
                     .axis(|a| a.title("Shared y"))
             })
             .fill("#4682b4")
@@ -133,7 +133,7 @@ fn shared_color_child(data: DataFrame, title: &str, position: LegendPosition) ->
             .x(col("x"))
             .y(col("y"))
             .fill_with(col("category"), |c| {
-                c.with_scale_sharing(Sharing::Shared)
+                c.with_scale_sharing(CoordinationScope::Shared)
                     .legend(|l| l.title("Category").position(position))
             })
             .size(96.0)
@@ -146,7 +146,7 @@ fn level1_shared_x_child(data: DataFrame) -> Plot<Cartesian> {
     Plot::<Cartesian>::new().data(data).mark(
         Symbol::<Cartesian>::new()
             .x_with(col("x"), |c| {
-                c.with_scale_sharing(Sharing::Level(1))
+                c.with_scale_sharing(CoordinationScope::Level(1))
                     .axis(|a| a.title("Level 1 x"))
             })
             .y(col("y"))

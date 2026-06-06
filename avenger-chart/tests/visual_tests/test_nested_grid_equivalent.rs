@@ -56,9 +56,11 @@ async fn test_nested_free_row_free_scales() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Free)
+                                    c.with_scale_sharing(CoordinationScope::Free)
                                 })
-                                .y_with(col("sepal_width"), |c| c.with_scale_sharing(Sharing::Free))
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Free)
+                                })
                                 .size(25.0)
                                 .fill("#4682b4"),
                         ),
@@ -127,7 +129,7 @@ async fn test_nested_free_row_with_line_mark() {
 }
 
 // =============================================================================
-// Milestone 2: Data Channel Scale Sharing (Shared scales for x/y)
+// Milestone 2: Data Channel Scale CoordinationScope (Shared scales for x/y)
 // =============================================================================
 
 /// Port of test_grid_facet_shared_both
@@ -148,10 +150,10 @@ async fn test_nested_free_row_shared_both() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                 })
                                 .y_with(col("sepal_width"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                 })
                                 .size(25.0)
                                 .fill("#4682b4"),
@@ -195,9 +197,11 @@ async fn test_nested_free_row_shared_x() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                 })
-                                .y_with(col("sepal_width"), |c| c.with_scale_sharing(Sharing::Free))
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Free)
+                                })
                                 .size(25.0)
                                 .fill("#4682b4"),
                         ),
@@ -237,10 +241,10 @@ async fn test_nested_free_row_shared_y() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Free)
+                                    c.with_scale_sharing(CoordinationScope::Free)
                                 })
                                 .y_with(col("sepal_width"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                 })
                                 .size(25.0)
                                 .fill("#4682b4"),
@@ -385,11 +389,11 @@ async fn test_nested_free_row_with_unified_titles() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                         .axis(|a| a.title("Sepal Length (cm)"))
                                 })
                                 .y_with(col("sepal_width"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                         .axis(|a| a.title("Sepal Width (cm)"))
                                 })
                                 .size(25.0)
@@ -526,9 +530,11 @@ async fn test_nested_free_row_hybrid_sharing() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                 })
-                                .y_with(col("sepal_width"), |c| c.with_scale_sharing(Sharing::Free))
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Free)
+                                })
                                 .size(25.0)
                                 .fill("#4682b4"),
                         ),
@@ -554,7 +560,7 @@ async fn test_nested_free_row_hybrid_sharing() {
 }
 
 // =============================================================================
-// Milestone 9: Level(1) Row-Based Scale Sharing (formerly SharedInRow)
+// Milestone 9: Level(1) Row-Based Scale CoordinationScope (formerly SharedInRow)
 // =============================================================================
 // MIGRATION NOTE: SharedInRow has been replaced with Level(1) in a restructured
 // FacetRow > FacetColumn layout. To achieve row-based sharing (all cells in the
@@ -586,10 +592,10 @@ async fn test_nested_free_row_shared_in_row_both() {
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x_with(col("sepal_length"), |c| {
-                                c.with_scale_sharing(Sharing::Level(1))
+                                c.with_scale_sharing(CoordinationScope::Level(1))
                             })
                             .y_with(col("sepal_width"), |c| {
-                                c.with_scale_sharing(Sharing::Level(1))
+                                c.with_scale_sharing(CoordinationScope::Level(1))
                             })
                             .size(25.0)
                             .fill("#4682b4"),
@@ -631,9 +637,11 @@ async fn test_nested_free_row_shared_in_row_x() {
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x_with(col("sepal_length"), |c| {
-                                c.with_scale_sharing(Sharing::Level(1))
+                                c.with_scale_sharing(CoordinationScope::Level(1))
                             })
-                            .y_with(col("sepal_width"), |c| c.with_scale_sharing(Sharing::Free))
+                            .y_with(col("sepal_width"), |c| {
+                                c.with_scale_sharing(CoordinationScope::Free)
+                            })
                             .size(25.0)
                             .fill("#4682b4"),
                     ),
@@ -673,9 +681,11 @@ async fn test_nested_free_row_shared_in_row_y() {
                 Subplot::new(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
-                            .x_with(col("sepal_length"), |c| c.with_scale_sharing(Sharing::Free))
+                            .x_with(col("sepal_length"), |c| {
+                                c.with_scale_sharing(CoordinationScope::Free)
+                            })
                             .y_with(col("sepal_width"), |c| {
-                                c.with_scale_sharing(Sharing::Level(1))
+                                c.with_scale_sharing(CoordinationScope::Level(1))
                             })
                             .size(25.0)
                             .fill("#4682b4"),
@@ -717,10 +727,10 @@ async fn test_nested_free_row_mixed_shared_and_shared_in_row() {
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x_with(col("sepal_length"), |c| {
-                                c.with_scale_sharing(Sharing::Shared)
+                                c.with_scale_sharing(CoordinationScope::Shared)
                             })
                             .y_with(col("sepal_width"), |c| {
-                                c.with_scale_sharing(Sharing::Level(1))
+                                c.with_scale_sharing(CoordinationScope::Level(1))
                             })
                             .size(25.0)
                             .fill("#4682b4"),
@@ -747,7 +757,7 @@ async fn test_nested_free_row_mixed_shared_and_shared_in_row() {
 }
 
 // =============================================================================
-// Milestone 10: Level(1) Scale Sharing (formerly SharedInColumn)
+// Milestone 10: Level(1) Scale CoordinationScope (formerly SharedInColumn)
 // =============================================================================
 // MIGRATION NOTE: SharedInColumn has been replaced with Level(1).
 // In a FacetColumn > FacetRow structure, Level(1) shares scales with the
@@ -780,10 +790,10 @@ async fn test_nested_free_row_shared_in_column_both() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Level(1))
+                                    c.with_scale_sharing(CoordinationScope::Level(1))
                                 })
                                 .y_with(col("sepal_width"), |c| {
-                                    c.with_scale_sharing(Sharing::Level(1))
+                                    c.with_scale_sharing(CoordinationScope::Level(1))
                                 })
                                 .size(25.0)
                                 .fill("#4682b4"),
@@ -827,9 +837,11 @@ async fn test_nested_free_row_shared_in_column_x() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Level(1))
+                                    c.with_scale_sharing(CoordinationScope::Level(1))
                                 })
-                                .y_with(col("sepal_width"), |c| c.with_scale_sharing(Sharing::Free))
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Free)
+                                })
                                 .size(25.0)
                                 .fill("#4682b4"),
                         ),
@@ -872,10 +884,10 @@ async fn test_nested_free_row_shared_in_column_y() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Free)
+                                    c.with_scale_sharing(CoordinationScope::Free)
                                 })
                                 .y_with(col("sepal_width"), |c| {
-                                    c.with_scale_sharing(Sharing::Level(1))
+                                    c.with_scale_sharing(CoordinationScope::Level(1))
                                 })
                                 .size(25.0)
                                 .fill("#4682b4"),
@@ -922,12 +934,12 @@ async fn test_nested_free_row_mixed_shared_in_column_and_shared_in_row() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Level(1))
+                                    c.with_scale_sharing(CoordinationScope::Level(1))
                                 })
                                 .y_with(col("sepal_width"), |c| {
                                     // Use Shared (global) instead of SharedInRow
                                     // True row-sharing would require FacetRow > FacetColumn structure
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                 })
                                 .size(25.0)
                                 .fill("#4682b4"),
@@ -1091,10 +1103,10 @@ async fn test_nested_shared_row_shared_both() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                 })
                                 .y_with(col("sepal_width"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                 })
                                 .size(25.0)
                                 .fill("#4682b4"),
@@ -1136,10 +1148,10 @@ async fn test_nested_shared_row_shared_both_empty_subplot() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                 })
                                 .y_with(col("sepal_width"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                 })
                                 .size(25.0)
                                 .fill("#4682b4"),
@@ -1184,9 +1196,11 @@ async fn test_nested_shared_row_free_scales() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Free)
+                                    c.with_scale_sharing(CoordinationScope::Free)
                                 })
-                                .y_with(col("sepal_width"), |c| c.with_scale_sharing(Sharing::Free))
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Free)
+                                })
                                 .size(25.0)
                                 .fill("#4682b4"),
                         ),
@@ -1227,9 +1241,11 @@ async fn test_nested_shared_row_shared_x() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                 })
-                                .y_with(col("sepal_width"), |c| c.with_scale_sharing(Sharing::Free))
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Free)
+                                })
                                 .size(25.0)
                                 .fill("#4682b4"),
                         ),
@@ -1270,10 +1286,10 @@ async fn test_nested_shared_row_shared_y() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Free)
+                                    c.with_scale_sharing(CoordinationScope::Free)
                                 })
                                 .y_with(col("sepal_width"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                 })
                                 .size(25.0)
                                 .fill("#4682b4"),
@@ -1315,11 +1331,11 @@ async fn test_nested_shared_row_with_unified_titles() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                         .axis(|a| a.title("Sepal Length (cm)"))
                                 })
                                 .y_with(col("sepal_width"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                         .axis(|a| a.title("Sepal Width (cm)"))
                                 })
                                 .size(25.0)
@@ -1577,9 +1593,11 @@ async fn test_nested_shared_row_hybrid_sharing() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                 })
-                                .y_with(col("sepal_width"), |c| c.with_scale_sharing(Sharing::Free))
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Free)
+                                })
                                 .size(25.0)
                                 .fill("#4682b4"),
                         ),
@@ -1620,9 +1638,11 @@ async fn test_nested_shared_row_hybrid_sharing_empty_subplot() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                 })
-                                .y_with(col("sepal_width"), |c| c.with_scale_sharing(Sharing::Free))
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Free)
+                                })
                                 .size(25.0)
                                 .fill("#4682b4"),
                         ),
@@ -1680,10 +1700,10 @@ async fn test_nested_shared_col_shared_both() {
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x_with(col("sepal_length"), |c| {
-                                c.with_scale_sharing(Sharing::Shared)
+                                c.with_scale_sharing(CoordinationScope::Shared)
                             })
                             .y_with(col("sepal_width"), |c| {
-                                c.with_scale_sharing(Sharing::Shared)
+                                c.with_scale_sharing(CoordinationScope::Shared)
                             })
                             .size(25.0)
                             .fill("#4682b4"),
@@ -1723,10 +1743,10 @@ async fn test_nested_shared_col_shared_both_empty_subplot() {
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x_with(col("sepal_length"), |c| {
-                                c.with_scale_sharing(Sharing::Shared)
+                                c.with_scale_sharing(CoordinationScope::Shared)
                             })
                             .y_with(col("sepal_width"), |c| {
-                                c.with_scale_sharing(Sharing::Shared)
+                                c.with_scale_sharing(CoordinationScope::Shared)
                             })
                             .size(25.0)
                             .fill("#4682b4"),
@@ -1756,7 +1776,7 @@ async fn test_nested_shared_col_shared_both_empty_subplot() {
 }
 
 // =============================================================================
-// Level(N) Scale Sharing Tests
+// Level(N) Scale CoordinationScope Tests
 // =============================================================================
 
 /// Test Level(1) scale sharing for Y axis in FacetColumn > FacetRow layout
@@ -1779,10 +1799,10 @@ async fn test_nested_level1_y_col_row() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Free)
+                                    c.with_scale_sharing(CoordinationScope::Free)
                                 })
                                 .y_with(col("sepal_width"), |c| {
-                                    c.with_scale_sharing(Sharing::Level(1))
+                                    c.with_scale_sharing(CoordinationScope::Level(1))
                                 })
                                 .size(25.0)
                                 .fill("#4682b4"),
@@ -1826,9 +1846,11 @@ async fn test_nested_level1_x_row_col() {
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x_with(col("sepal_length"), |c| {
-                                c.with_scale_sharing(Sharing::Level(1))
+                                c.with_scale_sharing(CoordinationScope::Level(1))
                             })
-                            .y_with(col("sepal_width"), |c| c.with_scale_sharing(Sharing::Free))
+                            .y_with(col("sepal_width"), |c| {
+                                c.with_scale_sharing(CoordinationScope::Free)
+                            })
                             .size(25.0)
                             .fill("#4682b4"),
                     ),
@@ -1871,10 +1893,10 @@ async fn test_nested_level1_both_col_row() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Level(1))
+                                    c.with_scale_sharing(CoordinationScope::Level(1))
                                 })
                                 .y_with(col("sepal_width"), |c| {
-                                    c.with_scale_sharing(Sharing::Level(1))
+                                    c.with_scale_sharing(CoordinationScope::Level(1))
                                 })
                                 .size(25.0)
                                 .fill("#4682b4"),
@@ -1922,11 +1944,11 @@ async fn test_nested_level1_y_left_axis() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Free)
+                                    c.with_scale_sharing(CoordinationScope::Free)
                                 })
                                 .y_with(col("sepal_width"), |c| {
                                     c.axis(|a| a.position("left"))
-                                        .with_scale_sharing(Sharing::Level(1))
+                                        .with_scale_sharing(CoordinationScope::Level(1))
                                 })
                                 .size(25.0)
                                 .fill("#4682b4"),
@@ -1970,11 +1992,11 @@ async fn test_nested_level1_y_right_axis() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Free)
+                                    c.with_scale_sharing(CoordinationScope::Free)
                                 })
                                 .y_with(col("sepal_width"), |c| {
                                     c.axis(|a| a.position("right"))
-                                        .with_scale_sharing(Sharing::Level(1))
+                                        .with_scale_sharing(CoordinationScope::Level(1))
                                 })
                                 .size(25.0)
                                 .fill("#4682b4"),
@@ -2017,9 +2039,11 @@ async fn test_nested_level1_x_bottom_axis() {
                         Symbol::new()
                             .x_with(col("sepal_length"), |c| {
                                 c.axis(|a| a.position("bottom"))
-                                    .with_scale_sharing(Sharing::Level(1))
+                                    .with_scale_sharing(CoordinationScope::Level(1))
                             })
-                            .y_with(col("sepal_width"), |c| c.with_scale_sharing(Sharing::Free))
+                            .y_with(col("sepal_width"), |c| {
+                                c.with_scale_sharing(CoordinationScope::Free)
+                            })
                             .size(25.0)
                             .fill("#4682b4"),
                     ),
@@ -2061,9 +2085,11 @@ async fn test_nested_level1_x_top_axis() {
                         Symbol::new()
                             .x_with(col("sepal_length"), |c| {
                                 c.axis(|a| a.position("top"))
-                                    .with_scale_sharing(Sharing::Level(1))
+                                    .with_scale_sharing(CoordinationScope::Level(1))
                             })
-                            .y_with(col("sepal_width"), |c| c.with_scale_sharing(Sharing::Free))
+                            .y_with(col("sepal_width"), |c| {
+                                c.with_scale_sharing(CoordinationScope::Free)
+                            })
                             .size(25.0)
                             .fill("#4682b4"),
                     ),
@@ -2107,11 +2133,11 @@ async fn test_nested_level1_mixed_x_free_y_level1() {
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
                                     c.axis(|a| a.position("bottom"))
-                                        .with_scale_sharing(Sharing::Free)
+                                        .with_scale_sharing(CoordinationScope::Free)
                                 })
                                 .y_with(col("sepal_width"), |c| {
                                     c.axis(|a| a.position("left"))
-                                        .with_scale_sharing(Sharing::Level(1))
+                                        .with_scale_sharing(CoordinationScope::Level(1))
                                 })
                                 .size(25.0)
                                 .fill("#4682b4"),
@@ -2159,10 +2185,12 @@ async fn test_three_level_level2_y_right_axis() {
                     Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
-                                .x_with(col("x_val"), |c| c.with_scale_sharing(Sharing::Free))
+                                .x_with(col("x_val"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Free)
+                                })
                                 .y_with(col("y_val"), |c| {
                                     c.axis(|a| a.position("right"))
-                                        .with_scale_sharing(Sharing::Level(2))
+                                        .with_scale_sharing(CoordinationScope::Level(2))
                                 })
                                 .size(40.0)
                                 .fill("#2ecc71"),
@@ -2212,9 +2240,11 @@ async fn test_three_level_level2_x_top_axis() {
                             Symbol::new()
                                 .x_with(col("x_val"), |c| {
                                     c.axis(|a| a.position("top"))
-                                        .with_scale_sharing(Sharing::Level(2))
+                                        .with_scale_sharing(CoordinationScope::Level(2))
                                 })
-                                .y_with(col("y_val"), |c| c.with_scale_sharing(Sharing::Free))
+                                .y_with(col("y_val"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Free)
+                                })
                                 .size(40.0)
                                 .fill("#9b59b6"),
                         ),
@@ -2270,10 +2300,10 @@ async fn test_three_level_nesting_level1_y() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Free)
+                                    c.with_scale_sharing(CoordinationScope::Free)
                                 })
                                 .y_with(col("sepal_width"), |c| {
-                                    c.with_scale_sharing(Sharing::Level(1))
+                                    c.with_scale_sharing(CoordinationScope::Level(1))
                                 })
                                 .size(25.0)
                                 .fill("#4682b4"),
@@ -2321,10 +2351,10 @@ async fn test_three_level_nesting_shared_y() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                 })
                                 .y_with(col("sepal_width"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                 })
                                 .size(25.0)
                                 .fill("#4682b4"),
@@ -2444,8 +2474,12 @@ async fn test_three_level_level2_y() {
                     Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
-                                .x_with(col("x_val"), |c| c.with_scale_sharing(Sharing::Free))
-                                .y_with(col("y_val"), |c| c.with_scale_sharing(Sharing::Level(2)))
+                                .x_with(col("x_val"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Free)
+                                })
+                                .y_with(col("y_val"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Level(2))
+                                })
                                 .size(40.0)
                                 .fill("#e74c3c"),
                         ),
@@ -2485,8 +2519,12 @@ async fn test_three_level_level1_y() {
                     Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
-                                .x_with(col("x_val"), |c| c.with_scale_sharing(Sharing::Free))
-                                .y_with(col("y_val"), |c| c.with_scale_sharing(Sharing::Level(1)))
+                                .x_with(col("x_val"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Free)
+                                })
+                                .y_with(col("y_val"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Level(1))
+                                })
                                 .size(40.0)
                                 .fill("#3498db"),
                         ),
@@ -2529,8 +2567,12 @@ async fn test_three_level_level2_x() {
                     Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
-                                .x_with(col("x_val"), |c| c.with_scale_sharing(Sharing::Level(2)))
-                                .y_with(col("y_val"), |c| c.with_scale_sharing(Sharing::Free))
+                                .x_with(col("x_val"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Level(2))
+                                })
+                                .y_with(col("y_val"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Free)
+                                })
                                 .size(40.0)
                                 .fill("#27ae60"),
                         ),
@@ -2571,8 +2613,12 @@ async fn test_three_level_level1_x() {
                     Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
-                                .x_with(col("x_val"), |c| c.with_scale_sharing(Sharing::Level(1)))
-                                .y_with(col("y_val"), |c| c.with_scale_sharing(Sharing::Free))
+                                .x_with(col("x_val"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Level(1))
+                                })
+                                .y_with(col("y_val"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Free)
+                                })
                                 .size(40.0)
                                 .fill("#9b59b6"),
                         ),
@@ -2613,8 +2659,12 @@ async fn test_three_level_mixed_x_shared_y_level2() {
                     Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
-                                .x_with(col("x_val"), |c| c.with_scale_sharing(Sharing::Shared))
-                                .y_with(col("y_val"), |c| c.with_scale_sharing(Sharing::Level(2)))
+                                .x_with(col("x_val"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Shared)
+                                })
+                                .y_with(col("y_val"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Level(2))
+                                })
                                 .size(40.0)
                                 .fill("#f39c12"),
                         ),
@@ -2662,8 +2712,12 @@ async fn test_three_level_mixed_x_level2_y_shared() {
                     Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
-                                .x_with(col("x_val"), |c| c.with_scale_sharing(Sharing::Level(2)))
-                                .y_with(col("y_val"), |c| c.with_scale_sharing(Sharing::Shared))
+                                .x_with(col("x_val"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Level(2))
+                                })
+                                .y_with(col("y_val"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Shared)
+                                })
                                 .size(40.0)
                                 .fill("#1abc9c"),
                         ),
@@ -2934,10 +2988,10 @@ async fn test_four_level_level2_y() {
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
                                         .x_with(col("x_val"), |c| {
-                                            c.with_scale_sharing(Sharing::Free)
+                                            c.with_scale_sharing(CoordinationScope::Free)
                                         })
                                         .y_with(col("y_val"), |c| {
-                                            c.with_scale_sharing(Sharing::Level(2))
+                                            c.with_scale_sharing(CoordinationScope::Level(2))
                                         })
                                         .size(40.0)
                                         .fill("#3498db"),
@@ -2982,10 +3036,10 @@ async fn test_four_level_level3_y() {
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
                                         .x_with(col("x_val"), |c| {
-                                            c.with_scale_sharing(Sharing::Free)
+                                            c.with_scale_sharing(CoordinationScope::Free)
                                         })
                                         .y_with(col("y_val"), |c| {
-                                            c.with_scale_sharing(Sharing::Level(3))
+                                            c.with_scale_sharing(CoordinationScope::Level(3))
                                         })
                                         .size(40.0)
                                         .fill("#9b59b6"),
@@ -3008,7 +3062,7 @@ async fn test_four_level_level3_y() {
 }
 
 // =============================================================================
-// Scale Sharing Equivalence Tests
+// Scale CoordinationScope Equivalence Tests
 // =============================================================================
 // These tests verify that Level(0) is equivalent to Free and Level(255) is
 // equivalent to Shared. Rather than comparing to baselines, these tests render
@@ -3087,10 +3141,10 @@ async fn test_level0_equivalent_to_free() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Level(0))
+                                    c.with_scale_sharing(CoordinationScope::Level(0))
                                 })
                                 .y_with(col("sepal_width"), |c| {
-                                    c.with_scale_sharing(Sharing::Level(0))
+                                    c.with_scale_sharing(CoordinationScope::Level(0))
                                 })
                                 .size(25.0)
                                 .fill("#4682b4"),
@@ -3113,9 +3167,11 @@ async fn test_level0_equivalent_to_free() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Free)
+                                    c.with_scale_sharing(CoordinationScope::Free)
                                 })
-                                .y_with(col("sepal_width"), |c| c.with_scale_sharing(Sharing::Free))
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Free)
+                                })
                                 .size(25.0)
                                 .fill("#4682b4"),
                         ),
@@ -3171,10 +3227,10 @@ async fn test_explicit_domain_with_level1() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Free)
+                                    c.with_scale_sharing(CoordinationScope::Free)
                                 })
                                 .y_with(col("sepal_width"), |c| {
-                                    c.with_scale_sharing(Sharing::Level(1))
+                                    c.with_scale_sharing(CoordinationScope::Level(1))
                                         .scale(|s| s.domain((1.5, 5.0)))
                                 })
                                 .size(25.0)
@@ -3223,9 +3279,11 @@ async fn test_explicit_domain_with_level2() {
                     Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
-                                .x_with(col("x_val"), |c| c.with_scale_sharing(Sharing::Free))
+                                .x_with(col("x_val"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Free)
+                                })
                                 .y_with(col("y_val"), |c| {
-                                    c.with_scale_sharing(Sharing::Level(2))
+                                    c.with_scale_sharing(CoordinationScope::Level(2))
                                         .scale(|s| s.domain((0.0, 100.0)))
                                 })
                                 .size(40.0)
@@ -3271,7 +3329,9 @@ async fn test_level_exceeds_nesting_depth() {
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x(col("x_val"))
-                        .y_with(col("y_val"), |c| c.with_scale_sharing(Sharing::Level(3)))
+                        .y_with(col("y_val"), |c| {
+                            c.with_scale_sharing(CoordinationScope::Level(3))
+                        })
                         .size(40.0)
                         .fill("#c0392b"),
                 ),
@@ -3328,7 +3388,9 @@ async fn test_level_non_nested_context() {
         .mark(
             Symbol::new()
                 .x(col("x"))
-                .y_with(col("y"), |c| c.with_scale_sharing(Sharing::Level(1)))
+                .y_with(col("y"), |c| {
+                    c.with_scale_sharing(CoordinationScope::Level(1))
+                })
                 .size(50.0)
                 .fill("#3498db"),
         );
@@ -3368,7 +3430,7 @@ async fn test_color_channel_with_level1() {
                                 .x(col("sepal_length"))
                                 .y(col("sepal_width"))
                                 .fill_with(col("petal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Level(1))
+                                    c.with_scale_sharing(CoordinationScope::Level(1))
                                 })
                                 .size(35.0),
                         ),
@@ -3416,10 +3478,10 @@ async fn test_level255_equivalent_to_shared() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Level(255))
+                                    c.with_scale_sharing(CoordinationScope::Level(255))
                                 })
                                 .y_with(col("sepal_width"), |c| {
-                                    c.with_scale_sharing(Sharing::Level(255))
+                                    c.with_scale_sharing(CoordinationScope::Level(255))
                                 })
                                 .size(25.0)
                                 .fill("#4682b4"),
@@ -3442,10 +3504,10 @@ async fn test_level255_equivalent_to_shared() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                 })
                                 .y_with(col("sepal_width"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                 })
                                 .size(25.0)
                                 .fill("#4682b4"),
@@ -3505,10 +3567,10 @@ async fn test_four_level_row_col_row_col() {
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
                                         .x_with(col("x_val"), |c| {
-                                            c.with_scale_sharing(Sharing::Free)
+                                            c.with_scale_sharing(CoordinationScope::Free)
                                         })
                                         .y_with(col("y_val"), |c| {
-                                            c.with_scale_sharing(Sharing::Level(3))
+                                            c.with_scale_sharing(CoordinationScope::Level(3))
                                         })
                                         .size(40.0)
                                         .fill("#e74c3c"),
@@ -3558,10 +3620,10 @@ async fn test_four_level_col_col_row_row() {
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
                                         .x_with(col("x_val"), |c| {
-                                            c.with_scale_sharing(Sharing::Free)
+                                            c.with_scale_sharing(CoordinationScope::Free)
                                         })
                                         .y_with(col("y_val"), |c| {
-                                            c.with_scale_sharing(Sharing::Level(3))
+                                            c.with_scale_sharing(CoordinationScope::Level(3))
                                         })
                                         .size(40.0)
                                         .fill("#27ae60"),
@@ -3611,10 +3673,10 @@ async fn test_four_level_row_row_col_col() {
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
                                         .x_with(col("x_val"), |c| {
-                                            c.with_scale_sharing(Sharing::Free)
+                                            c.with_scale_sharing(CoordinationScope::Free)
                                         })
                                         .y_with(col("y_val"), |c| {
-                                            c.with_scale_sharing(Sharing::Level(3))
+                                            c.with_scale_sharing(CoordinationScope::Level(3))
                                         })
                                         .size(40.0)
                                         .fill("#f39c12"),
@@ -3664,10 +3726,14 @@ async fn test_four_level_row_row_row_row() {
                                         Plot::<Cartesian>::new().mark(
                                             Symbol::new()
                                                 .x_with(col("x_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(4))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        4,
+                                                    ))
                                                 })
                                                 .y_with(col("y_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(4))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        4,
+                                                    ))
                                                 })
                                                 .size(40.0)
                                                 .fill("#e74c3c"),
@@ -3720,10 +3786,14 @@ async fn test_four_level_col_col_col_col() {
                                         Plot::<Cartesian>::new().mark(
                                             Symbol::new()
                                                 .x_with(col("x_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(4))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        4,
+                                                    ))
                                                 })
                                                 .y_with(col("y_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(4))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        4,
+                                                    ))
                                                 })
                                                 .size(40.0)
                                                 .fill("#9b59b6"),
@@ -3777,10 +3847,14 @@ async fn test_four_level_col_col_col_col_dept_free() {
                                         Plot::<Cartesian>::new().mark(
                                             Symbol::new()
                                                 .x_with(col("x_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(4))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        4,
+                                                    ))
                                                 })
                                                 .y_with(col("y_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(4))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        4,
+                                                    ))
                                                 })
                                                 .size(40.0)
                                                 .fill("#9b59b6"),
@@ -3835,10 +3909,14 @@ async fn test_four_level_col_col_col_col_y_level2() {
                                         Plot::<Cartesian>::new().mark(
                                             Symbol::new()
                                                 .x_with(col("x_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(4))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        4,
+                                                    ))
                                                 })
                                                 .y_with(col("y_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(2))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        2,
+                                                    ))
                                                 })
                                                 .size(40.0)
                                                 .fill("#9b59b6"),
@@ -3886,8 +3964,12 @@ async fn test_two_level_col_col() {
                     Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
-                                .x_with(col("x_val"), |c| c.with_scale_sharing(Sharing::Level(2)))
-                                .y_with(col("y_val"), |c| c.with_scale_sharing(Sharing::Level(2)))
+                                .x_with(col("x_val"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Level(2))
+                                })
+                                .y_with(col("y_val"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Level(2))
+                                })
                                 .size(40.0)
                                 .fill("#9b59b6"),
                         ),
@@ -3923,11 +4005,15 @@ async fn test_four_level_col_col_col_col_y_level2_right() {
                                         Plot::<Cartesian>::new().mark(
                                             Symbol::new()
                                                 .x_with(col("x_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(4))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        4,
+                                                    ))
                                                 })
                                                 .y_with(col("y_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(2))
-                                                        .axis(|a| a.position(AxisPosition::Right))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        2,
+                                                    ))
+                                                    .axis(|a| a.position(AxisPosition::Right))
                                                 })
                                                 .size(40.0)
                                                 .fill("#9b59b6"),
@@ -3981,10 +4067,12 @@ async fn test_four_level_col_col_col_col_y_free() {
                                         Plot::<Cartesian>::new().mark(
                                             Symbol::new()
                                                 .x_with(col("x_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(4))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        4,
+                                                    ))
                                                 })
                                                 .y_with(col("y_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Free)
+                                                    c.with_scale_sharing(CoordinationScope::Free)
                                                 })
                                                 .size(40.0)
                                                 .fill("#9b59b6"),
@@ -4038,10 +4126,14 @@ async fn test_four_level_col_col_col_col_y_level1() {
                                         Plot::<Cartesian>::new().mark(
                                             Symbol::new()
                                                 .x_with(col("x_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(4))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        4,
+                                                    ))
                                                 })
                                                 .y_with(col("y_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(1))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        1,
+                                                    ))
                                                 })
                                                 .size(40.0)
                                                 .fill("#9b59b6"),
@@ -4095,10 +4187,14 @@ async fn test_four_level_col_col_col_col_y_level2_dept_free() {
                                         Plot::<Cartesian>::new().mark(
                                             Symbol::new()
                                                 .x_with(col("x_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(4))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        4,
+                                                    ))
                                                 })
                                                 .y_with(col("y_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(2))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        2,
+                                                    ))
                                                 })
                                                 .size(40.0)
                                                 .fill("#9b59b6"),
@@ -4154,11 +4250,15 @@ async fn test_four_level_col_col_col_col_y_level2_right_dept_free() {
                                         Plot::<Cartesian>::new().mark(
                                             Symbol::new()
                                                 .x_with(col("x_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(4))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        4,
+                                                    ))
                                                 })
                                                 .y_with(col("y_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(2))
-                                                        .axis(|a| a.position(AxisPosition::Right))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        2,
+                                                    ))
+                                                    .axis(|a| a.position(AxisPosition::Right))
                                                 })
                                                 .size(40.0)
                                                 .fill("#9b59b6"),
@@ -4215,10 +4315,12 @@ async fn test_four_level_col_col_col_col_y_free_dept_free() {
                                         Plot::<Cartesian>::new().mark(
                                             Symbol::new()
                                                 .x_with(col("x_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(4))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        4,
+                                                    ))
                                                 })
                                                 .y_with(col("y_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Free)
+                                                    c.with_scale_sharing(CoordinationScope::Free)
                                                 })
                                                 .size(40.0)
                                                 .fill("#9b59b6"),
@@ -4274,10 +4376,14 @@ async fn test_four_level_col_col_col_col_y_level1_dept_free() {
                                         Plot::<Cartesian>::new().mark(
                                             Symbol::new()
                                                 .x_with(col("x_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(4))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        4,
+                                                    ))
                                                 })
                                                 .y_with(col("y_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(1))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        1,
+                                                    ))
                                                 })
                                                 .size(40.0)
                                                 .fill("#9b59b6"),
@@ -4330,10 +4436,10 @@ async fn test_four_level_col_col_row_row_dept_free() {
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
                                         .x_with(col("x_val"), |c| {
-                                            c.with_scale_sharing(Sharing::Free)
+                                            c.with_scale_sharing(CoordinationScope::Free)
                                         })
                                         .y_with(col("y_val"), |c| {
-                                            c.with_scale_sharing(Sharing::Level(3))
+                                            c.with_scale_sharing(CoordinationScope::Level(3))
                                         })
                                         .size(40.0)
                                         .fill("#27ae60"),
@@ -4390,10 +4496,14 @@ async fn test_four_level_col_col_col_col_team_free_asymmetric() {
                                         Plot::<Cartesian>::new().mark(
                                             Symbol::new()
                                                 .x_with(col("x_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(4))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        4,
+                                                    ))
                                                 })
                                                 .y_with(col("y_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(4))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        4,
+                                                    ))
                                                 })
                                                 .size(40.0)
                                                 .fill("#9b59b6"),
@@ -4451,10 +4561,14 @@ async fn test_four_level_col_col_col_col_dept_free_team_level2() {
                                         Plot::<Cartesian>::new().mark(
                                             Symbol::new()
                                                 .x_with(col("x_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(4))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        4,
+                                                    ))
                                                 })
                                                 .y_with(col("y_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(4))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        4,
+                                                    ))
                                                 })
                                                 .size(40.0)
                                                 .fill("#9b59b6"),
@@ -4464,7 +4578,7 @@ async fn test_four_level_col_col_col_col_dept_free_team_level2() {
                                 ),
                             )
                             .col_with(col("team"), |c| {
-                                c.with_slot_sharing(Sharing::Level(2))
+                                c.with_slot_sharing(CoordinationScope::Level(2))
                                     .guide(|g| g.title("Team"))
                             }),
                         ),
@@ -4518,10 +4632,14 @@ async fn test_four_level_col_col_col_col_dept_free_team_level1() {
                                         Plot::<Cartesian>::new().mark(
                                             Symbol::new()
                                                 .x_with(col("x_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(4))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        4,
+                                                    ))
                                                 })
                                                 .y_with(col("y_val"), |c| {
-                                                    c.with_scale_sharing(Sharing::Level(4))
+                                                    c.with_scale_sharing(CoordinationScope::Level(
+                                                        4,
+                                                    ))
                                                 })
                                                 .size(40.0)
                                                 .fill("#3498db"),
@@ -4531,7 +4649,7 @@ async fn test_four_level_col_col_col_col_dept_free_team_level1() {
                                 ),
                             )
                             .col_with(col("team"), |c| {
-                                c.with_slot_sharing(Sharing::Level(1))
+                                c.with_slot_sharing(CoordinationScope::Level(1))
                                     .guide(|g| g.title("Team"))
                             }),
                         ),

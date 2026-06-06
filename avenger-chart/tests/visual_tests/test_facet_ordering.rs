@@ -129,7 +129,7 @@ async fn facet_col_order_by_max_asc() {
     .await;
 }
 
-async fn run_nested_ordering_baseline(name: &str, sharing: Option<Sharing>) {
+async fn run_nested_ordering_baseline(name: &str, sharing: Option<CoordinationScope>) {
     let ctx = SessionContext::new();
     let df = nested_facet_ordering_data(&ctx);
 
@@ -168,7 +168,7 @@ async fn nested_facet_free_order_by_max_desc() {
 async fn nested_facet_shared_order_by_max_desc() {
     run_nested_ordering_baseline(
         "nested_facet_shared_order_by_max_desc",
-        Some(Sharing::Shared),
+        Some(CoordinationScope::Shared),
     )
     .await;
 }

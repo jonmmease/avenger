@@ -40,10 +40,17 @@ async fn make_legend_sharing_df(ctx: &SessionContext) -> DataFrame {
     .expect("load legend sharing test data")
 }
 
-fn make_fill_legend_symbol(sharing: Sharing, position: LegendPosition) -> Symbol<Cartesian> {
+fn make_fill_legend_symbol(
+    sharing: CoordinationScope,
+    position: LegendPosition,
+) -> Symbol<Cartesian> {
     Symbol::new()
-        .x_with(col("x_val"), |c| c.with_scale_sharing(Sharing::Shared))
-        .y_with(col("y_val"), |c| c.with_scale_sharing(Sharing::Shared))
+        .x_with(col("x_val"), |c| {
+            c.with_scale_sharing(CoordinationScope::Shared)
+        })
+        .y_with(col("y_val"), |c| {
+            c.with_scale_sharing(CoordinationScope::Shared)
+        })
         .fill_with(col("category"), move |c| {
             c.with_scale_sharing(sharing.clone())
                 .legend(|l| l.title("Category").position(position))
@@ -53,7 +60,7 @@ fn make_fill_legend_symbol(sharing: Sharing, position: LegendPosition) -> Symbol
 
 fn make_two_level_col_plot(
     df: DataFrame,
-    sharing: Sharing,
+    sharing: CoordinationScope,
     position: LegendPosition,
 ) -> Plot<FacetColumn> {
     Plot::<FacetColumn>::new()
@@ -74,7 +81,7 @@ fn make_two_level_col_plot(
 
 fn make_three_level_col_plot(
     df: DataFrame,
-    sharing: Sharing,
+    sharing: CoordinationScope,
     position: LegendPosition,
 ) -> Plot<FacetColumn> {
     Plot::<FacetColumn>::new()
@@ -109,15 +116,20 @@ fn make_two_level_col_plot_merged_group(df: DataFrame) -> Plot<FacetColumn> {
                     Subplot::new(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
-                                .x_with(col("x_val"), |c| c.with_scale_sharing(Sharing::Shared))
-                                .y_with(col("y_val"), |c| c.with_scale_sharing(Sharing::Shared))
+                                .x_with(col("x_val"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Shared)
+                                })
+                                .y_with(col("y_val"), |c| {
+                                    c.with_scale_sharing(CoordinationScope::Shared)
+                                })
                                 .fill_with(col("category"), |c| {
-                                    c.with_scale_sharing(Sharing::Level(1)).legend(|l| {
-                                        l.title("Category").position(LegendPosition::Right)
-                                    })
+                                    c.with_scale_sharing(CoordinationScope::Level(1))
+                                        .legend(|l| {
+                                            l.title("Category").position(LegendPosition::Right)
+                                        })
                                 })
                                 .stroke_with(col("category"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                 })
                                 .stroke_width(2.0)
                                 .size(70.0),
@@ -135,7 +147,7 @@ async fn test_facet_col_legend_sharing_level0_right() {
     let ctx = SessionContext::new();
     let df = make_legend_sharing_df(&ctx).await;
 
-    let plot = make_two_level_col_plot(df, Sharing::Free, LegendPosition::Right);
+    let plot = make_two_level_col_plot(df, CoordinationScope::Free, LegendPosition::Right);
     let compiled = plot.compile(&ctx).await.expect("compile level0-right plot");
     assert_visual_match_default(
         &compiled,
@@ -152,7 +164,7 @@ async fn test_facet_col_legend_sharing_level1_right() {
     let ctx = SessionContext::new();
     let df = make_legend_sharing_df(&ctx).await;
 
-    let plot = make_two_level_col_plot(df, Sharing::Level(1), LegendPosition::Right);
+    let plot = make_two_level_col_plot(df, CoordinationScope::Level(1), LegendPosition::Right);
     let compiled = plot.compile(&ctx).await.expect("compile level1-right plot");
     assert_visual_match_default(
         &compiled,
@@ -169,7 +181,7 @@ async fn test_facet_col_legend_sharing_level1_left() {
     let ctx = SessionContext::new();
     let df = make_legend_sharing_df(&ctx).await;
 
-    let plot = make_two_level_col_plot(df, Sharing::Level(1), LegendPosition::Left);
+    let plot = make_two_level_col_plot(df, CoordinationScope::Level(1), LegendPosition::Left);
     let compiled = plot.compile(&ctx).await.expect("compile level1-left plot");
     assert_visual_match_default(
         &compiled,
@@ -186,7 +198,7 @@ async fn test_facet_col_legend_sharing_level1_top() {
     let ctx = SessionContext::new();
     let df = make_legend_sharing_df(&ctx).await;
 
-    let plot = make_two_level_col_plot(df, Sharing::Level(1), LegendPosition::Top);
+    let plot = make_two_level_col_plot(df, CoordinationScope::Level(1), LegendPosition::Top);
     let compiled = plot.compile(&ctx).await.expect("compile level1-top plot");
     assert_visual_match_default(
         &compiled,
@@ -203,7 +215,7 @@ async fn test_facet_col_legend_sharing_level1_bottom() {
     let ctx = SessionContext::new();
     let df = make_legend_sharing_df(&ctx).await;
 
-    let plot = make_two_level_col_plot(df, Sharing::Level(1), LegendPosition::Bottom);
+    let plot = make_two_level_col_plot(df, CoordinationScope::Level(1), LegendPosition::Bottom);
     let compiled = plot
         .compile(&ctx)
         .await
@@ -223,7 +235,7 @@ async fn test_facet_col_legend_sharing_level2_right_three_levels() {
     let ctx = SessionContext::new();
     let df = make_legend_sharing_df(&ctx).await;
 
-    let plot = make_three_level_col_plot(df, Sharing::Level(2), LegendPosition::Right);
+    let plot = make_three_level_col_plot(df, CoordinationScope::Level(2), LegendPosition::Right);
     let compiled = plot
         .compile(&ctx)
         .await
@@ -243,7 +255,7 @@ async fn test_facet_col_legend_sharing_shared255_right_phase1() {
     let ctx = SessionContext::new();
     let df = make_legend_sharing_df(&ctx).await;
 
-    let plot = make_two_level_col_plot(df, Sharing::Shared, LegendPosition::Right);
+    let plot = make_two_level_col_plot(df, CoordinationScope::Shared, LegendPosition::Right);
     let compiled = plot
         .compile(&ctx)
         .await

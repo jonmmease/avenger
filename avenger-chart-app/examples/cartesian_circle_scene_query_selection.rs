@@ -194,7 +194,7 @@ fn circle_query_update() -> SelectionSceneQuery {
             )
             .unique_by(["point_id"]),
     )
-    .sharing(Sharing::Shared)
+    .sharing(CoordinationScope::Shared)
 }
 
 fn circle_overlay_store() -> Store {
@@ -204,7 +204,7 @@ fn circle_overlay_store() -> Store {
         .field("cy", DataType::Float64, false)
         .field("size", DataType::Float64, false)
         .primary_key(["id"])
-        .sharing(Sharing::Shared)
+        .sharing(CoordinationScope::Shared)
 }
 
 fn circle_overlay_update() -> StoreUpdate {

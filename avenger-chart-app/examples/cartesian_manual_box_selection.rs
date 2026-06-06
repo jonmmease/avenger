@@ -70,7 +70,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .canvas_size(760.0, 520.0)
         .data(df)
         .add_selection(brush)
-        .add_store(brush_box_store(Sharing::Shared))
+        .add_store(brush_box_store(CoordinationScope::Shared))
         .add_param(cursor.clone())
         .cursor_param(cursor.name.clone())
         .mark(
@@ -133,7 +133,7 @@ fn selection_drag_binding(cursor: &Param) -> ChartEventBinding {
         .filter(ev::event_at_start_clipped_coord("y").is_not_null())
         .filter(ev::shift().eq(lit(false)))
         .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
-        .set_selection_at_start_scope("brush", replace_selection_update(Sharing::Shared))
+        .set_selection_at_start_scope("brush", replace_selection_update(CoordinationScope::Shared))
         .set_store_at_start_scope_replacing_scopes("brush_boxes", replace_store_update())
         .preview()
 }
@@ -150,7 +150,7 @@ fn selection_add_drag_binding(cursor: &Param) -> ChartEventBinding {
         .filter(ev::event_at_start_clipped_coord("y").is_not_null())
         .filter(ev::shift().eq(lit(true)))
         .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
-        .set_selection_at_start_scope("brush", upsert_selection_update(Sharing::Shared))
+        .set_selection_at_start_scope("brush", upsert_selection_update(CoordinationScope::Shared))
         .set_store_at_start_scope("brush_boxes", upsert_store_update())
         .preview()
 }
@@ -165,7 +165,7 @@ fn selection_release_binding() -> ChartEventBinding {
     .filter(ev::event_at_start_clipped_coord("x").is_not_null())
     .filter(ev::event_at_start_clipped_coord("y").is_not_null())
     .filter(ev::shift().eq(lit(false)))
-    .set_selection_at_start_scope("brush", replace_selection_update(Sharing::Shared))
+    .set_selection_at_start_scope("brush", replace_selection_update(CoordinationScope::Shared))
     .set_store_at_start_scope_replacing_scopes("brush_boxes", replace_store_update())
     .exact()
 }
@@ -180,7 +180,7 @@ fn selection_add_release_binding() -> ChartEventBinding {
     .filter(ev::event_at_start_clipped_coord("x").is_not_null())
     .filter(ev::event_at_start_clipped_coord("y").is_not_null())
     .filter(ev::shift().eq(lit(true)))
-    .set_selection_at_start_scope("brush", upsert_selection_update(Sharing::Shared))
+    .set_selection_at_start_scope("brush", upsert_selection_update(CoordinationScope::Shared))
     .set_store_at_start_scope("brush_boxes", upsert_store_update())
     .exact()
 }
@@ -192,7 +192,7 @@ fn selection_clear_binding() -> ChartEventBinding {
         .exact()
 }
 
-fn brush_box_store(sharing: Sharing) -> Store {
+fn brush_box_store(sharing: CoordinationScope) -> Store {
     Store::empty("brush_boxes")
         .field("id", DataType::Utf8, false)
         .field("box_left", DataType::Float64, false)
@@ -203,7 +203,7 @@ fn brush_box_store(sharing: Sharing) -> Store {
         .sharing(sharing)
 }
 
-fn brush_selection_clause(id: Expr, facet_scope: Sharing) -> SelectionClauseUpdate {
+fn brush_selection_clause(id: Expr, facet_scope: CoordinationScope) -> SelectionClauseUpdate {
     SelectionClauseUpdate::interval(id)
         .facet_scope(facet_scope)
         .dimension(col("source_a"))
@@ -231,11 +231,11 @@ fn brush_selection_clause(id: Expr, facet_scope: Sharing) -> SelectionClauseUpda
         .build()
 }
 
-fn replace_selection_update(facet_scope: Sharing) -> SelectionUpdate {
+fn replace_selection_update(facet_scope: CoordinationScope) -> SelectionUpdate {
     SelectionUpdate::replace_all_clauses([brush_selection_clause(lit("active"), facet_scope)])
 }
 
-fn upsert_selection_update(facet_scope: Sharing) -> SelectionUpdate {
+fn upsert_selection_update(facet_scope: CoordinationScope) -> SelectionUpdate {
     SelectionUpdate::upsert_clauses([brush_selection_clause(ev::start_event_id(), facet_scope)])
 }
 

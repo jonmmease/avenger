@@ -83,7 +83,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
     let plot = Plot::<HConcat>::new()
         .canvas_size(1120.0, 520.0)
-        .add_store(brush_box_store(Sharing::Free))
+        .add_store(brush_box_store(CoordinationScope::Free))
         .add_selection(brush)
         .add_param(cursor.clone())
         .cursor_param(cursor.name.clone())
@@ -184,7 +184,7 @@ fn selection_clear_binding() -> ChartEventBinding {
         .exact()
 }
 
-fn brush_box_store(sharing: Sharing) -> Store {
+fn brush_box_store(sharing: CoordinationScope) -> Store {
     Store::empty("brush_boxes")
         .field("id", DataType::Utf8, false)
         .field("x_min", DataType::Float64, false)
@@ -197,7 +197,7 @@ fn brush_box_store(sharing: Sharing) -> Store {
 
 fn brush_selection_clause(id: Expr) -> SelectionClauseUpdate {
     SelectionClauseUpdate::interval(id)
-        .facet_scope(Sharing::Free)
+        .facet_scope(CoordinationScope::Free)
         .dimension(col("x"))
         .endpoints(
             ev::interval_start(ev::interval_ordered(

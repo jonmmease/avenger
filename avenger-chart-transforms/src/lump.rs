@@ -289,7 +289,7 @@ pub struct LumpOutput {
     measure_name: String,
     is_other_name: String,
     order_name: String,
-    scope: avenger_chart_core::Sharing,
+    scope: avenger_chart_core::CoordinationScope,
 }
 
 impl LumpOutput {

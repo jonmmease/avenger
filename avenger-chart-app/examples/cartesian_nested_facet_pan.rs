@@ -1,7 +1,7 @@
 //! Nested row × column faceted Cartesian pan/zoom with **`Level(1)` sharing**.
 //!
 //! A two-level facet (rows wrap columns) where the x and y raw-domain params are
-//! declared `Sharing::Level(1)` and the leaf scales are shared at `Level(1)`.
+//! declared `CoordinationScope::Level(1)` and the leaf scales are shared at `Level(1)`.
 //! `Level(1)` means "share one facet level up", which for a leaf cell at depth 2
 //! (`[row, column]`) is the ROW. So dragging with the left mouse button or
 //! scrolling inside any cell pans/zooms EVERY cell in that cell's row together,
@@ -64,8 +64,12 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let leaf = Plot::<Cartesian>::new()
         .mark(
             Symbol::new()
-                .x_with(col("x"), |c| c.with_scale_sharing(Sharing::Level(1)))
-                .y_with(col("y"), |c| c.with_scale_sharing(Sharing::Level(1)))
+                .x_with(col("x"), |c| {
+                    c.with_scale_sharing(CoordinationScope::Level(1))
+                })
+                .y_with(col("y"), |c| {
+                    c.with_scale_sharing(CoordinationScope::Level(1))
+                })
                 .fill(col("col_name"))
                 .size(80.0),
         )

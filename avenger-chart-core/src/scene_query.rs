@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 use crate::{
-    AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, SerializableExpr, Sharing,
+    AvengerChartError, CoordinationScope, DefaultLogicalExprNodeExt, IntoExpr, SerializableExpr,
     validate_structural_id,
 };
 
@@ -289,7 +289,7 @@ impl Default for SceneQueryClauseId {
 pub struct SelectionSceneQuery {
     pub query: SceneGeometryQuery,
     #[serde(default = "default_scene_query_sharing")]
-    pub sharing: Sharing,
+    pub sharing: CoordinationScope,
     #[serde(default)]
     pub clause_id: SceneQueryClauseId,
 }
@@ -298,12 +298,12 @@ impl SelectionSceneQuery {
     pub fn new(query: SceneGeometryQuery) -> Self {
         Self {
             query,
-            sharing: Sharing::Free,
+            sharing: CoordinationScope::Free,
             clause_id: SceneQueryClauseId::Tuple,
         }
     }
 
-    pub fn sharing(mut self, sharing: Sharing) -> Self {
+    pub fn sharing(mut self, sharing: CoordinationScope) -> Self {
         self.sharing = sharing;
         self
     }
@@ -320,8 +320,8 @@ impl From<SceneGeometryQuery> for SelectionSceneQuery {
     }
 }
 
-fn default_scene_query_sharing() -> Sharing {
-    Sharing::Free
+fn default_scene_query_sharing() -> CoordinationScope {
+    CoordinationScope::Free
 }
 
 fn expr_node(expr: Expr, label: &str) -> LogicalExprNode {

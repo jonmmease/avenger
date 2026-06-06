@@ -22,15 +22,15 @@ use avenger_chart::{
 };
 use avenger_chart_core::{
     CompiledParamSpec, CompiledScalarExpressionProgram, CompiledSelectionSpec, CompiledStoreSpec,
-    InteractionPointInversionRequest, LegendSurfaceKind, PhysicalScalarExpressionSpec,
-    PhysicalScalarProgramOptions, PlaceholderColumn, ResolvedSelectionClauseScope,
-    SceneGeometryCoordinateSpace, SceneGeometryHitPolicy, SceneGeometryQuery,
-    SceneGeometryQueryGeometry, SceneGeometryTarget, SceneQueryClauseId, SceneQueryDatumField,
-    SelectionClause, SelectionClauseUpdate, SelectionEqualityDimensionUpdate,
+    CoordinationScope, InteractionPointInversionRequest, LegendSurfaceKind,
+    PhysicalScalarExpressionSpec, PhysicalScalarProgramOptions, PlaceholderColumn,
+    ResolvedSelectionClauseScope, SceneGeometryCoordinateSpace, SceneGeometryHitPolicy,
+    SceneGeometryQuery, SceneGeometryQueryGeometry, SceneGeometryTarget, SceneQueryClauseId,
+    SceneQueryDatumField, SelectionClause, SelectionClauseUpdate, SelectionEqualityDimensionUpdate,
     SelectionEqualityDimensionValue, SelectionFacetContextValue, SelectionIntervalDimensionUpdate,
     SelectionIntervalDimensionValue, SelectionPredicateSpec, SelectionPredicateUpdate,
     SelectionPredicateValue, SelectionPredicateValueUpdate, SelectionSceneQuery, SelectionUpdate,
-    SelectionValueExpr, Sharing, StoreFieldPatch, StoreKey, StoreRow, StoreRowValue, StoreUpdate,
+    SelectionValueExpr, StoreFieldPatch, StoreKey, StoreRow, StoreRowValue, StoreUpdate,
     StoreValueExpr, collect_placeholder_ids, one_row_batch_from_scalars, schema_from_fields,
 };
 use avenger_common::cursor::CursorStyle;
@@ -153,7 +153,7 @@ struct CompiledChartEventBinding {
 
 struct CompiledParamAssignment {
     param_name: String,
-    sharing: Sharing,
+    sharing: CoordinationScope,
     default_value: ScalarValue,
     scope: ChartEventAssignmentScope,
     replace_scoped_values: bool,
@@ -162,7 +162,7 @@ struct CompiledParamAssignment {
 #[derive(Clone)]
 struct CompiledStoreAssignment {
     store_name: String,
-    sharing: Sharing,
+    sharing: CoordinationScope,
     scope: ChartEventAssignmentScope,
     replace_scoped_values: bool,
     update: CompiledStoreUpdate,
@@ -208,7 +208,7 @@ struct CompiledSelectionAssignment {
 #[derive(Clone)]
 struct CompiledSelectionSceneQuery {
     query: CompiledSceneGeometryQuery,
-    sharing: Sharing,
+    sharing: CoordinationScope,
     clause_id: CompiledSceneQueryClauseId,
 }
 
@@ -252,13 +252,13 @@ enum CompiledSceneQueryClauseId {
 enum CompiledSelectionUpdate {
     Clear,
     ClearInScope {
-        scope: Sharing,
+        scope: CoordinationScope,
     },
     ReplaceAllClauses {
         clauses: Vec<CompiledSelectionClause>,
     },
     ReplaceClausesInScope {
-        scope: Sharing,
+        scope: CoordinationScope,
         clauses: Vec<CompiledSelectionClause>,
     },
     UpsertClauses {
@@ -283,7 +283,7 @@ enum CompiledSelectionUpdate {
         ids: Vec<usize>,
     },
     DeleteClausesInScope {
-        scope: Sharing,
+        scope: CoordinationScope,
         ids: Vec<usize>,
     },
 }
@@ -291,7 +291,7 @@ enum CompiledSelectionUpdate {
 #[derive(Clone)]
 struct CompiledSelectionClause {
     id: usize,
-    facet_scope: Sharing,
+    facet_scope: CoordinationScope,
     predicate: CompiledSelectionPredicate,
 }
 
@@ -333,7 +333,7 @@ struct CompiledSelectionPredicateValue {
 
 struct StoreExpressionAssignment {
     store_name: String,
-    sharing: Sharing,
+    sharing: CoordinationScope,
     scope: ChartEventAssignmentScope,
     replace_scoped_values: bool,
     update: StoreExpressionUpdate,
@@ -382,13 +382,13 @@ struct SelectionExpressionAssignment {
 enum SelectionExpressionUpdate {
     Clear,
     ClearInScope {
-        scope: Sharing,
+        scope: CoordinationScope,
     },
     ReplaceAllClauses {
         clauses: Vec<SelectionExpressionClause>,
     },
     ReplaceClausesInScope {
-        scope: Sharing,
+        scope: CoordinationScope,
         clauses: Vec<SelectionExpressionClause>,
     },
     UpsertClauses {
@@ -413,14 +413,14 @@ enum SelectionExpressionUpdate {
         ids: Vec<Expr>,
     },
     DeleteClausesInScope {
-        scope: Sharing,
+        scope: CoordinationScope,
         ids: Vec<Expr>,
     },
 }
 
 struct SelectionExpressionClause {
     id: Expr,
-    facet_scope: Sharing,
+    facet_scope: CoordinationScope,
     predicate: SelectionExpressionPredicate,
 }
 
@@ -458,7 +458,7 @@ struct SelectionExpressionPredicateValue {
 
 struct SelectionSceneQueryExpression {
     query: SceneGeometryQueryExpression,
-    sharing: Sharing,
+    sharing: CoordinationScope,
     clause_id: SceneQueryClauseIdExpression,
 }
 
@@ -2759,7 +2759,7 @@ fn scene_geometry_query_result(
 
 fn scene_query_shapes_for_sharing(
     shape: &GeometryQueryShape,
-    sharing: Sharing,
+    sharing: CoordinationScope,
     source_scope: &EvaluatedInteractionScope,
     all_scopes: &[EvaluatedInteractionScope],
     scope_target: Option<&ChartEventScopeTarget>,
@@ -3131,7 +3131,7 @@ fn selection_clause_from_values(
 }
 
 fn selection_owner_path(
-    sharing: Sharing,
+    sharing: CoordinationScope,
     scope: Option<&EvaluatedInteractionScope>,
     root_owner_surface: bool,
 ) -> Option<Vec<ScalarValue>> {
@@ -3241,14 +3241,14 @@ fn assignment_value_is_writable(value: &ScalarValue, default_value: &ScalarValue
 /// `Shared` params always write the root path. Non-shared params require a
 /// routed scope; without one, returns `None` so the caller skips the write.
 fn assignment_owner_path(
-    sharing: Sharing,
+    sharing: CoordinationScope,
     scope: Option<&EvaluatedInteractionScope>,
 ) -> Option<Vec<ScalarValue>> {
     assignment_owner_path_for_surface(sharing, scope, false)
 }
 
 fn assignment_owner_path_for_surface(
-    sharing: Sharing,
+    sharing: CoordinationScope,
     scope: Option<&EvaluatedInteractionScope>,
     root_owner_surface: bool,
 ) -> Option<Vec<ScalarValue>> {
@@ -4603,7 +4603,7 @@ mod tests {
                 unique_by: vec!["item".to_string()],
                 max_hits: None,
             },
-            sharing: Sharing::Free,
+            sharing: CoordinationScope::Free,
             clause_id: CompiledSceneQueryClauseId::Field("item".to_string()),
         };
         let batch = RecordBatch::try_new(
@@ -4620,7 +4620,7 @@ mod tests {
         assert_eq!(clauses.len(), 2);
         assert_eq!(clauses[0].id, "A");
         assert_eq!(clauses[1].id, "B");
-        assert_eq!(clauses[0].scope.sharing, Sharing::Free);
+        assert_eq!(clauses[0].scope.sharing, CoordinationScope::Free);
         assert_eq!(clauses[0].scope.owner_path, owner_path);
         assert_eq!(clauses[0].facet_context.len(), 1);
         assert_eq!(clauses[0].facet_context[0].id, "group_name");
@@ -4745,7 +4745,7 @@ mod tests {
 
         let shapes = scene_query_shapes_for_sharing(
             &shape,
-            Sharing::Free,
+            CoordinationScope::Free,
             &source,
             &[source.clone(), other],
             None,
@@ -4773,7 +4773,7 @@ mod tests {
 
         let shapes = scene_query_shapes_for_sharing(
             &shape,
-            Sharing::Shared,
+            CoordinationScope::Shared,
             &source,
             &[left, source.clone(), sibling],
             Some(&target),
@@ -4851,11 +4851,11 @@ mod tests {
     /// param. A pan in any cell writes the param at the scale sharing owner, so
     /// Shared pans every cell and Free pans only the active cell.
     async fn faceted_pan_state_and_handler() -> (ChartAppState, ChartEventBindingHandler) {
-        faceted_pan_state_and_handler_with_sharing(Sharing::Shared).await
+        faceted_pan_state_and_handler_with_sharing(CoordinationScope::Shared).await
     }
 
     async fn faceted_pan_state_and_handler_with_sharing(
-        sharing: Sharing,
+        sharing: CoordinationScope,
     ) -> (ChartAppState, ChartEventBindingHandler) {
         let ctx = SessionContext::new();
         let x_domain = Param::raw_domain("x_domain");
@@ -5436,7 +5436,8 @@ mod tests {
 
     #[tokio::test]
     async fn faceted_free_pan_updates_only_active_cell() {
-        let (mut state, handler) = faceted_pan_state_and_handler_with_sharing(Sharing::Free).await;
+        let (mut state, handler) =
+            faceted_pan_state_and_handler_with_sharing(CoordinationScope::Free).await;
         crate::ChartSceneGraphBuilder
             .build(&mut state)
             .await
@@ -5881,7 +5882,7 @@ mod tests {
 
     fn colorbar_interval_clause(value_channel: &str) -> SelectionClauseUpdate {
         SelectionClauseUpdate::interval(lit("active"))
-            .facet_scope(Sharing::Shared)
+            .facet_scope(CoordinationScope::Shared)
             .dimension(col("temperature"))
             .endpoints(
                 event::event_coord(value_channel),
@@ -6219,7 +6220,7 @@ mod tests {
                     .field("x_min", DataType::Float64, false)
                     .field("x_max", DataType::Float64, false)
                     .primary_key(["id"])
-                    .sharing(Sharing::Shared),
+                    .sharing(CoordinationScope::Shared),
             )
             .event_binding(binding)
             .compile(&ctx)
@@ -6303,7 +6304,7 @@ mod tests {
                 SelectionUpdate::replace_all_clauses([SelectionClauseUpdate::interval(lit(
                     "active",
                 ))
-                .facet_scope(Sharing::Shared)
+                .facet_scope(CoordinationScope::Shared)
                 .dimension(col("x"))
                 .endpoints(event::canvas_width(), event::canvas_height())]),
             )
@@ -6352,7 +6353,7 @@ mod tests {
             assert_eq!(clauses.len(), 1);
             let clause = &clauses[0];
             assert_eq!(clause.id, "active");
-            assert_eq!(clause.scope.sharing, Sharing::Shared);
+            assert_eq!(clause.scope.sharing, CoordinationScope::Shared);
             assert!(clause.scope.owner_path.is_empty());
             assert!(clause.facet_context.is_empty());
             let SelectionPredicateSpec::Interval { dimensions } = &clause.predicate else {
@@ -6389,7 +6390,7 @@ mod tests {
                 SelectionUpdate::replace_all_clauses([SelectionClauseUpdate::predicate(lit(
                     "active",
                 ))
-                .facet_scope(Sharing::Shared)
+                .facet_scope(CoordinationScope::Shared)
                 .kind("circle")
                 .value("cx", event::canvas_width())
                 .value("cy", event::canvas_height())
@@ -6508,7 +6509,7 @@ mod tests {
                 "picked",
                 SelectionUpdate::toggle_clause(
                     SelectionClauseUpdate::equality_value(col("category"), event::datum("value"))
-                        .facet_scope(Sharing::Free),
+                        .facet_scope(CoordinationScope::Free),
                 ),
             )
             .exact();
@@ -6595,7 +6596,7 @@ mod tests {
                 "picked",
                 SelectionUpdate::toggle_clause(
                     SelectionClauseUpdate::equality_value(col("category"), event::datum("value"))
-                        .facet_scope(Sharing::Shared),
+                        .facet_scope(CoordinationScope::Shared),
                 ),
             )
             .exact();
@@ -6712,7 +6713,7 @@ mod tests {
                 "picked",
                 SelectionUpdate::toggle_clause(
                     SelectionClauseUpdate::equality_value(col("category"), event::legend_value())
-                        .facet_scope(Sharing::Shared),
+                        .facet_scope(CoordinationScope::Shared),
                 ),
             )
             .exact();
@@ -6857,7 +6858,7 @@ mod tests {
         let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
         assert_eq!(clauses.len(), 1);
         assert_eq!(clauses[0].id, "active");
-        assert_eq!(clauses[0].scope.sharing, Sharing::Shared);
+        assert_eq!(clauses[0].scope.sharing, CoordinationScope::Shared);
         assert!(clauses[0].scope.owner_path.is_empty());
         let SelectionPredicateSpec::Interval { dimensions } = &clauses[0].predicate else {
             panic!("expected interval predicate");
@@ -6993,7 +6994,7 @@ mod tests {
                 "picked",
                 SelectionUpdate::replace_clause(
                     SelectionClauseUpdate::interval(lit("active"))
-                        .facet_scope(Sharing::Shared)
+                        .facet_scope(CoordinationScope::Shared)
                         .dimension(col("temperature"))
                         .endpoints(
                             event::interval_start(interval.clone()),
@@ -7050,7 +7051,7 @@ mod tests {
                 "picked",
                 SelectionUpdate::replace_clause(
                     SelectionClauseUpdate::interval(lit("active"))
-                        .facet_scope(Sharing::Shared)
+                        .facet_scope(CoordinationScope::Shared)
                         .dimension(col("temperature"))
                         .endpoints(
                             event::interval_start(interval.clone()),
@@ -7109,7 +7110,7 @@ mod tests {
                 "picked",
                 SelectionUpdate::replace_clause(
                     SelectionClauseUpdate::interval(lit("active"))
-                        .facet_scope(Sharing::Shared)
+                        .facet_scope(CoordinationScope::Shared)
                         .dimension(col("temperature"))
                         .endpoints(
                             event::interval_start(interval.clone()),
@@ -7303,7 +7304,7 @@ mod tests {
     }
 
     async fn assert_equality_click_uses_facet_scope(
-        facet_scope: Sharing,
+        facet_scope: CoordinationScope,
         expected_owner_path: Vec<ScalarValue>,
     ) {
         let binding = ChartEventBinding::on(ChartEventType::Click)
@@ -7343,7 +7344,7 @@ mod tests {
     #[tokio::test]
     async fn equality_selection_free_scope_uses_leaf_owner_path() {
         assert_equality_click_uses_facet_scope(
-            Sharing::Free,
+            CoordinationScope::Free,
             vec![ScalarValue::Utf8(Some("Beta".to_string()))],
         )
         .await;
@@ -7352,7 +7353,7 @@ mod tests {
     #[tokio::test]
     async fn equality_selection_level_scope_uses_ancestor_owner_path() {
         assert_equality_click_uses_facet_scope(
-            Sharing::Level(1),
+            CoordinationScope::Level(1),
             vec![ScalarValue::Utf8(Some("North".to_string()))],
         )
         .await;
@@ -7360,7 +7361,7 @@ mod tests {
 
     #[tokio::test]
     async fn equality_selection_shared_scope_uses_root_owner_path() {
-        assert_equality_click_uses_facet_scope(Sharing::Shared, Vec::new()).await;
+        assert_equality_click_uses_facet_scope(CoordinationScope::Shared, Vec::new()).await;
     }
 
     #[tokio::test]
@@ -7664,7 +7665,7 @@ mod tests {
                 SelectionUpdate::replace_all_clauses([SelectionClauseUpdate::interval(lit(
                     "active",
                 ))
-                .facet_scope(Sharing::Free)
+                .facet_scope(CoordinationScope::Free)
                 .dimension(col("x"))
                 .endpoints(lit(1.0), lit(3.0))]),
             )
@@ -7743,7 +7744,7 @@ mod tests {
         let clauses = runtime.session.selection_clauses_for_diagnostics("brush");
         assert_eq!(clauses.len(), 1);
         let clause = &clauses[0];
-        assert_eq!(clause.scope.sharing, Sharing::Free);
+        assert_eq!(clause.scope.sharing, CoordinationScope::Free);
         assert_eq!(clause.scope.owner_path, owner_path);
         assert_eq!(clause.facet_context.len(), 1);
         assert_eq!(clause.facet_context[0].id, "group_name");
@@ -7778,7 +7779,7 @@ mod tests {
                     .field("id", DataType::Utf8, false)
                     .field("x_min", DataType::Float64, false)
                     .primary_key(["id"])
-                    .sharing(Sharing::Free),
+                    .sharing(CoordinationScope::Free),
             )
             .event_binding(binding)
             .compile(&ctx)
@@ -7886,7 +7887,7 @@ mod tests {
                     .field("id", DataType::Utf8, false)
                     .field("x_min", DataType::Float64, false)
                     .primary_key(["id"])
-                    .sharing(Sharing::Free),
+                    .sharing(CoordinationScope::Free),
             )
             .event_binding(binding)
             .compile(&ctx)

@@ -10,7 +10,7 @@ use datafusion::prelude::*;
 /// - Inner plot has categorical x-axis with Band scale
 /// - Group1 has categories A, B, C
 /// - Group2 has categories B, C, D
-/// - With Sharing::Shared, both facets should show all categories A, B, C, D
+/// - With CoordinationScope::Shared, both facets should show all categories A, B, C, D
 #[tokio::test]
 async fn test_nested_facet_shared_categorical_x() {
     let ctx = SessionContext::new();
@@ -25,13 +25,13 @@ async fn test_nested_facet_shared_categorical_x() {
                     Rect::new()
                         .x_with(col("category"), |c| {
                             c.scale_with::<Band>(|s| s)
-                                .with_scale_sharing(Sharing::Shared)
+                                .with_scale_sharing(CoordinationScope::Shared)
                                 .axis(|a| a.title("Category"))
                         })
                         .x2_with(col(":x"), |c| c.band(1.0))
                         .y(0.0)
                         .y2_with(col("value"), |c| {
-                            c.with_scale_sharing(Sharing::Shared)
+                            c.with_scale_sharing(CoordinationScope::Shared)
                                 .axis(|a| a.title("Value"))
                         })
                         .fill("#4682b4"),
@@ -56,7 +56,7 @@ async fn test_nested_facet_shared_categorical_x() {
 /// This test verifies categorical scale sharing on the y-axis:
 /// - Outer FacetRow facets by "group"
 /// - Inner plot has categorical y-axis (horizontal bars)
-/// - With Sharing::Shared, both facets should show all categories
+/// - With CoordinationScope::Shared, both facets should show all categories
 #[tokio::test]
 async fn test_nested_facet_shared_categorical_y() {
     let ctx = SessionContext::new();
@@ -68,13 +68,13 @@ async fn test_nested_facet_shared_categorical_y() {
                 Rect::new()
                     .y_with(col("category"), |c| {
                         c.scale_with::<Band>(|s| s)
-                            .with_scale_sharing(Sharing::Shared)
+                            .with_scale_sharing(CoordinationScope::Shared)
                             .axis(|a| a.title("Category"))
                     })
                     .y2_with(col(":y"), |c| c.band(1.0))
                     .x(0.0)
                     .x2_with(col("value"), |c| {
-                        c.with_scale_sharing(Sharing::Shared)
+                        c.with_scale_sharing(CoordinationScope::Shared)
                             .axis(|a| a.title("Value"))
                     })
                     .fill("#4682b4"),
@@ -102,7 +102,7 @@ async fn test_nested_facet_shared_categorical_y() {
 /// - Outer FacetColumn facets by "group"
 /// - Inner FacetRow facets by "sub_group" (requires nested facet path)
 /// - Innermost plot has categorical x-axis
-/// - With Sharing::Shared, all facets should show unified categories
+/// - With CoordinationScope::Shared, all facets should show unified categories
 #[tokio::test]
 async fn test_deeply_nested_categorical_scale_sharing() {
     use datafusion::arrow::array::{Float64Array, StringArray};
@@ -168,13 +168,13 @@ async fn test_deeply_nested_categorical_scale_sharing() {
                             Rect::new()
                                 .x_with(col("category"), |c| {
                                     c.scale_with::<Band>(|s| s)
-                                        .with_scale_sharing(Sharing::Shared)
+                                        .with_scale_sharing(CoordinationScope::Shared)
                                         .axis(|a| a.title("Category"))
                                 })
                                 .x2_with(col(":x"), |c| c.band(1.0))
                                 .y(0.0)
                                 .y2_with(col("value"), |c| {
-                                    c.with_scale_sharing(Sharing::Shared)
+                                    c.with_scale_sharing(CoordinationScope::Shared)
                                         .axis(|a| a.title("Value"))
                                 })
                                 .fill("#4682b4"),
@@ -205,7 +205,7 @@ async fn test_deeply_nested_categorical_scale_sharing() {
 /// This test verifies that numeric columns used as categorical values share correctly:
 /// - Uses Int32 column for category IDs (1, 2, 3, 4) instead of strings
 /// - Configures Band scale explicitly to indicate categorical treatment
-/// - With Sharing::Shared, both facets should show all category IDs
+/// - With CoordinationScope::Shared, both facets should show all category IDs
 ///
 /// This was a bug where numeric columns were always treated as numeric scales
 /// (computing min/max intervals) instead of categorical scales (computing DISTINCT values).
@@ -261,13 +261,13 @@ async fn test_numeric_coded_categorical_sharing() {
                             // Explicitly configure as Band scale (categorical)
                             // This triggers the scale-driven categorical detection
                             c.scale_with::<Band>(|s| s)
-                                .with_scale_sharing(Sharing::Shared)
+                                .with_scale_sharing(CoordinationScope::Shared)
                                 .axis(|a| a.title("Category ID"))
                         })
                         .x2_with(col(":x"), |c| c.band(1.0))
                         .y(0.0)
                         .y2_with(col("value"), |c| {
-                            c.with_scale_sharing(Sharing::Shared)
+                            c.with_scale_sharing(CoordinationScope::Shared)
                                 .axis(|a| a.title("Value"))
                         })
                         .fill("#4682b4"),
@@ -306,13 +306,13 @@ async fn test_nested_facet_level1_categorical() {
                     Rect::new()
                         .x_with(col("category"), |c| {
                             c.scale_with::<Band>(|s| s)
-                                .with_scale_sharing(Sharing::Level(1))
+                                .with_scale_sharing(CoordinationScope::Level(1))
                                 .axis(|a| a.title("Category"))
                         })
                         .x2_with(col(":x"), |c| c.band(1.0))
                         .y(0.0)
                         .y2_with(col("value"), |c| {
-                            c.with_scale_sharing(Sharing::Level(1))
+                            c.with_scale_sharing(CoordinationScope::Level(1))
                                 .axis(|a| a.title("Value"))
                         })
                         .fill("#4682b4"),

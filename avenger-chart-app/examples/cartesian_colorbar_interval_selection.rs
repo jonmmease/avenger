@@ -152,7 +152,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 fn temperature_clause() -> SelectionClauseUpdate {
     let interval = temperature_interval();
     SelectionClauseUpdate::interval(lit("active"))
-        .facet_scope(Sharing::Shared)
+        .facet_scope(CoordinationScope::Shared)
         .dimension(col("temperature"))
         .endpoints(
             ev::interval_start(interval.clone()),
@@ -179,7 +179,7 @@ fn temperature_interval_store() -> Store {
         .field("temperature_min", DataType::Float64, false)
         .field("temperature_max", DataType::Float64, false)
         .primary_key(["id"])
-        .sharing(Sharing::Shared)
+        .sharing(CoordinationScope::Shared)
 }
 
 fn make_points_batch() -> RecordBatch {

@@ -7,11 +7,11 @@ use std::{
 };
 
 use avenger_chart_core::{
-    ChannelInfo, CompiledParamSpec, CompiledSelectionSpec, CompiledStoreSpec,
+    ChannelInfo, CompiledParamSpec, CompiledSelectionSpec, CompiledStoreSpec, CoordinationScope,
     DefaultLogicalExprNodeExt, FacetWrapColumnMode, LegendChannel, LegendPosition,
     LogicalPlanNodeExt, Maybe, RadiusExpression, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN,
     STORE_REVISION_COLUMN, ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, SelectionClause,
-    SerializableExpr, Sharing, StoreData, StoreRowValue,
+    SerializableExpr, StoreData, StoreRowValue,
 };
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
 use avenger_scales::scales::ConfiguredScale;
@@ -272,7 +272,7 @@ impl TextMeasurementCacheKey {
 /// Identifies one scoped copy of a parameter at a specific facet owner path.
 ///
 /// The root/global copy uses an empty `owner_path`. Facet-scoped copies use the
-/// logical owner path resolved for the parameter's `Sharing` level.
+/// logical owner path resolved for the parameter's `CoordinationScope` level.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct ScopedParamKey {
     name: String,
@@ -316,7 +316,7 @@ impl ScopedParamStoreSnapshot {
 /// `Level(N)` look up the routed scope's owner path for that level, falling back
 /// to root when the scope does not provide one (e.g. unfaceted plots).
 fn owner_path_for_sharing(
-    sharing: Sharing,
+    sharing: CoordinationScope,
     sharing_owner_paths: &HashMap<u8, Vec<ScalarValue>>,
 ) -> Vec<ScalarValue> {
     let level = sharing.to_level();
@@ -2918,7 +2918,7 @@ mod tests {
 
     fn brush_selection_clause(
         id: &str,
-        sharing: Sharing,
+        sharing: CoordinationScope,
         owner_path: Vec<ScalarValue>,
         facet_ids: &[&str],
         x_min: f64,
@@ -2965,7 +2965,7 @@ mod tests {
 
     fn category_equality_selection_clause(
         id: &str,
-        sharing: Sharing,
+        sharing: CoordinationScope,
         value: ScalarValue,
         owner_path: Vec<ScalarValue>,
     ) -> SelectionClause {
@@ -2995,7 +2995,7 @@ mod tests {
         SelectionClause {
             id: id.to_string(),
             scope: avenger_chart_core::ResolvedSelectionClauseScope {
-                sharing: Sharing::Shared,
+                sharing: CoordinationScope::Shared,
                 owner_path: Vec::new(),
             },
             predicate: avenger_chart_core::SelectionPredicateSpec::Equality {
@@ -3020,7 +3020,7 @@ mod tests {
 
     fn x_equality_selection_clause_with_facet_context(
         id: &str,
-        sharing: Sharing,
+        sharing: CoordinationScope,
         owner_path: Vec<ScalarValue>,
         facet_ids: &[&str],
         value: ScalarValue,
@@ -3063,7 +3063,7 @@ mod tests {
         SelectionClause {
             id: id.to_string(),
             scope: avenger_chart_core::ResolvedSelectionClauseScope {
-                sharing: Sharing::Shared,
+                sharing: CoordinationScope::Shared,
                 owner_path: Vec::new(),
             },
             predicate: avenger_chart_core::SelectionPredicateSpec::Predicate {
@@ -3096,7 +3096,7 @@ mod tests {
         SelectionClause {
             id: "bad".to_string(),
             scope: avenger_chart_core::ResolvedSelectionClauseScope {
-                sharing: Sharing::Shared,
+                sharing: CoordinationScope::Shared,
                 owner_path: Vec::new(),
             },
             predicate: avenger_chart_core::SelectionPredicateSpec::Predicate {
@@ -4051,7 +4051,7 @@ mod tests {
             update: SelectionStateUpdate::ReplaceAllClauses {
                 clauses: vec![brush_selection_clause(
                     "active",
-                    Sharing::Shared,
+                    CoordinationScope::Shared,
                     Vec::new(),
                     &[],
                     0.0,
@@ -4097,7 +4097,7 @@ mod tests {
                 clauses: vec![
                     brush_selection_clause(
                         "first",
-                        Sharing::Shared,
+                        CoordinationScope::Shared,
                         Vec::new(),
                         &[],
                         0.0,
@@ -4107,7 +4107,7 @@ mod tests {
                     ),
                     brush_selection_clause(
                         "second",
-                        Sharing::Shared,
+                        CoordinationScope::Shared,
                         Vec::new(),
                         &[],
                         7.0,
@@ -4134,7 +4134,7 @@ mod tests {
                 clauses: vec![
                     brush_selection_clause(
                         "wide",
-                        Sharing::Shared,
+                        CoordinationScope::Shared,
                         Vec::new(),
                         &[],
                         0.0,
@@ -4144,7 +4144,7 @@ mod tests {
                     ),
                     brush_selection_clause(
                         "narrow",
-                        Sharing::Shared,
+                        CoordinationScope::Shared,
                         Vec::new(),
                         &[],
                         2.5,
@@ -4175,7 +4175,7 @@ mod tests {
             SelectionStateUpdate::ReplaceAllClauses {
                 clauses: vec![brush_selection_clause(
                     "free",
-                    Sharing::Free,
+                    CoordinationScope::Free,
                     vec![
                         ScalarValue::Utf8(Some("North".to_string())),
                         ScalarValue::Utf8(Some("West".to_string())),
@@ -4200,7 +4200,7 @@ mod tests {
             SelectionStateUpdate::ReplaceAllClauses {
                 clauses: vec![brush_selection_clause(
                     "row",
-                    Sharing::Level(1),
+                    CoordinationScope::Level(1),
                     vec![ScalarValue::Utf8(Some("North".to_string()))],
                     &["row_group"],
                     0.0,
@@ -4222,7 +4222,7 @@ mod tests {
             SelectionStateUpdate::ReplaceAllClauses {
                 clauses: vec![brush_selection_clause(
                     "shared",
-                    Sharing::Shared,
+                    CoordinationScope::Shared,
                     Vec::new(),
                     &[],
                     0.0,
@@ -4275,7 +4275,7 @@ mod tests {
             SelectionStateUpdate::ReplaceAllClauses {
                 clauses: vec![brush_selection_clause(
                     "missing-fields",
-                    Sharing::Shared,
+                    CoordinationScope::Shared,
                     Vec::new(),
                     &[],
                     0.0,
@@ -4461,7 +4461,7 @@ mod tests {
             SelectionStateUpdate::ReplaceAllClauses {
                 clauses: vec![category_equality_selection_clause(
                     "beta",
-                    Sharing::Shared,
+                    CoordinationScope::Shared,
                     ScalarValue::Utf8(Some("Beta".to_string())),
                     Vec::new(),
                 )],
@@ -4480,7 +4480,7 @@ mod tests {
             SelectionStateUpdate::ReplaceAllClauses {
                 clauses: vec![category_equality_selection_clause(
                     "null",
-                    Sharing::Shared,
+                    CoordinationScope::Shared,
                     ScalarValue::Utf8(None),
                     Vec::new(),
                 )],
@@ -4536,7 +4536,7 @@ mod tests {
             SelectionStateUpdate::ReplaceAllClauses {
                 clauses: vec![x_equality_selection_clause_with_facet_context(
                     "north_west_x",
-                    Sharing::Free,
+                    CoordinationScope::Free,
                     owner_path,
                     &["row_group", "col_group"],
                     ScalarValue::Float64(Some(1.0)),
@@ -4562,13 +4562,13 @@ mod tests {
         let alpha_owner = vec![ScalarValue::Utf8(Some("Alpha".to_string()))];
         let beta = category_equality_selection_clause(
             "active",
-            Sharing::Free,
+            CoordinationScope::Free,
             ScalarValue::Utf8(Some("Beta".to_string())),
             beta_owner.clone(),
         );
         let alpha = category_equality_selection_clause(
             "active",
-            Sharing::Free,
+            CoordinationScope::Free,
             ScalarValue::Utf8(Some("Alpha".to_string())),
             alpha_owner.clone(),
         );
@@ -4612,19 +4612,19 @@ mod tests {
         let alpha_owner = vec![ScalarValue::Utf8(Some("Alpha".to_string()))];
         let beta = category_equality_selection_clause(
             "active",
-            Sharing::Free,
+            CoordinationScope::Free,
             ScalarValue::Utf8(Some("Beta".to_string())),
             beta_owner,
         );
         let alpha = category_equality_selection_clause(
             "active",
-            Sharing::Free,
+            CoordinationScope::Free,
             ScalarValue::Utf8(Some("Alpha".to_string())),
             alpha_owner,
         );
         let gamma = category_equality_selection_clause(
             "other",
-            Sharing::Shared,
+            CoordinationScope::Shared,
             ScalarValue::Utf8(Some("Gamma".to_string())),
             Vec::new(),
         );
@@ -4658,19 +4658,19 @@ mod tests {
         let alpha_owner = vec![ScalarValue::Utf8(Some("Alpha".to_string()))];
         let beta = category_equality_selection_clause(
             "active",
-            Sharing::Free,
+            CoordinationScope::Free,
             ScalarValue::Utf8(Some("Beta".to_string())),
             beta_owner.clone(),
         );
         let alpha = category_equality_selection_clause(
             "active",
-            Sharing::Free,
+            CoordinationScope::Free,
             ScalarValue::Utf8(Some("Alpha".to_string())),
             alpha_owner.clone(),
         );
         let beta_other = category_equality_selection_clause(
             "other",
-            Sharing::Free,
+            CoordinationScope::Free,
             ScalarValue::Utf8(Some("Beta".to_string())),
             beta_owner.clone(),
         );
@@ -5557,7 +5557,7 @@ mod tests {
             .param_specs()
             .get("width")
             .expect("width spec present");
-        assert_eq!(spec.sharing, Sharing::Shared);
+        assert_eq!(spec.sharing, CoordinationScope::Shared);
         Ok(())
     }
 
@@ -5567,12 +5567,12 @@ mod tests {
         let ctx = SessionContext::new();
         let x_domain = Param::raw_domain("x_domain");
         let compiled = Plot::<Cartesian>::new()
-            .add_param_with_sharing(x_domain, Sharing::Level(1))
+            .add_param_with_sharing(x_domain, CoordinationScope::Level(1))
             .compile(&ctx)
             .await?;
         assert_eq!(
             compiled.param_specs().get("x_domain").unwrap().sharing,
-            Sharing::Level(1)
+            CoordinationScope::Level(1)
         );
 
         let bytes = bincode::serialize(&compiled).expect("serialize compiled plot");
@@ -5580,7 +5580,7 @@ mod tests {
             bincode::deserialize(&bytes).expect("deserialize compiled plot");
         assert_eq!(
             restored.param_specs().get("x_domain").unwrap().sharing,
-            Sharing::Level(1)
+            CoordinationScope::Level(1)
         );
         Ok(())
     }
@@ -5592,7 +5592,7 @@ mod tests {
             .add_param(Param::new("width", ScalarValue::Float64(Some(1.0))))
             .add_param_with_sharing(
                 Param::new("width", ScalarValue::Float64(Some(2.0))),
-                Sharing::Level(1),
+                CoordinationScope::Level(1),
             )
             .compile(&ctx)
             .await;
@@ -5962,7 +5962,7 @@ mod tests {
         let x_domain = Param::raw_domain("x_domain");
         let compiled = Arc::new(
             Plot::<Cartesian>::new()
-                .add_param_with_sharing(x_domain, Sharing::Level(1))
+                .add_param_with_sharing(x_domain, CoordinationScope::Level(1))
                 .compile(&ctx)
                 .await?,
         );
@@ -6043,7 +6043,7 @@ mod tests {
                 .add_store(
                     Store::from_record_batch("brush_boxes", batch)
                         .primary_key(["id"])
-                        .sharing(Sharing::Level(1)),
+                        .sharing(CoordinationScope::Level(1)),
                 )
                 .compile(&ctx)
                 .await?,
@@ -6107,7 +6107,7 @@ mod tests {
             .field("x_min", DataType::Float64, false)
             .field("x_max", DataType::Float64, true)
             .primary_key(["id"])
-            .sharing(Sharing::Free)
+            .sharing(CoordinationScope::Free)
     }
 
     fn brush_row(id: &str, x_min: f64, x_max: Option<f64>) -> StoreRowValue {
@@ -6349,7 +6349,7 @@ mod tests {
     /// Build a single-level column-faceted scatter whose per-cell x scale reads a
     /// raw-domain param with the requested sharing. Each cell spans x in [0, 10].
     async fn build_free_pan_session(
-        sharing: Sharing,
+        sharing: CoordinationScope,
         share_scale: bool,
     ) -> Result<(PlotSession, Param), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
@@ -6406,7 +6406,8 @@ mod tests {
     async fn faceted_free_pan_updates_only_active_cell() -> Result<(), AvengerChartError> {
         // A `Free` (per-cell) raw-domain param: panning one cell's owner path must
         // move only that cell; the others fall back to their inferred domains.
-        let (mut session, _x_domain) = build_free_pan_session(Sharing::Free, false).await?;
+        let (mut session, _x_domain) =
+            build_free_pan_session(CoordinationScope::Free, false).await?;
 
         // Warm exact frame (no scoped overrides) establishes the layout profile.
         session.evaluate(EvaluationRequest::new().exact()).await?;
@@ -6500,7 +6501,7 @@ mod tests {
         let mut specs = IndexMap::new();
         specs.insert(
             "x_domain".to_string(),
-            CompiledParamSpec::new(&Param::raw_domain("x_domain"), Sharing::Level(1)),
+            CompiledParamSpec::new(&Param::raw_domain("x_domain"), CoordinationScope::Level(1)),
         );
         let mut store = ScopedParamStore::new(specs);
         let panned = list_domain(2.0, 8.0);
@@ -6582,7 +6583,7 @@ mod tests {
                     c.scale_with::<Linear>(move |s| {
                         s.raw_domain(raw.clone()).nice(false).zero(false)
                     })
-                    .with_scale_sharing(Sharing::Level(1))
+                    .with_scale_sharing(CoordinationScope::Level(1))
                 })
                 .y(col("y"))
                 .size(20.0),
@@ -6590,7 +6591,7 @@ mod tests {
         let columns = Plot::<FacetColumn>::new().mark(Subplot::new(leaf).column(col("col_name")));
         let compiled = Arc::new(
             Plot::<FacetRow>::new()
-                .add_param_with_sharing(x_domain.clone(), Sharing::Level(1))
+                .add_param_with_sharing(x_domain.clone(), CoordinationScope::Level(1))
                 .canvas_size(640.0, 480.0)
                 .data(df)
                 .mark(Subplot::new(columns).row(col("row_name")))
@@ -6683,7 +6684,7 @@ mod tests {
         );
         let compiled = Arc::new(
             Plot::<FacetWrap>::new()
-                .add_param_with_sharing(x_domain.clone(), Sharing::Free)
+                .add_param_with_sharing(x_domain.clone(), CoordinationScope::Free)
                 .canvas_size(640.0, 480.0)
                 .data(df)
                 .mark(Subplot::new(leaf).wrap_with(col("group_name"), |c| c.columns(lit(2))))
@@ -6793,8 +6794,8 @@ mod tests {
         );
         let compiled = Arc::new(
             Plot::<FacetWrap>::new()
-                .add_param_with_sharing(x_domain.clone(), Sharing::Shared)
-                .add_param_with_sharing(y_domain.clone(), Sharing::Free)
+                .add_param_with_sharing(x_domain.clone(), CoordinationScope::Shared)
+                .add_param_with_sharing(y_domain.clone(), CoordinationScope::Free)
                 .canvas_size(640.0, 480.0)
                 .data(df)
                 .mark(Subplot::new(leaf).wrap_with(col("group_name"), |c| c.columns(lit(2))))
@@ -6875,7 +6876,7 @@ mod tests {
         let x_domain = Param::raw_domain("x_domain");
         let raw = x_domain.expr();
         let result = Plot::<FacetColumn>::new()
-            .add_param_with_sharing(x_domain, Sharing::Free)
+            .add_param_with_sharing(x_domain, CoordinationScope::Free)
             .mark(
                 Subplot::new(
                     Plot::<Cartesian>::new().mark(

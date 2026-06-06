@@ -73,7 +73,7 @@ pub struct EvaluatedFacetTree {
     enumeration_cache: HashMap<(Vec<ScalarValue>, SharingLevel), Vec<ScalarValue>>,
     /// Cached jagged-tree checks by axis position.
     jagged_axis_cache: HashMap<AxisPosition, bool>,
-    /// Sharing levels observed in channels/nodes plus canonical levels `{0, 255}`.
+    /// CoordinationScope levels observed in channels/nodes plus canonical levels `{0, 255}`.
     used_sharing_levels: Vec<SharingLevel>,
 }
 
@@ -1555,7 +1555,7 @@ impl EvaluatedFacetTree {
     /// - X axis (Top): show only on first cell within sharing group
     /// - Y axis: always show (not affected by row layout)
     ///
-    /// # Sharing Groups
+    /// # CoordinationScope Groups
     ///
     /// With `Level(N)` sharing and `facet_depth = D`:
     /// - Group is defined by the first `(D - N)` levels (the "prefix")

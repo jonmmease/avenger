@@ -65,17 +65,20 @@ async fn compile_nested_mixed_facet_debug_snapshot_plot(
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
                                         .x_with(col("x_val"), |c| {
-                                            c.with_scale_sharing(Sharing::Shared)
+                                            c.with_scale_sharing(CoordinationScope::Shared)
                                                 .axis(|a| a.title("x_val"))
                                         })
                                         .y_with(col("y_val"), |c| {
-                                            c.with_scale_sharing(Sharing::Free)
+                                            c.with_scale_sharing(CoordinationScope::Free)
                                                 .axis(|a| a.title("y_val"))
                                         })
                                         .fill_with(col("category"), |c| {
-                                            c.with_scale_sharing(Sharing::Shared).legend(|l| {
-                                                l.title("Category").position(LegendPosition::Right)
-                                            })
+                                            c.with_scale_sharing(CoordinationScope::Shared).legend(
+                                                |l| {
+                                                    l.title("Category")
+                                                        .position(LegendPosition::Right)
+                                                },
+                                            )
                                         })
                                         .size(60.0),
                                 ),
@@ -109,20 +112,22 @@ async fn compile_nested_column_facet_debug_snapshot_plot(
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
                                         .x_with(col("x_val"), |c| {
-                                            c.with_scale_sharing(Sharing::Shared)
+                                            c.with_scale_sharing(CoordinationScope::Shared)
                                                 .axis(|a| a.title("x_val"))
                                         })
                                         .y_with(col("y_val"), |c| {
-                                            c.with_scale_sharing(Sharing::Shared)
+                                            c.with_scale_sharing(CoordinationScope::Shared)
                                                 .axis(|a| a.title("y_val"))
                                         })
                                         .fill_with(col("category"), |c| {
-                                            c.with_scale_sharing(Sharing::Level(2)).legend(|l| {
-                                                l.title("Category").position(LegendPosition::Right)
-                                            })
+                                            c.with_scale_sharing(CoordinationScope::Level(2))
+                                                .legend(|l| {
+                                                    l.title("Category")
+                                                        .position(LegendPosition::Right)
+                                                })
                                         })
                                         .stroke_with(col("category"), |c| {
-                                            c.with_scale_sharing(Sharing::Shared)
+                                            c.with_scale_sharing(CoordinationScope::Shared)
                                         })
                                         .stroke_width(2.0)
                                         .size(58.0),
@@ -157,10 +162,10 @@ async fn compile_plot_size_numeric_facet_debug_snapshot_plot(
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
                                         .x_with(col("x_val"), |c| {
-                                            c.with_scale_sharing(Sharing::Shared)
+                                            c.with_scale_sharing(CoordinationScope::Shared)
                                         })
                                         .y_with(col("y_val"), |c| {
-                                            c.with_scale_sharing(Sharing::Shared)
+                                            c.with_scale_sharing(CoordinationScope::Shared)
                                         })
                                         .size(58.0)
                                         .fill("#4682b4"),

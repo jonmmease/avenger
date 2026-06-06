@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    AvengerChartError, CoordinateSystemCore, Mark, Param, Selection, Sharing, Store,
+    AvengerChartError, CoordinateSystemCore, CoordinationScope, Mark, Param, Selection, Store,
     event::ChartEventBinding,
 };
 use serde::{Deserialize, Serialize};
@@ -113,12 +113,12 @@ pub struct ToolParamExpansion {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ToolParamSharing {
-    Explicit(Sharing),
+    Explicit(CoordinationScope),
     MirrorScale { channel: String },
 }
 
 impl ToolParamSharing {
-    pub fn explicit(sharing: Sharing) -> Self {
+    pub fn explicit(sharing: CoordinationScope) -> Self {
         Self::Explicit(sharing)
     }
 

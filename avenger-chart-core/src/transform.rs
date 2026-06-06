@@ -3,7 +3,7 @@ use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionCont
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::{AvengerChartError, DerivedScalarMap, Sharing, TimeContext};
+use crate::{AvengerChartError, CoordinationScope, DerivedScalarMap, TimeContext};
 
 pub struct DataTransformExecutionContext<'a> {
     pub session_context: &'a SessionContext,
@@ -13,11 +13,11 @@ pub struct DataTransformExecutionContext<'a> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DataTransformCompileContext {
-    pub scope: Sharing,
+    pub scope: CoordinationScope,
 }
 
 impl DataTransformCompileContext {
-    pub fn new(scope: Sharing) -> Self {
+    pub fn new(scope: CoordinationScope) -> Self {
         Self {
             scope: scope.to_normalized(),
         }
@@ -44,12 +44,12 @@ impl Clone for Box<dyn CompiledDataTransform> {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct DataTransformStage {
-    pub scope: Sharing,
+    pub scope: CoordinationScope,
     pub transform: Box<dyn CompiledDataTransform>,
 }
 
 impl DataTransformStage {
-    pub fn new(scope: Sharing, transform: Box<dyn CompiledDataTransform>) -> Self {
+    pub fn new(scope: CoordinationScope, transform: Box<dyn CompiledDataTransform>) -> Self {
         Self {
             scope: scope.to_normalized(),
             transform,
@@ -176,7 +176,7 @@ mod tests {
         let ctx = SessionContext::new();
         let dataframe = empty_dataframe(&ctx);
         let transforms = vec![DataTransformStage::new(
-            Sharing::Free,
+            CoordinationScope::Free,
             Box::new(IdentityTransform),
         )];
         let cloned = transforms.clone();
@@ -198,14 +198,14 @@ mod tests {
         let ctx = SessionContext::new();
         let transforms = vec![
             DataTransformStage::new(
-                Sharing::Free,
+                CoordinationScope::Free,
                 Box::new(DerivedScalarTransform {
                     id: "first".to_string(),
                     value: 1.0,
                 }),
             ),
             DataTransformStage::new(
-                Sharing::Free,
+                CoordinationScope::Free,
                 Box::new(DerivedScalarTransform {
                     id: "second".to_string(),
                     value: 2.0,
@@ -235,14 +235,14 @@ mod tests {
         let ctx = SessionContext::new();
         let transforms = vec![
             DataTransformStage::new(
-                Sharing::Free,
+                CoordinationScope::Free,
                 Box::new(DerivedScalarTransform {
                     id: "duplicate".to_string(),
                     value: 1.0,
                 }),
             ),
             DataTransformStage::new(
-                Sharing::Free,
+                CoordinationScope::Free,
                 Box::new(DerivedScalarTransform {
                     id: "duplicate".to_string(),
                     value: 2.0,
@@ -284,11 +284,12 @@ mod tests {
 
     #[test]
     fn transform_stage_serializes_scope_and_transform() {
-        let stage = DataTransformStage::new(Sharing::Level(2), Box::new(IdentityTransform));
+        let stage =
+            DataTransformStage::new(CoordinationScope::Level(2), Box::new(IdentityTransform));
         let bytes = bincode::serialize(&stage).expect("serialize transform stage");
         let decoded: DataTransformStage =
             bincode::deserialize(&bytes).expect("deserialize transform stage");
-        assert_eq!(decoded.scope, Sharing::Level(2));
+        assert_eq!(decoded.scope, CoordinationScope::Level(2));
 
         let json = serde_json::to_string(&decoded).expect("serialize decoded stage as json");
         assert!(json.contains("test_identity"));

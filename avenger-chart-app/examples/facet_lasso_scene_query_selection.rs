@@ -72,7 +72,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
             &cursor,
             FREE_LASSO_STORE,
             "free_pick",
-            Sharing::Free,
+            CoordinationScope::Free,
         ))
         .event_binding(lasso_clear_binding(FREE_LASSO_STORE, "free_pick"));
 
@@ -90,7 +90,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
             &cursor,
             SHARED_LASSO_STORE,
             "shared_pick",
-            Sharing::Shared,
+            CoordinationScope::Shared,
         ))
         .event_binding(lasso_clear_binding(SHARED_LASSO_STORE, "shared_pick"));
 
@@ -98,8 +98,14 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .canvas_size(1440.0, 520.0)
         .add_selection(free_pick)
         .add_selection(shared_pick)
-        .add_store(lasso_overlay_store(FREE_LASSO_STORE, Sharing::Free))
-        .add_store(lasso_overlay_store(SHARED_LASSO_STORE, Sharing::Shared))
+        .add_store(lasso_overlay_store(
+            FREE_LASSO_STORE,
+            CoordinationScope::Free,
+        ))
+        .add_store(lasso_overlay_store(
+            SHARED_LASSO_STORE,
+            CoordinationScope::Shared,
+        ))
         .add_param(cursor.clone())
         .cursor_param(cursor.name.clone())
         .mark(Subplot::new(free_facets).key("free"))
@@ -161,7 +167,7 @@ fn lasso_drag_binding(
     cursor: &Param,
     store_name: &str,
     selection_id: &str,
-    sharing: Sharing,
+    sharing: CoordinationScope,
 ) -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::CursorMoved)
         .between(
@@ -191,7 +197,7 @@ fn lasso_clear_binding(store_name: &str, selection_id: &str) -> ChartEventBindin
         .exact()
 }
 
-fn lasso_query_update(sharing: Sharing) -> SelectionSceneQuery {
+fn lasso_query_update(sharing: CoordinationScope) -> SelectionSceneQuery {
     SelectionSceneQuery::new(
         SceneGeometryQuery::polygon(ev::event_path())
             .hit_policy(SceneGeometryHitPolicy::AnchorInside)
@@ -219,7 +225,7 @@ fn lasso_overlay(store: &str, stroke: &str) -> PathMark<Cartesian> {
         .zindex(10_000)
 }
 
-fn lasso_overlay_store(name: &str, sharing: Sharing) -> Store {
+fn lasso_overlay_store(name: &str, sharing: CoordinationScope) -> Store {
     Store::empty(name)
         .field("id", DataType::Utf8, false)
         .field("anchor_x", DataType::Float64, false)

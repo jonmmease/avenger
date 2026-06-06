@@ -18,9 +18,9 @@ use crate::render::{EvaluationContext, EvaluationMetrics, RenderContext};
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, ChannelValue, ColumnDimensionConfig, CompileContext,
     CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState, CompiledSubplotPayload,
-    CoordinateGuide, CoordinateSystemTransformCore, DefaultLogicalExprNodeExt, FacetAxis,
-    FacetDimensionConfig, FacetEmptyCellPolicy, FacetWrapColumnMode, MarkRuntimeContext,
-    RowDimensionConfig, ScaleTypePreference, SerializableExpr, Sharing, Size2D,
+    CoordinateGuide, CoordinateSystemTransformCore, CoordinationScope, DefaultLogicalExprNodeExt,
+    FacetAxis, FacetDimensionConfig, FacetEmptyCellPolicy, FacetWrapColumnMode, MarkRuntimeContext,
+    RowDimensionConfig, ScaleTypePreference, SerializableExpr, Size2D,
     SubplotContainerCoordinateSystem, SubplotDataSource, SubplotMarkCore, WrapDimensionConfig,
     channel_value::expr_to_string, default_scale_type_for_data_type,
 };
@@ -806,7 +806,7 @@ async fn compile_facet_subplot_child(
 pub struct CompiledFacetRowSubplot {
     pub(crate) payload: CompiledSubplotPayload,
     pub(crate) facet_title: Option<String>,
-    pub(crate) facet_slot_sharing: Option<Sharing>,
+    pub(crate) facet_slot_sharing: Option<CoordinationScope>,
     pub(crate) facet_position: Option<String>,
     #[serde(default = "default_true")]
     pub(crate) facet_guide_visible: bool,
@@ -832,7 +832,7 @@ impl CompiledFacetRowSubplot {
     pub fn facet_title(&self) -> Option<&str> {
         self.facet_title.as_deref()
     }
-    pub fn facet_slot_sharing(&self) -> Option<Sharing> {
+    pub fn facet_slot_sharing(&self) -> Option<CoordinationScope> {
         self.facet_slot_sharing
     }
     pub fn facet_position(&self) -> Option<&str> {
@@ -1027,7 +1027,7 @@ impl CompiledMark for CompiledFacetRowSubplot {
 pub struct CompiledFacetColumnSubplot {
     pub(crate) payload: CompiledSubplotPayload,
     pub(crate) facet_title: Option<String>,
-    pub(crate) facet_slot_sharing: Option<Sharing>,
+    pub(crate) facet_slot_sharing: Option<CoordinationScope>,
     pub(crate) facet_position: Option<String>,
     #[serde(default = "default_true")]
     pub(crate) facet_guide_visible: bool,
@@ -1053,7 +1053,7 @@ impl CompiledFacetColumnSubplot {
     pub fn facet_title(&self) -> Option<&str> {
         self.facet_title.as_deref()
     }
-    pub fn facet_slot_sharing(&self) -> Option<Sharing> {
+    pub fn facet_slot_sharing(&self) -> Option<CoordinationScope> {
         self.facet_slot_sharing
     }
     pub fn facet_position(&self) -> Option<&str> {
@@ -1160,7 +1160,7 @@ pub struct CompiledFacetWrapSubplot {
     pub(crate) payload: CompiledSubplotPayload,
     pub(crate) physical_subplot: Arc<CompiledPlot>,
     pub(crate) facet_title: Option<String>,
-    pub(crate) facet_slot_sharing: Option<Sharing>,
+    pub(crate) facet_slot_sharing: Option<CoordinationScope>,
     pub(crate) facet_position: Option<String>,
     #[serde(default = "default_true")]
     pub(crate) facet_guide_visible: bool,
@@ -1195,7 +1195,7 @@ impl CompiledFacetWrapSubplot {
         self.facet_title.as_deref()
     }
 
-    pub fn facet_slot_sharing(&self) -> Option<Sharing> {
+    pub fn facet_slot_sharing(&self) -> Option<CoordinationScope> {
         self.facet_slot_sharing
     }
 
@@ -1291,7 +1291,7 @@ fn build_physical_wrap_subplot(
             SubplotDataSource::InheritParent,
         ),
         facet_title,
-        facet_slot_sharing: Some(Sharing::Free),
+        facet_slot_sharing: Some(CoordinationScope::Free),
         facet_position,
         facet_guide_visible,
         facet_empty_cell_policy,
@@ -1477,7 +1477,7 @@ impl<'a> FacetSubplotRef<'a> {
         }
     }
 
-    pub fn facet_slot_sharing(self) -> Option<Sharing> {
+    pub fn facet_slot_sharing(self) -> Option<CoordinationScope> {
         match self {
             Self::Row(mark) => mark.facet_slot_sharing(),
             Self::Col(mark) => mark.facet_slot_sharing(),

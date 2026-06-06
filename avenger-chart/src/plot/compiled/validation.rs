@@ -96,7 +96,7 @@ impl CompiledPlot {
     /// A `raw_domain` param partitioned more finely than the shared domain it
     /// feeds is ambiguous: multiple per-cell param values would map onto a single
     /// shared-domain group, so "the domain" is undefined. The rule (using
-    /// `Sharing::to_level()`, where a higher level is broader) is: error when
+    /// `CoordinationScope::to_level()`, where a higher level is broader) is: error when
     /// `param_level < scale_level`. `Shared` params (level `u8::MAX`) are always
     /// valid; a `Free` param (0) is valid only for a `Free`/unscoped scale.
     ///
@@ -294,7 +294,7 @@ fn placeholder_param_names(expr: &Expr) -> Result<Vec<String>, AvengerChartError
     Ok(names)
 }
 
-/// Human-readable description of a `Sharing::to_level()` value.
+/// Human-readable description of a `CoordinationScope::to_level()` value.
 fn describe_sharing_level(level: u8) -> String {
     match level {
         0 => "Free".to_string(),

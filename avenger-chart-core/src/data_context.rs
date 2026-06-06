@@ -2,7 +2,9 @@ use indexmap::IndexMap;
 
 use datafusion::{dataframe::DataFrame, prelude::SessionContext};
 
-use crate::{ChannelValue, CompiledDataTransform, DataTransformStage, Sharing, StoreData};
+use crate::{
+    ChannelValue, CompiledDataTransform, CoordinationScope, DataTransformStage, StoreData,
+};
 
 /// Stores a mark's data source and channel-to-expression mappings during construction
 /// This is the uncompiled version that holds a live DataFrame that can be transformed
@@ -71,13 +73,13 @@ impl DataContext {
 
     pub fn with_transform(mut self, transform: Box<dyn CompiledDataTransform>) -> Self {
         self.transforms
-            .push(DataTransformStage::new(Sharing::Free, transform));
+            .push(DataTransformStage::new(CoordinationScope::Free, transform));
         self
     }
 
     pub fn with_transform_stage(
         mut self,
-        scope: Sharing,
+        scope: CoordinationScope,
         transform: Box<dyn CompiledDataTransform>,
     ) -> Self {
         self.transforms

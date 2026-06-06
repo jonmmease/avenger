@@ -9,7 +9,7 @@ use datafusion::{
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
-use crate::{Sharing, serialization::SerializableScalar};
+use crate::{CoordinationScope, serialization::SerializableScalar};
 
 /// A parameter that can be used in plot expressions
 #[derive(Debug, Clone)]
@@ -60,8 +60,8 @@ impl Param {
 
 /// Compile-time metadata for a chart parameter, including its sharing scope.
 ///
-/// `Sharing` decides which scoped copy of the parameter an event assignment
-/// patches and which scoped value a scope reads. `Sharing::Shared` preserves the
+/// `CoordinationScope` decides which scoped copy of the parameter an event assignment
+/// patches and which scoped value a scope reads. `CoordinationScope::Shared` preserves the
 /// historical single-global-value behavior.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,12 +72,12 @@ pub struct CompiledParamSpec {
     #[serde_as(as = "FromInto<SerializableScalar>")]
     pub default: ScalarValue,
     /// The sharing scope that governs how the parameter is keyed across facets.
-    pub sharing: Sharing,
+    pub sharing: CoordinationScope,
 }
 
 impl CompiledParamSpec {
     /// Create a spec from a parameter and an explicit sharing scope.
-    pub fn new(param: &Param, sharing: Sharing) -> Self {
+    pub fn new(param: &Param, sharing: CoordinationScope) -> Self {
         Self {
             name: param.name.clone(),
             default: param.default.clone(),
@@ -87,7 +87,7 @@ impl CompiledParamSpec {
 
     /// Create a globally shared spec (the historical default behavior).
     pub fn shared(param: &Param) -> Self {
-        Self::new(param, Sharing::Shared)
+        Self::new(param, CoordinationScope::Shared)
     }
 }
 
@@ -135,11 +135,11 @@ mod tests {
     #[test]
     fn compiled_param_spec_round_trips_sharing() {
         let param = Param::raw_domain("x_domain");
-        let spec = CompiledParamSpec::new(&param, Sharing::Level(1));
+        let spec = CompiledParamSpec::new(&param, CoordinationScope::Level(1));
         let json = serde_json::to_string(&spec).expect("serialize spec");
         let restored: CompiledParamSpec = serde_json::from_str(&json).expect("deserialize spec");
         assert_eq!(restored.name, "x_domain");
-        assert_eq!(restored.sharing, Sharing::Level(1));
+        assert_eq!(restored.sharing, CoordinationScope::Level(1));
         assert!(matches!(restored.default, ScalarValue::List(_)));
     }
 
@@ -147,7 +147,7 @@ mod tests {
     fn add_param_default_spec_is_shared() {
         let param = Param::new("width", ScalarValue::Float64(Some(640.0)));
         let spec = CompiledParamSpec::shared(&param);
-        assert_eq!(spec.sharing, Sharing::Shared);
+        assert_eq!(spec.sharing, CoordinationScope::Shared);
         assert_eq!(spec.default, ScalarValue::Float64(Some(640.0)));
     }
 }

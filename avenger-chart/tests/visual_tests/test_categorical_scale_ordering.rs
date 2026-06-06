@@ -46,7 +46,7 @@ fn ordered_facet_data(ctx: &SessionContext) -> DataFrame {
     ctx.read_batch(batch).expect("ordered facet dataframe")
 }
 
-fn ordered_rect_mark(sharing: Option<Sharing>) -> Rect<Cartesian> {
+fn ordered_rect_mark(sharing: Option<CoordinationScope>) -> Rect<Cartesian> {
     Rect::new()
         .x_with(col("category"), move |c| {
             let c = c.scale_with::<Band>(|s| s.order_by(max(col("value"))).order_desc());
@@ -66,7 +66,7 @@ fn ordered_rect_mark(sharing: Option<Sharing>) -> Rect<Cartesian> {
         .fill("#4c78a8")
 }
 
-fn color_ordered_rect_mark(sharing: Option<Sharing>) -> Rect<Cartesian> {
+fn color_ordered_rect_mark(sharing: Option<CoordinationScope>) -> Rect<Cartesian> {
     Rect::new()
         .x_with(col("category"), |c| {
             c.scale_with::<Band>(|s| s).axis(|a| a.title("Category"))
@@ -136,8 +136,10 @@ async fn facet_free_categorical_band_order_by_max_desc() {
         .data(ordered_facet_data(&ctx))
         .canvas_size(820, 360)
         .mark(
-            Subplot::new(Plot::<Cartesian>::new().mark(ordered_rect_mark(Some(Sharing::Free))))
-                .col_with(col("group"), |c| c.guide(|g| g.title("Group"))),
+            Subplot::new(
+                Plot::<Cartesian>::new().mark(ordered_rect_mark(Some(CoordinationScope::Free))),
+            )
+            .col_with(col("group"), |c| c.guide(|g| g.title("Group"))),
         );
 
     let compiled = plot
@@ -162,7 +164,8 @@ async fn facet_free_categorical_ordinal_fill_order_by_max_desc() {
         .canvas_size(1080, 390)
         .mark(
             Subplot::new(
-                Plot::<Cartesian>::new().mark(color_ordered_rect_mark(Some(Sharing::Free))),
+                Plot::<Cartesian>::new()
+                    .mark(color_ordered_rect_mark(Some(CoordinationScope::Free))),
             )
             .col_with(col("group"), |c| c.guide(|g| g.title("Group"))),
         );
@@ -188,8 +191,10 @@ async fn facet_shared_categorical_band_order_by_max_desc() {
         .data(ordered_facet_data(&ctx))
         .canvas_size(820, 360)
         .mark(
-            Subplot::new(Plot::<Cartesian>::new().mark(ordered_rect_mark(Some(Sharing::Shared))))
-                .col_with(col("group"), |c| c.guide(|g| g.title("Group"))),
+            Subplot::new(
+                Plot::<Cartesian>::new().mark(ordered_rect_mark(Some(CoordinationScope::Shared))),
+            )
+            .col_with(col("group"), |c| c.guide(|g| g.title("Group"))),
         );
 
     let compiled = plot
@@ -214,7 +219,8 @@ async fn facet_shared_categorical_ordinal_fill_order_by_max_desc() {
         .canvas_size(1080, 390)
         .mark(
             Subplot::new(
-                Plot::<Cartesian>::new().mark(color_ordered_rect_mark(Some(Sharing::Shared))),
+                Plot::<Cartesian>::new()
+                    .mark(color_ordered_rect_mark(Some(CoordinationScope::Shared))),
             )
             .col_with(col("group"), |c| c.guide(|g| g.title("Group"))),
         );

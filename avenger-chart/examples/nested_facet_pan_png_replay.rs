@@ -185,11 +185,11 @@ async fn build_plot(
         Symbol::new()
             .x_with(col("x"), move |c| {
                 c.scale_with::<Linear>(move |s| s.raw_domain(x_raw.clone()).nice(false).zero(false))
-                    .with_scale_sharing(Sharing::Level(1))
+                    .with_scale_sharing(CoordinationScope::Level(1))
             })
             .y_with(col("y"), move |c| {
                 c.scale_with::<Linear>(move |s| s.raw_domain(y_raw.clone()).nice(false).zero(false))
-                    .with_scale_sharing(Sharing::Level(1))
+                    .with_scale_sharing(CoordinationScope::Level(1))
             })
             .fill(col("col_name"))
             .size(80.0),
@@ -198,8 +198,8 @@ async fn build_plot(
     let columns = Plot::<FacetColumn>::new().mark(Subplot::new(leaf).column(col("col_name")));
 
     Ok(Plot::<FacetRow>::new()
-        .add_param_with_sharing(x_domain.clone(), Sharing::Level(1))
-        .add_param_with_sharing(y_domain.clone(), Sharing::Level(1))
+        .add_param_with_sharing(x_domain.clone(), CoordinationScope::Level(1))
+        .add_param_with_sharing(y_domain.clone(), CoordinationScope::Level(1))
         .canvas_size(PNG_CANVAS_SIZE[0], PNG_CANVAS_SIZE[1])
         .data(df)
         .mark(Subplot::new(columns).row(col("row_name")))

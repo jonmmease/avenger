@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 use crate::{
-    AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, SelectionSceneQuery, SerializableExpr,
-    Sharing,
+    AvengerChartError, CoordinationScope, DefaultLogicalExprNodeExt, IntoExpr, SelectionSceneQuery,
+    SerializableExpr,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,7 +99,7 @@ pub enum SelectionPredicateUpdate {
 pub struct SelectionClauseUpdate {
     pub id: SelectionValueExpr,
     #[serde(default = "default_clause_facet_scope")]
-    pub facet_scope: Sharing,
+    pub facet_scope: CoordinationScope,
     pub predicate: SelectionPredicateUpdate,
 }
 
@@ -107,13 +107,13 @@ pub struct SelectionClauseUpdate {
 pub enum SelectionUpdate {
     Clear,
     ClearInScope {
-        scope: Sharing,
+        scope: CoordinationScope,
     },
     ReplaceAllClauses {
         clauses: Vec<SelectionClauseUpdate>,
     },
     ReplaceClausesInScope {
-        scope: Sharing,
+        scope: CoordinationScope,
         clauses: Vec<SelectionClauseUpdate>,
     },
     UpsertClauses {
@@ -138,14 +138,14 @@ pub enum SelectionUpdate {
         ids: Vec<SelectionValueExpr>,
     },
     DeleteClausesInScope {
-        scope: Sharing,
+        scope: CoordinationScope,
         ids: Vec<SelectionValueExpr>,
     },
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedSelectionClauseScope {
-    pub sharing: Sharing,
+    pub sharing: CoordinationScope,
     pub owner_path: Vec<ScalarValue>,
 }
 
@@ -204,7 +204,7 @@ impl SelectionUpdate {
         Self::Clear
     }
 
-    pub fn clear_in_scope(scope: Sharing) -> Self {
+    pub fn clear_in_scope(scope: CoordinationScope) -> Self {
         Self::ClearInScope { scope }
     }
 
@@ -222,7 +222,7 @@ impl SelectionUpdate {
         Self::replace_all_clauses([clause])
     }
 
-    pub fn replace_clauses_in_scope<I, C>(scope: Sharing, clauses: I) -> Self
+    pub fn replace_clauses_in_scope<I, C>(scope: CoordinationScope, clauses: I) -> Self
     where
         I: IntoIterator<Item = C>,
         C: Into<SelectionClauseUpdate>,
@@ -299,7 +299,7 @@ impl SelectionUpdate {
         Self::delete_clauses([id])
     }
 
-    pub fn delete_clauses_in_scope<I, E>(scope: Sharing, ids: I) -> Self
+    pub fn delete_clauses_in_scope<I, E>(scope: CoordinationScope, ids: I) -> Self
     where
         I: IntoIterator<Item = E>,
         E: IntoExpr,
@@ -310,13 +310,13 @@ impl SelectionUpdate {
         }
     }
 
-    pub fn delete_clause_in_scope(scope: Sharing, id: impl IntoExpr) -> Self {
+    pub fn delete_clause_in_scope(scope: CoordinationScope, id: impl IntoExpr) -> Self {
         Self::delete_clauses_in_scope(scope, [id])
     }
 }
 
 impl SelectionClauseUpdate {
-    pub fn facet_scope(mut self, facet_scope: Sharing) -> Self {
+    pub fn facet_scope(mut self, facet_scope: CoordinationScope) -> Self {
         self.facet_scope = facet_scope;
         self
     }
@@ -325,7 +325,7 @@ impl SelectionClauseUpdate {
         SelectionIntervalClauseBuilder {
             update: Self {
                 id: SelectionValueExpr::new(id),
-                facet_scope: Sharing::Free,
+                facet_scope: CoordinationScope::Free,
                 predicate: SelectionPredicateUpdate::Interval {
                     dimensions: Vec::new(),
                 },
@@ -337,7 +337,7 @@ impl SelectionClauseUpdate {
         SelectionEqualityClauseBuilder {
             update: Self {
                 id: SelectionValueExpr::new(id),
-                facet_scope: Sharing::Free,
+                facet_scope: CoordinationScope::Free,
                 predicate: SelectionPredicateUpdate::Equality {
                     dimensions: Vec::new(),
                 },
@@ -358,7 +358,7 @@ impl SelectionClauseUpdate {
     pub fn predicate(id: impl IntoExpr) -> SelectionPredicateClauseBuilder {
         SelectionPredicateClauseBuilder {
             id: SelectionValueExpr::new(id),
-            facet_scope: Sharing::Free,
+            facet_scope: CoordinationScope::Free,
             values: Vec::new(),
             kind: None,
         }
@@ -370,7 +370,7 @@ pub struct SelectionIntervalClauseBuilder {
 }
 
 impl SelectionIntervalClauseBuilder {
-    pub fn facet_scope(mut self, facet_scope: Sharing) -> Self {
+    pub fn facet_scope(mut self, facet_scope: CoordinationScope) -> Self {
         self.update.facet_scope = facet_scope;
         self
     }
@@ -449,7 +449,7 @@ pub struct SelectionEqualityClauseBuilder {
 }
 
 impl SelectionEqualityClauseBuilder {
-    pub fn facet_scope(mut self, facet_scope: Sharing) -> Self {
+    pub fn facet_scope(mut self, facet_scope: CoordinationScope) -> Self {
         self.update.facet_scope = facet_scope;
         self
     }
@@ -496,13 +496,13 @@ impl From<SelectionEqualityClauseBuilder> for SelectionClauseUpdate {
 
 pub struct SelectionPredicateClauseBuilder {
     id: SelectionValueExpr,
-    facet_scope: Sharing,
+    facet_scope: CoordinationScope,
     values: Vec<SelectionPredicateValueUpdate>,
     kind: Option<String>,
 }
 
 impl SelectionPredicateClauseBuilder {
-    pub fn facet_scope(mut self, facet_scope: Sharing) -> Self {
+    pub fn facet_scope(mut self, facet_scope: CoordinationScope) -> Self {
         self.facet_scope = facet_scope;
         self
     }
@@ -598,8 +598,8 @@ impl Selection {
     }
 }
 
-fn default_clause_facet_scope() -> Sharing {
-    Sharing::Free
+fn default_clause_facet_scope() -> CoordinationScope {
+    CoordinationScope::Free
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -729,7 +729,7 @@ mod tests {
     #[test]
     fn interval_clause_update_builder_serializes() {
         let clause = SelectionClauseUpdate::interval("active")
-            .facet_scope(Sharing::Level(1))
+            .facet_scope(CoordinationScope::Level(1))
             .dimension(col("x"))
             .endpoints(lit(1.0), lit(2.0))
             .dimension_named("vertical", col("y"))
@@ -738,7 +738,7 @@ mod tests {
         let json = serde_json::to_string(&clause).expect("serialize clause");
         let restored: SelectionClauseUpdate =
             serde_json::from_str(&json).expect("deserialize clause");
-        assert_eq!(restored.facet_scope, Sharing::Level(1));
+        assert_eq!(restored.facet_scope, CoordinationScope::Level(1));
         let SelectionPredicateUpdate::Interval { dimensions } = restored.predicate else {
             panic!("expected interval predicate");
         };
@@ -750,14 +750,14 @@ mod tests {
     #[test]
     fn equality_clause_update_builder_serializes() {
         let clause = SelectionClauseUpdate::equality("active")
-            .facet_scope(Sharing::Level(1))
+            .facet_scope(CoordinationScope::Level(1))
             .dimension(col("category"), event::datum("category"))
             .dimension_named("region_key", col("region"), event::datum("region"))
             .build();
         let json = serde_json::to_string(&clause).expect("serialize clause");
         let restored: SelectionClauseUpdate =
             serde_json::from_str(&json).expect("deserialize clause");
-        assert_eq!(restored.facet_scope, Sharing::Level(1));
+        assert_eq!(restored.facet_scope, CoordinationScope::Level(1));
         let SelectionPredicateUpdate::Equality { dimensions } = restored.predicate else {
             panic!("expected equality predicate");
         };
@@ -770,11 +770,11 @@ mod tests {
     fn equality_value_clause_uses_value_as_id_and_dimension_value() {
         let clause =
             SelectionClauseUpdate::equality_value(col("category"), event::datum("category"))
-                .facet_scope(Sharing::Shared);
+                .facet_scope(CoordinationScope::Shared);
         let json = serde_json::to_string(&clause).expect("serialize clause");
         let restored: SelectionClauseUpdate =
             serde_json::from_str(&json).expect("deserialize clause");
-        assert_eq!(restored.facet_scope, Sharing::Shared);
+        assert_eq!(restored.facet_scope, CoordinationScope::Shared);
         let restored_id = restored.id.clone();
         let SelectionPredicateUpdate::Equality { dimensions } = restored.predicate else {
             panic!("expected equality predicate");
@@ -790,7 +790,7 @@ mod tests {
     #[test]
     fn generic_predicate_clause_update_builder_serializes() {
         let clause = SelectionClauseUpdate::predicate("active")
-            .facet_scope(Sharing::Level(1))
+            .facet_scope(CoordinationScope::Level(1))
             .kind("circle")
             .value("cx", event::start_coord("x"))
             .value("r2", lit(4.0))
@@ -798,7 +798,7 @@ mod tests {
         let json = serde_json::to_string(&clause).expect("serialize clause");
         let restored: SelectionClauseUpdate =
             serde_json::from_str(&json).expect("deserialize clause");
-        assert_eq!(restored.facet_scope, Sharing::Level(1));
+        assert_eq!(restored.facet_scope, CoordinationScope::Level(1));
         let SelectionPredicateUpdate::Predicate { values, kind, .. } = restored.predicate else {
             panic!("expected generic predicate");
         };
@@ -825,7 +825,7 @@ mod tests {
     #[test]
     fn scoped_delete_update_serializes() {
         let update = SelectionUpdate::delete_clauses_in_scope(
-            Sharing::Level(1),
+            CoordinationScope::Level(1),
             [event::datum("category"), lit("fallback")],
         );
         let json = serde_json::to_string(&update).expect("serialize update");
@@ -833,7 +833,7 @@ mod tests {
         let SelectionUpdate::DeleteClausesInScope { scope, ids } = restored else {
             panic!("expected scoped delete clauses");
         };
-        assert_eq!(scope, Sharing::Level(1));
+        assert_eq!(scope, CoordinationScope::Level(1));
         assert_eq!(ids.len(), 2);
     }
 }

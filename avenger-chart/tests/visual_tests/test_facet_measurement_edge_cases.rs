@@ -346,11 +346,11 @@ async fn facet_row_extreme_values_free() {
                     Symbol::new()
                         .x_with(col("x"), |c| {
                             c.scale_with::<Linear>(|s| s)
-                                .with_scale_sharing(Sharing::Free)
+                                .with_scale_sharing(CoordinationScope::Free)
                         })
                         .y_with(col("y"), |c| {
                             c.scale_with::<Linear>(|s| s)
-                                .with_scale_sharing(Sharing::Free)
+                                .with_scale_sharing(CoordinationScope::Free)
                         })
                         .size(36.0)
                         .fill("#8b4513"),
@@ -388,12 +388,12 @@ async fn facet_row_single_cell_free() {
                     Symbol::new()
                         .x_with(col("x"), |c| {
                             c.scale_with::<Linear>(|s| s)
-                                .with_scale_sharing(Sharing::Free)
+                                .with_scale_sharing(CoordinationScope::Free)
                                 .axis(|a| a.title("X Axis"))
                         })
                         .y_with(col("y"), |c| {
                             c.scale_with::<Linear>(|s| s)
-                                .with_scale_sharing(Sharing::Free)
+                                .with_scale_sharing(CoordinationScope::Free)
                                 .axis(|a| a.title("Y Axis"))
                         })
                         .size(36.0)

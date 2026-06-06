@@ -1,4 +1,4 @@
-use crate::Sharing;
+use crate::CoordinationScope;
 
 /// Canonical representation for child-frame/container sharing levels.
 ///
@@ -74,15 +74,15 @@ impl From<SharingLevel> for u8 {
     }
 }
 
-impl From<Sharing> for SharingLevel {
-    fn from(value: Sharing) -> Self {
+impl From<CoordinationScope> for SharingLevel {
+    fn from(value: CoordinationScope) -> Self {
         Self::from_raw(value.to_level())
     }
 }
 
-impl From<SharingLevel> for Sharing {
+impl From<SharingLevel> for CoordinationScope {
     fn from(value: SharingLevel) -> Self {
-        Sharing::from_level(value.raw())
+        CoordinationScope::from_level(value.raw())
     }
 }
 

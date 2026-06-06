@@ -281,7 +281,7 @@ pub struct BinOutput {
     domain_start_scalar_id: String,
     domain_end_scalar_id: String,
     tick_spacing_scalar_id: String,
-    scope: avenger_chart_core::Sharing,
+    scope: avenger_chart_core::CoordinationScope,
 }
 
 impl BinOutput {

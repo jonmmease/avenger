@@ -225,7 +225,7 @@ pub use serialization::{
     SerializableScalarMap,
 };
 pub use sharing::{CoordinationAxis, SharingLevel};
-pub use sharing_mode::Sharing;
+pub use sharing_mode::CoordinationScope;
 pub use store::{
     CompiledStoreSpec, STORE_METADATA_PREFIX, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN,
     STORE_REVISION_COLUMN, Store, StoreData, StoreFieldPatch, StoreFieldRef, StoreFieldSpec,

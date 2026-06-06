@@ -57,7 +57,7 @@ fn interval_store_batch(lo: f64, hi: f64) -> RecordBatch {
 fn interval_store(lo: f64, hi: f64) -> Store {
     Store::from_record_batch("temperature_interval", interval_store_batch(lo, hi))
         .primary_key(["id"])
-        .sharing(Sharing::Shared)
+        .sharing(CoordinationScope::Shared)
 }
 
 fn vertical_colorbar_overlay() -> ColorbarOverlay {

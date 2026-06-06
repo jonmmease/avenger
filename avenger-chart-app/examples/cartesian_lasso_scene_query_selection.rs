@@ -72,7 +72,10 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .plot_size(PLOT_WIDTH, PLOT_HEIGHT)
         .data(df)
         .add_selection(picked)
-        .add_store(lasso_overlay_store("selection_lasso", Sharing::Shared))
+        .add_store(lasso_overlay_store(
+            "selection_lasso",
+            CoordinationScope::Shared,
+        ))
         .add_param(cursor.clone())
         .cursor_param(cursor.name.clone())
         .mark(
@@ -175,10 +178,10 @@ fn lasso_query_update() -> SelectionSceneQuery {
             )
             .unique_by(["point_id"]),
     )
-    .sharing(Sharing::Shared)
+    .sharing(CoordinationScope::Shared)
 }
 
-fn lasso_overlay_store(name: &str, sharing: Sharing) -> Store {
+fn lasso_overlay_store(name: &str, sharing: CoordinationScope) -> Store {
     Store::empty(name)
         .field("id", DataType::Utf8, false)
         .field("anchor_x", DataType::Float64, false)

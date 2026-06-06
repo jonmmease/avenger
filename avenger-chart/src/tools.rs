@@ -7,8 +7,8 @@ use std::{
 
 use avenger_chart_core::{
     Auto, AvengerChartError, ChartEventBinding, CompiledParamSpec, CompiledSelectionSpec,
-    CompiledStoreSpec, CoordinateSystemCore, CoordinateSystemTransform, DefaultLogicalExprNodeExt,
-    Param, Scale, Selection, Sharing, Store, TimeContext,
+    CompiledStoreSpec, CoordinateSystemCore, CoordinateSystemTransform, CoordinationScope,
+    DefaultLogicalExprNodeExt, Param, Scale, Selection, Store, TimeContext,
 };
 use avenger_chart_scales::PlotScaleSpec;
 use datafusion::prelude::lit;
@@ -142,7 +142,7 @@ impl ToolCompileContext {
         coord_transform: &dyn CoordinateSystemTransform,
         scale_to_coord_channel: &HashMap<String, String>,
         scale_specs: &mut HashMap<String, PlotScaleSpec>,
-        scale_sharing: &HashMap<String, Sharing>,
+        scale_sharing: &HashMap<String, CoordinationScope>,
     ) -> Result<(), AvengerChartError> {
         let invertible = coord_transform.interaction_invertible_channels();
         if invertible.is_empty() {
@@ -171,7 +171,7 @@ impl ToolCompileContext {
                             let sharing = scale_sharing
                                 .get(&scale_name)
                                 .copied()
-                                .unwrap_or(Sharing::Free)
+                                .unwrap_or(CoordinationScope::Free)
                                 .to_normalized();
                             self.state
                                 .lock()
@@ -341,7 +341,7 @@ impl ToolCompileState {
         tool_id: &str,
         channel: &str,
         param_name: &str,
-        sharing: Sharing,
+        sharing: CoordinationScope,
     ) -> Result<(), AvengerChartError> {
         if let Some(count) = self.expected_targets.get_mut(&(
             tool_id.to_string(),
@@ -428,7 +428,7 @@ impl ToolCompileState {
 struct GeneratedParamState {
     param: Param,
     requested: ToolParamSharing,
-    resolved_sharing: Option<Sharing>,
+    resolved_sharing: Option<CoordinationScope>,
 }
 
 pub(crate) struct ToolArtifacts {
@@ -488,11 +488,11 @@ fn validate_tool_id(id: &str) -> Result<(), AvengerChartError> {
     Ok(())
 }
 
-fn describe_sharing(sharing: Sharing) -> String {
+fn describe_sharing(sharing: CoordinationScope) -> String {
     match sharing.to_normalized() {
-        Sharing::Free => "Free".to_string(),
-        Sharing::Shared => "Shared".to_string(),
-        Sharing::Level(level) => format!("Level({level})"),
+        CoordinationScope::Free => "Free".to_string(),
+        CoordinationScope::Shared => "Shared".to_string(),
+        CoordinationScope::Level(level) => format!("Level({level})"),
     }
 }
 
@@ -605,11 +605,11 @@ mod tests {
 
         assert_eq!(
             compiled.param_specs()["__tool_pan_scroll_zoom__x_domain"].sharing,
-            Sharing::Level(u8::MAX)
+            CoordinationScope::Level(u8::MAX)
         );
         assert_eq!(
             compiled.param_specs()["__tool_pan_scroll_zoom__y_domain"].sharing,
-            Sharing::Level(0)
+            CoordinationScope::Level(0)
         );
     }
 
@@ -633,7 +633,7 @@ mod tests {
 
         assert_eq!(
             compiled.param_specs()["__tool_pan_scroll_zoom__x_domain"].sharing,
-            Sharing::Level(u8::MAX)
+            CoordinationScope::Level(u8::MAX)
         );
         assert!(compiled.event_bindings().len() >= 2);
     }
@@ -645,8 +645,12 @@ mod tests {
         let leaf = Plot::<Cartesian>::new()
             .mark(
                 Symbol::new()
-                    .x_with(col("x"), |c| c.with_scale_sharing(Sharing::Level(1)))
-                    .y_with(col("y"), |c| c.with_scale_sharing(Sharing::Level(1))),
+                    .x_with(col("x"), |c| {
+                        c.with_scale_sharing(CoordinationScope::Level(1))
+                    })
+                    .y_with(col("y"), |c| {
+                        c.with_scale_sharing(CoordinationScope::Level(1))
+                    }),
             )
             .tool(PanScrollZoom::cartesian());
         let column = Plot::<FacetColumn>::new().mark(Subplot::new(leaf).column(col("group_name")));
@@ -659,11 +663,11 @@ mod tests {
 
         assert_eq!(
             compiled.param_specs()["__tool_pan_scroll_zoom__x_domain"].sharing,
-            Sharing::Level(1)
+            CoordinationScope::Level(1)
         );
         assert_eq!(
             compiled.param_specs()["__tool_pan_scroll_zoom__y_domain"].sharing,
-            Sharing::Level(1)
+            CoordinationScope::Level(1)
         );
     }
 
@@ -950,7 +954,11 @@ mod tests {
                     .x_with(col("x"), |c| c.share_scale())
                     .y(col("y")),
             )
-            .tool(PanScrollZoom::cartesian().x_only().x_sharing(Sharing::Free))
+            .tool(
+                PanScrollZoom::cartesian()
+                    .x_only()
+                    .x_sharing(CoordinationScope::Free),
+            )
             .compile(&ctx)
             .await;
         let Err(err) = result else {

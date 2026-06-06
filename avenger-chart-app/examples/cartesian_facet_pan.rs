@@ -7,7 +7,7 @@
 //! write the shared (root) domain params, so all cells re-render with the same
 //! new domain.
 //!
-//! This demonstrates the faceted scope-export + routing path with `Sharing`
+//! This demonstrates the faceted scope-export + routing path with `CoordinationScope`
 //! at the global (Shared) level. See `cartesian_facet_pan_free` for per-cell
 //! independent pan/zoom behavior.
 //!

@@ -1,7 +1,7 @@
 //! Faceted Cartesian pan/zoom with **per-cell (`Free`) sharing**.
 //!
 //! A column-faceted scatter where the x and y raw-domain params are declared
-//! `Sharing::Free` and each cell's scales are `free_scale()` (independent per
+//! `CoordinationScope::Free` and each cell's scales are `free_scale()` (independent per
 //! cell). Dragging with the left mouse button or scrolling inside ONE cell
 //! pans/zooms ONLY that cell: the bindings route the pointer to the cell under
 //! it, invert through that cell's scale, and write the param at the cell's own

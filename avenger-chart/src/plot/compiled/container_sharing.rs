@@ -116,7 +116,7 @@ pub(crate) fn edge_ownership_scope_for_request(
 mod tests {
     use datafusion::common::ScalarValue;
 
-    use avenger_chart_core::{CoordinationAxis, Sharing};
+    use avenger_chart_core::{CoordinationAxis, CoordinationScope};
 
     use super::*;
 
@@ -151,15 +151,21 @@ mod tests {
 
     #[test]
     fn sharing_level_conversions_normalized() {
-        assert_eq!(SharingLevel::from(Sharing::Free), SharingLevel::from_raw(0));
-        assert_eq!(SharingLevel::from(Sharing::Shared), SharingLevel::GLOBAL);
         assert_eq!(
-            SharingLevel::from(Sharing::Level(3)),
+            SharingLevel::from(CoordinationScope::Free),
+            SharingLevel::from_raw(0)
+        );
+        assert_eq!(
+            SharingLevel::from(CoordinationScope::Shared),
+            SharingLevel::GLOBAL
+        );
+        assert_eq!(
+            SharingLevel::from(CoordinationScope::Level(3)),
             SharingLevel::from_raw(3)
         );
 
-        let back_to_scale: Sharing = SharingLevel::GLOBAL.into();
-        assert_eq!(back_to_scale, Sharing::Level(255));
+        let back_to_scale: CoordinationScope = SharingLevel::GLOBAL.into();
+        assert_eq!(back_to_scale, CoordinationScope::Level(255));
     }
 
     #[test]

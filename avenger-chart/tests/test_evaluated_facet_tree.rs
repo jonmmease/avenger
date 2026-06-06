@@ -1,6 +1,6 @@
 //! Integration tests for EvaluatedFacetSpec::from_compiled_plot
 
-use avenger_chart::channel::config_traits::Sharing;
+use avenger_chart::channel::config_traits::CoordinationScope;
 use avenger_chart::facet::FacetDirection;
 use avenger_chart::facet::evaluated_facet_tree::EvaluatedFacetTree;
 use avenger_chart::param::Param;
@@ -465,7 +465,9 @@ async fn test_shared_sharing_nested_row_row() {
                 Subplot::new(
                     Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))),
                 )
-                .row_with(col("species"), |c| c.with_slot_sharing(Sharing::Shared)),
+                .row_with(col("species"), |c| {
+                    c.with_slot_sharing(CoordinationScope::Shared)
+                }),
             ),
         )
         .row(col("region")),
@@ -511,7 +513,9 @@ async fn test_sharing_level_stored_in_node() {
                 Subplot::new(
                     Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))),
                 )
-                .row_with(col("species"), |c| c.with_slot_sharing(Sharing::Level(2))),
+                .row_with(col("species"), |c| {
+                    c.with_slot_sharing(CoordinationScope::Level(2))
+                }),
             ),
         )
         .row(col("region")),
@@ -702,7 +706,7 @@ async fn test_level1_nested_facet_ordering_uses_ancestor_scope() {
                         .row_with(col("team"), |c| {
                             c.order_by(max(col("value")))
                                 .order_desc()
-                                .with_slot_sharing(Sharing::Level(1))
+                                .with_slot_sharing(CoordinationScope::Level(1))
                         }),
                     ),
                 )

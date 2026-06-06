@@ -5,10 +5,10 @@ use datafusion_proto::protobuf::LogicalExprNode;
 
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, ColumnDimensionConfig, CompileContext, CompiledMark,
-    CompiledMarkState, CompiledSubplotChildPlot, CoordinateSystemCore, DataContext, FacetDataScope,
-    FacetDimensionConfig, FacetEmptyCellPolicy, FacetWrapColumnMode, Mark, MarkDataMode, MarkState,
-    RowDimensionConfig, Sharing, SubplotChildPlotSpec, SubplotContainerCoordinateSystem,
-    SubplotMarkCore,
+    CompiledMarkState, CompiledSubplotChildPlot, CoordinateSystemCore, CoordinationScope,
+    DataContext, FacetDataScope, FacetDimensionConfig, FacetEmptyCellPolicy, FacetWrapColumnMode,
+    Mark, MarkDataMode, MarkState, RowDimensionConfig, SubplotChildPlotSpec,
+    SubplotContainerCoordinateSystem, SubplotMarkCore,
 };
 
 #[derive(Clone, Default)]
@@ -19,8 +19,8 @@ pub(crate) struct SubplotConfig {
     pub(crate) plot_height: Option<f32>,
     pub(crate) facet_row_title: Option<String>,
     pub(crate) facet_col_title: Option<String>,
-    pub(crate) facet_row_slot_sharing: Option<Sharing>,
-    pub(crate) facet_col_slot_sharing: Option<Sharing>,
+    pub(crate) facet_row_slot_sharing: Option<CoordinationScope>,
+    pub(crate) facet_col_slot_sharing: Option<CoordinationScope>,
     pub(crate) facet_row_position: Option<String>,
     pub(crate) facet_col_position: Option<String>,
     pub(crate) facet_row_guide_visible: Option<bool>,
@@ -32,7 +32,7 @@ pub(crate) struct SubplotConfig {
     pub(crate) facet_row_order_descending: bool,
     pub(crate) facet_col_order_descending: bool,
     pub(crate) facet_wrap_title: Option<String>,
-    pub(crate) facet_wrap_slot_sharing: Option<Sharing>,
+    pub(crate) facet_wrap_slot_sharing: Option<CoordinationScope>,
     pub(crate) facet_wrap_position: Option<String>,
     pub(crate) facet_wrap_guide_visible: Option<bool>,
     pub(crate) facet_wrap_empty_cell_policy: Option<FacetEmptyCellPolicy>,
@@ -146,7 +146,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     pub fn set_facet_row_options(
         &mut self,
         title: Option<String>,
-        slot_sharing: Option<Sharing>,
+        slot_sharing: Option<CoordinationScope>,
         position: Option<String>,
         guide_visible: Option<bool>,
         empty_cell_policy: Option<FacetEmptyCellPolicy>,
@@ -168,7 +168,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     }
 
     #[doc(hidden)]
-    pub fn facet_row_slot_sharing_config(&self) -> Option<Sharing> {
+    pub fn facet_row_slot_sharing_config(&self) -> Option<CoordinationScope> {
         self.config.facet_row_slot_sharing
     }
 
@@ -202,7 +202,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     pub fn set_facet_col_options(
         &mut self,
         title: Option<String>,
-        slot_sharing: Option<Sharing>,
+        slot_sharing: Option<CoordinationScope>,
         position: Option<String>,
         guide_visible: Option<bool>,
         empty_cell_policy: Option<FacetEmptyCellPolicy>,
@@ -224,7 +224,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     }
 
     #[doc(hidden)]
-    pub fn facet_col_slot_sharing_config(&self) -> Option<Sharing> {
+    pub fn facet_col_slot_sharing_config(&self) -> Option<CoordinationScope> {
         self.config.facet_col_slot_sharing
     }
 
@@ -258,7 +258,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     pub fn set_facet_wrap_options(
         &mut self,
         title: Option<String>,
-        slot_sharing: Option<Sharing>,
+        slot_sharing: Option<CoordinationScope>,
         position: Option<String>,
         guide_visible: Option<bool>,
         empty_cell_policy: Option<FacetEmptyCellPolicy>,
@@ -282,7 +282,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     }
 
     #[doc(hidden)]
-    pub fn facet_wrap_slot_sharing_config(&self) -> Option<Sharing> {
+    pub fn facet_wrap_slot_sharing_config(&self) -> Option<CoordinationScope> {
         self.config.facet_wrap_slot_sharing
     }
 
@@ -386,7 +386,7 @@ impl<OuterC: CoordinateSystemCore> SubplotMarkCore for Subplot<OuterC> {
         self.config.facet_row_title.as_deref()
     }
 
-    fn facet_row_slot_sharing_config(&self) -> Option<Sharing> {
+    fn facet_row_slot_sharing_config(&self) -> Option<CoordinationScope> {
         self.config.facet_row_slot_sharing
     }
 
@@ -414,7 +414,7 @@ impl<OuterC: CoordinateSystemCore> SubplotMarkCore for Subplot<OuterC> {
         self.config.facet_col_title.as_deref()
     }
 
-    fn facet_col_slot_sharing_config(&self) -> Option<Sharing> {
+    fn facet_col_slot_sharing_config(&self) -> Option<CoordinationScope> {
         self.config.facet_col_slot_sharing
     }
 
@@ -442,7 +442,7 @@ impl<OuterC: CoordinateSystemCore> SubplotMarkCore for Subplot<OuterC> {
         self.config.facet_wrap_title.as_deref()
     }
 
-    fn facet_wrap_slot_sharing_config(&self) -> Option<Sharing> {
+    fn facet_wrap_slot_sharing_config(&self) -> Option<CoordinationScope> {
         self.config.facet_wrap_slot_sharing
     }
 

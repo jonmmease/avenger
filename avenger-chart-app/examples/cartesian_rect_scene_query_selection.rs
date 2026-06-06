@@ -190,7 +190,7 @@ fn rect_query_update() -> SelectionSceneQuery {
             )
             .unique_by(["point_id"]),
     )
-    .sharing(Sharing::Shared)
+    .sharing(CoordinationScope::Shared)
 }
 
 fn rect_overlay_store() -> Store {
@@ -201,7 +201,7 @@ fn rect_overlay_store() -> Store {
         .field("y_min", DataType::Float64, false)
         .field("y_max", DataType::Float64, false)
         .primary_key(["id"])
-        .sharing(Sharing::Shared)
+        .sharing(CoordinationScope::Shared)
 }
 
 fn rect_overlay_update() -> StoreUpdate {

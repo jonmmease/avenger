@@ -99,7 +99,12 @@ fn lumped_bar_plot(df: DataFrame, title: &str, lump: Lump, fill: &str) -> Plot<C
         .mark(lumped_bar_mark(lump, fill))
 }
 
-fn faceted_lump_plot(df: DataFrame, scope: Sharing, title: &str, fill: &str) -> Plot<FacetColumn> {
+fn faceted_lump_plot(
+    df: DataFrame,
+    scope: CoordinationScope,
+    title: &str,
+    fill: &str,
+) -> Plot<FacetColumn> {
     let leaf = Plot::<Cartesian>::new().mark(
         Rect::new().transform_with_scope(
             scope,
@@ -321,7 +326,7 @@ async fn lump_faceted_free_vs_shared() {
         .mark(
             Subplot::new(faceted_lump_plot(
                 df.clone(),
-                Sharing::Free,
+                CoordinationScope::Free,
                 "Free: local top category",
                 "#2563eb",
             ))
@@ -330,7 +335,7 @@ async fn lump_faceted_free_vs_shared() {
         .mark(
             Subplot::new(faceted_lump_plot(
                 df,
-                Sharing::Shared,
+                CoordinationScope::Shared,
                 "Shared: global top category",
                 "#ea580c",
             ))

@@ -16,7 +16,7 @@ use crate::{
     },
 };
 
-/// Sharing context available while measuring or rendering coordinate guides.
+/// CoordinationScope context available while measuring or rendering coordinate guides.
 #[derive(Clone, Copy)]
 pub struct GuideSharingContext<'a> {
     facet_view: &'a dyn FacetGuideSharingView,

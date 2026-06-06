@@ -1,20 +1,20 @@
-/// Hierarchical sharing modes for coordinated chart state.
+/// Hierarchical owner scopes for coordinated chart state.
 ///
 /// The same `Free` / `Level(N)` / `Shared` vocabulary is used for scale
 /// domains, facet slots, guides, legends, and scoped params.
 ///
 /// # Implementation Note: Unified UNION Semantics
 ///
-/// All sharing modes (`Shared`, `Free`, and `Level(N)`) use UNION semantics via
+/// All coordination scopes (`Shared`, `Free`, and `Level(N)`) use UNION semantics via
 /// `extend_with_domain_extents`. This ensures that local domains can only grow
 /// (never shrink) when shared extents are applied.
 ///
 /// While `Shared` is semantically equivalent to `Level(u8::MAX)`, they currently
 /// follow different code paths internally for historical reasons. When you need to
-/// check if a mode represents "fully shared" behavior, use [`Sharing::is_fully_shared`].
+/// check if a mode represents "fully shared" behavior, use [`CoordinationScope::is_fully_shared`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Sharing {
+pub enum CoordinationScope {
     /// Share across all facets.
     /// Equivalent to Level(u8::MAX)
     Shared,
@@ -30,34 +30,38 @@ pub enum Sharing {
     Level(u8),
 }
 
-impl From<bool> for Sharing {
+impl From<bool> for CoordinationScope {
     fn from(v: bool) -> Self {
-        if v { Sharing::Shared } else { Sharing::Free }
+        if v {
+            CoordinationScope::Shared
+        } else {
+            CoordinationScope::Free
+        }
     }
 }
 
-impl Sharing {
-    /// Convert this sharing mode to a level value
+impl CoordinationScope {
+    /// Convert this coordination scope to a level value
     ///
     /// - Free -> 0
     /// - Level(n) -> n
     /// - Shared -> u8::MAX
     pub fn to_level(self) -> u8 {
         match self {
-            Sharing::Free => 0,
-            Sharing::Level(n) => n,
-            Sharing::Shared => u8::MAX,
+            CoordinationScope::Free => 0,
+            CoordinationScope::Level(n) => n,
+            CoordinationScope::Shared => u8::MAX,
         }
     }
 
-    /// Create a Sharing from a level value
+    /// Create a CoordinationScope from a level value
     ///
     /// Returns normalized Level values for internal consistency:
     /// - 0 -> Level(0)
     /// - u8::MAX -> Level(255)
     /// - n -> Level(n)
     pub fn from_level(level: u8) -> Self {
-        Sharing::Level(level)
+        CoordinationScope::Level(level)
     }
 
     /// Check if this is free (independent per facet cell)
@@ -67,7 +71,7 @@ impl Sharing {
         self.to_level() == 0
     }
 
-    /// Check if this sharing mode shares with the parent container.
+    /// Check if this coordination scope shares with the parent container.
     ///
     /// Returns true for Level(1+), Shared.
     /// Returns false for Free, Level(0).
@@ -83,7 +87,10 @@ impl Sharing {
     /// Returns true for Shared and Level(u8::MAX).
     /// These modes share domains across all nesting levels.
     pub fn is_fully_shared(self) -> bool {
-        matches!(self, Sharing::Shared | Sharing::Level(u8::MAX))
+        matches!(
+            self,
+            CoordinationScope::Shared | CoordinationScope::Level(u8::MAX)
+        )
     }
 
     /// Normalize to Level representation for internal consistency.
@@ -95,8 +102,8 @@ impl Sharing {
     /// This ensures all internal code only needs to handle the Level variant.
     pub fn to_normalized(self) -> Self {
         match self {
-            Sharing::Free => Sharing::Level(0),
-            Sharing::Shared => Sharing::Level(u8::MAX),
+            CoordinationScope::Free => CoordinationScope::Level(0),
+            CoordinationScope::Shared => CoordinationScope::Level(u8::MAX),
             level => level,
         }
     }

@@ -3,10 +3,10 @@
 use avenger_chart_cartesian::{Cartesian, CartesianRectPositionChannels};
 use avenger_chart_core::{
     AvengerChartError, ChartEventBinding, ChartEventStream, ChartEventType, ChartTool,
-    CoordinateSystemCore, EmptySelectionBehavior, IntoExpr, Param, SceneGeometryHitPolicy,
-    SceneGeometryQuery, SceneQueryDatumField, Selection, SelectionClauseUpdate,
-    SelectionSceneQuery, SelectionUpdate, Sharing, ToolExpansion, ToolExpansionContext,
-    ToolMetadata, ToolParamSharing, ToolScaleEdit, event as ev,
+    CoordinateSystemCore, CoordinationScope, EmptySelectionBehavior, IntoExpr, Param,
+    SceneGeometryHitPolicy, SceneGeometryQuery, SceneQueryDatumField, Selection,
+    SelectionClauseUpdate, SelectionSceneQuery, SelectionUpdate, ToolExpansion,
+    ToolExpansionContext, ToolMetadata, ToolParamSharing, ToolScaleEdit, event as ev,
 };
 use avenger_chart_marks::Rect;
 use datafusion::{
@@ -22,8 +22,8 @@ pub struct PanScrollZoom {
     y_channel: Option<String>,
     x_domain_param: Option<Param>,
     y_domain_param: Option<Param>,
-    x_sharing: Option<Sharing>,
-    y_sharing: Option<Sharing>,
+    x_sharing: Option<CoordinationScope>,
+    y_sharing: Option<CoordinationScope>,
     drag_button: String,
     scroll_zoom: bool,
     zoom_base: f64,
@@ -86,12 +86,12 @@ impl PanScrollZoom {
         self
     }
 
-    pub fn x_sharing(mut self, sharing: Sharing) -> Self {
+    pub fn x_sharing(mut self, sharing: CoordinationScope) -> Self {
         self.x_sharing = Some(sharing);
         self
     }
 
-    pub fn y_sharing(mut self, sharing: Sharing) -> Self {
+    pub fn y_sharing(mut self, sharing: CoordinationScope) -> Self {
         self.y_sharing = Some(sharing);
         self
     }
@@ -149,7 +149,10 @@ impl ChartTool<Cartesian> for PanScrollZoom {
             ScalarValue::Boolean(Some(self.enabled_by_default)),
         );
         let mut expansion = ToolExpansion::new()
-            .param(enabled.clone(), ToolParamSharing::Explicit(Sharing::Shared))
+            .param(
+                enabled.clone(),
+                ToolParamSharing::Explicit(CoordinationScope::Shared),
+            )
             .metadata(
                 ToolMetadata::new(self.id.clone(), "Pan/Zoom").enabled_param(enabled.name.clone()),
             );
@@ -218,7 +221,7 @@ pub struct PointSelection {
     tool_id: String,
     dimensions: Vec<PointSelectionDimension>,
     clause_id: Option<Expr>,
-    facet_scope: Sharing,
+    facet_scope: CoordinationScope,
     facet_context_fields: Vec<(String, Expr)>,
     empty: EmptySelectionBehavior,
     shift_toggle: bool,
@@ -240,7 +243,7 @@ impl PointSelection {
             selection_id,
             dimensions: Vec::new(),
             clause_id: None,
-            facet_scope: Sharing::Free,
+            facet_scope: CoordinationScope::Free,
             facet_context_fields: Vec::new(),
             empty: EmptySelectionBehavior::SelectNothing,
             shift_toggle: true,
@@ -272,7 +275,7 @@ impl PointSelection {
         self
     }
 
-    pub fn facet_scope(mut self, scope: Sharing) -> Self {
+    pub fn facet_scope(mut self, scope: CoordinationScope) -> Self {
         self.facet_scope = scope;
         self
     }
@@ -377,7 +380,10 @@ impl<C: CoordinateSystemCore> ChartTool<C> for PointSelection {
         );
         let clause = self.clause()?;
         let mut expansion = ToolExpansion::new()
-            .param(enabled.clone(), ToolParamSharing::Explicit(Sharing::Shared))
+            .param(
+                enabled.clone(),
+                ToolParamSharing::Explicit(CoordinationScope::Shared),
+            )
             .selection(self.selection())
             .event_binding(point_selection_replace_binding(
                 &enabled.name,
@@ -458,7 +464,7 @@ pub struct LassoSelection {
     tool_id: String,
     fields: Vec<LassoSelectionField>,
     mark_ids: Vec<String>,
-    facet_scope: Sharing,
+    facet_scope: CoordinationScope,
     facet_context_fields: Vec<(String, Expr)>,
     empty: EmptySelectionBehavior,
     drag_button: String,
@@ -482,7 +488,7 @@ impl LassoSelection {
             selection_id,
             fields: Vec::new(),
             mark_ids: Vec::new(),
-            facet_scope: Sharing::Free,
+            facet_scope: CoordinationScope::Free,
             facet_context_fields: Vec::new(),
             empty: EmptySelectionBehavior::SelectNothing,
             drag_button: "left".to_string(),
@@ -536,7 +542,7 @@ impl LassoSelection {
         self
     }
 
-    pub fn facet_scope(mut self, scope: Sharing) -> Self {
+    pub fn facet_scope(mut self, scope: CoordinationScope) -> Self {
         self.facet_scope = scope;
         self
     }
@@ -647,7 +653,10 @@ impl<C: CoordinateSystemCore> ChartTool<C> for LassoSelection {
             ScalarValue::Boolean(Some(self.enabled_by_default)),
         );
         let mut expansion = ToolExpansion::new()
-            .param(enabled.clone(), ToolParamSharing::Explicit(Sharing::Shared))
+            .param(
+                enabled.clone(),
+                ToolParamSharing::Explicit(CoordinationScope::Shared),
+            )
             .selection(self.selection())
             .event_binding(lasso_selection_drag_binding(
                 &enabled.name,
@@ -709,8 +718,8 @@ pub struct BoxZoom {
     y_channel: String,
     x_domain_param: Option<Param>,
     y_domain_param: Option<Param>,
-    x_sharing: Option<Sharing>,
-    y_sharing: Option<Sharing>,
+    x_sharing: Option<CoordinationScope>,
+    y_sharing: Option<CoordinationScope>,
     drag_button: String,
     min_size_px: f64,
     enabled_by_default: bool,
@@ -757,12 +766,12 @@ impl BoxZoom {
         self
     }
 
-    pub fn x_sharing(mut self, sharing: Sharing) -> Self {
+    pub fn x_sharing(mut self, sharing: CoordinationScope) -> Self {
         self.x_sharing = Some(sharing);
         self
     }
 
-    pub fn y_sharing(mut self, sharing: Sharing) -> Self {
+    pub fn y_sharing(mut self, sharing: CoordinationScope) -> Self {
         self.y_sharing = Some(sharing);
         self
     }
@@ -870,12 +879,30 @@ impl ChartTool<Cartesian> for BoxZoom {
         ];
 
         Ok(ToolExpansion::new()
-            .param(enabled.clone(), ToolParamSharing::Explicit(Sharing::Shared))
-            .param(active.clone(), ToolParamSharing::Explicit(Sharing::Free))
-            .param(box_x0.clone(), ToolParamSharing::Explicit(Sharing::Free))
-            .param(box_y0.clone(), ToolParamSharing::Explicit(Sharing::Free))
-            .param(box_x1.clone(), ToolParamSharing::Explicit(Sharing::Free))
-            .param(box_y1.clone(), ToolParamSharing::Explicit(Sharing::Free))
+            .param(
+                enabled.clone(),
+                ToolParamSharing::Explicit(CoordinationScope::Shared),
+            )
+            .param(
+                active.clone(),
+                ToolParamSharing::Explicit(CoordinationScope::Free),
+            )
+            .param(
+                box_x0.clone(),
+                ToolParamSharing::Explicit(CoordinationScope::Free),
+            )
+            .param(
+                box_y0.clone(),
+                ToolParamSharing::Explicit(CoordinationScope::Free),
+            )
+            .param(
+                box_x1.clone(),
+                ToolParamSharing::Explicit(CoordinationScope::Free),
+            )
+            .param(
+                box_y1.clone(),
+                ToolParamSharing::Explicit(CoordinationScope::Free),
+            )
             .param(x_domain.clone(), x_sharing)
             .param(y_domain.clone(), y_sharing)
             .scale_edit(ToolScaleEdit::raw_domain(
@@ -1302,7 +1329,7 @@ mod tests {
             .field("point_id")
             .mark("points")
             .event_path_min_distance_px(7.0)
-            .facet_scope(Sharing::Shared);
+            .facet_scope(CoordinationScope::Shared);
         let expansion = <LassoSelection as ChartTool<Cartesian>>::expand(
             &tool,
             ToolExpansionContext {
@@ -1341,7 +1368,7 @@ mod tests {
         let SelectionUpdate::ReplaceAllFromSceneQuery { query } = &assignment.update else {
             panic!("lasso drag should use a scene-query selection update");
         };
-        assert_eq!(query.sharing, Sharing::Shared);
+        assert_eq!(query.sharing, CoordinationScope::Shared);
         assert_eq!(query.query.datum_fields.len(), 1);
         assert_eq!(query.query.datum_fields[0].id, "point_id");
         assert_eq!(query.query.target.mark_ids(), &["points".to_string()]);

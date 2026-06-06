@@ -93,7 +93,7 @@ macro_rules! impl_mark_base {
                 T: $crate::DataTransform,
                 F: FnOnce(Self, T::Output) -> Self,
             {
-                self.transform_with_scope($crate::Sharing::Free, transform, f)
+                self.transform_with_scope($crate::CoordinationScope::Free, transform, f)
             }
 
             /// Apply a data transform at a specific logical facet sharing level.
@@ -102,7 +102,7 @@ macro_rules! impl_mark_base {
                 T: $crate::DataTransform,
                 F: FnOnce(Self, T::Output) -> Self,
             {
-                self.transform_with_scope($crate::Sharing::Level(level), transform, f)
+                self.transform_with_scope($crate::CoordinationScope::Level(level), transform, f)
             }
 
             /// Apply a data transform at shared/global facet scope.
@@ -111,13 +111,13 @@ macro_rules! impl_mark_base {
                 T: $crate::DataTransform,
                 F: FnOnce(Self, T::Output) -> Self,
             {
-                self.transform_with_scope($crate::Sharing::Shared, transform, f)
+                self.transform_with_scope($crate::CoordinationScope::Shared, transform, f)
             }
 
             /// Apply a data transform at the specified facet sharing scope.
             pub fn transform_with_scope<T, F>(
                 mut self,
-                scope: $crate::Sharing,
+                scope: $crate::CoordinationScope,
                 transform: T,
                 f: F,
             ) -> Self
@@ -151,7 +151,7 @@ macro_rules! impl_mark_base {
                 T: $crate::DataTransform<Output = ()>,
                 F: FnOnce(Self) -> Self,
             {
-                self.transform_with_scope_no_output($crate::Sharing::Free, transform, f)
+                self.transform_with_scope_no_output($crate::CoordinationScope::Free, transform, f)
             }
 
             /// Apply a no-output data transform at a specific logical facet sharing level.
@@ -160,7 +160,11 @@ macro_rules! impl_mark_base {
                 T: $crate::DataTransform<Output = ()>,
                 F: FnOnce(Self) -> Self,
             {
-                self.transform_with_scope_no_output($crate::Sharing::Level(level), transform, f)
+                self.transform_with_scope_no_output(
+                    $crate::CoordinationScope::Level(level),
+                    transform,
+                    f,
+                )
             }
 
             /// Apply a no-output data transform at shared/global facet scope.
@@ -169,13 +173,13 @@ macro_rules! impl_mark_base {
                 T: $crate::DataTransform<Output = ()>,
                 F: FnOnce(Self) -> Self,
             {
-                self.transform_with_scope_no_output($crate::Sharing::Shared, transform, f)
+                self.transform_with_scope_no_output($crate::CoordinationScope::Shared, transform, f)
             }
 
             /// Apply a no-output data transform at the specified facet sharing scope.
             pub fn transform_with_scope_no_output<T, F>(
                 self,
-                scope: $crate::Sharing,
+                scope: $crate::CoordinationScope,
                 transform: T,
                 f: F,
             ) -> Self

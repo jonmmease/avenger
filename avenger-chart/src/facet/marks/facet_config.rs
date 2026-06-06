@@ -1,12 +1,13 @@
 use avenger_chart_core::{
-    DefaultLogicalExprNodeExt, FacetEmptyCellPolicy, FacetWrapColumnMode, IntoExpr, Sharing,
+    CoordinationScope, DefaultLogicalExprNodeExt, FacetEmptyCellPolicy, FacetWrapColumnMode,
+    IntoExpr,
 };
 use datafusion_proto::protobuf::LogicalExprNode;
 
 #[derive(Clone, Default)]
 pub struct FacetRowChannelConfig {
     pub(crate) title: Option<String>,
-    pub(crate) slot_sharing: Option<Sharing>,
+    pub(crate) slot_sharing: Option<CoordinationScope>,
     pub(crate) position: Option<String>,
     pub(crate) visible: Option<bool>,
     pub(crate) empty_cell_policy: Option<FacetEmptyCellPolicy>,
@@ -53,7 +54,7 @@ impl FacetRowChannelConfig {
     ///   Different outer cells may have different numbers of inner cells.
     ///
     /// Note: Free and Shared are normalized to Level(0) and Level(255) internally.
-    pub fn with_slot_sharing(mut self, mode: Sharing) -> Self {
+    pub fn with_slot_sharing(mut self, mode: CoordinationScope) -> Self {
         // Normalize Free/Shared to Level representation for internal consistency
         self.slot_sharing = Some(mode.to_normalized());
         self
@@ -61,12 +62,12 @@ impl FacetRowChannelConfig {
 
     /// Share this facet variable's slots across all facets (enumerate from the full dataset).
     pub fn share_slots(self) -> Self {
-        self.with_slot_sharing(Sharing::Shared)
+        self.with_slot_sharing(CoordinationScope::Shared)
     }
 
     /// Make this facet variable's slots independent per facet (enumerate from filtered data).
     pub fn free_slots(self) -> Self {
-        self.with_slot_sharing(Sharing::Free)
+        self.with_slot_sharing(CoordinationScope::Free)
     }
 
     /// Configure how empty facet cells are rendered.
@@ -123,7 +124,7 @@ impl FacetRowChannelConfig {
 #[derive(Clone, Default)]
 pub struct FacetColChannelConfig {
     pub(crate) title: Option<String>,
-    pub(crate) slot_sharing: Option<Sharing>,
+    pub(crate) slot_sharing: Option<CoordinationScope>,
     pub(crate) position: Option<String>,
     pub(crate) visible: Option<bool>,
     pub(crate) empty_cell_policy: Option<FacetEmptyCellPolicy>,
@@ -141,7 +142,7 @@ impl FacetColChannelConfig {
     ///   Different outer cells may have different numbers of inner cells.
     ///
     /// Note: Free and Shared are normalized to Level(0) and Level(255) internally.
-    pub fn with_slot_sharing(mut self, mode: Sharing) -> Self {
+    pub fn with_slot_sharing(mut self, mode: CoordinationScope) -> Self {
         // Normalize Free/Shared to Level representation for internal consistency
         self.slot_sharing = Some(mode.to_normalized());
         self
@@ -149,12 +150,12 @@ impl FacetColChannelConfig {
 
     /// Share this facet variable's slots across all facets (enumerate from the full dataset).
     pub fn share_slots(self) -> Self {
-        self.with_slot_sharing(Sharing::Shared)
+        self.with_slot_sharing(CoordinationScope::Shared)
     }
 
     /// Make this facet variable's slots independent per facet (enumerate from filtered data).
     pub fn free_slots(self) -> Self {
-        self.with_slot_sharing(Sharing::Free)
+        self.with_slot_sharing(CoordinationScope::Free)
     }
 
     /// Configure how empty facet cells are rendered.
@@ -211,7 +212,7 @@ impl FacetColChannelConfig {
 #[derive(Clone, Default)]
 pub struct FacetWrapChannelConfig {
     pub(crate) title: Option<String>,
-    pub(crate) slot_sharing: Option<Sharing>,
+    pub(crate) slot_sharing: Option<CoordinationScope>,
     pub(crate) position: Option<String>,
     pub(crate) visible: Option<bool>,
     pub(crate) empty_cell_policy: Option<FacetEmptyCellPolicy>,
@@ -247,19 +248,19 @@ impl FacetWrapChannelConfig {
     }
 
     /// Configure slot sharing mode for this wrapped facet variable.
-    pub fn with_slot_sharing(mut self, mode: Sharing) -> Self {
+    pub fn with_slot_sharing(mut self, mode: CoordinationScope) -> Self {
         self.slot_sharing = Some(mode.to_normalized());
         self
     }
 
     /// Share wrapped slots across all facets in the relevant ancestor scope.
     pub fn share_slots(self) -> Self {
-        self.with_slot_sharing(Sharing::Shared)
+        self.with_slot_sharing(CoordinationScope::Shared)
     }
 
     /// Make wrapped slots independent per facet.
     pub fn free_slots(self) -> Self {
-        self.with_slot_sharing(Sharing::Free)
+        self.with_slot_sharing(CoordinationScope::Free)
     }
 
     /// Configure how trailing empty wrap cells are rendered.
