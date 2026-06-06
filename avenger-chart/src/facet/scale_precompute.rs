@@ -707,8 +707,9 @@ async fn collect_node_domain_infos(
             .map(String::as_str)
             .collect::<Vec<_>>();
         for (channel, mut extent) in builder.extract_domain_extents(&domain_channel_refs) {
-            let domain_sharing_level = facet_tree.channel_domain_sharing_level(&channel);
-            let sharing_level = SharingLevel::from_raw(domain_sharing_level);
+            let domain_coordination = facet_tree.channel_domain_coordination(&channel);
+            let sharing_level = SharingLevel::from(domain_coordination.scope);
+            let domain_sharing_level = sharing_level.raw();
             if extent.ordered_discrete && !sharing_level.is_free() {
                 let owner_path = facet_tree.sharing_owner_path(&full_path, sharing_level.raw());
                 let cache_key = (canonicalize_path(&owner_path), channel.clone());
@@ -750,6 +751,7 @@ async fn collect_node_domain_infos(
                 full_cell_path: full_path.clone(),
                 channel,
                 domain_sharing_level,
+                domain_coordination,
                 facet_depth,
                 owner_path: Some(facet_tree.sharing_owner_path(
                     &full_path,

@@ -22,6 +22,8 @@ use datafusion::{
 use indexmap::IndexMap;
 use tracing::debug;
 
+use avenger_chart_core::DomainCoordination;
+
 pub use crate::partition::{PartitionContent, PartitionNode};
 
 use crate::{
@@ -59,10 +61,11 @@ pub struct EvaluatedFacetTree {
     depth_cache: usize,
     /// Cached facet slot counts per nesting level.
     level_counts_cache: Vec<usize>,
-    /// Channel-domain sharing levels extracted from innermost marks.
-    /// Maps channel name (e.g., "x", "y") to sharing level (0=Free, N=Level(N), 255=Shared).
-    /// Used for axis visibility decisions when CoordMeasurement is not available.
-    channel_domain_sharing_levels: HashMap<String, SharingLevel>,
+    /// Channel-domain coordination targets extracted from innermost marks.
+    ///
+    /// Used for scale-domain coordination and for deriving sharing levels when
+    /// guide visibility decisions do not have access to CoordMeasurement.
+    channel_domain_coordinations: HashMap<String, DomainCoordination>,
     /// Cached path metadata for resolved concrete paths.
     path_info_cache: HashMap<Vec<ScalarValue>, ResolvedFacetPathInfo>,
     /// Cached predicates for valid, non-empty paths.
@@ -160,7 +163,7 @@ impl EvaluatedFacetTree {
 
     fn init_with_caches(
         root: Option<PartitionNode>,
-        channel_domain_sharing_levels: HashMap<String, SharingLevel>,
+        channel_domain_coordinations: HashMap<String, DomainCoordination>,
     ) -> Self {
         let depth_cache = root.as_ref().map(Self::count_depth).unwrap_or(0);
         let level_counts_cache = root
@@ -172,7 +175,7 @@ impl EvaluatedFacetTree {
             root,
             depth_cache,
             level_counts_cache,
-            channel_domain_sharing_levels,
+            channel_domain_coordinations,
             path_info_cache: HashMap::new(),
             path_predicate_cache: HashMap::new(),
             slot_membership_cache: HashMap::new(),
@@ -201,7 +204,12 @@ impl EvaluatedFacetTree {
             root,
             channel_domain_sharing_levels
                 .into_iter()
-                .map(|(channel, level)| (channel, SharingLevel::from_raw(level)))
+                .map(|(channel, level)| {
+                    (
+                        channel,
+                        DomainCoordination::scale_name(SharingLevel::from_raw(level).into()),
+                    )
+                })
                 .collect(),
         )
     }
@@ -479,13 +487,10 @@ impl EvaluatedFacetTree {
         )
         .await?;
 
-        // Extract channel-domain sharing levels from the innermost marks.
-        let channel_domain_sharing_levels = extract_channel_domain_sharing_levels(&plot.marks);
+        // Extract channel-domain coordination targets from the innermost marks.
+        let channel_domain_coordinations = extract_channel_domain_coordinations(&plot.marks);
 
-        Ok(Self::new_with_channel_domain_sharing_levels(
-            root,
-            channel_domain_sharing_levels,
-        ))
+        Ok(Self::init_with_caches(root, channel_domain_coordinations))
     }
 
     pub(crate) fn plot_contains_facet_mark(plot: &CompiledPlot) -> bool {
@@ -534,8 +539,8 @@ impl EvaluatedFacetTree {
         let mut levels: HashSet<SharingLevel> = HashSet::new();
         levels.insert(SharingLevel::FREE);
         levels.insert(SharingLevel::GLOBAL);
-        for sharing_level in self.channel_domain_sharing_levels.values() {
-            levels.insert(*sharing_level);
+        for coordination in self.channel_domain_coordinations.values() {
+            levels.insert(SharingLevel::from(coordination.scope));
         }
         if let Some(root) = self.root.as_ref() {
             Self::collect_node_sharing_levels_recursive(root, &mut levels);
@@ -933,16 +938,20 @@ impl EvaluatedFacetTree {
     }
 
     pub(crate) fn channel_domain_sharing_level_typed(&self, channel: &str) -> SharingLevel {
-        self.channel_domain_sharing_levels
+        SharingLevel::from(self.channel_domain_coordination(channel).scope)
+    }
+
+    pub(crate) fn channel_domain_coordination(&self, channel: &str) -> DomainCoordination {
+        self.channel_domain_coordinations
             .get(channel)
-            .copied()
-            .unwrap_or(SharingLevel::GLOBAL)
+            .cloned()
+            .unwrap_or_else(|| DomainCoordination::scale_name(SharingLevel::GLOBAL.into()))
     }
 
     pub(crate) fn has_free_channel_domain_sharing(&self) -> bool {
-        self.channel_domain_sharing_levels
+        self.channel_domain_coordinations
             .values()
-            .any(|sharing| sharing.is_free())
+            .any(|coordination| SharingLevel::from(coordination.scope).is_free())
     }
 
     pub(crate) fn has_wrap_levels(&self) -> bool {
@@ -956,7 +965,7 @@ impl EvaluatedFacetTree {
             .into_iter()
             .map(ToOwned::to_owned)
             .collect::<Vec<_>>();
-        for channel in self.channel_domain_sharing_levels.keys() {
+        for channel in self.channel_domain_coordinations.keys() {
             if !channels.iter().any(|existing| existing == channel) {
                 channels.push(channel.clone());
             }
@@ -1652,33 +1661,38 @@ impl EvaluatedFacetTree {
 // Helper functions for building the partition tree
 // ============================================================================
 
-/// Extract channel-domain sharing levels from compiled marks by recursing through facet subplots.
+/// Extract channel-domain coordination targets from compiled marks by recursing through facet subplots.
 ///
 /// This walks the mark tree to find the innermost (non-facet) marks and extracts
-/// their channel-domain sharing levels. Returns a map from channel name to sharing level.
-fn extract_channel_domain_sharing_levels(marks: &[Arc<dyn CompiledMark>]) -> HashMap<String, u8> {
+/// their channel-domain coordination targets.
+fn extract_channel_domain_coordinations(
+    marks: &[Arc<dyn CompiledMark>],
+) -> HashMap<String, DomainCoordination> {
     let mut result = HashMap::new();
 
     for mark in marks {
         if let Some(facet_mark) = facet_subplot_ref(mark.as_ref()) {
             // Recurse into subplot to find innermost marks
-            let inner = extract_channel_domain_sharing_levels(&facet_mark.compiled_subplot().marks);
+            let inner = extract_channel_domain_coordinations(&facet_mark.compiled_subplot().marks);
             result.extend(inner);
         } else {
-            // Non-facet mark - extract channel-domain sharing levels.
+            // Non-facet mark - extract channel-domain coordination targets.
             let data_context = mark.data_context();
             for (channel, channel_value) in data_context.channels() {
-                let Some(sharing) = channel_value.get_domain_scope() else {
+                let Some(coordination) = channel_value.get_domain_coordination().cloned() else {
                     continue;
                 };
                 let Some(scale_name) = channel_value.get_scale_name(channel) else {
                     continue;
                 };
-                let level = sharing.to_level();
                 result
                     .entry(scale_name)
-                    .and_modify(|existing| *existing = (*existing).max(level))
-                    .or_insert(level);
+                    .and_modify(|existing: &mut DomainCoordination| {
+                        if coordination.scope.to_level() > existing.scope.to_level() {
+                            *existing = coordination.clone();
+                        }
+                    })
+                    .or_insert(coordination);
             }
         }
     }
@@ -2387,6 +2401,7 @@ fn contains_facet_mark(marks: &[Arc<dyn CompiledMark>]) -> bool {
 mod tests {
     use super::*;
     use crate::prelude::*;
+    use avenger_chart_core::DomainCoordinationGroup;
 
     fn scalar(s: &str) -> ScalarValue {
         ScalarValue::Utf8(Some(s.to_string()))
@@ -3536,6 +3551,36 @@ mod tests {
         assert!(empty.jagged_axis_cache.values().all(|value| !*value));
         assert!(empty.used_sharing_levels.contains(&SharingLevel::FREE));
         assert!(empty.used_sharing_levels.contains(&SharingLevel::GLOBAL));
+    }
+
+    #[tokio::test]
+    async fn extract_channel_domain_coordinations_preserves_named_groups()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .mark(Symbol::new().x_with(lit(1.0), |c| c.with_domain_group("height").share_domain()))
+            .compile(&ctx)
+            .await?;
+
+        let coordinations = extract_channel_domain_coordinations(&compiled.marks);
+        let coordination = coordinations
+            .get("x")
+            .expect("expected x domain coordination");
+
+        assert_eq!(coordination.scope, CoordinationScope::Level(u8::MAX));
+        assert_eq!(
+            coordination.group,
+            DomainCoordinationGroup::Named("height".to_string())
+        );
+
+        let tree = EvaluatedFacetTree::init_with_caches(None, coordinations);
+        assert_eq!(
+            tree.channel_domain_coordination("x").group,
+            DomainCoordinationGroup::Named("height".to_string())
+        );
+        assert_eq!(tree.channel_domain_sharing_level("x"), u8::MAX);
+
+        Ok(())
     }
 
     #[test]

@@ -12,9 +12,9 @@ use crate::{
 };
 pub use avenger_chart_core::{
     CoordMeasurement, CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
-    CoordinateSystemTransformCore, CoordinatedLayout, CoordinatedOverflow, EmptyCoordMeasurement,
-    FacetAxis, OverflowSpaceRequirement, PaddingSpec, PlotGeometry, PointGeometry, SubplotGeometry,
-    SubplotRect, extract_channel_title_from_marks,
+    CoordinateSystemTransformCore, CoordinatedLayout, CoordinatedOverflow, DomainCoordination,
+    EmptyCoordMeasurement, FacetAxis, OverflowSpaceRequirement, PaddingSpec, PlotGeometry,
+    PointGeometry, SubplotGeometry, SubplotRect, extract_channel_title_from_marks,
 };
 
 /// Cell domain extent info collected before facet overflow measurement.
@@ -29,6 +29,8 @@ pub struct CellDomainInfo {
     pub channel: String,
     /// Channel-domain sharing level (0=Free, N=Level(N), 255=Shared)
     pub domain_sharing_level: u8,
+    /// Full domain coordination target for scale-domain aggregation.
+    pub domain_coordination: DomainCoordination,
     /// Facet depth (1-based) for sharing comparison
     pub facet_depth: u8,
     /// Optional already-projected owner path for logical facet sharing.

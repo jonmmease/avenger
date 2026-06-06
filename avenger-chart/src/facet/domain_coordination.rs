@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use avenger_chart_core::SharingLevel;
+use avenger_chart_core::{DomainCoordination, SharingLevel};
 use avenger_chart_scales::DomainExtent;
 use datafusion::common::ScalarValue;
 
@@ -9,6 +9,7 @@ use crate::{
     facet::{coord::ChannelDomainExtent, sharing_policy},
     plot::compiled::{
         ChildFrameDomainRequest, CoordinationKind, CoordinationScopeKey, aggregate_domain_requests,
+        apply_domain_group_to_key,
     },
 };
 
@@ -24,6 +25,7 @@ fn domain_request_for_info(info: &CellDomainInfo) -> ChildFrameDomainRequest {
             &info.channel,
             &info.full_cell_path,
             SharingLevel::from_raw(info.domain_sharing_level),
+            &info.domain_coordination,
             info.facet_depth,
             info.owner_path.as_deref(),
         ),
@@ -43,6 +45,7 @@ pub(crate) fn domain_infos_for_cell(
             full_cell_path: full_cell_path.to_vec(),
             channel: channel.clone(),
             domain_sharing_level: annotated.domain_sharing_level.raw(),
+            domain_coordination: annotated.domain_coordination.clone(),
             facet_depth,
             owner_path: None,
             extent: annotated.extent.clone(),
@@ -62,6 +65,7 @@ pub(crate) fn domain_infos_for_cell_with_owner_paths(
             full_cell_path: full_cell_path.to_vec(),
             channel: channel.clone(),
             domain_sharing_level: annotated.domain_sharing_level.raw(),
+            domain_coordination: annotated.domain_coordination.clone(),
             facet_depth,
             owner_path: Some(owner_path_for(annotated.domain_sharing_level)),
             extent: annotated.extent.clone(),
@@ -73,7 +77,7 @@ pub(crate) fn domain_infos_for_cell_with_owner_paths(
 pub(crate) fn coordinated_extents_for_cell(
     full_cell_path: &[ScalarValue],
     local_domain_extents: &HashMap<String, ChannelDomainExtent>,
-    channel_domain_sharing_levels: &HashMap<String, SharingLevel>,
+    channel_domain_coordinations: &HashMap<String, DomainCoordination>,
     facet_depth: u8,
     unified: &HashMap<CoordinationScopeKey, DomainExtent>,
 ) -> HashMap<String, DomainExtent> {
@@ -88,6 +92,7 @@ pub(crate) fn coordinated_extents_for_cell(
             channel,
             full_cell_path,
             annotated.domain_sharing_level,
+            &annotated.domain_coordination,
             facet_depth,
         );
 
@@ -100,13 +105,18 @@ pub(crate) fn coordinated_extents_for_cell(
     // channel-domain sharing is enabled. Fill coordinated extents from saved
     // sharing levels so owner cells without local data still render shared plot
     // scale domains.
-    for (channel, sharing_level) in channel_domain_sharing_levels {
-        if *sharing_level == 0 || coordinated.contains_key(channel) {
+    for (channel, coordination) in channel_domain_coordinations {
+        if SharingLevel::from(coordination.scope).is_free() || coordinated.contains_key(channel) {
             continue;
         }
 
-        let key =
-            domain_coordination_scope_key(channel, full_cell_path, *sharing_level, facet_depth);
+        let key = domain_coordination_scope_key(
+            channel,
+            full_cell_path,
+            SharingLevel::from(coordination.scope),
+            coordination,
+            facet_depth,
+        );
 
         if let Some(unified_extent) = unified.get(&key) {
             coordinated.insert(channel.clone(), unified_extent.clone());
@@ -119,7 +129,7 @@ pub(crate) fn coordinated_extents_for_cell(
 pub(crate) fn coordinated_extents_for_cell_with_owner_paths(
     full_cell_path: &[ScalarValue],
     local_domain_extents: &HashMap<String, ChannelDomainExtent>,
-    channel_domain_sharing_levels: &HashMap<String, SharingLevel>,
+    channel_domain_coordinations: &HashMap<String, DomainCoordination>,
     facet_depth: u8,
     unified: &HashMap<CoordinationScopeKey, DomainExtent>,
     owner_path_for: &dyn Fn(SharingLevel) -> Vec<ScalarValue>,
@@ -136,6 +146,7 @@ pub(crate) fn coordinated_extents_for_cell_with_owner_paths(
             channel,
             full_cell_path,
             annotated.domain_sharing_level,
+            &annotated.domain_coordination,
             facet_depth,
             Some(&owner_path),
         );
@@ -145,16 +156,18 @@ pub(crate) fn coordinated_extents_for_cell_with_owner_paths(
         }
     }
 
-    for (channel, sharing_level) in channel_domain_sharing_levels {
-        if *sharing_level == 0 || coordinated.contains_key(channel) {
+    for (channel, coordination) in channel_domain_coordinations {
+        let sharing_level = SharingLevel::from(coordination.scope);
+        if sharing_level.is_free() || coordinated.contains_key(channel) {
             continue;
         }
 
-        let owner_path = owner_path_for(*sharing_level);
+        let owner_path = owner_path_for(sharing_level);
         let key = domain_coordination_scope_key_with_owner(
             channel,
             full_cell_path,
-            *sharing_level,
+            sharing_level,
+            coordination,
             facet_depth,
             Some(&owner_path),
         );
@@ -172,12 +185,14 @@ pub(crate) fn domain_coordination_scope_key(
     channel: &str,
     full_cell_path: &[ScalarValue],
     sharing_level: SharingLevel,
+    coordination: &DomainCoordination,
     facet_depth: u8,
 ) -> CoordinationScopeKey {
     domain_coordination_scope_key_with_owner(
         channel,
         full_cell_path,
         sharing_level,
+        coordination,
         facet_depth,
         None,
     )
@@ -187,14 +202,15 @@ pub(crate) fn domain_coordination_scope_key_with_owner(
     channel: &str,
     full_cell_path: &[ScalarValue],
     sharing_level: SharingLevel,
+    coordination: &DomainCoordination,
     facet_depth: u8,
     owner_path: Option<&[ScalarValue]>,
 ) -> CoordinationScopeKey {
     let ancestor_key = owner_path.map(ToOwned::to_owned).unwrap_or_else(|| {
         sharing_policy::domain_group_key(full_cell_path, sharing_level, facet_depth)
     });
-    CoordinationScopeKey::partition_path(CoordinationKind::ScaleDomain, ancestor_key)
-        .with_channel(channel)
+    let key = CoordinationScopeKey::partition_path(CoordinationKind::ScaleDomain, ancestor_key);
+    apply_domain_group_to_key(key, channel, coordination)
 }
 
 #[cfg(test)]
@@ -208,6 +224,14 @@ mod tests {
         ScalarValue::Utf8(Some(value.to_string()))
     }
 
+    fn scale_name_coordination(sharing: u8) -> DomainCoordination {
+        DomainCoordination::scale_name(SharingLevel::from_raw(sharing).into())
+    }
+
+    fn named_coordination(sharing: u8, group: &str) -> DomainCoordination {
+        DomainCoordination::named(SharingLevel::from_raw(sharing).into(), group).unwrap()
+    }
+
     fn numeric_info(
         path: Vec<ScalarValue>,
         channel: &str,
@@ -219,6 +243,7 @@ mod tests {
             full_cell_path: path,
             channel: channel.to_string(),
             domain_sharing_level: sharing,
+            domain_coordination: scale_name_coordination(sharing),
             facet_depth,
             owner_path: None,
             extent: DomainExtent::numeric(0.0, max),
@@ -231,6 +256,7 @@ mod tests {
             full_cell_path: vec![s("A"), s("B"), s("X")],
             channel: "x".to_string(),
             domain_sharing_level: 1,
+            domain_coordination: scale_name_coordination(1),
             facet_depth: 3,
             owner_path: None,
             extent: DomainExtent::numeric(0.0, 1.0),
@@ -239,6 +265,7 @@ mod tests {
             full_cell_path: vec![s("A"), s("B"), s("Y")],
             channel: "x".to_string(),
             domain_sharing_level: 1,
+            domain_coordination: scale_name_coordination(1),
             facet_depth: 3,
             owner_path: None,
             extent: DomainExtent::numeric(0.0, 2.0),
@@ -247,6 +274,7 @@ mod tests {
             full_cell_path: vec![s("A"), s("Z"), s("Q")],
             channel: "x".to_string(),
             domain_sharing_level: 1,
+            domain_coordination: scale_name_coordination(1),
             facet_depth: 3,
             owner_path: None,
             extent: DomainExtent::numeric(5.0, 7.0),
@@ -258,12 +286,14 @@ mod tests {
             &info_a.channel,
             &info_a.full_cell_path,
             SharingLevel::from_raw(info_a.domain_sharing_level),
+            &info_a.domain_coordination,
             info_a.facet_depth,
         );
         let key_c = domain_coordination_scope_key(
             &info_c.channel,
             &info_c.full_cell_path,
             SharingLevel::from_raw(info_c.domain_sharing_level),
+            &info_c.domain_coordination,
             info_c.facet_depth,
         );
 
@@ -274,12 +304,104 @@ mod tests {
 
     #[test]
     fn domain_scope_keys_separate_channels() {
-        let x_key =
-            domain_coordination_scope_key("x", &[s("A"), s("B")], SharingLevel::from_raw(1), 2);
-        let y_key =
-            domain_coordination_scope_key("y", &[s("A"), s("B")], SharingLevel::from_raw(1), 2);
+        let coordination = scale_name_coordination(1);
+        let x_key = domain_coordination_scope_key(
+            "x",
+            &[s("A"), s("B")],
+            SharingLevel::from_raw(1),
+            &coordination,
+            2,
+        );
+        let y_key = domain_coordination_scope_key(
+            "y",
+            &[s("A"), s("B")],
+            SharingLevel::from_raw(1),
+            &coordination,
+            2,
+        );
 
         assert_ne!(x_key, y_key);
+    }
+
+    #[test]
+    fn named_domain_scope_keys_group_different_channels() {
+        let coordination = named_coordination(1, "height");
+        let x_key = domain_coordination_scope_key(
+            "x",
+            &[s("A"), s("B")],
+            SharingLevel::from_raw(1),
+            &coordination,
+            2,
+        );
+        let y_key = domain_coordination_scope_key(
+            "y",
+            &[s("A"), s("B")],
+            SharingLevel::from_raw(1),
+            &coordination,
+            2,
+        );
+
+        assert_eq!(x_key, y_key);
+    }
+
+    #[test]
+    fn named_domain_scope_keys_stay_scoped_to_outer_facet() {
+        let coordination = named_coordination(1, "height");
+        let east_x = domain_coordination_scope_key(
+            "x",
+            &[s("East"), s("A")],
+            SharingLevel::from_raw(1),
+            &coordination,
+            2,
+        );
+        let east_y = domain_coordination_scope_key(
+            "y",
+            &[s("East"), s("B")],
+            SharingLevel::from_raw(1),
+            &coordination,
+            2,
+        );
+        let west_x = domain_coordination_scope_key(
+            "x",
+            &[s("West"), s("A")],
+            SharingLevel::from_raw(1),
+            &coordination,
+            2,
+        );
+
+        assert_eq!(east_x, east_y);
+        assert_ne!(east_x, west_x);
+    }
+
+    #[test]
+    fn aggregate_named_domain_extents_groups_different_channels() {
+        let mut x_info = numeric_info(vec![s("A")], "x", SharingLevel::GLOBAL.raw(), 2.0);
+        x_info.domain_coordination = named_coordination(SharingLevel::GLOBAL.raw(), "height");
+        let mut y_info = numeric_info(vec![s("B")], "y", SharingLevel::GLOBAL.raw(), 101.0);
+        y_info.domain_coordination = named_coordination(SharingLevel::GLOBAL.raw(), "height");
+
+        let aggregated = aggregate_domain_extents(&[x_info.clone(), y_info.clone()]);
+        let x_key = domain_coordination_scope_key(
+            "x",
+            &x_info.full_cell_path,
+            SharingLevel::GLOBAL,
+            &x_info.domain_coordination,
+            x_info.facet_depth,
+        );
+        let y_key = domain_coordination_scope_key(
+            "y",
+            &y_info.full_cell_path,
+            SharingLevel::GLOBAL,
+            &y_info.domain_coordination,
+            y_info.facet_depth,
+        );
+
+        assert_eq!(x_key, y_key);
+        assert_eq!(aggregated.len(), 1);
+        assert_eq!(
+            aggregated.get(&x_key),
+            Some(&DomainExtent::numeric(0.0, 101.0))
+        );
     }
 
     #[test]
@@ -294,12 +416,14 @@ mod tests {
             "x",
             &info_ab1.full_cell_path,
             SharingLevel::from_raw(1),
+            &info_ab1.domain_coordination,
             info_ab1.facet_depth,
         );
         let c_key = domain_coordination_scope_key(
             "x",
             &info_cb.full_cell_path,
             SharingLevel::from_raw(1),
+            &info_cb.domain_coordination,
             info_cb.facet_depth,
         );
 
@@ -322,6 +446,7 @@ mod tests {
             ChannelDomainExtent {
                 extent: DomainExtent::numeric(0.0, 1.0),
                 domain_sharing_level: SharingLevel::from_raw(0),
+                domain_coordination: scale_name_coordination(0),
             },
         );
         let unified = aggregate_domain_extents(&domain_infos_for_cell(&[s("A")], &local, 1));
@@ -337,7 +462,10 @@ mod tests {
         let info_a = numeric_info(vec![s("A")], "x", SharingLevel::GLOBAL.raw(), 1.0);
         let info_b = numeric_info(vec![s("B")], "x", SharingLevel::GLOBAL.raw(), 2.0);
         let unified = aggregate_domain_extents(&[info_a, info_b]);
-        let channel_levels = HashMap::from([("x".to_string(), SharingLevel::GLOBAL)]);
+        let channel_levels = HashMap::from([(
+            "x".to_string(),
+            scale_name_coordination(SharingLevel::GLOBAL.raw()),
+        )]);
 
         let coordinated =
             coordinated_extents_for_cell(&[s("C")], &HashMap::new(), &channel_levels, 1, &unified);
@@ -351,6 +479,7 @@ mod tests {
             full_cell_path: vec![s("col_a")],
             channel: "x".to_string(),
             domain_sharing_level: 255,
+            domain_coordination: scale_name_coordination(255),
             facet_depth: 1,
             owner_path: None,
             extent: DomainExtent::discrete(vec![
@@ -362,6 +491,7 @@ mod tests {
             full_cell_path: vec![s("col_b")],
             channel: "x".to_string(),
             domain_sharing_level: 255,
+            domain_coordination: scale_name_coordination(255),
             facet_depth: 1,
             owner_path: None,
             extent: DomainExtent::discrete(vec![

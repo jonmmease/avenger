@@ -17,8 +17,8 @@ use tracing::{debug, trace};
 use avenger_chart_core::{
     AvengerChartError, AxisPosition, CoordMeasurement, CoordinateSystem, CoordinateSystemCore,
     CoordinateSystemTransform, CoordinateSystemTransformCore, CoordinatedLayout,
-    CoordinatedOverflow, FacetAxis, FacetDimensionConfig, FacetEmptyCellPolicy, NoGuide,
-    PlotGeometry, RowDimensionConfig, SharingLevel, SubplotGeometry, SubplotRect,
+    CoordinatedOverflow, DomainCoordination, FacetAxis, FacetDimensionConfig, FacetEmptyCellPolicy,
+    NoGuide, PlotGeometry, RowDimensionConfig, SharingLevel, SubplotGeometry, SubplotRect,
 };
 #[cfg(test)]
 use avenger_chart_core::{DerivedScalarsByChannel, GuideSharingContext, OverflowSpaceRequirement};
@@ -106,6 +106,8 @@ pub(crate) struct ChannelDomainExtent {
     pub extent: DomainExtent,
     /// Channel-domain sharing level (0=Free, N=Level(N), 255=Shared).
     pub(crate) domain_sharing_level: SharingLevel,
+    /// Full domain coordination target for scale-domain aggregation.
+    pub(crate) domain_coordination: DomainCoordination,
 }
 
 /// Runtime state for a single enumerated facet cell.
@@ -1128,18 +1130,21 @@ fn adjusted_size_for_legend_overflow(
     (original_size - legend_start - legend_end).max(1.0)
 }
 
-fn collect_channel_domain_sharing_levels_from_infos(
+fn collect_channel_domain_coordinations_from_infos(
     infos: &[CellDomainInfo],
-) -> HashMap<String, SharingLevel> {
-    let mut sharing_levels = HashMap::new();
+) -> HashMap<String, DomainCoordination> {
+    let mut coordinations = HashMap::new();
     for info in infos {
-        let sharing_level = SharingLevel::from_raw(info.domain_sharing_level);
-        sharing_levels
+        coordinations
             .entry(info.channel.clone())
-            .and_modify(|existing: &mut SharingLevel| *existing = (*existing).max(sharing_level))
-            .or_insert(sharing_level);
+            .and_modify(|existing: &mut DomainCoordination| {
+                if info.domain_sharing_level > SharingLevel::from(existing.scope).raw() {
+                    *existing = info.domain_coordination.clone();
+                }
+            })
+            .or_insert_with(|| info.domain_coordination.clone());
     }
-    sharing_levels
+    coordinations
 }
 
 fn is_leaf_subplot(compiled_subplot: &CompiledPlot) -> bool {
@@ -2613,7 +2618,7 @@ async fn coordinate_cell_domains_before_measurement(
     facet_depth: u8,
     compiled_subplot: &Arc<CompiledPlot>,
     nested_ctx: &FacetBandNestedMeasureContext,
-) -> Result<HashMap<String, SharingLevel>, AvengerChartError> {
+) -> Result<HashMap<String, DomainCoordination>, AvengerChartError> {
     let mut ordered_owner_extent_cache: HashMap<(Vec<ScalarValue>, String), DomainExtent> =
         HashMap::new();
     for cell in cells.iter_mut() {
@@ -2707,15 +2712,15 @@ async fn coordinate_cell_domains_before_measurement(
     if domain_infos.is_empty() {
         return Ok(HashMap::new());
     }
-    let channel_domain_sharing_levels =
-        collect_channel_domain_sharing_levels_from_infos(&domain_infos);
+    let channel_domain_coordinations =
+        collect_channel_domain_coordinations_from_infos(&domain_infos);
     let unified = aggregate_domain_extents(&domain_infos);
 
     for cell in cells.iter_mut() {
         cell.coordinated_domain_extents = coordinated_extents_for_cell_with_owner_paths(
             &cell.plan.full_path,
             &cell.local_domain_extents,
-            &channel_domain_sharing_levels,
+            &channel_domain_coordinations,
             facet_depth,
             &unified,
             &|sharing_level| {
@@ -2733,7 +2738,7 @@ async fn coordinate_cell_domains_before_measurement(
         }
     }
 
-    Ok(channel_domain_sharing_levels)
+    Ok(channel_domain_coordinations)
 }
 
 async fn capture_estimated_overflow_probe_if_requested(
@@ -2783,11 +2788,13 @@ fn annotate_domain_extents(
             let domain_sharing_level = nested_ctx
                 .facet_tree
                 .channel_domain_sharing_level_typed(&channel);
+            let domain_coordination = nested_ctx.facet_tree.channel_domain_coordination(&channel);
             (
                 channel,
                 ChannelDomainExtent {
                     extent,
                     domain_sharing_level,
+                    domain_coordination,
                 },
             )
         })
