@@ -159,6 +159,11 @@ impl Plot<crate::concat::WrapConcat> {
         self.coord_system = self.coord_system.clone().columns(expr);
         self
     }
+
+    pub fn responsive_columns(mut self, width: impl IntoExpr) -> Self {
+        self.coord_system = self.coord_system.clone().responsive_columns(width);
+        self
+    }
 }
 
 impl<C: CoordinateSystem + Default> Default for Plot<C> {

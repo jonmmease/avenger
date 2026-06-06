@@ -107,6 +107,14 @@ impl WrapConcat {
         self
     }
 
+    pub fn responsive_columns(mut self, width: impl IntoExpr) -> Self {
+        self.column_mode = FacetWrapColumnMode::ResponsiveWidth(
+            LogicalExprNode::from_default_expr(width.into_expr())
+                .expect("Failed to serialize wrap concat responsive column width"),
+        );
+        self
+    }
+
     pub(crate) fn column_mode(&self) -> &FacetWrapColumnMode {
         &self.column_mode
     }
@@ -914,6 +922,7 @@ pub(crate) async fn measure_wrap_concat_coord_system(
     let columns = resolve_wrap_concat_columns(
         wrap.column_mode(),
         child_count,
+        plot_width,
         eval_ctx.session_context().as_ref(),
         eval_ctx.params(),
     )
@@ -978,6 +987,7 @@ pub(crate) async fn measure_wrap_concat_coord_system(
 async fn resolve_wrap_concat_columns(
     column_mode: &FacetWrapColumnMode,
     child_count: usize,
+    available_width: f32,
     ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
 ) -> Result<usize, AvengerChartError> {
@@ -998,10 +1008,65 @@ async fn resolve_wrap_concat_columns(
                 .map_err(AvengerChartError::DataFusionError)?;
             scalar_to_columns(scalar, "WrapConcat columns expression")
         }
-        FacetWrapColumnMode::ResponsiveWidth(_) => Err(AvengerChartError::InvalidArgument(
-            "WrapConcat responsive_columns is not implemented yet".to_string(),
-        )),
+        FacetWrapColumnMode::ResponsiveWidth(expr) => {
+            let expr = expr.to_expr(ctx)?;
+            if contains_aggregate(&expr) || expr.any_column_refs() {
+                return Err(AvengerChartError::InvalidArgument(
+                    "WrapConcat responsive_columns target width must be a constant or parameter expression"
+                        .to_string(),
+                ));
+            }
+            if !available_width.is_finite() || available_width <= 0.0 {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "WrapConcat responsive_columns available width must be positive, got {available_width}"
+                )));
+            }
+            let datafusion_params = params_to_datafusion(params);
+            let target_width = scalar_to_positive_f32(
+                expr.eval_to_scalar(Some(ctx), datafusion_params.as_ref())
+                    .await
+                    .map_err(AvengerChartError::DataFusionError)?,
+                "WrapConcat responsive_columns target width",
+            )?;
+            let mut best_columns = 1usize;
+            let mut best_delta = f32::INFINITY;
+            for columns in 1..=child_count.max(1) {
+                let estimated_width = available_width / columns as f32;
+                let delta = (estimated_width - target_width).abs();
+                if delta < best_delta {
+                    best_columns = columns;
+                    best_delta = delta;
+                }
+            }
+            Ok(best_columns)
+        }
     }
+}
+
+fn scalar_to_positive_f32(value: ScalarValue, label: &str) -> Result<f32, AvengerChartError> {
+    let value = match value {
+        ScalarValue::Int8(Some(v)) => v as f32,
+        ScalarValue::Int16(Some(v)) => v as f32,
+        ScalarValue::Int32(Some(v)) => v as f32,
+        ScalarValue::Int64(Some(v)) => v as f32,
+        ScalarValue::UInt8(Some(v)) => v as f32,
+        ScalarValue::UInt16(Some(v)) => v as f32,
+        ScalarValue::UInt32(Some(v)) => v as f32,
+        ScalarValue::UInt64(Some(v)) => v as f32,
+        ScalarValue::Float32(Some(v)) => v,
+        ScalarValue::Float64(Some(v)) => v as f32,
+        other => {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "{label} must evaluate to a positive number, got {other:?}"
+            )));
+        }
+    };
+    if !value.is_finite() || value <= 0.0 {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "{label} must evaluate to a positive number, got {value}"
+        )));
+    }
+    Ok(value)
 }
 
 fn scalar_to_columns(value: ScalarValue, label: &str) -> Result<usize, AvengerChartError> {
@@ -1735,6 +1800,62 @@ mod tests {
             ]
         );
         assert_eq!(placement.content_size, Size2D::new(200.0, 300.0));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn wrap_concat_responsive_columns_change_with_width() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = wrapped_zero_plot(5)
+            .responsive_columns(180.0)
+            .compile(&ctx)
+            .await?;
+
+        let narrow = measurement_for_plot(&compiled, 520.0, 200.0, &ctx).await?;
+        let narrow_concat = narrow
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<ConcatCoordMeasurement>()
+            .expect("WrapConcat should measure as ConcatCoordMeasurement");
+        assert_eq!(
+            narrow_concat
+                .children()
+                .iter()
+                .map(|child| child
+                    .grid_placement
+                    .map(|placement| (placement.row, placement.column)))
+                .collect::<Vec<_>>(),
+            vec![
+                Some((0, 0)),
+                Some((0, 1)),
+                Some((0, 2)),
+                Some((1, 0)),
+                Some((1, 1))
+            ]
+        );
+
+        let wide = measurement_for_plot(&compiled, 700.0, 200.0, &ctx).await?;
+        let wide_concat = wide
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<ConcatCoordMeasurement>()
+            .expect("WrapConcat should measure as ConcatCoordMeasurement");
+        assert_eq!(
+            wide_concat
+                .children()
+                .iter()
+                .map(|child| child
+                    .grid_placement
+                    .map(|placement| (placement.row, placement.column)))
+                .collect::<Vec<_>>(),
+            vec![
+                Some((0, 0)),
+                Some((0, 1)),
+                Some((0, 2)),
+                Some((0, 3)),
+                Some((1, 0))
+            ]
+        );
         Ok(())
     }
 
