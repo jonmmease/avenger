@@ -52,6 +52,7 @@ pub mod overflow;
 pub mod param;
 pub mod position_config;
 pub mod radius_expression;
+pub mod repeat;
 pub mod resolved_domain;
 pub mod scalar_cmp;
 pub mod scale;
@@ -197,6 +198,13 @@ pub use overflow::{MeasurementResult, OverflowSpaceRequirement};
 pub use param::{CompiledParamSpec, Param};
 pub use position_config::{GenericPositionConfig, PositionConfig};
 pub use radius_expression::RadiusExpression;
+pub use repeat::{
+    RepeatContext, RepeatPlaceholderKind, RepeatTypeHint, RepeatVariable, ResolvedRepeatVariable,
+    collect_repeat_placeholder_kinds, column, column_id, column_index, column_title,
+    evaluate_repeat_predicate, item, item_id, item_index, item_title, repeat_placeholder_id,
+    repeat_placeholder_kind_from_id, resolve_repeat_channel_expr, resolve_repeat_channel_value,
+    resolve_repeat_placeholders, row, row_id, row_index, row_title,
+};
 pub use resolved_domain::ResolvedDomain;
 pub use scalar_cmp::scalar_total_cmp;
 pub use scale::Scale;

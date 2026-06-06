@@ -216,6 +216,37 @@ impl Axis for PolarAxis {
     fn box_clone(&self) -> Box<dyn Axis> {
         Box::new(self.clone())
     }
+
+    fn map_exprs(
+        &self,
+        f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Box<dyn Axis>, AvengerChartError> {
+        Ok(Box::new(PolarAxis {
+            visible: map_maybe_expr(self.visible.clone(), f)?,
+            axis_type: map_maybe_expr(self.axis_type.clone(), f)?,
+            title: map_maybe_expr(self.title.clone(), f)?,
+            grid: map_maybe_expr(self.grid.clone(), f)?,
+            tick_count: map_maybe_expr(self.tick_count.clone(), f)?,
+            format_number: map_maybe_expr(self.format_number.clone(), f)?,
+            grid_levels: map_maybe_expr(self.grid_levels.clone(), f)?,
+            start_angle: map_maybe_expr(self.start_angle.clone(), f)?,
+            direction: map_maybe_expr(self.direction.clone(), f)?,
+        }))
+    }
+}
+
+fn map_maybe_expr(
+    value: Maybe<Option<LogicalExprNode>>,
+    f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+) -> Result<Maybe<Option<LogicalExprNode>>, AvengerChartError> {
+    let ctx = SessionContext::new();
+    match value {
+        Maybe::Unset => Ok(Maybe::Unset),
+        Maybe::Set(None) => Ok(Maybe::Set(None)),
+        Maybe::Set(Some(node)) => Ok(Maybe::Set(Some(LogicalExprNode::from_default_expr(f(
+            node.to_default_expr(&ctx)?,
+        )?)?))),
+    }
 }
 
 #[allow(async_fn_in_trait)]

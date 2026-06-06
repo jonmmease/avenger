@@ -4,6 +4,8 @@ use std::any::Any;
 
 use datafusion::{logical_expr::Expr, prelude::SessionContext};
 
+use crate::AvengerChartError;
+
 /// Trait for axis types that support update operations
 
 #[typetag::serde(tag = "type")]
@@ -18,6 +20,14 @@ pub trait Axis: Send + Sync {
     /// Return expressions referenced by this axis configuration.
     fn all_exprs(&self, _ctx: &SessionContext) -> Vec<Expr> {
         Vec::new()
+    }
+
+    /// Return a cloned axis with all configuration expressions rewritten.
+    fn map_exprs(
+        &self,
+        _f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Box<dyn Axis>, AvengerChartError> {
+        Ok(self.box_clone())
     }
 }
 

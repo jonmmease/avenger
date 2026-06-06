@@ -263,6 +263,39 @@ impl Axis for CartesianAxis {
         .filter_map(|node| node.to_default_expr(ctx).ok())
         .collect()
     }
+
+    fn map_exprs(
+        &self,
+        f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Box<dyn Axis>, AvengerChartError> {
+        Ok(Box::new(CartesianAxis {
+            visible: map_maybe_expr(self.visible.clone(), f)?,
+            position: map_maybe_expr(self.position.clone(), f)?,
+            title: map_maybe_expr(self.title.clone(), f)?,
+            grid: map_maybe_expr(self.grid.clone(), f)?,
+            tick_count: map_maybe_expr(self.tick_count.clone(), f)?,
+            tick_spacing: map_maybe_expr(self.tick_spacing.clone(), f)?,
+            label_angle: map_maybe_expr(self.label_angle.clone(), f)?,
+            format_number: map_maybe_expr(self.format_number.clone(), f)?,
+            title_font_family: map_maybe_expr(self.title_font_family.clone(), f)?,
+            label_font_family: map_maybe_expr(self.label_font_family.clone(), f)?,
+            show_title: map_maybe_expr(self.show_title.clone(), f)?,
+        }))
+    }
+}
+
+fn map_maybe_expr(
+    value: Maybe<Option<LogicalExprNode>>,
+    f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+) -> Result<Maybe<Option<LogicalExprNode>>, AvengerChartError> {
+    let ctx = SessionContext::new();
+    match value {
+        Maybe::Unset => Ok(Maybe::Unset),
+        Maybe::Set(None) => Ok(Maybe::Set(None)),
+        Maybe::Set(Some(node)) => Ok(Maybe::Set(Some(LogicalExprNode::from_default_expr(f(
+            node.to_default_expr(&ctx)?,
+        )?)?))),
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -807,16 +840,17 @@ fn tick_spacing_interval_parts(step: &ScalarValue) -> Result<(i32, i32, i64), Av
 #[cfg(test)]
 mod tests {
     use super::{
-        AxisPosition, ChildFrameAxisOwnershipRole, child_frame_axis_ownership_scope,
+        AxisPosition, CartesianAxis, ChildFrameAxisOwnershipRole, child_frame_axis_ownership_scope,
         child_frame_axis_policy_scope, child_frame_axis_title_scope,
         default_axis_position_for_channel, extract_tick_spacing, facet_axis_ownership_applies,
         facet_axis_visibility_for_cartesian_axis,
     };
     use avenger_chart_core::{
-        AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, AxisGuideVisibilityPolicy, AxisOwnershipMode,
-        AxisVisibility, ChildFrameGuideSharingView, CoordinationAxis, FacetGuideSharingView,
-        GuideSharingContext, SharingLevel, axis_owner_ignore_empty_cells_from_params,
-        axis_ownership_mode_from_params,
+        AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, Axis, AxisGuideVisibilityPolicy, AxisOwnershipMode,
+        AxisVisibility, ChildFrameGuideSharingView, CoordinationAxis, DefaultLogicalExprNodeExt,
+        FacetGuideSharingView, GuideSharingContext, RepeatContext, ResolvedRepeatVariable,
+        SharingLevel, axis_owner_ignore_empty_cells_from_params, axis_ownership_mode_from_params,
+        repeat, simplify_to_scalar_sync,
     };
     use avenger_guides::axis::opts::AxisTickSpacing;
     use datafusion::arrow::{
@@ -827,10 +861,64 @@ mod tests {
         datatypes::{DataType, Field},
     };
     use datafusion::common::ScalarValue;
+    use datafusion::prelude::col;
     use indexmap::IndexMap;
     use std::sync::Arc;
 
     use crate::marks::subplot::{CARTESIAN_SUBPLOT_X_CHANNEL, CARTESIAN_SUBPLOT_Y_CHANNEL};
+
+    fn resolved_repeat(
+        id: &str,
+        expr: datafusion::logical_expr::Expr,
+        title: &str,
+    ) -> ResolvedRepeatVariable {
+        ResolvedRepeatVariable {
+            id: id.to_string(),
+            expr,
+            title: title.to_string(),
+            type_hint: None,
+        }
+    }
+
+    #[test]
+    fn map_exprs_resolves_repeat_placeholders_in_axis_config() {
+        let repeat_context =
+            RepeatContext::new().with_column(resolved_repeat("col_b", col("b"), "Column B"), 2, 4);
+        let axis = CartesianAxis::new()
+            .title(repeat::column_title())
+            .tick_count(repeat::column_index());
+        let mapped = axis
+            .map_exprs(&mut |expr| repeat::resolve_repeat_placeholders(expr, &repeat_context))
+            .expect("axis expressions resolve");
+        let mapped = mapped
+            .as_any()
+            .downcast_ref::<CartesianAxis>()
+            .expect("cartesian axis");
+
+        let title = mapped
+            .title
+            .as_option()
+            .and_then(|node| node.as_ref())
+            .expect("title")
+            .to_default_expr(&datafusion::prelude::SessionContext::new())
+            .expect("title expr");
+        assert_eq!(
+            simplify_to_scalar_sync(title).expect("title scalar"),
+            ScalarValue::Utf8(Some("Column B".to_string()))
+        );
+
+        let tick_count = mapped
+            .tick_count
+            .as_option()
+            .and_then(|node| node.as_ref())
+            .expect("tick count")
+            .to_default_expr(&datafusion::prelude::SessionContext::new())
+            .expect("tick count expr");
+        assert_eq!(
+            simplify_to_scalar_sync(tick_count).expect("tick count scalar"),
+            ScalarValue::Int64(Some(2))
+        );
+    }
 
     #[derive(Debug, Default)]
     struct EmptyFacetView;
