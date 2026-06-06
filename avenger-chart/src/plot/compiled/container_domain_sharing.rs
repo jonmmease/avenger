@@ -369,6 +369,72 @@ mod tests {
     }
 
     #[test]
+    fn free_named_child_frame_domain_extents_are_not_coordinated_across_siblings() {
+        let left_scope = child_scope(None, 0, Some("left"));
+        let right_scope = child_scope(None, 1, Some("right"));
+        let left_extents = HashMap::from([(
+            "x".to_string(),
+            named_extent(2.0, SharingLevel::FREE, "height"),
+        )]);
+        let right_extents = HashMap::from([(
+            "y".to_string(),
+            named_extent(101.0, SharingLevel::FREE, "height"),
+        )]);
+        let left_sharing = HashMap::from([(
+            "x".to_string(),
+            DomainCoordination::named(SharingLevel::FREE.into(), "height").unwrap(),
+        )]);
+        let right_sharing = HashMap::from([(
+            "y".to_string(),
+            DomainCoordination::named(SharingLevel::FREE.into(), "height").unwrap(),
+        )]);
+        let inputs = [
+            ChildFrameDomainSharingInput::new(&left_scope, &left_extents, &left_sharing),
+            ChildFrameDomainSharingInput::new(&right_scope, &right_extents, &right_sharing),
+        ];
+
+        let coordinated = coordinated_child_frame_domain_extents(&inputs);
+
+        assert_eq!(coordinated, vec![HashMap::new(), HashMap::new()]);
+    }
+
+    #[test]
+    fn named_child_frame_domain_sharing_respects_outer_owner_scope() {
+        let left_scope = child_scope(Some("outer-left"), 0, Some("inner"));
+        let right_scope = child_scope(Some("outer-right"), 0, Some("inner"));
+        let sharing_level = SharingLevel::from_raw(1);
+        let left_extents =
+            HashMap::from([("x".to_string(), named_extent(2.0, sharing_level, "height"))]);
+        let right_extents = HashMap::from([(
+            "y".to_string(),
+            named_extent(101.0, sharing_level, "height"),
+        )]);
+        let left_sharing = HashMap::from([(
+            "x".to_string(),
+            DomainCoordination::named(sharing_level.into(), "height").unwrap(),
+        )]);
+        let right_sharing = HashMap::from([(
+            "y".to_string(),
+            DomainCoordination::named(sharing_level.into(), "height").unwrap(),
+        )]);
+        let inputs = [
+            ChildFrameDomainSharingInput::new(&left_scope, &left_extents, &left_sharing),
+            ChildFrameDomainSharingInput::new(&right_scope, &right_extents, &right_sharing),
+        ];
+
+        let coordinated = coordinated_child_frame_domain_extents(&inputs);
+
+        assert_eq!(
+            coordinated[0].get("x"),
+            Some(&DomainExtent::numeric(0.0, 2.0))
+        );
+        assert_eq!(
+            coordinated[1].get("y"),
+            Some(&DomainExtent::numeric(0.0, 101.0))
+        );
+    }
+
+    #[test]
     fn child_frame_domain_sharing_level_two_projects_one_ancestor() {
         let left_scope = child_scope(Some("outer-left"), 0, Some("inner"));
         let right_scope = child_scope(Some("outer-right"), 0, Some("inner"));
