@@ -335,10 +335,14 @@ mod tests {
     fn named_child_frame_domain_extents_can_group_different_channels() {
         let left_scope = child_scope(None, 0, Some("left"));
         let right_scope = child_scope(None, 1, Some("right"));
-        let left_extents =
-            HashMap::from([("x".to_string(), named_extent(2.0, SharingLevel::GLOBAL, "height"))]);
-        let right_extents =
-            HashMap::from([("y".to_string(), named_extent(101.0, SharingLevel::GLOBAL, "height"))]);
+        let left_extents = HashMap::from([(
+            "x".to_string(),
+            named_extent(2.0, SharingLevel::GLOBAL, "height"),
+        )]);
+        let right_extents = HashMap::from([(
+            "y".to_string(),
+            named_extent(101.0, SharingLevel::GLOBAL, "height"),
+        )]);
         let left_sharing = HashMap::from([(
             "x".to_string(),
             DomainCoordination::named(SharingLevel::GLOBAL.into(), "height").unwrap(),

@@ -261,18 +261,20 @@ impl FacetScalePrecomputeStore {
         let facet_depth = full_cell_path.len() as u8;
         sharing_levels
             .into_iter()
-            .filter_map(|(channel, (sharing_level, coordination, preserve_child_frame_path))| {
-                let key = child_frame_domain_coordination_scope_key(
-                    relative_child_frame_path,
-                    &channel,
-                    full_cell_path,
-                    sharing_level,
-                    &coordination,
-                    facet_depth,
-                    preserve_child_frame_path,
-                );
-                unified.get(&key).cloned().map(|extent| (channel, extent))
-            })
+            .filter_map(
+                |(channel, (sharing_level, coordination, preserve_child_frame_path))| {
+                    let key = child_frame_domain_coordination_scope_key(
+                        relative_child_frame_path,
+                        &channel,
+                        full_cell_path,
+                        sharing_level,
+                        &coordination,
+                        facet_depth,
+                        preserve_child_frame_path,
+                    );
+                    unified.get(&key).cloned().map(|extent| (channel, extent))
+                },
+            )
             .collect()
     }
 }
