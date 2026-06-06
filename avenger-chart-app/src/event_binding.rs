@@ -4411,7 +4411,7 @@ fn duration_ms(current: Instant, previous: Instant) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeSet, HashMap};
 
     use avenger_app::app::SceneGraphBuilder;
     use avenger_chart::layout::LayoutBounds;
@@ -4907,6 +4907,87 @@ mod tests {
         (state, handler)
     }
 
+    fn concat_pan_child(tool_id: &str, x_domain: Param) -> Plot<Cartesian> {
+        Plot::<Cartesian>::new()
+            .mark(
+                Symbol::new()
+                    .x_with(col("x"), |c| {
+                        c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                            .with_domain_group("measurement")
+                            .share_domain()
+                    })
+                    .y(col("y"))
+                    .size(20.0),
+            )
+            .tool(
+                PanScrollZoom::cartesian()
+                    .id(tool_id)
+                    .x_only()
+                    .x_domain_param(x_domain)
+                    .x_sharing(CoordinationScope::Shared)
+                    .settle_exact(true),
+            )
+    }
+
+    async fn grid_concat_pan_state_and_handlers() -> (ChartAppState, Vec<ChartEventBindingHandler>)
+    {
+        let ctx = SessionContext::new();
+        let x_domain = Param::raw_domain("x_domain");
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (0.0, 0.0), (10.0, 10.0)) AS t(x, y)")
+            .await
+            .expect("data");
+        let compiled = Plot::<GridConcat>::new()
+            .canvas_size(640.0, 320.0)
+            .data(df)
+            .rows(1)
+            .columns(2)
+            .mark(
+                Subplot::new(concat_pan_child("grid_nav_a", x_domain.clone()))
+                    .grid_cell(0, 0)
+                    .key("a"),
+            )
+            .mark(
+                Subplot::new(concat_pan_child("grid_nav_b", x_domain.clone()))
+                    .grid_cell(0, 1)
+                    .key("b"),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile grid concat pan plot");
+        let policy = compiled.resize_policy();
+        let handlers =
+            compile_handlers_for_event_type(&compiled, &ctx, ChartEventType::CursorMoved);
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        (state, handlers)
+    }
+
+    async fn wrap_concat_pan_state_and_handlers() -> (ChartAppState, Vec<ChartEventBindingHandler>)
+    {
+        let ctx = SessionContext::new();
+        let x_domain = Param::raw_domain("x_domain");
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (0.0, 0.0), (10.0, 10.0)) AS t(x, y)")
+            .await
+            .expect("data");
+        let compiled = Plot::<WrapConcat>::new()
+            .canvas_size(640.0, 320.0)
+            .data(df)
+            .columns(2)
+            .mark(Subplot::new(concat_pan_child("wrap_nav_a", x_domain.clone())).key("a"))
+            .mark(Subplot::new(concat_pan_child("wrap_nav_b", x_domain.clone())).key("b"))
+            .compile(&ctx)
+            .await
+            .expect("compile wrap concat pan plot");
+        let policy = compiled.resize_policy();
+        let handlers =
+            compile_handlers_for_event_type(&compiled, &ctx, ChartEventType::CursorMoved);
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        (state, handlers)
+    }
+
     fn compile_handler_for_event_type(
         compiled: &CompiledPlot,
         ctx: &SessionContext,
@@ -4918,6 +4999,27 @@ mod tests {
             .position(|binding| binding.event_type == event_type)
             .unwrap_or_else(|| panic!("missing {event_type:?} binding"));
         compile_handler_for_binding_index(compiled, ctx, binding_index)
+    }
+
+    fn compile_handlers_for_event_type(
+        compiled: &CompiledPlot,
+        ctx: &SessionContext,
+        event_type: ChartEventType,
+    ) -> Vec<ChartEventBindingHandler> {
+        let handlers = compiled
+            .event_bindings()
+            .iter()
+            .enumerate()
+            .filter_map(|(binding_index, binding)| {
+                (binding.event_type == event_type)
+                    .then(|| compile_handler_for_binding_index(compiled, ctx, binding_index))
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            !handlers.is_empty(),
+            "missing {event_type:?} event bindings"
+        );
+        handlers
     }
 
     fn compile_handler_for_binding_index(
@@ -4987,6 +5089,21 @@ mod tests {
                 &empty_rtree(),
             )
             .await
+    }
+
+    async fn pan_move_all(
+        state: &mut ChartAppState,
+        handlers: &[ChartEventBindingHandler],
+        gesture_instant: Instant,
+        start_pos: [f32; 2],
+        current_pos: [f32; 2],
+    ) -> UpdateStatus {
+        let mut status = UpdateStatus::default();
+        for handler in handlers {
+            status = status
+                .merge(&pan_move(state, handler, gesture_instant, start_pos, current_pos).await);
+        }
+        status
     }
 
     async fn box_zoom_state_and_handlers() -> (
@@ -5412,6 +5529,83 @@ mod tests {
             .build(&mut state)
             .await
             .expect("build after shared facet pan");
+    }
+
+    async fn assert_concat_pan_updates_all_child_domains(
+        state: &mut ChartAppState,
+        handlers: &[ChartEventBindingHandler],
+    ) {
+        crate::ChartSceneGraphBuilder
+            .build(state)
+            .await
+            .expect("initial build");
+        let scopes = state.interaction_scopes().await;
+        assert_eq!(
+            scopes.len(),
+            2,
+            "concat plot should export two child scopes"
+        );
+        let initial_domains = scopes
+            .iter()
+            .map(|scope| {
+                let child_index = scope.child_frame_path[0].child_index;
+                let domain = scope
+                    .scales
+                    .get("x")
+                    .expect("scope has x scale")
+                    .numeric_interval_domain()
+                    .expect("x domain is numeric");
+                (child_index, domain)
+            })
+            .collect::<HashMap<_, _>>();
+        let active = scopes
+            .iter()
+            .find(|scope| scope.child_frame_path[0].child_index == 0)
+            .expect("first concat child scope")
+            .clone();
+        let bounds = active.bounds;
+        let cx = bounds.x + bounds.width * 0.5;
+        let cy = bounds.y + bounds.height * 0.5;
+        let status = pan_move_all(state, handlers, Instant::now(), [cx, cy], [cx + 40.0, cy]).await;
+        assert!(
+            status.rerender,
+            "drag inside first concat child should rerender"
+        );
+
+        crate::ChartSceneGraphBuilder
+            .build(state)
+            .await
+            .expect("build after concat pan");
+        let scopes = state.interaction_scopes().await;
+        for scope in &scopes {
+            let child_index = scope.child_frame_path[0].child_index;
+            let initial = initial_domains
+                .get(&child_index)
+                .unwrap_or_else(|| panic!("initial domain for child {child_index}"));
+            let domain = scope
+                .scales
+                .get("x")
+                .expect("scope has x scale")
+                .numeric_interval_domain()
+                .expect("x domain is numeric");
+            assert!(
+                domain.0 < initial.0 && domain.1 < initial.1,
+                "every linked concat child should receive the panned domain; \
+                 child {child_index} moved from {initial:?} to {domain:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn grid_concat_pan_updates_linked_child_domains() {
+        let (mut state, handlers) = grid_concat_pan_state_and_handlers().await;
+        assert_concat_pan_updates_all_child_domains(&mut state, &handlers).await;
+    }
+
+    #[tokio::test]
+    async fn wrap_concat_pan_updates_linked_child_domains() {
+        let (mut state, handlers) = wrap_concat_pan_state_and_handlers().await;
+        assert_concat_pan_updates_all_child_domains(&mut state, &handlers).await;
     }
 
     /// First component of a scope's facet path, as a `&str` cell value.

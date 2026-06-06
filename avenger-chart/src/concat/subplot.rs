@@ -28,7 +28,13 @@ use crate::{
     },
     plot::{
         CompiledPlot,
-        compiled::{ChildFrameSharingLevel, compiled_subplot_payload_child_plot},
+        compiled::{
+            ChildFrameSharingLevel, compiled_subplot_payload_child_plot,
+            rendering::{
+                apply_domain_overrides_to_scales, has_raw_domain_scale,
+                resolve_raw_domain_overrides,
+            },
+        },
     },
     render::{
         EvaluatedChildFrameKind, EvaluatedChildFrameSegment, EvaluationContext, RenderContext,
@@ -543,6 +549,20 @@ impl CompiledConcatSubplot {
             let data_override = self.inherited_data_override(data, context)?;
             let mut child_measurement = child.measurement.clone();
             refresh_measurement_params_for_child(&mut child_measurement, &child_eval_ctx);
+            if has_raw_domain_scale(self.compiled_subplot()) {
+                let raw_domain_overrides = resolve_raw_domain_overrides(
+                    self.compiled_subplot(),
+                    child_eval_ctx.session_context.as_ref(),
+                    &child_measurement.params,
+                )
+                .await?;
+                if !raw_domain_overrides.is_empty() {
+                    apply_domain_overrides_to_scales(
+                        &mut child_measurement.scales,
+                        &raw_domain_overrides,
+                    );
+                }
+            }
             let mut components = Box::pin(self.compiled_subplot().build_plot_components(
                 &child_eval_ctx,
                 &child_measurement,

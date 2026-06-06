@@ -497,7 +497,7 @@ fn retarget_clip_for_plot_area(
 /// two-element interval under `params`, the resolved `(min, max)`. Scales with no
 /// raw_domain, or whose raw_domain is null/degenerate, are omitted (so the cell
 /// keeps its inferred domain).
-async fn resolve_raw_domain_overrides(
+pub(crate) async fn resolve_raw_domain_overrides(
     subplot: &CompiledPlot,
     ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
@@ -546,7 +546,7 @@ fn direct_param_value<'a>(
         .or_else(|| params.get(&placeholder.id))
 }
 
-fn has_raw_domain_scale(plot: &CompiledPlot) -> bool {
+pub(crate) fn has_raw_domain_scale(plot: &CompiledPlot) -> bool {
     plot.scale_specs.values().any(|spec| {
         let avenger_chart_scales::PlotScaleSpec::Local(config) = spec;
         config
@@ -558,7 +558,7 @@ fn has_raw_domain_scale(plot: &CompiledPlot) -> bool {
 }
 
 /// Apply resolved raw-domain overrides to a scale map, preserving ranges/options.
-fn apply_domain_overrides_to_scales(
+pub(crate) fn apply_domain_overrides_to_scales(
     scales: &mut HashMap<String, ConfiguredScaleWithSpec>,
     overrides: &HashMap<String, (f32, f32)>,
 ) {
