@@ -12,9 +12,9 @@ use indexmap::IndexMap;
 use avenger_chart_core::{
     AvengerChartError, AxisSpec, ChartTool, CompileContext, CompiledMark, CompiledMarkState,
     CompiledParamSpec, CompiledSelectionSpec, CompiledSubplotChildPlot, CoordinateGuide,
-    CoordinateSystem, CoordinationScope, IntoExpr, Legend, LegendSurfaceKind, Mark, MarkDataMode,
-    Param, Selection, Store, SubplotChildPlotSpec, Theme, TimeContext, compile_selections,
-    validate_structural_id,
+    CoordinateSystem, CoordinationScope, DomainCoordination, IntoExpr, Legend, LegendSurfaceKind,
+    Mark, MarkDataMode, Param, Selection, Store, SubplotChildPlotSpec, Theme, TimeContext,
+    compile_selections, validate_structural_id,
 };
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
 
@@ -215,13 +215,13 @@ impl<C: CoordinateSystem> Plot<C> {
         }
 
         let coord_transform = self.coord_system.create_transform();
-        let scale_sharing = scale_domain_share_modes(&marks);
+        let scale_coordination = scale_domain_coordinations(&marks)?;
         tool_context.apply_scale_edits(
             &active_tool_expansions,
             coord_transform.as_ref(),
             &scale_to_coord_channel,
             &mut scale_specs,
-            &scale_sharing,
+            &scale_coordination,
         )?;
 
         // 2. Compile all marks. Aggregate channels are intentionally prepared at
@@ -621,30 +621,37 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 }
 
-fn scale_domain_share_modes<C: CoordinateSystem>(
+fn scale_domain_coordinations<C: CoordinateSystem>(
     marks: &[Arc<dyn Mark<C>>],
-) -> HashMap<String, CoordinationScope> {
-    let mut result = HashMap::new();
+) -> Result<HashMap<String, DomainCoordination>, AvengerChartError> {
+    let mut result: HashMap<String, DomainCoordination> = HashMap::new();
     for mark in marks {
         for (channel_name, channel_value) in mark.data_context().channels() {
             let Some(scale_name) = channel_value.get_scale_name(channel_name) else {
                 continue;
             };
-            let sharing = channel_value
-                .get_domain_scope()
-                .unwrap_or(CoordinationScope::Free)
-                .to_normalized();
-            result
-                .entry(scale_name)
-                .and_modify(|existing: &mut CoordinationScope| {
-                    if sharing.to_level() > existing.to_level() {
-                        *existing = sharing;
+            let Some(coordination) = channel_value.get_domain_coordination() else {
+                continue;
+            };
+            let coordination = coordination.clone();
+            match result.get_mut(&scale_name) {
+                Some(existing) => {
+                    if existing.group != coordination.group {
+                        return Err(AvengerChartError::InvalidArgument(format!(
+                            "scale '{scale_name}' has incompatible domain groups"
+                        )));
                     }
-                })
-                .or_insert(sharing);
+                    if coordination.scope.to_level() > existing.scope.to_level() {
+                        existing.scope = coordination.scope;
+                    }
+                }
+                None => {
+                    result.insert(scale_name, coordination);
+                }
+            }
         }
     }
-    result
+    Ok(result)
 }
 
 fn validate_sibling_mark_ids<C: CoordinateSystem>(

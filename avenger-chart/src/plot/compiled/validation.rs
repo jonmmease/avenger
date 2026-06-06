@@ -3,7 +3,10 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use avenger_chart_core::{CompiledMark, DefaultLogicalExprNodeExt};
+use avenger_chart_core::{
+    CompiledMark, CompiledParamSpec, DefaultLogicalExprNodeExt, DomainCoordination,
+    DomainCoordinationGroup,
+};
 use avenger_chart_scales::PlotScaleSpec;
 use datafusion::logical_expr::Expr;
 use datafusion::prelude::SessionContext;
@@ -108,23 +111,23 @@ impl CompiledPlot {
         &self,
         ctx: &SessionContext,
     ) -> Result<(), AvengerChartError> {
-        let mut param_levels: HashMap<String, u8> = HashMap::new();
-        self.collect_param_sharing_levels(&mut param_levels);
-        self.validate_raw_domain_sharing_recursive(ctx, &param_levels)
+        let mut param_specs: HashMap<String, CompiledParamSpec> = HashMap::new();
+        self.collect_param_specs(&mut param_specs);
+        let mut raw_domain_param_groups = HashMap::new();
+        self.validate_raw_domain_sharing_recursive(ctx, &param_specs, &mut raw_domain_param_groups)
     }
 
     pub(crate) fn validate_transform_output_scale_sharing(&self) -> Result<(), AvengerChartError> {
         self.validate_transform_output_scale_sharing_recursive()
     }
 
-    fn collect_param_sharing_levels(&self, out: &mut HashMap<String, u8>) {
+    fn collect_param_specs(&self, out: &mut HashMap<String, CompiledParamSpec>) {
         for (name, spec) in &self.param_specs {
-            out.entry(name.clone())
-                .or_insert_with(|| spec.sharing.to_level());
+            out.entry(name.clone()).or_insert_with(|| spec.clone());
         }
         for mark in &self.marks {
             if let Some(facet) = facet_subplot_ref(mark.as_ref()) {
-                facet.compiled_subplot().collect_param_sharing_levels(out);
+                facet.compiled_subplot().collect_param_specs(out);
             }
         }
     }
@@ -132,9 +135,10 @@ impl CompiledPlot {
     fn validate_raw_domain_sharing_recursive(
         &self,
         ctx: &SessionContext,
-        param_levels: &HashMap<String, u8>,
+        param_specs: &HashMap<String, CompiledParamSpec>,
+        raw_domain_param_groups: &mut HashMap<String, String>,
     ) -> Result<(), AvengerChartError> {
-        let scale_share_levels = scale_domain_share_levels(&self.marks);
+        let scale_coordinations = scale_domain_coordinations(&self.marks)?;
         for (scale_name, spec) in &self.scale_specs {
             let PlotScaleSpec::Local(config) = spec;
             let Some(domain) = config.domain.as_option() else {
@@ -146,11 +150,18 @@ impl CompiledPlot {
             let expr = raw_domain.to_expr(ctx)?;
             // An unscoped scale (no explicit `domain_coordination`) defaults to per-cell
             // (`Free`, level 0), which can never be stricter than any param.
-            let scale_level = scale_share_levels.get(scale_name).copied().unwrap_or(0);
+            let scale_coordination = scale_coordinations
+                .get(scale_name)
+                .cloned()
+                .unwrap_or_default();
+            let scale_coordination =
+                resolve_scale_domain_coordination(scale_name, &scale_coordination)?;
+            let scale_level = scale_coordination.scope.to_level();
             for param_name in placeholder_param_names(&expr)? {
-                let Some(&param_level) = param_levels.get(&param_name) else {
+                let Some(param_spec) = param_specs.get(&param_name) else {
                     continue;
                 };
+                let param_level = param_spec.sharing.to_level();
                 if param_level < scale_level {
                     return Err(AvengerChartError::InvalidArgument(format!(
                         "raw-domain param '{param}' is shared at {param_sharing} but scale \
@@ -163,20 +174,57 @@ impl CompiledPlot {
                         scale_sharing = describe_sharing_level(scale_level),
                     )));
                 }
+                if let Some(param_coordination) = &param_spec.domain_coordination {
+                    let param_coordination =
+                        resolve_scale_domain_coordination(scale_name, param_coordination)?;
+                    if resolved_domain_group_id(&param_coordination)
+                        != resolved_domain_group_id(&scale_coordination)
+                    {
+                        return Err(AvengerChartError::InvalidArgument(format!(
+                            "raw-domain param '{param}' is coordinated with domain group \
+                             '{param_group}' but scale '{scale}' is coordinated with domain group \
+                             '{scale_group}'",
+                            param = param_name,
+                            param_group = resolved_domain_group_id(&param_coordination),
+                            scale = scale_name,
+                            scale_group = resolved_domain_group_id(&scale_coordination),
+                        )));
+                    }
+                }
+                let scale_group = resolved_domain_group_id(&scale_coordination);
+                match raw_domain_param_groups.get(&param_name) {
+                    Some(existing) if existing != &scale_group => {
+                        return Err(AvengerChartError::InvalidArgument(format!(
+                            "raw-domain param '{param}' drives incompatible domain groups \
+                             '{first}' and '{second}'",
+                            param = param_name,
+                            first = existing,
+                            second = scale_group,
+                        )));
+                    }
+                    Some(_) => {}
+                    None => {
+                        raw_domain_param_groups.insert(param_name, scale_group);
+                    }
+                }
             }
         }
         for mark in &self.marks {
             if let Some(facet) = facet_subplot_ref(mark.as_ref()) {
                 facet
                     .compiled_subplot()
-                    .validate_raw_domain_sharing_recursive(ctx, param_levels)?;
+                    .validate_raw_domain_sharing_recursive(
+                        ctx,
+                        param_specs,
+                        raw_domain_param_groups,
+                    )?;
             }
         }
         Ok(())
     }
 
     fn validate_transform_output_scale_sharing_recursive(&self) -> Result<(), AvengerChartError> {
-        let scale_share_levels = scale_domain_share_levels(&self.marks);
+        let scale_coordinations = scale_domain_coordinations(&self.marks)?;
         for mark in &self.marks {
             if let Some(facet) = facet_subplot_ref(mark.as_ref()) {
                 facet
@@ -192,7 +240,10 @@ impl CompiledPlot {
                     continue;
                 };
                 let transform_level = transform_scope.to_level();
-                let scale_level = scale_share_levels.get(&scale_name).copied().unwrap_or(0);
+                let scale_level = scale_coordinations
+                    .get(&scale_name)
+                    .map(|coordination| coordination.scope.to_level())
+                    .unwrap_or(0);
                 if scale_level > transform_level {
                     return Err(AvengerChartError::InvalidArgument(format!(
                         "channel '{channel}' uses values produced by a transform at {transform_sharing}, \
@@ -248,32 +299,67 @@ impl CompiledPlot {
     }
 }
 
-/// Map each scale name to the broadest domain sharing level declared by the
+/// Map each scale name to the broadest domain coordination target declared by the
 /// (non-facet) marks at this plot level.
 ///
-/// Channels without an explicit `domain_coordination` are omitted (treated as `Free`,
-/// level 0, by the caller). Facet subplot marks are skipped because their
-/// channels live one nesting level deeper and are validated by the recursion.
-fn scale_domain_share_levels(marks: &[Arc<dyn CompiledMark>]) -> HashMap<String, u8> {
-    let mut result: HashMap<String, u8> = HashMap::new();
+/// Channels without an explicit `domain_coordination` are omitted (treated as
+/// `Free` with scale-name grouping by the caller). Facet subplot marks are
+/// skipped because their channels live one nesting level deeper and are
+/// validated by the recursion.
+fn scale_domain_coordinations(
+    marks: &[Arc<dyn CompiledMark>],
+) -> Result<HashMap<String, DomainCoordination>, AvengerChartError> {
+    let mut result: HashMap<String, DomainCoordination> = HashMap::new();
     for mark in marks {
         if facet_subplot_ref(mark.as_ref()).is_some() {
             continue;
         }
         for (channel_name, channel_value) in mark.data_context().channels() {
-            let Some(level) = channel_value.get_domain_scope().map(|mode| mode.to_level()) else {
+            let Some(coordination) = channel_value.get_domain_coordination().cloned() else {
                 continue;
             };
             let Some(scale_name) = channel_value.get_scale_name(channel_name) else {
                 continue;
             };
-            result
-                .entry(scale_name)
-                .and_modify(|existing| *existing = (*existing).max(level))
-                .or_insert(level);
+            match result.get_mut(&scale_name) {
+                Some(existing) => {
+                    if existing.group != coordination.group {
+                        return Err(AvengerChartError::InvalidArgument(format!(
+                            "scale '{scale_name}' has incompatible domain groups"
+                        )));
+                    }
+                    if coordination.scope.to_level() > existing.scope.to_level() {
+                        existing.scope = coordination.scope;
+                    }
+                }
+                None => {
+                    result.insert(scale_name, coordination);
+                }
+            }
         }
     }
-    result
+    Ok(result)
+}
+
+fn resolve_scale_domain_coordination(
+    scale_name: &str,
+    coordination: &DomainCoordination,
+) -> Result<DomainCoordination, AvengerChartError> {
+    let group = match &coordination.group {
+        DomainCoordinationGroup::ScaleName => scale_name.to_string(),
+        DomainCoordinationGroup::Named(group) => group.clone(),
+    };
+    Ok(DomainCoordination::new(
+        coordination.scope,
+        DomainCoordinationGroup::Named(group),
+    ))
+}
+
+fn resolved_domain_group_id(coordination: &DomainCoordination) -> String {
+    match &coordination.group {
+        DomainCoordinationGroup::ScaleName => "<scale-name>".to_string(),
+        DomainCoordinationGroup::Named(group) => group.clone(),
+    }
 }
 
 /// Collect the names of placeholder params (`$name`) referenced anywhere in a

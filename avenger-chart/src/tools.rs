@@ -8,7 +8,8 @@ use std::{
 use avenger_chart_core::{
     Auto, AvengerChartError, ChartEventBinding, CompiledParamSpec, CompiledSelectionSpec,
     CompiledStoreSpec, CoordinateSystemCore, CoordinateSystemTransform, CoordinationScope,
-    DefaultLogicalExprNodeExt, Param, Scale, Selection, Store, TimeContext,
+    DefaultLogicalExprNodeExt, DomainCoordination, DomainCoordinationGroup, Param, Scale,
+    Selection, Store, TimeContext,
 };
 use avenger_chart_scales::PlotScaleSpec;
 use datafusion::prelude::lit;
@@ -142,7 +143,7 @@ impl ToolCompileContext {
         coord_transform: &dyn CoordinateSystemTransform,
         scale_to_coord_channel: &HashMap<String, String>,
         scale_specs: &mut HashMap<String, PlotScaleSpec>,
-        scale_sharing: &HashMap<String, CoordinationScope>,
+        scale_coordinations: &HashMap<String, DomainCoordination>,
     ) -> Result<(), AvengerChartError> {
         let invertible = coord_transform.interaction_invertible_channels();
         if invertible.is_empty() {
@@ -168,15 +169,20 @@ impl ToolCompileContext {
                             })
                             .collect::<Vec<_>>();
                         for scale_name in targets {
-                            let sharing = scale_sharing
+                            let coordination = scale_coordinations
                                 .get(&scale_name)
-                                .copied()
-                                .unwrap_or(CoordinationScope::Free)
-                                .to_normalized();
+                                .cloned()
+                                .unwrap_or_default();
                             self.state
                                 .lock()
                                 .expect("tool compile state lock poisoned")
-                                .record_scale_target(&active.id, channel, param_name, sharing)?;
+                                .record_scale_target(
+                                    &active.id,
+                                    channel,
+                                    &scale_name,
+                                    param_name,
+                                    &coordination,
+                                )?;
                             let param = self
                                 .state
                                 .lock()
@@ -318,6 +324,7 @@ impl ToolCompileState {
                             ToolParamSharing::Explicit(sharing) => Some(sharing.to_normalized()),
                             ToolParamSharing::MirrorScale { .. } => None,
                         },
+                        resolved_domain_coordination: None,
                     },
                 );
             }
@@ -340,9 +347,12 @@ impl ToolCompileState {
         &mut self,
         tool_id: &str,
         channel: &str,
+        scale_name: &str,
         param_name: &str,
-        sharing: CoordinationScope,
+        target_coordination: &DomainCoordination,
     ) -> Result<(), AvengerChartError> {
+        let target_coordination =
+            resolve_scale_domain_coordination(scale_name, target_coordination)?;
         if let Some(count) = self.expected_targets.get_mut(&(
             tool_id.to_string(),
             channel.to_string(),
@@ -359,14 +369,26 @@ impl ToolCompileState {
 
         match &param.requested {
             ToolParamSharing::Explicit(explicit) => {
-                if explicit.to_level() < sharing.to_level() {
+                let explicit = explicit.to_normalized();
+                if explicit.to_level() < target_coordination.scope.to_level() {
                     return Err(AvengerChartError::InvalidArgument(format!(
                         "tool raw-domain param '{param_name}' is shared at {} but target \
                          channel '{channel}' is shared at {}; the param must be shared at \
                          least as broadly as the scale",
-                        describe_sharing(*explicit),
-                        describe_sharing(sharing)
+                        describe_sharing(explicit),
+                        describe_sharing(target_coordination.scope)
                     )));
+                }
+                let resolved = target_coordination.with_scope(explicit);
+                match &param.resolved_domain_coordination {
+                    Some(existing) if existing.group != resolved.group => {
+                        return Err(AvengerChartError::InvalidArgument(format!(
+                            "tool raw-domain param '{param_name}' targets incompatible domain \
+                             groups"
+                        )));
+                    }
+                    Some(_) => {}
+                    None => param.resolved_domain_coordination = Some(resolved),
                 }
             }
             ToolParamSharing::MirrorScale {
@@ -378,17 +400,18 @@ impl ToolCompileState {
                          but was used for channel '{channel}'"
                     )));
                 }
-                match param.resolved_sharing {
-                    Some(existing) if existing != sharing => {
+                match &param.resolved_domain_coordination {
+                    Some(existing) if existing != &target_coordination => {
                         return Err(AvengerChartError::InvalidArgument(format!(
                             "tool raw-domain param '{param_name}' targets channel '{channel}' \
-                             with conflicting scale sharing values: {} and {}",
-                            describe_sharing(existing),
-                            describe_sharing(sharing)
+                             with conflicting domain coordination targets"
                         )));
                     }
                     Some(_) => {}
-                    None => param.resolved_sharing = Some(sharing),
+                    None => {
+                        param.resolved_domain_coordination = Some(target_coordination.clone());
+                        param.resolved_sharing = Some(target_coordination.scope);
+                    }
                 }
             }
         }
@@ -412,7 +435,11 @@ impl ToolCompileState {
                     "tool parameter '{name}' did not resolve a sharing scope"
                 )));
             };
-            param_specs.push(CompiledParamSpec::new(&param.param, sharing));
+            let mut spec = CompiledParamSpec::new(&param.param, sharing);
+            if let Some(coordination) = &param.resolved_domain_coordination {
+                spec = spec.with_domain_coordination(coordination.clone());
+            }
+            param_specs.push(spec);
         }
         Ok(ToolArtifacts {
             param_specs,
@@ -429,6 +456,7 @@ struct GeneratedParamState {
     param: Param,
     requested: ToolParamSharing,
     resolved_sharing: Option<CoordinationScope>,
+    resolved_domain_coordination: Option<DomainCoordination>,
 }
 
 pub(crate) struct ToolArtifacts {
@@ -496,9 +524,23 @@ fn describe_sharing(sharing: CoordinationScope) -> String {
     }
 }
 
+fn resolve_scale_domain_coordination(
+    scale_name: &str,
+    coordination: &DomainCoordination,
+) -> Result<DomainCoordination, AvengerChartError> {
+    let group = match &coordination.group {
+        DomainCoordinationGroup::ScaleName => scale_name.to_string(),
+        DomainCoordinationGroup::Named(group) => group.clone(),
+    };
+    Ok(DomainCoordination::new(
+        coordination.scope,
+        DomainCoordinationGroup::Named(group),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
-    use avenger_chart_core::DefaultLogicalExprNodeExt;
+    use avenger_chart_core::{DefaultLogicalExprNodeExt, DomainCoordinationGroup};
     use avenger_chart_scales::Linear;
     use avenger_scenegraph::marks::mark::SceneMark;
     use datafusion::arrow::datatypes::DataType;
@@ -611,6 +653,98 @@ mod tests {
             compiled.param_specs()["__tool_pan_scroll_zoom__y_domain"].sharing,
             CoordinationScope::Level(0)
         );
+    }
+
+    #[tokio::test]
+    async fn tool_raw_domain_param_mirrors_named_domain_group() {
+        let ctx = SessionContext::new();
+        let df = data(&ctx).await;
+        let compiled = Plot::<Cartesian>::new()
+            .data(df)
+            .mark(Symbol::new().x_with(col("x"), |c| {
+                c.with_domain_group("measurement").share_domain()
+            }))
+            .tool(PanScrollZoom::cartesian().x_only())
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        let spec = &compiled.param_specs()["__tool_pan_scroll_zoom__x_domain"];
+        assert_eq!(spec.sharing, CoordinationScope::Level(u8::MAX));
+        let coordination = spec
+            .domain_coordination
+            .as_ref()
+            .expect("domain coordination");
+        assert_eq!(coordination.scope, CoordinationScope::Level(u8::MAX));
+        assert_eq!(
+            coordination.group,
+            DomainCoordinationGroup::Named("measurement".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn raw_domain_param_rejects_incompatible_named_groups() {
+        let ctx = SessionContext::new();
+        let df = data(&ctx).await;
+        let domain = Param::raw_domain("shared_domain");
+        let x_raw = domain.expr();
+        let y_raw = domain.expr();
+        let err = match Plot::<Cartesian>::new()
+            .data(df)
+            .add_param_with_sharing(domain, CoordinationScope::Shared)
+            .mark(
+                Symbol::new()
+                    .x_with(col("x"), move |c| {
+                        let x_raw = x_raw.clone();
+                        c.with_domain_group("x_measure")
+                            .share_domain()
+                            .scale_with::<Linear>(move |s| s.raw_domain(x_raw.clone()))
+                    })
+                    .y_with(col("y"), move |c| {
+                        let y_raw = y_raw.clone();
+                        c.with_domain_group("y_measure")
+                            .share_domain()
+                            .scale_with::<Linear>(move |s| s.raw_domain(y_raw.clone()))
+                    }),
+            )
+            .compile(&ctx)
+            .await
+        {
+            Ok(_) => panic!("incompatible raw-domain groups should fail"),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("incompatible domain groups"));
+    }
+
+    #[tokio::test]
+    async fn raw_domain_param_allows_same_named_group_across_channels() {
+        let ctx = SessionContext::new();
+        let df = data(&ctx).await;
+        let domain = Param::raw_domain("measurement_domain");
+        let x_raw = domain.expr();
+        let y_raw = domain.expr();
+        Plot::<Cartesian>::new()
+            .data(df)
+            .add_param_with_sharing(domain, CoordinationScope::Shared)
+            .mark(
+                Symbol::new()
+                    .x_with(col("x"), move |c| {
+                        let x_raw = x_raw.clone();
+                        c.with_domain_group("measurement")
+                            .share_domain()
+                            .scale_with::<Linear>(move |s| s.raw_domain(x_raw.clone()))
+                    })
+                    .y_with(col("y"), move |c| {
+                        let y_raw = y_raw.clone();
+                        c.with_domain_group("measurement")
+                            .share_domain()
+                            .scale_with::<Linear>(move |s| s.raw_domain(y_raw.clone()))
+                    }),
+            )
+            .compile(&ctx)
+            .await
+            .expect("same named group can share one raw-domain param");
     }
 
     #[tokio::test]

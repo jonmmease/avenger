@@ -9,7 +9,7 @@ use datafusion::{
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
-use crate::{CoordinationScope, serialization::SerializableScalar};
+use crate::{CoordinationScope, DomainCoordination, serialization::SerializableScalar};
 
 /// A parameter that can be used in plot expressions
 #[derive(Debug, Clone)]
@@ -73,6 +73,12 @@ pub struct CompiledParamSpec {
     pub default: ScalarValue,
     /// The sharing scope that governs how the parameter is keyed across facets.
     pub sharing: CoordinationScope,
+    /// Optional scale-domain coordination metadata for raw-domain params.
+    ///
+    /// This is compile-time validation metadata. Runtime parameter storage is
+    /// still governed by `sharing`.
+    #[serde(default)]
+    pub domain_coordination: Option<DomainCoordination>,
 }
 
 impl CompiledParamSpec {
@@ -82,12 +88,19 @@ impl CompiledParamSpec {
             name: param.name.clone(),
             default: param.default.clone(),
             sharing,
+            domain_coordination: None,
         }
     }
 
     /// Create a globally shared spec (the historical default behavior).
     pub fn shared(param: &Param) -> Self {
         Self::new(param, CoordinationScope::Shared)
+    }
+
+    /// Attach raw-domain scale coordination metadata.
+    pub fn with_domain_coordination(mut self, coordination: DomainCoordination) -> Self {
+        self.domain_coordination = Some(coordination);
+        self
     }
 }
 
@@ -135,12 +148,32 @@ mod tests {
     #[test]
     fn compiled_param_spec_round_trips_sharing() {
         let param = Param::raw_domain("x_domain");
-        let spec = CompiledParamSpec::new(&param, CoordinationScope::Level(1));
+        let spec = CompiledParamSpec::new(&param, CoordinationScope::Level(1))
+            .with_domain_coordination(
+                DomainCoordination::named(CoordinationScope::Level(1), "x").unwrap(),
+            );
         let json = serde_json::to_string(&spec).expect("serialize spec");
         let restored: CompiledParamSpec = serde_json::from_str(&json).expect("deserialize spec");
         assert_eq!(restored.name, "x_domain");
         assert_eq!(restored.sharing, CoordinationScope::Level(1));
+        assert_eq!(
+            restored.domain_coordination.as_ref().unwrap().group,
+            crate::DomainCoordinationGroup::Named("x".to_string())
+        );
         assert!(matches!(restored.default, ScalarValue::List(_)));
+    }
+
+    #[test]
+    fn compiled_param_spec_deserializes_without_domain_coordination() {
+        let param = Param::raw_domain("x_domain");
+        let spec = CompiledParamSpec::new(&param, CoordinationScope::Level(1));
+        let mut json = serde_json::to_value(&spec).expect("serialize spec");
+        json.as_object_mut()
+            .expect("spec object")
+            .remove("domain_coordination");
+        let restored: CompiledParamSpec = serde_json::from_value(json).expect("deserialize spec");
+        assert_eq!(restored.name, "x_domain");
+        assert_eq!(restored.domain_coordination, None);
     }
 
     #[test]
