@@ -18,7 +18,7 @@ use indexmap::IndexMap;
 
 pub use avenger_chart_core::{
     ChartTool, ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamExpansion,
-    ToolParamSharing, ToolScaleEdit,
+    ToolParamSharing, ToolScaleEdit, ToolScaleTarget,
 };
 pub use avenger_chart_tools::{BoxZoom, LassoSelection, PanScrollZoom, PointSelection};
 
@@ -73,12 +73,13 @@ impl ToolCompileContext {
     pub(crate) fn expand_local_tools<C: CoordinateSystemCore>(
         &self,
         tools: &[Arc<dyn ChartTool<C>>],
+        scale_targets: &[ToolScaleTarget],
     ) -> Result<Vec<ActiveToolExpansion<C>>, AvengerChartError> {
         let mut active = Vec::new();
         for tool in tools {
             let id = tool.id().to_string();
             validate_tool_id(&id)?;
-            let mut expansion = tool.expand(ToolExpansionContext { tool_id: &id })?;
+            let mut expansion = tool.expand(ToolExpansionContext::new(&id, scale_targets))?;
             self.localize_event_bindings(&mut expansion.event_bindings);
             let active_expansion = ActiveToolExpansion {
                 id: id.clone(),
@@ -222,6 +223,30 @@ impl ToolCompileContext {
             *binding = localized;
         }
     }
+}
+
+pub(crate) fn discover_tool_scale_targets(
+    coord_transform: &dyn CoordinateSystemTransform,
+    scale_to_coord_channel: &HashMap<String, String>,
+    scale_coordinations: &HashMap<String, DomainCoordination>,
+) -> Result<Vec<ToolScaleTarget>, AvengerChartError> {
+    let invertible = coord_transform.interaction_invertible_channels();
+    let mut targets = Vec::new();
+    for (scale_name, coord_channel) in scale_to_coord_channel {
+        if !invertible.contains(&coord_channel.as_str()) {
+            continue;
+        }
+        let coordination = scale_coordinations
+            .get(scale_name)
+            .cloned()
+            .unwrap_or_default();
+        targets.push(ToolScaleTarget {
+            coord_channel: coord_channel.clone(),
+            scale_name: scale_name.clone(),
+            domain_coordination: resolve_scale_domain_coordination(scale_name, &coordination)?,
+        });
+    }
+    Ok(targets)
 }
 
 #[derive(Clone)]
@@ -669,7 +694,7 @@ mod tests {
             .await
             .expect("compile");
 
-        let spec = &compiled.param_specs()["__tool_pan_scroll_zoom__x_domain"];
+        let spec = &compiled.param_specs()["__tool_pan_scroll_zoom__domain__measurement"];
         assert_eq!(spec.sharing, CoordinationScope::Level(u8::MAX));
         let coordination = spec
             .domain_coordination
@@ -679,6 +704,59 @@ mod tests {
         assert_eq!(
             coordination.group,
             DomainCoordinationGroup::Named("measurement".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn pan_scroll_zoom_generates_one_raw_domain_param_for_same_named_group() {
+        let ctx = SessionContext::new();
+        let df = data(&ctx).await;
+        let compiled = Plot::<Cartesian>::new()
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x_with(col("x"), |c| {
+                        c.with_domain_group("measurement").share_domain()
+                    })
+                    .y_with(col("y"), |c| {
+                        c.with_domain_group("measurement").share_domain()
+                    }),
+            )
+            .tool(PanScrollZoom::cartesian())
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        assert!(
+            compiled
+                .param_specs()
+                .contains_key("__tool_pan_scroll_zoom__domain__measurement")
+        );
+        assert!(
+            !compiled
+                .param_specs()
+                .contains_key("__tool_pan_scroll_zoom__x_domain")
+        );
+        assert!(
+            !compiled
+                .param_specs()
+                .contains_key("__tool_pan_scroll_zoom__y_domain")
+        );
+        assert!(raw_domain_debug(&compiled, "x").contains("domain__measurement"));
+        assert!(raw_domain_debug(&compiled, "y").contains("domain__measurement"));
+
+        let drag = compiled
+            .event_bindings()
+            .iter()
+            .find(|binding| binding.event_type == ChartEventType::CursorMoved)
+            .expect("drag binding");
+        assert_eq!(
+            drag.assignments
+                .iter()
+                .filter(|assignment| assignment.param_name
+                    == "__tool_pan_scroll_zoom__domain__measurement")
+                .count(),
+            1
         );
     }
 

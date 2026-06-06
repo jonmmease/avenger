@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use crate::{
-    AvengerChartError, CoordinateSystemCore, CoordinationScope, Mark, Param, Selection, Store,
-    event::ChartEventBinding,
+    AvengerChartError, CoordinateSystemCore, CoordinationScope, DomainCoordination, Mark, Param,
+    Selection, Store, event::ChartEventBinding,
 };
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +19,55 @@ pub trait ChartTool<C: CoordinateSystemCore>: Send + Sync + 'static {
 #[derive(Clone, Copy, Debug)]
 pub struct ToolExpansionContext<'a> {
     pub tool_id: &'a str,
+    pub scale_targets: &'a [ToolScaleTarget],
+}
+
+impl<'a> ToolExpansionContext<'a> {
+    pub fn new(tool_id: &'a str, scale_targets: &'a [ToolScaleTarget]) -> Self {
+        Self {
+            tool_id,
+            scale_targets,
+        }
+    }
+
+    pub fn empty(tool_id: &'a str) -> Self {
+        Self::new(tool_id, &[])
+    }
+
+    pub fn scale_targets_for_channel<'b>(
+        &'b self,
+        channel: &'b str,
+    ) -> impl Iterator<Item = &'b ToolScaleTarget> + 'b {
+        self.scale_targets
+            .iter()
+            .filter(move |target| target.coord_channel == channel)
+    }
+
+    pub fn single_domain_coordination_for_channel(
+        &self,
+        channel: &str,
+    ) -> Option<DomainCoordination> {
+        let mut coordination = None;
+        for target in self
+            .scale_targets
+            .iter()
+            .filter(|target| target.coord_channel == channel)
+        {
+            match &coordination {
+                Some(existing) if existing != &target.domain_coordination => return None,
+                Some(_) => {}
+                None => coordination = Some(target.domain_coordination.clone()),
+            }
+        }
+        coordination
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ToolScaleTarget {
+    pub coord_channel: String,
+    pub scale_name: String,
+    pub domain_coordination: DomainCoordination,
 }
 
 pub struct ToolExpansion<C: CoordinateSystemCore> {

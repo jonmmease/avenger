@@ -3,10 +3,11 @@
 use avenger_chart_cartesian::{Cartesian, CartesianRectPositionChannels};
 use avenger_chart_core::{
     AvengerChartError, ChartEventBinding, ChartEventStream, ChartEventType, ChartTool,
-    CoordinateSystemCore, CoordinationScope, EmptySelectionBehavior, IntoExpr, Param,
-    SceneGeometryHitPolicy, SceneGeometryQuery, SceneQueryDatumField, Selection,
-    SelectionClauseUpdate, SelectionSceneQuery, SelectionUpdate, ToolExpansion,
-    ToolExpansionContext, ToolMetadata, ToolParamSharing, ToolScaleEdit, event as ev,
+    CoordinateSystemCore, CoordinationScope, DomainCoordination, DomainCoordinationGroup,
+    EmptySelectionBehavior, IntoExpr, Param, SceneGeometryHitPolicy, SceneGeometryQuery,
+    SceneQueryDatumField, Selection, SelectionClauseUpdate, SelectionSceneQuery, SelectionUpdate,
+    ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamSharing, ToolScaleEdit,
+    event as ev,
 };
 use avenger_chart_marks::Rect;
 use datafusion::{
@@ -133,6 +134,24 @@ impl PanScrollZoom {
     fn default_domain_param(&self, channel: &str) -> Param {
         Param::raw_domain(generated_tool_name(&self.id, &format!("{channel}_domain")))
     }
+
+    fn default_domain_param_for_target(
+        &self,
+        channel: &str,
+        coordination: Option<&DomainCoordination>,
+    ) -> Param {
+        let Some(coordination) = coordination else {
+            return self.default_domain_param(channel);
+        };
+        let DomainCoordinationGroup::Named(group) = &coordination.group else {
+            return self.default_domain_param(channel);
+        };
+        if group == channel {
+            self.default_domain_param(channel)
+        } else {
+            Param::raw_domain(generated_tool_name(&self.id, &format!("domain__{group}")))
+        }
+    }
 }
 
 impl ChartTool<Cartesian> for PanScrollZoom {
@@ -142,7 +161,7 @@ impl ChartTool<Cartesian> for PanScrollZoom {
 
     fn expand(
         &self,
-        _ctx: ToolExpansionContext<'_>,
+        ctx: ToolExpansionContext<'_>,
     ) -> Result<ToolExpansion<Cartesian>, AvengerChartError> {
         let enabled = Param::new(
             self.enabled_param_name(),
@@ -157,62 +176,124 @@ impl ChartTool<Cartesian> for PanScrollZoom {
                 ToolMetadata::new(self.id.clone(), "Pan/Zoom").enabled_param(enabled.name.clone()),
             );
 
-        let mut channels = Vec::new();
+        let mut scale_channels = Vec::new();
+        let mut event_targets: Vec<(Vec<String>, Param)> = Vec::new();
         if let Some(channel) = &self.x_channel {
+            let target = ctx.single_domain_coordination_for_channel(channel);
             let param = self
                 .x_domain_param
                 .clone()
-                .unwrap_or_else(|| self.default_domain_param(channel));
-            let sharing = self
-                .x_sharing
-                .map(ToolParamSharing::Explicit)
-                .unwrap_or_else(|| ToolParamSharing::mirror_scale(channel));
-            channels.push((channel.clone(), param.clone()));
-            expansion = expansion
-                .param(param.clone(), sharing)
-                .scale_edit(ToolScaleEdit::raw_domain(channel.clone(), param.name));
+                .unwrap_or_else(|| self.default_domain_param_for_target(channel, target.as_ref()));
+            let sharing = match (
+                self.x_sharing,
+                self.x_domain_param.is_none(),
+                target.as_ref(),
+            ) {
+                (Some(scope), _, _) => ToolParamSharing::Explicit(scope),
+                (None, true, Some(target)) => ToolParamSharing::Explicit(target.scope),
+                (None, _, _) => ToolParamSharing::mirror_scale(channel),
+            };
+            scale_channels.push((channel.clone(), param.clone(), sharing));
+            push_pan_zoom_event_target(
+                &mut event_targets,
+                channel.clone(),
+                param.clone(),
+                self.x_domain_param.is_none(),
+                target,
+            );
         }
         if let Some(channel) = &self.y_channel {
+            let target = ctx.single_domain_coordination_for_channel(channel);
             let param = self
                 .y_domain_param
                 .clone()
-                .unwrap_or_else(|| self.default_domain_param(channel));
-            let sharing = self
-                .y_sharing
-                .map(ToolParamSharing::Explicit)
-                .unwrap_or_else(|| ToolParamSharing::mirror_scale(channel));
-            channels.push((channel.clone(), param.clone()));
-            expansion = expansion
-                .param(param.clone(), sharing)
-                .scale_edit(ToolScaleEdit::raw_domain(channel.clone(), param.name));
+                .unwrap_or_else(|| self.default_domain_param_for_target(channel, target.as_ref()));
+            let sharing = match (
+                self.y_sharing,
+                self.y_domain_param.is_none(),
+                target.as_ref(),
+            ) {
+                (Some(scope), _, _) => ToolParamSharing::Explicit(scope),
+                (None, true, Some(target)) => ToolParamSharing::Explicit(target.scope),
+                (None, _, _) => ToolParamSharing::mirror_scale(channel),
+            };
+            scale_channels.push((channel.clone(), param.clone(), sharing));
+            push_pan_zoom_event_target(
+                &mut event_targets,
+                channel.clone(),
+                param.clone(),
+                self.y_domain_param.is_none(),
+                target,
+            );
         }
 
-        if channels.is_empty() {
+        if scale_channels.is_empty() {
             return Err(AvengerChartError::InvalidArgument(format!(
                 "tool '{}' must enable at least one coordinate channel",
                 self.id
             )));
         }
 
+        let mut registered_domain_params: Vec<(String, ToolParamSharing)> = Vec::new();
+        for (channel, param, sharing) in scale_channels {
+            if let Some((_, existing_sharing)) = registered_domain_params
+                .iter()
+                .find(|(name, _)| name == &param.name)
+            {
+                if existing_sharing != &sharing {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "tool '{}' generated raw-domain param '{}' with incompatible sharing",
+                        self.id, param.name
+                    )));
+                }
+            } else {
+                registered_domain_params.push((param.name.clone(), sharing.clone()));
+                expansion = expansion.param(param.clone(), sharing);
+            }
+            expansion = expansion.scale_edit(ToolScaleEdit::raw_domain(channel, param.name));
+        }
+
         expansion = expansion.event_binding(drag_pan_binding(
             &enabled.name,
             &self.drag_button,
-            &channels,
+            &event_targets,
             self.settle_exact,
         ));
 
         if self.scroll_zoom {
             expansion = expansion.event_binding(scroll_zoom_binding(
                 &enabled.name,
-                &channels,
+                &event_targets,
                 self.zoom_base,
                 self.consume_wheel,
             ));
         }
-        expansion = expansion.event_binding(reset_view_binding(&enabled.name, &channels));
+        expansion = expansion.event_binding(reset_view_binding(&enabled.name, &event_targets));
 
         Ok(expansion)
     }
+}
+
+fn push_pan_zoom_event_target(
+    targets: &mut Vec<(Vec<String>, Param)>,
+    channel: String,
+    param: Param,
+    generated_param: bool,
+    coordination: Option<DomainCoordination>,
+) {
+    if generated_param
+        && coordination.is_some()
+        && let Some((channels, _)) = targets.iter_mut().find(|(_, existing_param)| {
+            existing_param.name == param.name && existing_param.default == param.default
+        })
+    {
+        if !channels.contains(&channel) {
+            channels.push(channel);
+        }
+        return;
+    }
+
+    targets.push((vec![channel], param));
 }
 
 #[derive(Clone, Debug)]
@@ -1058,7 +1139,11 @@ fn box_zoom_reset_binding(
     active: &Param,
     channels: &[(String, Param); 2],
 ) -> ChartEventBinding {
-    reset_view_binding(enabled_param, channels).set_param(active, lit(false))
+    let targets = channels
+        .iter()
+        .map(|(channel, param)| (vec![channel.clone()], param.clone()))
+        .collect::<Vec<_>>();
+    reset_view_binding(enabled_param, &targets).set_param(active, lit(false))
 }
 
 fn box_zoom_drag_start_stream(drag_button: &str) -> ChartEventStream {
@@ -1087,7 +1172,7 @@ fn drag_domain_interval(channel: &str) -> Expr {
 fn drag_pan_binding(
     enabled_param: &str,
     drag_button: &str,
-    channels: &[(String, Param)],
+    targets: &[(Vec<String>, Param)],
     settle_exact: bool,
 ) -> ChartEventBinding {
     let mut binding = ChartEventBinding::on(ChartEventType::CursorMoved)
@@ -1099,7 +1184,8 @@ fn drag_pan_binding(
         )
         .preview();
 
-    for (channel, param) in channels {
+    for (channels, param) in targets {
+        let channel = primary_event_channel(channels);
         let delta = ev::event_at_start_coord(channel) - ev::start_coord(channel);
         binding = binding.set_param(
             param,
@@ -1119,7 +1205,7 @@ fn drag_pan_binding(
 
 fn scroll_zoom_binding(
     enabled_param: &str,
-    channels: &[(String, Param)],
+    targets: &[(Vec<String>, Param)],
     zoom_base: f64,
     consume_wheel: bool,
 ) -> ChartEventBinding {
@@ -1130,7 +1216,8 @@ fn scroll_zoom_binding(
         .preview()
         .consume(consume_wheel);
 
-    for (channel, param) in channels {
+    for (channels, param) in targets {
+        let channel = primary_event_channel(channels);
         binding = binding
             .filter(ev::event_coord(channel).is_not_null())
             .set_param(param, zoom_interval(channel, factor.clone()));
@@ -1139,17 +1226,27 @@ fn scroll_zoom_binding(
     binding
 }
 
-fn reset_view_binding(enabled_param: &str, channels: &[(String, Param)]) -> ChartEventBinding {
+fn reset_view_binding(enabled_param: &str, targets: &[(Vec<String>, Param)]) -> ChartEventBinding {
     let mut binding = ChartEventBinding::on(ChartEventType::DoubleClick)
         .filter(ev::param(enabled_param).eq(lit(true)))
         .exact();
 
-    for (channel, param) in channels {
+    for (channels, param) in targets {
+        let channel = primary_event_channel(channels);
         binding = binding.filter(ev::event_coord(channel).is_not_null());
         binding = binding.set_param(param, lit(param.default.clone()));
     }
 
     binding
+}
+
+fn primary_event_channel(channels: &[String]) -> &str {
+    channels
+        .iter()
+        .find(|channel| channel.as_str() == "x")
+        .or_else(|| channels.first())
+        .map(String::as_str)
+        .expect("pan/zoom event target must have at least one channel")
 }
 
 fn zoom_interval(channel: &str, factor: Expr) -> Expr {
@@ -1173,9 +1270,7 @@ mod tests {
     fn pan_scroll_zoom_expands_to_params_bindings_edits_and_metadata() {
         let tool = PanScrollZoom::cartesian();
         let expansion = tool
-            .expand(ToolExpansionContext {
-                tool_id: ChartTool::id(&tool),
-            })
+            .expand(ToolExpansionContext::empty(ChartTool::id(&tool)))
             .expect("expand");
 
         assert_eq!(expansion.params.len(), 3);
@@ -1217,9 +1312,7 @@ mod tests {
     fn pan_scroll_zoom_x_only_expands_single_domain_target() {
         let tool = PanScrollZoom::cartesian().id("nav").x_only();
         let expansion = tool
-            .expand(ToolExpansionContext {
-                tool_id: ChartTool::id(&tool),
-            })
+            .expand(ToolExpansionContext::empty(ChartTool::id(&tool)))
             .expect("expand");
 
         assert_eq!(expansion.params.len(), 2);
@@ -1246,13 +1339,53 @@ mod tests {
     }
 
     #[test]
+    fn pan_scroll_zoom_groups_generated_params_by_domain_target() {
+        let tool = PanScrollZoom::cartesian();
+        let coordination =
+            DomainCoordination::named(CoordinationScope::Shared, "measurement").unwrap();
+        let targets = vec![
+            avenger_chart_core::ToolScaleTarget {
+                coord_channel: "x".to_string(),
+                scale_name: "x".to_string(),
+                domain_coordination: coordination.clone(),
+            },
+            avenger_chart_core::ToolScaleTarget {
+                coord_channel: "y".to_string(),
+                scale_name: "y".to_string(),
+                domain_coordination: coordination,
+            },
+        ];
+        let expansion = tool
+            .expand(ToolExpansionContext::new(ChartTool::id(&tool), &targets))
+            .expect("expand");
+
+        assert_eq!(expansion.params.len(), 2);
+        assert!(
+            expansion
+                .params
+                .iter()
+                .any(|p| p.param.name == "__tool_pan_scroll_zoom__domain__measurement")
+        );
+        assert_eq!(expansion.scale_edits.len(), 2);
+
+        let drag = expansion
+            .event_bindings
+            .iter()
+            .find(|binding| binding.event_type == ChartEventType::CursorMoved)
+            .expect("drag binding");
+        assert_eq!(drag.assignments.len(), 1);
+        assert_eq!(
+            drag.assignments[0].param_name,
+            "__tool_pan_scroll_zoom__domain__measurement"
+        );
+    }
+
+    #[test]
     fn point_selection_expands_to_selection_param_bindings_and_metadata() {
         let tool = PointSelection::new("picked").field("category");
         let expansion = <PointSelection as ChartTool<Cartesian>>::expand(
             &tool,
-            ToolExpansionContext {
-                tool_id: <PointSelection as ChartTool<Cartesian>>::id(&tool),
-            },
+            ToolExpansionContext::empty(<PointSelection as ChartTool<Cartesian>>::id(&tool)),
         )
         .expect("expand");
 
@@ -1287,9 +1420,7 @@ mod tests {
             .dimension(col("region"), "region");
         let err = match <PointSelection as ChartTool<Cartesian>>::expand(
             &tool,
-            ToolExpansionContext {
-                tool_id: <PointSelection as ChartTool<Cartesian>>::id(&tool),
-            },
+            ToolExpansionContext::empty(<PointSelection as ChartTool<Cartesian>>::id(&tool)),
         ) {
             Ok(_) => panic!("missing clause id should fail"),
             Err(err) => err,
@@ -1304,9 +1435,7 @@ mod tests {
             .enabled_by_default(false);
         let expansion = <PointSelection as ChartTool<Cartesian>>::expand(
             &tool,
-            ToolExpansionContext {
-                tool_id: <PointSelection as ChartTool<Cartesian>>::id(&tool),
-            },
+            ToolExpansionContext::empty(<PointSelection as ChartTool<Cartesian>>::id(&tool)),
         )
         .expect("expand");
 
@@ -1332,9 +1461,7 @@ mod tests {
             .facet_scope(CoordinationScope::Shared);
         let expansion = <LassoSelection as ChartTool<Cartesian>>::expand(
             &tool,
-            ToolExpansionContext {
-                tool_id: <LassoSelection as ChartTool<Cartesian>>::id(&tool),
-            },
+            ToolExpansionContext::empty(<LassoSelection as ChartTool<Cartesian>>::id(&tool)),
         )
         .expect("expand");
 
@@ -1392,9 +1519,7 @@ mod tests {
         let tool = LassoSelection::new("picked");
         let err = match <LassoSelection as ChartTool<Cartesian>>::expand(
             &tool,
-            ToolExpansionContext {
-                tool_id: <LassoSelection as ChartTool<Cartesian>>::id(&tool),
-            },
+            ToolExpansionContext::empty(<LassoSelection as ChartTool<Cartesian>>::id(&tool)),
         ) {
             Ok(_) => panic!("missing lasso field should fail"),
             Err(err) => err,
@@ -1406,9 +1531,7 @@ mod tests {
     fn box_zoom_expands_to_overlay_params_bindings_edits_and_mark() {
         let tool = BoxZoom::cartesian();
         let expansion = tool
-            .expand(ToolExpansionContext {
-                tool_id: ChartTool::id(&tool),
-            })
+            .expand(ToolExpansionContext::empty(ChartTool::id(&tool)))
             .expect("expand");
 
         assert_eq!(expansion.params.len(), 8);

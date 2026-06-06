@@ -23,7 +23,7 @@ use crate::{
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint, SizeMode},
     legend::ColorbarOverlay,
     serialization::serializable_expr_from_expr,
-    tools::ToolCompileContext,
+    tools::{ToolCompileContext, discover_tool_scale_targets},
 };
 
 use super::{
@@ -180,7 +180,30 @@ impl<C: CoordinateSystem> Plot<C> {
             .resolved_with_parent(&inherited_time_context);
         let tool_context = ToolCompileContext::from_parent(inherited_tool_context)
             .with_time_context(effective_time_context.clone());
-        let active_tool_expansions = tool_context.expand_local_tools(&self.tools)?;
+        let coord_transform = self.coord_system.create_transform();
+
+        let mut pre_tool_axis_specs: HashMap<String, AxisSpec> = HashMap::new();
+        let mut pre_tool_legends: IndexMap<String, Legend> = self.legends.clone();
+        let mut pre_tool_scale_specs: HashMap<String, ScaleSpec> = self.scale_specs.clone();
+        let mut pre_tool_scale_to_coord_channel: HashMap<String, String> = HashMap::new();
+        for mark in &self.marks {
+            crate::plot::channel::extract_channel_configs(
+                mark.as_ref(),
+                session_context,
+                &mut pre_tool_axis_specs,
+                &mut pre_tool_legends,
+                &mut pre_tool_scale_specs,
+                &mut pre_tool_scale_to_coord_channel,
+            );
+        }
+        let pre_tool_scale_coordination = scale_domain_coordinations(&self.marks)?;
+        let tool_scale_targets = discover_tool_scale_targets(
+            coord_transform.as_ref(),
+            &pre_tool_scale_to_coord_channel,
+            &pre_tool_scale_coordination,
+        )?;
+        let active_tool_expansions =
+            tool_context.expand_local_tools(&self.tools, &tool_scale_targets)?;
         tool_context.register_local_stores(&self.stores)?;
         if !is_root {
             tool_context.register_local_event_bindings(&self.event_bindings)?;
@@ -214,7 +237,6 @@ impl<C: CoordinateSystem> Plot<C> {
             );
         }
 
-        let coord_transform = self.coord_system.create_transform();
         let scale_coordination = scale_domain_coordinations(&marks)?;
         tool_context.apply_scale_edits(
             &active_tool_expansions,

@@ -249,7 +249,7 @@ pub use time_context::{TimeContext, WeekStart};
 pub use title_spec::{TitleAlign, TitleSpan};
 pub use tools::{
     ChartTool, ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamExpansion,
-    ToolParamSharing, ToolScaleEdit,
+    ToolParamSharing, ToolScaleEdit, ToolScaleTarget,
 };
 pub use transform::{
     CompiledDataTransform, DataTransform, DataTransformCompileContext,
