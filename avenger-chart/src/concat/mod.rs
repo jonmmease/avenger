@@ -1615,6 +1615,16 @@ mod tests {
             .expect("x scale should have a numeric interval domain")
     }
 
+    fn measurement_y_domain(measurement: &ComponentsMeasurement) -> (f32, f32) {
+        measurement
+            .scales
+            .get("y")
+            .expect("y scale should exist")
+            .configured()
+            .numeric_interval_domain()
+            .expect("y scale should have a numeric interval domain")
+    }
+
     fn zero_plot() -> Plot<ZeroDCoord> {
         Plot::<ZeroDCoord>::new()
     }
@@ -2636,6 +2646,54 @@ mod tests {
         assert_eq!(left_domain, right_domain);
         assert!(left_domain.0 <= 1.0);
         assert!(left_domain.1 >= 101.0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn grid_concat_named_domain_group_links_x_and_y_domains() -> Result<(), AvengerChartError>
+    {
+        let ctx = SessionContext::new();
+        let x_child = Plot::<Cartesian>::new()
+            .data(xy_dataframe(&ctx, vec![1.0, 2.0], vec![0.0, 1.0]))
+            .mark(
+                Line::new()
+                    .x_with(col("x"), |c| {
+                        c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                            .with_domain_group("measurement")
+                            .share_domain()
+                    })
+                    .y(col("y")),
+            );
+        let y_child = Plot::<Cartesian>::new()
+            .data(xy_dataframe(&ctx, vec![0.0, 1.0], vec![100.0, 101.0]))
+            .mark(Line::new().x(col("x")).y_with(col("y"), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                    .with_domain_group("measurement")
+                    .share_domain()
+            }));
+        let compiled = Plot::<GridConcat>::new()
+            .rows(1)
+            .columns(2)
+            .mark(Subplot::new(x_child).grid_cell(0, 0).key("x-child"))
+            .mark(Subplot::new(y_child).grid_cell(0, 1).key("y-child"))
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 420.0, 180.0, &ctx).await?;
+        let concat = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<ConcatCoordMeasurement>()
+            .expect("GridConcat should measure as ConcatCoordMeasurement");
+        let x_domain = child_x_domain(&concat.children()[0]);
+        let y_domain = measurement_y_domain(&concat.children()[1].measurement);
+
+        assert_eq!(x_domain, (1.0, 101.0));
+        assert!(
+            y_domain.0 < 50.0 && y_domain.1 >= 101.0,
+            "named domain group should make the y scale include the remote x-domain extent, got \
+             {y_domain:?}"
+        );
         Ok(())
     }
 
