@@ -55,6 +55,32 @@ fn axis_policy_cell_plot(ctx: &SessionContext, x_offset: f64, y_offset: f64) -> 
         )
 }
 
+fn axis_policy_named_domain_cell_plot(
+    ctx: &SessionContext,
+    x_group: &'static str,
+    y_group: &'static str,
+    x_offset: f64,
+    y_offset: f64,
+) -> Plot<Cartesian> {
+    Plot::<Cartesian>::new()
+        .data(axis_policy_cell_data(ctx, x_offset, y_offset))
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |c| {
+                    c.with_domain_group(x_group)
+                        .share_domain()
+                        .axis(|a| a.title(x_group))
+                })
+                .y_with(col("y"), |c| {
+                    c.with_domain_group(y_group)
+                        .share_domain()
+                        .axis(|a| a.title(y_group))
+                })
+                .size(56.0)
+                .fill("#2f7ed8"),
+        )
+}
+
 fn facet_row_axis_policy_plot(df: DataFrame, policy: AxisGuideVisibilityPolicy) -> Plot<FacetRow> {
     Plot::<FacetRow>::new().data(df).mark(
         Subplot::new(
@@ -123,6 +149,51 @@ async fn grid_concat_axis_visibility_outer_edges() {
         None,
         "axis_guide_visibility",
         "grid_concat_axis_visibility_outer_edges",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn grid_concat_axis_visibility_equivalent_domain_groups() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<GridConcat>::new()
+        .rows(2)
+        .columns(2)
+        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups)
+        .mark(
+            Subplot::new(axis_policy_named_domain_cell_plot(
+                &ctx, "length", "length", 0.0, 0.0,
+            ))
+            .grid_cell(0, 0),
+        )
+        .mark(
+            Subplot::new(axis_policy_named_domain_cell_plot(
+                &ctx, "width", "length", 10.0, 10.0,
+            ))
+            .grid_cell(0, 1),
+        )
+        .mark(
+            Subplot::new(axis_policy_named_domain_cell_plot(
+                &ctx, "length", "width", 100.0, 100.0,
+            ))
+            .grid_cell(1, 0),
+        )
+        .mark(
+            Subplot::new(axis_policy_named_domain_cell_plot(
+                &ctx, "width", "width", 200.0, 200.0,
+            ))
+            .grid_cell(1, 1),
+        );
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile grid semantic policy plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "axis_guide_visibility",
+        "grid_concat_axis_visibility_equivalent_domain_groups",
     )
     .await;
 }

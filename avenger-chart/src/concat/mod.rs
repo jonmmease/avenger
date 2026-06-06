@@ -44,8 +44,9 @@ use crate::{
     theme::Theme,
 };
 use avenger_chart_core::{
-    AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, DefaultLogicalExprNodeExt, ExprHelpers,
-    FacetWrapColumnMode, IntoExpr, contains_aggregate, params_to_datafusion,
+    AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, CoordinationAxis,
+    DefaultLogicalExprNodeExt, ExprHelpers, FacetWrapColumnMode, IntoExpr, SharingLevel,
+    contains_aggregate, params_to_datafusion,
 };
 use datafusion_proto::protobuf::LogicalExprNode;
 
@@ -525,7 +526,6 @@ pub struct ConcatCoordMeasurement {
     pub(crate) children: Vec<ConcatChildMeasurement>,
     pub(crate) placement: ConcatChildPlacement,
     pub(crate) fallback_content_size: Size2D,
-    pub(crate) axis_guide_visibility: AxisGuideVisibilityConfig,
 }
 
 impl ConcatCoordMeasurement {
@@ -556,10 +556,6 @@ impl ConcatCoordMeasurement {
     pub(crate) fn grid_shape(&self) -> Option<GridShape> {
         self.placement.grid_shape()
     }
-
-    pub(crate) fn axis_guide_visibility_config(&self) -> AxisGuideVisibilityConfig {
-        self.axis_guide_visibility
-    }
 }
 
 impl CoordMeasurement for ConcatCoordMeasurement {
@@ -585,6 +581,7 @@ pub(crate) struct ConcatChildMeasurement {
     pub(crate) container_path: Vec<ContainerPathSegment>,
     pub(crate) local_facet_tree: Option<Arc<EvaluatedFacetTree>>,
     pub(crate) facet_data_root: Option<DataFrame>,
+    pub(crate) sharing_levels: Vec<ChildFrameSharingLevel>,
     pub(crate) measurement: ComponentsMeasurement,
 }
 
@@ -729,6 +726,139 @@ impl PreparedConcatChild<'_> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct GridAxisGuideVisibilityConfig {
+    vertical: AxisGuideVisibilityConfig,
+    horizontal: AxisGuideVisibilityConfig,
+}
+
+impl GridAxisGuideVisibilityConfig {
+    #[cfg(test)]
+    fn same(config: AxisGuideVisibilityConfig) -> Self {
+        Self {
+            vertical: config,
+            horizontal: config,
+        }
+    }
+
+    fn for_axis(self, axis: CoordinationAxis) -> AxisGuideVisibilityConfig {
+        match axis {
+            CoordinationAxis::Vertical => self.vertical,
+            CoordinationAxis::Horizontal => self.horizontal,
+            CoordinationAxis::Positioned => AxisGuideVisibilityConfig::auto(),
+        }
+    }
+}
+
+struct GridSemanticChild<'a> {
+    child_index: usize,
+    placement: GridPlacementConfig,
+    channel_domain_coordinations: &'a HashMap<String, avenger_chart_core::DomainCoordination>,
+}
+
+impl GridSemanticChild<'_> {
+    fn domain_coordination_for_channel(
+        &self,
+        channel: &str,
+    ) -> Option<&avenger_chart_core::DomainCoordination> {
+        self.channel_domain_coordinations.get(channel)
+    }
+}
+
+fn policy_for_equivalence(
+    policy: AxisGuideVisibilityPolicy,
+    equivalent: bool,
+) -> AxisGuideVisibilityPolicy {
+    match policy {
+        AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups if equivalent => {
+            AxisGuideVisibilityPolicy::OuterEdges
+        }
+        AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups => AxisGuideVisibilityPolicy::All,
+        other => other,
+    }
+}
+
+fn config_for_equivalence(
+    config: AxisGuideVisibilityConfig,
+    equivalent: bool,
+) -> AxisGuideVisibilityConfig {
+    AxisGuideVisibilityConfig::new(
+        policy_for_equivalence(config.labels, equivalent),
+        policy_for_equivalence(config.title, equivalent),
+    )
+}
+
+fn semantic_axis_channel(axis: CoordinationAxis) -> Option<&'static str> {
+    match axis {
+        // Cartesian x axes are compacted along vertical row levels.
+        CoordinationAxis::Vertical => Some("x"),
+        // Cartesian y axes are compacted along horizontal column levels.
+        CoordinationAxis::Horizontal => Some("y"),
+        CoordinationAxis::Positioned => None,
+    }
+}
+
+fn child_in_same_axis_strip(
+    placement: GridPlacementConfig,
+    reference: GridPlacementConfig,
+    axis: CoordinationAxis,
+) -> bool {
+    match axis {
+        CoordinationAxis::Vertical => placement.column == reference.column,
+        CoordinationAxis::Horizontal => placement.row == reference.row,
+        CoordinationAxis::Positioned => false,
+    }
+}
+
+fn strip_has_equivalent_domain_coordination(
+    semantic_children: &[GridSemanticChild<'_>],
+    child_index: usize,
+    axis: CoordinationAxis,
+) -> bool {
+    let Some(channel) = semantic_axis_channel(axis) else {
+        return false;
+    };
+    let Some(reference_child) = semantic_children
+        .iter()
+        .find(|child| child.child_index == child_index)
+    else {
+        return false;
+    };
+    let Some(reference) = reference_child.domain_coordination_for_channel(channel) else {
+        return false;
+    };
+    if SharingLevel::from(reference.scope).is_free() {
+        return false;
+    }
+
+    semantic_children
+        .iter()
+        .filter(|child| child_in_same_axis_strip(child.placement, reference_child.placement, axis))
+        .all(|child| child.domain_coordination_for_channel(channel) == Some(reference))
+}
+
+fn semantic_axis_guide_visibility_for_child(
+    base: AxisGuideVisibilityConfig,
+    semantic_children: &[GridSemanticChild<'_>],
+    child_index: usize,
+) -> GridAxisGuideVisibilityConfig {
+    let vertical_equivalent = strip_has_equivalent_domain_coordination(
+        semantic_children,
+        child_index,
+        CoordinationAxis::Vertical,
+    );
+    let horizontal_equivalent = strip_has_equivalent_domain_coordination(
+        semantic_children,
+        child_index,
+        CoordinationAxis::Horizontal,
+    );
+
+    GridAxisGuideVisibilityConfig {
+        vertical: config_for_equivalence(base, vertical_equivalent),
+        horizontal: config_for_equivalence(base, horizontal_equivalent),
+    }
+}
+
 fn coordinated_domain_extents_for_concat_children(
     children: &[PreparedConcatChild<'_>],
 ) -> Vec<HashMap<String, DomainExtent>> {
@@ -793,12 +923,12 @@ async fn measure_prepared_concat_child(
     let runtime = ChildFrameRuntime::new();
     let child_layout_spec =
         runtime.fixed_plot_area_layout_spec(child_plot_area.width, child_plot_area.height);
-    let mut sharing_levels = sharing_levels.into_iter();
-    let first_level = sharing_levels.next().ok_or_else(|| {
+    let mut sharing_level_iter = sharing_levels.iter().cloned();
+    let first_level = sharing_level_iter.next().ok_or_else(|| {
         AvengerChartError::InternalError("Concat child measurement requires a sharing level".into())
     })?;
     let mut child_eval_ctx = runtime.eval_context(eval_ctx, first_level);
-    for level in sharing_levels {
+    for level in sharing_level_iter {
         child_eval_ctx = child_eval_ctx.with_child_frame_sharing_level_appended(level);
     }
     let measurement = Box::pin(prepared.child_plot.measure(
@@ -817,6 +947,7 @@ async fn measure_prepared_concat_child(
         container_path: prepared.container_path.clone(),
         local_facet_tree: prepared.child_plot.local_facet_tree(),
         facet_data_root: prepared.child_plot.facet_data_root(),
+        sharing_levels,
         measurement,
     })
 }
@@ -881,7 +1012,6 @@ pub(crate) async fn measure_concat_coord_system(
         children,
         placement: ConcatChildPlacement::Band(child_band_layout),
         fallback_content_size: Size2D::new(plot_width, plot_height),
-        axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
     }))
 }
 
@@ -914,6 +1044,20 @@ pub(crate) async fn measure_grid_concat_coord_system(
     for subplot in subplots {
         prepared_children.push(Box::pin(prepare_concat_child(subplot, eval_ctx, data)).await?);
     }
+    let semantic_children = prepared_children
+        .iter()
+        .filter_map(|prepared| {
+            prepared
+                .grid_placement()
+                .map(|placement| GridSemanticChild {
+                    child_index: prepared.child_index(),
+                    placement,
+                    channel_domain_coordinations: prepared
+                        .child_plot
+                        .channel_domain_sharing_levels(),
+                })
+        })
+        .collect::<Vec<_>>();
 
     let coordinated_domain_extents =
         coordinated_domain_extents_for_concat_children(&prepared_children);
@@ -941,12 +1085,16 @@ pub(crate) async fn measure_grid_concat_coord_system(
         children.push(
             Box::pin(measure_prepared_concat_child(
                 prepared,
-                grid_concat_sharing_levels(
+                grid_concat_sharing_levels_with_axis_configs(
                     prepared.child_index(),
                     prepared.key(),
                     placement,
                     &guide_sharing_slots,
-                    grid.axis_guide_visibility_config(),
+                    semantic_axis_guide_visibility_for_child(
+                        grid.axis_guide_visibility_config(),
+                        &semantic_children,
+                        prepared.child_index(),
+                    ),
                 ),
                 child_plot_area,
                 eval_ctx,
@@ -966,7 +1114,6 @@ pub(crate) async fn measure_grid_concat_coord_system(
             shape: grid_shape,
         },
         fallback_content_size: Size2D::new(plot_width, plot_height),
-        axis_guide_visibility: grid.axis_guide_visibility_config(),
     }))
 }
 
@@ -1012,6 +1159,20 @@ pub(crate) async fn measure_wrap_concat_coord_system(
     for subplot in subplots {
         prepared_children.push(Box::pin(prepare_concat_child(subplot, eval_ctx, data)).await?);
     }
+    let semantic_children = prepared_children
+        .iter()
+        .enumerate()
+        .map(|(slot_index, prepared)| GridSemanticChild {
+            child_index: prepared.child_index(),
+            placement: GridPlacementConfig {
+                row: slot_index / columns,
+                column: slot_index % columns,
+                row_span: 1,
+                column_span: 1,
+            },
+            channel_domain_coordinations: prepared.child_plot.channel_domain_sharing_levels(),
+        })
+        .collect::<Vec<_>>();
 
     let coordinated_domain_extents =
         coordinated_domain_extents_for_concat_children(&prepared_children);
@@ -1030,7 +1191,7 @@ pub(crate) async fn measure_wrap_concat_coord_system(
             );
         let mut child = Box::pin(measure_prepared_concat_child(
             prepared,
-            grid_concat_sharing_levels(
+            grid_concat_sharing_levels_with_axis_configs(
                 prepared.child_index(),
                 prepared.key(),
                 GridPlacementConfig {
@@ -1040,7 +1201,11 @@ pub(crate) async fn measure_wrap_concat_coord_system(
                     column_span: 1,
                 },
                 &guide_sharing_slots,
-                wrap.axis_guide_visibility_config(),
+                semantic_axis_guide_visibility_for_child(
+                    wrap.axis_guide_visibility_config(),
+                    &semantic_children,
+                    prepared.child_index(),
+                ),
             ),
             child_plot_area,
             eval_ctx,
@@ -1066,7 +1231,6 @@ pub(crate) async fn measure_wrap_concat_coord_system(
             shape: grid_shape,
         },
         fallback_content_size: Size2D::new(plot_width, plot_height),
-        axis_guide_visibility: wrap.axis_guide_visibility_config(),
     }))
 }
 
@@ -1181,6 +1345,7 @@ fn scalar_to_columns(value: ScalarValue, label: &str) -> Result<usize, AvengerCh
     Ok(columns as usize)
 }
 
+#[cfg(test)]
 pub(crate) fn grid_concat_sharing_levels(
     child_index: usize,
     key: Option<&str>,
@@ -1188,15 +1353,33 @@ pub(crate) fn grid_concat_sharing_levels(
     slots: &GridGuideSharingSlots,
     axis_guide_visibility: AxisGuideVisibilityConfig,
 ) -> Vec<ChildFrameSharingLevel> {
+    grid_concat_sharing_levels_with_axis_configs(
+        child_index,
+        key,
+        placement,
+        slots,
+        GridAxisGuideVisibilityConfig::same(axis_guide_visibility),
+    )
+}
+
+fn grid_concat_sharing_levels_with_axis_configs(
+    child_index: usize,
+    key: Option<&str>,
+    placement: GridPlacementConfig,
+    slots: &GridGuideSharingSlots,
+    axis_guide_visibility: GridAxisGuideVisibilityConfig,
+) -> Vec<ChildFrameSharingLevel> {
     let row_index = slots.row_slot_index(placement.column, placement.row);
     let row_count = slots.row_slot_count(placement.column);
     let column_index = slots.column_slot_index(placement.row, placement.column);
     let column_count = slots.column_slot_count(placement.row);
     vec![
         ChildFrameSharingLevel::grid_concat_row(child_index, key, row_index, row_count)
-            .with_axis_guide_visibility(axis_guide_visibility),
+            .with_axis_guide_visibility(axis_guide_visibility.for_axis(CoordinationAxis::Vertical)),
         ChildFrameSharingLevel::grid_concat_column(column_index, column_count)
-            .with_axis_guide_visibility(axis_guide_visibility),
+            .with_axis_guide_visibility(
+                axis_guide_visibility.for_axis(CoordinationAxis::Horizontal),
+            ),
     ]
 }
 
@@ -1433,7 +1616,7 @@ fn container_point_geometry(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{collections::HashMap, sync::Arc};
 
     use avenger_scenegraph::marks::{mark::SceneMark, symbol::SceneSymbolMark};
     use datafusion::{
@@ -1469,7 +1652,8 @@ mod tests {
         zerod::ZeroDCoord,
     };
     use avenger_chart_core::{
-        ChartEventBinding, ChartEventType, CoordinationAxis, CoordinationScope,
+        AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, ChartEventBinding, ChartEventType,
+        CoordinationAxis, CoordinationScope, DomainCoordination,
     };
 
     async fn measurement_for_plot(
@@ -1921,6 +2105,114 @@ mod tests {
         assert_eq!(bottom_middle[0].count, 1);
         assert_eq!(bottom_middle[1].index, 0);
         assert_eq!(bottom_middle[1].count, 1);
+    }
+
+    fn semantic_child_domains<'a>(
+        domains: &'a [HashMap<String, DomainCoordination>],
+    ) -> Vec<GridSemanticChild<'a>> {
+        domains
+            .iter()
+            .enumerate()
+            .map(|(slot_index, domain)| GridSemanticChild {
+                child_index: slot_index,
+                placement: GridPlacementConfig {
+                    row: slot_index / 2,
+                    column: slot_index % 2,
+                    row_span: 1,
+                    column_span: 1,
+                },
+                channel_domain_coordinations: domain,
+            })
+            .collect()
+    }
+
+    fn named_domain(group: &str) -> DomainCoordination {
+        DomainCoordination::named(CoordinationScope::Shared, group).unwrap()
+    }
+
+    #[test]
+    fn semantic_axis_visibility_compacts_equivalent_domain_group_strips() {
+        let domains = vec![
+            HashMap::from([
+                ("x".to_string(), named_domain("a")),
+                ("y".to_string(), named_domain("a")),
+            ]),
+            HashMap::from([
+                ("x".to_string(), named_domain("b")),
+                ("y".to_string(), named_domain("a")),
+            ]),
+            HashMap::from([
+                ("x".to_string(), named_domain("a")),
+                ("y".to_string(), named_domain("b")),
+            ]),
+            HashMap::from([
+                ("x".to_string(), named_domain("b")),
+                ("y".to_string(), named_domain("b")),
+            ]),
+        ];
+        let semantic_children = semantic_child_domains(&domains);
+        let config = semantic_axis_guide_visibility_for_child(
+            AxisGuideVisibilityConfig::same(
+                AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups,
+            ),
+            &semantic_children,
+            0,
+        );
+
+        assert_eq!(
+            config.vertical.labels,
+            AxisGuideVisibilityPolicy::OuterEdges
+        );
+        assert_eq!(config.vertical.title, AxisGuideVisibilityPolicy::OuterEdges);
+        assert_eq!(
+            config.horizontal.labels,
+            AxisGuideVisibilityPolicy::OuterEdges
+        );
+        assert_eq!(
+            config.horizontal.title,
+            AxisGuideVisibilityPolicy::OuterEdges
+        );
+    }
+
+    #[test]
+    fn semantic_axis_visibility_keeps_incompatible_or_free_strips_visible() {
+        let domains = vec![
+            HashMap::from([
+                (
+                    "x".to_string(),
+                    DomainCoordination::named(CoordinationScope::Free, "a").unwrap(),
+                ),
+                ("y".to_string(), named_domain("a")),
+            ]),
+            HashMap::from([
+                ("x".to_string(), named_domain("b")),
+                ("y".to_string(), named_domain("a")),
+            ]),
+            HashMap::from([
+                ("x".to_string(), named_domain("different")),
+                ("y".to_string(), named_domain("b")),
+            ]),
+            HashMap::from([("y".to_string(), named_domain("b"))]),
+        ];
+        let semantic_children = semantic_child_domains(&domains);
+        let config = semantic_axis_guide_visibility_for_child(
+            AxisGuideVisibilityConfig::same(
+                AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups,
+            ),
+            &semantic_children,
+            0,
+        );
+
+        assert_eq!(config.vertical.labels, AxisGuideVisibilityPolicy::All);
+        assert_eq!(config.vertical.title, AxisGuideVisibilityPolicy::All);
+        assert_eq!(
+            config.horizontal.labels,
+            AxisGuideVisibilityPolicy::OuterEdges
+        );
+        assert_eq!(
+            config.horizontal.title,
+            AxisGuideVisibilityPolicy::OuterEdges
+        );
     }
 
     #[tokio::test]
