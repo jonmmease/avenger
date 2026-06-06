@@ -1283,7 +1283,9 @@ impl EvaluationContext {
         level: ChildFrameSharingLevel,
     ) -> Self {
         let mut child_frame_container_path = self.child_frame_container_path.clone();
-        child_frame_container_path.push(level.segment.clone());
+        if let Some(segment) = level.segment.clone() {
+            child_frame_container_path.push(segment);
+        }
         Self {
             core: self.core.clone(),
             facet_tree: self.facet_tree.clone(),

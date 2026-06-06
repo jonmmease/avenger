@@ -132,7 +132,7 @@ pub(crate) struct ChildFrameSharingLevel {
     pub(crate) axis: CoordinationAxis,
     pub(crate) index: usize,
     pub(crate) count: usize,
-    pub(crate) segment: ContainerPathSegment,
+    pub(crate) segment: Option<ContainerPathSegment>,
 }
 
 impl ChildFrameSharingLevel {
@@ -141,7 +141,7 @@ impl ChildFrameSharingLevel {
             axis: CoordinationAxis::Horizontal,
             index,
             count,
-            segment: ContainerPathSegment::concat_child(index, key),
+            segment: Some(ContainerPathSegment::concat_child(index, key)),
         }
     }
 
@@ -150,16 +150,30 @@ impl ChildFrameSharingLevel {
             axis: CoordinationAxis::Vertical,
             index,
             count,
-            segment: ContainerPathSegment::concat_child(index, key),
+            segment: Some(ContainerPathSegment::concat_child(index, key)),
         }
     }
 
-    pub(crate) fn grid_concat_child(index: usize, count: usize, key: Option<&str>) -> Self {
+    pub(crate) fn grid_concat_row(
+        child_index: usize,
+        key: Option<&str>,
+        row_index: usize,
+        row_count: usize,
+    ) -> Self {
         Self {
-            axis: CoordinationAxis::Positioned,
-            index,
-            count,
-            segment: ContainerPathSegment::concat_child(index, key),
+            axis: CoordinationAxis::Vertical,
+            index: row_index,
+            count: row_count,
+            segment: Some(ContainerPathSegment::concat_child(child_index, key)),
+        }
+    }
+
+    pub(crate) fn grid_concat_column(column_index: usize, column_count: usize) -> Self {
+        Self {
+            axis: CoordinationAxis::Horizontal,
+            index: column_index,
+            count: column_count,
+            segment: None,
         }
     }
 
@@ -174,7 +188,9 @@ impl ChildFrameSharingLevel {
             axis: CoordinationAxis::Positioned,
             index,
             count,
-            segment: ContainerPathSegment::positioned_subplot(mark_index, row_index, key),
+            segment: Some(ContainerPathSegment::positioned_subplot(
+                mark_index, row_index, key,
+            )),
         }
     }
 
@@ -189,7 +205,9 @@ impl ChildFrameSharingLevel {
             axis: CoordinationAxis::Positioned,
             index,
             count,
-            segment: ContainerPathSegment::positioned_partition(mark_index, value, key),
+            segment: Some(ContainerPathSegment::positioned_partition(
+                mark_index, value, key,
+            )),
         }
     }
 }
@@ -212,7 +230,7 @@ impl ChildFrameSharingPath {
     pub(crate) fn container_path(&self) -> Vec<ContainerPathSegment> {
         self.levels
             .iter()
-            .map(|level| level.segment.clone())
+            .filter_map(|level| level.segment.clone())
             .collect()
     }
 
@@ -312,6 +330,31 @@ mod tests {
                 ContainerPathSegment::concat_child(0, Some("left")),
                 ContainerPathSegment::concat_child(1, Some("bottom")),
             ]
+        );
+    }
+
+    #[test]
+    fn sharing_path_tracks_grid_row_and_column_with_single_container_segment() {
+        let path = ChildFrameSharingPath::root()
+            .appended(ChildFrameSharingLevel::grid_concat_row(
+                5,
+                Some("cell"),
+                1,
+                3,
+            ))
+            .appended(ChildFrameSharingLevel::grid_concat_column(2, 4));
+
+        assert_eq!(path.position_indices(), vec![1, 2]);
+        assert_eq!(path.level_counts(), vec![3, 4]);
+        assert_eq!(
+            path.level_axes(),
+            vec![CoordinationAxis::Vertical, CoordinationAxis::Horizontal]
+        );
+        assert_eq!(path.relevant_depth(CoordinationAxis::Vertical), 1);
+        assert_eq!(path.relevant_depth(CoordinationAxis::Horizontal), 1);
+        assert_eq!(
+            path.container_path(),
+            vec![ContainerPathSegment::concat_child(5, Some("cell"))]
         );
     }
 

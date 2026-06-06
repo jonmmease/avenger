@@ -850,6 +850,14 @@ mod tests {
                 level_axes: vec![axis],
             }
         }
+
+        fn grid(row: usize, rows: usize, column: usize, columns: usize) -> Self {
+            Self {
+                position_indices: vec![row, column],
+                level_counts: vec![rows, columns],
+                level_axes: vec![CoordinationAxis::Vertical, CoordinationAxis::Horizontal],
+            }
+        }
     }
 
     impl ChildFrameGuideSharingView for TestChildFrameView {
@@ -1127,5 +1135,61 @@ mod tests {
         )
         .expect("vconcat should project x-axis ownership");
         assert!(bottom_scope.current_position_owns());
+    }
+
+    #[test]
+    fn grid_shared_x_axis_owned_by_bottom_row_per_column() {
+        let facet_view = EmptyFacetView;
+        let top_left = TestChildFrameView::grid(0, 2, 0, 3);
+        let top_left_context = sharing_context(&facet_view, &top_left);
+        let top_left_scope = child_frame_axis_ownership_scope(
+            ChildFrameAxisOwnershipRole::Labels,
+            "x",
+            top_left_context,
+            AxisPosition::Bottom,
+            SharingLevel::GLOBAL,
+        )
+        .expect("grid should project x-axis ownership through row levels");
+        assert!(!top_left_scope.current_position_owns());
+
+        let bottom_left = TestChildFrameView::grid(1, 2, 0, 3);
+        let bottom_left_context = sharing_context(&facet_view, &bottom_left);
+        let bottom_left_scope = child_frame_axis_ownership_scope(
+            ChildFrameAxisOwnershipRole::Labels,
+            "x",
+            bottom_left_context,
+            AxisPosition::Bottom,
+            SharingLevel::GLOBAL,
+        )
+        .expect("grid should project x-axis ownership through row levels");
+        assert!(bottom_left_scope.current_position_owns());
+    }
+
+    #[test]
+    fn grid_shared_y_axis_owned_by_left_column_per_row() {
+        let facet_view = EmptyFacetView;
+        let top_left = TestChildFrameView::grid(0, 2, 0, 3);
+        let top_left_context = sharing_context(&facet_view, &top_left);
+        let top_left_scope = child_frame_axis_ownership_scope(
+            ChildFrameAxisOwnershipRole::Labels,
+            "y",
+            top_left_context,
+            AxisPosition::Left,
+            SharingLevel::GLOBAL,
+        )
+        .expect("grid should project y-axis ownership through column levels");
+        assert!(top_left_scope.current_position_owns());
+
+        let top_middle = TestChildFrameView::grid(0, 2, 1, 3);
+        let top_middle_context = sharing_context(&facet_view, &top_middle);
+        let top_middle_scope = child_frame_axis_ownership_scope(
+            ChildFrameAxisOwnershipRole::Labels,
+            "y",
+            top_middle_context,
+            AxisPosition::Left,
+            SharingLevel::GLOBAL,
+        )
+        .expect("grid should project y-axis ownership through column levels");
+        assert!(!top_middle_scope.current_position_owns());
     }
 }

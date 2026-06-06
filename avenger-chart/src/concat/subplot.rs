@@ -14,7 +14,9 @@ use avenger_chart_core::{
 };
 
 use crate::{
-    concat::{GridConcat, HConcat, VConcat, WrapConcat, concat_coord_ref},
+    concat::{
+        GridConcat, HConcat, VConcat, WrapConcat, concat_coord_ref, grid_concat_sharing_levels,
+    },
     coords::CoordinateSystemTransformCore,
     error::AvengerChartError,
     layout::BandDirection,
@@ -371,27 +373,50 @@ impl CompiledConcatSubplot {
             let mut params = self.compiled_subplot().get_default_params().clone();
             params.extend(context.eval.params.clone());
             let child_count = concat_measurement.children().len();
-            let sharing_level = match concat_measurement.band_direction() {
-                Some(BandDirection::Horizontal) => ChildFrameSharingLevel::hconcat_child(
+            let sharing_levels = match concat_measurement.band_direction() {
+                Some(BandDirection::Horizontal) => vec![ChildFrameSharingLevel::hconcat_child(
                     self.child_index(),
                     child_count,
                     self.key(),
-                ),
-                Some(BandDirection::Vertical) => ChildFrameSharingLevel::vconcat_child(
+                )],
+                Some(BandDirection::Vertical) => vec![ChildFrameSharingLevel::vconcat_child(
                     self.child_index(),
                     child_count,
                     self.key(),
-                ),
-                None => ChildFrameSharingLevel::grid_concat_child(
-                    self.child_index(),
-                    child_count,
-                    self.key(),
-                ),
+                )],
+                None => {
+                    let grid_shape = concat_measurement.grid_shape().ok_or_else(|| {
+                        AvengerChartError::InternalError(
+                            "Grid/wrap concat measurement missing grid shape".to_string(),
+                        )
+                    })?;
+                    let grid_placement = child.grid_placement.ok_or_else(|| {
+                        AvengerChartError::InternalError(format!(
+                            "Missing grid/wrap placement for child {}",
+                            self.child_index()
+                        ))
+                    })?;
+                    grid_concat_sharing_levels(
+                        self.child_index(),
+                        self.key(),
+                        grid_placement,
+                        grid_shape,
+                    )
+                }
             };
+            let mut sharing_levels = sharing_levels.into_iter();
+            let first_level = sharing_levels.next().ok_or_else(|| {
+                AvengerChartError::InternalError(
+                    "Concat subplot rendering requires a sharing level".to_string(),
+                )
+            })?;
             let mut child_eval_ctx = context
                 .eval
                 .with_params(params)
-                .with_child_frame_sharing_level_appended(sharing_level);
+                .with_child_frame_sharing_level_appended(first_level);
+            for level in sharing_levels {
+                child_eval_ctx = child_eval_ctx.with_child_frame_sharing_level_appended(level);
+            }
             let local_facet_path;
             let child_facet_path = if let Some(facet_tree) = &child.local_facet_tree {
                 child_eval_ctx = child_eval_ctx

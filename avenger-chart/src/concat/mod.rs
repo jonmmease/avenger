@@ -466,7 +466,10 @@ impl CoordinateSystemTransform for WrapConcat {
 #[derive(Clone, Debug)]
 pub(crate) enum ConcatChildPlacement {
     Band(BandChildFramePlacement),
-    Grid(ChildFramePlacementResult),
+    Grid {
+        placement: ChildFramePlacementResult,
+        shape: GridShape,
+    },
 }
 
 impl ConcatChildPlacement {
@@ -475,14 +478,21 @@ impl ConcatChildPlacement {
             Self::Band(band) => {
                 band.to_child_frame_placement_result([0.0, 0.0], fallback_content_size)
             }
-            Self::Grid(placement) => placement.clone(),
+            Self::Grid { placement, .. } => placement.clone(),
         }
     }
 
     fn band_direction(&self) -> Option<BandDirection> {
         match self {
             Self::Band(band) => Some(band.direction),
-            Self::Grid(_) => None,
+            Self::Grid { .. } => None,
+        }
+    }
+
+    fn grid_shape(&self) -> Option<GridShape> {
+        match self {
+            Self::Band(_) => None,
+            Self::Grid { shape, .. } => Some(*shape),
         }
     }
 }
@@ -517,6 +527,10 @@ impl ConcatCoordMeasurement {
 
     pub(crate) fn band_direction(&self) -> Option<BandDirection> {
         self.placement.band_direction()
+    }
+
+    pub(crate) fn grid_shape(&self) -> Option<GridShape> {
+        self.placement.grid_shape()
     }
 }
 
@@ -741,7 +755,7 @@ async fn prepare_concat_child<'a>(
 
 async fn measure_prepared_concat_child(
     prepared: &PreparedConcatChild<'_>,
-    sharing_level: ChildFrameSharingLevel,
+    sharing_levels: Vec<ChildFrameSharingLevel>,
     child_plot_area: Size2D,
     eval_ctx: &EvaluationContext,
     facet_path: &[ScalarValue],
@@ -751,7 +765,14 @@ async fn measure_prepared_concat_child(
     let runtime = ChildFrameRuntime::new();
     let child_layout_spec =
         runtime.fixed_plot_area_layout_spec(child_plot_area.width, child_plot_area.height);
-    let child_eval_ctx = runtime.eval_context(eval_ctx, sharing_level);
+    let mut sharing_levels = sharing_levels.into_iter();
+    let first_level = sharing_levels.next().ok_or_else(|| {
+        AvengerChartError::InternalError("Concat child measurement requires a sharing level".into())
+    })?;
+    let mut child_eval_ctx = runtime.eval_context(eval_ctx, first_level);
+    for level in sharing_levels {
+        child_eval_ctx = child_eval_ctx.with_child_frame_sharing_level_appended(level);
+    }
     let measurement = Box::pin(prepared.child_plot.measure(
         &child_eval_ctx,
         &child_layout_spec,
@@ -810,7 +831,7 @@ pub(crate) async fn measure_concat_coord_system(
         children.push(
             Box::pin(measure_prepared_concat_child(
                 prepared,
-                prepared.sharing_level(direction, child_count),
+                vec![prepared.sharing_level(direction, child_count)],
                 child_plot_area,
                 eval_ctx,
                 facet_path,
@@ -849,7 +870,10 @@ pub(crate) async fn measure_grid_concat_coord_system(
         .filter_map(|mark| compiled_subplot(mark.as_ref()))
         .collect::<Vec<_>>();
     let grid_shape = resolve_grid_shape(grid, &subplots)?;
-    let child_count = subplots.len();
+    let base_child_plot_area = Size2D::new(
+        plot_width / grid_shape.columns.max(1) as f32,
+        plot_height / grid_shape.rows.max(1) as f32,
+    );
 
     let mut prepared_children = Vec::with_capacity(subplots.len());
     for subplot in subplots {
@@ -870,8 +894,8 @@ pub(crate) async fn measure_grid_concat_coord_system(
             )
         })?;
         let child_plot_area = Size2D::new(
-            (plot_width / grid_shape.columns.max(1) as f32) * placement.column_span as f32,
-            (plot_height / grid_shape.rows.max(1) as f32) * placement.row_span as f32,
+            base_child_plot_area.width * placement.column_span as f32,
+            base_child_plot_area.height * placement.row_span as f32,
         );
         let facet_scoped_extents = eval_ctx
             .facet_scale_precompute_store()
@@ -882,10 +906,11 @@ pub(crate) async fn measure_grid_concat_coord_system(
         children.push(
             Box::pin(measure_prepared_concat_child(
                 prepared,
-                ChildFrameSharingLevel::grid_concat_child(
+                grid_concat_sharing_levels(
                     prepared.child_index(),
-                    child_count,
                     prepared.key(),
+                    placement,
+                    grid_shape,
                 ),
                 child_plot_area,
                 eval_ctx,
@@ -897,10 +922,13 @@ pub(crate) async fn measure_grid_concat_coord_system(
         );
     }
 
-    let placement = grid_child_frame_placement(&children, grid_shape)?;
+    let placement = grid_child_frame_placement(&children, grid_shape, base_child_plot_area)?;
     Ok(Box::new(ConcatCoordMeasurement {
         children,
-        placement: ConcatChildPlacement::Grid(placement),
+        placement: ConcatChildPlacement::Grid {
+            placement,
+            shape: grid_shape,
+        },
         fallback_content_size: Size2D::new(plot_width, plot_height),
     }))
 }
@@ -955,10 +983,16 @@ pub(crate) async fn measure_wrap_concat_coord_system(
             );
         let mut child = Box::pin(measure_prepared_concat_child(
             prepared,
-            ChildFrameSharingLevel::grid_concat_child(
+            grid_concat_sharing_levels(
                 prepared.child_index(),
-                child_count,
                 prepared.key(),
+                GridPlacementConfig {
+                    row: slot_index / columns,
+                    column: slot_index % columns,
+                    row_span: 1,
+                    column_span: 1,
+                },
+                GridShape { rows, columns },
             ),
             child_plot_area,
             eval_ctx,
@@ -976,10 +1010,14 @@ pub(crate) async fn measure_wrap_concat_coord_system(
         children.push(child);
     }
 
-    let placement = grid_child_frame_placement(&children, GridShape { rows, columns })?;
+    let placement =
+        grid_child_frame_placement(&children, GridShape { rows, columns }, child_plot_area)?;
     Ok(Box::new(ConcatCoordMeasurement {
         children,
-        placement: ConcatChildPlacement::Grid(placement),
+        placement: ConcatChildPlacement::Grid {
+            placement,
+            shape: GridShape { rows, columns },
+        },
         fallback_content_size: Size2D::new(plot_width, plot_height),
     }))
 }
@@ -1095,10 +1133,22 @@ fn scalar_to_columns(value: ScalarValue, label: &str) -> Result<usize, AvengerCh
     Ok(columns as usize)
 }
 
+pub(crate) fn grid_concat_sharing_levels(
+    child_index: usize,
+    key: Option<&str>,
+    placement: GridPlacementConfig,
+    shape: GridShape,
+) -> Vec<ChildFrameSharingLevel> {
+    vec![
+        ChildFrameSharingLevel::grid_concat_row(child_index, key, placement.row, shape.rows),
+        ChildFrameSharingLevel::grid_concat_column(placement.column, shape.columns),
+    ]
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct GridShape {
-    rows: usize,
-    columns: usize,
+pub(crate) struct GridShape {
+    pub(crate) rows: usize,
+    pub(crate) columns: usize,
 }
 
 fn resolve_grid_shape(
@@ -1161,9 +1211,10 @@ fn resolve_grid_shape(
 fn grid_child_frame_placement(
     children: &[ConcatChildMeasurement],
     shape: GridShape,
+    base_cell_size: Size2D,
 ) -> Result<ChildFramePlacementResult, AvengerChartError> {
-    let mut column_widths = vec![0.0f32; shape.columns];
-    let mut row_heights = vec![0.0f32; shape.rows];
+    let mut column_widths = vec![base_cell_size.width; shape.columns];
+    let mut row_heights = vec![base_cell_size.height; shape.rows];
     let mut column_left = vec![0.0f32; shape.columns];
     let mut column_right = vec![0.0f32; shape.columns];
     let mut row_top = vec![0.0f32; shape.rows];
@@ -1639,6 +1690,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn grid_concat_holes_preserve_track_indices() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<GridConcat>::new()
+            .rows(2)
+            .columns(3)
+            .mark(Subplot::new(zero_plot()).grid_cell(0, 0).key("top-left"))
+            .mark(
+                Subplot::new(zero_plot())
+                    .grid_cell(1, 2)
+                    .key("bottom-right"),
+            )
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 300.0, 200.0, &ctx).await?;
+        let concat = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<ConcatCoordMeasurement>()
+            .expect("GridConcat should measure as ConcatCoordMeasurement");
+
+        let placement = concat.child_frame_placement();
+        let origins = placement
+            .render_placements()
+            .iter()
+            .map(|placement| (placement.child_index, placement.origin))
+            .collect::<Vec<_>>();
+        assert_eq!(origins, vec![(0, [0.0, 0.0]), (1, [200.0, 100.0])]);
+        assert_eq!(placement.content_size, Size2D::new(300.0, 200.0));
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn grid_concat_requires_grid_cell_placement() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let result = Plot::<GridConcat>::new()
@@ -1800,6 +1884,39 @@ mod tests {
             ]
         );
         assert_eq!(placement.content_size, Size2D::new(200.0, 300.0));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn wrap_concat_trailing_holes_preserve_column_tracks() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = wrapped_zero_plot(1).columns(3).compile(&ctx).await?;
+
+        let measurement = measurement_for_plot(&compiled, 300.0, 100.0, &ctx).await?;
+        let concat = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<ConcatCoordMeasurement>()
+            .expect("WrapConcat should measure as ConcatCoordMeasurement");
+        assert_eq!(
+            concat
+                .children()
+                .iter()
+                .map(|child| child
+                    .grid_placement
+                    .map(|placement| (placement.row, placement.column)))
+                .collect::<Vec<_>>(),
+            vec![Some((0, 0))]
+        );
+
+        let placement = concat.child_frame_placement();
+        let origins = placement
+            .render_placements()
+            .iter()
+            .map(|placement| (placement.child_index, placement.origin))
+            .collect::<Vec<_>>();
+        assert_eq!(origins, vec![(0, [0.0, 0.0])]);
+        assert_eq!(placement.content_size, Size2D::new(300.0, 100.0));
         Ok(())
     }
 
