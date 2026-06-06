@@ -2,7 +2,7 @@ use crate::common::{expr_node, sanitize_output_name, validate_output_names};
 use async_trait::async_trait;
 use avenger_chart_cartesian::CartesianAxis;
 use avenger_chart_core::{
-    AvengerChartError, ChannelValue, CompiledDataTransform, DataTransform,
+    AvengerChartError, ChannelExpr, CompiledDataTransform, DataTransform,
     DataTransformCompileContext, DataTransformExecutionContext, DataTransformResult,
     DefaultLogicalExprNodeExt, DerivedScalarMap, IntoExpr, ScaleChannelValue, SerializableExpr,
     TimeContext, WeekStart, derived_scalar, eval_to_scalars, params_to_datafusion,
@@ -72,9 +72,9 @@ pub struct TimeUnit {
 }
 
 impl TimeUnit {
-    pub fn new(value: Expr) -> Self {
+    pub fn new(value: impl IntoExpr) -> Self {
         Self {
-            value,
+            value: value.into_expr(),
             maxbins: Some(lit(10_i64)),
             units: None,
             time_context: TimeContext::new(),
@@ -188,19 +188,19 @@ pub struct TimeUnitOutput {
 }
 
 impl TimeUnitOutput {
-    pub fn start(&self) -> ChannelValue {
+    pub fn start(&self) -> ChannelExpr {
         self.position_channel(&self.start_name)
     }
 
-    pub fn end(&self) -> ChannelValue {
+    pub fn end(&self) -> ChannelExpr {
         self.position_channel(&self.end_name)
     }
 
-    fn position_channel(&self, column_name: &str) -> ChannelValue {
+    fn position_channel(&self, column_name: &str) -> ChannelExpr {
         let domain_start_scalar_id = self.domain_start_scalar_id.clone();
         let domain_end_scalar_id = self.domain_end_scalar_id.clone();
         let tick_spacing_scalar_id = self.tick_spacing_scalar_id.clone();
-        ChannelValue::from(col(column_name))
+        ChannelExpr::scaled(col(column_name))
             .scale(move |scale| {
                 scale
                     .domain_interval(

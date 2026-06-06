@@ -4,7 +4,7 @@ use crate::common::{
 use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, CompiledDataTransform, DataTransform, DataTransformCompileContext,
-    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt,
+    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt, IntoExpr,
     SerializableExpr,
 };
 use datafusion::{dataframe::DataFrame, logical_expr::Expr};
@@ -35,8 +35,8 @@ impl Select {
         Self::default()
     }
 
-    pub fn expr(mut self, expr: Expr) -> Self {
-        self.exprs.push(expr);
+    pub fn expr(mut self, expr: impl IntoExpr) -> Self {
+        self.exprs.push(expr.into_expr());
         self
     }
 }

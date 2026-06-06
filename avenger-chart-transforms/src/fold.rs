@@ -2,7 +2,7 @@ use crate::common::{expr_node, validate_generated_name, validate_unique_generate
 use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, CompiledDataTransform, DataTransform, DataTransformCompileContext,
-    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt,
+    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt, IntoExpr,
     SerializableExpr,
 };
 use datafusion::{
@@ -54,8 +54,8 @@ impl Fold {
         Self::default()
     }
 
-    pub fn field(mut self, key: impl Into<String>, value: Expr) -> Self {
-        self.fields.push((key.into(), value));
+    pub fn field(mut self, key: impl Into<String>, value: impl IntoExpr) -> Self {
+        self.fields.push((key.into(), value.into_expr()));
         self
     }
 

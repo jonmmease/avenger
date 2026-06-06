@@ -3,7 +3,7 @@ use crate::common::{expr_node, sanitize_output_name, simple_column_name, validat
 use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, CompiledDataTransform, DataTransform, DataTransformCompileContext,
-    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt,
+    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt, IntoExpr,
     SerializableExpr,
 };
 use datafusion::{
@@ -65,9 +65,9 @@ enum ImputeMethod {
 }
 
 impl Impute {
-    pub fn new(field: Expr) -> Self {
+    pub fn new(field: impl IntoExpr) -> Self {
         Self {
-            field,
+            field: field.into_expr(),
             key: None,
             group_by: Vec::new(),
             method: None,
@@ -76,21 +76,23 @@ impl Impute {
         }
     }
 
-    pub fn key(mut self, expr: Expr) -> Self {
-        self.key = Some(expr);
+    pub fn key(mut self, expr: impl IntoExpr) -> Self {
+        self.key = Some(expr.into_expr());
         self
     }
 
-    pub fn group_by<I>(mut self, exprs: I) -> Self
+    pub fn group_by<I, E>(mut self, exprs: I) -> Self
     where
-        I: IntoIterator<Item = Expr>,
+        I: IntoIterator<Item = E>,
+        E: IntoExpr,
     {
-        self.group_by.extend(exprs);
+        self.group_by
+            .extend(exprs.into_iter().map(IntoExpr::into_expr));
         self
     }
 
-    pub fn value(mut self, expr: Expr) -> Self {
-        self.method = Some(ImputeMethod::Value(expr));
+    pub fn value(mut self, expr: impl IntoExpr) -> Self {
+        self.method = Some(ImputeMethod::Value(expr.into_expr()));
         self
     }
 

@@ -1,4 +1,4 @@
-use crate::{Auto, ChannelConfig, ChannelValue, Scale, ScaleSpec, Sharing};
+use crate::{Auto, ChannelConfig, ChannelExpr, ChannelValue, Scale, ScaleSpec, Sharing};
 
 /// Extension methods for channel configs that carry scale configuration.
 pub trait ScaleChannelConfig: ChannelConfig {
@@ -109,6 +109,25 @@ impl ScaleChannelValue for ChannelValue {
         F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
     {
         apply_scale_config(self, f(Scale::new()))
+    }
+
+    fn scale_with<S: ScaleSpec + Default>(
+        self,
+        f: impl Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
+    ) -> Self {
+        self.scale(move |default_scale| {
+            let typed_scale = default_scale.into_type::<S>();
+            f(typed_scale).into_auto()
+        })
+    }
+}
+
+impl ScaleChannelValue for ChannelExpr {
+    fn scale<F>(self, f: F) -> Self
+    where
+        F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
+    {
+        self.map_channel_value(|value| apply_scale_config(value, f(Scale::new())))
     }
 
     fn scale_with<S: ScaleSpec + Default>(

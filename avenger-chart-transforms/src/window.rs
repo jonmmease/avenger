@@ -2,7 +2,7 @@ use crate::common::{expr_node, validate_output_names, validate_unique_generated_
 use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, CompiledDataTransform, DataTransform, DataTransformCompileContext,
-    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt,
+    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt, IntoExpr,
     SerializableExpr,
 };
 use datafusion::{
@@ -54,11 +54,13 @@ impl Window {
         Self::default()
     }
 
-    pub fn partition_by<I>(mut self, exprs: I) -> Self
+    pub fn partition_by<I, E>(mut self, exprs: I) -> Self
     where
-        I: IntoIterator<Item = Expr>,
+        I: IntoIterator<Item = E>,
+        E: IntoExpr,
     {
-        self.partition_by.extend(exprs);
+        self.partition_by
+            .extend(exprs.into_iter().map(IntoExpr::into_expr));
         self
     }
 
@@ -70,8 +72,9 @@ impl Window {
         self
     }
 
-    pub fn expr(mut self, name: impl Into<String>, expr: Expr) -> Self {
+    pub fn expr(mut self, name: impl Into<String>, expr: impl IntoExpr) -> Self {
         let name = name.into();
+        let expr = expr.into_expr();
         if let Some((_, existing)) = self
             .exprs
             .iter_mut()

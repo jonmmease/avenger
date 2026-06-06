@@ -1,5 +1,5 @@
 use avenger_chart_core::{
-    AngleChannelConfig, ChannelConfig, ChannelValue, ColorChannelConfig, Legend,
+    AngleChannelConfig, ChannelConfig, ChannelExpr, ChannelValue, ColorChannelConfig, Legend,
     OpacityChannelConfig, ShapeChannelConfig, SizeChannelConfig, StrokeDashChannelConfig,
     StrokeWidthChannelConfig,
 };
@@ -89,6 +89,16 @@ pub trait LegendableChannelValue {
 impl LegendableChannelValue for ChannelValue {
     fn legend(self, legend_config: Legend) -> Self {
         apply_legend_config(self, legend_config)
+    }
+
+    fn no_legend(self) -> Self {
+        self.legend(Legend::new().visible(false))
+    }
+}
+
+impl LegendableChannelValue for ChannelExpr {
+    fn legend(self, legend_config: Legend) -> Self {
+        self.map_channel_value(|value| apply_legend_config(value, legend_config))
     }
 
     fn no_legend(self) -> Self {

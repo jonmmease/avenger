@@ -79,11 +79,12 @@ impl Kde {
         }
     }
 
-    pub fn group_by<I>(mut self, group_by: I) -> Self
+    pub fn group_by<I, E>(mut self, group_by: I) -> Self
     where
-        I: IntoIterator<Item = Expr>,
+        I: IntoIterator<Item = E>,
+        E: IntoExpr,
     {
-        self.group_by = group_by.into_iter().collect();
+        self.group_by = group_by.into_iter().map(IntoExpr::into_expr).collect();
         self
     }
 

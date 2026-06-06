@@ -2,7 +2,7 @@ use crate::common::expr_node;
 use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, CompiledDataTransform, DataTransform, DataTransformCompileContext,
-    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt,
+    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt, IntoExpr,
     SerializableExpr,
 };
 use datafusion::{
@@ -27,8 +27,10 @@ pub struct Filter {
 }
 
 impl Filter {
-    pub fn new(predicate: Expr) -> Self {
-        Self { predicate }
+    pub fn new(predicate: impl IntoExpr) -> Self {
+        Self {
+            predicate: predicate.into_expr(),
+        }
     }
 }
 

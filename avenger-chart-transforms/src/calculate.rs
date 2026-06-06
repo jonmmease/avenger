@@ -2,7 +2,7 @@ use crate::common::{expr_node, validate_generated_name};
 use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, CompiledDataTransform, DataTransform, DataTransformCompileContext,
-    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt,
+    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt, IntoExpr,
     SerializableExpr,
 };
 use datafusion::{dataframe::DataFrame, logical_expr::Expr};
@@ -35,8 +35,8 @@ impl Calculate {
         Self::default()
     }
 
-    pub fn expr(mut self, name: impl Into<String>, expr: Expr) -> Self {
-        self.exprs.insert(name.into(), expr);
+    pub fn expr(mut self, name: impl Into<String>, expr: impl IntoExpr) -> Self {
+        self.exprs.insert(name.into(), expr.into_expr());
         self
     }
 }

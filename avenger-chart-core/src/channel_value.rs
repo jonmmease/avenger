@@ -205,6 +205,186 @@ pub enum ChannelValue {
     },
 }
 
+/// Authoring-time handle for a data expression with default channel encoding metadata.
+///
+/// This is useful for transform output handles. When used as a transform input,
+/// only the data expression is consumed. When used as a mark encoding, the full
+/// `ChannelValue` is consumed, preserving scale, axis, legend, and sharing
+/// defaults carried by the transform output.
+#[derive(Clone, Debug)]
+pub struct ChannelExpr {
+    expr: Expr,
+    channel_value: ChannelValue,
+}
+
+impl ChannelExpr {
+    /// Create a handle from a data expression and its corresponding channel value.
+    pub fn new(expr: Expr, channel_value: ChannelValue) -> Self {
+        Self {
+            expr,
+            channel_value,
+        }
+    }
+
+    /// Create a scaled channel expression from a DataFusion expression.
+    pub fn scaled(expr: Expr) -> Self {
+        let channel_value = ChannelValue::from(expr.clone());
+        Self {
+            expr,
+            channel_value,
+        }
+    }
+
+    /// Create an unscaled channel expression from a DataFusion expression.
+    pub fn value(expr: Expr) -> Self {
+        let channel_value = ChannelValue::from(expr.clone()).no_scale();
+        Self {
+            expr,
+            channel_value,
+        }
+    }
+
+    /// Borrow the data expression represented by this handle.
+    pub fn data_expr(&self) -> &Expr {
+        &self.expr
+    }
+
+    /// Consume this handle and return only the data expression.
+    pub fn into_data_expr(self) -> Expr {
+        self.expr
+    }
+
+    /// Borrow the channel value represented by this handle.
+    pub fn channel_value(&self) -> &ChannelValue {
+        &self.channel_value
+    }
+
+    /// Check if the underlying channel value has scale configuration.
+    pub fn has_scale_config(&self) -> bool {
+        self.channel_value.has_scale_config()
+    }
+
+    /// Check if the underlying channel value has legend configuration.
+    pub fn has_legend_config(&self) -> bool {
+        self.channel_value.has_legend_config()
+    }
+
+    /// Check if the underlying channel value has axis configuration defaults.
+    pub fn has_axis_config(&self) -> bool {
+        self.channel_value.has_axis_config()
+    }
+
+    /// Get the underlying channel value's axis configuration.
+    pub fn get_axis_config(&self) -> Option<&dyn Axis> {
+        self.channel_value.get_axis_config()
+    }
+
+    /// Get the underlying channel value's scale configuration.
+    pub fn get_scale_config(&self) -> Option<&ScaleConfigSpec> {
+        self.channel_value.get_scale_config()
+    }
+
+    /// Get the underlying channel value's legend configuration.
+    pub fn get_legend_config(&self) -> Option<&Legend> {
+        self.channel_value.get_legend_config()
+    }
+
+    /// Get the underlying channel value's scale sharing mode.
+    pub fn get_share_mode(&self) -> Option<Sharing> {
+        self.channel_value.get_share_mode()
+    }
+
+    /// Get the transform scope that produced this channel expression, if any.
+    pub fn get_transform_scope(&self) -> Option<Sharing> {
+        self.channel_value.get_transform_scope()
+    }
+
+    /// Consume this handle and return the full channel value.
+    pub fn into_channel_value(self) -> ChannelValue {
+        self.channel_value
+    }
+
+    /// Update the channel metadata while preserving the data expression.
+    pub fn map_channel_value(self, f: impl FnOnce(ChannelValue) -> ChannelValue) -> Self {
+        Self {
+            expr: self.expr,
+            channel_value: f(self.channel_value),
+        }
+    }
+
+    /// Disable scaling for this channel value while preserving the data expression.
+    pub fn no_scale(self) -> Self {
+        self.map_channel_value(ChannelValue::no_scale)
+    }
+
+    /// Set the band parameter for this channel value.
+    pub fn band(self, band: f64) -> Self {
+        self.map_channel_value(|value| value.band(band))
+    }
+
+    /// Set a custom scale name for this channel value.
+    pub fn with_scale_name(self, name: impl Into<String>) -> Self {
+        self.map_channel_value(|value| value.with_scale_name(name))
+    }
+
+    /// Attach transform-scope metadata and use it as default scale sharing.
+    pub fn with_transform_scope(self, scope: Sharing) -> Self {
+        self.map_channel_value(|value| value.with_transform_scope(scope))
+    }
+
+    /// Attach default axis configuration to this channel value.
+    pub fn with_axis_config<A: Axis + 'static>(self, axis_config: A) -> Self {
+        self.map_channel_value(|value| value.with_axis_config(axis_config))
+    }
+
+    /// Attach boxed default axis configuration to this channel value.
+    pub fn with_boxed_axis_config(self, axis_config: Box<dyn Axis>) -> Self {
+        self.map_channel_value(|value| value.with_boxed_axis_config(axis_config))
+    }
+}
+
+impl From<Expr> for ChannelExpr {
+    fn from(expr: Expr) -> Self {
+        ChannelExpr::scaled(expr)
+    }
+}
+
+impl From<ChannelExpr> for ChannelValue {
+    fn from(value: ChannelExpr) -> Self {
+        value.into_channel_value()
+    }
+}
+
+impl From<&ChannelExpr> for ChannelValue {
+    fn from(value: &ChannelExpr) -> Self {
+        value.channel_value.clone()
+    }
+}
+
+impl From<ChannelExpr> for Expr {
+    fn from(value: ChannelExpr) -> Self {
+        value.into_data_expr()
+    }
+}
+
+impl From<&ChannelExpr> for Expr {
+    fn from(value: &ChannelExpr) -> Self {
+        value.expr.clone()
+    }
+}
+
+impl crate::IntoExpr for ChannelExpr {
+    fn into_expr(self) -> Expr {
+        self.into_data_expr()
+    }
+}
+
+impl crate::IntoExpr for &ChannelExpr {
+    fn into_expr(self) -> Expr {
+        self.data_expr().clone()
+    }
+}
+
 impl std::fmt::Debug for ChannelValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

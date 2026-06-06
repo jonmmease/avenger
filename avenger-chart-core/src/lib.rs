@@ -94,7 +94,7 @@ pub use channel_configs::{
 };
 pub use channel_resolution::{resolve_all_channel_refs, resolve_channel_refs};
 pub use channel_resolution_error::{ChannelResolutionError, suggest_similar_channel_name};
-pub use channel_value::{ChannelValue, ConditionalValue};
+pub use channel_value::{ChannelExpr, ChannelValue, ConditionalValue};
 pub use compiled_data_context::CompiledDataContext;
 pub use compiled_mark::{
     CompiledMark, CompiledMarkCore, default_channel_value_for_eval,

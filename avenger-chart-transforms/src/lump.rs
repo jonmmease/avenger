@@ -1,9 +1,9 @@
 use crate::common::{expr_node, sanitize_output_name, validate_output_names};
 use async_trait::async_trait;
 use avenger_chart_core::{
-    AvengerChartError, ChannelValue, CompiledDataTransform, DataTransform,
+    AvengerChartError, ChannelExpr, CompiledDataTransform, DataTransform,
     DataTransformCompileContext, DataTransformExecutionContext, DataTransformResult,
-    DefaultLogicalExprNodeExt, ScaleChannelValue, SerializableExpr, eval_to_scalars,
+    DefaultLogicalExprNodeExt, IntoExpr, ScaleChannelValue, SerializableExpr, eval_to_scalars,
     params_to_datafusion,
 };
 use datafusion::{
@@ -121,6 +121,12 @@ impl IntoTopNExpr for Expr {
     }
 }
 
+impl IntoTopNExpr for ChannelExpr {
+    fn into_top_n_expr(self) -> Expr {
+        self.into_expr()
+    }
+}
+
 macro_rules! impl_into_top_n_expr_for_int {
     ($($ty:ty),* $(,)?) => {
         $(
@@ -142,11 +148,11 @@ impl IntoTopNExpr for usize {
 }
 
 impl Lump {
-    pub fn top_n(value: Expr, n: impl IntoTopNExpr) -> Self {
+    pub fn top_n(value: impl IntoExpr, n: impl IntoTopNExpr) -> Self {
         let n = n.into_top_n_expr();
         let keep = window_value().lt_eq(n.clone());
         Self {
-            value,
+            value: value.into_expr(),
             order_by: count(lit(1)),
             order_descending: true,
             window: row_number(),
@@ -157,8 +163,8 @@ impl Lump {
         }
     }
 
-    pub fn order_by(mut self, expr: Expr) -> Self {
-        self.order_by = expr;
+    pub fn order_by(mut self, expr: impl IntoExpr) -> Self {
+        self.order_by = expr.into_expr();
         self
     }
 
@@ -172,13 +178,13 @@ impl Lump {
         self
     }
 
-    pub fn window(mut self, expr: Expr) -> Self {
-        self.window = expr;
+    pub fn window(mut self, expr: impl IntoExpr) -> Self {
+        self.window = expr.into_expr();
         self
     }
 
-    pub fn keep(mut self, expr: Expr) -> Self {
-        self.keep = expr;
+    pub fn keep(mut self, expr: impl IntoExpr) -> Self {
+        self.keep = expr.into_expr();
         self
     }
 
@@ -187,8 +193,8 @@ impl Lump {
         self
     }
 
-    pub fn other_value(mut self, value: Expr) -> Self {
-        self.other_mode = LumpOtherModeAuthoring::Value(value);
+    pub fn other_value(mut self, value: impl IntoExpr) -> Self {
+        self.other_mode = LumpOtherModeAuthoring::Value(value.into_expr());
         self
     }
 
@@ -287,9 +293,9 @@ pub struct LumpOutput {
 }
 
 impl LumpOutput {
-    pub fn value(&self) -> ChannelValue {
+    pub fn value(&self) -> ChannelExpr {
         let order_name = self.order_name.clone();
-        ChannelValue::from(col(&self.value_name))
+        ChannelExpr::scaled(col(&self.value_name))
             .scale(move |scale| scale.order_by(min(col(&order_name))).order_asc())
             .with_transform_scope(self.scope)
     }

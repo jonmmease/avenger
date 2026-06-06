@@ -3,7 +3,7 @@ use crate::common::{expr_node, simple_column_name, validate_output_names};
 use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, CompiledDataTransform, DataTransform, DataTransformCompileContext,
-    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt,
+    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt, IntoExpr,
 };
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::{Expr, JoinType, Operator, binary_expr, col, lit};
@@ -27,11 +27,13 @@ impl JoinAggregate {
         Self::default()
     }
 
-    pub fn group_by<I>(mut self, exprs: I) -> Self
+    pub fn group_by<I, E>(mut self, exprs: I) -> Self
     where
-        I: IntoIterator<Item = Expr>,
+        I: IntoIterator<Item = E>,
+        E: IntoExpr,
     {
         self.group_by.extend(exprs.into_iter().map(|expr| {
+            let expr = expr.into_expr();
             let alias = simple_column_name(&expr);
             AggregateGroupKeySpec {
                 expr: expr_node(expr, "joinaggregate group_by expression"),
@@ -41,32 +43,32 @@ impl JoinAggregate {
         self
     }
 
-    pub fn group_by_as(mut self, alias: impl Into<String>, expr: Expr) -> Self {
+    pub fn group_by_as(mut self, alias: impl Into<String>, expr: impl IntoExpr) -> Self {
         self.group_by.push(AggregateGroupKeySpec {
-            expr: expr_node(expr, "joinaggregate group_by expression"),
+            expr: expr_node(expr.into_expr(), "joinaggregate group_by expression"),
             alias: Some(alias.into()),
         });
         self
     }
 
-    pub fn sum(self, name: impl Into<String>, expr: Expr) -> Self {
-        self.measure(name, AggregateOp::Sum, Some(expr))
+    pub fn sum(self, name: impl Into<String>, expr: impl IntoExpr) -> Self {
+        self.measure(name, AggregateOp::Sum, Some(expr.into_expr()))
     }
 
     pub fn count(self, name: impl Into<String>) -> Self {
         self.measure(name, AggregateOp::Count, None)
     }
 
-    pub fn mean(self, name: impl Into<String>, expr: Expr) -> Self {
-        self.measure(name, AggregateOp::Mean, Some(expr))
+    pub fn mean(self, name: impl Into<String>, expr: impl IntoExpr) -> Self {
+        self.measure(name, AggregateOp::Mean, Some(expr.into_expr()))
     }
 
-    pub fn min(self, name: impl Into<String>, expr: Expr) -> Self {
-        self.measure(name, AggregateOp::Min, Some(expr))
+    pub fn min(self, name: impl Into<String>, expr: impl IntoExpr) -> Self {
+        self.measure(name, AggregateOp::Min, Some(expr.into_expr()))
     }
 
-    pub fn max(self, name: impl Into<String>, expr: Expr) -> Self {
-        self.measure(name, AggregateOp::Max, Some(expr))
+    pub fn max(self, name: impl Into<String>, expr: impl IntoExpr) -> Self {
+        self.measure(name, AggregateOp::Max, Some(expr.into_expr()))
     }
 
     fn measure(mut self, name: impl Into<String>, op: AggregateOp, expr: Option<Expr>) -> Self {

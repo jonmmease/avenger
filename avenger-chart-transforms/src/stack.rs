@@ -1,9 +1,9 @@
 use crate::common::{expr_node, sanitize_output_name, validate_output_names};
 use async_trait::async_trait;
 use avenger_chart_core::{
-    AvengerChartError, ChannelValue, CompiledDataTransform, DataTransform,
+    AvengerChartError, ChannelExpr, CompiledDataTransform, DataTransform,
     DataTransformCompileContext, DataTransformExecutionContext, DataTransformResult,
-    DefaultLogicalExprNodeExt, SerializableExpr,
+    DefaultLogicalExprNodeExt, IntoExpr, SerializableExpr,
 };
 use datafusion::{
     common::ScalarValue,
@@ -61,9 +61,9 @@ pub struct Stack {
 }
 
 impl Stack {
-    pub fn new(value: Expr) -> Self {
+    pub fn new(value: impl IntoExpr) -> Self {
         Self {
-            value,
+            value: value.into_expr(),
             group_by: Vec::new(),
             sort_by: Vec::new(),
             offset: StackOffset::Zero,
@@ -172,16 +172,16 @@ pub struct StackOutput {
 }
 
 impl StackOutput {
-    pub fn start(&self) -> ChannelValue {
-        ChannelValue::from(col(&self.start_name))
+    pub fn start(&self) -> ChannelExpr {
+        ChannelExpr::scaled(col(&self.start_name))
     }
 
-    pub fn end(&self) -> ChannelValue {
-        ChannelValue::from(col(&self.end_name))
+    pub fn end(&self) -> ChannelExpr {
+        ChannelExpr::scaled(col(&self.end_name))
     }
 
-    pub fn mid(&self) -> ChannelValue {
-        ChannelValue::from((col(&self.start_name) + col(&self.end_name)) / lit(2.0))
+    pub fn mid(&self) -> ChannelExpr {
+        ChannelExpr::scaled((col(&self.start_name) + col(&self.end_name)) / lit(2.0))
     }
 
     pub fn value(&self) -> Expr {

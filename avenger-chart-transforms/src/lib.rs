@@ -1707,8 +1707,14 @@ mod tests {
         let dataframe = time_dataframe(&ctx, vec![Some(14 * DAY_MS), Some(32 * DAY_MS), None]);
         let (compiled_transform, output) =
             compile_transform(TimeUnit::new(col("timestamp")).unit(TimeUnitPart::Month));
-        assert!(matches!(output.start(), ChannelValue::Scaled { .. }));
-        assert!(matches!(output.end(), ChannelValue::Scaled { .. }));
+        assert!(matches!(
+            output.start().into_channel_value(),
+            ChannelValue::Scaled { .. }
+        ));
+        assert!(matches!(
+            output.end().into_channel_value(),
+            ChannelValue::Scaled { .. }
+        ));
         let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
         let mut rows = timeunit_rows_from_batches(&batches);
         rows.sort();
@@ -1975,7 +1981,10 @@ mod tests {
 
         assert_eq!(output.index().to_string(), "custom_bin_index");
         let start = output.start();
-        assert!(matches!(start, ChannelValue::Scaled { .. }));
+        assert!(matches!(
+            start.channel_value(),
+            &ChannelValue::Scaled { .. }
+        ));
         let scale = start.get_scale_config().expect("scale config");
         let mut ids = Vec::new();
         for expr in scale.all_exprs(&SessionContext::new()) {
@@ -2647,6 +2656,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn channel_expr_transform_output_feeds_later_transform_expression() {
+        let ctx = SessionContext::new();
+        let dataframe = bin_dataframe(&ctx);
+        let (bin_transform, bin) = compile_transform(Bin::new(col("value")).maxbins(2));
+        let (calculate_transform, _) =
+            compile_transform(Calculate::new().expr("start_copy", bin.start()));
+
+        let batches =
+            transformed_batches(&ctx, dataframe, vec![bin_transform, calculate_transform]).await;
+        assert_eq!(batches.len(), 1);
+        let batch = &batches[0];
+        let starts = batch
+            .column_by_name("value_bin_start")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let copies = batch
+            .column_by_name("start_copy")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        for index in 0..batch.num_rows() {
+            assert_eq!(starts.is_null(index), copies.is_null(index));
+            if !starts.is_null(index) {
+                assert_eq!(starts.value(index), copies.value(index));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn channel_expr_transform_output_can_be_later_transform_input() {
+        let ctx = SessionContext::new();
+        let dataframe = bin_dataframe(&ctx);
+        let (bin_transform, bin) = compile_transform(Bin::new(col("value")).maxbins(2));
+        let (kde_transform, _) = compile_transform(Kde::new(bin.start()).bandwidth(1.0).steps(4));
+
+        let batches =
+            transformed_batches(&ctx, dataframe, vec![bin_transform, kde_transform]).await;
+        let row_count: usize = batches.iter().map(RecordBatch::num_rows).sum();
+        assert_eq!(row_count, 5);
+    }
+
+    #[tokio::test]
     async fn kde_default_and_custom_output_names() {
         let ctx = SessionContext::new();
         let dataframe = bin_dataframe_from_values(&ctx, vec![Some(0.0), Some(1.0), Some(2.0)]);
@@ -2871,7 +2925,10 @@ mod tests {
             .sort_by_exprs([col("series")])
             .name("value_stack");
         let (compiled_transform, output) = compile_transform(transform);
-        assert!(matches!(output.start(), ChannelValue::Scaled { .. }));
+        assert!(matches!(
+            output.start().into_channel_value(),
+            ChannelValue::Scaled { .. }
+        ));
         let result = avenger_chart_core::apply_compiled_data_transforms(
             dataframe,
             &[compiled_transform],
