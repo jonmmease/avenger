@@ -30,7 +30,9 @@ use crate::{
         CompiledPlot,
         compiled::{ChildFrameSharingLevel, compiled_subplot_payload_child_plot},
     },
-    render::{EvaluationContext, RenderContext},
+    render::{
+        EvaluatedChildFrameKind, EvaluatedChildFrameSegment, EvaluationContext, RenderContext,
+    },
     theme::Theme,
     tools::ToolCompileContext,
 };
@@ -62,6 +64,7 @@ impl SubplotContainerCoordinateSystem for HConcat {
         subplot.validate_no_facet_channels("HConcat")?;
 
         Ok(Arc::new(CompiledConcatSubplot::new(
+            ConcatContainerKind::HConcat,
             compile_subplot_payload(subplot, compiled_state, session_context).await?,
         )))
     }
@@ -84,6 +87,7 @@ impl SubplotContainerCoordinateSystem for HConcat {
             };
 
         Ok(Arc::new(CompiledConcatSubplot::new(
+            ConcatContainerKind::HConcat,
             compile_subplot_payload_with_context(
                 subplot,
                 compiled_state,
@@ -105,6 +109,7 @@ impl SubplotContainerCoordinateSystem for VConcat {
         subplot.validate_no_facet_channels("VConcat")?;
 
         Ok(Arc::new(CompiledConcatSubplot::new(
+            ConcatContainerKind::VConcat,
             compile_subplot_payload(subplot, compiled_state, session_context).await?,
         )))
     }
@@ -127,6 +132,7 @@ impl SubplotContainerCoordinateSystem for VConcat {
             };
 
         Ok(Arc::new(CompiledConcatSubplot::new(
+            ConcatContainerKind::VConcat,
             compile_subplot_payload_with_context(
                 subplot,
                 compiled_state,
@@ -148,6 +154,7 @@ impl SubplotContainerCoordinateSystem for WrapConcat {
         subplot.validate_no_facet_channels("WrapConcat")?;
 
         Ok(Arc::new(CompiledConcatSubplot::new(
+            ConcatContainerKind::WrapConcat,
             compile_subplot_payload(subplot, compiled_state, session_context).await?,
         )))
     }
@@ -170,6 +177,7 @@ impl SubplotContainerCoordinateSystem for WrapConcat {
             };
 
         Ok(Arc::new(CompiledConcatSubplot::new(
+            ConcatContainerKind::WrapConcat,
             compile_subplot_payload_with_context(
                 subplot,
                 compiled_state,
@@ -191,6 +199,7 @@ impl SubplotContainerCoordinateSystem for GridConcat {
         subplot.validate_no_facet_channels("GridConcat")?;
 
         Ok(Arc::new(CompiledConcatSubplot::new_with_grid_placement(
+            ConcatContainerKind::GridConcat,
             compile_subplot_payload(subplot, compiled_state, session_context).await?,
             GridPlacementConfig::from_subplot(subplot)?,
         )))
@@ -214,6 +223,7 @@ impl SubplotContainerCoordinateSystem for GridConcat {
             };
 
         Ok(Arc::new(CompiledConcatSubplot::new_with_grid_placement(
+            ConcatContainerKind::GridConcat,
             compile_subplot_payload_with_context(
                 subplot,
                 compiled_state,
@@ -262,26 +272,49 @@ impl GridPlacementConfig {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+enum ConcatContainerKind {
+    HConcat,
+    VConcat,
+    GridConcat,
+    WrapConcat,
+}
+
+impl ConcatContainerKind {
+    fn evaluated(self) -> EvaluatedChildFrameKind {
+        match self {
+            Self::HConcat => EvaluatedChildFrameKind::HConcat,
+            Self::VConcat => EvaluatedChildFrameKind::VConcat,
+            Self::GridConcat => EvaluatedChildFrameKind::GridConcat,
+            Self::WrapConcat => EvaluatedChildFrameKind::WrapConcat,
+        }
+    }
+}
+
 /// Compiled child-plot mark for concat coordinate systems.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledConcatSubplot {
+    kind: ConcatContainerKind,
     payload: CompiledSubplotPayload,
     grid_placement: Option<GridPlacementConfig>,
 }
 
 impl CompiledConcatSubplot {
-    pub(crate) fn new(payload: CompiledSubplotPayload) -> Self {
+    fn new(kind: ConcatContainerKind, payload: CompiledSubplotPayload) -> Self {
         Self {
+            kind,
             payload,
             grid_placement: None,
         }
     }
 
-    pub(crate) fn new_with_grid_placement(
+    fn new_with_grid_placement(
+        kind: ConcatContainerKind,
         payload: CompiledSubplotPayload,
         grid_placement: GridPlacementConfig,
     ) -> Self {
         Self {
+            kind,
             payload,
             grid_placement: Some(grid_placement),
         }
@@ -311,6 +344,10 @@ impl CompiledConcatSubplot {
         self.payload.mark_index()
     }
 
+    fn kind(&self) -> ConcatContainerKind {
+        self.kind
+    }
+
     pub(crate) fn grid_placement(&self) -> Option<GridPlacementConfig> {
         self.grid_placement
     }
@@ -337,6 +374,74 @@ impl CompiledConcatSubplot {
     ) -> Result<Option<DataFrame>, AvengerChartError> {
         self.payload
             .inherited_data_override(data, context.session_context().as_ref())
+    }
+
+    fn interaction_child_frame_segment(
+        &self,
+        concat_measurement: &crate::concat::ConcatCoordMeasurement,
+        child: &crate::concat::ConcatChildMeasurement,
+        child_count: usize,
+    ) -> Result<EvaluatedChildFrameSegment, AvengerChartError> {
+        let child_index = self.child_index();
+        let key = self.key().map(ToOwned::to_owned);
+        let label = self.label().map(ToOwned::to_owned);
+        let (row, column, row_count, column_count, row_span, column_span) =
+            match concat_measurement.band_direction() {
+                Some(BandDirection::Horizontal) => (
+                    Some(0),
+                    Some(child_index),
+                    Some(1),
+                    Some(child_count),
+                    Some(1),
+                    Some(1),
+                ),
+                Some(BandDirection::Vertical) => (
+                    Some(child_index),
+                    Some(0),
+                    Some(child_count),
+                    Some(1),
+                    Some(1),
+                    Some(1),
+                ),
+                None => {
+                    let grid_shape = concat_measurement.grid_shape().ok_or_else(|| {
+                        AvengerChartError::InternalError(
+                            "Grid/wrap concat measurement missing grid shape".to_string(),
+                        )
+                    })?;
+                    let placement = child.grid_placement.ok_or_else(|| {
+                        AvengerChartError::InternalError(format!(
+                            "Missing grid/wrap placement for child {child_index}"
+                        ))
+                    })?;
+                    (
+                        Some(placement.row),
+                        Some(placement.column),
+                        Some(grid_shape.rows),
+                        Some(grid_shape.columns),
+                        Some(placement.row_span),
+                        Some(placement.column_span),
+                    )
+                }
+            };
+        let slot_index = match (row, column, column_count) {
+            (Some(row), Some(column), Some(column_count)) => Some(row * column_count + column),
+            _ => Some(child_index),
+        };
+
+        Ok(EvaluatedChildFrameSegment {
+            kind: self.kind().evaluated(),
+            child_index,
+            key,
+            label,
+            row,
+            column,
+            row_count,
+            column_count,
+            row_span,
+            column_span,
+            slot_index,
+        })
     }
 
     pub(crate) fn render_with_context<'a>(
@@ -449,9 +554,12 @@ impl CompiledConcatSubplot {
 
             let child_scopes = std::mem::take(&mut components.interaction_scopes);
             if !child_scopes.is_empty() {
+                let child_frame_segment =
+                    self.interaction_child_frame_segment(concat_measurement, child, child_count)?;
                 let translated = child_scopes.into_iter().map(|mut scope| {
                     scope.prepend_coord_node_path(self.child_index());
                     scope.prepend_subplot_id(self.compiled_state().id.as_deref());
+                    scope.prepend_child_frame_segment(child_frame_segment.clone());
                     scope.bounds.x += render_placement.origin[0];
                     scope.bounds.y += render_placement.origin[1];
                     scope

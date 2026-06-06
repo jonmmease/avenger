@@ -802,6 +802,35 @@ pub enum InteractionScopeKind {
     Container,
 }
 
+/// Kind of child-frame container segment that owns an interaction scope.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EvaluatedChildFrameKind {
+    HConcat,
+    VConcat,
+    GridConcat,
+    WrapConcat,
+}
+
+/// Public, evaluated child-frame metadata for an interaction scope.
+///
+/// This is intentionally semantic metadata rather than an internal scene-graph
+/// mark path. It lets tools and tests reason about concat/repeat placement
+/// without relying on private child-frame scope keys.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EvaluatedChildFrameSegment {
+    pub kind: EvaluatedChildFrameKind,
+    pub child_index: usize,
+    pub key: Option<String>,
+    pub label: Option<String>,
+    pub row: Option<usize>,
+    pub column: Option<usize>,
+    pub row_count: Option<usize>,
+    pub column_count: Option<usize>,
+    pub row_span: Option<usize>,
+    pub column_span: Option<usize>,
+    pub slot_index: Option<usize>,
+}
+
 /// A measured interaction scope exported from final plot/facet layout.
 ///
 /// Bounds are in scene/canvas coordinates. Scales and the coordinate transform
@@ -824,6 +853,8 @@ pub struct EvaluatedInteractionScope {
     pub coord_node_path: Vec<usize>,
     /// Authored subplot ids for ancestor subplot marks, outermost first.
     pub subplot_id_path: Vec<String>,
+    /// Semantic child-frame path for ancestor concat-like containers.
+    pub child_frame_path: Vec<EvaluatedChildFrameSegment>,
     /// Coordinate transform used to invert local points for this scope.
     pub coord_transform: Box<dyn CoordinateSystemTransform>,
     /// Coordinate channels this scope can invert.
@@ -846,6 +877,10 @@ impl EvaluatedInteractionScope {
             return;
         };
         self.subplot_id_path.insert(0, id.to_string());
+    }
+
+    pub(crate) fn prepend_child_frame_segment(&mut self, segment: EvaluatedChildFrameSegment) {
+        self.child_frame_path.insert(0, segment);
     }
 }
 
@@ -888,6 +923,7 @@ impl std::fmt::Debug for EvaluatedInteractionScope {
             .field("logical_facet_values", &self.logical_facet_values)
             .field("coord_node_path", &self.coord_node_path)
             .field("subplot_id_path", &self.subplot_id_path)
+            .field("child_frame_path", &self.child_frame_path)
             .field("channels", &self.channels)
             .field("sharing_owner_paths", &self.sharing_owner_paths)
             .finish_non_exhaustive()

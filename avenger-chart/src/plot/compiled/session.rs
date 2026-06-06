@@ -5753,6 +5753,115 @@ mod tests {
         Ok(())
     }
 
+    fn simple_interaction_scope_child() -> Plot<Cartesian> {
+        Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y")).size(20.0))
+    }
+
+    #[tokio::test]
+    async fn grid_concat_scopes_include_grid_child_frame_metadata() -> Result<(), AvengerChartError>
+    {
+        use crate::render::{EvaluatedChildFrameKind, InteractionScopeKind};
+        let ctx = Arc::new(SessionContext::new());
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
+            .await?;
+        let compiled = Arc::new(
+            Plot::<GridConcat>::new()
+                .canvas_size(720.0, 420.0)
+                .data(df)
+                .rows(2)
+                .columns(3)
+                .mark(
+                    Subplot::new(simple_interaction_scope_child())
+                        .grid_cell(0, 2)
+                        .key("top_right")
+                        .label("Top right"),
+                )
+                .mark(
+                    Subplot::new(simple_interaction_scope_child())
+                        .grid_cell(1, 1)
+                        .key("bottom_middle")
+                        .label("Bottom middle"),
+                )
+                .compile(&ctx)
+                .await?,
+        );
+        let mut session = compiled.instantiate(ctx);
+        let evaluated = session.evaluate(EvaluationRequest::new().exact()).await?;
+
+        assert_eq!(evaluated.interaction.scopes.len(), 2);
+        let mut scopes = evaluated.interaction.scopes;
+        scopes.sort_by_key(|scope| scope.child_frame_path[0].child_index);
+        for scope in &scopes {
+            assert_eq!(scope.kind, InteractionScopeKind::Coordinate);
+            assert_eq!(scope.child_frame_path.len(), 1);
+            assert_eq!(
+                scope.child_frame_path[0].kind,
+                EvaluatedChildFrameKind::GridConcat
+            );
+            assert_eq!(scope.child_frame_path[0].row_count, Some(2));
+            assert_eq!(scope.child_frame_path[0].column_count, Some(3));
+            assert_eq!(scope.child_frame_path[0].row_span, Some(1));
+            assert_eq!(scope.child_frame_path[0].column_span, Some(1));
+        }
+        let top_right = &scopes[0].child_frame_path[0];
+        assert_eq!(top_right.key.as_deref(), Some("top_right"));
+        assert_eq!(top_right.label.as_deref(), Some("Top right"));
+        assert_eq!(top_right.row, Some(0));
+        assert_eq!(top_right.column, Some(2));
+        assert_eq!(top_right.slot_index, Some(2));
+
+        let bottom_middle = &scopes[1].child_frame_path[0];
+        assert_eq!(bottom_middle.key.as_deref(), Some("bottom_middle"));
+        assert_eq!(bottom_middle.label.as_deref(), Some("Bottom middle"));
+        assert_eq!(bottom_middle.row, Some(1));
+        assert_eq!(bottom_middle.column, Some(1));
+        assert_eq!(bottom_middle.slot_index, Some(4));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn wrap_concat_scopes_include_row_column_slot_metadata() -> Result<(), AvengerChartError>
+    {
+        use crate::render::{EvaluatedChildFrameKind, InteractionScopeKind};
+        let ctx = Arc::new(SessionContext::new());
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
+            .await?;
+        let compiled = Arc::new(
+            Plot::<WrapConcat>::new()
+                .canvas_size(720.0, 420.0)
+                .data(df)
+                .columns(2)
+                .mark(Subplot::new(simple_interaction_scope_child()).key("a"))
+                .mark(Subplot::new(simple_interaction_scope_child()).key("b"))
+                .mark(Subplot::new(simple_interaction_scope_child()).key("c"))
+                .compile(&ctx)
+                .await?,
+        );
+        let mut session = compiled.instantiate(ctx);
+        let evaluated = session.evaluate(EvaluationRequest::new().exact()).await?;
+
+        assert_eq!(evaluated.interaction.scopes.len(), 3);
+        let mut scopes = evaluated.interaction.scopes;
+        scopes.sort_by_key(|scope| scope.child_frame_path[0].child_index);
+        let expected = [("a", 0, 0, 0, 0), ("b", 1, 0, 1, 1), ("c", 2, 1, 0, 2)];
+        for (scope, (key, child_index, row, column, slot)) in scopes.iter().zip(expected) {
+            assert_eq!(scope.kind, InteractionScopeKind::Coordinate);
+            assert_eq!(scope.child_frame_path.len(), 1);
+            let segment = &scope.child_frame_path[0];
+            assert_eq!(segment.kind, EvaluatedChildFrameKind::WrapConcat);
+            assert_eq!(segment.key.as_deref(), Some(key));
+            assert_eq!(segment.child_index, child_index);
+            assert_eq!(segment.row, Some(row));
+            assert_eq!(segment.column, Some(column));
+            assert_eq!(segment.row_count, Some(2));
+            assert_eq!(segment.column_count, Some(2));
+            assert_eq!(segment.slot_index, Some(slot));
+        }
+        Ok(())
+    }
+
     #[tokio::test]
     async fn faceted_preview_refreshes_per_cell_shared_domain() -> Result<(), AvengerChartError> {
         use datafusion::arrow::datatypes::DataType;

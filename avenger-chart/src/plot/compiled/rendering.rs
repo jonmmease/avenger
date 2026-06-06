@@ -4939,6 +4939,7 @@ impl CompiledPlot {
             logical_facet_values,
             coord_node_path,
             subplot_id_path: Vec::new(),
+            child_frame_path: Vec::new(),
             coord_transform: self.coord_transform.clone(),
             channels: channels.iter().map(|channel| channel.to_string()).collect(),
             scales: channel_scales,

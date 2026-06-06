@@ -265,6 +265,7 @@ fn legend_continuous_surface_interaction_scopes(
                 logical_facet_values: Vec::new(),
                 coord_node_path: Vec::new(),
                 subplot_id_path: Vec::new(),
+                child_frame_path: Vec::new(),
                 coord_transform: Box::new(Cartesian),
                 channels: vec![surface.value_channel.clone(), surface.band_channel.clone()],
                 scales,

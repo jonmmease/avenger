@@ -4457,6 +4457,7 @@ mod tests {
             logical_facet_values: Vec::new(),
             coord_node_path: Vec::new(),
             subplot_id_path: Vec::new(),
+            child_frame_path: Vec::new(),
             coord_transform: Box::new(Cartesian),
             channels: channels.iter().map(|c| c.to_string()).collect(),
             scales: HashMap::new(),
