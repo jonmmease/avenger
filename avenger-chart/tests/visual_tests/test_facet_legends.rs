@@ -11,7 +11,7 @@ use palette::rgb::Srgba;
 /// Test 1: Row facet with Free x/y scales + Free color legend
 /// Each subplot should have its own color legend on the right side
 #[tokio::test]
-async fn test_facet_row_free_scales_with_free_color_legend() {
+async fn test_facet_row_free_domains_with_free_color_legend() {
     let ctx = SessionContext::new();
     let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
     let df = ctx
@@ -26,12 +26,12 @@ async fn test_facet_row_free_scales_with_free_color_legend() {
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
-                            c.with_scale_sharing(CoordinationScope::Free)
+                            c.with_domain_scope(CoordinationScope::Free)
                                 .scale_with::<Linear>(|s| s)
                                 .axis(|a| a.title("Sepal Length"))
                         })
                         .y_with(col("sepal_width"), |c| {
-                            c.with_scale_sharing(CoordinationScope::Free)
+                            c.with_domain_scope(CoordinationScope::Free)
                                 .scale_with::<Linear>(|s| s)
                                 .axis(|a| a.title("Sepal Width"))
                         })
@@ -58,7 +58,7 @@ async fn test_facet_row_free_scales_with_free_color_legend() {
         &ctx,
         None,
         "facet_legends",
-        "facet_row_free_scales_with_free_color_legend",
+        "facet_row_free_domains_with_free_color_legend",
     )
     .await;
 }
@@ -66,7 +66,7 @@ async fn test_facet_row_free_scales_with_free_color_legend() {
 /// Test: Row facet with Free x/y scales + Free color legend positioned on the LEFT
 /// Tests that left-positioned legends align correctly across row facets
 #[tokio::test]
-async fn test_facet_row_free_scales_with_left_color_legend() {
+async fn test_facet_row_free_domains_with_left_color_legend() {
     let ctx = SessionContext::new();
     let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
     let df = ctx
@@ -81,12 +81,12 @@ async fn test_facet_row_free_scales_with_left_color_legend() {
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
-                            c.with_scale_sharing(CoordinationScope::Free)
+                            c.with_domain_scope(CoordinationScope::Free)
                                 .scale_with::<Linear>(|s| s)
                                 .axis(|a| a.title("Sepal Length"))
                         })
                         .y_with(col("sepal_width"), |c| {
-                            c.with_scale_sharing(CoordinationScope::Free)
+                            c.with_domain_scope(CoordinationScope::Free)
                                 .scale_with::<Linear>(|s| s)
                                 .axis(|a| a.title("Sepal Width"))
                         })
@@ -113,7 +113,7 @@ async fn test_facet_row_free_scales_with_left_color_legend() {
         &ctx,
         None,
         "facet_legends",
-        "facet_row_free_scales_with_left_color_legend",
+        "facet_row_free_domains_with_left_color_legend",
     )
     .await;
 }
@@ -137,12 +137,12 @@ async fn test_facet_row_shared_scales_with_shared_color_legend() {
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
-                            c.with_scale_sharing(CoordinationScope::Shared)
+                            c.with_domain_scope(CoordinationScope::Shared)
                                 .scale_with::<Linear>(|s| s)
                                 .axis(|a| a.title("Sepal Length"))
                         })
                         .y_with(col("sepal_width"), |c| {
-                            c.with_scale_sharing(CoordinationScope::Shared)
+                            c.with_domain_scope(CoordinationScope::Shared)
                                 .scale_with::<Linear>(|s| s)
                                 .axis(|a| a.title("Sepal Width"))
                         })
@@ -192,12 +192,12 @@ async fn test_facet_row_mixed_sharing_free_color_shared_axes() {
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
-                            c.with_scale_sharing(CoordinationScope::Shared)
+                            c.with_domain_scope(CoordinationScope::Shared)
                                 .scale_with::<Linear>(|s| s)
                                 .axis(|a| a.title("Sepal Length"))
                         })
                         .y_with(col("sepal_width"), |c| {
-                            c.with_scale_sharing(CoordinationScope::Shared)
+                            c.with_domain_scope(CoordinationScope::Shared)
                                 .scale_with::<Linear>(|s| s)
                                 .axis(|a| a.title("Sepal Width"))
                         })
@@ -265,12 +265,12 @@ async fn test_facet_col_shared_color_legend() {
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
-                            c.with_scale_sharing(CoordinationScope::Shared)
+                            c.with_domain_scope(CoordinationScope::Shared)
                                 .scale_with::<Linear>(|s| s)
                                 .axis(|a| a.title("Sepal Length"))
                         })
                         .y_with(col("sepal_width"), |c| {
-                            c.with_scale_sharing(CoordinationScope::Shared)
+                            c.with_domain_scope(CoordinationScope::Shared)
                                 .scale_with::<Linear>(|s| s)
                                 .axis(|a| a.title("Sepal Width"))
                         })
@@ -538,12 +538,12 @@ async fn test_facet_row_two_rows_free_legend() {
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("column1"), |c| {
-                            c.with_scale_sharing(CoordinationScope::Free)
+                            c.with_domain_scope(CoordinationScope::Free)
                                 .scale_with::<Linear>(|s| s)
                                 .axis(|a| a.title("X"))
                         })
                         .y_with(col("column2"), |c| {
-                            c.with_scale_sharing(CoordinationScope::Free)
+                            c.with_domain_scope(CoordinationScope::Free)
                                 .scale_with::<Linear>(|s| s)
                                 .axis(|a| a.title("Y"))
                         })

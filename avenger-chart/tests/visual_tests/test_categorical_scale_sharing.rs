@@ -25,13 +25,13 @@ async fn test_nested_facet_shared_categorical_x() {
                     Rect::new()
                         .x_with(col("category"), |c| {
                             c.scale_with::<Band>(|s| s)
-                                .with_scale_sharing(CoordinationScope::Shared)
+                                .with_domain_scope(CoordinationScope::Shared)
                                 .axis(|a| a.title("Category"))
                         })
                         .x2_with(col(":x"), |c| c.band(1.0))
                         .y(0.0)
                         .y2_with(col("value"), |c| {
-                            c.with_scale_sharing(CoordinationScope::Shared)
+                            c.with_domain_scope(CoordinationScope::Shared)
                                 .axis(|a| a.title("Value"))
                         })
                         .fill("#4682b4"),
@@ -68,13 +68,13 @@ async fn test_nested_facet_shared_categorical_y() {
                 Rect::new()
                     .y_with(col("category"), |c| {
                         c.scale_with::<Band>(|s| s)
-                            .with_scale_sharing(CoordinationScope::Shared)
+                            .with_domain_scope(CoordinationScope::Shared)
                             .axis(|a| a.title("Category"))
                     })
                     .y2_with(col(":y"), |c| c.band(1.0))
                     .x(0.0)
                     .x2_with(col("value"), |c| {
-                        c.with_scale_sharing(CoordinationScope::Shared)
+                        c.with_domain_scope(CoordinationScope::Shared)
                             .axis(|a| a.title("Value"))
                     })
                     .fill("#4682b4"),
@@ -168,13 +168,13 @@ async fn test_deeply_nested_categorical_scale_sharing() {
                             Rect::new()
                                 .x_with(col("category"), |c| {
                                     c.scale_with::<Band>(|s| s)
-                                        .with_scale_sharing(CoordinationScope::Shared)
+                                        .with_domain_scope(CoordinationScope::Shared)
                                         .axis(|a| a.title("Category"))
                                 })
                                 .x2_with(col(":x"), |c| c.band(1.0))
                                 .y(0.0)
                                 .y2_with(col("value"), |c| {
-                                    c.with_scale_sharing(CoordinationScope::Shared)
+                                    c.with_domain_scope(CoordinationScope::Shared)
                                         .axis(|a| a.title("Value"))
                                 })
                                 .fill("#4682b4"),
@@ -261,13 +261,13 @@ async fn test_numeric_coded_categorical_sharing() {
                             // Explicitly configure as Band scale (categorical)
                             // This triggers the scale-driven categorical detection
                             c.scale_with::<Band>(|s| s)
-                                .with_scale_sharing(CoordinationScope::Shared)
+                                .with_domain_scope(CoordinationScope::Shared)
                                 .axis(|a| a.title("Category ID"))
                         })
                         .x2_with(col(":x"), |c| c.band(1.0))
                         .y(0.0)
                         .y2_with(col("value"), |c| {
-                            c.with_scale_sharing(CoordinationScope::Shared)
+                            c.with_domain_scope(CoordinationScope::Shared)
                                 .axis(|a| a.title("Value"))
                         })
                         .fill("#4682b4"),
@@ -306,13 +306,13 @@ async fn test_nested_facet_level1_categorical() {
                     Rect::new()
                         .x_with(col("category"), |c| {
                             c.scale_with::<Band>(|s| s)
-                                .with_scale_sharing(CoordinationScope::Level(1))
+                                .with_domain_scope(CoordinationScope::Level(1))
                                 .axis(|a| a.title("Category"))
                         })
                         .x2_with(col(":x"), |c| c.band(1.0))
                         .y(0.0)
                         .y2_with(col("value"), |c| {
-                            c.with_scale_sharing(CoordinationScope::Level(1))
+                            c.with_domain_scope(CoordinationScope::Level(1))
                                 .axis(|a| a.title("Value"))
                         })
                         .fill("#4682b4"),

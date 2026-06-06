@@ -13,13 +13,13 @@ fn make_fill_legend_symbol(
 ) -> Symbol<Cartesian> {
     Symbol::new()
         .x_with(col("x_val"), |c| {
-            c.with_scale_sharing(CoordinationScope::Shared)
+            c.with_domain_scope(CoordinationScope::Shared)
         })
         .y_with(col("y_val"), |c| {
-            c.with_scale_sharing(CoordinationScope::Shared)
+            c.with_domain_scope(CoordinationScope::Shared)
         })
         .fill_with(col("category"), move |c| {
-            c.with_scale_sharing(sharing.clone())
+            c.with_domain_scope(sharing.clone())
                 .legend(|l| l.title("Category").position(position))
         })
         .size(58.0)
@@ -79,13 +79,13 @@ async fn facet_plot_size_nested_row_col_row_mixed_sharing() {
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
                                         .x_with(col("x_val"), |c| {
-                                            c.with_scale_sharing(CoordinationScope::Shared)
+                                            c.with_domain_scope(CoordinationScope::Shared)
                                         })
                                         .y_with(col("y_val"), |c| {
-                                            c.with_scale_sharing(CoordinationScope::Free)
+                                            c.with_domain_scope(CoordinationScope::Free)
                                         })
                                         .fill_with(col("category"), |c| {
-                                            c.with_scale_sharing(CoordinationScope::Level(1))
+                                            c.with_domain_scope(CoordinationScope::Level(1))
                                         })
                                         .size(58.0),
                                 ),
@@ -127,13 +127,13 @@ async fn facet_plot_size_nested_col_row_col_empty_subplot_policy() {
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
                                         .x_with(col("x_val"), |c| {
-                                            c.with_scale_sharing(CoordinationScope::Shared)
+                                            c.with_domain_scope(CoordinationScope::Shared)
                                         })
                                         .y_with(col("y_val"), |c| {
-                                            c.with_scale_sharing(CoordinationScope::Shared)
+                                            c.with_domain_scope(CoordinationScope::Shared)
                                         })
                                         .fill_with(col("category"), |c| {
-                                            c.with_scale_sharing(CoordinationScope::Level(1))
+                                            c.with_domain_scope(CoordinationScope::Level(1))
                                         })
                                         .size(58.0),
                                 ),
@@ -177,10 +177,10 @@ async fn facet_plot_size_nested_col_col_row_numeric_domain_order() {
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
                                         .x_with(col("x_val"), |c| {
-                                            c.with_scale_sharing(CoordinationScope::Shared)
+                                            c.with_domain_scope(CoordinationScope::Shared)
                                         })
                                         .y_with(col("y_val"), |c| {
-                                            c.with_scale_sharing(CoordinationScope::Shared)
+                                            c.with_domain_scope(CoordinationScope::Shared)
                                         })
                                         .size(58.0)
                                         .fill("#4682b4"),
@@ -223,13 +223,13 @@ async fn facet_plot_size_nested_row_row_row_sparse_hierarchy() {
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
                                         .x_with(col("x_val"), |c| {
-                                            c.with_scale_sharing(CoordinationScope::Shared)
+                                            c.with_domain_scope(CoordinationScope::Shared)
                                         })
                                         .y_with(col("y_val"), |c| {
-                                            c.with_scale_sharing(CoordinationScope::Shared)
+                                            c.with_domain_scope(CoordinationScope::Shared)
                                         })
                                         .fill_with(col("category"), |c| {
-                                            c.with_scale_sharing(CoordinationScope::Level(1))
+                                            c.with_domain_scope(CoordinationScope::Level(1))
                                         })
                                         .size(58.0),
                                 ),
@@ -271,10 +271,10 @@ async fn facet_plot_size_nested_col_row_col_continuous_legend() {
                                 Plot::<Cartesian>::new().mark(
                                     Symbol::new()
                                         .x_with(col("x_val"), |c| {
-                                            c.with_scale_sharing(CoordinationScope::Shared)
+                                            c.with_domain_scope(CoordinationScope::Shared)
                                         })
                                         .y_with(col("y_val"), |c| {
-                                            c.with_scale_sharing(CoordinationScope::Shared)
+                                            c.with_domain_scope(CoordinationScope::Shared)
                                         })
                                         .fill_with(col("y_val"), |c| {
                                             c.scale_with::<Linear>(|s| s).legend(|l| {

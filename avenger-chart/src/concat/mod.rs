@@ -830,9 +830,7 @@ mod tests {
     ) -> Plot<Cartesian> {
         let symbol = if share_x {
             Symbol::new()
-                .x_with(col("x"), |c| {
-                    c.with_scale_sharing(CoordinationScope::Shared)
-                })
+                .x_with(col("x"), |c| c.with_domain_scope(CoordinationScope::Shared))
                 .y(col("y"))
         } else {
             Symbol::new().x(col("x")).y(col("y"))
@@ -845,7 +843,7 @@ mod tests {
         if share_x {
             mark.x_with(col("x"), |c| {
                 c.scale_with::<Linear>(|s| s.nice(false).zero(false))
-                    .with_scale_sharing(CoordinationScope::Shared)
+                    .with_domain_scope(CoordinationScope::Shared)
             })
         } else {
             mark.x_with(col("x"), |c| {

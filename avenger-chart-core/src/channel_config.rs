@@ -101,7 +101,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
             scale_config,
             legend_config,
             axis_config,
-            share_mode,
+            domain_coordination,
             transform_scope,
         } => {
             conditions.push((condition_node, new_branch));
@@ -111,7 +111,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
                 scale_config,
                 legend_config,
                 axis_config,
-                share_mode,
+                domain_coordination,
                 transform_scope,
             }
         }
@@ -122,7 +122,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
             axis_config,
             scale_name: _,
             band: _,
-            share_mode,
+            domain_coordination,
             transform_scope,
         } => ChannelValue::Conditional {
             conditions: vec![(condition_node, new_branch)],
@@ -130,7 +130,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
             scale_config,
             legend_config,
             axis_config,
-            share_mode,
+            domain_coordination,
             transform_scope,
         },
         ChannelValue::Value { expr } => ChannelValue::Conditional {
@@ -139,7 +139,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
             scale_config: None,
             legend_config: None,
             axis_config: None,
-            share_mode: None,
+            domain_coordination: None,
             transform_scope: None,
         },
     }
@@ -158,7 +158,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
             scale_config,
             legend_config,
             axis_config,
-            share_mode,
+            domain_coordination,
             transform_scope,
         } => {
             conditions.push((condition_node, new_branch));
@@ -168,7 +168,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
                 scale_config,
                 legend_config,
                 axis_config,
-                share_mode,
+                domain_coordination,
                 transform_scope,
             }
         }
@@ -179,7 +179,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
             axis_config,
             scale_name: _,
             band: _,
-            share_mode,
+            domain_coordination,
             transform_scope,
         } => ChannelValue::Conditional {
             conditions: vec![(condition_node, new_branch)],
@@ -187,7 +187,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
             scale_config,
             legend_config,
             axis_config,
-            share_mode,
+            domain_coordination,
             transform_scope,
         },
         ChannelValue::Value { expr } => ChannelValue::Conditional {
@@ -196,7 +196,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
             scale_config: None,
             legend_config: None,
             axis_config: None,
-            share_mode: None,
+            domain_coordination: None,
             transform_scope: None,
         },
     }

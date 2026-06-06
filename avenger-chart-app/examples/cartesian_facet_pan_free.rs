@@ -1,7 +1,7 @@
 //! Faceted Cartesian pan/zoom with **per-cell (`Free`) sharing**.
 //!
 //! A column-faceted scatter where the x and y raw-domain params are declared
-//! `CoordinationScope::Free` and each cell's scales are `free_scale()` (independent per
+//! `CoordinationScope::Free` and each cell's scales are `free_domain()` (independent per
 //! cell). Dragging with the left mouse button or scrolling inside ONE cell
 //! pans/zooms ONLY that cell: the bindings route the pointer to the cell under
 //! it, invert through that cell's scale, and write the param at the cell's own
@@ -54,13 +54,13 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .await
         .expect("build data");
 
-    // Leaf scatter: x and y scales are independent per cell (`free_scale`).
+    // Leaf scatter: x and y scales are independent per cell (`free_domain`).
     // The tool mirrors that sharing for the generated raw-domain params.
     let leaf = Plot::<Cartesian>::new()
         .mark(
             Symbol::new()
-                .x_with(col("x"), |c| c.free_scale())
-                .y_with(col("y"), |c| c.free_scale())
+                .x_with(col("x"), |c| c.free_domain())
+                .y_with(col("y"), |c| c.free_domain())
                 .fill(col("group_name"))
                 .size(80.0),
         )

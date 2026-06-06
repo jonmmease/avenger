@@ -29,7 +29,7 @@
 //!     scale_config: None,
 //!     legend_config: None,
 //!     axis_config: None,
-//!     share_mode: None,
+//!     domain_coordination: None,
 //! });
 //! channels.insert("y2".to_string(), ChannelValue::Scaled {
 //!     expr: LogicalExprNode::from_expr(col(":y") + lit(10.0)).expect("Failed to serialize expr"),  // References y channel
@@ -38,7 +38,7 @@
 //!     scale_config: None,
 //!     legend_config: None,
 //!     axis_config: None,
-//!     share_mode: None,
+//!     domain_coordination: None,
 //! });
 //!
 //! // Resolve references (function would be imported from this module)
@@ -418,7 +418,7 @@ pub fn resolve_all_channel_refs(
                     scale_config,
                     legend_config,
                     axis_config,
-                    share_mode,
+                    domain_coordination,
                     transform_scope,
                 } => {
                     let resolved_expr = resolve_channel_refs(expr.clone(), &resolved_channels, ctx);
@@ -429,7 +429,7 @@ pub fn resolve_all_channel_refs(
                         scale_config: scale_config.clone(),
                         legend_config: legend_config.clone(),
                         axis_config: axis_config.clone(),
-                        share_mode: *share_mode,
+                        domain_coordination: domain_coordination.clone(),
                         transform_scope: *transform_scope,
                     }
                 }
@@ -445,7 +445,7 @@ pub fn resolve_all_channel_refs(
                     scale_config,
                     legend_config,
                     axis_config,
-                    share_mode,
+                    domain_coordination,
                     transform_scope,
                 } => {
                     // Resolve channel references in conditions and otherwise
@@ -489,7 +489,7 @@ pub fn resolve_all_channel_refs(
                         scale_config: scale_config.clone(),
                         legend_config: legend_config.clone(),
                         axis_config: axis_config.clone(),
-                        share_mode: *share_mode,
+                        domain_coordination: domain_coordination.clone(),
                         transform_scope: *transform_scope,
                     }
                 }
@@ -521,7 +521,7 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 axis_config: None,
-                share_mode: None,
+                domain_coordination: None,
                 transform_scope: None,
             },
         );
@@ -535,7 +535,7 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 axis_config: None,
-                share_mode: None,
+                domain_coordination: None,
                 transform_scope: None,
             },
         );
@@ -568,7 +568,7 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 axis_config: None,
-                share_mode: None,
+                domain_coordination: None,
                 transform_scope: None,
             },
         );
@@ -582,7 +582,7 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 axis_config: None,
-                share_mode: None,
+                domain_coordination: None,
                 transform_scope: None,
             },
         );
@@ -596,7 +596,7 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 axis_config: None,
-                share_mode: None,
+                domain_coordination: None,
                 transform_scope: None,
             },
         );
@@ -636,7 +636,7 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 axis_config: None,
-                share_mode: None,
+                domain_coordination: None,
                 transform_scope: None,
             },
         );
@@ -665,7 +665,7 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 axis_config: None,
-                share_mode: None,
+                domain_coordination: None,
                 transform_scope: None,
             },
         );
@@ -678,7 +678,7 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 axis_config: None,
-                share_mode: None,
+                domain_coordination: None,
                 transform_scope: None,
             },
         );
@@ -714,7 +714,7 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 axis_config: None,
-                share_mode: None,
+                domain_coordination: None,
                 transform_scope: None,
             },
         );
@@ -727,7 +727,7 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 axis_config: None,
-                share_mode: None,
+                domain_coordination: None,
                 transform_scope: None,
             },
         );
@@ -764,7 +764,7 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 axis_config: None,
-                share_mode: None,
+                domain_coordination: None,
                 transform_scope: None,
             },
         );
@@ -777,7 +777,7 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 axis_config: None,
-                share_mode: None,
+                domain_coordination: None,
                 transform_scope: None,
             },
         );
@@ -791,7 +791,7 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 axis_config: None,
-                share_mode: None,
+                domain_coordination: None,
                 transform_scope: None,
             },
         );
@@ -861,7 +861,7 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 axis_config: None,
-                share_mode: None,
+                domain_coordination: None,
                 transform_scope: None,
             },
         );
@@ -875,7 +875,7 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 axis_config: None,
-                share_mode: None,
+                domain_coordination: None,
                 transform_scope: None,
             },
         );
@@ -889,7 +889,7 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 axis_config: None,
-                share_mode: None,
+                domain_coordination: None,
                 transform_scope: None,
             },
         );
@@ -903,7 +903,7 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 axis_config: None,
-                share_mode: None,
+                domain_coordination: None,
                 transform_scope: None,
             },
         );
@@ -930,7 +930,7 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 axis_config: None,
-                share_mode: None,
+                domain_coordination: None,
                 transform_scope: None,
             },
         );
@@ -943,7 +943,7 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 axis_config: None,
-                share_mode: None,
+                domain_coordination: None,
                 transform_scope: None,
             },
         );

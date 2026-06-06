@@ -19,10 +19,10 @@ fn nested_col_row_plot(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), move |c| {
-                                    c.with_scale_sharing(x_sharing.clone())
+                                    c.with_domain_scope(x_sharing.clone())
                                 })
                                 .y_with(col("sepal_width"), move |c| {
-                                    c.with_scale_sharing(y_sharing.clone())
+                                    c.with_domain_scope(y_sharing.clone())
                                 })
                                 .size(24.0)
                                 .fill("#4682b4"),
@@ -50,10 +50,10 @@ fn nested_row_col_plot(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("sepal_length"), move |c| {
-                                    c.with_scale_sharing(x_sharing.clone())
+                                    c.with_domain_scope(x_sharing.clone())
                                 })
                                 .y_with(col("sepal_width"), move |c| {
-                                    c.with_scale_sharing(y_sharing.clone())
+                                    c.with_domain_scope(y_sharing.clone())
                                 })
                                 .size(24.0)
                                 .fill("#4682b4"),
@@ -81,13 +81,13 @@ fn two_level_col_legend_plot(
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("x_val"), |c| {
-                                    c.with_scale_sharing(CoordinationScope::Shared)
+                                    c.with_domain_scope(CoordinationScope::Shared)
                                 })
                                 .y_with(col("y_val"), |c| {
-                                    c.with_scale_sharing(CoordinationScope::Shared)
+                                    c.with_domain_scope(CoordinationScope::Shared)
                                 })
                                 .fill_with(col("category"), move |c| {
-                                    c.with_scale_sharing(sharing.clone())
+                                    c.with_domain_scope(sharing.clone())
                                         .legend(|l| l.title("Category").position(position))
                                 })
                                 .size(64.0),
@@ -101,7 +101,7 @@ fn two_level_col_legend_plot(
 }
 
 #[tokio::test]
-async fn facet_plot_size_nested_col_row_free_scales() {
+async fn facet_plot_size_nested_col_row_free_domains() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;
     let plot = nested_col_row_plot(df, CoordinationScope::Free, CoordinationScope::Free);
@@ -111,7 +111,7 @@ async fn facet_plot_size_nested_col_row_free_scales() {
         &ctx,
         None,
         "facet_plot_size",
-        "facet_plot_size_nested_col_row_free_scales",
+        "facet_plot_size_nested_col_row_free_domains",
     )
     .await;
 }
@@ -165,7 +165,7 @@ async fn facet_plot_size_nested_col_row_shared_y() {
 }
 
 #[tokio::test]
-async fn facet_plot_size_nested_row_col_free_scales() {
+async fn facet_plot_size_nested_row_col_free_domains() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;
     let plot = nested_row_col_plot(df, CoordinationScope::Free, CoordinationScope::Free);
@@ -175,7 +175,7 @@ async fn facet_plot_size_nested_row_col_free_scales() {
         &ctx,
         None,
         "facet_plot_size",
-        "facet_plot_size_nested_row_col_free_scales",
+        "facet_plot_size_nested_row_col_free_domains",
     )
     .await;
 }

@@ -137,17 +137,17 @@ fn wrap_leaf_plot(x_sharing: u8, y_sharing: u8, fill_sharing: u8) -> Plot<Cartes
         .mark(
             Symbol::new()
                 .x_with(col("x"), move |c| {
-                    c.with_scale_sharing(CoordinationScope::Level(x_sharing))
+                    c.with_domain_scope(CoordinationScope::Level(x_sharing))
                         .scale_with::<Linear>(|s| s.nice(false).zero(false))
                         .axis(|a| a.title("x"))
                 })
                 .y_with(col("y"), move |c| {
-                    c.with_scale_sharing(CoordinationScope::Level(y_sharing))
+                    c.with_domain_scope(CoordinationScope::Level(y_sharing))
                         .scale_with::<Linear>(|s| s.nice(false).zero(false))
                         .axis(|a| a.title("y"))
                 })
                 .fill_with(col("group_name"), move |c| {
-                    c.with_scale_sharing(CoordinationScope::Level(fill_sharing))
+                    c.with_domain_scope(CoordinationScope::Level(fill_sharing))
                         .scale_with::<Ordinal>(|s| {
                             s.range_discrete(vec!["#5778a4", "#e49444", "#d1615d"])
                         })

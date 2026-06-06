@@ -53,8 +53,8 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .data(df)
         .mark(
             Symbol::new()
-                .x_with(col("x"), |c| c.share_scale())
-                .y_with(col("y"), |c| c.share_scale())
+                .x_with(col("x"), |c| c.share_domain())
+                .y_with(col("y"), |c| c.share_domain())
                 .fill(col("group_name"))
                 .size(90.0),
         )

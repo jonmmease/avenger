@@ -355,7 +355,7 @@ fn expand_selection_predicates_in_channels(
                 scale_config,
                 legend_config,
                 axis_config,
-                share_mode,
+                domain_coordination,
                 transform_scope,
             } => {
                 let expanded =
@@ -367,7 +367,7 @@ fn expand_selection_predicates_in_channels(
                     scale_config,
                     legend_config,
                     axis_config,
-                    share_mode,
+                    domain_coordination,
                     transform_scope,
                 }
             }
@@ -384,7 +384,7 @@ fn expand_selection_predicates_in_channels(
                 scale_config,
                 legend_config,
                 axis_config,
-                share_mode,
+                domain_coordination,
                 transform_scope,
             } => {
                 let expanded_conditions = conditions
@@ -436,7 +436,7 @@ fn expand_selection_predicates_in_channels(
                     scale_config,
                     legend_config,
                     axis_config,
-                    share_mode,
+                    domain_coordination,
                     transform_scope,
                 }
             }

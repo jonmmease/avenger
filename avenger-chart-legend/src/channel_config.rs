@@ -43,7 +43,7 @@ fn apply_legend_config(value: ChannelValue, legend_config: Legend) -> ChannelVal
             band,
             scale_config,
             axis_config,
-            share_mode,
+            domain_coordination,
             transform_scope,
             ..
         } => ChannelValue::Scaled {
@@ -53,7 +53,7 @@ fn apply_legend_config(value: ChannelValue, legend_config: Legend) -> ChannelVal
             scale_config,
             legend_config: Some(legend_config),
             axis_config,
-            share_mode,
+            domain_coordination,
             transform_scope,
         },
         ChannelValue::Conditional {
@@ -61,7 +61,7 @@ fn apply_legend_config(value: ChannelValue, legend_config: Legend) -> ChannelVal
             otherwise,
             scale_config,
             axis_config,
-            share_mode,
+            domain_coordination,
             transform_scope,
             ..
         } => ChannelValue::Conditional {
@@ -70,7 +70,7 @@ fn apply_legend_config(value: ChannelValue, legend_config: Legend) -> ChannelVal
             scale_config,
             legend_config: Some(legend_config),
             axis_config,
-            share_mode,
+            domain_coordination,
             transform_scope,
         },
         ChannelValue::Value { .. } => value,

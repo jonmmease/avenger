@@ -51,7 +51,7 @@ fn ordered_rect_mark(sharing: Option<CoordinationScope>) -> Rect<Cartesian> {
         .x_with(col("category"), move |c| {
             let c = c.scale_with::<Band>(|s| s.order_by(max(col("value"))).order_desc());
             let c = if let Some(sharing) = sharing.clone() {
-                c.with_scale_sharing(sharing)
+                c.with_domain_scope(sharing)
             } else {
                 c
             };
@@ -80,7 +80,7 @@ fn color_ordered_rect_mark(sharing: Option<CoordinationScope>) -> Rect<Cartesian
         .fill_with(col("category"), move |c| {
             let c = c.scale_with::<Ordinal>(|s| s.order_by(max(col("value"))).order_desc());
             let c = if let Some(sharing) = sharing.clone() {
-                c.with_scale_sharing(sharing)
+                c.with_domain_scope(sharing)
             } else {
                 c
             };

@@ -49,12 +49,12 @@ async fn facet_wrap_instanced_symbols_interleaved_with_chrome() {
         Symbol::new()
             .x_with(col("x"), |c| {
                 c.scale_with::<Linear>(|s| s.nice(false).zero(false))
-                    .share_scale()
+                    .share_domain()
                     .axis(|a| a.title("x").grid(true))
             })
             .y_with(col("y"), |c| {
                 c.scale_with::<Linear>(|s| s.nice(false).zero(false))
-                    .share_scale()
+                    .share_domain()
                     .axis(|a| a.title("y").grid(true))
             })
             .fill_with(col("group_name"), |c| c.legend(|l| l.title("Group")))

@@ -140,7 +140,7 @@ async fn transform_output_scale_cannot_be_shared_broader_than_transform_scope()
         .mark(Symbol::new().transform_free(
             Bin::new(col("source_value")).maxbins(3),
             |mark, bin| {
-                mark.x_with(bin.start(), |c| c.share_scale())
+                mark.x_with(bin.start(), |c| c.share_domain())
                     .y(col("source_value"))
                     .size(64.0)
             },
@@ -178,7 +178,7 @@ async fn transform_output_scale_can_be_shared_narrower_than_transform_scope()
         .mark(Symbol::new().transform_shared(
             Bin::new(col("source_value")).maxbins(3),
             |mark, bin| {
-                mark.x_with(bin.start(), |c| c.free_scale())
+                mark.x_with(bin.start(), |c| c.free_domain())
                     .y(col("source_value"))
                     .size(64.0)
             },

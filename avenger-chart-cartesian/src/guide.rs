@@ -181,7 +181,7 @@ impl CoordinateGuide for CartesianGuide {
         self.channel_sharing_levels.clear();
         for mark in compiled_marks {
             for (channel, channel_value) in mark.data_context().channels() {
-                let Some(sharing) = channel_value.get_share_mode() else {
+                let Some(sharing) = channel_value.get_domain_scope() else {
                     continue;
                 };
                 let channel = strip_trailing_numbers(channel).to_string();

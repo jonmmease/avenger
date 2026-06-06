@@ -20,11 +20,11 @@ async fn facet_row_iris_polar_scatter() {
                     Symbol::new()
                         .r_with(col("sepal_length"), |c| {
                             c.scale_with::<Linear>(|s| s)
-                                .with_scale_sharing(CoordinationScope::Shared)
+                                .with_domain_scope(CoordinationScope::Shared)
                         })
                         .theta_with(col("sepal_width"), |c| {
                             c.scale_with::<Linear>(|s| s)
-                                .with_scale_sharing(CoordinationScope::Shared)
+                                .with_domain_scope(CoordinationScope::Shared)
                         })
                         .size(36.0)
                         .fill("#cd5c5c"),

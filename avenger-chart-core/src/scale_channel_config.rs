@@ -1,4 +1,7 @@
-use crate::{Auto, ChannelConfig, ChannelExpr, ChannelValue, CoordinationScope, Scale, ScaleSpec};
+use crate::{
+    Auto, ChannelConfig, ChannelExpr, ChannelValue, CoordinationScope, DomainCoordination, Scale,
+    ScaleSpec,
+};
 
 /// Extension methods for channel configs that carry scale configuration.
 pub trait ScaleChannelConfig: ChannelConfig {
@@ -24,66 +27,43 @@ pub trait ScaleChannelConfig: ChannelConfig {
         })
     }
 
-    /// Configure how this channel's plot scale domain is shared across facets.
+    /// Configure this channel's scale-domain owner scope.
     ///
     /// This applies to data channels such as x, y, color, and size. Facet row
     /// and column channels use the same `CoordinationScope` values to configure
     /// facet slot sharing, but expose that through facet-specific
     /// `with_slot_sharing` options.
-    fn with_scale_sharing(mut self, mode: CoordinationScope) -> Self {
-        let normalized = mode.to_normalized();
-        let mut value = self.get_value().clone();
-        value = match value {
-            ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config,
-                legend_config,
-                axis_config,
-                transform_scope,
-                ..
-            } => ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config,
-                legend_config,
-                axis_config,
-                share_mode: Some(normalized),
-                transform_scope,
-            },
-            ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                scale_config,
-                legend_config,
-                axis_config,
-                transform_scope,
-                ..
-            } => ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                scale_config,
-                legend_config,
-                axis_config,
-                share_mode: Some(normalized),
-                transform_scope,
-            },
-            other => other,
-        };
+    fn with_domain_scope(mut self, mode: CoordinationScope) -> Self {
+        let value = self.get_value().clone().with_domain_scope(mode);
+        self.set_value(value);
+        self
+    }
+
+    /// Configure this channel's semantic domain group.
+    fn with_domain_group(mut self, group: impl Into<String>) -> Self {
+        let value = self.get_value().clone().with_domain_group(group);
+        self.set_value(value);
+        self
+    }
+
+    /// Configure this channel's full domain coordination target.
+    fn with_domain_coordination(mut self, coordination: DomainCoordination) -> Self {
+        let value = self
+            .get_value()
+            .clone()
+            .with_domain_coordination(coordination);
         self.set_value(value);
         self
     }
 
     /// Share this channel's plot scale domain across all facets.
-    fn share_scale(self) -> Self {
-        self.with_scale_sharing(CoordinationScope::Shared)
+    fn share_domain(self) -> Self {
+        self.with_domain_scope(CoordinationScope::Shared)
     }
 
     /// Make this channel's plot scale domain independent for each facet.
-    fn free_scale(self) -> Self {
-        self.with_scale_sharing(CoordinationScope::Free)
+    fn free_domain(self) -> Self {
+        self.with_domain_scope(CoordinationScope::Free)
     }
 }
 
@@ -150,7 +130,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             band,
             legend_config,
             axis_config,
-            share_mode,
+            domain_coordination,
             transform_scope,
             ..
         } => ChannelValue::Scaled {
@@ -160,7 +140,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             scale_config: Some(scale_config),
             legend_config,
             axis_config,
-            share_mode,
+            domain_coordination,
             transform_scope,
         },
         ChannelValue::Conditional {
@@ -168,7 +148,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             otherwise,
             legend_config,
             axis_config,
-            share_mode,
+            domain_coordination,
             transform_scope,
             ..
         } => ChannelValue::Conditional {
@@ -177,7 +157,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             scale_config: Some(scale_config),
             legend_config,
             axis_config,
-            share_mode,
+            domain_coordination,
             transform_scope,
         },
         ChannelValue::Value { .. } => value,
@@ -188,7 +168,10 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
 mod tests {
     use datafusion::prelude::{col, lit};
 
-    use crate::ChannelValue;
+    use crate::{
+        ChannelConfig, ChannelValue, CoordinationScope, DomainCoordination,
+        DomainCoordinationGroup, ScaleChannelConfig,
+    };
 
     use super::ScaleChannelValue;
 
@@ -206,5 +189,56 @@ mod tests {
 
         assert!(scale_config.domain.is_set());
         assert!(scale_config.range.is_set());
+    }
+
+    #[test]
+    fn channel_value_domain_group_preserves_scope() {
+        let cv: ChannelValue = col("x").into();
+        let cv = cv
+            .with_domain_scope(CoordinationScope::Level(1))
+            .with_domain_group("height");
+
+        let coordination = cv
+            .get_domain_coordination()
+            .expect("domain coordination metadata");
+        assert_eq!(coordination.scope, CoordinationScope::Level(1));
+        assert_eq!(
+            coordination.group,
+            DomainCoordinationGroup::Named("height".to_string())
+        );
+    }
+
+    #[test]
+    fn channel_value_domain_coordination_sets_full_target() {
+        let cv: ChannelValue = col("x").into();
+        let cv = cv.with_domain_coordination(
+            DomainCoordination::named(CoordinationScope::Shared, "height").unwrap(),
+        );
+
+        let coordination = cv
+            .get_domain_coordination()
+            .expect("domain coordination metadata");
+        assert_eq!(coordination.scope, CoordinationScope::Level(u8::MAX));
+        assert_eq!(
+            coordination.group,
+            DomainCoordinationGroup::Named("height".to_string())
+        );
+    }
+
+    #[test]
+    fn channel_config_domain_group_preserves_scope() {
+        let config = crate::GenericPositionConfig::<crate::NoGuide>::new(col("x").into())
+            .with_domain_group("height")
+            .with_domain_scope(CoordinationScope::Level(1));
+
+        let coordination = config
+            .get_value()
+            .get_domain_coordination()
+            .expect("domain coordination metadata");
+        assert_eq!(coordination.scope, CoordinationScope::Level(1));
+        assert_eq!(
+            coordination.group,
+            DomainCoordinationGroup::Named("height".to_string())
+        );
     }
 }

@@ -21,6 +21,7 @@ pub mod data_context;
 pub mod datafusion_physical_eval;
 pub mod datafusion_utils;
 pub mod derived_scalar;
+pub mod domain_coordination;
 pub mod error;
 pub mod evaluation_context;
 pub mod event;
@@ -128,6 +129,9 @@ pub use datafusion_utils::{
 pub use derived_scalar::{
     DerivedScalarMap, DerivedScalarsByChannel, collect_derived_scalar_ids, derived_scalar,
     derived_scalar_id_from_placeholder, resolve_derived_scalars,
+};
+pub use domain_coordination::{
+    DomainCoordination, DomainCoordinationGroup, validate_domain_group_id,
 };
 pub use error::AvengerChartError;
 pub use evaluation_context::{EvaluationContext, EvaluationDiagnostics};

@@ -631,7 +631,7 @@ fn scale_domain_share_modes<C: CoordinateSystem>(
                 continue;
             };
             let sharing = channel_value
-                .get_share_mode()
+                .get_domain_scope()
                 .unwrap_or(CoordinationScope::Free)
                 .to_normalized();
             result

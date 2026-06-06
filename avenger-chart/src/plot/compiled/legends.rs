@@ -1044,7 +1044,7 @@ impl CompiledPlot {
             expression: channel_value.expr(ctx),
             scale: scale.configured().clone(),
             channel_type: channel_name.to_string(), // Use channel name as type
-            sharing_level: channel_value.get_share_mode().map(|mode| mode.to_level()),
+            sharing_level: channel_value.get_domain_scope().map(|mode| mode.to_level()),
             mark_type,
             mark_index,
             related_channels,

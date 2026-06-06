@@ -97,7 +97,7 @@ mod tests {
         let ChannelValue::Conditional {
             conditions,
             otherwise,
-            share_mode,
+            domain_coordination,
             ..
         } = value
         else {
@@ -107,6 +107,6 @@ mod tests {
         assert_eq!(conditions.len(), 1);
         assert!(matches!(conditions[0].1, ConditionalValue::Value { .. }));
         assert!(matches!(otherwise, ConditionalValue::Scaled { .. }));
-        assert_eq!(share_mode, None);
+        assert_eq!(domain_coordination, None);
     }
 }

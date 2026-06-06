@@ -65,10 +65,10 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| {
-                    c.with_scale_sharing(CoordinationScope::Level(1))
+                    c.with_domain_scope(CoordinationScope::Level(1))
                 })
                 .y_with(col("y"), |c| {
-                    c.with_scale_sharing(CoordinationScope::Level(1))
+                    c.with_domain_scope(CoordinationScope::Level(1))
                 })
                 .fill(col("col_name"))
                 .size(80.0),

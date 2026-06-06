@@ -20,12 +20,12 @@ async fn facet_row_iris_hybrid_shared_x_free_y() {
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
                             c.scale_with::<Linear>(|s| s)
-                                .with_scale_sharing(CoordinationScope::Shared)
+                                .with_domain_scope(CoordinationScope::Shared)
                                 .axis(|a| a.title("Sepal Length"))
                         })
                         .y_with(col("sepal_width"), |c| {
                             c.scale_with::<Linear>(|s| s)
-                                .with_scale_sharing(CoordinationScope::Free)
+                                .with_domain_scope(CoordinationScope::Free)
                                 .axis(|a| a.title("Sepal Width"))
                         })
                         .size(28.0)

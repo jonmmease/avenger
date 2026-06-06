@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 use crate::{
-    AvengerChartError, Axis, CoordinationScope, Legend, ScaleConfigSpec, SerializableExpr,
-    channel::strip_trailing_numbers,
+    AvengerChartError, Axis, CoordinationScope, DomainCoordination, DomainCoordinationGroup,
+    Legend, ScaleConfigSpec, SerializableExpr, channel::strip_trailing_numbers,
 };
 
 trait LogicalExprNodeExt: Sized {
@@ -170,9 +170,9 @@ pub enum ChannelValue {
         /// Optional axis configuration applied when this value is used on a position channel
         #[serde(default)]
         axis_config: Option<Box<dyn Axis>>,
-        /// Share this channel's scale across facets using CoordinationScope enum
+        /// Optional scale-domain coordination metadata.
         #[serde(default)]
-        share_mode: Option<CoordinationScope>,
+        domain_coordination: Option<DomainCoordination>,
         /// Scope of the transform stage that produced this value, if any.
         #[serde(default)]
         transform_scope: Option<CoordinationScope>,
@@ -196,9 +196,9 @@ pub enum ChannelValue {
         /// Optional axis configuration applied when this value is used on a position channel
         #[serde(default)]
         axis_config: Option<Box<dyn Axis>>,
-        /// Share this channel's scale across facets using CoordinationScope enum
+        /// Optional scale-domain coordination metadata.
         #[serde(default)]
-        share_mode: Option<CoordinationScope>,
+        domain_coordination: Option<DomainCoordination>,
         /// Scope of the transform stage that produced this value, if any.
         #[serde(default)]
         transform_scope: Option<CoordinationScope>,
@@ -289,9 +289,14 @@ impl ChannelExpr {
         self.channel_value.get_legend_config()
     }
 
-    /// Get the underlying channel value's scale sharing mode.
-    pub fn get_share_mode(&self) -> Option<CoordinationScope> {
-        self.channel_value.get_share_mode()
+    /// Get the underlying channel value's explicit domain coordination scope.
+    pub fn get_domain_scope(&self) -> Option<CoordinationScope> {
+        self.channel_value.get_domain_scope()
+    }
+
+    /// Get the underlying channel value's explicit domain coordination target.
+    pub fn get_domain_coordination(&self) -> Option<&DomainCoordination> {
+        self.channel_value.get_domain_coordination()
     }
 
     /// Get the transform scope that produced this channel expression, if any.
@@ -330,6 +335,21 @@ impl ChannelExpr {
     /// Attach transform-scope metadata and use it as default scale sharing.
     pub fn with_transform_scope(self, scope: CoordinationScope) -> Self {
         self.map_channel_value(|value| value.with_transform_scope(scope))
+    }
+
+    /// Set the domain coordination owner scope for this channel value.
+    pub fn with_domain_scope(self, scope: CoordinationScope) -> Self {
+        self.map_channel_value(|value| value.with_domain_scope(scope))
+    }
+
+    /// Set the named domain coordination group for this channel value.
+    pub fn with_domain_group(self, group: impl Into<String>) -> Self {
+        self.map_channel_value(|value| value.with_domain_group(group))
+    }
+
+    /// Set the full domain coordination target for this channel value.
+    pub fn with_domain_coordination(self, coordination: DomainCoordination) -> Self {
+        self.map_channel_value(|value| value.with_domain_coordination(coordination))
     }
 
     /// Attach default axis configuration to this channel value.
@@ -474,13 +494,25 @@ impl ChannelValue {
         }
     }
 
-    /// Get per-channel facet sharing mode
-    pub fn get_share_mode(&self) -> Option<CoordinationScope> {
+    /// Get the explicit per-channel domain coordination target, if one was set.
+    pub fn get_domain_coordination(&self) -> Option<&DomainCoordination> {
         match self {
-            ChannelValue::Scaled { share_mode, .. }
-            | ChannelValue::Conditional { share_mode, .. } => *share_mode,
+            ChannelValue::Scaled {
+                domain_coordination,
+                ..
+            }
+            | ChannelValue::Conditional {
+                domain_coordination,
+                ..
+            } => domain_coordination.as_ref(),
             ChannelValue::Value { .. } => None,
         }
+    }
+
+    /// Get per-channel domain coordination scope.
+    pub fn get_domain_scope(&self) -> Option<CoordinationScope> {
+        self.get_domain_coordination()
+            .map(|coordination| coordination.scope)
     }
 
     /// Get the transform scope that produced this channel value, if any.
@@ -507,7 +539,7 @@ impl ChannelValue {
                 scale_config,
                 legend_config,
                 axis_config,
-                share_mode,
+                domain_coordination,
                 ..
             } => ChannelValue::Scaled {
                 expr,
@@ -516,7 +548,8 @@ impl ChannelValue {
                 scale_config,
                 legend_config,
                 axis_config,
-                share_mode: share_mode.or(Some(scope)),
+                domain_coordination: domain_coordination
+                    .or_else(|| Some(DomainCoordination::scale_name(scope))),
                 transform_scope: Some(scope),
             },
             ChannelValue::Conditional {
@@ -525,7 +558,7 @@ impl ChannelValue {
                 scale_config,
                 legend_config,
                 axis_config,
-                share_mode,
+                domain_coordination,
                 ..
             } => ChannelValue::Conditional {
                 conditions,
@@ -533,8 +566,149 @@ impl ChannelValue {
                 scale_config,
                 legend_config,
                 axis_config,
-                share_mode: share_mode.or(Some(scope)),
+                domain_coordination: domain_coordination
+                    .or_else(|| Some(DomainCoordination::scale_name(scope))),
                 transform_scope: Some(scope),
+            },
+            ChannelValue::Value { expr } => ChannelValue::Value { expr },
+        }
+    }
+
+    /// Set the domain coordination owner scope, preserving any explicit group.
+    pub fn with_domain_scope(self, scope: CoordinationScope) -> Self {
+        match self {
+            ChannelValue::Scaled {
+                expr,
+                scale_name,
+                band,
+                scale_config,
+                legend_config,
+                axis_config,
+                domain_coordination,
+                transform_scope,
+            } => ChannelValue::Scaled {
+                expr,
+                scale_name,
+                band,
+                scale_config,
+                legend_config,
+                axis_config,
+                domain_coordination: Some(
+                    domain_coordination.unwrap_or_default().with_scope(scope),
+                ),
+                transform_scope,
+            },
+            ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                legend_config,
+                axis_config,
+                domain_coordination,
+                transform_scope,
+            } => ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                legend_config,
+                axis_config,
+                domain_coordination: Some(
+                    domain_coordination.unwrap_or_default().with_scope(scope),
+                ),
+                transform_scope,
+            },
+            ChannelValue::Value { expr } => ChannelValue::Value { expr },
+        }
+    }
+
+    /// Set an explicit named domain coordination group, preserving any explicit scope.
+    pub fn with_domain_group(self, group: impl Into<String>) -> Self {
+        let group = DomainCoordinationGroup::Named(group.into());
+        match self {
+            ChannelValue::Scaled {
+                expr,
+                scale_name,
+                band,
+                scale_config,
+                legend_config,
+                axis_config,
+                domain_coordination,
+                transform_scope,
+            } => ChannelValue::Scaled {
+                expr,
+                scale_name,
+                band,
+                scale_config,
+                legend_config,
+                axis_config,
+                domain_coordination: Some(
+                    domain_coordination.unwrap_or_default().with_group(group),
+                ),
+                transform_scope,
+            },
+            ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                legend_config,
+                axis_config,
+                domain_coordination,
+                transform_scope,
+            } => ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                legend_config,
+                axis_config,
+                domain_coordination: Some(
+                    domain_coordination.unwrap_or_default().with_group(group),
+                ),
+                transform_scope,
+            },
+            ChannelValue::Value { expr } => ChannelValue::Value { expr },
+        }
+    }
+
+    /// Set the full domain coordination target.
+    pub fn with_domain_coordination(self, coordination: DomainCoordination) -> Self {
+        let scope = coordination.scope;
+        let coordination = coordination.with_scope(scope);
+        match self {
+            ChannelValue::Scaled {
+                expr,
+                scale_name,
+                band,
+                scale_config,
+                legend_config,
+                axis_config,
+                transform_scope,
+                ..
+            } => ChannelValue::Scaled {
+                expr,
+                scale_name,
+                band,
+                scale_config,
+                legend_config,
+                axis_config,
+                domain_coordination: Some(coordination),
+                transform_scope,
+            },
+            ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                legend_config,
+                axis_config,
+                transform_scope,
+                ..
+            } => ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                legend_config,
+                axis_config,
+                domain_coordination: Some(coordination),
+                transform_scope,
             },
             ChannelValue::Value { expr } => ChannelValue::Value { expr },
         }
@@ -558,7 +732,7 @@ impl ChannelValue {
                 band,
                 scale_config,
                 legend_config,
-                share_mode,
+                domain_coordination,
                 transform_scope,
                 ..
             } => ChannelValue::Scaled {
@@ -568,7 +742,7 @@ impl ChannelValue {
                 scale_config,
                 legend_config,
                 axis_config: Some(axis_config),
-                share_mode,
+                domain_coordination,
                 transform_scope,
             },
             ChannelValue::Value { expr } => ChannelValue::Value { expr },
@@ -577,7 +751,7 @@ impl ChannelValue {
                 otherwise,
                 scale_config,
                 legend_config,
-                share_mode,
+                domain_coordination,
                 transform_scope,
                 ..
             } => ChannelValue::Conditional {
@@ -586,7 +760,7 @@ impl ChannelValue {
                 scale_config,
                 legend_config,
                 axis_config: Some(axis_config),
-                share_mode,
+                domain_coordination,
                 transform_scope,
             },
         }
@@ -756,7 +930,7 @@ impl ChannelValue {
                 scale_config,
                 legend_config,
                 axis_config,
-                share_mode,
+                domain_coordination,
                 transform_scope,
                 ..
             } => ChannelValue::Scaled {
@@ -766,7 +940,7 @@ impl ChannelValue {
                 scale_config: scale_config.clone(),
                 legend_config: legend_config.clone(),
                 axis_config: axis_config.clone(),
-                share_mode,
+                domain_coordination,
                 transform_scope,
             },
             other => other, // No-op for identity and conditional values
@@ -783,7 +957,7 @@ impl ChannelValue {
                 scale_config,
                 legend_config,
                 axis_config,
-                share_mode,
+                domain_coordination,
                 transform_scope,
                 ..
             } => ChannelValue::Scaled {
@@ -793,7 +967,7 @@ impl ChannelValue {
                 scale_config,
                 legend_config,
                 axis_config,
-                share_mode,
+                domain_coordination,
                 transform_scope,
             },
             ChannelValue::Value { .. } => ChannelValue::Value { expr: new_expr },
@@ -806,7 +980,7 @@ impl ChannelValue {
                     scale_config: None,
                     legend_config: None,
                     axis_config: None,
-                    share_mode: None,
+                    domain_coordination: None,
                     transform_scope: None,
                 }
             }
@@ -822,7 +996,7 @@ impl ChannelValue {
                 scale_config,
                 legend_config,
                 axis_config,
-                share_mode,
+                domain_coordination,
                 transform_scope,
                 ..
             } => ChannelValue::Scaled {
@@ -832,7 +1006,7 @@ impl ChannelValue {
                 scale_config: scale_config.clone(),
                 legend_config: legend_config.clone(),
                 axis_config: axis_config.clone(),
-                share_mode,
+                domain_coordination,
                 transform_scope,
             },
             ChannelValue::Value { expr } => {
@@ -844,7 +1018,7 @@ impl ChannelValue {
                     scale_config: None,
                     legend_config: None,
                     axis_config: None,
-                    share_mode: None,
+                    domain_coordination: None,
                     transform_scope: None,
                 }
             }
@@ -925,7 +1099,7 @@ impl From<Expr> for ChannelValue {
             scale_config: None,
             legend_config: None,
             axis_config: None,
-            share_mode: None,
+            domain_coordination: None,
             transform_scope: None,
         }
     }
@@ -1275,7 +1449,7 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 axis_config: None,
-                share_mode: None,
+                domain_coordination: None,
                 transform_scope: None,
             };
             // Conditional values don't have a single column name
@@ -1338,7 +1512,7 @@ mod tests {
             scale_config: None,
             legend_config: None,
             axis_config: None,
-            share_mode: None,
+            domain_coordination: None,
             transform_scope: None,
         };
 
@@ -1403,7 +1577,7 @@ mod tests {
             scale_config: None,
             legend_config: None,
             axis_config: None,
-            share_mode: None,
+            domain_coordination: None,
             transform_scope: None,
         };
 
@@ -1472,7 +1646,7 @@ mod tests {
             scale_config: None,
             legend_config: None,
             axis_config: None,
-            share_mode: None,
+            domain_coordination: None,
             transform_scope: None,
         };
 
@@ -1526,7 +1700,7 @@ mod tests {
             scale_config: None,
             legend_config: None,
             axis_config: None,
-            share_mode: None,
+            domain_coordination: None,
             transform_scope: None,
         };
 
@@ -1563,7 +1737,7 @@ mod tests {
             scale_config: None,
             legend_config: None,
             axis_config: None,
-            share_mode: None,
+            domain_coordination: None,
             transform_scope: None,
         };
 

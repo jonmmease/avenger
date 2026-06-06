@@ -46,7 +46,7 @@ async fn facet_column_shared_y_scale() {
                     .x(col("sepal_length"))
                     .y_with(col("sepal_width"), |c| {
                         c.scale_with::<Linear>(|s| s)
-                            .with_scale_sharing(CoordinationScope::Shared)
+                            .with_domain_scope(CoordinationScope::Shared)
                             .axis(|a| a.title("Sepal Width"))
                     })
                     .size(36.0)
@@ -61,7 +61,7 @@ async fn facet_column_shared_y_scale() {
 }
 
 #[tokio::test]
-async fn facet_column_free_scales() {
+async fn facet_column_free_domains() {
     let ctx = SessionContext::new();
     let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
     let df = ctx
@@ -75,10 +75,10 @@ async fn facet_column_free_scales() {
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
                     .x_with(col("sepal_length"), |c| {
-                        c.with_scale_sharing(CoordinationScope::Free)
+                        c.with_domain_scope(CoordinationScope::Free)
                     })
                     .y_with(col("sepal_width"), |c| {
-                        c.with_scale_sharing(CoordinationScope::Free)
+                        c.with_domain_scope(CoordinationScope::Free)
                     })
                     .size(36.0)
                     .fill("#4682b4"),
@@ -88,7 +88,7 @@ async fn facet_column_free_scales() {
     );
 
     let compiled = outer.compile(&ctx).await.expect("compile outer");
-    assert_visual_match_default(&compiled, &ctx, None, "facet", "facet_col_free_scales").await;
+    assert_visual_match_default(&compiled, &ctx, None, "facet", "facet_col_free_domains").await;
 }
 
 #[tokio::test]
@@ -160,10 +160,10 @@ async fn facet_column_hybrid_sharing() {
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
                     .x_with(col("sepal_length"), |c| {
-                        c.with_scale_sharing(CoordinationScope::Free)
+                        c.with_domain_scope(CoordinationScope::Free)
                     })
                     .y_with(col("sepal_width"), |c| {
-                        c.with_scale_sharing(CoordinationScope::Shared)
+                        c.with_domain_scope(CoordinationScope::Shared)
                     })
                     .size(36.0)
                     .fill("#4682b4"),

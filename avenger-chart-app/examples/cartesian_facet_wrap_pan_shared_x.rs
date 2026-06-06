@@ -4,9 +4,9 @@
 //! *different* sharing modes:
 //!
 //! - **x** is `Shared`: one common x domain across every cell (`Shared` param +
-//!   `share_scale`).
+//!   `share_domain`).
 //! - **y** is `Free`: each cell keeps its own y domain (`Free` param +
-//!   `free_scale`).
+//!   `free_domain`).
 //!
 //! A left-drag or scroll writes both params, so the gesture pans/zooms **x for
 //! every cell together** while panning/zooming **y for only the cell under the
@@ -69,8 +69,8 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let leaf = Plot::<Cartesian>::new()
         .mark(
             Symbol::new()
-                .x_with(col("x"), |c| c.share_scale())
-                .y_with(col("y"), |c| c.free_scale())
+                .x_with(col("x"), |c| c.share_domain())
+                .y_with(col("y"), |c| c.free_domain())
                 .fill(col("group_name"))
                 .size(70.0),
         )

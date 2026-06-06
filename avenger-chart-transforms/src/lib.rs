@@ -2020,12 +2020,12 @@ mod tests {
 
         let start = output.start();
         let end = output.end();
-        assert_eq!(start.get_share_mode(), Some(CoordinationScope::Level(1)));
+        assert_eq!(start.get_domain_scope(), Some(CoordinationScope::Level(1)));
         assert_eq!(
             start.get_transform_scope(),
             Some(CoordinationScope::Level(1))
         );
-        assert_eq!(end.get_share_mode(), Some(CoordinationScope::Level(1)));
+        assert_eq!(end.get_domain_scope(), Some(CoordinationScope::Level(1)));
         assert_eq!(end.get_transform_scope(), Some(CoordinationScope::Level(1)));
     }
 
@@ -2038,7 +2038,7 @@ mod tests {
             .unwrap()
             .1;
         let value = output.value();
-        assert_eq!(value.get_share_mode(), Some(CoordinationScope::Level(1)));
+        assert_eq!(value.get_domain_scope(), Some(CoordinationScope::Level(1)));
         assert_eq!(
             value.get_transform_scope(),
             Some(CoordinationScope::Level(1))

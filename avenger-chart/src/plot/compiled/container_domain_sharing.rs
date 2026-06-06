@@ -53,7 +53,7 @@ pub(crate) fn child_frame_domain_sharing_levels_for_plot(
     let mut sharing_levels = HashMap::new();
     for mark in &plot.marks {
         for (channel, channel_value) in mark.data_context().channels() {
-            let Some(sharing) = channel_value.get_share_mode() else {
+            let Some(sharing) = channel_value.get_domain_scope() else {
                 continue;
             };
             let channel = strip_trailing_numbers(channel).to_string();

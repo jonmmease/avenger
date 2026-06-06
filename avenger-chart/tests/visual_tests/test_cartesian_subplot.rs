@@ -92,12 +92,12 @@ fn inherited_cartesian_scatter_child(
             Symbol::<Cartesian>::new()
                 .x_with(col("child_x"), |c| {
                     c.scale_with::<Linear>(|s| s.nice(false).zero(false))
-                        .with_scale_sharing(x_sharing)
+                        .with_domain_scope(x_sharing)
                         .axis(|a| a.tick_count(3).show_title(false))
                 })
                 .y_with(col("child_y"), |c| {
                     c.scale_with::<Linear>(|s| s.nice(false).zero(false))
-                        .with_scale_sharing(y_sharing)
+                        .with_domain_scope(y_sharing)
                         .axis(|a| a.tick_count(3).show_title(false))
                 })
                 .fill_with(col("species"), |c| c.no_legend())
@@ -117,12 +117,12 @@ fn inherited_polar_scatter_child(
             Symbol::<Polar>::new()
                 .r_with(col("child_radius"), |c| {
                     c.scale_with::<Linear>(|s| s.nice(true).zero(false))
-                        .with_scale_sharing(r_sharing)
+                        .with_domain_scope(r_sharing)
                         .axis(|a| a.tick_count(2).title(""))
                 })
                 .theta_with(col("child_theta"), |c| {
                     c.scale_with::<Linear>(|s| s.nice(false).zero(false))
-                        .with_scale_sharing(theta_sharing)
+                        .with_domain_scope(theta_sharing)
                         .axis(|a| a.visible(false))
                 })
                 .fill_with(col("species"), |c| c.no_legend())

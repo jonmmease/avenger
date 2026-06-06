@@ -86,10 +86,10 @@ async fn mixed_width_canvas_height_plot_nested_col_row_shared() {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("x_val"), |c| {
-                                    c.with_scale_sharing(CoordinationScope::Shared)
+                                    c.with_domain_scope(CoordinationScope::Shared)
                                 })
                                 .y_with(col("y_val"), |c| {
-                                    c.with_scale_sharing(CoordinationScope::Shared)
+                                    c.with_domain_scope(CoordinationScope::Shared)
                                 })
                                 .fill_with(col("category"), |c| c.legend(|l| l.title("Category")))
                                 .size(48.0),

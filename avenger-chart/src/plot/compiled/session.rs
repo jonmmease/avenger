@@ -5780,7 +5780,7 @@ mod tests {
                                     c.scale_with::<Linear>(move |s| {
                                         s.raw_domain(raw.clone()).nice(false).zero(false)
                                     })
-                                    .share_scale()
+                                    .share_domain()
                                 })
                                 .y(col("y"))
                                 .size(20.0),
@@ -5860,7 +5860,7 @@ mod tests {
                                     c.scale_with::<Linear>(move |s| {
                                         s.raw_domain(raw.clone()).nice(false).zero(false)
                                     })
-                                    .share_scale()
+                                    .share_domain()
                                 })
                                 .y(col("y"))
                                 .size(20.0),
@@ -6350,7 +6350,7 @@ mod tests {
     /// raw-domain param with the requested sharing. Each cell spans x in [0, 10].
     async fn build_free_pan_session(
         sharing: CoordinationScope,
-        share_scale: bool,
+        share_domain: bool,
     ) -> Result<(PlotSession, Param), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
         let x_domain = Param::raw_domain("x_domain");
@@ -6376,7 +6376,7 @@ mod tests {
                                     let c = c.scale_with::<Linear>(move |s| {
                                         s.raw_domain(raw.clone()).nice(false).zero(false)
                                     });
-                                    if share_scale { c.share_scale() } else { c }
+                                    if share_domain { c.share_domain() } else { c }
                                 })
                                 .y(col("y"))
                                 .size(20.0),
@@ -6583,7 +6583,7 @@ mod tests {
                     c.scale_with::<Linear>(move |s| {
                         s.raw_domain(raw.clone()).nice(false).zero(false)
                     })
-                    .with_scale_sharing(CoordinationScope::Level(1))
+                    .with_domain_scope(CoordinationScope::Level(1))
                 })
                 .y(col("y"))
                 .size(20.0),
@@ -6677,7 +6677,7 @@ mod tests {
                     c.scale_with::<Linear>(move |s| {
                         s.raw_domain(raw.clone()).nice(false).zero(false)
                     })
-                    .free_scale()
+                    .free_domain()
                 })
                 .y(col("y"))
                 .size(20.0),
@@ -6782,13 +6782,13 @@ mod tests {
                     c.scale_with::<Linear>(move |s| {
                         s.raw_domain(x_raw.clone()).nice(false).zero(false)
                     })
-                    .share_scale()
+                    .share_domain()
                 })
                 .y_with(col("y"), move |c| {
                     c.scale_with::<Linear>(move |s| {
                         s.raw_domain(y_raw.clone()).nice(false).zero(false)
                     })
-                    .free_scale()
+                    .free_domain()
                 })
                 .size(20.0),
         );
@@ -6883,7 +6883,7 @@ mod tests {
                         Symbol::new()
                             .x_with(col("x"), move |c| {
                                 c.scale_with::<Linear>(move |s| s.raw_domain(raw.clone()))
-                                    .share_scale()
+                                    .share_domain()
                             })
                             .y(col("y")),
                     ),

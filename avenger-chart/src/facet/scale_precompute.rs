@@ -599,7 +599,7 @@ fn marks_have_free_ordered_channel_domain_sharing(
             .channels()
             .iter()
             .any(|(channel_name, channel_value)| {
-                let Some(sharing) = channel_value.get_share_mode() else {
+                let Some(sharing) = channel_value.get_domain_scope() else {
                     return false;
                 };
                 if !SharingLevel::from(sharing).is_free() {

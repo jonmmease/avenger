@@ -180,11 +180,11 @@ async fn build_plot(
         Symbol::new()
             .x_with(col("x"), move |c| {
                 c.scale_with::<Linear>(move |s| s.raw_domain(x_raw.clone()).nice(false).zero(false))
-                    .share_scale()
+                    .share_domain()
             })
             .y_with(col("y"), move |c| {
                 c.scale_with::<Linear>(move |s| s.raw_domain(y_raw.clone()).nice(false).zero(false))
-                    .share_scale()
+                    .share_domain()
             })
             .fill(col("group_name"))
             .size(40.0),

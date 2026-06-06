@@ -46,13 +46,13 @@ fn make_fill_legend_symbol(
 ) -> Symbol<Cartesian> {
     Symbol::new()
         .x_with(col("x_val"), |c| {
-            c.with_scale_sharing(CoordinationScope::Shared)
+            c.with_domain_scope(CoordinationScope::Shared)
         })
         .y_with(col("y_val"), |c| {
-            c.with_scale_sharing(CoordinationScope::Shared)
+            c.with_domain_scope(CoordinationScope::Shared)
         })
         .fill_with(col("category"), move |c| {
-            c.with_scale_sharing(sharing.clone())
+            c.with_domain_scope(sharing.clone())
                 .legend(|l| l.title("Category").position(position))
         })
         .size(70.0)
@@ -117,19 +117,19 @@ fn make_two_level_col_plot_merged_group(df: DataFrame) -> Plot<FacetColumn> {
                         Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("x_val"), |c| {
-                                    c.with_scale_sharing(CoordinationScope::Shared)
+                                    c.with_domain_scope(CoordinationScope::Shared)
                                 })
                                 .y_with(col("y_val"), |c| {
-                                    c.with_scale_sharing(CoordinationScope::Shared)
+                                    c.with_domain_scope(CoordinationScope::Shared)
                                 })
                                 .fill_with(col("category"), |c| {
-                                    c.with_scale_sharing(CoordinationScope::Level(1))
+                                    c.with_domain_scope(CoordinationScope::Level(1))
                                         .legend(|l| {
                                             l.title("Category").position(LegendPosition::Right)
                                         })
                                 })
                                 .stroke_with(col("category"), |c| {
-                                    c.with_scale_sharing(CoordinationScope::Shared)
+                                    c.with_domain_scope(CoordinationScope::Shared)
                                 })
                                 .stroke_width(2.0)
                                 .size(70.0),

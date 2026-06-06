@@ -17,7 +17,7 @@ fn test_channel_value_get_data_type() {
         scale_config: None,
         legend_config: None,
         axis_config: None,
-        share_mode: None,
+        domain_coordination: None,
         transform_scope: None,
     };
 

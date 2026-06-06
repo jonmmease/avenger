@@ -69,7 +69,7 @@ mod serialization_tests {
             scale_config: None,
             legend_config: None,
             axis_config: None,
-            share_mode: None,
+            domain_coordination: None,
             transform_scope: None,
         };
 

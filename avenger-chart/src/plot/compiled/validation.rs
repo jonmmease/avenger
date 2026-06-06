@@ -144,7 +144,7 @@ impl CompiledPlot {
                 continue;
             };
             let expr = raw_domain.to_expr(ctx)?;
-            // An unscoped scale (no explicit `share_mode`) defaults to per-cell
+            // An unscoped scale (no explicit `domain_coordination`) defaults to per-cell
             // (`Free`, level 0), which can never be stricter than any param.
             let scale_level = scale_share_levels.get(scale_name).copied().unwrap_or(0);
             for param_name in placeholder_param_names(&expr)? {
@@ -251,7 +251,7 @@ impl CompiledPlot {
 /// Map each scale name to the broadest domain sharing level declared by the
 /// (non-facet) marks at this plot level.
 ///
-/// Channels without an explicit `share_mode` are omitted (treated as `Free`,
+/// Channels without an explicit `domain_coordination` are omitted (treated as `Free`,
 /// level 0, by the caller). Facet subplot marks are skipped because their
 /// channels live one nesting level deeper and are validated by the recursion.
 fn scale_domain_share_levels(marks: &[Arc<dyn CompiledMark>]) -> HashMap<String, u8> {
@@ -261,7 +261,7 @@ fn scale_domain_share_levels(marks: &[Arc<dyn CompiledMark>]) -> HashMap<String,
             continue;
         }
         for (channel_name, channel_value) in mark.data_context().channels() {
-            let Some(level) = channel_value.get_share_mode().map(|mode| mode.to_level()) else {
+            let Some(level) = channel_value.get_domain_scope().map(|mode| mode.to_level()) else {
                 continue;
             };
             let Some(scale_name) = channel_value.get_scale_name(channel_name) else {

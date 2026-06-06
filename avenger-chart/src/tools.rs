@@ -592,8 +592,8 @@ mod tests {
         let leaf = Plot::<Cartesian>::new()
             .mark(
                 Symbol::new()
-                    .x_with(col("x"), |c| c.share_scale())
-                    .y_with(col("y"), |c| c.free_scale()),
+                    .x_with(col("x"), |c| c.share_domain())
+                    .y_with(col("y"), |c| c.free_domain()),
             )
             .tool(PanScrollZoom::cartesian());
         let compiled = Plot::<FacetColumn>::new()
@@ -620,8 +620,8 @@ mod tests {
         let leaf = Plot::<Cartesian>::new()
             .mark(
                 Symbol::new()
-                    .x_with(col("x"), |c| c.share_scale())
-                    .y_with(col("y"), |c| c.share_scale()),
+                    .x_with(col("x"), |c| c.share_domain())
+                    .y_with(col("y"), |c| c.share_domain()),
             )
             .tool(PanScrollZoom::cartesian());
         let compiled = Plot::<FacetWrap>::new()
@@ -646,10 +646,10 @@ mod tests {
             .mark(
                 Symbol::new()
                     .x_with(col("x"), |c| {
-                        c.with_scale_sharing(CoordinationScope::Level(1))
+                        c.with_domain_scope(CoordinationScope::Level(1))
                     })
                     .y_with(col("y"), |c| {
-                        c.with_scale_sharing(CoordinationScope::Level(1))
+                        c.with_domain_scope(CoordinationScope::Level(1))
                     }),
             )
             .tool(PanScrollZoom::cartesian());
@@ -951,7 +951,7 @@ mod tests {
             .data(df)
             .mark(
                 Symbol::new()
-                    .x_with(col("x"), |c| c.share_scale())
+                    .x_with(col("x"), |c| c.share_domain())
                     .y(col("y")),
             )
             .tool(

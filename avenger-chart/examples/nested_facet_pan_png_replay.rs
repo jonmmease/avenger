@@ -185,11 +185,11 @@ async fn build_plot(
         Symbol::new()
             .x_with(col("x"), move |c| {
                 c.scale_with::<Linear>(move |s| s.raw_domain(x_raw.clone()).nice(false).zero(false))
-                    .with_scale_sharing(CoordinationScope::Level(1))
+                    .with_domain_scope(CoordinationScope::Level(1))
             })
             .y_with(col("y"), move |c| {
                 c.scale_with::<Linear>(move |s| s.raw_domain(y_raw.clone()).nice(false).zero(false))
-                    .with_scale_sharing(CoordinationScope::Level(1))
+                    .with_domain_scope(CoordinationScope::Level(1))
             })
             .fill(col("col_name"))
             .size(80.0),

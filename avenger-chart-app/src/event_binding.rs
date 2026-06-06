@@ -4862,7 +4862,7 @@ mod tests {
         // A `Shared` scale drives one root domain for all cells; a `Free` scale
         // pans only the cell under the pointer. The tool mirrors this sharing
         // for its raw-domain param.
-        let share_scale = sharing.to_level() == u8::MAX;
+        let share_domain = sharing.to_level() == u8::MAX;
         let df = ctx
             .sql(
                 "SELECT * FROM (VALUES
@@ -4882,7 +4882,7 @@ mod tests {
                             Symbol::new()
                                 .x_with(col("x"), move |c| {
                                     let c = c.scale_with::<Linear>(|s| s.nice(false).zero(false));
-                                    if share_scale { c.share_scale() } else { c }
+                                    if share_domain { c.share_domain() } else { c }
                                 })
                                 .y(col("y"))
                                 .size(20.0),
