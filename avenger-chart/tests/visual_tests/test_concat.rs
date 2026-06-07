@@ -206,6 +206,30 @@ fn grid_splom_child(x: &'static str, y: &'static str) -> Plot<Cartesian> {
     )
 }
 
+fn grid_span_child(x: &'static str, y: &'static str, title: &str, fill: &str) -> Plot<Cartesian> {
+    let plot = Plot::<Cartesian>::new().mark(
+        Symbol::<Cartesian>::new()
+            .x_with(col(x), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                    .axis(|a| a.title(x))
+            })
+            .y_with(col(y), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                    .axis(|a| a.title(y))
+            })
+            .fill(fill)
+            .opacity(0.78)
+            .stroke("#ffffff")
+            .stroke_width(0.75)
+            .size(72.0),
+    );
+    if title.is_empty() {
+        plot
+    } else {
+        plot.title(title)
+    }
+}
+
 fn alignment_grid_cell(x: &'static str, y: &'static str, fill: &str) -> Plot<Cartesian> {
     Plot::<Cartesian>::new().mark(
         Symbol::<Cartesian>::new()
@@ -223,6 +247,32 @@ fn alignment_grid_cell(x: &'static str, y: &'static str, fill: &str) -> Plot<Car
             .stroke_width(0.75)
             .size(64.0),
     )
+}
+
+fn alignment_spanned_grid_concat() -> Plot<GridConcat> {
+    Plot::<GridConcat>::new()
+        .rows(2)
+        .columns(3)
+        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .mark(
+            Subplot::new(alignment_grid_cell("x", "y", "#2f7ed8"))
+                .grid_cell(0, 0)
+                .grid_span(2, 2)
+                .key("spanned_xy")
+                .label("Spanned xy"),
+        )
+        .mark(
+            Subplot::new(alignment_grid_cell("x2", "y", "#8bbc21"))
+                .grid_cell(0, 2)
+                .key("top_right")
+                .label("Top right"),
+        )
+        .mark(
+            Subplot::new(alignment_grid_cell("x", "y2", "#f28f43"))
+                .grid_cell(1, 2)
+                .key("bottom_right")
+                .label("Bottom right"),
+        )
 }
 
 fn alignment_grid_concat() -> Plot<GridConcat> {
@@ -700,6 +750,201 @@ async fn grid_concat_splom_named_domains() {
         None,
         "concat",
         "grid_concat_splom_named_domains",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn grid_concat_span_basic() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<GridConcat>::new()
+        .canvas_size(900.0, 680.0)
+        .data(concat_numeric_data(&ctx).await)
+        .title("Grid concat span basic")
+        .rows(3)
+        .columns(3)
+        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .mark(
+            Subplot::new(grid_span_child("x", "y", "Spans 2 x 2", "#2f7ed8"))
+                .grid_cell(0, 0)
+                .grid_span(2, 2)
+                .key("span"),
+        )
+        .mark(
+            Subplot::new(grid_span_child("x2", "y", "Top right", "#8bbc21"))
+                .grid_cell(0, 2)
+                .key("top_right"),
+        )
+        .mark(
+            Subplot::new(grid_span_child("x", "y2", "Bottom left", "#f28f43"))
+                .grid_cell(2, 0)
+                .key("bottom_left"),
+        )
+        .mark(
+            Subplot::new(grid_span_child("x2", "y2", "Bottom right", "#910000"))
+                .grid_cell(2, 2)
+                .key("bottom_right"),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile basic GridConcat span chart");
+    assert_visual_match_default(&compiled, &ctx, None, "concat", "grid_concat_span_basic").await;
+}
+
+#[tokio::test]
+async fn grid_concat_span_chrome() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<GridConcat>::new()
+        .canvas_size(940.0, 680.0)
+        .data(concat_numeric_data(&ctx).await)
+        .title("Grid concat span chrome")
+        .rows(2)
+        .columns(3)
+        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .mark(
+            Subplot::new(
+                Plot::<Cartesian>::new()
+                    .title("Spanning plot with longer chrome")
+                    .mark(
+                        Symbol::<Cartesian>::new()
+                            .x_with(col("x"), |c| {
+                                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                                    .axis(|a| a.title("Long x axis title on spanning child"))
+                            })
+                            .y_with(col("y2"), |c| {
+                                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                                    .axis(|a| a.title("Long y axis title on spanning child"))
+                            })
+                            .fill("#2f7ed8")
+                            .opacity(0.78)
+                            .stroke("#ffffff")
+                            .stroke_width(0.75)
+                            .size(78.0),
+                    ),
+            )
+            .grid_cell(0, 0)
+            .grid_span(2, 2)
+            .key("span_chrome"),
+        )
+        .mark(
+            Subplot::new(grid_span_child("x2", "y", "Top neighbor", "#8bbc21"))
+                .grid_cell(0, 2)
+                .key("top_neighbor"),
+        )
+        .mark(
+            Subplot::new(grid_span_child("x2", "y2", "", "#f28f43"))
+                .grid_cell(1, 2)
+                .key("bottom_neighbor"),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile chrome GridConcat span chart");
+    assert_visual_match_default(&compiled, &ctx, None, "concat", "grid_concat_span_chrome").await;
+}
+
+#[tokio::test]
+async fn grid_concat_span_holes() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<GridConcat>::new()
+        .canvas_size(900.0, 680.0)
+        .data(concat_numeric_data(&ctx).await)
+        .title("Grid concat spans with holes")
+        .rows(3)
+        .columns(3)
+        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .mark(
+            Subplot::new(grid_span_child("x", "y", "Top-left edge", "#2f7ed8"))
+                .grid_cell(0, 0)
+                .key("top_left"),
+        )
+        .mark(
+            Subplot::new(grid_span_child("x2", "y2", "Spans holes", "#8bbc21"))
+                .grid_cell(0, 1)
+                .grid_span(2, 2)
+                .key("span_holes"),
+        )
+        .mark(
+            Subplot::new(grid_span_child("x", "y2", "Bottom middle", "#f28f43"))
+                .grid_cell(2, 1)
+                .key("bottom_middle"),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile holey GridConcat span chart");
+    assert_visual_match_default(&compiled, &ctx, None, "concat", "grid_concat_span_holes").await;
+}
+
+#[tokio::test]
+async fn grid_concat_span_domain_groups() {
+    let ctx = SessionContext::new();
+    let df = iris_with_petal_width_bin(&ctx).await;
+    let plot = Plot::<GridConcat>::new()
+        .canvas_size(940.0, 680.0)
+        .data(df)
+        .title("Grid concat span domain groups")
+        .rows(3)
+        .columns(3)
+        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups)
+        .mark(
+            Subplot::new(grid_splom_child("sepal_length", "sepal_width"))
+                .grid_cell(0, 0)
+                .grid_span(2, 2)
+                .key("span_sepal"),
+        )
+        .mark(
+            Subplot::new(grid_splom_child("petal_length", "sepal_width"))
+                .grid_cell(0, 2)
+                .key("top_right"),
+        )
+        .mark(
+            Subplot::new(grid_splom_child("sepal_length", "petal_width"))
+                .grid_cell(2, 0)
+                .key("bottom_left"),
+        )
+        .mark(
+            Subplot::new(grid_splom_child("petal_length", "petal_width"))
+                .grid_cell(2, 2)
+                .key("bottom_right"),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile named-domain GridConcat span chart");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "concat",
+        "grid_concat_span_domain_groups",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn grid_concat_span_inside_facet_aligned() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<FacetColumn>::new()
+        .data(concat_facet_alignment_data(&ctx).await)
+        .canvas_size(1560.0, 580.0)
+        .mark(Subplot::new(alignment_spanned_grid_concat()).column(col("group_name")));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile spanned GridConcat inside FacetColumn");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "concat",
+        "grid_concat_span_inside_facet_aligned",
     )
     .await;
 }

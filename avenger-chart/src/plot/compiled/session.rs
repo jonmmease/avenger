@@ -5906,6 +5906,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn grid_concat_scopes_include_spanned_grid_child_frame_metadata()
+    -> Result<(), AvengerChartError> {
+        use crate::render::{EvaluatedChildFrameKind, InteractionScopeKind};
+        let ctx = Arc::new(SessionContext::new());
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
+            .await?;
+        let compiled = Arc::new(
+            Plot::<GridConcat>::new()
+                .canvas_size(720.0, 420.0)
+                .data(df)
+                .rows(3)
+                .columns(3)
+                .mark(
+                    Subplot::new(simple_interaction_scope_child())
+                        .grid_cell(0, 0)
+                        .grid_span(2, 2)
+                        .key("spanned")
+                        .label("Spanned"),
+                )
+                .mark(
+                    Subplot::new(simple_interaction_scope_child())
+                        .grid_cell(2, 2)
+                        .key("bottom_right")
+                        .label("Bottom right"),
+                )
+                .compile(&ctx)
+                .await?,
+        );
+        let mut session = compiled.instantiate(ctx);
+        let evaluated = session.evaluate(EvaluationRequest::new().exact()).await?;
+
+        assert_eq!(evaluated.interaction.scopes.len(), 2);
+        let mut scopes = evaluated.interaction.scopes;
+        scopes.sort_by_key(|scope| scope.child_frame_path[0].child_index);
+
+        let spanned = &scopes[0];
+        assert_eq!(spanned.kind, InteractionScopeKind::Coordinate);
+        assert_eq!(spanned.child_frame_path.len(), 1);
+        let segment = &spanned.child_frame_path[0];
+        assert_eq!(segment.kind, EvaluatedChildFrameKind::GridConcat);
+        assert_eq!(segment.key.as_deref(), Some("spanned"));
+        assert_eq!(segment.label.as_deref(), Some("Spanned"));
+        assert_eq!(segment.row, Some(0));
+        assert_eq!(segment.column, Some(0));
+        assert_eq!(segment.row_count, Some(3));
+        assert_eq!(segment.column_count, Some(3));
+        assert_eq!(segment.row_span, Some(2));
+        assert_eq!(segment.column_span, Some(2));
+        assert_eq!(segment.slot_index, Some(0));
+        assert!(spanned.plot_area_width > 0.0);
+        assert!(spanned.plot_area_height > 0.0);
+
+        let bottom_right = &scopes[1].child_frame_path[0];
+        assert_eq!(bottom_right.key.as_deref(), Some("bottom_right"));
+        assert_eq!(bottom_right.row_span, Some(1));
+        assert_eq!(bottom_right.column_span, Some(1));
+        assert_eq!(bottom_right.slot_index, Some(8));
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn wrap_concat_scopes_include_row_column_slot_metadata() -> Result<(), AvengerChartError>
     {
         use crate::render::{EvaluatedChildFrameKind, InteractionScopeKind};
