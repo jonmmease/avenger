@@ -1457,6 +1457,8 @@ mod tests {
     use crate::cartesian::Cartesian;
     use crate::concat::{GridConcat, HConcat, VConcat, WrapConcat, compiled_subplot};
     use crate::event::{ChartEventBinding, ChartEventType};
+    use crate::facet::coord::{FacetColumn, FacetWrap};
+    use crate::facet::marks::{FacetColumnSubplotChannels, FacetWrapSubplotChannels};
     use crate::repeat::{RepeatColumns, RepeatGrid, RepeatRows, RepeatWrap};
     use crate::tools::ToolCompileContext;
     use crate::zerod::ZeroDCoord;
@@ -2258,6 +2260,190 @@ mod tests {
         for rows in &evaluated.event_datums.rows {
             assert_eq!(rows.rows.num_rows(), 2);
             assert!(rows.rows.column_by_name("group_name").is_some());
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn repeat_grid_inside_hconcat_exports_prefixed_interaction_metadata()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0, 10.0), (2.0, 20.0)) AS t(a, b)")
+            .await?;
+        let repeat = Plot::<RepeatGrid>::new()
+            .data(df)
+            .rows(repeat_vars(&["a", "b"]))
+            .columns(repeat_vars(&["a", "b"]))
+            .cell(repeated_grid_cell())
+            .matrix_domains()
+            .matrix_axes();
+        let compiled = Plot::<HConcat>::new()
+            .canvas_size(620.0, 320.0)
+            .mark(Subplot::new(repeat).key("matrix").id("matrix"))
+            .mark(
+                Subplot::new(Plot::<ZeroDCoord>::new())
+                    .key("summary")
+                    .id("summary"),
+            )
+            .compile(&ctx)
+            .await?;
+
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        assert_eq!(evaluated.interaction.scopes.len(), 4);
+        let scope = evaluated
+            .interaction
+            .scopes
+            .iter()
+            .find(|scope| {
+                scope
+                    .child_frame_path
+                    .last()
+                    .and_then(|segment| segment.key.as_deref())
+                    == Some("repeat_cell:a:b")
+            })
+            .expect("repeat a/b scope");
+        assert_eq!(
+            scope.subplot_id_path,
+            vec!["matrix".to_string(), "repeat_cell_a_b".to_string()]
+        );
+        assert_eq!(
+            scope
+                .child_frame_path
+                .iter()
+                .filter_map(|segment| segment.key.as_deref())
+                .collect::<Vec<_>>(),
+            vec!["matrix", "repeat_cell:a:b"]
+        );
+        assert_eq!(scope.child_frame_path[1].row, Some(0));
+        assert_eq!(scope.child_frame_path[1].column, Some(1));
+        assert!(scope.facet_path.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn repeat_grid_inside_facet_exports_facet_and_repeat_metadata()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('G1', 1.0, 10.0),
+                    ('G1', 2.0, 20.0),
+                    ('G2', 3.0, 30.0),
+                    ('G2', 4.0, 40.0)
+                ) AS t(group_name, a, b)",
+            )
+            .await?;
+        let repeat = Plot::<RepeatGrid>::new()
+            .rows(repeat_vars(&["a", "b"]))
+            .columns(repeat_vars(&["a", "b"]))
+            .cell(repeated_grid_cell())
+            .matrix_domains()
+            .matrix_axes();
+        let compiled = Plot::<FacetColumn>::new()
+            .canvas_size(820.0, 320.0)
+            .data(df)
+            .mark(Subplot::new(repeat).id("matrix").column(col("group_name")))
+            .compile(&ctx)
+            .await?;
+
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        assert_eq!(evaluated.interaction.scopes.len(), 8);
+        let mut groups = evaluated
+            .interaction
+            .scopes
+            .iter()
+            .map(|scope| match scope.facet_path.first() {
+                Some(ScalarValue::Utf8(Some(value))) => value.clone(),
+                other => panic!("expected facet value, got {other:?}"),
+            })
+            .collect::<Vec<_>>();
+        groups.sort();
+        groups.dedup();
+        assert_eq!(groups, vec!["G1".to_string(), "G2".to_string()]);
+
+        let g1_ab = evaluated
+            .interaction
+            .scopes
+            .iter()
+            .find(|scope| {
+                matches!(
+                    scope.facet_path.first(),
+                    Some(ScalarValue::Utf8(Some(value))) if value == "G1"
+                ) && scope
+                    .child_frame_path
+                    .last()
+                    .and_then(|segment| segment.key.as_deref())
+                    == Some("repeat_cell:a:b")
+            })
+            .expect("G1 repeat a/b scope");
+        assert_eq!(
+            g1_ab.subplot_id_path,
+            vec!["matrix".to_string(), "repeat_cell_a_b".to_string()]
+        );
+        assert_eq!(
+            g1_ab.sharing_owner_paths.get(&0),
+            Some(&g1_ab.facet_path),
+            "Free owner path should remain the outer facet cell"
+        );
+        assert_eq!(
+            g1_ab.sharing_owner_paths.get(&1),
+            Some(&Vec::new()),
+            "Level(1) owner path should project to the root for a one-level facet"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn repeat_wrap_inside_facet_wrap_preserves_logical_facet_scope()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('G1', 1.0, 10.0),
+                    ('G2', 2.0, 20.0),
+                    ('G3', 3.0, 30.0)
+                ) AS t(group_name, a, b)",
+            )
+            .await?;
+        let repeat = Plot::<RepeatWrap>::new()
+            .items(repeat_vars(&["a", "b"]))
+            .columns(2)
+            .cell(repeated_item_cell())
+            .item_domains_with_scope(CoordinationScope::Free);
+        let compiled = Plot::<FacetWrap>::new()
+            .canvas_size(760.0, 420.0)
+            .data(df)
+            .mark(
+                Subplot::new(repeat)
+                    .id("wrapped_repeat")
+                    .wrap_with(col("group_name"), |c| c.columns(2)),
+            )
+            .compile(&ctx)
+            .await?;
+
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        assert_eq!(evaluated.interaction.scopes.len(), 6);
+        for scope in &evaluated.interaction.scopes {
+            assert_eq!(
+                scope.logical_facet_values.len(),
+                1,
+                "FacetWrap should contribute one logical facet level"
+            );
+            assert_eq!(
+                scope.subplot_id_path.first().map(String::as_str),
+                Some("wrapped_repeat")
+            );
+            assert!(
+                scope
+                    .child_frame_path
+                    .last()
+                    .and_then(|segment| segment.key.as_deref())
+                    .is_some_and(|key| key.starts_with("repeat_item:")),
+                "scope should carry the repeated item child frame: {scope:?}"
+            );
         }
         Ok(())
     }

@@ -4393,6 +4393,13 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
         cached_components: &PlotComponents,
     ) -> Result<Option<PlotComponents>, AvengerChartError> {
+        // Child-frame containers synthesize interaction scopes by rendering
+        // their children. Reusing only the cached data marks would preserve the
+        // visuals but skip that child traversal, leaving the evaluated plot
+        // without coordinate scopes for nested concat/repeat/facet tools.
+        if measurement.child_frame_container_view()?.is_some() {
+            return Ok(None);
+        }
         let Some(data_marks) = retarget_cached_data_marks_for_plot_area(
             cached_components,
             source_measurement,

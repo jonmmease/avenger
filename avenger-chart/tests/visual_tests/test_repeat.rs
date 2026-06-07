@@ -320,6 +320,35 @@ async fn repeat_grid_matrix_axes_diagonal_histograms() {
 }
 
 #[tokio::test]
+async fn repeat_grid_inside_facet_matrix_domains() {
+    let ctx = SessionContext::new();
+    let variables = repeat_variables()[0..2].to_vec();
+    let repeat = Plot::<RepeatGrid>::new()
+        .rows(variables.clone())
+        .columns(variables)
+        .cell(grid_cell_matrix_axes())
+        .matrix_domains()
+        .matrix_axes();
+    let plot = Plot::<FacetColumn>::new()
+        .data(repeat_data(&ctx).await)
+        .canvas_size(760.0, 380.0)
+        .mark(Subplot::new(repeat).column(col("group_name")));
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile faceted repeat grid");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "repeat",
+        "repeat_grid_inside_facet_matrix_domains",
+        0.999,
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn repeat_wrap_fixed_columns() {
     let ctx = SessionContext::new();
     let plot = Plot::<RepeatWrap>::new()

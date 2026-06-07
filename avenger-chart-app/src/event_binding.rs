@@ -5090,6 +5090,60 @@ mod tests {
             .unwrap_or_else(|_| panic!("{cell_key}/{channel} domain is numeric"))
     }
 
+    fn repeat_facet_scope<'a>(
+        scopes: &'a [EvaluatedInteractionScope],
+        facet_value: &str,
+        cell_key: &str,
+    ) -> &'a EvaluatedInteractionScope {
+        scopes
+            .iter()
+            .find(|scope| {
+                matches!(
+                    scope.facet_path.first(),
+                    Some(ScalarValue::Utf8(Some(value))) if value == facet_value
+                ) && scope
+                    .child_frame_path
+                    .last()
+                    .and_then(|segment| segment.key.as_deref())
+                    == Some(cell_key)
+            })
+            .unwrap_or_else(|| {
+                let available = scopes
+                    .iter()
+                    .map(|scope| {
+                        let facet = match scope.facet_path.first() {
+                            Some(ScalarValue::Utf8(Some(value))) => value.clone(),
+                            other => format!("{other:?}"),
+                        };
+                        let key = scope
+                            .child_frame_path
+                            .last()
+                            .and_then(|segment| segment.key.as_deref())
+                            .unwrap_or("<none>")
+                            .to_string();
+                        (facet, key)
+                    })
+                    .collect::<Vec<_>>();
+                panic!(
+                    "missing repeat scope {cell_key} in facet {facet_value}; available={available:?}"
+                )
+            })
+    }
+
+    fn repeat_facet_scope_domain(
+        scopes: &[EvaluatedInteractionScope],
+        facet_value: &str,
+        cell_key: &str,
+        channel: &str,
+    ) -> (f32, f32) {
+        repeat_facet_scope(scopes, facet_value, cell_key)
+            .scales
+            .get(channel)
+            .unwrap_or_else(|| panic!("scope {facet_value}/{cell_key} has {channel} scale"))
+            .numeric_interval_domain()
+            .unwrap_or_else(|_| panic!("{facet_value}/{cell_key}/{channel} domain is numeric"))
+    }
+
     fn scope_center(scope: &EvaluatedInteractionScope) -> [f32; 2] {
         [
             scope.bounds.x + scope.bounds.width * 0.5,
@@ -5910,6 +5964,93 @@ mod tests {
                 && (other_a_y.1 - initial_other_a_y.1).abs() < 1e-3,
             "free repeat pan should not update another cell with the same variable: \
              {initial_other_a_y:?} -> {other_a_y:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn repeat_pan_inside_facet_routes_to_active_facet_scope() {
+        let ctx = Arc::new(SessionContext::new());
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('G1', 0.0, 0.0),
+                    ('G1', 10.0, 100.0),
+                    ('G1', 20.0, 200.0),
+                    ('G2', 100.0, 1000.0),
+                    ('G2', 110.0, 1100.0),
+                    ('G2', 120.0, 1200.0)
+                ) AS t(group_name, a, b)",
+            )
+            .await
+            .expect("nested repeat pan data");
+        let repeat_grid = Plot::<RepeatGrid>::new()
+            .rows([
+                RepeatVariable::new("a", col("a")),
+                RepeatVariable::new("b", col("b")),
+            ])
+            .columns([
+                RepeatVariable::new("a", col("a")),
+                RepeatVariable::new("b", col("b")),
+            ])
+            .cell(repeat_pan_cell(false))
+            .matrix_domains()
+            .matrix_axes();
+        let compiled = Plot::<FacetColumn>::new()
+            .canvas_size(900.0, 360.0)
+            .data(df)
+            .mark(
+                Subplot::new(repeat_grid)
+                    .id("matrix")
+                    .column(col("group_name")),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile nested repeat pan plot");
+
+        let policy = compiled.resize_policy();
+        let drag_handlers =
+            compile_handlers_for_event_type(&compiled, &ctx, ChartEventType::CursorMoved);
+        assert_eq!(
+            drag_handlers.len(),
+            4,
+            "repeat tool should still generate one drag binding per repeated cell"
+        );
+        let session = Arc::new(compiled).instantiate(ctx);
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial nested repeat pan scene");
+        let scopes = state.interaction_scopes().await;
+        assert_eq!(
+            scopes.len(),
+            8,
+            "two outer facets times four repeated cells should export coordinate scopes"
+        );
+        let initial_g2_a_y = repeat_facet_scope_domain(&scopes, "G2", "repeat_cell:a:b", "y");
+        let active = repeat_facet_scope(&scopes, "G1", "repeat_cell:b:a").clone();
+        let center = scope_center(&active);
+
+        let status = pan_move_all(
+            &mut state,
+            &drag_handlers,
+            Instant::now(),
+            center,
+            [center[0] + active.bounds.width * 0.18, center[1]],
+        )
+        .await;
+        assert!(status.rerender, "nested repeat pan should rerender");
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("build after nested repeat pan");
+
+        let scopes = state.interaction_scopes().await;
+        let g2_a_y = repeat_facet_scope_domain(&scopes, "G2", "repeat_cell:a:b", "y");
+        assert!(
+            g2_a_y.0 < initial_g2_a_y.0 && g2_a_y.1 < initial_g2_a_y.1,
+            "shared repeat domain panned in G1 should propagate to G2's a-domain: \
+             {initial_g2_a_y:?} -> {g2_a_y:?}"
         );
     }
 
