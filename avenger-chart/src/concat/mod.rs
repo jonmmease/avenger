@@ -664,10 +664,11 @@ impl ConcatCoordMeasurement {
                     .enumerate()
                     .map(|(slot_index, child)| {
                         let slot = self.layout_coordination_slot_for_child(slot_index, child)?;
-                        Ok(ChildFrameRenderPlacement {
-                            child_index: child.child_index,
-                            origin: solution.origin_for_slot(slot),
-                        })
+                        Ok(ChildFrameRenderPlacement::with_plot_area_size(
+                            child.child_index,
+                            solution.origin_for_slot(slot),
+                            solution.plot_area_size_for_slot(slot),
+                        ))
                     })
                     .collect::<Result<Vec<_>, AvengerChartError>>()?;
                 ConcatChildPlacement::Grid {
@@ -1964,10 +1965,11 @@ fn grid_child_frame_placement(
         .map(|child| {
             let placement = child.grid_placement.expect("validated above");
             let slot = GridSlotRect::from_placement(placement);
-            ChildFrameRenderPlacement {
-                child_index: child.child_index,
-                origin: solution.origin_for_slot(slot),
-            }
+            ChildFrameRenderPlacement::with_plot_area_size(
+                child.child_index,
+                solution.origin_for_slot(slot),
+                solution.plot_area_size_for_slot(slot),
+            )
         })
         .collect();
 
@@ -2198,6 +2200,25 @@ fn track_starts_and_content_size(
 impl GridTrackSolution {
     fn origin_for_slot(&self, slot: GridSlotRect) -> [f32; 2] {
         [self.column_starts[slot.column], self.row_starts[slot.row]]
+    }
+
+    fn plot_area_size_for_slot(&self, slot: GridSlotRect) -> Size2D {
+        Size2D::new(
+            span_axis_extent(
+                &self.column_widths,
+                &self.column_right,
+                &self.column_left,
+                slot.column,
+                slot.column_span,
+            ),
+            span_axis_extent(
+                &self.row_heights,
+                &self.row_bottom,
+                &self.row_top,
+                slot.row,
+                slot.row_span,
+            ),
+        )
     }
 }
 
@@ -3379,6 +3400,10 @@ mod tests {
         assert_eq!(
             placement.child(0).expect("spanned child").origin,
             [0.0, 0.0]
+        );
+        assert_eq!(
+            placement.child(0).expect("spanned child").plot_area_size,
+            Some(Size2D::new(100.0, 100.0))
         );
         assert_eq!(
             placement.child(1).expect("top right child").origin,

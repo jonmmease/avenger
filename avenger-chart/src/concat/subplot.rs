@@ -17,6 +17,7 @@ use crate::{
     concat::{GridConcat, HConcat, VConcat, WrapConcat, concat_coord_ref},
     coords::CoordinateSystemTransformCore,
     error::AvengerChartError,
+    facet::coord::retarget_measurement_plot_area_no_remeasure,
     layout::BandDirection,
     marks::{
         ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState,
@@ -508,6 +509,16 @@ impl CompiledConcatSubplot {
             let data_override = self.inherited_data_override(data, context)?;
             let mut child_measurement = child.measurement.clone();
             refresh_measurement_params_for_child(&mut child_measurement, &child_eval_ctx);
+            if let Some(plot_area_size) = render_placement.plot_area_size {
+                retarget_measurement_plot_area_no_remeasure(
+                    &mut child_measurement,
+                    self.compiled_subplot(),
+                    &child_eval_ctx,
+                    child_facet_path,
+                    plot_area_size.width,
+                    plot_area_size.height,
+                )?;
+            }
             if has_raw_domain_scale(self.compiled_subplot()) {
                 let raw_domain_overrides = resolve_raw_domain_overrides(
                     self.compiled_subplot(),

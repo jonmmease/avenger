@@ -294,14 +294,8 @@ mod tests {
         let placement = ChildFramePlacementResult::new(
             Size2D::new(300.0, 200.0),
             vec![
-                ChildFrameRenderPlacement {
-                    child_index: 10,
-                    origin: [20.0, 30.0],
-                },
-                ChildFrameRenderPlacement {
-                    child_index: 20,
-                    origin: [140.0, 30.0],
-                },
+                ChildFrameRenderPlacement::new(10, [20.0, 30.0]),
+                ChildFrameRenderPlacement::new(20, [140.0, 30.0]),
             ],
         );
 
@@ -367,10 +361,7 @@ mod tests {
     fn label_items_require_matching_child_geometry() {
         let placement = ChildFramePlacementResult::new(
             Size2D::new(100.0, 80.0),
-            vec![ChildFrameRenderPlacement {
-                child_index: 2,
-                origin: [0.0, 0.0],
-            }],
+            vec![ChildFrameRenderPlacement::new(2, [0.0, 0.0])],
         );
 
         let err = container_label_items_from_placements(

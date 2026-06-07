@@ -943,10 +943,10 @@ pub(crate) async fn measure_positioned_subplots(
                 ))
                 .await?,
             );
-            render_placements.push(ChildFrameRenderPlacement {
-                child_index: spec.child_index,
-                origin: positioned_render_origin(spec, prepared.subplot),
-            });
+            render_placements.push(ChildFrameRenderPlacement::new(
+                spec.child_index,
+                positioned_render_origin(spec, prepared.subplot),
+            ));
             domain_index += 1;
         }
     }

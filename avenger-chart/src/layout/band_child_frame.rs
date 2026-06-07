@@ -189,10 +189,7 @@ impl BandChildFramePlacement {
                         child.main_axis_start + origin_offset[1],
                     ],
                 };
-                ChildFrameRenderPlacement {
-                    child_index: child.child_index,
-                    origin,
-                }
+                ChildFrameRenderPlacement::new(child.child_index, origin)
             })
             .collect();
 

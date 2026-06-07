@@ -7,6 +7,29 @@ use crate::layout::{LayoutBounds, Size2D};
 pub(crate) struct ChildFrameRenderPlacement {
     pub(crate) child_index: usize,
     pub(crate) origin: [f32; 2],
+    pub(crate) plot_area_size: Option<Size2D>,
+}
+
+impl ChildFrameRenderPlacement {
+    pub(crate) fn new(child_index: usize, origin: [f32; 2]) -> Self {
+        Self {
+            child_index,
+            origin,
+            plot_area_size: None,
+        }
+    }
+
+    pub(crate) fn with_plot_area_size(
+        child_index: usize,
+        origin: [f32; 2],
+        plot_area_size: Size2D,
+    ) -> Self {
+        Self {
+            child_index,
+            origin,
+            plot_area_size: Some(plot_area_size),
+        }
+    }
 }
 
 /// Placement result for child frames inside one parent content rectangle.
@@ -97,14 +120,8 @@ mod tests {
         let result = ChildFramePlacementResult::new(
             Size2D::new(200.0, 120.0),
             vec![
-                ChildFrameRenderPlacement {
-                    child_index: 3,
-                    origin: [10.0, 20.0],
-                },
-                ChildFrameRenderPlacement {
-                    child_index: 1,
-                    origin: [30.0, 40.0],
-                },
+                ChildFrameRenderPlacement::new(3, [10.0, 20.0]),
+                ChildFrameRenderPlacement::new(1, [30.0, 40.0]),
             ],
         );
 
