@@ -2356,6 +2356,16 @@ mod tests {
         Plot::<Cartesian>::new().mark(Symbol::new().x(repeat::column()).y(repeat::row()))
     }
 
+    fn repeated_facet_column_cell() -> Plot<FacetColumn> {
+        let child = Plot::<Cartesian>::new().mark(
+            Symbol::new()
+                .x(repeat::column())
+                .y(repeat::row())
+                .size(32.0),
+        );
+        Plot::<FacetColumn>::new().mark(Subplot::new(child).column(col("group")))
+    }
+
     fn manual_grid_plot() -> Plot<GridConcat> {
         Plot::<GridConcat>::new()
             .rows(1)
@@ -3096,6 +3106,42 @@ mod tests {
                 assert_eq!(requirements.row_heights.len(), 1);
             }
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn layout_coordination_groups_facet_instances_across_repeat_cells()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let variables = repeat_vars(&["x", "y"]);
+        let compiled = Plot::<RepeatGrid>::new()
+            .data(grouped_xy_dataframe(&ctx))
+            .rows(variables.clone())
+            .columns(variables)
+            .cell(repeated_facet_column_cell())
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 500.0, 260.0, &ctx).await?;
+        let nodes = collect_child_frame_layout_coordination_nodes(&measurement)?;
+        let facet_nodes = nodes
+            .iter()
+            .filter(|node| node.kind == ChildFrameContainerKind::FacetColumn)
+            .collect::<Vec<_>>();
+        assert_eq!(facet_nodes.len(), 4);
+        assert!(facet_nodes.iter().all(|node| {
+            node.template_key.container_path_template
+                == vec![ContainerPathSegment::concat_child(0, Some("repeat_cell:*"))]
+        }));
+
+        let diagnostics = build_child_frame_layout_alignment_diagnostics(&nodes);
+        let facet_groups = diagnostics
+            .merged_groups
+            .iter()
+            .filter(|group| group.key.kind == ChildFrameContainerKind::FacetColumn)
+            .collect::<Vec<_>>();
+        assert_eq!(facet_groups.len(), 1);
+        assert_eq!(facet_groups[0].node_count, 4);
         Ok(())
     }
 

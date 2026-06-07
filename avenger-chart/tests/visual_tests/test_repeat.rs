@@ -110,6 +110,20 @@ fn grid_cell_matrix_axes() -> Plot<Cartesian> {
     )
 }
 
+fn facet_column_cell_matrix_axes() -> Plot<FacetColumn> {
+    let child = Plot::<Cartesian>::new().mark(
+        Symbol::new()
+            .x(repeat::column())
+            .y(repeat::row())
+            .fill("#2f7ed8")
+            .opacity(0.78)
+            .stroke("#ffffff")
+            .stroke_width(0.75)
+            .size(46.0),
+    );
+    Plot::<FacetColumn>::new().mark(Subplot::new(child).column(col("group_name")))
+}
+
 fn diagonal_histogram_cell() -> Plot<Cartesian> {
     Plot::<Cartesian>::new().mark(Rect::new().transform(
         Bin::new(repeat::column()).maxbins(5),
@@ -343,6 +357,33 @@ async fn repeat_grid_inside_facet_matrix_domains() {
         None,
         "repeat",
         "repeat_grid_inside_facet_matrix_domains",
+        0.999,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn facet_column_inside_repeat_grid_aligned() {
+    let ctx = SessionContext::new();
+    let variables = repeat_variables()[0..2].to_vec();
+    let plot = Plot::<RepeatGrid>::new()
+        .data(repeat_data(&ctx).await)
+        .canvas_size(1320.0, 520.0)
+        .rows(variables.clone())
+        .columns(variables)
+        .cell(facet_column_cell_matrix_axes())
+        .matrix_domains()
+        .matrix_axes();
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile repeat grid with faceted cells");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "repeat",
+        "facet_column_inside_repeat_grid_aligned",
         0.999,
     )
     .await;

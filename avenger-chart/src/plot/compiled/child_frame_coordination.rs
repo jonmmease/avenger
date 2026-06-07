@@ -15,10 +15,7 @@ use crate::{
         coord::FacetBandCoordMeasurement,
         placement::{FacetBandPlacement, resolve_facet_band_placement},
     },
-    plot::compiled::{
-        ChildFrameKey, ComponentsMeasurement, ContainerPathSegment,
-        container_path_without_facet_segments,
-    },
+    plot::compiled::{ChildFrameKey, ComponentsMeasurement, ContainerPathSegment},
     positioned_subplot::PositionedCoordMeasurement,
 };
 
@@ -50,7 +47,7 @@ impl ChildFrameContainerTemplateKey {
     ) -> Self {
         let container_path_template = match scope {
             LayoutCoordinationScope::TemplatePathWithoutFacetSegments => {
-                container_path_without_facet_segments(&instance_key.container_path)
+                layout_alignment_template_path(&instance_key.container_path)
             }
         };
         Self {
@@ -68,6 +65,34 @@ impl ChildFrameContainerTemplateKey {
             semantic_tag: Some(semantic_tag),
             ..Self::from_instance(instance_key, scope)
         }
+    }
+}
+
+fn layout_alignment_template_path(path: &[ContainerPathSegment]) -> Vec<ContainerPathSegment> {
+    path.iter()
+        .filter_map(|segment| match segment {
+            ContainerPathSegment::FacetValue { .. } => None,
+            ContainerPathSegment::ConcatChild { key: Some(key), .. } => repeat_template_key(key)
+                .map_or_else(
+                    || Some(segment.clone()),
+                    |template_key| Some(ContainerPathSegment::concat_child(0, Some(template_key))),
+                ),
+            _ => Some(segment.clone()),
+        })
+        .collect()
+}
+
+fn repeat_template_key(key: &str) -> Option<&'static str> {
+    if key.starts_with("repeat_cell:") {
+        Some("repeat_cell:*")
+    } else if key.starts_with("repeat_col:") {
+        Some("repeat_col:*")
+    } else if key.starts_with("repeat_row:") {
+        Some("repeat_row:*")
+    } else if key.starts_with("repeat_item:") {
+        Some("repeat_item:*")
+    } else {
+        None
     }
 }
 
