@@ -3146,6 +3146,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn layout_alignment_apply_does_not_plan_read_only_facet_groups()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let variables = repeat_vars(&["x", "y"]);
+        let compiled = Plot::<RepeatGrid>::new()
+            .data(grouped_xy_dataframe(&ctx))
+            .rows(variables.clone())
+            .columns(variables)
+            .cell(repeated_facet_column_cell())
+            .compile(&ctx)
+            .await?;
+
+        let mut measurement = measurement_for_plot(&compiled, 500.0, 260.0, &ctx).await?;
+        let before = child_frame_placement_snapshots(&measurement)?;
+        let diagnostics = diagnose_child_frame_layout_alignment(&measurement)?;
+        let facet_groups = diagnostics
+            .merged_groups
+            .iter()
+            .filter(|group| group.key.kind == ChildFrameContainerKind::FacetColumn)
+            .collect::<Vec<_>>();
+        assert_eq!(facet_groups.len(), 1);
+
+        let trace = apply_child_frame_layout_alignment(&mut measurement)?;
+        let after = child_frame_placement_snapshots(&measurement)?;
+
+        assert_eq!(
+            trace.planned_group_count, 0,
+            "facet-band diagnostics should not become apply plans until a mutating facet adapter exists"
+        );
+        assert_eq!(trace.applied_container_count, 0);
+        assert_eq!(before, after);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn grid_layout_coordination_nodes_keep_unrelated_manual_grids_separate()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();

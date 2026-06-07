@@ -598,9 +598,19 @@ fn alignment_solution_plans(
     diagnostics
         .merged_groups
         .iter()
+        .filter(|group| layout_alignment_key_has_apply_adapter(&group.key))
         .filter(|group| group.node_deltas.iter().any(|delta| delta.has_delta()))
         .map(|group| (group.key.clone(), group.merged_requirements.clone()))
         .collect()
+}
+
+fn layout_alignment_key_has_apply_adapter(key: &LayoutAlignmentKey) -> bool {
+    matches!(
+        key.kind,
+        ChildFrameContainerKind::HConcat
+            | ChildFrameContainerKind::VConcat
+            | ChildFrameContainerKind::GridConcat
+    )
 }
 
 fn merge_child_frame_layout_requirements<'a>(
@@ -765,4 +775,80 @@ fn apply_child_frame_layout_alignment_recursive(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_alignment_key(kind: ChildFrameContainerKind) -> LayoutAlignmentKey {
+        LayoutAlignmentKey {
+            template_key: ChildFrameContainerTemplateKey {
+                container_path_template: Vec::new(),
+                semantic_tag: Some(format!("{kind:?}")),
+            },
+            kind,
+            topology: ChildFrameLayoutTopology::Grid {
+                shape: GridShape {
+                    rows: 1,
+                    columns: 1,
+                },
+                slots: Vec::new(),
+            },
+        }
+    }
+
+    fn test_requirements(width: f32) -> ChildFrameLayoutRequirements {
+        ChildFrameLayoutRequirements::Grid(GridTrackRequirements {
+            shape: GridShape {
+                rows: 1,
+                columns: 1,
+            },
+            column_widths: vec![width],
+            row_heights: vec![10.0],
+            column_left: vec![0.0],
+            column_right: vec![0.0],
+            row_top: vec![0.0],
+            row_bottom: vec![0.0],
+        })
+    }
+
+    fn test_delta() -> ChildFrameLayoutRequirementDelta {
+        ChildFrameLayoutRequirementDelta {
+            instance_key: ChildFrameContainerInstanceKey::new(Vec::new()),
+            track_delta: 1.0,
+            slab_delta: 0.0,
+        }
+    }
+
+    #[test]
+    fn alignment_solution_plans_skip_read_only_facet_groups() {
+        let facet_key = test_alignment_key(ChildFrameContainerKind::FacetColumn);
+        let grid_key = test_alignment_key(ChildFrameContainerKind::GridConcat);
+        let diagnostics = ChildFrameLayoutAlignmentDiagnostics {
+            exported_node_count: 4,
+            alignment_group_count: 2,
+            merged_groups: vec![
+                LayoutAlignmentGroupDiagnostics {
+                    key: facet_key.clone(),
+                    node_count: 2,
+                    merged_requirements: test_requirements(20.0),
+                    node_deltas: vec![test_delta()],
+                },
+                LayoutAlignmentGroupDiagnostics {
+                    key: grid_key.clone(),
+                    node_count: 2,
+                    merged_requirements: test_requirements(30.0),
+                    node_deltas: vec![test_delta()],
+                },
+            ],
+            skipped_groups: Vec::new(),
+        };
+
+        let plans = alignment_solution_plans(&diagnostics);
+
+        assert_eq!(plans.len(), 1);
+        assert!(!plans.contains_key(&facet_key));
+        assert!(plans.contains_key(&grid_key));
+    }
 }
