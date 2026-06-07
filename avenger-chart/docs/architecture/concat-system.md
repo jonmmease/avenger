@@ -45,7 +45,8 @@ The four public container shapes are:
 - `HConcat`: one row, one column per child subplot;
 - `VConcat`: one column, one row per child subplot;
 - `GridConcat`: explicit two-dimensional placement with
-  `Subplot::grid_cell(row, column)`;
+  `Subplot::grid_cell(row, column)` and optional
+  `Subplot::grid_span(row_span, column_span)`;
 - `WrapConcat`: row-major wrapping with auto, fixed, or responsive column
   count.
 
@@ -53,6 +54,26 @@ The four public container shapes are:
 track count. Undeclared counts are inferred from child placements. Empty grid
 slots behave as holes; they do not collapse tracks or steal axis-guide
 ownership from the nearest non-empty outer edge.
+
+`GridConcat` spans are rectangular and end-exclusive. A subplot authored as:
+
+```rust
+Subplot::new(child)
+    .grid_cell(row, column)
+    .grid_span(row_span, column_span)
+```
+
+occupies rows `row..row + row_span` and columns
+`column..column + column_span`. Spans must be positive, fit within explicit
+grid bounds when bounds are configured, and must not overlap any occupied
+cell. Holes around spans are allowed.
+
+At measurement time, the child is still one child frame. Its initial plot-area
+estimate is the base grid-cell plot area multiplied by the row and column
+span. The grid track solver treats the child plot-area demand as an interval
+constraint over the covered tracks and assigns the child's chrome slabs only to
+the outer edges of the span. It does not create internal guide gaps between
+tracks covered by the same child frame.
 
 `WrapConcat::columns(expr)` fixes the physical column count.
 `WrapConcat::responsive_columns(width)` resolves the column count from the
@@ -117,6 +138,12 @@ solution back to each matching `ConcatCoordMeasurement`. This lets repeated or
 manual concat grids nested under different facet values share physical track
 and chrome geometry after each local child has been measured.
 
+Grid slot topology includes row and column spans. Two manual grids are
+alignment-compatible only when their child-slot rectangles match, including
+span sizes. A spanned grid nested under a facet can align with another
+equivalent spanned grid under a sibling facet value, while a non-spanned grid
+with the same number of visible children remains a different topology.
+
 `HConcat` and `VConcat` are represented as degenerate one-row or one-column
 grid layouts for this pass. `WrapConcat` participates only when instances have
 the same resolved physical grid shape; responsive wraps with different column
@@ -145,13 +172,26 @@ Repeat matrix axes are implemented by lowering to `GridConcat` with
 `OuterForEquivalentDomainGroups`. The policy is not repeat-specific; manual
 concat grids can use it directly.
 
+For grid spans, guide ownership is edge-aware:
+
+- x-axis ownership is based on the bottom row edge of the spanned child;
+- y-axis ownership is based on the left column edge of the spanned child;
+- if a spanned edge crosses strips whose compacted ownership disagrees, the
+  relevant axis guide policy falls back to `All` for that child instead of
+  hiding a potentially necessary guide.
+
+`OuterForEquivalentDomainGroups` also treats a spanned child as participating
+in every physical strip it touches for the relevant axis. The compacted
+outer-edge policy is used only when all children in those touched strips have
+compatible domain coordination, scale type, and axis configuration.
+
 ## Interaction Metadata
 
 Concat child frames contribute evaluated interaction scopes. These scopes carry
 the child-frame path, optional authored subplot id, grid row/column placement,
-and inherited facet path. Chart event bindings, scene queries, stores,
-selections, and tools target those semantic scopes rather than public
-`Vec<usize>` scenegraph paths.
+grid row/column span, and inherited facet path. Chart event bindings, scene
+queries, stores, selections, and tools target those semantic scopes rather than
+public `Vec<usize>` scenegraph paths.
 
 When repeat lowers to concat, generated child-frame keys and ids are ordinary
 concat metadata. This is why repeat-aware tools and selections do not need a

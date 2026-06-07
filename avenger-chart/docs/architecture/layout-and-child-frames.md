@@ -126,6 +126,14 @@ The implementation lives in
 by `LayoutAlignmentKey`, merges compatible `GridTrackRequirements`, and applies
 the merged requirements through container-specific adapters.
 
+For grid-shaped child-frame containers, the exported topology is a list of
+slot rectangles, not just child count. A manual `GridConcat` child with
+`grid_span(2, 3)` exports one child-frame slot covering the corresponding row
+and column interval. Alignment therefore distinguishes equivalent spanned
+grids from non-spanned grids that happen to contain the same number of child
+plots, and it can align matching spanned grids nested under different facet
+values.
+
 The grouping key intentionally distinguishes physical instance identity from
 semantic template identity. Repeat-generated concat children use stable
 template keys such as `repeat_cell:*`, so equivalent repeat grids under

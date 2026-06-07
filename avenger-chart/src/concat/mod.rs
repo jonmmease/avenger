@@ -2589,6 +2589,100 @@ mod tests {
         }
     }
 
+    fn synthetic_grid_alignment_node(
+        shape: GridShape,
+        slot_rects: &[GridSlotRect],
+        facet_value: &str,
+    ) -> ChildFrameLayoutCoordinationNode {
+        let slots = slot_rects
+            .iter()
+            .enumerate()
+            .map(|(child_index, &slot)| {
+                let child_key = ChildFrameKey::ConcatChild {
+                    index: child_index,
+                    key: Some(format!("child-{child_index}")),
+                };
+                ChildFrameLayoutSlot {
+                    child_index,
+                    child_key,
+                    slot,
+                }
+            })
+            .collect::<Vec<_>>();
+        let topology_slots = slots
+            .iter()
+            .map(|slot| ChildFrameLayoutSlotTopology {
+                child_key: slot.child_key.clone(),
+                slot: slot.slot,
+            })
+            .collect();
+        let template_path = vec![ContainerPathSegment::concat_child(0, Some("manual_grid"))];
+        let mut instance_path = vec![ContainerPathSegment::facet_value(
+            FacetAxis::Column,
+            0,
+            ScalarValue::Utf8(Some(facet_value.to_string())),
+        )];
+        instance_path.extend(template_path.clone());
+
+        ChildFrameLayoutCoordinationNode {
+            instance_key: ChildFrameContainerInstanceKey::new(instance_path),
+            template_key: ChildFrameContainerTemplateKey {
+                container_path_template: template_path,
+                semantic_tag: None,
+            },
+            kind: ChildFrameContainerKind::GridConcat,
+            alignment_scope: LayoutCoordinationScope::TemplatePathWithoutFacetSegments,
+            topology: ChildFrameLayoutTopology::Grid {
+                shape,
+                slots: topology_slots,
+            },
+            slots,
+            requirements: ChildFrameLayoutRequirements::Grid(GridTrackRequirements {
+                shape,
+                guide_slot_gap_px: 0.0,
+                column_outer_start: 0.0,
+                column_outer_end: 0.0,
+                row_outer_start: 0.0,
+                row_outer_end: 0.0,
+                column_widths: vec![10.0; shape.columns],
+                row_heights: vec![10.0; shape.rows],
+                column_left: vec![0.0; shape.columns],
+                column_right: vec![0.0; shape.columns],
+                row_top: vec![0.0; shape.rows],
+                row_bottom: vec![0.0; shape.rows],
+            }),
+        }
+    }
+
+    fn spanned_grid_topology_slots() -> [GridSlotRect; 4] {
+        [
+            GridSlotRect {
+                row: 0,
+                column: 0,
+                row_span: 2,
+                column_span: 2,
+            },
+            GridSlotRect {
+                row: 0,
+                column: 2,
+                row_span: 1,
+                column_span: 1,
+            },
+            GridSlotRect {
+                row: 2,
+                column: 0,
+                row_span: 1,
+                column_span: 1,
+            },
+            GridSlotRect {
+                row: 2,
+                column: 2,
+                row_span: 1,
+                column_span: 1,
+            },
+        ]
+    }
+
     fn child_frame_placement_snapshots(
         measurement: &ComponentsMeasurement,
     ) -> Result<Vec<ChildFramePlacementResult>, AvengerChartError> {
@@ -3888,6 +3982,70 @@ mod tests {
                 },
                 "beta",
             ),
+        ];
+
+        let diagnostics = build_child_frame_layout_alignment_diagnostics(&nodes);
+        assert_eq!(diagnostics.exported_node_count, 2);
+        assert_eq!(diagnostics.alignment_group_count, 2);
+        assert!(diagnostics.merged_groups.is_empty());
+        assert_eq!(diagnostics.skipped_groups.len(), 2);
+    }
+
+    #[test]
+    fn grid_layout_coordination_groups_equivalent_spanned_topologies() {
+        let shape = GridShape {
+            rows: 3,
+            columns: 3,
+        };
+        let slots = spanned_grid_topology_slots();
+        let nodes = vec![
+            synthetic_grid_alignment_node(shape, &slots, "alpha"),
+            synthetic_grid_alignment_node(shape, &slots, "beta"),
+        ];
+
+        let diagnostics = build_child_frame_layout_alignment_diagnostics(&nodes);
+        assert_eq!(diagnostics.exported_node_count, 2);
+        assert_eq!(diagnostics.alignment_group_count, 1);
+        assert_eq!(diagnostics.merged_groups.len(), 1);
+        assert_eq!(diagnostics.merged_groups[0].node_count, 2);
+        assert!(diagnostics.skipped_groups.is_empty());
+    }
+
+    #[test]
+    fn grid_layout_coordination_keeps_spanned_and_unspanned_topologies_separate() {
+        let shape = GridShape {
+            rows: 3,
+            columns: 3,
+        };
+        let unspanned_slots = [
+            GridSlotRect {
+                row: 0,
+                column: 0,
+                row_span: 1,
+                column_span: 1,
+            },
+            GridSlotRect {
+                row: 0,
+                column: 2,
+                row_span: 1,
+                column_span: 1,
+            },
+            GridSlotRect {
+                row: 2,
+                column: 0,
+                row_span: 1,
+                column_span: 1,
+            },
+            GridSlotRect {
+                row: 2,
+                column: 2,
+                row_span: 1,
+                column_span: 1,
+            },
+        ];
+        let nodes = vec![
+            synthetic_grid_alignment_node(shape, &spanned_grid_topology_slots(), "alpha"),
+            synthetic_grid_alignment_node(shape, &unspanned_slots, "beta"),
         ];
 
         let diagnostics = build_child_frame_layout_alignment_diagnostics(&nodes);
