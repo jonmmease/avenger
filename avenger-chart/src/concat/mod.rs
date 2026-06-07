@@ -30,7 +30,7 @@ use crate::{
     guide::{
         CompiledGuide, CoordinateGuide, GuideSharingContext, GuideUpdate, OverflowSpaceRequirement,
     },
-    layout::{BandDirection, LayoutBounds, Size2D},
+    layout::{BandDirection, EdgeSlabs, LayoutBounds, Size2D},
     marks::{CompiledMark, CompiledMarkCore},
     plot::compiled::{
         ChildFrameDataSelection, ChildFrameDomainSharingInput, ChildFrameRuntime,
@@ -1426,6 +1426,65 @@ pub(crate) struct GridShape {
     pub(crate) columns: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GridSlotRect {
+    pub(crate) row: usize,
+    pub(crate) column: usize,
+    pub(crate) row_span: usize,
+    pub(crate) column_span: usize,
+}
+
+impl GridSlotRect {
+    fn from_placement(placement: GridPlacementConfig) -> Self {
+        Self {
+            row: placement.row,
+            column: placement.column,
+            row_span: placement.row_span,
+            column_span: placement.column_span,
+        }
+    }
+
+    fn row_end(self) -> usize {
+        self.row + self.row_span
+    }
+
+    fn column_end(self) -> usize {
+        self.column + self.column_span
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct GridChildTrackDemand {
+    pub(crate) child_index: usize,
+    pub(crate) slot: GridSlotRect,
+    pub(crate) plot_area: Size2D,
+    pub(crate) slabs: EdgeSlabs,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct GridTrackRequirements {
+    pub(crate) shape: GridShape,
+    pub(crate) column_widths: Vec<f32>,
+    pub(crate) row_heights: Vec<f32>,
+    pub(crate) column_left: Vec<f32>,
+    pub(crate) column_right: Vec<f32>,
+    pub(crate) row_top: Vec<f32>,
+    pub(crate) row_bottom: Vec<f32>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct GridTrackSolution {
+    pub(crate) column_widths: Vec<f32>,
+    pub(crate) row_heights: Vec<f32>,
+    pub(crate) column_left: Vec<f32>,
+    pub(crate) column_right: Vec<f32>,
+    pub(crate) row_top: Vec<f32>,
+    pub(crate) row_bottom: Vec<f32>,
+    pub(crate) column_starts: Vec<f32>,
+    pub(crate) row_starts: Vec<f32>,
+    pub(crate) content_size: Size2D,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct GridGuideSharingSlots {
     rows_by_column: Vec<Vec<usize>>,
@@ -1557,68 +1616,234 @@ fn grid_child_frame_placement(
     shape: GridShape,
     base_cell_size: Size2D,
 ) -> Result<ChildFramePlacementResult, AvengerChartError> {
-    let mut column_widths = vec![base_cell_size.width; shape.columns];
-    let mut row_heights = vec![base_cell_size.height; shape.rows];
-    let mut column_left = vec![0.0f32; shape.columns];
-    let mut column_right = vec![0.0f32; shape.columns];
-    let mut row_top = vec![0.0f32; shape.rows];
-    let mut row_bottom = vec![0.0f32; shape.rows];
-
-    for child in children {
-        let placement = child.grid_placement.ok_or_else(|| {
-            AvengerChartError::InternalError(format!(
-                "Missing grid placement for child {}",
-                child.child_index
-            ))
-        })?;
-        let slabs = child.measurement.frame_demand().rendered_envelope;
-        column_widths[placement.column] =
-            column_widths[placement.column].max(child.measurement.plot_area_width);
-        row_heights[placement.row] =
-            row_heights[placement.row].max(child.measurement.plot_area_height);
-        column_left[placement.column] = column_left[placement.column].max(slabs.left);
-        column_right[placement.column] = column_right[placement.column].max(slabs.right);
-        row_top[placement.row] = row_top[placement.row].max(slabs.top);
-        row_bottom[placement.row] = row_bottom[placement.row].max(slabs.bottom);
-    }
-
-    let mut column_starts = vec![0.0f32; shape.columns];
-    let mut cursor = 0.0f32;
-    for column in 0..shape.columns {
-        if column > 0 {
-            cursor += column_right[column - 1] + column_left[column];
-        }
-        column_starts[column] = cursor;
-        cursor += column_widths[column];
-    }
-    let content_width = cursor;
-
-    let mut row_starts = vec![0.0f32; shape.rows];
-    let mut cursor = 0.0f32;
-    for row in 0..shape.rows {
-        if row > 0 {
-            cursor += row_bottom[row - 1] + row_top[row];
-        }
-        row_starts[row] = cursor;
-        cursor += row_heights[row];
-    }
-    let content_height = cursor;
+    let demands = grid_child_track_demands(children)?;
+    let requirements = grid_track_requirements(shape, base_cell_size, &demands)?;
+    let solution = solve_grid_track_requirements(&requirements, &demands);
 
     let render_placements = children
         .iter()
         .map(|child| {
             let placement = child.grid_placement.expect("validated above");
+            let slot = GridSlotRect::from_placement(placement);
             ChildFrameRenderPlacement {
                 child_index: child.child_index,
-                origin: [column_starts[placement.column], row_starts[placement.row]],
+                origin: solution.origin_for_slot(slot),
             }
         })
         .collect();
 
     Ok(ChildFramePlacementResult::new(
-        Size2D::new(content_width, content_height),
+        solution.content_size,
         render_placements,
     ))
+}
+
+fn grid_child_track_demands(
+    children: &[ConcatChildMeasurement],
+) -> Result<Vec<GridChildTrackDemand>, AvengerChartError> {
+    children
+        .iter()
+        .map(|child| {
+            let placement = child.grid_placement.ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Missing grid placement for child {}",
+                    child.child_index
+                ))
+            })?;
+            Ok(GridChildTrackDemand {
+                child_index: child.child_index,
+                slot: GridSlotRect::from_placement(placement),
+                plot_area: Size2D::new(
+                    child.measurement.plot_area_width,
+                    child.measurement.plot_area_height,
+                ),
+                slabs: child.measurement.frame_demand().rendered_envelope,
+            })
+        })
+        .collect()
+}
+
+fn grid_track_requirements(
+    shape: GridShape,
+    base_cell_size: Size2D,
+    demands: &[GridChildTrackDemand],
+) -> Result<GridTrackRequirements, AvengerChartError> {
+    let mut requirements = GridTrackRequirements {
+        shape,
+        column_widths: vec![base_cell_size.width; shape.columns],
+        row_heights: vec![base_cell_size.height; shape.rows],
+        column_left: vec![0.0; shape.columns],
+        column_right: vec![0.0; shape.columns],
+        row_top: vec![0.0; shape.rows],
+        row_bottom: vec![0.0; shape.rows],
+    };
+
+    for demand in demands {
+        let slot = demand.slot;
+        if slot.row_span == 0
+            || slot.column_span == 0
+            || slot.row_end() > shape.rows
+            || slot.column_end() > shape.columns
+        {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Grid child {} slot {:?} exceeds grid shape {}x{}",
+                demand.child_index, slot, shape.rows, shape.columns
+            )));
+        }
+
+        let last_row = slot.row_end() - 1;
+        let last_column = slot.column_end() - 1;
+        requirements.column_left[slot.column] =
+            requirements.column_left[slot.column].max(demand.slabs.left);
+        requirements.column_right[last_column] =
+            requirements.column_right[last_column].max(demand.slabs.right);
+        requirements.row_top[slot.row] = requirements.row_top[slot.row].max(demand.slabs.top);
+        requirements.row_bottom[last_row] =
+            requirements.row_bottom[last_row].max(demand.slabs.bottom);
+
+        if slot.column_span == 1 {
+            requirements.column_widths[slot.column] =
+                requirements.column_widths[slot.column].max(demand.plot_area.width);
+        }
+        if slot.row_span == 1 {
+            requirements.row_heights[slot.row] =
+                requirements.row_heights[slot.row].max(demand.plot_area.height);
+        }
+    }
+
+    Ok(requirements)
+}
+
+fn solve_grid_track_requirements(
+    requirements: &GridTrackRequirements,
+    demands: &[GridChildTrackDemand],
+) -> GridTrackSolution {
+    debug_assert_eq!(requirements.column_widths.len(), requirements.shape.columns);
+    debug_assert_eq!(requirements.row_heights.len(), requirements.shape.rows);
+
+    let mut column_widths = requirements.column_widths.clone();
+    let mut row_heights = requirements.row_heights.clone();
+
+    satisfy_span_axis_constraints(
+        &mut column_widths,
+        &requirements.column_right,
+        &requirements.column_left,
+        demands
+            .iter()
+            .map(|demand| AxisSpanConstraint {
+                start: demand.slot.column,
+                span: demand.slot.column_span,
+                target: demand.plot_area.width,
+            })
+            .collect(),
+    );
+    satisfy_span_axis_constraints(
+        &mut row_heights,
+        &requirements.row_bottom,
+        &requirements.row_top,
+        demands
+            .iter()
+            .map(|demand| AxisSpanConstraint {
+                start: demand.slot.row,
+                span: demand.slot.row_span,
+                target: demand.plot_area.height,
+            })
+            .collect(),
+    );
+
+    let (column_starts, content_width) = track_starts_and_content_size(
+        &column_widths,
+        &requirements.column_right,
+        &requirements.column_left,
+    );
+    let (row_starts, content_height) = track_starts_and_content_size(
+        &row_heights,
+        &requirements.row_bottom,
+        &requirements.row_top,
+    );
+
+    GridTrackSolution {
+        column_widths,
+        row_heights,
+        column_left: requirements.column_left.clone(),
+        column_right: requirements.column_right.clone(),
+        row_top: requirements.row_top.clone(),
+        row_bottom: requirements.row_bottom.clone(),
+        column_starts,
+        row_starts,
+        content_size: Size2D::new(content_width, content_height),
+    }
+}
+
+#[derive(Clone, Debug)]
+struct AxisSpanConstraint {
+    start: usize,
+    span: usize,
+    target: f32,
+}
+
+fn satisfy_span_axis_constraints(
+    sizes: &mut [f32],
+    trailing_slabs: &[f32],
+    leading_slabs: &[f32],
+    mut constraints: Vec<AxisSpanConstraint>,
+) {
+    constraints.sort_by_key(|constraint| constraint.span);
+    for constraint in constraints {
+        let current = span_axis_extent(
+            sizes,
+            trailing_slabs,
+            leading_slabs,
+            constraint.start,
+            constraint.span,
+        );
+        let deficit = constraint.target - current;
+        if deficit <= 0.0 || constraint.span == 0 {
+            continue;
+        }
+        let extra_per_track = deficit / constraint.span as f32;
+        for size in &mut sizes[constraint.start..constraint.start + constraint.span] {
+            *size += extra_per_track;
+        }
+    }
+}
+
+fn span_axis_extent(
+    sizes: &[f32],
+    trailing_slabs: &[f32],
+    leading_slabs: &[f32],
+    start: usize,
+    span: usize,
+) -> f32 {
+    let end = start + span;
+    let track_sum = sizes[start..end].iter().sum::<f32>();
+    let gap_sum = (start..end.saturating_sub(1))
+        .map(|index| trailing_slabs[index] + leading_slabs[index + 1])
+        .sum::<f32>();
+    track_sum + gap_sum
+}
+
+fn track_starts_and_content_size(
+    sizes: &[f32],
+    trailing_slabs: &[f32],
+    leading_slabs: &[f32],
+) -> (Vec<f32>, f32) {
+    let mut starts = vec![0.0f32; sizes.len()];
+    let mut cursor = 0.0f32;
+    for index in 0..sizes.len() {
+        if index > 0 {
+            cursor += trailing_slabs[index - 1] + leading_slabs[index];
+        }
+        starts[index] = cursor;
+        cursor += sizes[index];
+    }
+    (starts, cursor)
+}
+
+impl GridTrackSolution {
+    fn origin_for_slot(&self, slot: GridSlotRect) -> [f32; 2] {
+        [self.column_starts[slot.column], self.row_starts[slot.row]]
+    }
 }
 
 fn container_point_geometry(
@@ -2074,6 +2299,184 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(origins, vec![(0, [0.0, 0.0]), (1, [200.0, 100.0])]);
         assert_eq!(placement.content_size, Size2D::new(300.0, 200.0));
+        Ok(())
+    }
+
+    fn track_demand(
+        child_index: usize,
+        row: usize,
+        column: usize,
+        row_span: usize,
+        column_span: usize,
+        plot_area: Size2D,
+        slabs: EdgeSlabs,
+    ) -> GridChildTrackDemand {
+        GridChildTrackDemand {
+            child_index,
+            slot: GridSlotRect {
+                row,
+                column,
+                row_span,
+                column_span,
+            },
+            plot_area,
+            slabs,
+        }
+    }
+
+    #[test]
+    fn grid_track_solver_matches_non_spanning_grid_placement() -> Result<(), AvengerChartError> {
+        let shape = GridShape {
+            rows: 2,
+            columns: 2,
+        };
+        let demands = vec![
+            track_demand(
+                0,
+                0,
+                0,
+                1,
+                1,
+                Size2D::new(100.0, 50.0),
+                EdgeSlabs::new(1.0, 5.0, 2.0, 3.0),
+            ),
+            track_demand(
+                1,
+                0,
+                1,
+                1,
+                1,
+                Size2D::new(120.0, 50.0),
+                EdgeSlabs::new(1.0, 4.0, 2.0, 7.0),
+            ),
+            track_demand(
+                2,
+                1,
+                0,
+                1,
+                1,
+                Size2D::new(100.0, 60.0),
+                EdgeSlabs::new(9.0, 5.0, 2.0, 3.0),
+            ),
+        ];
+
+        let requirements = grid_track_requirements(shape, Size2D::new(100.0, 50.0), &demands)?;
+        let solution = solve_grid_track_requirements(&requirements, &demands);
+
+        assert_eq!(solution.column_widths, vec![100.0, 120.0]);
+        assert_eq!(solution.row_heights, vec![50.0, 60.0]);
+        assert_eq!(solution.column_starts, vec![0.0, 112.0]);
+        assert_eq!(solution.row_starts, vec![0.0, 61.0]);
+        assert_eq!(solution.content_size, Size2D::new(232.0, 121.0));
+        assert_eq!(solution.origin_for_slot(demands[1].slot), [112.0, 0.0]);
+        assert_eq!(solution.origin_for_slot(demands[2].slot), [0.0, 61.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn grid_track_solver_preserves_hole_track_positions() -> Result<(), AvengerChartError> {
+        let shape = GridShape {
+            rows: 2,
+            columns: 3,
+        };
+        let demands = vec![
+            track_demand(
+                0,
+                0,
+                0,
+                1,
+                1,
+                Size2D::new(100.0, 100.0),
+                EdgeSlabs::default(),
+            ),
+            track_demand(
+                1,
+                1,
+                2,
+                1,
+                1,
+                Size2D::new(100.0, 100.0),
+                EdgeSlabs::default(),
+            ),
+        ];
+
+        let requirements = grid_track_requirements(shape, Size2D::new(100.0, 100.0), &demands)?;
+        let solution = solve_grid_track_requirements(&requirements, &demands);
+
+        assert_eq!(solution.column_starts, vec![0.0, 100.0, 200.0]);
+        assert_eq!(solution.row_starts, vec![0.0, 100.0]);
+        assert_eq!(solution.origin_for_slot(demands[1].slot), [200.0, 100.0]);
+        assert_eq!(solution.content_size, Size2D::new(300.0, 200.0));
+        Ok(())
+    }
+
+    #[test]
+    fn grid_track_requirements_reject_slot_rect_outside_shape() {
+        let shape = GridShape {
+            rows: 1,
+            columns: 1,
+        };
+        let demands = vec![track_demand(
+            0,
+            0,
+            0,
+            1,
+            2,
+            Size2D::new(100.0, 100.0),
+            EdgeSlabs::default(),
+        )];
+
+        let err = grid_track_requirements(shape, Size2D::new(100.0, 100.0), &demands)
+            .expect_err("slot rect should exceed shape");
+        assert!(err.to_string().contains("exceeds grid shape"));
+    }
+
+    #[test]
+    fn grid_track_solver_satisfies_span_interval_constraints() -> Result<(), AvengerChartError> {
+        let shape = GridShape {
+            rows: 1,
+            columns: 3,
+        };
+        let demands = vec![
+            track_demand(
+                0,
+                0,
+                0,
+                1,
+                3,
+                Size2D::new(190.0, 50.0),
+                EdgeSlabs::new(1.0, 6.0, 2.0, 4.0),
+            ),
+            track_demand(
+                1,
+                0,
+                1,
+                1,
+                1,
+                Size2D::new(50.0, 50.0),
+                EdgeSlabs::new(0.0, 3.0, 0.0, 2.0),
+            ),
+        ];
+
+        let requirements = grid_track_requirements(shape, Size2D::new(50.0, 50.0), &demands)?;
+        let solution = solve_grid_track_requirements(&requirements, &demands);
+
+        assert_eq!(solution.column_left, vec![4.0, 2.0, 0.0]);
+        assert_eq!(solution.column_right, vec![0.0, 3.0, 6.0]);
+        let spanned_width = span_axis_extent(
+            &solution.column_widths,
+            &solution.column_right,
+            &solution.column_left,
+            0,
+            3,
+        );
+        assert!((spanned_width - 190.0).abs() < 0.0001);
+        assert_eq!(solution.column_starts[1], solution.column_widths[0] + 2.0);
+        assert_eq!(
+            solution.column_starts[2],
+            solution.column_widths[0] + 2.0 + solution.column_widths[1] + 3.0
+        );
+        assert!((solution.content_size.width - 190.0).abs() < 0.0001);
         Ok(())
     }
 
