@@ -2166,7 +2166,7 @@ mod tests {
                     ChildFrameLayoutRequirements, ChildFrameLayoutSlot,
                     ChildFrameLayoutSlotTopology, ChildFrameLayoutTopology,
                     FacetBandGridApplyUnsupported, LayoutCoordinationScope,
-                    apply_child_frame_layout_alignment,
+                    apply_child_frame_layout_alignment, apply_facet_band_grid_track_requirements,
                     build_child_frame_layout_alignment_diagnostics,
                     collect_child_frame_layout_coordination_nodes,
                     diagnose_child_frame_layout_alignment, facet_band_grid_apply_layout,
@@ -3218,7 +3218,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn layout_alignment_apply_does_not_plan_read_only_facet_groups()
+    async fn layout_alignment_apply_keeps_no_delta_facet_groups_unchanged()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let variables = repeat_vars(&["x", "y"]);
@@ -3245,7 +3245,7 @@ mod tests {
 
         assert_eq!(
             trace.planned_group_count, 0,
-            "facet-band diagnostics should not become apply plans until a mutating facet adapter exists"
+            "facet-band diagnostics without deltas should not become apply plans"
         );
         assert_eq!(trace.applied_container_count, 0);
         assert_eq!(before, after);
@@ -4288,6 +4288,128 @@ mod tests {
         assert_eq!(
             layout.guide_slot_gap_px, 4.0,
             "guide slot gap is independent from inner subplot padding"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn facet_band_apply_mutates_safe_explicit_column_layout() -> Result<(), AvengerChartError>
+    {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<FacetColumn>::new()
+            .data(grouped_xy_dataframe(&ctx))
+            .mark(
+                Subplot::new(Plot::<Cartesian>::new().mark(line_mark(false))).column(col("group")),
+            )
+            .compile(&ctx)
+            .await?;
+
+        let mut measurement = measurement_for_plot(&compiled, 320.0, 120.0, &ctx).await?;
+        {
+            let facet = measurement
+                .coord_measurement
+                .as_any_mut()
+                .downcast_mut::<FacetBandCoordMeasurement>()
+                .expect("FacetColumn should measure as FacetBandCoordMeasurement");
+            facet.placement_model =
+                FacetBandPlacementModel::Explicit(FacetBandExplicitPlacement::default());
+            facet.recompute_explicit_placement();
+        }
+
+        let before = child_frame_placement_snapshots(&measurement)?;
+        let cell_count = {
+            let facet = measurement
+                .coord_measurement
+                .as_any()
+                .downcast_ref::<FacetBandCoordMeasurement>()
+                .expect("FacetColumn should measure as FacetBandCoordMeasurement");
+            facet.cells.len()
+        };
+        assert!(
+            cell_count > 1,
+            "test fixture should have multiple facet cells so inner padding can be observed"
+        );
+
+        let mut column_left = vec![0.0; cell_count];
+        let mut column_right = vec![0.0; cell_count];
+        column_right[0] = 13.0;
+        column_left[1] = 11.0;
+        let requirements = GridTrackRequirements {
+            shape: GridShape {
+                rows: 1,
+                columns: cell_count,
+            },
+            guide_slot_gap_px: 17.0,
+            column_outer_start: 19.0,
+            column_outer_end: 23.0,
+            row_outer_start: 0.0,
+            row_outer_end: 0.0,
+            column_widths: vec![100.0; cell_count],
+            row_heights: vec![80.0],
+            column_left,
+            column_right,
+            row_top: vec![0.0],
+            row_bottom: vec![0.0],
+        };
+
+        let applied = apply_facet_band_grid_track_requirements(&mut measurement, &requirements)?;
+        assert!(
+            applied,
+            "safe explicit facet band should accept a real layout delta"
+        );
+        let after = child_frame_placement_snapshots(&measurement)?;
+        assert_ne!(
+            before, after,
+            "facet-band apply should recompute explicit child placement"
+        );
+
+        let facet = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("FacetColumn should measure as FacetBandCoordMeasurement");
+        let layout = facet
+            .coordinated_layout
+            .as_ref()
+            .expect("facet-band apply should install coordinated layout");
+        assert_eq!(layout.n, cell_count);
+        assert_eq!(layout.outer_start, 19.0);
+        assert_eq!(layout.outer_end, 23.0);
+        assert_eq!(
+            layout.padding_inner_px, 24.0,
+            "inner subplot padding should come from adjacent cell chrome"
+        );
+        assert_eq!(
+            layout.guide_slot_gap_px, 17.0,
+            "guide slot gap should remain independent from subplot padding"
+        );
+
+        let FacetBandPlacementModel::Explicit(explicit) = &facet.placement_model else {
+            panic!("facet-band apply should keep explicit placement");
+        };
+        assert_eq!(explicit.main_axis_positions.len(), cell_count);
+        assert_eq!(
+            after[0].render_placements().len(),
+            cell_count,
+            "facet child-frame placement should still render one child per facet cell"
+        );
+        assert!(
+            after[0].content_size.width > before[0].content_size.width,
+            "larger coordinated outer gaps and inner padding should increase horizontal extent"
+        );
+        assert_eq!(
+            after[0].content_size.height, before[0].content_size.height,
+            "column facet apply should not change the cross-axis content extent"
+        );
+        assert_eq!(
+            after[0].render_placements()[0].origin[1],
+            before[0].render_placements()[0].origin[1],
+            "column facet apply should leave child y origins unchanged"
+        );
+        assert_ne!(
+            after[0].render_placements()[0].origin[0],
+            before[0].render_placements()[0].origin[0],
+            "column facet apply should update child x origins"
         );
         Ok(())
     }

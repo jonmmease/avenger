@@ -1,9 +1,8 @@
-//! Read-only layout coordination nodes for measured child-frame containers.
+//! Layout coordination nodes for measured child-frame containers.
 //!
-//! These nodes describe measured container requirements without mutating the
-//! measurement tree. Later coordination phases can group compatible nodes,
-//! merge their requirements, and apply aligned solutions through concrete
-//! container adapters.
+//! These nodes describe measured container requirements. The alignment pass can
+//! group compatible nodes, merge their requirements, and apply aligned
+//! solutions through concrete container adapters.
 
 use indexmap::IndexMap;
 use tracing::debug;
@@ -497,7 +496,7 @@ fn max_adjacent_gap(trailing: &[f32], leading: &[f32]) -> f32 {
         .fold(0.0, f32::max)
 }
 
-fn apply_facet_band_grid_track_requirements(
+pub(crate) fn apply_facet_band_grid_track_requirements(
     measurement: &mut ComponentsMeasurement,
     requirements: &GridTrackRequirements,
 ) -> Result<bool, AvengerChartError> {
@@ -762,7 +761,9 @@ fn alignment_solution_plans(
 fn layout_alignment_key_has_apply_adapter(key: &LayoutAlignmentKey) -> bool {
     matches!(
         key.kind,
-        ChildFrameContainerKind::HConcat
+        ChildFrameContainerKind::FacetColumn
+            | ChildFrameContainerKind::FacetRow
+            | ChildFrameContainerKind::HConcat
             | ChildFrameContainerKind::VConcat
             | ChildFrameContainerKind::GridConcat
     )
@@ -1029,7 +1030,7 @@ mod tests {
     }
 
     #[test]
-    fn alignment_solution_plans_skip_read_only_facet_groups() {
+    fn alignment_solution_plans_include_facet_groups_after_adapter_registration() {
         let facet_key = test_alignment_key(ChildFrameContainerKind::FacetColumn);
         let grid_key = test_alignment_key(ChildFrameContainerKind::GridConcat);
         let diagnostics = ChildFrameLayoutAlignmentDiagnostics {
@@ -1054,8 +1055,8 @@ mod tests {
 
         let plans = alignment_solution_plans(&diagnostics);
 
-        assert_eq!(plans.len(), 1);
-        assert!(!plans.contains_key(&facet_key));
+        assert_eq!(plans.len(), 2);
+        assert!(plans.contains_key(&facet_key));
         assert!(plans.contains_key(&grid_key));
     }
 
