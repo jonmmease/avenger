@@ -1,4 +1,4 @@
-//! Repeat-grid scatterplot matrix with low-level box selection.
+//! Repeat-grid scatterplot matrix with the built-in box selection tool.
 //!
 //! Drag inside a repeated cell to draw or update that cell's brush. Brushes are
 //! OR'ed together and the same selection predicate highlights the sibling view.
@@ -11,7 +11,6 @@
 
 use std::sync::Arc;
 
-use avenger_chart::event as ev;
 use avenger_chart::prelude::*;
 use avenger_chart_app::{
     ChartAppOptions, ChartResizeBinding, WinitWgpuAvengerApp, WinitWgpuAvengerAppOptions,
@@ -23,12 +22,9 @@ use datafusion::{
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
-    prelude::{Expr, SessionContext, col, lit, when},
+    prelude::{Expr, SessionContext, col, lit},
 };
 use winit::window::WindowAttributes;
-
-const BRUSH_STORE: &str = "repeat_brush_boxes";
-const BRUSH_SELECTION: &str = "brush";
 
 fn main() {
     init_diagnostics();
@@ -52,11 +48,11 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .read_batch(make_penguin_like_batch())
         .expect("read generated SPLOM data");
 
-    let brush = Selection::new(BRUSH_SELECTION)
-        .combine(SelectionCombine::Union)
-        .empty_selects_nothing();
+    let brush = BoxSelection::cartesian("brush")
+        .dimensions(repeat::column(), repeat::row())
+        .resolve(BoxSelectionResolve::Union)
+        .repeat_cell_chrome();
     let selected = brush.predicate();
-    let cursor = Param::cursor("brush_cursor", CursorStyle::Default);
 
     let variables = vec![
         RepeatVariable::new("bill_length_mm", col("bill_length_mm")).title("bill length"),
@@ -66,11 +62,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
     let cell = Plot::<Cartesian>::new()
         .mark(repeat_points(selected.clone(), 24.0))
-        .mark(selection_overlay())
-        .event_binding(cursor_binding(&cursor))
-        .event_binding(selection_drag_binding(&cursor))
-        .event_binding(selection_release_binding())
-        .event_binding(selection_clear_binding());
+        .tool(brush);
 
     let splom = Plot::<RepeatGrid>::new()
         .data(df.clone())
@@ -99,10 +91,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
     let plot = Plot::<HConcat>::new()
         .canvas_size(1180.0, 720.0)
-        .add_store(brush_box_store())
-        .add_selection(brush)
-        .add_param(cursor.clone())
-        .cursor_param(cursor.name.clone())
         .mark(Subplot::new(splom).id("splom").key("splom"))
         .mark(Subplot::new(sibling).id("sibling").key("sibling"));
 
@@ -132,136 +120,6 @@ fn repeat_points(selected: Expr, size: f64) -> Symbol<Cartesian> {
         .stroke("#ffffff")
         .stroke_width(0.5)
         .size(size)
-}
-
-fn selection_overlay() -> Rect<Cartesian> {
-    Rect::<Cartesian>::new()
-        .data_store(StoreData::new(BRUSH_STORE))
-        .transform_no_output(Filter::new(repeat::current_cell_predicate()), |mark| mark)
-        .exclude_from_scale_domains()
-        .x(col("x_min"))
-        .x2(col("x_max"))
-        .y(col("y_min"))
-        .y2(col("y_max"))
-        .fill("rgba(37, 99, 235, 0.10)")
-        .stroke("#2563eb")
-        .stroke_width(1.5)
-        .zindex(10_000)
-}
-
-fn cursor_binding(cursor: &Param) -> ChartEventBinding {
-    let over_plot = ev::event_coord("x")
-        .is_not_null()
-        .and(ev::event_coord("y").is_not_null());
-    let cursor_expr = when(over_plot, ev::cursor(CursorStyle::Crosshair))
-        .otherwise(ev::cursor(CursorStyle::Default))
-        .expect("valid cursor case expression");
-    ChartEventBinding::on(ChartEventType::CursorMoved)
-        .set_param(cursor, cursor_expr)
-        .preview()
-}
-
-fn selection_drag_binding(cursor: &Param) -> ChartEventBinding {
-    ChartEventBinding::on(ChartEventType::CursorMoved)
-        .between(
-            ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
-            ChartEventStream::on(ChartEventType::MouseUp),
-        )
-        .filter(ev::start_coord("x").is_not_null())
-        .filter(ev::start_coord("y").is_not_null())
-        .filter(ev::event_at_start_clipped_coord("x").is_not_null())
-        .filter(ev::event_at_start_clipped_coord("y").is_not_null())
-        .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
-        .set_selection_at_start_scope(BRUSH_SELECTION, upsert_selection_update())
-        .set_store_at_start_scope(BRUSH_STORE, upsert_store_update())
-        .preview()
-}
-
-fn selection_release_binding() -> ChartEventBinding {
-    ChartEventBinding::on_between_end(
-        ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
-        ChartEventStream::on(ChartEventType::MouseUp),
-    )
-    .filter(ev::start_coord("x").is_not_null())
-    .filter(ev::start_coord("y").is_not_null())
-    .filter(ev::event_at_start_clipped_coord("x").is_not_null())
-    .filter(ev::event_at_start_clipped_coord("y").is_not_null())
-    .set_selection_at_start_scope(BRUSH_SELECTION, upsert_selection_update())
-    .set_store_at_start_scope(BRUSH_STORE, upsert_store_update())
-    .exact()
-}
-
-fn selection_clear_binding() -> ChartEventBinding {
-    ChartEventBinding::on(ChartEventType::DoubleClick)
-        .clear_selection(BRUSH_SELECTION)
-        .set_store_replacing_scopes(BRUSH_STORE, StoreUpdate::clear())
-        .exact()
-}
-
-fn brush_box_store() -> Store {
-    Store::empty(BRUSH_STORE)
-        .field("id", DataType::Utf8, false)
-        .field("cell_id", DataType::Utf8, false)
-        .field("row_id", DataType::Utf8, false)
-        .field("column_id", DataType::Utf8, false)
-        .field("x_min", DataType::Float64, false)
-        .field("x_max", DataType::Float64, false)
-        .field("y_min", DataType::Float64, false)
-        .field("y_max", DataType::Float64, false)
-        .primary_key(["id"])
-        .sharing(CoordinationScope::Shared)
-}
-
-fn brush_selection_clause() -> SelectionClauseUpdate {
-    SelectionClauseUpdate::interval(repeat::cell_id())
-        .facet_scope(CoordinationScope::Shared)
-        .dimension(repeat::column())
-        .endpoints(
-            ev::interval_start(ev::interval_ordered(
-                ev::start_coord("x"),
-                ev::event_at_start_clipped_coord("x"),
-            )),
-            ev::interval_end(ev::interval_ordered(
-                ev::start_coord("x"),
-                ev::event_at_start_clipped_coord("x"),
-            )),
-        )
-        .dimension(repeat::row())
-        .endpoints(
-            ev::interval_start(ev::interval_ordered(
-                ev::start_coord("y"),
-                ev::event_at_start_clipped_coord("y"),
-            )),
-            ev::interval_end(ev::interval_ordered(
-                ev::start_coord("y"),
-                ev::event_at_start_clipped_coord("y"),
-            )),
-        )
-        .build()
-}
-
-fn upsert_selection_update() -> SelectionUpdate {
-    SelectionUpdate::upsert_clause(brush_selection_clause())
-}
-
-fn brush_box_row() -> StoreRow {
-    let x_interval =
-        ev::interval_ordered(ev::start_coord("x"), ev::event_at_start_clipped_coord("x"));
-    let y_interval =
-        ev::interval_ordered(ev::start_coord("y"), ev::event_at_start_clipped_coord("y"));
-    StoreRow::new()
-        .field("id", repeat::cell_id())
-        .field("cell_id", repeat::cell_id())
-        .field("row_id", repeat::row_id())
-        .field("column_id", repeat::column_id())
-        .field("x_min", ev::interval_start(x_interval.clone()))
-        .field("x_max", ev::interval_end(x_interval))
-        .field("y_min", ev::interval_start(y_interval.clone()))
-        .field("y_max", ev::interval_end(y_interval))
-}
-
-fn upsert_store_update() -> StoreUpdate {
-    StoreUpdate::upsert_rows([brush_box_row()])
 }
 
 fn make_penguin_like_batch() -> RecordBatch {

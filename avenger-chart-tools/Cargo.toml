@@ -7,4 +7,5 @@ edition = "2024"
 avenger-chart-cartesian = { path = "../avenger-chart-cartesian" }
 avenger-chart-core = { path = "../avenger-chart-core" }
 avenger-chart-marks = { path = "../avenger-chart-marks" }
+avenger-chart-transforms = { path = "../avenger-chart-transforms" }
 datafusion = { workspace = true }

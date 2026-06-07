@@ -777,6 +777,7 @@ dependencies = [
  "avenger-chart-cartesian",
  "avenger-chart-core",
  "avenger-chart-marks",
+ "avenger-chart-transforms",
  "datafusion",
 ]
 

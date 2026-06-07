@@ -5,12 +5,14 @@ use avenger_chart_core::{
     AvengerChartError, ChartEventBinding, ChartEventStream, ChartEventType, ChartTool,
     CoordinateSystemCore, CoordinationScope, DomainCoordination, DomainCoordinationGroup,
     EmptySelectionBehavior, IntoExpr, Param, SceneGeometryHitPolicy, SceneGeometryQuery,
-    SceneQueryDatumField, Selection, SelectionClauseUpdate, SelectionSceneQuery, SelectionUpdate,
-    ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamSharing, ToolScaleEdit,
-    event as ev,
+    SceneQueryDatumField, Selection, SelectionClauseUpdate, SelectionCombine, SelectionSceneQuery,
+    SelectionUpdate, Store, StoreData, StoreRow, StoreUpdate, ToolExpansion, ToolExpansionContext,
+    ToolMetadata, ToolParamSharing, ToolScaleEdit, event as ev, repeat,
 };
 use avenger_chart_marks::Rect;
+use avenger_chart_transforms::Filter;
 use datafusion::{
+    arrow::datatypes::DataType,
     common::ScalarValue,
     functions::expr_fn::power,
     prelude::{Expr, col, lit},
@@ -792,6 +794,422 @@ fn lasso_selection_clear_binding(enabled_param: &str, selection_id: &str) -> Cha
         .exact()
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BoxSelectionResolve {
+    Global,
+    Union,
+    Intersect,
+}
+
+#[derive(Clone, Debug)]
+pub struct BoxSelection {
+    selection_id: String,
+    tool_id: String,
+    x_channel: String,
+    y_channel: String,
+    x_dimension: Expr,
+    y_dimension: Expr,
+    resolve: BoxSelectionResolve,
+    facet_scope: CoordinationScope,
+    facet_context_fields: Vec<(String, Expr)>,
+    empty: EmptySelectionBehavior,
+    drag_button: String,
+    repeat_cell_chrome: bool,
+    double_click_clear: bool,
+    enabled_by_default: bool,
+}
+
+impl BoxSelection {
+    pub fn cartesian(selection_id: impl Into<String>) -> Self {
+        let selection_id = selection_id.into();
+        Self {
+            tool_id: selection_id.clone(),
+            selection_id,
+            x_channel: "x".to_string(),
+            y_channel: "y".to_string(),
+            x_dimension: col("x"),
+            y_dimension: col("y"),
+            resolve: BoxSelectionResolve::Global,
+            facet_scope: CoordinationScope::Shared,
+            facet_context_fields: Vec::new(),
+            empty: EmptySelectionBehavior::SelectNothing,
+            drag_button: "left".to_string(),
+            repeat_cell_chrome: false,
+            double_click_clear: true,
+            enabled_by_default: true,
+        }
+    }
+
+    pub fn id(mut self, tool_id: impl Into<String>) -> Self {
+        self.tool_id = tool_id.into();
+        self
+    }
+
+    pub fn x_channel(mut self, channel: impl Into<String>) -> Self {
+        self.x_channel = channel.into();
+        self
+    }
+
+    pub fn y_channel(mut self, channel: impl Into<String>) -> Self {
+        self.y_channel = channel.into();
+        self
+    }
+
+    pub fn channels(mut self, x: impl Into<String>, y: impl Into<String>) -> Self {
+        self.x_channel = x.into();
+        self.y_channel = y.into();
+        self
+    }
+
+    pub fn x_dimension(mut self, expr: impl IntoExpr) -> Self {
+        self.x_dimension = expr.into_expr();
+        self
+    }
+
+    pub fn y_dimension(mut self, expr: impl IntoExpr) -> Self {
+        self.y_dimension = expr.into_expr();
+        self
+    }
+
+    pub fn dimensions(mut self, x: impl IntoExpr, y: impl IntoExpr) -> Self {
+        self.x_dimension = x.into_expr();
+        self.y_dimension = y.into_expr();
+        self
+    }
+
+    pub fn resolve(mut self, resolve: BoxSelectionResolve) -> Self {
+        self.resolve = resolve;
+        if matches!(resolve, BoxSelectionResolve::Intersect) {
+            self.empty = EmptySelectionBehavior::SelectAll;
+        }
+        self
+    }
+
+    pub fn facet_scope(mut self, scope: CoordinationScope) -> Self {
+        self.facet_scope = scope;
+        self
+    }
+
+    pub fn facet_context_field(mut self, id: impl Into<String>, expr: impl IntoExpr) -> Self {
+        self.facet_context_fields
+            .push((id.into(), expr.into_expr()));
+        self
+    }
+
+    pub fn empty_selects_nothing(mut self) -> Self {
+        self.empty = EmptySelectionBehavior::SelectNothing;
+        self
+    }
+
+    pub fn empty_selects_all(mut self) -> Self {
+        self.empty = EmptySelectionBehavior::SelectAll;
+        self
+    }
+
+    pub fn drag_button(mut self, button: impl Into<String>) -> Self {
+        self.drag_button = button.into();
+        self
+    }
+
+    pub fn repeat_cell_chrome(mut self) -> Self {
+        self.repeat_cell_chrome = true;
+        self
+    }
+
+    pub fn double_click_clear(mut self, enabled: bool) -> Self {
+        self.double_click_clear = enabled;
+        self
+    }
+
+    pub fn enabled_by_default(mut self, enabled: bool) -> Self {
+        self.enabled_by_default = enabled;
+        self
+    }
+
+    pub fn predicate(&self) -> Expr {
+        Selection::new(&self.selection_id).predicate()
+    }
+
+    fn enabled_param_name(&self) -> String {
+        generated_tool_name(&self.tool_id, "enabled")
+    }
+
+    fn store_name(&self) -> String {
+        generated_tool_name(&self.tool_id, "boxes")
+    }
+
+    fn selection(&self) -> Selection {
+        let combine = match self.resolve {
+            BoxSelectionResolve::Intersect => SelectionCombine::Intersect,
+            BoxSelectionResolve::Global | BoxSelectionResolve::Union => SelectionCombine::Union,
+        };
+        let mut selection = Selection::new(&self.selection_id).combine(combine);
+        selection = match self.empty {
+            EmptySelectionBehavior::SelectAll => selection.empty_selects_all(),
+            EmptySelectionBehavior::SelectNothing => selection.empty_selects_nothing(),
+        };
+        for (id, expr) in &self.facet_context_fields {
+            selection = selection.facet_context_field(id.clone(), expr.clone());
+        }
+        selection
+    }
+
+    fn store(&self) -> Store {
+        Store::empty(self.store_name())
+            .field("id", DataType::Utf8, false)
+            .field("cell_id", DataType::Utf8, false)
+            .field("row_id", DataType::Utf8, false)
+            .field("column_id", DataType::Utf8, false)
+            .field("x_min", DataType::Float64, false)
+            .field("x_max", DataType::Float64, false)
+            .field("y_min", DataType::Float64, false)
+            .field("y_max", DataType::Float64, false)
+            .primary_key(["id"])
+            .sharing(CoordinationScope::Shared)
+    }
+
+    fn overlay_mark(&self) -> Rect<Cartesian> {
+        let store_name = self.store_name();
+        let mark = Rect::<Cartesian>::new()
+            .data_store(StoreData::new(store_name))
+            .exclude_from_scale_domains()
+            .x_with(col("x_min"), |c| c.with_scale_name(&self.x_channel))
+            .x2_with(col("x_max"), |c| c.with_scale_name(&self.x_channel))
+            .y_with(col("y_min"), |c| c.with_scale_name(&self.y_channel))
+            .y2_with(col("y_max"), |c| c.with_scale_name(&self.y_channel))
+            .fill("rgba(37, 99, 235, 0.10)")
+            .stroke("#2563eb")
+            .stroke_width(1.5)
+            .zindex(10_000);
+
+        if self.repeat_cell_chrome {
+            mark.transform_no_output(Filter::new(repeat::current_cell_predicate()), |mark| mark)
+        } else {
+            mark
+        }
+    }
+
+    fn row_id_expr(&self) -> Expr {
+        match self.resolve {
+            BoxSelectionResolve::Global => lit("active"),
+            BoxSelectionResolve::Union | BoxSelectionResolve::Intersect => {
+                if self.repeat_cell_chrome {
+                    repeat::cell_id()
+                } else {
+                    lit("active")
+                }
+            }
+        }
+    }
+
+    fn cell_id_expr(&self) -> Expr {
+        if self.repeat_cell_chrome {
+            repeat::cell_id()
+        } else {
+            lit("active")
+        }
+    }
+
+    fn row_id_field_expr(&self) -> Expr {
+        if self.repeat_cell_chrome {
+            repeat::row_id()
+        } else {
+            lit("active")
+        }
+    }
+
+    fn column_id_field_expr(&self) -> Expr {
+        if self.repeat_cell_chrome {
+            repeat::column_id()
+        } else {
+            lit("active")
+        }
+    }
+
+    fn selection_clause(&self) -> SelectionClauseUpdate {
+        let x_interval = drag_domain_interval(&self.x_channel);
+        let y_interval = drag_domain_interval(&self.y_channel);
+        SelectionClauseUpdate::interval(self.row_id_expr())
+            .facet_scope(self.facet_scope)
+            .dimension(self.x_dimension.clone())
+            .endpoints(
+                ev::interval_start(x_interval.clone()),
+                ev::interval_end(x_interval),
+            )
+            .dimension(self.y_dimension.clone())
+            .endpoints(
+                ev::interval_start(y_interval.clone()),
+                ev::interval_end(y_interval),
+            )
+            .build()
+    }
+
+    fn selection_update(&self) -> SelectionUpdate {
+        match self.resolve {
+            BoxSelectionResolve::Global => {
+                SelectionUpdate::replace_all_clauses([self.selection_clause()])
+            }
+            BoxSelectionResolve::Union | BoxSelectionResolve::Intersect => {
+                SelectionUpdate::upsert_clause(self.selection_clause())
+            }
+        }
+    }
+
+    fn store_row(&self) -> StoreRow {
+        let x_interval = drag_domain_interval(&self.x_channel);
+        let y_interval = drag_domain_interval(&self.y_channel);
+        StoreRow::new()
+            .field("id", self.row_id_expr())
+            .field("cell_id", self.cell_id_expr())
+            .field("row_id", self.row_id_field_expr())
+            .field("column_id", self.column_id_field_expr())
+            .field("x_min", ev::interval_start(x_interval.clone()))
+            .field("x_max", ev::interval_end(x_interval))
+            .field("y_min", ev::interval_start(y_interval.clone()))
+            .field("y_max", ev::interval_end(y_interval))
+    }
+
+    fn store_update(&self) -> StoreUpdate {
+        match self.resolve {
+            BoxSelectionResolve::Global => StoreUpdate::replace_rows([self.store_row()]),
+            BoxSelectionResolve::Union | BoxSelectionResolve::Intersect => {
+                StoreUpdate::upsert_rows([self.store_row()])
+            }
+        }
+    }
+}
+
+impl ChartTool<Cartesian> for BoxSelection {
+    fn id(&self) -> &str {
+        &self.tool_id
+    }
+
+    fn expand(
+        &self,
+        _ctx: ToolExpansionContext<'_>,
+    ) -> Result<ToolExpansion<Cartesian>, AvengerChartError> {
+        if self.x_channel.is_empty() || self.y_channel.is_empty() {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "tool '{}' requires non-empty x and y channels",
+                self.tool_id
+            )));
+        }
+
+        let enabled = Param::new(
+            self.enabled_param_name(),
+            ScalarValue::Boolean(Some(self.enabled_by_default)),
+        );
+        let store = self.store();
+        let mut expansion = ToolExpansion::new()
+            .param(
+                enabled.clone(),
+                ToolParamSharing::Explicit(CoordinationScope::Shared),
+            )
+            .store(store.clone())
+            .selection(self.selection())
+            .event_binding(box_selection_drag_binding(
+                &enabled.name,
+                &self.selection_id,
+                &store.name,
+                &self.drag_button,
+                &self.x_channel,
+                &self.y_channel,
+                self.selection_update(),
+                self.store_update(),
+            ))
+            .event_binding(box_selection_release_binding(
+                &enabled.name,
+                &self.selection_id,
+                &store.name,
+                &self.drag_button,
+                &self.x_channel,
+                &self.y_channel,
+                self.selection_update(),
+                self.store_update(),
+            ))
+            .mark(self.overlay_mark())
+            .metadata(
+                ToolMetadata::new(self.tool_id.clone(), "Box Selection")
+                    .enabled_param(enabled.name.clone()),
+            );
+
+        if self.double_click_clear {
+            expansion = expansion.event_binding(box_selection_clear_binding(
+                &enabled.name,
+                &self.selection_id,
+                &store.name,
+            ));
+        }
+
+        Ok(expansion)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn box_selection_drag_binding(
+    enabled_param: &str,
+    selection_id: &str,
+    store_name: &str,
+    drag_button: &str,
+    x_channel: &str,
+    y_channel: &str,
+    selection_update: SelectionUpdate,
+    store_update: StoreUpdate,
+) -> ChartEventBinding {
+    ChartEventBinding::on(ChartEventType::CursorMoved)
+        .between(
+            ChartEventStream::on(ChartEventType::MouseDown)
+                .filter(ev::button().eq(lit(drag_button.to_string()))),
+            ChartEventStream::on(ChartEventType::MouseUp),
+        )
+        .filter(ev::param(enabled_param).eq(lit(true)))
+        .filter(ev::start_coord(x_channel).is_not_null())
+        .filter(ev::start_coord(y_channel).is_not_null())
+        .filter(ev::event_at_start_clipped_coord(x_channel).is_not_null())
+        .filter(ev::event_at_start_clipped_coord(y_channel).is_not_null())
+        .set_selection_at_start_scope(selection_id, selection_update)
+        .set_store_at_start_scope(store_name, store_update)
+        .preview()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn box_selection_release_binding(
+    enabled_param: &str,
+    selection_id: &str,
+    store_name: &str,
+    drag_button: &str,
+    x_channel: &str,
+    y_channel: &str,
+    selection_update: SelectionUpdate,
+    store_update: StoreUpdate,
+) -> ChartEventBinding {
+    ChartEventBinding::on_between_end(
+        ChartEventStream::on(ChartEventType::MouseDown)
+            .filter(ev::button().eq(lit(drag_button.to_string()))),
+        ChartEventStream::on(ChartEventType::MouseUp),
+    )
+    .filter(ev::param(enabled_param).eq(lit(true)))
+    .filter(ev::start_coord(x_channel).is_not_null())
+    .filter(ev::start_coord(y_channel).is_not_null())
+    .filter(ev::event_at_start_clipped_coord(x_channel).is_not_null())
+    .filter(ev::event_at_start_clipped_coord(y_channel).is_not_null())
+    .set_selection_at_start_scope(selection_id, selection_update)
+    .set_store_at_start_scope(store_name, store_update)
+    .exact()
+}
+
+fn box_selection_clear_binding(
+    enabled_param: &str,
+    selection_id: &str,
+    store_name: &str,
+) -> ChartEventBinding {
+    ChartEventBinding::on(ChartEventType::DoubleClick)
+        .filter(ev::param(enabled_param).eq(lit(true)))
+        .clear_selection(selection_id)
+        .set_store_replacing_scopes(store_name, StoreUpdate::clear())
+        .exact()
+}
+
 #[derive(Clone, Debug)]
 pub struct BoxZoom {
     id: String,
@@ -1525,6 +1943,94 @@ mod tests {
             Err(err) => err,
         };
         assert!(err.to_string().contains("requires at least one"));
+    }
+
+    #[test]
+    fn box_selection_expands_to_store_selection_bindings_and_overlay_mark() {
+        let tool = BoxSelection::cartesian("brush").dimensions(col("source_x"), col("source_y"));
+        let expansion = tool
+            .expand(ToolExpansionContext::empty(ChartTool::id(&tool)))
+            .expect("expand");
+
+        assert_eq!(expansion.params.len(), 1);
+        assert_eq!(expansion.stores.len(), 1);
+        assert_eq!(expansion.selections.len(), 1);
+        assert_eq!(expansion.event_bindings.len(), 3);
+        assert_eq!(expansion.marks.len(), 1);
+        assert_eq!(expansion.metadata.len(), 1);
+        assert_eq!(expansion.params[0].param.name, "__tool_brush__enabled");
+        assert_eq!(expansion.stores[0].name, "__tool_brush__boxes");
+        assert_eq!(expansion.stores[0].primary_key, ["id"]);
+        assert_eq!(expansion.stores[0].sharing, CoordinationScope::Shared);
+        assert_eq!(expansion.selections[0].id, "brush");
+        assert_eq!(expansion.selections[0].combine, SelectionCombine::Union);
+        assert_eq!(
+            expansion.selections[0].empty,
+            EmptySelectionBehavior::SelectNothing
+        );
+        assert!(
+            expansion
+                .event_bindings
+                .iter()
+                .any(|binding| binding.event_type == ChartEventType::CursorMoved
+                    && binding.selection_assignments.len() == 1
+                    && binding.store_assignments.len() == 1)
+        );
+        assert!(expansion.event_bindings.iter().any(|binding| {
+            binding
+                .between
+                .as_ref()
+                .is_some_and(|between| between.emit_end_event)
+                && binding.selection_assignments.len() == 1
+                && binding.store_assignments.len() == 1
+        }));
+        assert!(expansion.event_bindings.iter().any(|binding| {
+            binding.event_type == ChartEventType::DoubleClick
+                && binding.selection_assignments.len() == 1
+                && binding.store_assignments.len() == 1
+        }));
+    }
+
+    #[test]
+    fn box_selection_repeat_union_uses_upsert_and_repeat_cell_chrome() {
+        let tool = BoxSelection::cartesian("brush")
+            .dimensions(repeat::column(), repeat::row())
+            .resolve(BoxSelectionResolve::Union)
+            .repeat_cell_chrome();
+        let expansion = tool
+            .expand(ToolExpansionContext::empty(ChartTool::id(&tool)))
+            .expect("expand");
+
+        assert_eq!(expansion.selections[0].combine, SelectionCombine::Union);
+        let drag = expansion
+            .event_bindings
+            .iter()
+            .find(|binding| binding.event_type == ChartEventType::CursorMoved)
+            .expect("drag binding");
+        let SelectionUpdate::UpsertClauses { clauses } = &drag.selection_assignments[0].update
+        else {
+            panic!("repeat union should upsert selection clauses");
+        };
+        assert_eq!(clauses.len(), 1);
+        let StoreUpdate::UpsertRows { rows } = &drag.store_assignments[0].update else {
+            panic!("repeat union should upsert store rows");
+        };
+        assert_eq!(rows.len(), 1);
+        assert_eq!(expansion.marks.len(), 1);
+    }
+
+    #[test]
+    fn box_selection_intersect_defaults_empty_to_all() {
+        let tool = BoxSelection::cartesian("brush").resolve(BoxSelectionResolve::Intersect);
+        let expansion = tool
+            .expand(ToolExpansionContext::empty(ChartTool::id(&tool)))
+            .expect("expand");
+
+        assert_eq!(expansion.selections[0].combine, SelectionCombine::Intersect);
+        assert_eq!(
+            expansion.selections[0].empty,
+            EmptySelectionBehavior::SelectAll
+        );
     }
 
     #[test]

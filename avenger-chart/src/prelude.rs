@@ -53,7 +53,9 @@ pub use avenger_chart_core::{
     ChartTool, ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamExpansion,
     ToolParamSharing, ToolScaleEdit,
 };
-pub use avenger_chart_tools::{BoxZoom, LassoSelection, PanScrollZoom, PointSelection};
+pub use avenger_chart_tools::{
+    BoxSelection, BoxSelectionResolve, BoxZoom, LassoSelection, PanScrollZoom, PointSelection,
+};
 pub use avenger_chart_transforms::lump;
 pub use avenger_chart_transforms::{
     Aggregate, AggregateOutput, Bin, BinOutput, Calculate, CompiledKdeTransform, Filter, Fold,

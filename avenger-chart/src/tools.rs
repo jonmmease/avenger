@@ -20,7 +20,9 @@ pub use avenger_chart_core::{
     ChartTool, ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamExpansion,
     ToolParamSharing, ToolScaleEdit, ToolScaleTarget,
 };
-pub use avenger_chart_tools::{BoxZoom, LassoSelection, PanScrollZoom, PointSelection};
+pub use avenger_chart_tools::{
+    BoxSelection, BoxSelectionResolve, BoxZoom, LassoSelection, PanScrollZoom, PointSelection,
+};
 
 #[derive(Clone)]
 pub(crate) struct ToolCompileContext {
@@ -1080,6 +1082,34 @@ mod tests {
             Some(&DataType::Utf8),
             "point selection should request clicked datum values"
         );
+    }
+
+    #[tokio::test]
+    async fn box_selection_tool_compiles_inside_repeat_grid() {
+        let ctx = SessionContext::new();
+        let df = data(&ctx).await;
+        let brush = BoxSelection::cartesian("brush")
+            .dimensions(repeat::column(), repeat::row())
+            .resolve(BoxSelectionResolve::Union)
+            .repeat_cell_chrome();
+        let cell = Plot::<Cartesian>::new()
+            .mark(Symbol::new().x(repeat::column()).y(repeat::row()))
+            .tool(brush);
+        let compiled = Plot::<RepeatGrid>::new()
+            .data(df)
+            .rows([RepeatVariable::new("x", col("x"))])
+            .columns([RepeatVariable::new("y", col("y"))])
+            .cell(cell)
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        assert!(compiled.param_specs().contains_key("__tool_brush__enabled"));
+        assert!(compiled.store_specs().contains_key("__tool_brush__boxes"));
+        assert!(compiled.selection_specs().contains_key("brush"));
+        assert_eq!(compiled.event_bindings().len(), 3);
+        assert_eq!(compiled.tool_metadata().len(), 1);
+        assert_eq!(compiled.tool_metadata()[0].id, "brush");
     }
 
     #[tokio::test]
