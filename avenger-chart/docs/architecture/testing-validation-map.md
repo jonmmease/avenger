@@ -44,6 +44,7 @@ flowchart TD
 | Legend ownership | `cargo test -p avenger-chart --lib legend_disposition -- --nocapture` |
 | Child-frame domain sharing | `cargo test -p avenger-chart --lib container_domain_sharing -- --nocapture` |
 | Facet tree | `cargo test -p avenger-chart --test test_evaluated_facet_tree -- --nocapture` |
+| Nested child-frame layout alignment | `cargo test -p avenger-chart --release --test visual_regression inside_facet -- --nocapture`; `cargo test -p avenger-chart --release --test visual_regression facet_column_inside -- --nocapture`; `cargo test -p avenger-chart --release --test visual_regression repeat -- --nocapture`; `cargo test -p avenger-chart --release --test visual_regression grid_concat_inside -- --nocapture`; `cargo test -p avenger-chart --release --test visual_regression wrap_concat_inside -- --nocapture` |
 | Repeat containers | `cargo test -p avenger-chart --lib --release repeat_ -- --nocapture`; `cargo test -p avenger-chart-app --features winit-wgpu --lib --release repeat_ -- --nocapture` |
 | External boundaries | `cargo test --manifest-path avenger-chart-external-test/Cargo.toml -- --nocapture` |
 | Chart app resize | `cargo test -p avenger-chart-app --features winit-wgpu resize -- --nocapture`; `cargo check -p avenger-chart-app --all-targets --features winit-wgpu`; `cargo check -p avenger-winit-wgpu --all-targets` |
@@ -69,3 +70,8 @@ Useful categories:
 Use visual baselines when layout, guide, legend, coordinate, or render output
 changes. For pure ownership or import refactors, compile checks and focused
 unit tests are usually the first pass.
+
+When the broad `facet` or `concat` visual filters contain unrelated baseline
+debt, prefer the focused layout-alignment filters above for child-frame
+alignment changes. Name the broad-filter failures in the commit message or
+handoff notes instead of silently skipping them.
