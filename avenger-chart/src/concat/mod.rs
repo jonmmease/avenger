@@ -1811,15 +1811,33 @@ fn resolve_grid_shape(
                 "GridConcat subplots require `.grid_cell(row, column)`".to_string(),
             )
         })?;
-        if placement.row_span != 1 || placement.column_span != 1 {
+        if placement.row_span == 0 || placement.column_span == 0 {
             return Err(AvengerChartError::InvalidArgument(
-                "GridConcat row/column spans are not supported yet".to_string(),
+                "GridConcat row and column spans must be greater than zero".to_string(),
             ));
         }
-        inferred_rows = inferred_rows.max(placement.row + placement.row_span);
-        inferred_columns = inferred_columns.max(placement.column + placement.column_span);
-        for row in placement.row..placement.row + placement.row_span {
-            for column in placement.column..placement.column + placement.column_span {
+        let row_end = placement
+            .row
+            .checked_add(placement.row_span)
+            .ok_or_else(|| {
+                AvengerChartError::InvalidArgument(format!(
+                    "GridConcat subplot at row {}, column {} has row span {} that overflows usize",
+                    placement.row, placement.column, placement.row_span
+                ))
+            })?;
+        let column_end = placement
+            .column
+            .checked_add(placement.column_span)
+            .ok_or_else(|| {
+                AvengerChartError::InvalidArgument(format!(
+                    "GridConcat subplot at row {}, column {} has column span {} that overflows usize",
+                    placement.row, placement.column, placement.column_span
+                ))
+            })?;
+        inferred_rows = inferred_rows.max(row_end);
+        inferred_columns = inferred_columns.max(column_end);
+        for row in placement.row..row_end {
+            for column in placement.column..column_end {
                 if !occupied.insert((row, column)) {
                     return Err(AvengerChartError::InvalidArgument(format!(
                         "GridConcat has multiple subplots assigned to cell ({row}, {column})"
@@ -1833,12 +1851,12 @@ fn resolve_grid_shape(
     let columns = grid.columns_config().unwrap_or(inferred_columns);
     for subplot in subplots {
         let placement = subplot.grid_placement().expect("validated above");
-        if placement.row + placement.row_span > rows
-            || placement.column + placement.column_span > columns
-        {
+        let row_end = placement.row + placement.row_span;
+        let column_end = placement.column + placement.column_span;
+        if row_end > rows || column_end > columns {
             return Err(AvengerChartError::InvalidArgument(format!(
-                "GridConcat subplot at row {}, column {} exceeds configured grid size {rows}x{columns}",
-                placement.row, placement.column
+                "GridConcat subplot at row {}, column {} with span {}x{} exceeds configured grid size {rows}x{columns}",
+                placement.row, placement.column, placement.row_span, placement.column_span
             )));
         }
     }
@@ -3036,23 +3054,89 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn grid_concat_grid_span_api_reaches_current_runtime_validation()
-    -> Result<(), AvengerChartError> {
+    async fn grid_concat_measures_spanned_child() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<GridConcat>::new()
             .rows(2)
             .columns(2)
-            .mark(Subplot::new(zero_plot()).grid_cell(0, 0).grid_span(2, 2))
+            .mark(Subplot::new(zero_plot()).grid_cell(0, 0).grid_span(2, 1))
+            .mark(Subplot::new(zero_plot()).grid_cell(0, 1))
+            .mark(Subplot::new(zero_plot()).grid_cell(1, 1))
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 200.0, 100.0, &ctx).await?;
+        let concat = concat_coord_ref(measurement.coord_measurement.as_ref())
+            .expect("grid concat measurement");
+        let spanned = concat.child(0).expect("spanned child measurement");
+        assert_eq!(spanned.measurement.plot_area_width, 100.0);
+        assert_eq!(spanned.measurement.plot_area_height, 100.0);
+
+        let placement = concat.child_frame_placement();
+        assert_eq!(placement.content_size, Size2D::new(200.0, 100.0));
+        assert_eq!(
+            placement.child(0).expect("spanned child").origin,
+            [0.0, 0.0]
+        );
+        assert_eq!(
+            placement.child(1).expect("top right child").origin,
+            [100.0, 0.0]
+        );
+        assert_eq!(
+            placement.child(2).expect("bottom right child").origin,
+            [100.0, 50.0]
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn grid_concat_rejects_zero_grid_span() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let result = Plot::<GridConcat>::new()
+            .mark(Subplot::new(zero_plot()).grid_cell(0, 0).grid_span(0, 1))
+            .compile(&ctx)
+            .await;
+        let err = match result {
+            Ok(_) => panic!("zero row span should fail during compile"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string()
+                .contains("GridConcat subplot spans must be greater than zero")
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn grid_concat_rejects_span_outside_configured_shape() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<GridConcat>::new()
+            .rows(2)
+            .columns(2)
+            .mark(Subplot::new(zero_plot()).grid_cell(1, 1).grid_span(2, 1))
             .compile(&ctx)
             .await?;
 
         let err = measurement_for_plot(&compiled, 200.0, 100.0, &ctx)
             .await
-            .expect_err("runtime grid spans should still be disabled");
-        assert!(
-            err.to_string()
-                .contains("GridConcat row/column spans are not supported yet")
-        );
+            .expect_err("span outside configured rows should fail");
+        assert!(err.to_string().contains("exceeds configured grid size"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn grid_concat_rejects_overlapping_span_rectangles() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<GridConcat>::new()
+            .mark(Subplot::new(zero_plot()).grid_cell(0, 0).grid_span(2, 2))
+            .mark(Subplot::new(zero_plot()).grid_cell(1, 1))
+            .compile(&ctx)
+            .await?;
+
+        let err = measurement_for_plot(&compiled, 200.0, 100.0, &ctx)
+            .await
+            .expect_err("span overlap should fail");
+        assert!(err.to_string().contains("multiple subplots assigned"));
         Ok(())
     }
 
