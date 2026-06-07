@@ -1,6 +1,7 @@
 //! CompiledPlot - Immutable, serializable plot ready for rendering
 
 mod child_frame_container;
+pub(crate) mod child_frame_coordination;
 mod child_frame_runtime;
 mod child_frame_scope;
 mod container_band_guide;
@@ -57,6 +58,7 @@ pub(crate) use self::child_frame_container::{
     child_frame_container_overflow, child_frame_container_view_from_concat,
     child_frame_container_view_from_positioned,
 };
+pub(crate) use self::child_frame_coordination::ChildFrameLayoutSlot;
 pub(crate) use self::child_frame_runtime::{
     ChildFrameDataSelection, ChildFrameRuntime, PreparedChildFramePlot,
     fixed_child_plot_area_layout_spec, measure_child_frame_plot_with_builder,

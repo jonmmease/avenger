@@ -33,8 +33,8 @@ use crate::{
     layout::{BandDirection, EdgeSlabs, LayoutBounds, Size2D},
     marks::{CompiledMark, CompiledMarkCore},
     plot::compiled::{
-        ChildFrameDataSelection, ChildFrameDomainSharingInput, ChildFrameRuntime,
-        ComponentsMeasurement, ContainerLabelPlacement, PreparedChildFramePlot,
+        ChildFrameDataSelection, ChildFrameDomainSharingInput, ChildFrameLayoutSlot,
+        ChildFrameRuntime, ComponentsMeasurement, ContainerLabelPlacement, PreparedChildFramePlot,
         child_frame_container_view_from_concat, container_path_without_facet_segments,
         coordinated_child_frame_domain_extents, measure_child_frame_container_guide_overflow,
         render_child_frame_container_guide_labels,
@@ -568,6 +568,58 @@ impl ConcatCoordMeasurement {
 
     pub(crate) fn grid_shape(&self) -> Option<GridShape> {
         self.placement.grid_shape()
+    }
+
+    pub(crate) fn container_path(&self) -> Result<Vec<ContainerPathSegment>, AvengerChartError> {
+        let Some(first) = self.children.first() else {
+            return Ok(Vec::new());
+        };
+        for child in &self.children[1..] {
+            if child.container_path != first.container_path {
+                return Err(AvengerChartError::InternalError(
+                    "Concat children reported different container paths".to_string(),
+                ));
+            }
+        }
+        Ok(first.container_path.clone())
+    }
+
+    pub(crate) fn grid_layout_slots(&self) -> Result<Vec<ChildFrameLayoutSlot>, AvengerChartError> {
+        if self.grid_shape().is_none() {
+            return Ok(Vec::new());
+        }
+        self.children
+            .iter()
+            .map(|child| {
+                let placement = child.grid_placement.ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Missing grid placement for child {} while exporting layout coordination slot",
+                        child.child_index
+                    ))
+                })?;
+                Ok(ChildFrameLayoutSlot {
+                    child_index: child.child_index,
+                    child_key: child.scope_key().child_key,
+                    slot: GridSlotRect::from_placement(placement),
+                })
+            })
+            .collect()
+    }
+
+    pub(crate) fn grid_track_requirements(
+        &self,
+    ) -> Result<GridTrackRequirements, AvengerChartError> {
+        let shape = self.grid_shape().ok_or_else(|| {
+            AvengerChartError::InternalError(
+                "Grid track requirements requested for non-grid concat measurement".to_string(),
+            )
+        })?;
+        let base_child_plot_area = Size2D::new(
+            self.fallback_content_size.width / shape.columns.max(1) as f32,
+            self.fallback_content_size.height / shape.rows.max(1) as f32,
+        );
+        let demands = grid_child_track_demands(&self.children)?;
+        grid_track_requirements(shape, base_child_plot_area, &demands)
     }
 }
 
@@ -1420,13 +1472,13 @@ fn grid_concat_sharing_levels_with_axis_configs(
     ]
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct GridShape {
     pub(crate) rows: usize,
     pub(crate) columns: usize,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct GridSlotRect {
     pub(crate) row: usize,
     pub(crate) column: usize,
@@ -1913,11 +1965,17 @@ mod tests {
             compiled::{
                 CoordinationKind, CoordinationScopeKey, EvaluationRequest,
                 child_frame_container_view_from_concat,
+                child_frame_coordination::{
+                    ChildFrameLayoutRequirements, ChildFrameLayoutTopology,
+                    collect_child_frame_layout_coordination_nodes,
+                },
                 container_label_items_from_child_frame_container,
-                scale_provider::DynamicScaleProvider, scales::build_scale_builder_from_marks,
+                scale_provider::DynamicScaleProvider,
+                scales::build_scale_builder_from_marks,
             },
         },
         render::EvaluationContext,
+        repeat::{self, RepeatGrid, RepeatVariable},
         scales::{Linear, LinearScaleExt, ScaleChannelConfig},
         zerod::ZeroDCoord,
     };
@@ -2117,6 +2175,25 @@ mod tests {
 
     fn zero_plot() -> Plot<ZeroDCoord> {
         Plot::<ZeroDCoord>::new()
+    }
+
+    fn repeat_vars(names: &[&str]) -> Vec<RepeatVariable> {
+        names
+            .iter()
+            .map(|name| RepeatVariable::new(*name, col(*name)))
+            .collect()
+    }
+
+    fn repeated_grid_cell() -> Plot<Cartesian> {
+        Plot::<Cartesian>::new().mark(Symbol::new().x(repeat::column()).y(repeat::row()))
+    }
+
+    fn manual_grid_plot() -> Plot<GridConcat> {
+        Plot::<GridConcat>::new()
+            .rows(1)
+            .columns(2)
+            .mark(Subplot::new(zero_plot()).grid_cell(0, 0).key("left"))
+            .mark(Subplot::new(zero_plot()).grid_cell(0, 1).key("right"))
     }
 
     fn keyed_hconcat(left_key: &str, right_key: &str) -> Plot<HConcat> {
@@ -2596,6 +2673,89 @@ mod tests {
             err.to_string()
                 .contains("GridConcat row/column spans are not supported yet")
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn grid_layout_coordination_nodes_group_repeat_instances_across_facets()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('G1', 1.0, 10.0),
+                    ('G1', 2.0, 20.0),
+                    ('G2', 3.0, 30.0),
+                    ('G2', 4.0, 40.0)
+                ) AS t(group_name, a, b)",
+            )
+            .await?;
+        let repeat = Plot::<RepeatGrid>::new()
+            .rows(repeat_vars(&["a", "b"]))
+            .columns(repeat_vars(&["a", "b"]))
+            .cell(repeated_grid_cell());
+        let compiled = Plot::<FacetColumn>::new()
+            .data(df)
+            .mark(Subplot::new(repeat).column(col("group_name")))
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 400.0, 200.0, &ctx).await?;
+        let nodes = collect_child_frame_layout_coordination_nodes(&measurement)?;
+
+        assert_eq!(nodes.len(), 2);
+        assert_ne!(nodes[0].instance_key, nodes[1].instance_key);
+        assert_eq!(nodes[0].template_key, nodes[1].template_key);
+        assert_eq!(nodes[0].alignment_key(), nodes[1].alignment_key());
+
+        for node in nodes {
+            assert_eq!(node.slots.len(), 4);
+            match node.topology {
+                ChildFrameLayoutTopology::Grid { shape, slots } => {
+                    assert_eq!(
+                        shape,
+                        GridShape {
+                            rows: 2,
+                            columns: 2
+                        }
+                    );
+                    assert_eq!(slots.len(), 4);
+                }
+            }
+            match node.requirements {
+                ChildFrameLayoutRequirements::Grid(requirements) => {
+                    assert_eq!(
+                        requirements.shape,
+                        GridShape {
+                            rows: 2,
+                            columns: 2
+                        }
+                    );
+                    assert_eq!(requirements.column_widths.len(), 2);
+                    assert_eq!(requirements.row_heights.len(), 2);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn grid_layout_coordination_nodes_keep_unrelated_manual_grids_separate()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<HConcat>::new()
+            .mark(Subplot::new(manual_grid_plot()).key("left_grid"))
+            .mark(Subplot::new(manual_grid_plot()).key("right_grid"))
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 400.0, 160.0, &ctx).await?;
+        let nodes = collect_child_frame_layout_coordination_nodes(&measurement)?;
+
+        assert_eq!(nodes.len(), 2);
+        assert_ne!(nodes[0].instance_key, nodes[1].instance_key);
+        assert_ne!(nodes[0].template_key, nodes[1].template_key);
+        assert_ne!(nodes[0].alignment_key(), nodes[1].alignment_key());
         Ok(())
     }
 
