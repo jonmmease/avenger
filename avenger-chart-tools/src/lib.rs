@@ -2,15 +2,14 @@
 
 use avenger_chart_cartesian::{Cartesian, CartesianRectPositionChannels};
 use avenger_chart_core::{
-    AvengerChartError, ChartEventBinding, ChartEventStream, ChartEventType, ChartTool,
-    CoordinateSystemCore, CoordinationScope, DomainCoordination, DomainCoordinationGroup,
-    EmptySelectionBehavior, IntoExpr, Param, SceneGeometryHitPolicy, SceneGeometryQuery,
-    SceneQueryDatumField, Selection, SelectionClauseUpdate, SelectionCombine, SelectionSceneQuery,
-    SelectionUpdate, Store, StoreData, StoreRow, StoreUpdate, ToolExpansion, ToolExpansionContext,
-    ToolMetadata, ToolParamSharing, ToolScaleEdit, event as ev, repeat,
+    AvengerChartError, ChannelConfig, ChartEventBinding, ChartEventStream, ChartEventType,
+    ChartTool, CoordinateSystemCore, CoordinationScope, DomainCoordination,
+    DomainCoordinationGroup, EmptySelectionBehavior, IntoExpr, Param, SceneGeometryHitPolicy,
+    SceneGeometryQuery, SceneQueryDatumField, Selection, SelectionClauseUpdate, SelectionCombine,
+    SelectionSceneQuery, SelectionUpdate, Store, StoreData, StoreRow, StoreUpdate, ToolExpansion,
+    ToolExpansionContext, ToolMetadata, ToolParamSharing, ToolScaleEdit, event as ev, repeat,
 };
 use avenger_chart_marks::Rect;
-use avenger_chart_transforms::Filter;
 use datafusion::{
     arrow::datatypes::DataType,
     common::ScalarValue,
@@ -830,7 +829,7 @@ impl BoxSelection {
             x_dimension: col("x"),
             y_dimension: col("y"),
             resolve: BoxSelectionResolve::Global,
-            facet_scope: CoordinationScope::Shared,
+            facet_scope: CoordinationScope::Free,
             facet_context_fields: Vec::new(),
             empty: EmptySelectionBehavior::SelectNothing,
             drag_button: "left".to_string(),
@@ -965,7 +964,7 @@ impl BoxSelection {
             .field("y_min", DataType::Float64, false)
             .field("y_max", DataType::Float64, false)
             .primary_key(["id"])
-            .sharing(CoordinationScope::Shared)
+            .sharing(self.facet_scope)
     }
 
     fn overlay_mark(&self) -> Rect<Cartesian> {
@@ -983,7 +982,10 @@ impl BoxSelection {
             .zindex(10_000);
 
         if self.repeat_cell_chrome {
-            mark.transform_no_output(Filter::new(repeat::current_cell_predicate()), |mark| mark)
+            mark.opacity_with(lit(0.0), |c| {
+                c.no_scale()
+                    .when_value(repeat::current_cell_predicate(), lit(1.0))
+            })
         } else {
             mark
         }
@@ -1961,7 +1963,7 @@ mod tests {
         assert_eq!(expansion.params[0].param.name, "__tool_brush__enabled");
         assert_eq!(expansion.stores[0].name, "__tool_brush__boxes");
         assert_eq!(expansion.stores[0].primary_key, ["id"]);
-        assert_eq!(expansion.stores[0].sharing, CoordinationScope::Shared);
+        assert_eq!(expansion.stores[0].sharing, CoordinationScope::Free);
         assert_eq!(expansion.selections[0].id, "brush");
         assert_eq!(expansion.selections[0].combine, SelectionCombine::Union);
         assert_eq!(

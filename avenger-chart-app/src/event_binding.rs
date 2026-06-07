@@ -8301,6 +8301,82 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn box_selection_tool_smoke_tests_repeat_inside_facet() {
+        const TOOL_BOX_STORE: &str = "__tool_brush__boxes";
+
+        let ctx = SessionContext::new();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('A', 1.0, 1.0),
+                    ('A', 2.0, 2.0),
+                    ('B', 1.5, 1.5),
+                    ('B', 2.5, 2.5)
+                ) AS t(group_name, a, b)",
+            )
+            .await
+            .expect("nested repeat/facet data");
+        let brush = BoxSelection::cartesian("brush")
+            .dimensions(repeat::column(), repeat::row())
+            .resolve(BoxSelectionResolve::Union)
+            .repeat_cell_chrome();
+        let cell = Plot::<Cartesian>::new()
+            .mark(
+                Symbol::new()
+                    .x(repeat::column())
+                    .y(repeat::row())
+                    .size(24.0),
+            )
+            .tool(brush);
+        let variables = vec![
+            RepeatVariable::new("a", col("a")).title("A"),
+            RepeatVariable::new("b", col("b")).title("B"),
+        ];
+        let repeat_grid = Plot::<RepeatGrid>::new()
+            .rows(variables.clone())
+            .columns(variables)
+            .cell(cell)
+            .matrix_domains()
+            .matrix_axes();
+        let compiled = Plot::<FacetColumn>::new()
+            .canvas_size(760.0, 360.0)
+            .data(df)
+            .mark(Subplot::new(repeat_grid).column(col("group_name")))
+            .compile(&ctx)
+            .await
+            .expect("compile nested repeat/facet box selection");
+        let handlers =
+            compile_handlers_for_event_type(&compiled, &ctx, ChartEventType::CursorMoved);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial nested repeat/facet scene");
+        let scope = state
+            .interaction_scopes()
+            .await
+            .into_iter()
+            .find(|scope| scope.kind == InteractionScopeKind::Coordinate)
+            .expect("nested repeat/facet coordinate scope");
+
+        let cell_id =
+            drag_repeat_box_scope_for_store(&mut state, &handlers, &scope, TOOL_BOX_STORE).await;
+        assert!(cell_id.starts_with("repeat_cell:"));
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("brush");
+        assert_eq!(clauses.len(), 1);
+        assert!(clauses[0].id.starts_with("repeat_cell:"));
+        let rows = runtime.session.store_rows_for_diagnostics(TOOL_BOX_STORE);
+        assert!(
+            rows.iter().any(|(_, rows)| !rows.is_empty()),
+            "tool-generated brush store should receive a chrome row"
+        );
+    }
+
     const REPEAT_BOX_STORE: &str = "brush_boxes";
     const REPEAT_BOX_SELECTION: &str = "brush";
 
@@ -8493,7 +8569,16 @@ mod tests {
         handlers: &[ChartEventBindingHandler],
         scope: &EvaluatedInteractionScope,
     ) -> String {
-        let before = repeat_box_store_cell_ids(state).await;
+        drag_repeat_box_scope_for_store(state, handlers, scope, REPEAT_BOX_STORE).await
+    }
+
+    async fn drag_repeat_box_scope_for_store(
+        state: &mut ChartAppState,
+        handlers: &[ChartEventBindingHandler],
+        scope: &EvaluatedInteractionScope,
+        store_name: &str,
+    ) -> String {
+        let before = repeat_box_store_cell_ids(state, store_name).await;
         let start = [
             scope.bounds.x + scope.bounds.width * 0.25,
             scope.bounds.y + scope.bounds.height * 0.75,
@@ -8539,7 +8624,7 @@ mod tests {
             rerenders, 1,
             "only the binding for the routed repeated cell should update state"
         );
-        let after = repeat_box_store_cell_ids(state).await;
+        let after = repeat_box_store_cell_ids(state, store_name).await;
         let added = after.difference(&before).cloned().collect::<Vec<_>>();
         if let [cell_id] = added.as_slice() {
             return cell_id.clone();
@@ -8547,11 +8632,14 @@ mod tests {
         after.into_iter().next().expect("updated store cell id")
     }
 
-    async fn repeat_box_store_cell_ids(state: &ChartAppState) -> BTreeSet<String> {
+    async fn repeat_box_store_cell_ids(
+        state: &ChartAppState,
+        store_name: &str,
+    ) -> BTreeSet<String> {
         let runtime = state.runtime.lock().await;
         runtime
             .session
-            .store_rows_for_diagnostics(REPEAT_BOX_STORE)
+            .store_rows_for_diagnostics(store_name)
             .into_iter()
             .flat_map(|(_, rows)| {
                 rows.into_iter().filter_map(|row| match row.get("cell_id") {
