@@ -2151,6 +2151,7 @@ mod tests {
             coord::{FacetBandCoordMeasurement, FacetColumn, FacetRow},
             evaluated_facet_tree::EvaluatedFacetTree,
             marks::{FacetColumnSubplotChannels, FacetRowSubplotChannels},
+            placement::{FacetBandExplicitPlacement, FacetBandPlacementModel},
         },
         layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
         marks::{Subplot, line::Line, symbol::Symbol},
@@ -2164,10 +2165,11 @@ mod tests {
                     ChildFrameContainerTemplateKey, ChildFrameLayoutCoordinationNode,
                     ChildFrameLayoutRequirements, ChildFrameLayoutSlot,
                     ChildFrameLayoutSlotTopology, ChildFrameLayoutTopology,
-                    LayoutCoordinationScope, apply_child_frame_layout_alignment,
+                    FacetBandGridApplyUnsupported, LayoutCoordinationScope,
+                    apply_child_frame_layout_alignment,
                     build_child_frame_layout_alignment_diagnostics,
                     collect_child_frame_layout_coordination_nodes,
-                    diagnose_child_frame_layout_alignment,
+                    diagnose_child_frame_layout_alignment, facet_band_grid_apply_layout,
                 },
                 container_label_items_from_child_frame_container,
                 scale_provider::DynamicScaleProvider,
@@ -4153,6 +4155,139 @@ mod tests {
         assert_eq!(
             trace.applied_container_count, 0,
             "existing facet coordination should already satisfy generic facet alignment"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn facet_band_apply_preflight_rejects_nested_facet_children_first()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let inner = Plot::<FacetRow>::new().mark(
+            Subplot::new(Plot::<Cartesian>::new().mark(line_mark(false))).row(col("subgroup")),
+        );
+        let compiled = Plot::<FacetColumn>::new()
+            .data(nested_grouped_xy_dataframe(&ctx))
+            .mark(Subplot::new(inner).column(col("group")))
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 360.0, 180.0, &ctx).await?;
+        let outer_facet = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("outer FacetColumn should measure as FacetBandCoordMeasurement");
+        let requirements = collect_child_frame_layout_coordination_nodes(&measurement)?
+            .into_iter()
+            .find_map(|node| match node.requirements {
+                ChildFrameLayoutRequirements::Grid(requirements)
+                    if node.kind == ChildFrameContainerKind::FacetColumn =>
+                {
+                    Some(requirements)
+                }
+                _ => None,
+            })
+            .expect("outer facet should export grid requirements");
+
+        let err = facet_band_grid_apply_layout(outer_facet, &requirements)
+            .expect_err("nested facet children must be rejected before mutation");
+        assert_eq!(err, FacetBandGridApplyUnsupported::NestedFacetChild);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn facet_band_apply_preflight_rejects_scale_backed_placement()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<FacetColumn>::new()
+            .data(grouped_xy_dataframe(&ctx))
+            .mark(
+                Subplot::new(Plot::<Cartesian>::new().mark(line_mark(false))).column(col("group")),
+            )
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 320.0, 120.0, &ctx).await?;
+        let facet = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("FacetColumn should measure as FacetBandCoordMeasurement");
+        let mut scale_backed_facet = facet.clone();
+        scale_backed_facet.placement_model = FacetBandPlacementModel::ScaleBacked;
+        let requirements = GridTrackRequirements {
+            shape: GridShape {
+                rows: 1,
+                columns: scale_backed_facet.cells.len(),
+            },
+            guide_slot_gap_px: 4.0,
+            column_outer_start: 2.0,
+            column_outer_end: 5.0,
+            row_outer_start: 0.0,
+            row_outer_end: 0.0,
+            column_widths: vec![100.0; scale_backed_facet.cells.len()],
+            row_heights: vec![80.0],
+            column_left: vec![0.0; scale_backed_facet.cells.len()],
+            column_right: vec![0.0; scale_backed_facet.cells.len()],
+            row_top: vec![0.0],
+            row_bottom: vec![0.0],
+        };
+
+        let err = facet_band_grid_apply_layout(&scale_backed_facet, &requirements)
+            .expect_err("scale-backed facet placement is not apply-safe yet");
+        assert_eq!(err, FacetBandGridApplyUnsupported::ScaleBackedPlacement);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn facet_band_apply_preflight_converts_explicit_column_layout()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<FacetColumn>::new()
+            .data(grouped_xy_dataframe(&ctx))
+            .mark(
+                Subplot::new(Plot::<Cartesian>::new().mark(line_mark(false))).column(col("group")),
+            )
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 320.0, 120.0, &ctx).await?;
+        let facet = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("FacetColumn should measure as FacetBandCoordMeasurement");
+        let mut explicit_facet = facet.clone();
+        explicit_facet.placement_model =
+            FacetBandPlacementModel::Explicit(FacetBandExplicitPlacement::default());
+        let requirements = GridTrackRequirements {
+            shape: GridShape {
+                rows: 1,
+                columns: explicit_facet.cells.len(),
+            },
+            guide_slot_gap_px: 4.0,
+            column_outer_start: 2.0,
+            column_outer_end: 5.0,
+            row_outer_start: 0.0,
+            row_outer_end: 0.0,
+            column_widths: vec![100.0; explicit_facet.cells.len()],
+            row_heights: vec![80.0],
+            column_left: vec![0.0, 3.0],
+            column_right: vec![7.0, 0.0],
+            row_top: vec![0.0],
+            row_bottom: vec![0.0],
+        };
+
+        let layout = facet_band_grid_apply_layout(&explicit_facet, &requirements)
+            .expect("explicit one-dimensional facet should convert to coordinated layout");
+        assert_eq!(layout.n, explicit_facet.cells.len());
+        assert_eq!(layout.outer_start, 2.0);
+        assert_eq!(layout.outer_end, 5.0);
+        assert_eq!(layout.padding_inner_px, 10.0);
+        assert_eq!(
+            layout.guide_slot_gap_px, 4.0,
+            "guide slot gap is independent from inner subplot padding"
         );
         Ok(())
     }

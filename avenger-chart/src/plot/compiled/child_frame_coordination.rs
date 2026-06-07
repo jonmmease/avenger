@@ -19,7 +19,7 @@ use crate::{
     positioned_subplot::PositionedCoordMeasurement,
 };
 
-use avenger_chart_core::AvengerChartError;
+use avenger_chart_core::{AvengerChartError, CoordinatedLayout};
 
 /// One physical measured occurrence of a child-frame container.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -416,6 +416,85 @@ fn facet_grid_track_requirements_from_placement(
     }
 
     Ok(requirements)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FacetBandGridApplyUnsupported {
+    EmptyBand,
+    NestedFacetChild,
+    ScaleBackedPlacement,
+    TopologyMismatch,
+}
+
+pub(crate) fn facet_band_grid_apply_layout(
+    facet_band: &FacetBandCoordMeasurement,
+    requirements: &GridTrackRequirements,
+) -> Result<CoordinatedLayout, FacetBandGridApplyUnsupported> {
+    if facet_band.cells.is_empty() {
+        return Err(FacetBandGridApplyUnsupported::EmptyBand);
+    }
+
+    if facet_band.cells.iter().any(|cell| {
+        cell.measurement
+            .coord_measurement
+            .as_any()
+            .is::<FacetBandCoordMeasurement>()
+    }) {
+        return Err(FacetBandGridApplyUnsupported::NestedFacetChild);
+    }
+
+    if !facet_band.uses_explicit_placement() {
+        return Err(FacetBandGridApplyUnsupported::ScaleBackedPlacement);
+    }
+
+    let expected_shape = facet_layout_coordination_shape(facet_band);
+    if requirements.shape != expected_shape {
+        return Err(FacetBandGridApplyUnsupported::TopologyMismatch);
+    }
+
+    facet_grid_requirements_to_coordinated_layout(facet_band.axis, requirements)
+}
+
+fn facet_grid_requirements_to_coordinated_layout(
+    axis: FacetAxis,
+    requirements: &GridTrackRequirements,
+) -> Result<CoordinatedLayout, FacetBandGridApplyUnsupported> {
+    let (n, outer_start, outer_end, padding_inner_px) = match axis {
+        FacetAxis::Column if requirements.shape.rows == 1 => (
+            requirements.shape.columns,
+            requirements.column_outer_start,
+            requirements.column_outer_end,
+            max_adjacent_gap(&requirements.column_right, &requirements.column_left),
+        ),
+        FacetAxis::Row if requirements.shape.columns == 1 => (
+            requirements.shape.rows,
+            requirements.row_outer_start,
+            requirements.row_outer_end,
+            max_adjacent_gap(&requirements.row_bottom, &requirements.row_top),
+        ),
+        _ => return Err(FacetBandGridApplyUnsupported::TopologyMismatch),
+    };
+
+    if n == 0 {
+        return Err(FacetBandGridApplyUnsupported::EmptyBand);
+    }
+
+    Ok(CoordinatedLayout {
+        padding_inner_px,
+        guide_slot_gap_px: requirements.guide_slot_gap_px,
+        outer_start,
+        outer_end,
+        n,
+    })
+}
+
+fn max_adjacent_gap(trailing: &[f32], leading: &[f32]) -> f32 {
+    if trailing.is_empty() || leading.is_empty() {
+        return 0.0;
+    }
+    (0..trailing.len().saturating_sub(1))
+        .map(|index| trailing[index].max(0.0) + leading[index + 1].max(0.0))
+        .fold(0.0, f32::max)
 }
 
 pub(crate) fn collect_child_frame_layout_coordination_nodes(
