@@ -10,7 +10,11 @@ use tracing::debug;
 
 use crate::{
     concat::{ConcatCoordMeasurement, GridShape, GridSlotRect, GridTrackRequirements},
-    facet::coord::FacetBandCoordMeasurement,
+    coords::FacetAxis,
+    facet::{
+        coord::FacetBandCoordMeasurement,
+        placement::{FacetBandPlacement, resolve_facet_band_placement},
+    },
     plot::compiled::{
         ChildFrameKey, ComponentsMeasurement, ContainerPathSegment,
         container_path_without_facet_segments,
@@ -36,6 +40,7 @@ impl ChildFrameContainerInstanceKey {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct ChildFrameContainerTemplateKey {
     pub(crate) container_path_template: Vec<ContainerPathSegment>,
+    pub(crate) semantic_tag: Option<String>,
 }
 
 impl ChildFrameContainerTemplateKey {
@@ -50,6 +55,18 @@ impl ChildFrameContainerTemplateKey {
         };
         Self {
             container_path_template,
+            semantic_tag: None,
+        }
+    }
+
+    fn from_instance_with_semantic_tag(
+        instance_key: &ChildFrameContainerInstanceKey,
+        scope: LayoutCoordinationScope,
+        semantic_tag: String,
+    ) -> Self {
+        Self {
+            semantic_tag: Some(semantic_tag),
+            ..Self::from_instance(instance_key, scope)
         }
     }
 }
@@ -57,6 +74,8 @@ impl ChildFrameContainerTemplateKey {
 /// Kind of child-frame container described by a layout coordination node.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum ChildFrameContainerKind {
+    FacetColumn,
+    FacetRow,
     HConcat,
     VConcat,
     GridConcat,
@@ -166,6 +185,183 @@ pub(crate) fn grid_layout_coordination_node(
         slots,
         requirements,
     }))
+}
+
+pub(crate) fn facet_band_layout_coordination_node(
+    measurement: &ComponentsMeasurement,
+    facet_band: &FacetBandCoordMeasurement,
+) -> Result<Option<ChildFrameLayoutCoordinationNode>, AvengerChartError> {
+    let shape = facet_layout_coordination_shape(facet_band);
+    let instance_key = ChildFrameContainerInstanceKey::new(facet_band.scope_path_prefix.clone());
+    let alignment_scope = LayoutCoordinationScope::TemplatePathWithoutFacetSegments;
+    let template_key = ChildFrameContainerTemplateKey::from_instance_with_semantic_tag(
+        &instance_key,
+        alignment_scope,
+        facet_layout_semantic_tag(facet_band),
+    );
+    let slots = facet_layout_slots(facet_band)?;
+    let topology = ChildFrameLayoutTopology::Grid {
+        shape,
+        slots: slots
+            .iter()
+            .map(|slot| ChildFrameLayoutSlotTopology {
+                child_key: slot.child_key.clone(),
+                slot: slot.slot,
+            })
+            .collect(),
+    };
+    let requirements = ChildFrameLayoutRequirements::Grid(facet_grid_track_requirements(
+        measurement,
+        facet_band,
+        shape,
+    )?);
+    let kind = match facet_band.axis {
+        FacetAxis::Column => ChildFrameContainerKind::FacetColumn,
+        FacetAxis::Row => ChildFrameContainerKind::FacetRow,
+    };
+
+    Ok(Some(ChildFrameLayoutCoordinationNode {
+        instance_key,
+        template_key,
+        kind,
+        alignment_scope,
+        topology,
+        slots,
+        requirements,
+    }))
+}
+
+fn facet_layout_semantic_tag(facet_band: &FacetBandCoordMeasurement) -> String {
+    format!(
+        "facet:{}:{}:{}",
+        facet_band.axis.coordination_key_prefix(),
+        facet_band.facet_depth,
+        facet_band.coordination_field_identity
+    )
+}
+
+fn facet_layout_coordination_shape(facet_band: &FacetBandCoordMeasurement) -> GridShape {
+    match facet_band.axis {
+        FacetAxis::Column => GridShape {
+            rows: 1,
+            columns: facet_band.cells.len().max(1),
+        },
+        FacetAxis::Row => GridShape {
+            rows: facet_band.cells.len().max(1),
+            columns: 1,
+        },
+    }
+}
+
+fn facet_layout_slot(axis: FacetAxis, child_index: usize) -> GridSlotRect {
+    match axis {
+        FacetAxis::Column => GridSlotRect {
+            row: 0,
+            column: child_index,
+            row_span: 1,
+            column_span: 1,
+        },
+        FacetAxis::Row => GridSlotRect {
+            row: child_index,
+            column: 0,
+            row_span: 1,
+            column_span: 1,
+        },
+    }
+}
+
+fn facet_layout_slots(
+    facet_band: &FacetBandCoordMeasurement,
+) -> Result<Vec<ChildFrameLayoutSlot>, AvengerChartError> {
+    facet_band
+        .cells
+        .iter()
+        .enumerate()
+        .map(|(child_index, cell)| {
+            Ok(ChildFrameLayoutSlot {
+                child_index,
+                child_key: facet_band.child_scope_key_for_cell(cell).child_key,
+                slot: facet_layout_slot(facet_band.axis, child_index),
+            })
+        })
+        .collect()
+}
+
+fn facet_grid_track_requirements(
+    measurement: &ComponentsMeasurement,
+    _facet_band: &FacetBandCoordMeasurement,
+    shape: GridShape,
+) -> Result<GridTrackRequirements, AvengerChartError> {
+    let placement = resolve_facet_band_placement(measurement)?.ok_or_else(|| {
+        AvengerChartError::InternalError(
+            "Facet grid track requirements requested for non-facet measurement".to_string(),
+        )
+    })?;
+    facet_grid_track_requirements_from_placement(shape, &placement)
+}
+
+fn facet_grid_track_requirements_from_placement(
+    shape: GridShape,
+    placement: &FacetBandPlacement,
+) -> Result<GridTrackRequirements, AvengerChartError> {
+    let mut requirements = GridTrackRequirements {
+        shape,
+        column_widths: vec![0.0; shape.columns],
+        row_heights: vec![0.0; shape.rows],
+        column_left: vec![0.0; shape.columns],
+        column_right: vec![0.0; shape.columns],
+        row_top: vec![0.0; shape.rows],
+        row_bottom: vec![0.0; shape.rows],
+    };
+
+    match placement.axis {
+        FacetAxis::Column => {
+            if let Some(height) = placement.cross_axis_extent {
+                requirements.row_heights[0] = height;
+            }
+            for cell in &placement.cells {
+                if cell.cell_index >= shape.columns {
+                    return Err(AvengerChartError::InternalError(format!(
+                        "Facet column placement cell index {} exceeded coordination columns {}",
+                        cell.cell_index, shape.columns
+                    )));
+                }
+                requirements.column_widths[cell.cell_index] = cell.main_axis_size;
+            }
+            for pair in placement.cells.windows(2) {
+                let left = &pair[0];
+                let right = &pair[1];
+                let gap = right.main_axis_start - left.main_axis_start - left.main_axis_size;
+                if left.cell_index + 1 < shape.columns {
+                    requirements.column_right[left.cell_index] = gap.max(0.0);
+                }
+            }
+        }
+        FacetAxis::Row => {
+            if let Some(width) = placement.cross_axis_extent {
+                requirements.column_widths[0] = width;
+            }
+            for cell in &placement.cells {
+                if cell.cell_index >= shape.rows {
+                    return Err(AvengerChartError::InternalError(format!(
+                        "Facet row placement cell index {} exceeded coordination rows {}",
+                        cell.cell_index, shape.rows
+                    )));
+                }
+                requirements.row_heights[cell.cell_index] = cell.main_axis_size;
+            }
+            for pair in placement.cells.windows(2) {
+                let top = &pair[0];
+                let bottom = &pair[1];
+                let gap = bottom.main_axis_start - top.main_axis_start - top.main_axis_size;
+                if top.cell_index + 1 < shape.rows {
+                    requirements.row_bottom[top.cell_index] = gap.max(0.0);
+                }
+            }
+        }
+    }
+
+    Ok(requirements)
 }
 
 pub(crate) fn collect_child_frame_layout_coordination_nodes(
@@ -460,6 +656,16 @@ fn collect_child_frame_layout_coordination_nodes_into(
         }
     }
 
+    if let Some(facet_band) = measurement
+        .coord_measurement
+        .as_any()
+        .downcast_ref::<FacetBandCoordMeasurement>()
+    {
+        if let Some(node) = facet_band_layout_coordination_node(measurement, facet_band)? {
+            nodes.push(node);
+        }
+    }
+
     if let Some(container) = measurement.child_frame_container_view()? {
         for placement in container.placement().render_placements() {
             let child = container.child_measurement(placement.child_index).ok_or_else(|| {
@@ -489,18 +695,14 @@ fn apply_child_frame_layout_alignment_recursive(
         .map(|node| node.alignment_key())
     {
         if let Some(ChildFrameLayoutRequirements::Grid(requirements)) = plans.get(&alignment_key) {
-            let concat = measurement
+            if let Some(concat) = measurement
                 .coord_measurement
                 .as_any_mut()
                 .downcast_mut::<ConcatCoordMeasurement>()
-                .ok_or_else(|| {
-                    AvengerChartError::InternalError(
-                        "Concat measurement disappeared while applying layout alignment"
-                            .to_string(),
-                    )
-                })?;
-            if concat.apply_grid_track_requirements(requirements)? {
-                trace.applied_container_count += 1;
+            {
+                if concat.apply_grid_track_requirements(requirements)? {
+                    trace.applied_container_count += 1;
+                }
             }
         }
     }

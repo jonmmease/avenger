@@ -1885,7 +1885,7 @@ fn grid_child_track_demands(
         .collect()
 }
 
-fn grid_track_requirements(
+pub(crate) fn grid_track_requirements(
     shape: GridShape,
     base_cell_size: Size2D,
     demands: &[GridChildTrackDemand],
@@ -1936,7 +1936,7 @@ fn grid_track_requirements(
     Ok(requirements)
 }
 
-fn solve_grid_track_requirements(
+pub(crate) fn solve_grid_track_requirements(
     requirements: &GridTrackRequirements,
     demands: &[GridChildTrackDemand],
 ) -> GridTrackSolution {
@@ -2132,7 +2132,8 @@ mod tests {
                     ChildFrameContainerTemplateKey, ChildFrameLayoutCoordinationNode,
                     ChildFrameLayoutRequirements, ChildFrameLayoutSlot,
                     ChildFrameLayoutSlotTopology, ChildFrameLayoutTopology,
-                    LayoutCoordinationScope, build_child_frame_layout_alignment_diagnostics,
+                    LayoutCoordinationScope, apply_child_frame_layout_alignment,
+                    build_child_frame_layout_alignment_diagnostics,
                     collect_child_frame_layout_coordination_nodes,
                     diagnose_child_frame_layout_alignment,
                 },
@@ -2417,6 +2418,7 @@ mod tests {
             instance_key: ChildFrameContainerInstanceKey::new(instance_path),
             template_key: ChildFrameContainerTemplateKey {
                 container_path_template: template_path,
+                semantic_tag: None,
             },
             kind: ChildFrameContainerKind::GridConcat,
             alignment_scope: LayoutCoordinationScope::TemplatePathWithoutFacetSegments,
@@ -2435,6 +2437,36 @@ mod tests {
                 row_bottom: vec![0.0; shape.rows],
             }),
         }
+    }
+
+    fn child_frame_placement_snapshots(
+        measurement: &ComponentsMeasurement,
+    ) -> Result<Vec<ChildFramePlacementResult>, AvengerChartError> {
+        let mut snapshots = Vec::new();
+        collect_child_frame_placement_snapshots(measurement, &mut snapshots)?;
+        Ok(snapshots)
+    }
+
+    fn collect_child_frame_placement_snapshots(
+        measurement: &ComponentsMeasurement,
+        snapshots: &mut Vec<ChildFramePlacementResult>,
+    ) -> Result<(), AvengerChartError> {
+        let Some(container) = measurement.child_frame_container_view()? else {
+            return Ok(());
+        };
+        snapshots.push(container.placement().clone());
+        for placement in container.placement().render_placements() {
+            let child = container
+                .child_measurement(placement.child_index)
+                .ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Missing child-frame measurement for snapshot child index {}",
+                        placement.child_index
+                    ))
+                })?;
+            collect_child_frame_placement_snapshots(child, snapshots)?;
+        }
+        Ok(())
     }
 
     #[tokio::test]
@@ -2967,7 +2999,12 @@ mod tests {
             .await?;
 
         let measurement = measurement_for_plot(&compiled, 400.0, 200.0, &ctx).await?;
-        let nodes = collect_child_frame_layout_coordination_nodes(&measurement)?;
+        let all_nodes = collect_child_frame_layout_coordination_nodes(&measurement)?;
+        let nodes = all_nodes
+            .iter()
+            .filter(|node| node.kind == ChildFrameContainerKind::GridConcat)
+            .cloned()
+            .collect::<Vec<_>>();
 
         assert_eq!(nodes.len(), 2);
         assert_ne!(nodes[0].instance_key, nodes[1].instance_key);
@@ -3000,6 +3037,63 @@ mod tests {
                     assert_eq!(requirements.column_widths.len(), 2);
                     assert_eq!(requirements.row_heights.len(), 2);
                 }
+            }
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn layout_coordination_nodes_export_facet_band_topology() -> Result<(), AvengerChartError>
+    {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<FacetColumn>::new()
+            .data(grouped_xy_dataframe(&ctx))
+            .mark(
+                Subplot::new(Plot::<Cartesian>::new().mark(line_mark(false))).column(col("group")),
+            )
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 320.0, 120.0, &ctx).await?;
+        let nodes = collect_child_frame_layout_coordination_nodes(&measurement)?;
+        let facet_nodes = nodes
+            .iter()
+            .filter(|node| node.kind == ChildFrameContainerKind::FacetColumn)
+            .collect::<Vec<_>>();
+
+        assert_eq!(facet_nodes.len(), 1);
+        let node = facet_nodes[0];
+        assert_eq!(
+            node.template_key.semantic_tag.as_deref(),
+            Some("facet:col:1:group")
+        );
+        match &node.topology {
+            ChildFrameLayoutTopology::Grid { shape, slots } => {
+                assert_eq!(
+                    *shape,
+                    GridShape {
+                        rows: 1,
+                        columns: 2
+                    }
+                );
+                assert_eq!(slots.len(), 2);
+                assert_eq!(slots[0].slot.row, 0);
+                assert_eq!(slots[0].slot.column, 0);
+                assert_eq!(slots[1].slot.row, 0);
+                assert_eq!(slots[1].slot.column, 1);
+            }
+        }
+        match &node.requirements {
+            ChildFrameLayoutRequirements::Grid(requirements) => {
+                assert_eq!(
+                    requirements.shape,
+                    GridShape {
+                        rows: 1,
+                        columns: 2
+                    }
+                );
+                assert_eq!(requirements.column_widths.len(), 2);
+                assert_eq!(requirements.row_heights.len(), 1);
             }
         }
         Ok(())
@@ -3166,9 +3260,9 @@ mod tests {
         let measurement = measurement_for_plot(&compiled, 420.0, 220.0, &ctx).await?;
         let diagnostics = diagnose_child_frame_layout_alignment(&measurement)?;
 
-        assert_eq!(diagnostics.exported_node_count, 2);
-        assert_eq!(diagnostics.alignment_group_count, 1);
-        assert!(diagnostics.skipped_groups.is_empty());
+        assert_eq!(diagnostics.exported_node_count, 3);
+        assert_eq!(diagnostics.alignment_group_count, 2);
+        assert_eq!(diagnostics.skipped_groups.len(), 1);
         assert_eq!(diagnostics.merged_groups.len(), 1);
         let group = &diagnostics.merged_groups[0];
         assert_eq!(group.node_count, 2);
@@ -3882,6 +3976,32 @@ mod tests {
                 level: 2,
                 value: inner_facet.cells[0].plan.value.clone(),
             }
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn facet_layout_alignment_adapter_preserves_existing_nested_facet_placement()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let inner = Plot::<FacetRow>::new().mark(
+            Subplot::new(Plot::<Cartesian>::new().mark(line_mark(false))).row(col("subgroup")),
+        );
+        let compiled = Plot::<FacetColumn>::new()
+            .data(nested_grouped_xy_dataframe(&ctx))
+            .mark(Subplot::new(inner).column(col("group")))
+            .compile(&ctx)
+            .await?;
+
+        let mut measurement = measurement_for_plot(&compiled, 360.0, 180.0, &ctx).await?;
+        let before = child_frame_placement_snapshots(&measurement)?;
+        let trace = apply_child_frame_layout_alignment(&mut measurement)?;
+        let after = child_frame_placement_snapshots(&measurement)?;
+
+        assert_eq!(before, after);
+        assert_eq!(
+            trace.applied_container_count, 0,
+            "existing facet coordination should already satisfy generic facet alignment"
         );
         Ok(())
     }
