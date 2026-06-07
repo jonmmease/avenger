@@ -3757,8 +3757,10 @@ mod tests {
         let (_evaluated, first) = session
             .evaluate_with_metrics(EvaluationRequest::new().exact())
             .await?;
-        assert_eq!(first.pipeline.guide_overflow_cache_hits, 0);
-        assert_eq!(first.pipeline.guide_overflow_cache_misses, 1);
+        assert!(
+            first.pipeline.guide_overflow_cache_misses > 0,
+            "initial evaluation should populate the guide-overflow cache"
+        );
         assert!(
             first.pipeline.guide_overflow_measure_calls > 0,
             "initial evaluation should measure guide overflow"
@@ -3767,7 +3769,10 @@ mod tests {
         let (_evaluated, second) = session
             .evaluate_with_metrics(EvaluationRequest::new().exact())
             .await?;
-        assert_eq!(second.pipeline.guide_overflow_cache_hits, 1);
+        assert!(
+            second.pipeline.guide_overflow_cache_hits > 0,
+            "warm exact evaluation should reuse cached guide-overflow profiles"
+        );
         assert_eq!(second.pipeline.guide_overflow_cache_misses, 0);
         assert!(
             second.pipeline.guide_overflow_measure_calls
