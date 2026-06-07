@@ -172,6 +172,13 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         self
     }
 
+    /// Set the row and column span used by `GridConcat`.
+    pub fn grid_span(mut self, row_span: usize, column_span: usize) -> Self {
+        self.config.grid_row_span = row_span;
+        self.config.grid_column_span = column_span;
+        self
+    }
+
     #[doc(hidden)]
     pub fn data_context_ref(&self) -> &DataContext {
         &self.state.data

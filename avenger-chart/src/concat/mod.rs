@@ -1500,15 +1500,23 @@ impl GridGuideSharingSlots {
         let mut columns_by_row = vec![Vec::<usize>::new(); shape.rows];
 
         for placement in placements {
-            if placement.column < shape.columns
-                && !rows_by_column[placement.column].contains(&placement.row)
-            {
-                rows_by_column[placement.column].push(placement.row);
-            }
-            if placement.row < shape.rows
-                && !columns_by_row[placement.row].contains(&placement.column)
-            {
-                columns_by_row[placement.row].push(placement.column);
+            let row_end = placement
+                .row
+                .saturating_add(placement.row_span)
+                .min(shape.rows);
+            let column_end = placement
+                .column
+                .saturating_add(placement.column_span)
+                .min(shape.columns);
+            for column in placement.column..column_end {
+                for row in placement.row..row_end {
+                    if !rows_by_column[column].contains(&row) {
+                        rows_by_column[column].push(row);
+                    }
+                    if !columns_by_row[row].contains(&column) {
+                        columns_by_row[row].push(column);
+                    }
+                }
             }
         }
 
@@ -2545,6 +2553,50 @@ mod tests {
         assert_eq!(bottom_middle[0].count, 1);
         assert_eq!(bottom_middle[1].index, 0);
         assert_eq!(bottom_middle[1].count, 1);
+    }
+
+    #[test]
+    fn grid_guide_sharing_slots_treat_spans_as_occupied_rectangles() {
+        let slots = GridGuideSharingSlots::from_placements(
+            GridShape {
+                rows: 3,
+                columns: 3,
+            },
+            [GridPlacementConfig {
+                row: 0,
+                column: 0,
+                row_span: 2,
+                column_span: 2,
+            }],
+        );
+
+        assert_eq!(slots.rows_by_column, vec![vec![0, 1], vec![0, 1], vec![]]);
+        assert_eq!(slots.columns_by_row, vec![vec![0, 1], vec![0, 1], vec![]]);
+        assert_eq!(slots.row_slot_index(1, 1), 1);
+        assert_eq!(slots.row_slot_count(1), 2);
+        assert_eq!(slots.column_slot_index(1, 1), 1);
+        assert_eq!(slots.column_slot_count(1), 2);
+    }
+
+    #[tokio::test]
+    async fn grid_concat_grid_span_api_reaches_current_runtime_validation()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<GridConcat>::new()
+            .rows(2)
+            .columns(2)
+            .mark(Subplot::new(zero_plot()).grid_cell(0, 0).grid_span(2, 2))
+            .compile(&ctx)
+            .await?;
+
+        let err = measurement_for_plot(&compiled, 200.0, 100.0, &ctx)
+            .await
+            .expect_err("runtime grid spans should still be disabled");
+        assert!(
+            err.to_string()
+                .contains("GridConcat row/column spans are not supported yet")
+        );
+        Ok(())
     }
 
     fn semantic_child_domains<'a>(
