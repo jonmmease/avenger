@@ -1,3 +1,4 @@
+use datafusion::prelude::SessionContext;
 use datafusion::{
     arrow::datatypes::DataType, logical_expr::expr::Placeholder, prelude::Expr, scalar::ScalarValue,
 };
@@ -50,6 +51,15 @@ impl SelectionValueExpr {
         self.expr
             .to_expr(&datafusion::prelude::SessionContext::new())
     }
+
+    pub(crate) fn map_exprs(
+        self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(Self {
+            expr: map_expr_node(self.expr, f, "selection value expression")?,
+        })
+    }
 }
 
 #[serde_as]
@@ -62,6 +72,20 @@ pub struct SelectionIntervalDimensionUpdate {
     pub max: SelectionValueExpr,
 }
 
+impl SelectionIntervalDimensionUpdate {
+    pub(crate) fn map_exprs(
+        self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(Self {
+            id: self.id,
+            field_expr: map_expr_node(self.field_expr, f, "selection interval dimension field")?,
+            min: self.min.map_exprs(f)?,
+            max: self.max.map_exprs(f)?,
+        })
+    }
+}
+
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SelectionEqualityDimensionUpdate {
@@ -71,10 +95,35 @@ pub struct SelectionEqualityDimensionUpdate {
     pub value: SelectionValueExpr,
 }
 
+impl SelectionEqualityDimensionUpdate {
+    pub(crate) fn map_exprs(
+        self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(Self {
+            id: self.id,
+            field_expr: map_expr_node(self.field_expr, f, "selection equality dimension field")?,
+            value: self.value.map_exprs(f)?,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SelectionPredicateValueUpdate {
     pub id: String,
     pub value: SelectionValueExpr,
+}
+
+impl SelectionPredicateValueUpdate {
+    pub(crate) fn map_exprs(
+        self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(Self {
+            id: self.id,
+            value: self.value.map_exprs(f)?,
+        })
+    }
 }
 
 #[serde_as]
@@ -95,12 +144,55 @@ pub enum SelectionPredicateUpdate {
     },
 }
 
+impl SelectionPredicateUpdate {
+    pub(crate) fn map_exprs(
+        self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(match self {
+            Self::Interval { dimensions } => Self::Interval {
+                dimensions: dimensions
+                    .into_iter()
+                    .map(|dimension| dimension.map_exprs(f))
+                    .collect::<Result<_, AvengerChartError>>()?,
+            },
+            Self::Equality { dimensions } => Self::Equality {
+                dimensions: dimensions
+                    .into_iter()
+                    .map(|dimension| dimension.map_exprs(f))
+                    .collect::<Result<_, AvengerChartError>>()?,
+            },
+            Self::Predicate { values, expr, kind } => Self::Predicate {
+                values: values
+                    .into_iter()
+                    .map(|value| value.map_exprs(f))
+                    .collect::<Result<_, AvengerChartError>>()?,
+                expr: map_expr_node(expr, f, "selection generic predicate expression")?,
+                kind,
+            },
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SelectionClauseUpdate {
     pub id: SelectionValueExpr,
     #[serde(default = "default_clause_facet_scope")]
     pub facet_scope: CoordinationScope,
     pub predicate: SelectionPredicateUpdate,
+}
+
+impl SelectionClauseUpdate {
+    pub(crate) fn map_exprs(
+        self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(Self {
+            id: self.id.map_exprs(f)?,
+            facet_scope: self.facet_scope,
+            predicate: self.predicate.map_exprs(f)?,
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -313,6 +405,65 @@ impl SelectionUpdate {
     pub fn delete_clause_in_scope(scope: CoordinationScope, id: impl IntoExpr) -> Self {
         Self::delete_clauses_in_scope(scope, [id])
     }
+
+    pub(crate) fn map_exprs(
+        self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(match self {
+            Self::Clear => Self::Clear,
+            Self::ClearInScope { scope } => Self::ClearInScope { scope },
+            Self::ReplaceAllClauses { clauses } => Self::ReplaceAllClauses {
+                clauses: map_clauses(clauses, f)?,
+            },
+            Self::ReplaceClausesInScope { scope, clauses } => Self::ReplaceClausesInScope {
+                scope,
+                clauses: map_clauses(clauses, f)?,
+            },
+            Self::UpsertClauses { clauses } => Self::UpsertClauses {
+                clauses: map_clauses(clauses, f)?,
+            },
+            Self::ToggleClauses { clauses } => Self::ToggleClauses {
+                clauses: map_clauses(clauses, f)?,
+            },
+            Self::ReplaceAllFromSceneQuery { query } => Self::ReplaceAllFromSceneQuery {
+                query: query.map_exprs(f)?,
+            },
+            Self::ReplaceFromSceneQueryInScope { query } => Self::ReplaceFromSceneQueryInScope {
+                query: query.map_exprs(f)?,
+            },
+            Self::UpsertFromSceneQuery { query } => Self::UpsertFromSceneQuery {
+                query: query.map_exprs(f)?,
+            },
+            Self::ToggleFromSceneQuery { query } => Self::ToggleFromSceneQuery {
+                query: query.map_exprs(f)?,
+            },
+            Self::DeleteClauses { ids } => Self::DeleteClauses {
+                ids: map_values(ids, f)?,
+            },
+            Self::DeleteClausesInScope { scope, ids } => Self::DeleteClausesInScope {
+                scope,
+                ids: map_values(ids, f)?,
+            },
+        })
+    }
+}
+
+fn map_clauses(
+    clauses: Vec<SelectionClauseUpdate>,
+    f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+) -> Result<Vec<SelectionClauseUpdate>, AvengerChartError> {
+    clauses
+        .into_iter()
+        .map(|clause| clause.map_exprs(f))
+        .collect()
+}
+
+fn map_values(
+    values: Vec<SelectionValueExpr>,
+    f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+) -> Result<Vec<SelectionValueExpr>, AvengerChartError> {
+    values.into_iter().map(|value| value.map_exprs(f)).collect()
 }
 
 impl SelectionClauseUpdate {
@@ -674,6 +825,17 @@ fn validate_selection_id(id: &str) -> Result<(), AvengerChartError> {
 fn expr_node(expr: Expr, label: &str) -> LogicalExprNode {
     LogicalExprNode::from_expr(expr)
         .unwrap_or_else(|err| panic!("Failed to serialize {label}: {err}"))
+}
+
+fn map_expr_node(
+    node: LogicalExprNode,
+    f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    label: &str,
+) -> Result<LogicalExprNode, AvengerChartError> {
+    let expr = node.to_expr(&SessionContext::new())?;
+    LogicalExprNode::from_expr(f(expr)?).map_err(|err| {
+        AvengerChartError::InternalError(format!("Failed to serialize mapped {label}: {err}"))
+    })
 }
 
 #[cfg(test)]

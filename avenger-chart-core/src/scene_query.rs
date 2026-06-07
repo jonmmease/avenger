@@ -1,4 +1,4 @@
-use datafusion::prelude::{Expr, col};
+use datafusion::prelude::{Expr, SessionContext, col};
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
@@ -36,6 +36,17 @@ impl SceneQueryDatumField {
         self.field_expr = expr_node(expr.into_expr(), "scene query datum field expression");
         self
     }
+
+    pub(crate) fn map_exprs(
+        self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(Self {
+            id: self.id,
+            datum_field: self.datum_field,
+            field_expr: map_expr_node(self.field_expr, f, "scene query datum field")?,
+        })
+    }
 }
 
 #[serde_as]
@@ -63,6 +74,30 @@ pub enum SceneGeometryQueryGeometry {
         #[serde_as(as = "FromInto<SerializableExpr>")]
         points: LogicalExprNode,
     },
+}
+
+impl SceneGeometryQueryGeometry {
+    pub(crate) fn map_exprs(
+        self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(match self {
+            Self::Rect { x0, y0, x1, y1 } => Self::Rect {
+                x0: map_expr_node(x0, f, "scene rectangle query x0")?,
+                y0: map_expr_node(y0, f, "scene rectangle query y0")?,
+                x1: map_expr_node(x1, f, "scene rectangle query x1")?,
+                y1: map_expr_node(y1, f, "scene rectangle query y1")?,
+            },
+            Self::Circle { cx, cy, radius } => Self::Circle {
+                cx: map_expr_node(cx, f, "scene circle query cx")?,
+                cy: map_expr_node(cy, f, "scene circle query cy")?,
+                radius: map_expr_node(radius, f, "scene circle query radius")?,
+            },
+            Self::Polygon { points } => Self::Polygon {
+                points: map_expr_node(points, f, "scene polygon query points")?,
+            },
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -269,6 +304,25 @@ impl SceneGeometryQuery {
         self.max_hits = Some(max_hits);
         self
     }
+
+    pub(crate) fn map_exprs(
+        self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(Self {
+            geometry: self.geometry.map_exprs(f)?,
+            coordinate_space: self.coordinate_space,
+            hit_policy: self.hit_policy,
+            target: self.target,
+            datum_fields: self
+                .datum_fields
+                .into_iter()
+                .map(|field| field.map_exprs(f))
+                .collect::<Result<_, AvengerChartError>>()?,
+            unique_by: self.unique_by,
+            max_hits: self.max_hits,
+        })
+    }
 }
 
 #[serde_as]
@@ -282,6 +336,19 @@ pub enum SceneQueryClauseId {
 impl Default for SceneQueryClauseId {
     fn default() -> Self {
         Self::Tuple
+    }
+}
+
+impl SceneQueryClauseId {
+    pub(crate) fn map_exprs(
+        self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(match self {
+            Self::Tuple => Self::Tuple,
+            Self::Field(field) => Self::Field(field),
+            Self::Expr(expr) => Self::Expr(map_expr_node(expr, f, "scene query clause id")?),
+        })
     }
 }
 
@@ -312,6 +379,17 @@ impl SelectionSceneQuery {
         self.clause_id = clause_id;
         self
     }
+
+    pub(crate) fn map_exprs(
+        self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(Self {
+            query: self.query.map_exprs(f)?,
+            sharing: self.sharing,
+            clause_id: self.clause_id.map_exprs(f)?,
+        })
+    }
 }
 
 impl From<SceneGeometryQuery> for SelectionSceneQuery {
@@ -326,4 +404,15 @@ fn default_scene_query_sharing() -> CoordinationScope {
 
 fn expr_node(expr: Expr, label: &str) -> LogicalExprNode {
     LogicalExprNode::from_default_expr(expr).expect(label)
+}
+
+fn map_expr_node(
+    node: LogicalExprNode,
+    f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    label: &str,
+) -> Result<LogicalExprNode, AvengerChartError> {
+    let expr = node.to_expr(&SessionContext::new())?;
+    LogicalExprNode::from_default_expr(f(expr)?).map_err(|err| {
+        AvengerChartError::InternalError(format!("Failed to serialize mapped {label}: {err}"))
+    })
 }

@@ -9,7 +9,7 @@ use avenger_chart_core::{
     Auto, AvengerChartError, ChartEventBinding, CompiledParamSpec, CompiledSelectionSpec,
     CompiledStoreSpec, CoordinateSystemCore, CoordinateSystemTransform, CoordinationScope,
     DefaultLogicalExprNodeExt, DomainCoordination, DomainCoordinationGroup, Param, RepeatContext,
-    Scale, Selection, Store, TimeContext,
+    Scale, Selection, Store, TimeContext, resolve_repeat_placeholders,
 };
 use avenger_chart_scales::PlotScaleSpec;
 use datafusion::prelude::lit;
@@ -101,6 +101,7 @@ impl ToolCompileContext {
                 )));
             }
             let mut expansion = tool.expand(ToolExpansionContext::new(&id, scale_targets))?;
+            self.resolve_repeat_event_bindings(&mut expansion.event_bindings)?;
             self.localize_event_bindings(&mut expansion.event_bindings);
             let identity = Arc::as_ptr(tool) as *const dyn ChartTool<C> as *const () as usize;
             let active_expansion = ActiveToolExpansion {
@@ -124,6 +125,7 @@ impl ToolCompileContext {
             return Ok(());
         }
         let mut bindings = bindings.to_vec();
+        self.resolve_repeat_event_bindings(&mut bindings)?;
         self.localize_event_bindings(&mut bindings);
         self.state
             .lock()
@@ -140,11 +142,13 @@ impl ToolCompileContext {
         if bindings.is_empty() {
             return Ok(());
         }
+        let mut bindings = bindings.to_vec();
+        self.resolve_repeat_event_bindings(&mut bindings)?;
         self.state
             .lock()
             .expect("tool compile state lock poisoned")
             .event_bindings
-            .extend(bindings.iter().cloned());
+            .extend(bindings);
         Ok(())
     }
 
@@ -244,6 +248,21 @@ impl ToolCompileContext {
             }
             *binding = localized;
         }
+    }
+
+    fn resolve_repeat_event_bindings(
+        &self,
+        bindings: &mut [ChartEventBinding],
+    ) -> Result<(), AvengerChartError> {
+        let Some(repeat_context) = &self.repeat_context else {
+            return Ok(());
+        };
+        for binding in bindings {
+            *binding = binding
+                .clone()
+                .map_exprs(&mut |expr| resolve_repeat_placeholders(expr, repeat_context))?;
+        }
+        Ok(())
     }
 }
 

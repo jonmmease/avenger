@@ -1464,7 +1464,8 @@ mod tests {
     use avenger_chart_core::{
         AxisGuideVisibilityPolicy, DefaultLogicalExprNodeExt, DomainCoordinationGroup,
         RepeatContext, RepeatDomainCoordination, RepeatVariable, ResolvedRepeatVariable,
-        ScaleChannelConfig, SubplotDataSource, collect_repeat_placeholder_kinds, repeat,
+        ScaleChannelConfig, SelectionClauseUpdate, SelectionPredicateUpdate, SelectionUpdate,
+        StoreRow, StoreUpdate, SubplotDataSource, collect_repeat_placeholder_kinds, repeat,
         simplify_to_scalar_sync,
     };
     use avenger_chart_marks::{Subplot, Symbol};
@@ -2411,6 +2412,97 @@ mod tests {
             .await
             .expect("evaluates with second repeat-resolved transform input");
         assert!(evaluated_b.scene_graph.width > 0.0);
+    }
+
+    #[tokio::test]
+    async fn repeat_grid_resolves_event_binding_placeholders() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(repeat::cell_id().eq(lit("repeat_cell:a:b")))
+            .set_store_at_start_scope(
+                "brush_boxes",
+                StoreUpdate::upsert_rows([StoreRow::new()
+                    .field("cell_id", repeat::cell_id())
+                    .field("row_id", repeat::row_id())
+                    .field("column_id", repeat::column_id())]),
+            )
+            .set_selection_at_start_scope(
+                "brush",
+                SelectionUpdate::upsert_clause(
+                    SelectionClauseUpdate::interval(repeat::cell_id())
+                        .dimension(repeat::column())
+                        .endpoints(lit(1.0), lit(2.0))
+                        .dimension(repeat::row())
+                        .endpoints(lit(3.0), lit(4.0))
+                        .build(),
+                ),
+            );
+        let compiled = Plot::<RepeatGrid>::new()
+            .rows(repeat_vars(&["a"]))
+            .columns(repeat_vars(&["b"]))
+            .cell(repeated_grid_cell().event_binding(binding))
+            .compile(&ctx)
+            .await?;
+
+        let bindings = compiled
+            .event_bindings()
+            .iter()
+            .filter(|binding| binding.event_type == ChartEventType::Click)
+            .collect::<Vec<_>>();
+        assert_eq!(bindings.len(), 1);
+        let binding = bindings[0];
+        let filter = binding.filters[0].to_expr(&ctx)?;
+        assert_eq!(
+            simplify_to_scalar_sync(filter)?,
+            ScalarValue::Boolean(Some(true))
+        );
+
+        let StoreUpdate::UpsertRows { rows } = &binding.store_assignments[0].update else {
+            panic!("expected store upsert");
+        };
+        let cell_id = rows[0]
+            .fields
+            .get("cell_id")
+            .expect("cell id field")
+            .to_expr()?;
+        assert_eq!(
+            simplify_to_scalar_sync(cell_id)?,
+            ScalarValue::Utf8(Some("repeat_cell:a:b".to_string()))
+        );
+        let row_id = rows[0]
+            .fields
+            .get("row_id")
+            .expect("row id field")
+            .to_expr()?;
+        let column_id = rows[0]
+            .fields
+            .get("column_id")
+            .expect("column id field")
+            .to_expr()?;
+        assert_eq!(
+            simplify_to_scalar_sync(row_id)?,
+            ScalarValue::Utf8(Some("a".to_string()))
+        );
+        assert_eq!(
+            simplify_to_scalar_sync(column_id)?,
+            ScalarValue::Utf8(Some("b".to_string()))
+        );
+
+        let SelectionUpdate::UpsertClauses { clauses } = &binding.selection_assignments[0].update
+        else {
+            panic!("expected selection upsert");
+        };
+        let clause_id = clauses[0].id.to_expr()?;
+        assert_eq!(
+            simplify_to_scalar_sync(clause_id)?,
+            ScalarValue::Utf8(Some("repeat_cell:a:b".to_string()))
+        );
+        let SelectionPredicateUpdate::Interval { dimensions } = &clauses[0].predicate else {
+            panic!("expected interval predicate");
+        };
+        assert_eq!(dimensions[0].field_expr.to_expr(&ctx)?.to_string(), "b");
+        assert_eq!(dimensions[1].field_expr.to_expr(&ctx)?.to_string(), "a");
+        Ok(())
     }
 
     #[tokio::test]

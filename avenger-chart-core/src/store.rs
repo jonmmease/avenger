@@ -6,7 +6,7 @@ use datafusion::{
         record_batch::RecordBatch,
     },
     logical_expr::expr::Placeholder,
-    prelude::Expr,
+    prelude::{Expr, SessionContext},
     scalar::ScalarValue,
 };
 use datafusion_proto::protobuf::LogicalExprNode;
@@ -353,6 +353,15 @@ impl StoreValueExpr {
         self.expr
             .to_expr(&datafusion::prelude::SessionContext::new())
     }
+
+    pub(crate) fn map_exprs(
+        self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(Self {
+            expr: map_expr_node(self.expr, f, "store value expression")?,
+        })
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -369,6 +378,19 @@ impl StoreRow {
     pub fn field(mut self, name: impl Into<String>, expr: impl IntoExpr) -> Self {
         self.fields.insert(name.into(), StoreValueExpr::new(expr));
         self
+    }
+
+    pub(crate) fn map_exprs(
+        self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(Self {
+            fields: self
+                .fields
+                .into_iter()
+                .map(|(name, value)| Ok((name, value.map_exprs(f)?)))
+                .collect::<Result<_, AvengerChartError>>()?,
+        })
     }
 }
 
@@ -387,6 +409,19 @@ impl StoreFieldPatch {
         self.fields.insert(name.into(), StoreValueExpr::new(expr));
         self
     }
+
+    pub(crate) fn map_exprs(
+        self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(Self {
+            fields: self
+                .fields
+                .into_iter()
+                .map(|(name, value)| Ok((name, value.map_exprs(f)?)))
+                .collect::<Result<_, AvengerChartError>>()?,
+        })
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -403,6 +438,19 @@ impl StoreKey {
     pub fn field(mut self, name: impl Into<String>, expr: impl IntoExpr) -> Self {
         self.fields.insert(name.into(), StoreValueExpr::new(expr));
         self
+    }
+
+    pub(crate) fn map_exprs(
+        self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(Self {
+            fields: self
+                .fields
+                .into_iter()
+                .map(|(name, value)| Ok((name, value.map_exprs(f)?)))
+                .collect::<Result<_, AvengerChartError>>()?,
+        })
     }
 }
 
@@ -466,6 +514,52 @@ impl StoreUpdate {
             rows: rows.into_iter().collect(),
         }
     }
+
+    pub(crate) fn map_exprs(
+        self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(match self {
+            Self::Clear => Self::Clear,
+            Self::ReplaceRows { rows } => Self::ReplaceRows {
+                rows: map_rows(rows, f)?,
+            },
+            Self::InsertRows { rows } => Self::InsertRows {
+                rows: map_rows(rows, f)?,
+            },
+            Self::UpsertRows { rows } => Self::UpsertRows {
+                rows: map_rows(rows, f)?,
+            },
+            Self::UpdateByKey { key, fields } => Self::UpdateByKey {
+                key: key.map_exprs(f)?,
+                fields: fields.map_exprs(f)?,
+            },
+            Self::DeleteByKey { key } => Self::DeleteByKey {
+                key: key.map_exprs(f)?,
+            },
+            Self::ToggleRows { rows } => Self::ToggleRows {
+                rows: map_rows(rows, f)?,
+            },
+        })
+    }
+}
+
+fn map_rows(
+    rows: Vec<StoreRow>,
+    f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+) -> Result<Vec<StoreRow>, AvengerChartError> {
+    rows.into_iter().map(|row| row.map_exprs(f)).collect()
+}
+
+fn map_expr_node(
+    node: LogicalExprNode,
+    f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    label: &str,
+) -> Result<LogicalExprNode, AvengerChartError> {
+    let expr = node.to_expr(&SessionContext::new())?;
+    LogicalExprNode::from_expr(f(expr)?).map_err(|err| {
+        AvengerChartError::InternalError(format!("Failed to serialize mapped {label}: {err}"))
+    })
 }
 
 pub fn store_placeholder_expr(store_name: impl AsRef<str>) -> Expr {

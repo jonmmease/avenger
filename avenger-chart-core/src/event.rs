@@ -318,6 +318,18 @@ impl ChartEventStream {
         }
         Ok(())
     }
+
+    pub fn map_exprs(
+        mut self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        self.filters = self
+            .filters
+            .into_iter()
+            .map(|filter| map_expr_node(filter, f, "event stream filter"))
+            .collect::<Result<_, AvengerChartError>>()?;
+        Ok(self)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -326,6 +338,19 @@ pub struct ChartEventBetween {
     pub end: ChartEventStream,
     #[serde(default)]
     pub emit_end_event: bool,
+}
+
+impl ChartEventBetween {
+    pub fn map_exprs(
+        self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(Self {
+            start: self.start.map_exprs(f)?,
+            end: self.end.map_exprs(f)?,
+            emit_end_event: self.emit_end_event,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -677,6 +702,57 @@ impl ChartEventBinding {
             }
         }
         Ok(())
+    }
+
+    pub fn map_exprs(
+        mut self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        self.filters = self
+            .filters
+            .into_iter()
+            .map(|filter| map_expr_node(filter, f, "event binding filter"))
+            .collect::<Result<_, AvengerChartError>>()?;
+        self.between = self
+            .between
+            .map(|between| between.map_exprs(f))
+            .transpose()?;
+        self.assignments = self
+            .assignments
+            .into_iter()
+            .map(|assignment| {
+                Ok(ChartEventParamAssignment {
+                    param_name: assignment.param_name,
+                    expr: map_expr_node(assignment.expr, f, "event param assignment")?,
+                    scope: assignment.scope,
+                    replace_scoped_values: assignment.replace_scoped_values,
+                })
+            })
+            .collect::<Result<_, AvengerChartError>>()?;
+        self.store_assignments = self
+            .store_assignments
+            .into_iter()
+            .map(|assignment| {
+                Ok(ChartEventStoreAssignment {
+                    store_name: assignment.store_name,
+                    update: assignment.update.map_exprs(f)?,
+                    scope: assignment.scope,
+                    replace_scoped_values: assignment.replace_scoped_values,
+                })
+            })
+            .collect::<Result<_, AvengerChartError>>()?;
+        self.selection_assignments = self
+            .selection_assignments
+            .into_iter()
+            .map(|assignment| {
+                Ok(ChartEventSelectionAssignment {
+                    selection_id: assignment.selection_id,
+                    update: assignment.update.map_exprs(f)?,
+                    scope: assignment.scope,
+                })
+            })
+            .collect::<Result<_, AvengerChartError>>()?;
+        Ok(self)
     }
 }
 
@@ -1542,6 +1618,17 @@ fn collect_selection_update_datum_requests(
 fn expr_node(expr: Expr, label: &str) -> LogicalExprNode {
     LogicalExprNode::from_expr(expr)
         .unwrap_or_else(|err| panic!("Failed to serialize {label}: {err}"))
+}
+
+fn map_expr_node(
+    node: LogicalExprNode,
+    f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    label: &str,
+) -> Result<LogicalExprNode, AvengerChartError> {
+    let expr = node.to_expr(&SessionContext::new())?;
+    LogicalExprNode::from_expr(f(expr)?).map_err(|err| {
+        AvengerChartError::InternalError(format!("Failed to serialize mapped {label}: {err}"))
+    })
 }
 
 #[cfg(test)]

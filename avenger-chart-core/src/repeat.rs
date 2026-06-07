@@ -4,6 +4,7 @@ use datafusion::{
     arrow::datatypes::DataType,
     common::ScalarValue,
     logical_expr::{Expr, expr::Placeholder, lit},
+    prelude::col,
 };
 use datafusion_common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use datafusion_proto::protobuf::LogicalExprNode;
@@ -27,6 +28,7 @@ pub enum RepeatPlaceholderKind {
     RowIndex,
     ColumnIndex,
     ItemIndex,
+    CellId,
     RowId,
     ColumnId,
     ItemId,
@@ -44,6 +46,7 @@ impl RepeatPlaceholderKind {
             Self::RowIndex => "row_index",
             Self::ColumnIndex => "column_index",
             Self::ItemIndex => "item_index",
+            Self::CellId => "cell_id",
             Self::RowId => "row_id",
             Self::ColumnId => "column_id",
             Self::ItemId => "item_id",
@@ -61,6 +64,7 @@ impl RepeatPlaceholderKind {
             "row_index" => Self::RowIndex,
             "column_index" => Self::ColumnIndex,
             "item_index" => Self::ItemIndex,
+            "cell_id" => Self::CellId,
             "row_id" => Self::RowId,
             "column_id" => Self::ColumnId,
             "item_id" => Self::ItemId,
@@ -75,7 +79,8 @@ impl RepeatPlaceholderKind {
         match self {
             Self::RowExpr | Self::ColumnExpr | Self::ItemExpr => None,
             Self::RowIndex | Self::ColumnIndex | Self::ItemIndex => Some(DataType::Int64),
-            Self::RowId
+            Self::CellId
+            | Self::RowId
             | Self::ColumnId
             | Self::ItemId
             | Self::RowTitle
@@ -285,6 +290,10 @@ pub fn item_index() -> Expr {
     repeat_placeholder_expr(RepeatPlaceholderKind::ItemIndex)
 }
 
+pub fn cell_id() -> Expr {
+    repeat_placeholder_expr(RepeatPlaceholderKind::CellId)
+}
+
 pub fn row_id() -> Expr {
     repeat_placeholder_expr(RepeatPlaceholderKind::RowId)
 }
@@ -307,6 +316,10 @@ pub fn column_title() -> Expr {
 
 pub fn item_title() -> Expr {
     repeat_placeholder_expr(RepeatPlaceholderKind::ItemTitle)
+}
+
+pub fn current_cell_predicate() -> Expr {
+    col("cell_id").eq(cell_id())
 }
 
 pub fn collect_repeat_placeholder_kinds(
@@ -786,6 +799,7 @@ fn repeat_placeholder_replacement(
         RepeatPlaceholderKind::RowIndex => resolved_index(ctx.row_index, "row"),
         RepeatPlaceholderKind::ColumnIndex => resolved_index(ctx.column_index, "column"),
         RepeatPlaceholderKind::ItemIndex => resolved_index(ctx.item_index, "item"),
+        RepeatPlaceholderKind::CellId => resolved_cell_id(ctx),
         RepeatPlaceholderKind::RowId => resolved_string(ctx.row.as_ref(), "row", |v| &v.id),
         RepeatPlaceholderKind::ColumnId => {
             resolved_string(ctx.column.as_ref(), "column", |v| &v.id)
@@ -836,6 +850,26 @@ fn resolved_string(
                 "repeat::{role}_id/title() was used without a resolved repeat {role} variable"
             ))
         })
+}
+
+fn resolved_cell_id(ctx: &RepeatContext) -> Result<Expr, AvengerChartError> {
+    let id = if let Some(item) = &ctx.item {
+        format!("repeat_cell:item:{}", item.id)
+    } else {
+        match (ctx.row.as_ref(), ctx.column.as_ref()) {
+            (Some(row), Some(column)) => {
+                format!("repeat_cell:{}:{}", row.id, column.id)
+            }
+            (Some(row), None) => format!("repeat_cell:row:{}", row.id),
+            (None, Some(column)) => format!("repeat_cell:column:{}", column.id),
+            (None, None) => {
+                return Err(AvengerChartError::InvalidArgument(
+                    "repeat::cell_id() was used without a resolved repeat cell".to_string(),
+                ));
+            }
+        }
+    };
+    Ok(lit(id))
 }
 
 fn validate_repeat_id(id: &str) -> Result<(), AvengerChartError> {
@@ -905,11 +939,15 @@ mod tests {
 
     #[test]
     fn collect_repeat_placeholders_finds_nested_kinds() {
-        let expr = row_index().eq(column_index()).and(column_id().eq(lit("x")));
+        let expr = row_index()
+            .eq(column_index())
+            .and(column_id().eq(lit("x")))
+            .and(current_cell_predicate());
         let kinds = collect_repeat_placeholder_kinds(&expr).expect("collect placeholders");
         assert!(kinds.contains(&RepeatPlaceholderKind::RowIndex));
         assert!(kinds.contains(&RepeatPlaceholderKind::ColumnIndex));
         assert!(kinds.contains(&RepeatPlaceholderKind::ColumnId));
+        assert!(kinds.contains(&RepeatPlaceholderKind::CellId));
     }
 
     #[test]
@@ -925,6 +963,12 @@ mod tests {
             simplify_to_scalar_sync(title).expect("scalar"),
             ScalarValue::Utf8(Some("Column B".to_string()))
         );
+
+        let cell = resolve_repeat_placeholders(cell_id(), &ctx).expect("resolve cell id");
+        assert_eq!(
+            simplify_to_scalar_sync(cell).expect("scalar"),
+            ScalarValue::Utf8(Some("repeat_cell:row_a:col_b".to_string()))
+        );
     }
 
     #[test]
@@ -932,6 +976,54 @@ mod tests {
         let err = resolve_repeat_placeholders(item().into_data_expr(), &context())
             .expect_err("missing item should error");
         assert!(err.to_string().contains("repeat::item()"), "{err}");
+
+        let err = resolve_repeat_placeholders(cell_id(), &RepeatContext::new())
+            .expect_err("missing cell");
+        assert!(err.to_string().contains("repeat::cell_id()"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn current_cell_predicate_filters_store_rows() -> Result<(), AvengerChartError> {
+        use std::sync::Arc;
+
+        use datafusion::arrow::{
+            array::{Int32Array, StringArray},
+            datatypes::{DataType, Field, Schema},
+            record_batch::RecordBatch,
+        };
+        use datafusion::prelude::SessionContext;
+
+        let session = SessionContext::new();
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("cell_id", DataType::Utf8, false),
+                Field::new("value", DataType::Int32, false),
+            ])),
+            vec![
+                Arc::new(StringArray::from(vec![
+                    "repeat_cell:row_a:col_b",
+                    "repeat_cell:row_a:col_c",
+                    "repeat_cell:row_d:col_b",
+                ])),
+                Arc::new(Int32Array::from(vec![1, 2, 3])),
+            ],
+        )?;
+        let predicate = resolve_repeat_placeholders(current_cell_predicate(), &context())?;
+        let filtered = session
+            .read_batch(batch)?
+            .filter(predicate)?
+            .collect()
+            .await?;
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].num_rows(), 1);
+        let values = filtered[0]
+            .column_by_name("value")
+            .expect("value column")
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .expect("int values");
+        assert_eq!(values.value(0), 1);
+        Ok(())
     }
 
     #[test]
