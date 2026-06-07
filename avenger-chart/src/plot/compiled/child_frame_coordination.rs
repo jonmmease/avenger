@@ -497,6 +497,53 @@ fn max_adjacent_gap(trailing: &[f32], leading: &[f32]) -> f32 {
         .fold(0.0, f32::max)
 }
 
+fn apply_facet_band_grid_track_requirements(
+    measurement: &mut ComponentsMeasurement,
+    requirements: &GridTrackRequirements,
+) -> Result<bool, AvengerChartError> {
+    let Some(facet_band) = measurement
+        .coord_measurement
+        .as_any_mut()
+        .downcast_mut::<FacetBandCoordMeasurement>()
+    else {
+        return Ok(false);
+    };
+
+    let layout = match facet_band_grid_apply_layout(facet_band, requirements) {
+        Ok(layout) => layout,
+        Err(reason) => {
+            debug!(
+                target: "avenger_chart::layout_coordination",
+                ?reason,
+                axis = ?facet_band.axis,
+                cell_count = facet_band.cells.len(),
+                "skipping facet-band layout alignment apply"
+            );
+            return Ok(false);
+        }
+    };
+
+    let active_layout = facet_band
+        .coordinated_layout
+        .as_ref()
+        .unwrap_or(&facet_band.local_layout);
+    if coordinated_layout_values_equal(active_layout, &layout) {
+        return Ok(false);
+    }
+
+    facet_band.set_coordinated_layout_value(layout);
+    facet_band.recompute_explicit_placement_if_needed();
+    Ok(true)
+}
+
+fn coordinated_layout_values_equal(left: &CoordinatedLayout, right: &CoordinatedLayout) -> bool {
+    left.padding_inner_px == right.padding_inner_px
+        && left.guide_slot_gap_px == right.guide_slot_gap_px
+        && left.outer_start == right.outer_start
+        && left.outer_end == right.outer_end
+        && left.n == right.n
+}
+
 pub(crate) fn collect_child_frame_layout_coordination_nodes(
     measurement: &ComponentsMeasurement,
 ) -> Result<Vec<ChildFrameLayoutCoordinationNode>, AvengerChartError> {
@@ -869,6 +916,24 @@ fn apply_child_frame_layout_alignment_recursive(
             apply_child_frame_layout_alignment_recursive(&mut child.measurement, plans, trace)?;
         }
         return Ok(());
+    }
+
+    let facet_alignment_key = measurement
+        .coord_measurement
+        .as_any()
+        .downcast_ref::<FacetBandCoordMeasurement>()
+        .and_then(|facet_band| {
+            facet_band_layout_coordination_node(measurement, facet_band).transpose()
+        })
+        .transpose()?
+        .map(|node| node.alignment_key());
+
+    if let Some(ChildFrameLayoutRequirements::Grid(requirements)) =
+        facet_alignment_key.as_ref().and_then(|key| plans.get(key))
+    {
+        if apply_facet_band_grid_track_requirements(measurement, requirements)? {
+            trace.applied_container_count += 1;
+        }
     }
 
     if let Some(facet_band) = measurement
