@@ -55,14 +55,19 @@ impl ChildFrameContainerTemplateKey {
         }
     }
 
-    fn from_instance_with_semantic_tag(
+    fn from_facet_band_instance(
         instance_key: &ChildFrameContainerInstanceKey,
         scope: LayoutCoordinationScope,
         semantic_tag: String,
     ) -> Self {
+        let container_path_template = match scope {
+            LayoutCoordinationScope::TemplatePathWithoutFacetSegments => {
+                facet_band_layout_alignment_template_path(&instance_key.container_path)
+            }
+        };
         Self {
+            container_path_template,
             semantic_tag: Some(semantic_tag),
-            ..Self::from_instance(instance_key, scope)
         }
     }
 }
@@ -79,6 +84,20 @@ fn layout_alignment_template_path(path: &[ContainerPathSegment]) -> Vec<Containe
             _ => Some(segment.clone()),
         })
         .collect()
+}
+
+fn facet_band_layout_alignment_template_path(
+    path: &[ContainerPathSegment],
+) -> Vec<ContainerPathSegment> {
+    let mut template = layout_alignment_template_path(path);
+    if matches!(
+        path.last(),
+        Some(ContainerPathSegment::ConcatChild { key, .. })
+            if key.as_deref().and_then(repeat_template_key).is_none()
+    ) {
+        template.pop();
+    }
+    template
 }
 
 fn repeat_template_key(key: &str) -> Option<&'static str> {
@@ -218,7 +237,7 @@ pub(crate) fn facet_band_layout_coordination_node(
     let shape = facet_layout_coordination_shape(facet_band);
     let instance_key = ChildFrameContainerInstanceKey::new(facet_band.scope_path_prefix.clone());
     let alignment_scope = LayoutCoordinationScope::TemplatePathWithoutFacetSegments;
-    let template_key = ChildFrameContainerTemplateKey::from_instance_with_semantic_tag(
+    let template_key = ChildFrameContainerTemplateKey::from_facet_band_instance(
         &instance_key,
         alignment_scope,
         facet_layout_semantic_tag(facet_band),

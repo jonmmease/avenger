@@ -818,6 +818,45 @@ async fn facet_column_inside_grid_concat_smoke() {
 }
 
 #[tokio::test]
+async fn facet_column_inside_holey_grid_concat_aligned() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<GridConcat>::new()
+        .data(concat_facet_alignment_data(&ctx).await)
+        .canvas_size(1320.0, 820.0)
+        .rows(2)
+        .columns(3)
+        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .mark(
+            Subplot::new(facet_column_alignment_cell("x", "y", "#2f7ed8"))
+                .grid_cell(0, 0)
+                .key("left_facets"),
+        )
+        .mark(
+            Subplot::new(facet_column_alignment_cell("x2", "y2", "#8bbc21"))
+                .grid_cell(0, 2)
+                .key("right_facets"),
+        )
+        .mark(
+            Subplot::new(alignment_grid_concat())
+                .grid_cell(1, 1)
+                .key("unrelated_grid"),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile holey FacetColumn inside GridConcat");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "concat",
+        "facet_column_inside_holey_grid_concat_aligned",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn wrap_concat_fixed_columns_shared_axes() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;

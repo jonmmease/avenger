@@ -3218,6 +3218,225 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn layout_coordination_groups_equivalent_manual_grid_facet_siblings()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let facet_child = || {
+            Plot::<FacetColumn>::new().mark(
+                Subplot::new(Plot::<Cartesian>::new().mark(line_mark(false))).column(col("group")),
+            )
+        };
+        let compiled = Plot::<GridConcat>::new()
+            .data(grouped_xy_dataframe(&ctx))
+            .rows(1)
+            .columns(2)
+            .mark(
+                Subplot::new(facet_child())
+                    .grid_cell(0, 0)
+                    .key("left_facets"),
+            )
+            .mark(
+                Subplot::new(facet_child())
+                    .grid_cell(0, 1)
+                    .key("right_facets"),
+            )
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 500.0, 180.0, &ctx).await?;
+        let nodes = collect_child_frame_layout_coordination_nodes(&measurement)?;
+        let facet_nodes = nodes
+            .iter()
+            .filter(|node| node.kind == ChildFrameContainerKind::FacetColumn)
+            .collect::<Vec<_>>();
+        assert_eq!(facet_nodes.len(), 2);
+        assert_ne!(facet_nodes[0].instance_key, facet_nodes[1].instance_key);
+        assert_eq!(
+            facet_nodes[0].template_key, facet_nodes[1].template_key,
+            "equivalent nested facets should ignore their immediate manual grid sibling key"
+        );
+        assert_eq!(
+            facet_nodes[0].template_key.container_path_template,
+            Vec::<ContainerPathSegment>::new()
+        );
+        assert_eq!(
+            facet_nodes[0].template_key.semantic_tag.as_deref(),
+            Some("facet:col:1:group")
+        );
+
+        let diagnostics = build_child_frame_layout_alignment_diagnostics(&nodes);
+        let facet_groups = diagnostics
+            .merged_groups
+            .iter()
+            .filter(|group| group.key.kind == ChildFrameContainerKind::FacetColumn)
+            .collect::<Vec<_>>();
+        assert_eq!(facet_groups.len(), 1);
+        assert_eq!(facet_groups[0].node_count, 2);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn layout_alignment_applies_equivalent_manual_grid_facet_siblings()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let facet_child = || {
+            Plot::<FacetColumn>::new().mark(
+                Subplot::new(Plot::<Cartesian>::new().mark(line_mark(false))).column(col("group")),
+            )
+        };
+        let compiled = Plot::<GridConcat>::new()
+            .data(grouped_xy_dataframe(&ctx))
+            .rows(1)
+            .columns(2)
+            .mark(
+                Subplot::new(facet_child())
+                    .grid_cell(0, 0)
+                    .key("left_facets"),
+            )
+            .mark(
+                Subplot::new(facet_child())
+                    .grid_cell(0, 1)
+                    .key("right_facets"),
+            )
+            .compile(&ctx)
+            .await?;
+
+        let mut measurement = measurement_for_plot(&compiled, 500.0, 180.0, &ctx).await?;
+        {
+            let outer = measurement
+                .coord_measurement
+                .as_any_mut()
+                .downcast_mut::<ConcatCoordMeasurement>()
+                .expect("outer GridConcat should measure as ConcatCoordMeasurement");
+            for child in &mut outer.children {
+                let facet = child
+                    .measurement
+                    .coord_measurement
+                    .as_any_mut()
+                    .downcast_mut::<FacetBandCoordMeasurement>()
+                    .expect("grid child should contain a FacetColumn measurement");
+                facet.placement_model =
+                    FacetBandPlacementModel::Explicit(FacetBandExplicitPlacement::default());
+                facet.recompute_explicit_placement();
+            }
+
+            let left_facet = outer.children[0]
+                .measurement
+                .coord_measurement
+                .as_any_mut()
+                .downcast_mut::<FacetBandCoordMeasurement>()
+                .expect("left grid child should contain a FacetColumn measurement");
+            let mut widened = left_facet.local_layout.clone();
+            widened.outer_start += 17.0;
+            widened.outer_end += 23.0;
+            widened.padding_inner_px += 11.0;
+            widened.guide_slot_gap_px += 7.0;
+            left_facet.set_coordinated_layout_value(widened);
+            left_facet.recompute_explicit_placement();
+        }
+
+        let diagnostics = diagnose_child_frame_layout_alignment(&measurement)?;
+        let facet_groups = diagnostics
+            .merged_groups
+            .iter()
+            .filter(|group| group.key.kind == ChildFrameContainerKind::FacetColumn)
+            .collect::<Vec<_>>();
+        assert_eq!(facet_groups.len(), 1);
+        assert_eq!(facet_groups[0].node_count, 2);
+        assert!(
+            facet_groups[0]
+                .node_deltas
+                .iter()
+                .any(|delta| delta.has_delta()),
+            "manually widened facet sibling should require alignment"
+        );
+
+        let trace = apply_child_frame_layout_alignment(&mut measurement)?;
+        assert_eq!(trace.planned_group_count, 1);
+        assert_eq!(
+            trace.applied_container_count, 1,
+            "only the narrower sibling should need mutation"
+        );
+
+        let outer = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<ConcatCoordMeasurement>()
+            .expect("outer GridConcat should measure as ConcatCoordMeasurement");
+        let layouts = outer
+            .children()
+            .iter()
+            .map(|child| {
+                let facet = child
+                    .measurement
+                    .coord_measurement
+                    .as_any()
+                    .downcast_ref::<FacetBandCoordMeasurement>()
+                    .expect("grid child should contain a FacetColumn measurement");
+                facet
+                    .coordinated_layout
+                    .clone()
+                    .expect("aligned facet sibling should have a coordinated layout")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 2);
+        assert_eq!(layouts[0].n, layouts[1].n);
+        assert_eq!(layouts[0].padding_inner_px, layouts[1].padding_inner_px);
+        assert_eq!(layouts[0].guide_slot_gap_px, layouts[1].guide_slot_gap_px);
+        assert_eq!(layouts[0].outer_start, layouts[1].outer_start);
+        assert_eq!(layouts[0].outer_end, layouts[1].outer_end);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn layout_coordination_keeps_different_manual_grid_facet_fields_separate()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let group_facet = Plot::<FacetColumn>::new().mark(
+            Subplot::new(Plot::<Cartesian>::new().mark(line_mark(false))).column(col("group")),
+        );
+        let subgroup_facet = Plot::<FacetColumn>::new().mark(
+            Subplot::new(Plot::<Cartesian>::new().mark(line_mark(false))).column(col("subgroup")),
+        );
+        let compiled = Plot::<GridConcat>::new()
+            .data(nested_grouped_xy_dataframe(&ctx))
+            .rows(1)
+            .columns(2)
+            .mark(
+                Subplot::new(group_facet)
+                    .grid_cell(0, 0)
+                    .key("group_facets"),
+            )
+            .mark(
+                Subplot::new(subgroup_facet)
+                    .grid_cell(0, 1)
+                    .key("subgroup_facets"),
+            )
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 500.0, 180.0, &ctx).await?;
+        let nodes = collect_child_frame_layout_coordination_nodes(&measurement)?;
+        let diagnostics = build_child_frame_layout_alignment_diagnostics(&nodes);
+        let facet_groups = diagnostics
+            .merged_groups
+            .iter()
+            .filter(|group| group.key.kind == ChildFrameContainerKind::FacetColumn)
+            .collect::<Vec<_>>();
+        assert!(
+            facet_groups.is_empty(),
+            "different facet field identities must not share one alignment group"
+        );
+        let facet_singletons = diagnostics
+            .skipped_groups
+            .iter()
+            .filter(|group| group.key.kind == ChildFrameContainerKind::FacetColumn)
+            .collect::<Vec<_>>();
+        assert_eq!(facet_singletons.len(), 2);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn layout_alignment_apply_keeps_no_delta_facet_groups_unchanged()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
