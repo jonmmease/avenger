@@ -1678,6 +1678,10 @@ pub(crate) struct GridChildTrackDemand {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct GridTrackRequirements {
     pub(crate) shape: GridShape,
+    pub(crate) column_outer_start: f32,
+    pub(crate) column_outer_end: f32,
+    pub(crate) row_outer_start: f32,
+    pub(crate) row_outer_end: f32,
     pub(crate) column_widths: Vec<f32>,
     pub(crate) row_heights: Vec<f32>,
     pub(crate) column_left: Vec<f32>,
@@ -1688,6 +1692,10 @@ pub(crate) struct GridTrackRequirements {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct GridTrackSolution {
+    pub(crate) column_outer_start: f32,
+    pub(crate) column_outer_end: f32,
+    pub(crate) row_outer_start: f32,
+    pub(crate) row_outer_end: f32,
     pub(crate) column_widths: Vec<f32>,
     pub(crate) row_heights: Vec<f32>,
     pub(crate) column_left: Vec<f32>,
@@ -1892,6 +1900,10 @@ pub(crate) fn grid_track_requirements(
 ) -> Result<GridTrackRequirements, AvengerChartError> {
     let mut requirements = GridTrackRequirements {
         shape,
+        column_outer_start: 0.0,
+        column_outer_end: 0.0,
+        row_outer_start: 0.0,
+        row_outer_end: 0.0,
         column_widths: vec![base_cell_size.width; shape.columns],
         row_heights: vec![base_cell_size.height; shape.rows],
         column_left: vec![0.0; shape.columns],
@@ -1977,14 +1989,22 @@ pub(crate) fn solve_grid_track_requirements(
         &column_widths,
         &requirements.column_right,
         &requirements.column_left,
+        requirements.column_outer_start,
+        requirements.column_outer_end,
     );
     let (row_starts, content_height) = track_starts_and_content_size(
         &row_heights,
         &requirements.row_bottom,
         &requirements.row_top,
+        requirements.row_outer_start,
+        requirements.row_outer_end,
     );
 
     GridTrackSolution {
+        column_outer_start: requirements.column_outer_start,
+        column_outer_end: requirements.column_outer_end,
+        row_outer_start: requirements.row_outer_start,
+        row_outer_end: requirements.row_outer_end,
         column_widths,
         row_heights,
         column_left: requirements.column_left.clone(),
@@ -2049,9 +2069,11 @@ fn track_starts_and_content_size(
     sizes: &[f32],
     trailing_slabs: &[f32],
     leading_slabs: &[f32],
+    outer_start: f32,
+    outer_end: f32,
 ) -> (Vec<f32>, f32) {
     let mut starts = vec![0.0f32; sizes.len()];
-    let mut cursor = 0.0f32;
+    let mut cursor = outer_start.max(0.0);
     for index in 0..sizes.len() {
         if index > 0 {
             cursor += trailing_slabs[index - 1] + leading_slabs[index];
@@ -2059,7 +2081,7 @@ fn track_starts_and_content_size(
         starts[index] = cursor;
         cursor += sizes[index];
     }
-    (starts, cursor)
+    (starts, cursor + outer_end.max(0.0))
 }
 
 impl GridTrackSolution {
@@ -2439,6 +2461,10 @@ mod tests {
             slots,
             requirements: ChildFrameLayoutRequirements::Grid(GridTrackRequirements {
                 shape,
+                column_outer_start: 0.0,
+                column_outer_end: 0.0,
+                row_outer_start: 0.0,
+                row_outer_end: 0.0,
                 column_widths: vec![10.0; shape.columns],
                 row_heights: vec![10.0; shape.rows],
                 column_left: vec![0.0; shape.columns],
@@ -2763,6 +2789,37 @@ mod tests {
         assert_eq!(solution.content_size, Size2D::new(232.0, 121.0));
         assert_eq!(solution.origin_for_slot(demands[1].slot), [112.0, 0.0]);
         assert_eq!(solution.origin_for_slot(demands[2].slot), [0.0, 61.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn grid_track_solver_preserves_outer_offsets() -> Result<(), AvengerChartError> {
+        let shape = GridShape {
+            rows: 1,
+            columns: 1,
+        };
+        let demands = vec![track_demand(
+            0,
+            0,
+            0,
+            1,
+            1,
+            Size2D::new(100.0, 50.0),
+            EdgeSlabs::default(),
+        )];
+
+        let mut requirements = grid_track_requirements(shape, Size2D::new(100.0, 50.0), &demands)?;
+        requirements.column_outer_start = 3.0;
+        requirements.column_outer_end = 7.0;
+        requirements.row_outer_start = 5.0;
+        requirements.row_outer_end = 11.0;
+
+        let solution = solve_grid_track_requirements(&requirements, &demands);
+
+        assert_eq!(solution.column_starts, vec![3.0]);
+        assert_eq!(solution.row_starts, vec![5.0]);
+        assert_eq!(solution.content_size, Size2D::new(110.0, 66.0));
+        assert_eq!(solution.origin_for_slot(demands[0].slot), [3.0, 5.0]);
         Ok(())
     }
 

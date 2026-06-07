@@ -13,7 +13,7 @@ use crate::{
     coords::FacetAxis,
     facet::{
         coord::FacetBandCoordMeasurement,
-        placement::{FacetBandPlacement, resolve_facet_band_placement},
+        placement::{FacetBandPlacement, FacetCellPlacement, resolve_facet_band_placement},
     },
     plot::compiled::{ChildFrameKey, ComponentsMeasurement, ContainerPathSegment},
     positioned_subplot::PositionedCoordMeasurement,
@@ -331,6 +331,10 @@ fn facet_grid_track_requirements_from_placement(
 ) -> Result<GridTrackRequirements, AvengerChartError> {
     let mut requirements = GridTrackRequirements {
         shape,
+        column_outer_start: 0.0,
+        column_outer_end: 0.0,
+        row_outer_start: 0.0,
+        row_outer_end: 0.0,
         column_widths: vec![0.0; shape.columns],
         row_heights: vec![0.0; shape.rows],
         column_left: vec![0.0; shape.columns],
@@ -341,6 +345,14 @@ fn facet_grid_track_requirements_from_placement(
 
     match placement.axis {
         FacetAxis::Column => {
+            if let Some(first) = placement.cells.first() {
+                requirements.column_outer_start = first.main_axis_start.max(0.0);
+            }
+            if let Some(last) = placement.cells.last() {
+                requirements.column_outer_end =
+                    (placement.main_axis_extent - last.main_axis_start - last.main_axis_size)
+                        .max(0.0);
+            }
             if let Some(height) = placement.cross_axis_extent {
                 requirements.row_heights[0] = height;
             }
@@ -363,6 +375,14 @@ fn facet_grid_track_requirements_from_placement(
             }
         }
         FacetAxis::Row => {
+            if let Some(first) = placement.cells.first() {
+                requirements.row_outer_start = first.main_axis_start.max(0.0);
+            }
+            if let Some(last) = placement.cells.last() {
+                requirements.row_outer_end =
+                    (placement.main_axis_extent - last.main_axis_start - last.main_axis_size)
+                        .max(0.0);
+            }
             if let Some(width) = placement.cross_axis_extent {
                 requirements.column_widths[0] = width;
             }
@@ -623,6 +643,10 @@ fn merge_child_frame_layout_requirements<'a>(
             ChildFrameLayoutRequirements::Grid(mut merged),
             ChildFrameLayoutRequirements::Grid(next),
         ) if merged.shape == next.shape => {
+            merged.column_outer_start = merged.column_outer_start.max(next.column_outer_start);
+            merged.column_outer_end = merged.column_outer_end.max(next.column_outer_end);
+            merged.row_outer_start = merged.row_outer_start.max(next.row_outer_start);
+            merged.row_outer_end = merged.row_outer_end.max(next.row_outer_end);
             max_assign_each(&mut merged.column_widths, &next.column_widths);
             max_assign_each(&mut merged.row_heights, &next.row_heights);
             max_assign_each(&mut merged.column_left, &next.column_left);
@@ -664,6 +688,10 @@ fn requirement_slab_delta(
                 + abs_delta_sum(&local.column_right, &merged.column_right)
                 + abs_delta_sum(&local.row_top, &merged.row_top)
                 + abs_delta_sum(&local.row_bottom, &merged.row_bottom)
+                + (merged.column_outer_start - local.column_outer_start).abs()
+                + (merged.column_outer_end - local.column_outer_end).abs()
+                + (merged.row_outer_start - local.row_outer_start).abs()
+                + (merged.row_outer_end - local.row_outer_end).abs()
         }
     }
 }
@@ -804,6 +832,10 @@ mod tests {
                 rows: 1,
                 columns: 1,
             },
+            column_outer_start: 0.0,
+            column_outer_end: 0.0,
+            row_outer_start: 0.0,
+            row_outer_end: 0.0,
             column_widths: vec![width],
             row_heights: vec![10.0],
             column_left: vec![0.0],
@@ -850,5 +882,42 @@ mod tests {
         assert_eq!(plans.len(), 1);
         assert!(!plans.contains_key(&facet_key));
         assert!(plans.contains_key(&grid_key));
+    }
+
+    #[test]
+    fn facet_grid_requirements_preserve_outer_band_offsets() -> Result<(), AvengerChartError> {
+        let placement = FacetBandPlacement::new(
+            FacetAxis::Column,
+            vec![
+                FacetCellPlacement {
+                    cell_index: 0,
+                    main_axis_start: 3.0,
+                    main_axis_size: 10.0,
+                },
+                FacetCellPlacement {
+                    cell_index: 1,
+                    main_axis_start: 20.0,
+                    main_axis_size: 10.0,
+                },
+            ],
+            35.0,
+            Some(40.0),
+        );
+        let requirements = facet_grid_track_requirements_from_placement(
+            GridShape {
+                rows: 1,
+                columns: 2,
+            },
+            &placement,
+        )?;
+
+        assert_eq!(requirements.column_outer_start, 3.0);
+        assert_eq!(requirements.column_outer_end, 5.0);
+        assert_eq!(requirements.row_outer_start, 0.0);
+        assert_eq!(requirements.row_outer_end, 0.0);
+        assert_eq!(requirements.column_widths, vec![10.0, 10.0]);
+        assert_eq!(requirements.row_heights, vec![40.0]);
+        assert_eq!(requirements.column_right, vec![7.0, 0.0]);
+        Ok(())
     }
 }
