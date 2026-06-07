@@ -13,6 +13,8 @@
   - [Cartesian](./docs/coordinate-systems/cartesian.md)
   - [Polar](./docs/coordinate-systems/polar.md)
   - [Zero-Dimensional](./docs/coordinate-systems/zero-dimensional.md)
+  - [Concat Containers](./docs/coordinate-systems/concat.md)
+  - [Repeat Containers](./docs/coordinate-systems/repeat.md)
   - [Faceting](./docs/coordinate-systems/faceting/index.md)
     - [Getting Started](./docs/coordinate-systems/faceting/getting-started.md)
     - [Scale Sharing](./docs/coordinate-systems/faceting/scale-sharing.md)

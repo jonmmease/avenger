@@ -50,7 +50,7 @@ let plot = Plot::<FacetColumn>::new()
                     .fill("#4682b4")
             )
         )
-        .col_with(col("species"), |c| c.facet(|f| f.title("Iris Species")))
+        .col_with(col("species"), |c| c.guide(|g| g.title("Iris Species")))
     )
     .canvas_size(800.0, 300.0);
 
@@ -59,7 +59,7 @@ let evaluated = compiled.evaluate(&ctx, None).await?;
 Ok(evaluated)
 ```
 
-The `col_with()` method takes a closure that receives a channel configuration object, on which you call `.facet()` to configure facet-specific options. The `.title()` method adds a descriptive label that appears above (for column facets) or to the side (for row facets) of the facet cells.
+The `col_with()` method takes a closure that receives a channel configuration object, on which you call `.guide()` to configure facet guide options. The `.title()` method adds a descriptive label that appears above (for column facets) or to the side (for row facets) of the facet cells.
 
 ## Spacing Between Facets
 
@@ -111,7 +111,7 @@ let plot = Plot::<FacetColumn>::new()
                     .fill("#4682b4")
             )
         )
-        .col_with(col("species"), |c| c.facet(|f| f.title("Iris Species")))
+        .col_with(col("species"), |c| c.guide(|g| g.title("Iris Species")))
     )
     .canvas_size(800.0, 300.0);
 
@@ -181,7 +181,7 @@ let plot = Plot::<FacetRow>::new()
                     .fill("#1f78b4")
             )
         )
-        .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
+        .row_with(col("species"), |c| c.guide(|g| g.title("Species")))
     )
     .canvas_size(600.0, 500.0);
 
@@ -246,7 +246,7 @@ let plot = Plot::<FacetRow>::new()
                     .fill("#2e8b57")
             )
         )
-        .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
+        .row_with(col("species"), |c| c.guide(|g| g.title("Species")))
     )
     .canvas_size(600.0, 500.0);
 
@@ -267,17 +267,17 @@ The `row_with()` and `col_with()` methods provide a builder pattern for configur
 ```rust
 // Configure row faceting
 Subplot::new(child_plot).row_with(col("species"), |c| {
-    c.facet(|f| f.title("Species"))
+    c.guide(|g| g.title("Species"))
 })
 
 // Configure column faceting
 Subplot::new(child_plot).col_with(col("region"), |c| {
-    c.facet(|f| f.title("Region"))
+    c.guide(|g| g.title("Region"))
 })
 ```
 
 The closure receives a channel configuration object `c`, which you can use to:
-- Call `.facet()` to configure facet-specific options (title, scale sharing)
+- Call `.guide()` to configure facet guide options, and `.share_slots()` or `.free_slots()` to configure facet slot coordination
 - Set data scale sharing modes (covered in [Scale Sharing](scale-sharing.md))
 
 ## Facet Variable Scale Sharing
@@ -356,10 +356,10 @@ let plot = Plot::<FacetColumn>::new()
                     )
                 )
                 // No share_slots() - uses FREE (default)
-                .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
+                .row_with(col("species"), |c| c.guide(|g| g.title("Species")))
             )
         )
-        .col_with(col("petal_width_bin"), |c| c.facet(|f| f.title("Petal Width")))
+        .col_with(col("petal_width_bin"), |c| c.guide(|g| g.title("Petal Width")))
     );
 
 let compiled = plot.compile(&ctx).await?;
@@ -415,10 +415,10 @@ let plot = Plot::<FacetColumn>::new()
                     )
                 )
                 // KEY: share_slots() creates grid-like structure
-                .row_with(col("species"), |c| c.facet(|f| f.title("Species").share_slots()))
+                .row_with(col("species"), |c| c.share_slots().guide(|g| g.title("Species")))
             )
         )
-        .col_with(col("petal_width_bin"), |c| c.facet(|f| f.title("Petal Width")))
+        .col_with(col("petal_width_bin"), |c| c.guide(|g| g.title("Petal Width")))
     );
 
 let compiled = plot.compile(&ctx).await?;
@@ -499,15 +499,15 @@ let plot = Plot::<FacetColumn>::new()
                     .y_with(col("sepal_width"), |c| {
                         c.scale_with::<Linear>(|s| s)
                             .axis(|a| a.title("Sepal Width (cm)"))
-                            .with_scale_sharing(Sharing::Shared)
+                            .with_domain_scope(CoordinationScope::Shared)
                     })
                     .size(120.0)
                     .fill("#9b59b6")
             )
         )
         .col_with(col("species"), |c| {
-            c.facet(|f| {
-                f.title("Iris Species")
+            c.guide(|g| {
+                g.title("Iris Species")
             })
         })
     )

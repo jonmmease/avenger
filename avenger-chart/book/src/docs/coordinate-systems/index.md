@@ -9,6 +9,8 @@ Coordinate systems define how data values map to visual positions. Avenger Chart
 | **[Cartesian](./cartesian.md)** | `x`, `y` | `Plot::<Cartesian>::new()` | Scatter plots, bar charts, line charts, heatmaps |
 | **[Polar](./polar.md)** | `r`, `theta` | `Plot::<Polar>::new()` | Radial plots, circular distributions, wind roses |
 | **[Zero-Dimensional](./zero-dimensional.md)** | (none) | `Plot::<ZeroDCoord>::new()` | KPI tiles, dashboard callouts, legend galleries |
+| **[Concat Containers](./concat.md)** | child subplots | `Plot::<GridConcat>::new()` | Dashboards, manual grids, wrapped galleries |
+| **[Repeat Containers](./repeat.md)** | repeated child subplots | `Plot::<RepeatGrid>::new()` | Scatterplot matrices, wrapped variable galleries |
 
 Each coordinate system has a dedicated page with detailed documentation and examples.
 
@@ -96,6 +98,8 @@ See the [roadmap](../../roadmap.md) for details.
 - Learn about **[Cartesian](./cartesian.md)** coordinates for standard rectangular plots
 - Explore **[Polar](./polar.md)** coordinates for radial visualizations
 - Discover **[Zero-Dimensional](./zero-dimensional.md)** coordinates for KPI dashboards and callouts
+- Compose child plots with **[Concat Containers](./concat.md)**
+- Generate scatterplot matrices and variable galleries with **[Repeat Containers](./repeat.md)**
 - Understand how **[Guides, Axes, and Legends](./guides-axes-legends/index.md)** relate to coordinate systems
 - Understand [Marks](../marks/index.md) that render in coordinate systems
 - Review [Channels](../channels/index.md) for encoding data

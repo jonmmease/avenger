@@ -54,11 +54,11 @@ let plot = Plot::<FacetColumn>::new()
                     ),
                 )
                 .row_with(col("petal_width_bin"), |c| {
-                    c.facet(|f| f.title("Petal Width"))
+                    c.guide(|g| g.title("Petal Width"))
                 }),
             ),
         )
-        .col_with(col("species"), |c| c.facet(|f| f.title("Species")))
+        .col_with(col("species"), |c| c.guide(|g| g.title("Species")))
     );
 
 let compiled = plot.compile(&ctx).await?;
@@ -127,7 +127,7 @@ Scale sharing becomes more nuanced with nested facets. Each level can specify di
 
 ### Shared Scales Across All Cells
 
-Use `Sharing::Shared` to create a single domain across all cells:
+Use `CoordinationScope::Shared` to create a single domain across all cells:
 
 ```rust,render
 use avenger_chart::prelude::*;
@@ -158,19 +158,19 @@ let plot = Plot::<FacetColumn>::new()
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x_with(col("sepal_length"), |c| {
-                                c.with_scale_sharing(Sharing::Shared)
+                                c.with_domain_scope(CoordinationScope::Shared)
                             })
                             .y_with(col("sepal_width"), |c| {
-                                c.with_scale_sharing(Sharing::Shared)
+                                c.with_domain_scope(CoordinationScope::Shared)
                             })
                             .size(25.0)
                             .fill("#4682b4"),
                     ),
                 )
-                .row_with(col("species"), |c| c.facet(|f| f.title("Species"))),
+                .row_with(col("species"), |c| c.guide(|g| g.title("Species"))),
             ),
         )
-        .col_with(col("petal_width_bin"), |c| c.facet(|f| f.title("Petal Width")))
+        .col_with(col("petal_width_bin"), |c| c.guide(|g| g.title("Petal Width")))
     );
 
 let compiled = plot.compile(&ctx).await?;
@@ -182,7 +182,7 @@ With `Shared`, all 9 cells use the same x and y domains, making direct visual co
 
 ### Free Scales Per Cell
 
-Use `Sharing::Free` to let each cell compute its own optimal scale:
+Use `CoordinationScope::Free` to let each cell compute its own optimal scale:
 
 ```rust,render
 use avenger_chart::prelude::*;
@@ -213,19 +213,19 @@ let plot = Plot::<FacetColumn>::new()
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x_with(col("sepal_length"), |c| {
-                                c.with_scale_sharing(Sharing::Free)
+                                c.with_domain_scope(CoordinationScope::Free)
                             })
                             .y_with(col("sepal_width"), |c| {
-                                c.with_scale_sharing(Sharing::Free)
+                                c.with_domain_scope(CoordinationScope::Free)
                             })
                             .size(25.0)
                             .fill("#4682b4"),
                     ),
                 )
-                .row_with(col("species"), |c| c.facet(|f| f.title("Species"))),
+                .row_with(col("species"), |c| c.guide(|g| g.title("Species"))),
             ),
         )
-        .col_with(col("petal_width_bin"), |c| c.facet(|f| f.title("Petal Width")))
+        .col_with(col("petal_width_bin"), |c| c.guide(|g| g.title("Petal Width")))
     );
 
 let compiled = plot.compile(&ctx).await?;
@@ -237,7 +237,7 @@ With `Free`, each of the 9 cells optimizes its scales independently, maximizing 
 
 ## Level-Based Sharing
 
-`Sharing::Level(1)` enables sharing scales with the immediate parent facet, creating column-wise or row-wise sharing depending on the nesting structure.
+`CoordinationScope::Level(1)` enables sharing scales with the immediate parent facet, creating column-wise or row-wise sharing depending on the nesting structure.
 
 ### Column-Wise Sharing: Level(1) in FacetColumn > FacetRow
 
@@ -272,19 +272,19 @@ let plot = Plot::<FacetColumn>::new()
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x_with(col("sepal_length"), |c| {
-                                c.with_scale_sharing(Sharing::Level(1))
+                                c.with_domain_scope(CoordinationScope::Level(1))
                             })
                             .y_with(col("sepal_width"), |c| {
-                                c.with_scale_sharing(Sharing::Level(1))
+                                c.with_domain_scope(CoordinationScope::Level(1))
                             })
                             .size(25.0)
                             .fill("#4682b4"),
                     ),
                 )
-                .row_with(col("species"), |c| c.facet(|f| f.title("Species"))),
+                .row_with(col("species"), |c| c.guide(|g| g.title("Species"))),
             ),
         )
-        .col_with(col("petal_width_bin"), |c| c.facet(|f| f.title("Petal Width")))
+        .col_with(col("petal_width_bin"), |c| c.guide(|g| g.title("Petal Width")))
     );
 
 let compiled = plot.compile(&ctx).await?;
@@ -333,21 +333,21 @@ let plot = Plot::<FacetRow>::new()
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x_with(col("sepal_length"), |c| {
-                                c.with_scale_sharing(Sharing::Level(1))
+                                c.with_domain_scope(CoordinationScope::Level(1))
                             })
                             .y_with(col("sepal_width"), |c| {
-                                c.with_scale_sharing(Sharing::Level(1))
+                                c.with_domain_scope(CoordinationScope::Level(1))
                             })
                             .size(25.0)
                             .fill("#4682b4"),
                     ),
                 )
                 .col_with(col("petal_width_bin"), |c| {
-                    c.facet(|f| f.title("Petal Width"))
+                    c.guide(|g| g.title("Petal Width"))
                 }),
             ),
         )
-        .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
+        .row_with(col("species"), |c| c.guide(|g| g.title("Species")))
     );
 
 let compiled = plot.compile(&ctx).await?;

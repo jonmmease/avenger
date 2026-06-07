@@ -164,7 +164,7 @@ let plot = Plot::<FacetColumn>::new()
             )
         )
         .col_with(col("species"), |c| {
-            c.facet(|f| f.title("Iris Species"))
+            c.guide(|g| g.title("Iris Species"))
         })
     );
 
@@ -206,7 +206,7 @@ let plot = Plot::<FacetColumn>::new()
             )
         )
         .col_with(col("species"), |c| {
-            c.facet(|f| f.title("Iris Species"))
+            c.guide(|g| g.title("Iris Species"))
         })
     );
 

@@ -21,7 +21,7 @@ The choice between shared and free scales determines what comparisons are easy t
 | **Shared** | Direct value comparisons across facets | May hide local patterns when magnitudes differ greatly |
 | **Free** | Revealing patterns within each facet | Cannot directly compare absolute values across facets |
 
-## Sharing::Shared
+## CoordinationScope::Shared
 
 When scales are shared, all facets use the same scale domain, enabling direct visual comparisons of absolute values.
 
@@ -44,7 +44,7 @@ let plot = Plot::<FacetRow>::new()
                     .x(col("sepal_length"))
                     .y_with(col("sepal_width"), |c| {
                         c.scale_with::<Linear>(|s| s)
-                            .with_scale_sharing(Sharing::Shared)
+                            .with_domain_scope(CoordinationScope::Shared)
                             .axis(|a| a.title("Sepal Width"))
                     })
                     .size(28.0)
@@ -62,7 +62,7 @@ Ok(evaluated)
 
 Notice how with shared Y scales, you can directly compare the heights of bars across facets. However, if the value ranges differ dramatically between facets, some cells may appear compressed.
 
-## Sharing::Free
+## CoordinationScope::Free
 
 When scales are free, each facet computes its own scale domain independently, maximizing the use of available space to reveal local patterns.
 
@@ -85,7 +85,7 @@ let plot = Plot::<FacetRow>::new()
                     .x(col("sepal_length"))
                     .y_with(col("sepal_width"), |c| {
                         c.scale_with::<Linear>(|s| s)
-                            .with_scale_sharing(Sharing::Free)
+                            .with_domain_scope(CoordinationScope::Free)
                             .axis(|a| a.title("Sepal Width"))
                     })
                     .size(28.0)
@@ -129,12 +129,12 @@ let plot = Plot::<FacetRow>::new()
                 Symbol::new()
                     .x_with(col("sepal_length"), |c| {
                         c.scale_with::<Linear>(|s| s)
-                            .with_scale_sharing(Sharing::Free)
+                            .with_domain_scope(CoordinationScope::Free)
                             .axis(|a| a.title("Sepal Length"))
                     })
                     .y_with(col("sepal_width"), |c| {
                         c.scale_with::<Linear>(|s| s)
-                            .with_scale_sharing(Sharing::Shared)
+                            .with_domain_scope(CoordinationScope::Shared)
                             .axis(|a| a.title("Sepal Width"))
                     })
                     .size(28.0)
@@ -176,12 +176,12 @@ let plot = Plot::<FacetColumn>::new()
                 Symbol::new()
                     .x_with(col("sepal_length"), |c| {
                         c.scale_with::<Linear>(|s| s)
-                            .with_scale_sharing(Sharing::Shared)
+                            .with_domain_scope(CoordinationScope::Shared)
                             .axis(|a| a.title("Sepal Length"))
                     })
                     .y_with(col("sepal_width"), |c| {
                         c.scale_with::<Linear>(|s| s)
-                            .with_scale_sharing(Sharing::Free)
+                            .with_domain_scope(CoordinationScope::Free)
                             .axis(|a| a.title("Sepal Width"))
                     })
                     .size(28.0)
@@ -197,16 +197,16 @@ let evaluated = compiled.evaluate(&ctx, None).await?;
 Ok(evaluated)
 ```
 
-## Sharing::Level(n) - Hierarchical Sharing
+## CoordinationScope::Level(n) - Hierarchical Sharing
 
-For nested facets, `Sharing::Level(n)` provides fine-grained control over which nesting level shares scales:
+For nested facets, `CoordinationScope::Level(n)` provides fine-grained control over which nesting level shares scales:
 
 | Level | Meaning | Equivalent To |
 |-------|---------|---------------|
-| `Level(0)` | Independent per cell | `Sharing::Free` |
+| `Level(0)` | Independent per cell | `CoordinationScope::Free` |
 | `Level(1)` | Share with immediate parent facet | - |
 | `Level(2)` | Share two levels up | - |
-| `Level(u8::MAX)` | Share globally across all facets | `Sharing::Shared` |
+| `Level(u8::MAX)` | Share globally across all facets | `CoordinationScope::Shared` |
 
 ### Example: Two-Level Faceting
 
@@ -243,7 +243,7 @@ let plot = Plot::<FacetRow>::new()
                             .x(col("sepal_length"))
                             .y_with(col("sepal_width"), |c| {
                                 c.scale_with::<Linear>(|s| s)
-                                    .with_scale_sharing(Sharing::Level(1))
+                                    .with_domain_scope(CoordinationScope::Level(1))
                                     .axis(|a| a.title("Sepal Width"))
                             })
                             .size(24.0)
@@ -269,7 +269,7 @@ In this example:
 
 ## When to Use Each Mode
 
-### Use Sharing::Shared When:
+### Use CoordinationScope::Shared When:
 
 1. **Comparing absolute values** across facets is important
    - Example: Sales figures across regions where you need to identify which region has higher sales
@@ -283,7 +283,7 @@ In this example:
 4. **Creating a unified visual reference**
    - Example: Time series where all facets should align to the same temporal scale
 
-### Use Sharing::Free When:
+### Use CoordinationScope::Free When:
 
 1. **Revealing local patterns** within each facet is the priority
    - Example: Seasonal patterns that may differ in magnitude but follow similar cycles
@@ -305,7 +305,7 @@ In this example:
 2. **Optimizing both global and local comparisons**
    - Example: Stock prices over time (X shared) for companies with vastly different valuations (Y free)
 
-### Use Sharing::Level(n) When:
+### Use CoordinationScope::Level(n) When:
 
 1. **Working with nested facets** where intermediate levels of sharing are needed
    - Example: Comparing performance within teams (Level 1) but not across departments
@@ -320,17 +320,17 @@ When scale sharing is not explicitly specified:
 - **FacetColumn**: X scales are free by default (each column has its own X-scale)
 - The non-faceted dimension typically shares by default to enable cross-facet comparison
 
-To explicitly control this behavior, always use `.with_scale_sharing()` on your channels.
+To explicitly control this behavior, always use `.with_domain_scope()` on your channels.
 
 ## API Reference
 
 | Method | Description |
 |--------|-------------|
-| `.with_scale_sharing(Sharing::Shared)` | Share scale across all facets |
-| `.with_scale_sharing(Sharing::Free)` | Independent scale per facet |
-| `.with_scale_sharing(Sharing::Level(n))` | Share at nesting level n |
-| `.share_scale()` | Convenience method for `Shared` |
-| `.free_scale()` | Convenience method for `Free` |
+| `.with_domain_scope(CoordinationScope::Shared)` | Share scale across all facets |
+| `.with_domain_scope(CoordinationScope::Free)` | Independent scale per facet |
+| `.with_domain_scope(CoordinationScope::Level(n))` | Share at nesting level n |
+| `.share_domain()` | Convenience method for `Shared` |
+| `.free_domain()` | Convenience method for `Free` |
 
 ## Next Steps
 
