@@ -1898,6 +1898,84 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn repeat_grid_pan_scroll_zoom_expands_across_cells() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<RepeatGrid>::new()
+            .rows(repeat_vars(&["a", "b"]))
+            .columns(repeat_vars(&["a", "b"]))
+            .cell(repeated_grid_cell().tool(PanScrollZoom::cartesian()))
+            .matrix_domains()
+            .compile(&ctx)
+            .await?;
+
+        let tool_param_names = compiled
+            .param_specs()
+            .keys()
+            .filter(|name| name.starts_with("__tool_pan_scroll_zoom__"))
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(
+            tool_param_names,
+            vec![
+                "__tool_pan_scroll_zoom__enabled".to_string(),
+                "__tool_pan_scroll_zoom__domain__a".to_string(),
+                "__tool_pan_scroll_zoom__domain__b".to_string(),
+            ]
+        );
+        assert_eq!(compiled.tool_metadata().len(), 1);
+
+        let drag_bindings = compiled
+            .event_bindings()
+            .iter()
+            .filter(|binding| binding.event_type == ChartEventType::CursorMoved)
+            .collect::<Vec<_>>();
+        assert_eq!(drag_bindings.len(), 4);
+        let mut targets = drag_bindings
+            .iter()
+            .map(|binding| {
+                binding
+                    .scope_target
+                    .as_ref()
+                    .and_then(|target| target.resolved_coord_node_path_prefix())
+                    .map(|target| target.to_vec())
+            })
+            .collect::<Vec<_>>();
+        targets.sort();
+        assert_eq!(
+            targets,
+            vec![Some(vec![0]), Some(vec![1]), Some(vec![2]), Some(vec![3]),]
+        );
+        assert!(drag_bindings.iter().any(|binding| {
+            binding
+                .assignments
+                .iter()
+                .any(|assignment| assignment.param_name == "__tool_pan_scroll_zoom__domain__a")
+                && binding
+                    .assignments
+                    .iter()
+                    .any(|assignment| assignment.param_name == "__tool_pan_scroll_zoom__domain__b")
+        }));
+
+        assert_eq!(
+            compiled
+                .event_bindings()
+                .iter()
+                .filter(|binding| binding.event_type == ChartEventType::MouseWheel)
+                .count(),
+            4
+        );
+        assert_eq!(
+            compiled
+                .event_bindings()
+                .iter()
+                .filter(|binding| binding.event_type == ChartEventType::DoubleClick)
+                .count(),
+            4
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn repeat_grid_matrix_axes_generate_title_defaults_and_policy()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();

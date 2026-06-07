@@ -25,7 +25,7 @@ pub enum SelectionCombine {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SelectionFacetContextSpec {
     pub id: String,
     #[serde_as(as = "FromInto<SerializableExpr>")]
@@ -602,7 +602,7 @@ fn default_clause_facet_scope() -> CoordinationScope {
     CoordinationScope::Free
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CompiledSelectionSpec {
     pub id: String,
     pub empty: EmptySelectionBehavior,

@@ -91,11 +91,18 @@ impl ToolCompileContext {
         scale_targets: &[ToolScaleTarget],
     ) -> Result<Vec<ActiveToolExpansion<C>>, AvengerChartError> {
         let mut active = Vec::new();
+        let mut local_ids = HashSet::new();
         for tool in tools {
             let id = tool.id().to_string();
             validate_tool_id(&id)?;
+            if !local_ids.insert(id.clone()) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Duplicate chart tool id '{id}'"
+                )));
+            }
             let mut expansion = tool.expand(ToolExpansionContext::new(&id, scale_targets))?;
             self.localize_event_bindings(&mut expansion.event_bindings);
+            let identity = Arc::as_ptr(tool) as *const dyn ChartTool<C> as *const () as usize;
             let active_expansion = ActiveToolExpansion {
                 id: id.clone(),
                 expansion: expansion.clone(),
@@ -103,7 +110,7 @@ impl ToolCompileContext {
             self.state
                 .lock()
                 .expect("tool compile state lock poisoned")
-                .register_expansion(&id, &expansion)?;
+                .register_expansion(&id, identity, &expansion)?;
             active.push(active_expansion);
         }
         Ok(active)
@@ -144,7 +151,7 @@ impl ToolCompileContext {
     pub(crate) fn register_local_stores(&self, stores: &[Store]) -> Result<(), AvengerChartError> {
         let mut state = self.state.lock().expect("tool compile state lock poisoned");
         for store in stores {
-            state.register_store(store.compile()?)?;
+            state.register_store(store.compile()?, false)?;
         }
         Ok(())
     }
@@ -272,7 +279,7 @@ pub(crate) struct ActiveToolExpansion<C: CoordinateSystemCore> {
 
 #[derive(Default)]
 struct ToolCompileState {
-    tool_ids: HashSet<String>,
+    tool_ids: HashMap<String, usize>,
     params: IndexMap<String, GeneratedParamState>,
     stores: IndexMap<String, CompiledStoreSpec>,
     selections: IndexMap<String, CompiledSelectionSpec>,
@@ -285,22 +292,30 @@ impl ToolCompileState {
     fn register_expansion<C: CoordinateSystemCore>(
         &mut self,
         id: &str,
+        identity: usize,
         expansion: &ToolExpansion<C>,
     ) -> Result<(), AvengerChartError> {
-        if !self.tool_ids.insert(id.to_string()) {
-            return Err(AvengerChartError::InvalidArgument(format!(
-                "Duplicate chart tool id '{id}'"
-            )));
-        }
+        let first_registration = match self.tool_ids.get(id) {
+            Some(existing) if *existing == identity => false,
+            Some(_) => {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Duplicate chart tool id '{id}'"
+                )));
+            }
+            None => {
+                self.tool_ids.insert(id.to_string(), identity);
+                true
+            }
+        };
 
         for param in &expansion.params {
             self.register_param(param)?;
         }
         for store in &expansion.stores {
-            self.register_store(store.compile()?)?;
+            self.register_store(store.compile()?, !first_registration)?;
         }
         for selection in &expansion.selections {
-            self.register_selection(selection)?;
+            self.register_selection(selection, !first_registration)?;
         }
         for edit in &expansion.scale_edits {
             let ToolScaleEdit::RawDomain {
@@ -314,12 +329,21 @@ impl ToolCompileState {
         }
         self.event_bindings
             .extend(expansion.event_bindings.iter().cloned());
-        self.metadata.extend(expansion.metadata.iter().cloned());
+        if first_registration {
+            self.metadata.extend(expansion.metadata.iter().cloned());
+        }
         Ok(())
     }
 
-    fn register_store(&mut self, spec: CompiledStoreSpec) -> Result<(), AvengerChartError> {
-        if self.stores.contains_key(&spec.name) {
+    fn register_store(
+        &mut self,
+        spec: CompiledStoreSpec,
+        allow_existing: bool,
+    ) -> Result<(), AvengerChartError> {
+        if let Some(existing) = self.stores.get(&spec.name) {
+            if allow_existing && existing == &spec {
+                return Ok(());
+            }
             return Err(AvengerChartError::InvalidArgument(format!(
                 "Store '{}' was declared more than once",
                 spec.name
@@ -329,9 +353,16 @@ impl ToolCompileState {
         Ok(())
     }
 
-    fn register_selection(&mut self, selection: &Selection) -> Result<(), AvengerChartError> {
+    fn register_selection(
+        &mut self,
+        selection: &Selection,
+        allow_existing: bool,
+    ) -> Result<(), AvengerChartError> {
         let spec = selection.compile()?;
-        if self.selections.contains_key(&spec.id) {
+        if let Some(existing) = self.selections.get(&spec.id) {
+            if allow_existing && existing == &spec {
+                return Ok(());
+            }
             return Err(AvengerChartError::InvalidArgument(format!(
                 "Selection '{}' was declared more than once",
                 spec.id
