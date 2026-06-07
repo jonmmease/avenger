@@ -1,8 +1,21 @@
+use avenger_chart::plot::EvaluationRequest;
 use avenger_chart::prelude::*;
+use avenger_chart::render::{EvaluatedPlot, EvaluationMode};
+use avenger_common::canvas::CanvasDimensions;
+use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
+use datafusion::common::ScalarValue;
 use datafusion::functions_aggregate::expr_fn::count;
 use datafusion::prelude::*;
+use image::RgbaImage;
+use indexmap::IndexMap;
+use std::sync::Arc;
 
-use super::helpers::{assert_visual_match, assert_visual_match_default};
+use super::helpers::{
+    DEFAULT_SCALE, VisualTestConfig, assert_visual_match, assert_visual_match_default,
+    compare_images, get_baseline_path,
+};
+
+const BASELINE_CATEGORY: &str = "repeat";
 
 async fn repeat_data(ctx: &SessionContext) -> DataFrame {
     ctx.sql(
@@ -151,6 +164,22 @@ fn facet_column_cell_matrix_axes() -> Plot<FacetColumn> {
     Plot::<FacetColumn>::new().mark(Subplot::new(child).column(col("group_name")))
 }
 
+fn facet_wrap_cell_matrix_axes() -> Plot<FacetWrap> {
+    let child = Plot::<Cartesian>::new().mark(
+        Symbol::new()
+            .x(repeat::column())
+            .y(repeat::row())
+            .fill("#2f7ed8")
+            .opacity(0.78)
+            .stroke("#ffffff")
+            .stroke_width(0.75)
+            .size(46.0),
+    );
+    Plot::<FacetWrap>::new().mark(
+        Subplot::new(child).wrap_with(col("group_name"), |c| c.columns(2).empty_cells_as_holes()),
+    )
+}
+
 fn diagonal_histogram_cell() -> Plot<Cartesian> {
     Plot::<Cartesian>::new().mark(Rect::new().transform(
         Bin::new(repeat::column()).maxbins(5),
@@ -195,6 +224,86 @@ fn wrap_cell() -> Plot<Cartesian> {
             .stroke_width(1.0)
             .size(72.0),
     )
+}
+
+fn wrap_cell_preview_flow() -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().mark(
+        Symbol::new()
+            .x_with(col("score"), |c| {
+                c.axis(|a| a.title("score").ticks_start_step(1.0, 2.0))
+            })
+            .y_with(repeat::item(), |c| {
+                c.axis(|a| a.title(repeat::item_title()).ticks_start_step(1.0, 2.0))
+            })
+            .fill("#2f7ed8")
+            .stroke("#ffffff")
+            .stroke_width(1.0)
+            .size(72.0),
+    )
+}
+
+fn responsive_repeat_wrap_inside_facet_column_plot(df: DataFrame) -> Plot<FacetColumn> {
+    let width = Param::new("width", ScalarValue::Float64(Some(780.0)));
+    let repeat = Plot::<RepeatWrap>::new()
+        .items(repeat_variables_four())
+        .responsive_columns(230.0)
+        .cell(wrap_cell_preview_flow())
+        .item_domains();
+    Plot::<FacetColumn>::new()
+        .add_param(width.clone())
+        .data(df)
+        .canvas_constraint(CanvasConstraint::width(width.expr()))
+        .plot_constraint(PlotConstraint::height(125.0))
+        .mark(Subplot::new(repeat).column(col("group_name")))
+}
+
+async fn render_evaluated_plot(evaluated: &EvaluatedPlot) -> RgbaImage {
+    let dimensions = CanvasDimensions {
+        size: [evaluated.scene_graph.width, evaluated.scene_graph.height],
+        scale: DEFAULT_SCALE,
+    };
+    let mut canvas = PngCanvas::new(dimensions, CanvasConfig::default())
+        .await
+        .expect("create repeat visual test canvas");
+    canvas
+        .set_scene(&evaluated.scene_graph)
+        .expect("set repeat visual test scene");
+    canvas
+        .render()
+        .await
+        .expect("render repeat visual test scene")
+}
+
+async fn assert_evaluated_plot_visual_match(evaluated: &EvaluatedPlot, baseline_name: &str) {
+    let image = render_evaluated_plot(evaluated).await;
+    let baseline_path = get_baseline_path(BASELINE_CATEGORY, baseline_name);
+    if let Err(msg) = compare_images(&baseline_path, image, &VisualTestConfig::default()) {
+        panic!(
+            "Visual test '{}' failed (session rendering): {}",
+            baseline_name, msg
+        );
+    }
+}
+
+async fn assert_evaluated_plots_match(
+    actual: &EvaluatedPlot,
+    expected: &EvaluatedPlot,
+    label: &str,
+) {
+    let actual_image = render_evaluated_plot(actual).await;
+    let expected_image = render_evaluated_plot(expected).await;
+    assert_eq!(
+        actual_image.dimensions(),
+        expected_image.dimensions(),
+        "{label} dimensions should match"
+    );
+    let comparison = image_compare::rgba_hybrid_compare(&actual_image, &expected_image)
+        .expect("compare repeat evaluated plots");
+    assert!(
+        comparison.score >= 0.9999,
+        "{label} should visually match one-shot Exact, similarity={}",
+        comparison.score
+    );
 }
 
 #[tokio::test]
@@ -390,6 +499,35 @@ async fn repeat_grid_inside_facet_matrix_domains() {
 }
 
 #[tokio::test]
+async fn repeat_grid_inside_facet_row_matrix_domains() {
+    let ctx = SessionContext::new();
+    let variables = repeat_variables()[0..2].to_vec();
+    let repeat = Plot::<RepeatGrid>::new()
+        .rows(variables.clone())
+        .columns(variables)
+        .cell(grid_cell_matrix_axes())
+        .matrix_domains()
+        .matrix_axes();
+    let plot = Plot::<FacetRow>::new()
+        .data(repeat_data(&ctx).await)
+        .canvas_size(760.0, 820.0)
+        .mark(Subplot::new(repeat).row(col("group_name")));
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile facet-row repeat grid");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        BASELINE_CATEGORY,
+        "repeat_grid_inside_facet_row_matrix_domains",
+        0.999,
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn repeat_grid_inside_facet_wrap_aligned() {
     let ctx = SessionContext::new();
     let variables = repeat_variables()[0..2].to_vec();
@@ -479,6 +617,33 @@ async fn facet_column_inside_repeat_grid_aligned() {
 }
 
 #[tokio::test]
+async fn facet_wrap_inside_repeat_grid_aligned() {
+    let ctx = SessionContext::new();
+    let variables = repeat_variables()[0..2].to_vec();
+    let plot = Plot::<RepeatGrid>::new()
+        .data(repeat_three_group_data(&ctx).await)
+        .canvas_size(1320.0, 780.0)
+        .rows(variables.clone())
+        .columns(variables)
+        .cell(facet_wrap_cell_matrix_axes())
+        .matrix_domains()
+        .matrix_axes();
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile repeat grid with facet-wrap cells");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        BASELINE_CATEGORY,
+        "facet_wrap_inside_repeat_grid_aligned",
+        0.999,
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn repeat_wrap_fixed_columns() {
     let ctx = SessionContext::new();
     let plot = Plot::<RepeatWrap>::new()
@@ -535,6 +700,80 @@ async fn repeat_wrap_inside_facet_column_fixed_columns() {
         None,
         "repeat",
         "repeat_wrap_inside_facet_column_fixed_columns",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn repeat_wrap_inside_facet_column_preview_width_resize_flow() {
+    let ctx = Arc::new(SessionContext::new());
+    let plot = responsive_repeat_wrap_inside_facet_column_plot(repeat_data(ctx.as_ref()).await);
+    let compiled = Arc::new(
+        plot.compile(ctx.as_ref())
+            .await
+            .expect("compile faceted responsive repeat wrap"),
+    );
+    let mut session = compiled.clone().instantiate(ctx.clone());
+
+    let (initial, exact) = session
+        .evaluate_with_metrics(EvaluationRequest::new().exact())
+        .await
+        .expect("initial exact faceted responsive repeat wrap");
+    assert_eq!(exact.mode, EvaluationMode::Exact);
+    assert_evaluated_plot_visual_match(
+        &initial,
+        "repeat_wrap_inside_facet_column_preview_width_780",
+    )
+    .await;
+
+    let widths = [
+        (1080.0, "repeat_wrap_inside_facet_column_preview_width_1080"),
+        (1380.0, "repeat_wrap_inside_facet_column_preview_width_1380"),
+    ];
+    let mut final_patch = IndexMap::new();
+
+    for (width, name) in widths {
+        let mut patch = IndexMap::new();
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(width)));
+        final_patch = patch.clone();
+        let (evaluated, metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await
+            .expect("preview faceted responsive repeat wrap width evaluation");
+
+        assert_eq!(metrics.mode, EvaluationMode::Preview);
+        assert!(
+            metrics.pipeline.preview_structure_reflow_reuses > 0
+                || metrics.pipeline.preview_fallbacks > 0,
+            "responsive repeat wrap preview should either reflow or conservatively fall back"
+        );
+        assert!(
+            (evaluated.scene_graph.width - width as f32).abs() <= 0.01,
+            "preview width patch should update canvas width"
+        );
+        assert_evaluated_plot_visual_match(&evaluated, name).await;
+    }
+
+    let (settled, settled_metrics) = session
+        .evaluate_with_metrics(
+            EvaluationRequest::new()
+                .exact()
+                .param_patch(final_patch.clone()),
+        )
+        .await
+        .expect("exact settle after faceted responsive repeat wrap previews");
+    assert_eq!(settled_metrics.mode, EvaluationMode::Exact);
+
+    let mut one_shot = compiled.instantiate(ctx);
+    let (one_shot_exact, one_shot_metrics) = one_shot
+        .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(final_patch))
+        .await
+        .expect("one-shot exact faceted responsive repeat wrap");
+    assert_eq!(one_shot_metrics.mode, EvaluationMode::Exact);
+    assert_evaluated_plots_match(
+        &settled,
+        &one_shot_exact,
+        "faceted responsive repeat wrap exact settle",
     )
     .await;
 }
