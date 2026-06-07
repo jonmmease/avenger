@@ -4416,7 +4416,9 @@ mod tests {
     use avenger_app::app::SceneGraphBuilder;
     use avenger_chart::layout::LayoutBounds;
     use avenger_chart::prelude::*;
-    use avenger_chart::render::{InteractionScopeId, InteractionScopeKind};
+    use avenger_chart::render::{
+        EvaluatedChildFrameKind, InteractionScopeId, InteractionScopeKind,
+    };
     use avenger_common::time::Duration;
     use avenger_eventstream::{
         manager::EventStreamManager,
@@ -5142,6 +5144,63 @@ mod tests {
             .unwrap_or_else(|| panic!("scope {facet_value}/{cell_key} has {channel} scale"))
             .numeric_interval_domain()
             .unwrap_or_else(|_| panic!("{facet_value}/{cell_key}/{channel} domain is numeric"))
+    }
+
+    fn repeat_logical_facet_scope<'a>(
+        scopes: &'a [EvaluatedInteractionScope],
+        logical_facet_value: &str,
+        cell_key: &str,
+    ) -> &'a EvaluatedInteractionScope {
+        scopes
+            .iter()
+            .find(|scope| {
+                matches!(
+                    scope.logical_facet_values.first(),
+                    Some(ScalarValue::Utf8(Some(value))) if value == logical_facet_value
+                ) && scope
+                    .child_frame_path
+                    .last()
+                    .and_then(|segment| segment.key.as_deref())
+                    == Some(cell_key)
+            })
+            .unwrap_or_else(|| {
+                let available = scopes
+                    .iter()
+                    .map(|scope| {
+                        let facet = match scope.logical_facet_values.first() {
+                            Some(ScalarValue::Utf8(Some(value))) => value.clone(),
+                            other => format!("{other:?}"),
+                        };
+                        let key = scope
+                            .child_frame_path
+                            .last()
+                            .and_then(|segment| segment.key.as_deref())
+                            .unwrap_or("<none>")
+                            .to_string();
+                        (facet, key)
+                    })
+                    .collect::<Vec<_>>();
+                panic!(
+                    "missing repeat scope {cell_key} in logical facet {logical_facet_value}; \
+                     available={available:?}"
+                )
+            })
+    }
+
+    fn repeat_logical_facet_scope_domain(
+        scopes: &[EvaluatedInteractionScope],
+        logical_facet_value: &str,
+        cell_key: &str,
+        channel: &str,
+    ) -> (f32, f32) {
+        repeat_logical_facet_scope(scopes, logical_facet_value, cell_key)
+            .scales
+            .get(channel)
+            .unwrap_or_else(|| panic!("scope {logical_facet_value}/{cell_key} has {channel} scale"))
+            .numeric_interval_domain()
+            .unwrap_or_else(|_| {
+                panic!("{logical_facet_value}/{cell_key}/{channel} domain is numeric")
+            })
     }
 
     fn scope_center(scope: &EvaluatedInteractionScope) -> [f32; 2] {
@@ -6051,6 +6110,112 @@ mod tests {
             g2_a_y.0 < initial_g2_a_y.0 && g2_a_y.1 < initial_g2_a_y.1,
             "shared repeat domain panned in G1 should propagate to G2's a-domain: \
              {initial_g2_a_y:?} -> {g2_a_y:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn repeat_pan_inside_facet_wrap_uses_final_aligned_scope_bounds() {
+        let ctx = Arc::new(SessionContext::new());
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('G1', 0.0, 0.0),
+                    ('G1', 10.0, 100.0),
+                    ('G1', 20.0, 200.0),
+                    ('G2', 100.0, 1000.0),
+                    ('G2', 110.0, 1100.0),
+                    ('G2', 120.0, 1200.0),
+                    ('G3', 200.0, 2000.0),
+                    ('G3', 210.0, 2100.0),
+                    ('G3', 220.0, 2200.0)
+                ) AS t(group_name, a, b)",
+            )
+            .await
+            .expect("wrapped repeat pan data");
+        let repeat_grid = Plot::<RepeatGrid>::new()
+            .rows([
+                RepeatVariable::new("a", col("a")),
+                RepeatVariable::new("b", col("b")),
+            ])
+            .columns([
+                RepeatVariable::new("a", col("a")),
+                RepeatVariable::new("b", col("b")),
+            ])
+            .cell(repeat_pan_cell(false))
+            .matrix_domains()
+            .matrix_axes();
+        let compiled = Plot::<FacetWrap>::new()
+            .canvas_size(900.0, 560.0)
+            .data(df)
+            .mark(
+                Subplot::new(repeat_grid)
+                    .id("matrix")
+                    .wrap_with(col("group_name"), |c| c.columns(2).empty_cells_as_holes()),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile wrapped nested repeat pan plot");
+
+        let policy = compiled.resize_policy();
+        let drag_handlers =
+            compile_handlers_for_event_type(&compiled, &ctx, ChartEventType::CursorMoved);
+        assert_eq!(
+            drag_handlers.len(),
+            4,
+            "repeat tool should still generate one drag binding per repeated cell"
+        );
+        let session = Arc::new(compiled).instantiate(ctx);
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial wrapped nested repeat pan scene");
+        let scopes = state.interaction_scopes().await;
+        assert_eq!(
+            scopes.len(),
+            12,
+            "three wrapped facets times four repeated cells should export coordinate scopes"
+        );
+        for scope in &scopes {
+            assert_eq!(
+                scope.logical_facet_values.len(),
+                1,
+                "FacetWrap should contribute one logical facet value"
+            );
+            let segment = scope
+                .child_frame_path
+                .last()
+                .expect("repeat-generated GridConcat segment");
+            assert_eq!(segment.kind, EvaluatedChildFrameKind::GridConcat);
+            assert_eq!(segment.row_count, Some(2));
+            assert_eq!(segment.column_count, Some(2));
+        }
+
+        let initial_g3_a_y =
+            repeat_logical_facet_scope_domain(&scopes, "G3", "repeat_cell:a:b", "y");
+        let active = repeat_logical_facet_scope(&scopes, "G1", "repeat_cell:b:a").clone();
+        let center = scope_center(&active);
+
+        let status = pan_move_all(
+            &mut state,
+            &drag_handlers,
+            Instant::now(),
+            center,
+            [center[0] + active.bounds.width * 0.18, center[1]],
+        )
+        .await;
+        assert!(status.rerender, "wrapped nested repeat pan should rerender");
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("build after wrapped nested repeat pan");
+
+        let scopes = state.interaction_scopes().await;
+        let g3_a_y = repeat_logical_facet_scope_domain(&scopes, "G3", "repeat_cell:a:b", "y");
+        assert!(
+            g3_a_y.0 < initial_g3_a_y.0 && g3_a_y.1 < initial_g3_a_y.1,
+            "shared repeat domain panned in G1 should propagate through wrapped facet scopes: \
+             {initial_g3_a_y:?} -> {g3_a_y:?}"
         );
     }
 
@@ -8910,6 +9075,99 @@ mod tests {
             .into_iter()
             .find(|scope| scope.kind == InteractionScopeKind::Coordinate)
             .expect("nested repeat/facet coordinate scope");
+
+        let cell_id =
+            drag_repeat_box_scope_for_store(&mut state, &handlers, &scope, TOOL_BOX_STORE).await;
+        assert!(cell_id.starts_with("repeat_cell:"));
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("brush");
+        assert_eq!(clauses.len(), 1);
+        assert!(clauses[0].id.starts_with("repeat_cell:"));
+        let rows = runtime.session.store_rows_for_diagnostics(TOOL_BOX_STORE);
+        assert!(
+            rows.iter().any(|(_, rows)| !rows.is_empty()),
+            "tool-generated brush store should receive a chrome row"
+        );
+    }
+
+    #[tokio::test]
+    async fn box_selection_tool_smoke_tests_repeat_inside_facet_wrap() {
+        const TOOL_BOX_STORE: &str = "__tool_brush__boxes";
+
+        let ctx = SessionContext::new();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('A', 1.0, 1.0),
+                    ('A', 2.0, 2.0),
+                    ('B', 1.5, 1.5),
+                    ('B', 2.5, 2.5),
+                    ('C', 1.2, 1.2),
+                    ('C', 2.2, 2.2)
+                ) AS t(group_name, a, b)",
+            )
+            .await
+            .expect("wrapped nested repeat/facet data");
+        let brush = BoxSelection::cartesian("brush")
+            .dimensions(repeat::column(), repeat::row())
+            .resolve(BoxSelectionResolve::Union)
+            .repeat_cell_chrome();
+        let cell = Plot::<Cartesian>::new()
+            .mark(
+                Symbol::new()
+                    .x(repeat::column())
+                    .y(repeat::row())
+                    .size(24.0),
+            )
+            .tool(brush);
+        let variables = vec![
+            RepeatVariable::new("a", col("a")).title("A"),
+            RepeatVariable::new("b", col("b")).title("B"),
+        ];
+        let repeat_grid = Plot::<RepeatGrid>::new()
+            .rows(variables.clone())
+            .columns(variables)
+            .cell(cell)
+            .matrix_domains()
+            .matrix_axes();
+        let compiled = Plot::<FacetWrap>::new()
+            .canvas_size(760.0, 500.0)
+            .data(df)
+            .mark(
+                Subplot::new(repeat_grid)
+                    .wrap_with(col("group_name"), |c| c.columns(2).empty_cells_as_holes()),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile wrapped nested repeat/facet box selection");
+        let handlers =
+            compile_handlers_for_event_type(&compiled, &ctx, ChartEventType::CursorMoved);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial wrapped nested repeat/facet scene");
+        let scope = state
+            .interaction_scopes()
+            .await
+            .into_iter()
+            .find(|scope| scope.kind == InteractionScopeKind::Coordinate)
+            .expect("wrapped nested repeat/facet coordinate scope");
+        assert_eq!(
+            scope.logical_facet_values.len(),
+            1,
+            "FacetWrap should contribute one logical facet value"
+        );
+        let segment = scope
+            .child_frame_path
+            .last()
+            .expect("repeat-generated GridConcat segment");
+        assert_eq!(segment.kind, EvaluatedChildFrameKind::GridConcat);
+        assert_eq!(segment.row_count, Some(2));
+        assert_eq!(segment.column_count, Some(2));
 
         let cell_id =
             drag_repeat_box_scope_for_store(&mut state, &handlers, &scope, TOOL_BOX_STORE).await;
