@@ -10,10 +10,12 @@ use tracing::debug;
 
 use crate::{
     concat::{ConcatCoordMeasurement, GridShape, GridSlotRect, GridTrackRequirements},
+    facet::coord::FacetBandCoordMeasurement,
     plot::compiled::{
         ChildFrameKey, ComponentsMeasurement, ContainerPathSegment,
         container_path_without_facet_segments,
     },
+    positioned_subplot::PositionedCoordMeasurement,
 };
 
 use avenger_chart_core::AvengerChartError;
@@ -176,6 +178,21 @@ pub(crate) struct ChildFrameLayoutAlignmentDiagnostics {
     pub(crate) skipped_groups: Vec<LayoutAlignmentSkippedGroup>,
 }
 
+/// Summary of an alignment pass that mutates measured child-frame containers.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct ChildFrameLayoutAlignmentApplyTrace {
+    pub(crate) exported_node_count: usize,
+    pub(crate) alignment_group_count: usize,
+    pub(crate) planned_group_count: usize,
+    pub(crate) applied_container_count: usize,
+}
+
+impl ChildFrameLayoutAlignmentApplyTrace {
+    pub(crate) fn changed(&self) -> bool {
+        self.applied_container_count > 0
+    }
+}
+
 impl ChildFrameLayoutAlignmentDiagnostics {
     pub(crate) fn total_track_delta(&self) -> f32 {
         self.merged_groups
@@ -258,6 +275,38 @@ pub(crate) fn diagnose_child_frame_layout_alignment(
     Ok(diagnostics)
 }
 
+pub(crate) fn apply_child_frame_layout_alignment(
+    measurement: &mut ComponentsMeasurement,
+) -> Result<ChildFrameLayoutAlignmentApplyTrace, AvengerChartError> {
+    let nodes = collect_child_frame_layout_coordination_nodes(measurement)?;
+    let diagnostics = build_child_frame_layout_alignment_diagnostics(&nodes);
+    let plans = alignment_solution_plans(&diagnostics);
+
+    let mut trace = ChildFrameLayoutAlignmentApplyTrace {
+        exported_node_count: diagnostics.exported_node_count,
+        alignment_group_count: diagnostics.alignment_group_count,
+        planned_group_count: plans.len(),
+        applied_container_count: 0,
+    };
+
+    if !plans.is_empty() {
+        apply_child_frame_layout_alignment_recursive(measurement, &plans, &mut trace)?;
+    }
+
+    if trace.exported_node_count > 0 {
+        debug!(
+            target: "avenger_chart::layout_coordination",
+            exported_node_count = trace.exported_node_count,
+            alignment_group_count = trace.alignment_group_count,
+            planned_group_count = trace.planned_group_count,
+            applied_container_count = trace.applied_container_count,
+            "child-frame layout alignment apply"
+        );
+    }
+
+    Ok(trace)
+}
+
 pub(crate) fn build_child_frame_layout_alignment_diagnostics(
     nodes: &[ChildFrameLayoutCoordinationNode],
 ) -> ChildFrameLayoutAlignmentDiagnostics {
@@ -313,6 +362,17 @@ pub(crate) fn build_child_frame_layout_alignment_diagnostics(
         merged_groups,
         skipped_groups,
     }
+}
+
+fn alignment_solution_plans(
+    diagnostics: &ChildFrameLayoutAlignmentDiagnostics,
+) -> IndexMap<LayoutAlignmentKey, ChildFrameLayoutRequirements> {
+    diagnostics
+        .merged_groups
+        .iter()
+        .filter(|group| group.node_deltas.iter().any(|delta| delta.has_delta()))
+        .map(|group| (group.key.clone(), group.merged_requirements.clone()))
+        .collect()
 }
 
 fn merge_child_frame_layout_requirements<'a>(
@@ -402,6 +462,71 @@ fn collect_child_frame_layout_coordination_nodes_into(
                 ))
             })?;
             collect_child_frame_layout_coordination_nodes_into(child, nodes)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn apply_child_frame_layout_alignment_recursive(
+    measurement: &mut ComponentsMeasurement,
+    plans: &IndexMap<LayoutAlignmentKey, ChildFrameLayoutRequirements>,
+    trace: &mut ChildFrameLayoutAlignmentApplyTrace,
+) -> Result<(), AvengerChartError> {
+    if let Some(alignment_key) = measurement
+        .coord_measurement
+        .as_any()
+        .downcast_ref::<ConcatCoordMeasurement>()
+        .and_then(|concat| grid_layout_coordination_node(concat).transpose())
+        .transpose()?
+        .map(|node| node.alignment_key())
+    {
+        if let Some(ChildFrameLayoutRequirements::Grid(requirements)) = plans.get(&alignment_key) {
+            let concat = measurement
+                .coord_measurement
+                .as_any_mut()
+                .downcast_mut::<ConcatCoordMeasurement>()
+                .ok_or_else(|| {
+                    AvengerChartError::InternalError(
+                        "Concat measurement disappeared while applying layout alignment"
+                            .to_string(),
+                    )
+                })?;
+            if concat.apply_grid_track_requirements(requirements)? {
+                trace.applied_container_count += 1;
+            }
+        }
+    }
+
+    if let Some(concat) = measurement
+        .coord_measurement
+        .as_any_mut()
+        .downcast_mut::<ConcatCoordMeasurement>()
+    {
+        for child in &mut concat.children {
+            apply_child_frame_layout_alignment_recursive(&mut child.measurement, plans, trace)?;
+        }
+        return Ok(());
+    }
+
+    if let Some(facet_band) = measurement
+        .coord_measurement
+        .as_any_mut()
+        .downcast_mut::<FacetBandCoordMeasurement>()
+    {
+        for cell in &mut facet_band.cells {
+            apply_child_frame_layout_alignment_recursive(&mut cell.measurement, plans, trace)?;
+        }
+        return Ok(());
+    }
+
+    if let Some(positioned) = measurement
+        .coord_measurement
+        .as_any_mut()
+        .downcast_mut::<PositionedCoordMeasurement>()
+    {
+        for child in &mut positioned.children {
+            apply_child_frame_layout_alignment_recursive(&mut child.measurement, plans, trace)?;
         }
     }
 

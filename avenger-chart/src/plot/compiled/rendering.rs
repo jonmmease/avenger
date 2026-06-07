@@ -91,7 +91,9 @@ use super::{
     ChildFrameContainerView, ChildFrameSharingPath, CompiledPlot, ComponentsMeasurement,
     FacetCellProfileIndex, LayoutProfileSnapshot, MarkDataRequest, PlotComponents,
     PreparedMarkData,
-    child_frame_coordination::diagnose_child_frame_layout_alignment,
+    child_frame_coordination::{
+        apply_child_frame_layout_alignment, diagnose_child_frame_layout_alignment,
+    },
     compiled_subplot_payload_child_plot,
     legends::{HoistedLegendAnchor, HoistedLegendRequest, LegendPlanScope, PreparedLegendPlan},
     prepare_mark_data_runtime,
@@ -5395,6 +5397,19 @@ impl CompiledPlot {
                 ))
                 .await?;
             }
+        }
+
+        let alignment_trace = apply_child_frame_layout_alignment(measurement)?;
+        if alignment_trace.changed() {
+            Box::pin(self.refresh_final_layout_bottom_up(
+                measurement,
+                eval_ctx,
+                evaluated_layout_spec,
+                None,
+                &[],
+            ))
+            .await?;
+            Self::validate_root_content_layout(measurement)?;
         }
 
         Ok(())

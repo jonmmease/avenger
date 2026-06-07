@@ -621,6 +621,50 @@ impl ConcatCoordMeasurement {
         let demands = grid_child_track_demands(&self.children)?;
         grid_track_requirements(shape, base_child_plot_area, &demands)
     }
+
+    pub(crate) fn apply_grid_track_requirements(
+        &mut self,
+        requirements: &GridTrackRequirements,
+    ) -> Result<bool, AvengerChartError> {
+        let shape = self.grid_shape().ok_or_else(|| {
+            AvengerChartError::InternalError(
+                "Grid track solution applied to non-grid concat measurement".to_string(),
+            )
+        })?;
+        if requirements.shape != shape {
+            return Err(AvengerChartError::InternalError(format!(
+                "Grid track solution shape {:?} did not match concat grid shape {:?}",
+                requirements.shape, shape
+            )));
+        }
+
+        let old_placement = self.child_frame_placement();
+        let demands = grid_child_track_demands(&self.children)?;
+        let solution = solve_grid_track_requirements(requirements, &demands);
+        let render_placements = self
+            .children
+            .iter()
+            .map(|child| {
+                let placement = child.grid_placement.ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Missing grid placement for child {} while applying layout coordination",
+                        child.child_index
+                    ))
+                })?;
+                let slot = GridSlotRect::from_placement(placement);
+                Ok(ChildFrameRenderPlacement {
+                    child_index: child.child_index,
+                    origin: solution.origin_for_slot(slot),
+                })
+            })
+            .collect::<Result<Vec<_>, AvengerChartError>>()?;
+        let placement = ChildFramePlacementResult::new(solution.content_size, render_placements);
+        let changed = placement != old_placement;
+        if changed {
+            self.placement = ConcatChildPlacement::Grid { placement, shape };
+        }
+        Ok(changed)
+    }
 }
 
 impl CoordMeasurement for ConcatCoordMeasurement {
@@ -2352,6 +2396,43 @@ mod tests {
             ]
         );
         assert_eq!(placement.content_size, Size2D::new(200.0, 100.0));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn grid_concat_applies_merged_track_requirements_idempotently()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<GridConcat>::new()
+            .rows(1)
+            .columns(2)
+            .mark(Subplot::new(zero_plot()).grid_cell(0, 0).key("left"))
+            .mark(Subplot::new(zero_plot()).grid_cell(0, 1).key("right"))
+            .compile(&ctx)
+            .await?;
+
+        let mut measurement = measurement_for_plot(&compiled, 200.0, 100.0, &ctx).await?;
+        let concat = measurement
+            .coord_measurement
+            .as_any_mut()
+            .downcast_mut::<ConcatCoordMeasurement>()
+            .expect("GridConcat should measure as ConcatCoordMeasurement");
+        let old_placement = concat.child_frame_placement();
+        assert_eq!(old_placement.render_placements()[1].origin, [100.0, 0.0]);
+
+        let mut requirements = concat.grid_track_requirements()?;
+        requirements.column_left[1] = 32.0;
+        assert!(concat.apply_grid_track_requirements(&requirements)?);
+
+        let applied_placement = concat.child_frame_placement();
+        assert_eq!(applied_placement.render_placements()[0].origin, [0.0, 0.0]);
+        assert_eq!(
+            applied_placement.render_placements()[1].origin,
+            [132.0, 0.0]
+        );
+        assert_eq!(applied_placement.content_size, Size2D::new(232.0, 100.0));
+        assert_ne!(applied_placement, old_placement);
+        assert!(!concat.apply_grid_track_requirements(&requirements)?);
         Ok(())
     }
 
