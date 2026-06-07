@@ -5863,6 +5863,33 @@ mod tests {
         fills
     }
 
+    fn collect_symbol_fills(scene: &SceneGraph) -> Vec<[f32; 4]> {
+        fn collect_from_mark(mark: &SceneMark, fills: &mut Vec<[f32; 4]>) {
+            match mark {
+                SceneMark::Group(group) => {
+                    for child in &group.marks {
+                        collect_from_mark(child, fills);
+                    }
+                }
+                SceneMark::Symbol(symbol) => {
+                    fills.extend(
+                        symbol
+                            .fill_vec()
+                            .into_iter()
+                            .map(|fill| fill.color_or_transparent()),
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        let mut fills = Vec::new();
+        for mark in &scene.marks {
+            collect_from_mark(mark, &mut fills);
+        }
+        fills
+    }
+
     async fn legend_symbol_alpha_for_value(
         state: &ChartAppState,
         scene: &SceneGraph,
@@ -8252,6 +8279,28 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn repeat_box_selection_predicate_highlights_sibling_concat_plot() {
+        let (mut state, handlers) =
+            repeat_box_selection_state_and_handlers(RepeatBoxTestMode::Union).await;
+        let scope = state
+            .interaction_scopes()
+            .await
+            .into_iter()
+            .find(|scope| scope.kind == InteractionScopeKind::Coordinate)
+            .expect("repeat grid coordinate scope");
+        drag_repeat_box_scope(&mut state, &handlers, &scope).await;
+
+        let updated_scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("scene after repeat box selection");
+        assert!(
+            has_blue_fill(&collect_symbol_fills(&updated_scene)),
+            "repeat-generated interval predicate should be portable to sibling concat plot"
+        );
+    }
+
     const REPEAT_BOX_STORE: &str = "brush_boxes";
     const REPEAT_BOX_SELECTION: &str = "brush";
 
@@ -8303,12 +8352,24 @@ mod tests {
                     .y2(col("y_max")),
             )
             .event_binding(drag);
+        let selected = Selection::new(REPEAT_BOX_SELECTION).predicate();
+        let sibling = Plot::<Cartesian>::new().data(df.clone()).mark(
+            Symbol::new()
+                .x(col("a"))
+                .y(col("b"))
+                .fill_with(lit("#b8beca"), |c| {
+                    c.no_scale()
+                        .when_value(selected, lit("#2563eb"))
+                        .no_legend()
+                })
+                .size(24.0),
+        );
         let variables = vec![
             RepeatVariable::new("a", col("a")).title("A"),
             RepeatVariable::new("b", col("b")).title("B"),
         ];
         let repeat_grid = Plot::<RepeatGrid>::new()
-            .data(df)
+            .data(df.clone())
             .rows(variables.clone())
             .columns(variables)
             .cell(cell)
@@ -8339,6 +8400,7 @@ mod tests {
             )
             .add_selection(selection)
             .mark(Subplot::new(repeat_grid).id("splom"))
+            .mark(Subplot::new(sibling).id("sibling"))
             .compile(&ctx)
             .await
             .expect("compile repeat box selection plot");
