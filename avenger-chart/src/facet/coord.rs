@@ -728,11 +728,10 @@ impl FacetBandCoordMeasurement {
         new_plot_area_height: f32,
     ) -> Result<(), AvengerChartError> {
         let policy = eval_ctx.facet_runtime_sizing_mode().policy();
-        if policy
+        let band_dimension_canvas_constrained = policy
             .facet_band_dimension(self.axis)
-            .is_canvas_constrained()
-            && !self.uses_explicit_placement()
-        {
+            .is_canvas_constrained();
+        if band_dimension_canvas_constrained {
             let parent_main_size = match self.axis {
                 FacetAxis::Column => new_plot_area_width,
                 FacetAxis::Row => new_plot_area_height,
@@ -745,23 +744,46 @@ impl FacetBandCoordMeasurement {
         }
         self.apply_scale_adjustments(scales);
 
-        if policy
-            .facet_band_dimension(self.axis)
-            .is_canvas_constrained()
-            && !self.uses_explicit_placement()
-        {
-            let band_scale = scales.get(self.axis.scale_name()).ok_or_else(|| {
-                AvengerChartError::InternalError(format!(
-                    "FacetBand policy retarget missing {} scale",
-                    self.axis.scale_name()
-                ))
-            })?;
-            self.subplot_cross_size = bandwidth(&band_scale.configured().config).map_err(|e| {
-                AvengerChartError::InternalError(format!(
-                    "Failed to get policy retargeted facet bandwidth: {}",
-                    e
-                ))
-            })?;
+        if band_dimension_canvas_constrained {
+            if self.uses_explicit_placement() {
+                let cell_values = self.cell_values().cloned().collect::<Vec<_>>();
+                let domain_override = if cell_values.is_empty() {
+                    None
+                } else {
+                    Some(cell_values.as_slice())
+                };
+                let layout = self.active_layout();
+                let band_scale = apply_facet_band_scale_layout(
+                    self.axis,
+                    &self.original_band_scale,
+                    layout,
+                    domain_override,
+                    Some(layout.n),
+                    ScaleLayoutRewriteMode::Retarget {
+                        side_specific_outer_edges: true,
+                    },
+                );
+                self.subplot_cross_size = bandwidth(&band_scale.config).map_err(|e| {
+                    AvengerChartError::InternalError(format!(
+                        "Failed to get policy retargeted explicit facet bandwidth: {}",
+                        e
+                    ))
+                })?;
+            } else {
+                let band_scale = scales.get(self.axis.scale_name()).ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "FacetBand policy retarget missing {} scale",
+                        self.axis.scale_name()
+                    ))
+                })?;
+                self.subplot_cross_size =
+                    bandwidth(&band_scale.configured().config).map_err(|e| {
+                        AvengerChartError::InternalError(format!(
+                            "Failed to get policy retargeted facet bandwidth: {}",
+                            e
+                        ))
+                    })?;
+            }
         }
 
         let (legend_start, legend_end) =
@@ -1783,6 +1805,16 @@ pub(crate) fn retarget_measurement_plot_area_no_remeasure(
                 new_plot_area_height,
             )?;
         }
+    } else if let Some(concat) = measurement
+        .coord_measurement
+        .as_any_mut()
+        .downcast_mut::<crate::concat::ConcatCoordMeasurement>()
+    {
+        concat.retarget_plot_area_size(new_plot_area_width, new_plot_area_height)?;
+        crate::coords::apply_coord_measurement_scale_adjustments(
+            measurement.coord_measurement.as_ref(),
+            &mut measurement.scales,
+        );
     } else {
         crate::coords::apply_coord_measurement_scale_adjustments(
             measurement.coord_measurement.as_ref(),
@@ -1833,6 +1865,16 @@ pub(crate) fn retarget_measurement_plot_area_policy_no_remeasure(
             new_plot_area_width,
             new_plot_area_height,
         )?;
+    } else if let Some(concat) = measurement
+        .coord_measurement
+        .as_any_mut()
+        .downcast_mut::<crate::concat::ConcatCoordMeasurement>()
+    {
+        concat.retarget_plot_area_size(new_plot_area_width, new_plot_area_height)?;
+        crate::coords::apply_coord_measurement_scale_adjustments(
+            measurement.coord_measurement.as_ref(),
+            &mut measurement.scales,
+        );
     } else {
         crate::coords::apply_coord_measurement_scale_adjustments(
             measurement.coord_measurement.as_ref(),

@@ -27,7 +27,7 @@ use crate::{
     plot::{
         CompiledPlot,
         compiled::{
-            compiled_subplot_payload_child_plot,
+            compiled_subplot_payload_child_plot, compiled_subplot_payload_child_plot_arc,
             rendering::{
                 apply_domain_overrides_to_scales, has_raw_domain_scale,
                 resolve_raw_domain_overrides,
@@ -326,6 +326,10 @@ impl CompiledConcatSubplot {
 
     pub fn compiled_subplot(&self) -> &CompiledPlot {
         compiled_subplot_payload_child_plot(&self.payload)
+    }
+
+    pub(crate) fn compiled_subplot_arc(&self) -> Arc<CompiledPlot> {
+        compiled_subplot_payload_child_plot_arc(&self.payload)
     }
 
     pub fn compiled_state(&self) -> &CompiledMarkState {

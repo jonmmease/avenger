@@ -35,10 +35,10 @@ use crate::{
     marks::{CompiledMark, CompiledMarkCore},
     plot::compiled::{
         ChildFrameDataSelection, ChildFrameDomainSharingInput, ChildFrameLayoutSlot,
-        ChildFrameRuntime, ComponentsMeasurement, ContainerLabelPlacement, PreparedChildFramePlot,
-        child_frame_container_view_from_concat, container_path_without_facet_segments,
-        coordinated_child_frame_domain_extents, measure_child_frame_container_guide_overflow,
-        render_child_frame_container_guide_labels,
+        ChildFrameRuntime, CompiledPlot, ComponentsMeasurement, ContainerLabelPlacement,
+        PreparedChildFramePlot, child_frame_container_view_from_concat,
+        container_path_without_facet_segments, coordinated_child_frame_domain_extents,
+        measure_child_frame_container_guide_overflow, render_child_frame_container_guide_labels,
     },
     render::EvaluationContext,
     scales::{DomainExtent, ScaleRangeBinding},
@@ -536,7 +536,7 @@ impl ConcatChildPlacement {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ConcatCoordMeasurement {
     pub(crate) children: Vec<ConcatChildMeasurement>,
     pub(crate) placement: ConcatChildPlacement,
@@ -562,6 +562,39 @@ impl ConcatCoordMeasurement {
     pub(crate) fn child_frame_placement(&self) -> ChildFramePlacementResult {
         self.placement
             .child_frame_placement(self.fallback_content_size)
+    }
+
+    pub(crate) fn retarget_plot_area_size(
+        &mut self,
+        plot_width: f32,
+        plot_height: f32,
+    ) -> Result<(), AvengerChartError> {
+        self.fallback_content_size = Size2D::new(plot_width, plot_height);
+        let ConcatChildPlacement::Grid {
+            shape,
+            retarget_plot_area_size,
+            ..
+        } = self.placement
+        else {
+            return Ok(());
+        };
+
+        let base_child_plot_area = Size2D::new(
+            plot_width / shape.columns.max(1) as f32,
+            plot_height / shape.rows.max(1) as f32,
+        );
+        let placement = grid_child_frame_placement(
+            &self.children,
+            shape,
+            base_child_plot_area,
+            retarget_plot_area_size,
+        )?;
+        self.placement = ConcatChildPlacement::Grid {
+            placement,
+            shape,
+            retarget_plot_area_size,
+        };
+        Ok(())
     }
 
     pub(crate) fn band_direction(&self) -> Option<BandDirection> {
@@ -810,7 +843,7 @@ impl CoordMeasurement for ConcatCoordMeasurement {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(crate) struct ConcatChildMeasurement {
     pub(crate) child_index: usize,
     pub(crate) key: Option<String>,
@@ -819,7 +852,9 @@ pub(crate) struct ConcatChildMeasurement {
     pub(crate) container_path: Vec<ContainerPathSegment>,
     pub(crate) local_facet_tree: Option<Arc<EvaluatedFacetTree>>,
     pub(crate) facet_data_root: Option<DataFrame>,
+    pub(crate) data_override: Option<DataFrame>,
     pub(crate) sharing_levels: Vec<ChildFrameSharingLevel>,
+    pub(crate) compiled_subplot: Arc<CompiledPlot>,
     pub(crate) measurement: ComponentsMeasurement,
 }
 
@@ -1215,7 +1250,9 @@ async fn measure_prepared_concat_child(
         container_path: prepared.container_path.clone(),
         local_facet_tree: prepared.child_plot.local_facet_tree(),
         facet_data_root: prepared.child_plot.facet_data_root(),
+        data_override: prepared.child_plot.data_override().cloned(),
         sharing_levels,
+        compiled_subplot: prepared.subplot.compiled_subplot_arc(),
         measurement,
     })
 }

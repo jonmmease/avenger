@@ -2644,39 +2644,85 @@ impl CompiledPlot {
         &self,
         measurement: &mut ComponentsMeasurement,
         eval_ctx: &EvaluationContext,
+        facet_path: &[ScalarValue],
     ) -> Result<(), AvengerChartError> {
-        let Some(facet_band) = measurement
+        if let Some(facet_band) = measurement
             .coord_measurement
             .as_any_mut()
             .downcast_mut::<FacetBandCoordMeasurement>()
-        else {
-            return Ok(());
-        };
+        {
+            let compiled_subplot = facet_band.compiled_subplot.clone();
+            for cell in &mut facet_band.cells {
+                let child_layout_spec = Self::nested_fixed_plot_area_layout_spec(
+                    cell.measurement.plot_area_width,
+                    cell.measurement.plot_area_height,
+                );
+                Box::pin(compiled_subplot.refresh_final_layout_bottom_up(
+                    &mut cell.measurement,
+                    eval_ctx,
+                    &child_layout_spec,
+                    Some(&cell.data_override),
+                    &cell.plan.full_path,
+                ))
+                .await?;
+            }
 
-        let compiled_subplot = facet_band.compiled_subplot.clone();
-        for cell in &mut facet_band.cells {
-            let child_layout_spec = Self::nested_fixed_plot_area_layout_spec(
-                cell.measurement.plot_area_width,
-                cell.measurement.plot_area_height,
-            );
-            Box::pin(compiled_subplot.refresh_final_layout_bottom_up(
-                &mut cell.measurement,
-                eval_ctx,
-                &child_layout_spec,
-                Some(&cell.data_override),
-                &cell.plan.full_path,
-            ))
-            .await?;
+            facet_band.realize_coordinated_child_frame_allocations();
+            if facet_band.uses_explicit_placement() && facet_band.cells.is_empty() {
+                facet_band.preserve_empty_slot_plot_area_if_explicit(
+                    measurement.plot_area_width,
+                    measurement.plot_area_height,
+                );
+            } else if facet_band.uses_explicit_placement() {
+                facet_band.recompute_explicit_placement_if_needed();
+            }
+            return Ok(());
         }
 
-        facet_band.realize_coordinated_child_frame_allocations();
-        if facet_band.uses_explicit_placement() && facet_band.cells.is_empty() {
-            facet_band.preserve_empty_slot_plot_area_if_explicit(
-                measurement.plot_area_width,
-                measurement.plot_area_height,
-            );
-        } else if facet_band.uses_explicit_placement() {
-            facet_band.recompute_explicit_placement_if_needed();
+        if let Some(concat) = measurement
+            .coord_measurement
+            .as_any_mut()
+            .downcast_mut::<crate::concat::ConcatCoordMeasurement>()
+        {
+            for child in &mut concat.children {
+                let compiled_subplot = child.compiled_subplot.clone();
+                let data_override = child.data_override.clone();
+                let local_facet_tree = child.local_facet_tree.clone();
+                let facet_data_root = child.facet_data_root.clone();
+                let mut sharing_levels = child.sharing_levels.iter().cloned();
+                let first_level = sharing_levels.next().ok_or_else(|| {
+                    AvengerChartError::InternalError(
+                        "Concat final layout refresh requires a sharing level".to_string(),
+                    )
+                })?;
+                let mut child_eval_ctx =
+                    eval_ctx.with_child_frame_sharing_level_appended(first_level);
+                for level in sharing_levels {
+                    child_eval_ctx = child_eval_ctx.with_child_frame_sharing_level_appended(level);
+                }
+                let local_facet_path;
+                let child_facet_path = if let Some(facet_tree) = local_facet_tree {
+                    child_eval_ctx = child_eval_ctx
+                        .with_facet_tree(facet_tree)
+                        .with_facet_data_root(facet_data_root);
+                    local_facet_path = Vec::new();
+                    local_facet_path.as_slice()
+                } else {
+                    facet_path
+                };
+                let child_layout_spec = Self::nested_fixed_plot_area_layout_spec(
+                    child.measurement.plot_area_width,
+                    child.measurement.plot_area_height,
+                );
+                Box::pin(compiled_subplot.refresh_final_layout_bottom_up(
+                    &mut child.measurement,
+                    &child_eval_ctx,
+                    &child_layout_spec,
+                    data_override.as_ref(),
+                    child_facet_path,
+                ))
+                .await?;
+            }
         }
 
         Ok(())
@@ -2691,7 +2737,8 @@ impl CompiledPlot {
         data_override: Option<&DataFrame>,
         facet_path: &[ScalarValue],
     ) -> Result<LayoutBounds, AvengerChartError> {
-        Box::pin(self.refresh_final_child_layouts_bottom_up(measurement, eval_ctx)).await?;
+        Box::pin(self.refresh_final_child_layouts_bottom_up(measurement, eval_ctx, facet_path))
+            .await?;
 
         let ctx = &*eval_ctx.session_context;
         let facet_tree = eval_ctx.facet_tree.as_ref();
