@@ -13,7 +13,7 @@ use std::{collections::HashMap, hash::Hash};
 
 use avenger_chart_core::{
     AxisPosition, CoordinatedLayout, CoordinatedOverflow, CoordinationAxis, FacetAxis,
-    OverflowSpaceRequirement,
+    FacetEmptyCellPolicy, OverflowSpaceRequirement,
 };
 
 use crate::{
@@ -130,6 +130,7 @@ impl PlotAreaSize {
 #[derive(Debug, Clone)]
 pub(crate) struct FacetOwnershipRequirement {
     pub(crate) has_holes: bool,
+    pub(crate) empty_cell_policy: FacetEmptyCellPolicy,
     pub(crate) axis_owner_ignore_empty_cells: bool,
 }
 

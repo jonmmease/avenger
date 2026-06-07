@@ -12,7 +12,7 @@
 
 use std::collections::HashSet;
 
-use avenger_chart_core::{AvengerChartError, FacetAxis};
+use avenger_chart_core::{AvengerChartError, FacetAxis, FacetEmptyCellPolicy};
 use tracing::{debug, trace};
 
 use crate::{
@@ -562,6 +562,10 @@ pub(crate) fn validate_retarget_plan_coverage(
         }
         if !node.requirements.ownership.has_holes
             && node.requirements.ownership.axis_owner_ignore_empty_cells
+            && !matches!(
+                node.requirements.ownership.empty_cell_policy,
+                FacetEmptyCellPolicy::Hole
+            )
         {
             return Err(AvengerChartError::InternalError(format!(
                 "retarget requirements for node path {:?} ignore empty cells without facet holes",

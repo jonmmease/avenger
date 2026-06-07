@@ -1259,6 +1259,7 @@ impl FacetBandCoordMeasurement {
             has_legend_overflow,
             ownership: FacetOwnershipRequirement {
                 has_holes: policy.has_holes,
+                empty_cell_policy: self.empty_cell_policy,
                 axis_owner_ignore_empty_cells: policy.axis_owner_ignore_empty_cells,
             },
             child_plot_areas,
@@ -5479,6 +5480,25 @@ mod tests {
         assert!(with_holes_requirements.ownership.has_holes);
         assert!(
             with_holes_requirements
+                .ownership
+                .axis_owner_ignore_empty_cells
+        );
+
+        facet_band.empty_cell_policy = FacetEmptyCellPolicy::Hole;
+        for cell in facet_band.cells.iter_mut() {
+            cell.plan.is_empty = false;
+        }
+        let explicit_hole_without_empty_slots =
+            facet_band.derive_retarget_requirements(CoordinationNodeKey::new(Vec::new()))?;
+        assert!(!explicit_hole_without_empty_slots.ownership.has_holes);
+        assert_eq!(
+            explicit_hole_without_empty_slots
+                .ownership
+                .empty_cell_policy,
+            FacetEmptyCellPolicy::Hole
+        );
+        assert!(
+            explicit_hole_without_empty_slots
                 .ownership
                 .axis_owner_ignore_empty_cells
         );
