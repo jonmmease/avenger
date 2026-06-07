@@ -30,6 +30,33 @@ async fn concat_numeric_data(ctx: &SessionContext) -> DataFrame {
     .expect("create concat visual test data")
 }
 
+async fn concat_facet_alignment_data(ctx: &SessionContext) -> DataFrame {
+    ctx.sql(
+        "SELECT
+            column1 AS x,
+            column2 AS y,
+            column3 AS x2,
+            column4 AS y2,
+            column5 AS group_name
+         FROM (VALUES
+            (1.0, 1.1, 11.0, 101.0, 'Alpha'),
+            (1.4, 1.8, 14.0, 118.0, 'Alpha'),
+            (1.9, 2.4, 19.0, 124.0, 'Alpha'),
+            (2.5, 3.1, 25.0, 131.0, 'Alpha'),
+            (90.0, 920.0, 910.0, 2100.0, 'Beta'),
+            (140.0, 980.0, 1140.0, 2380.0, 'Beta'),
+            (190.0, 1040.0, 1390.0, 2640.0, 'Beta'),
+            (250.0, 1110.0, 1650.0, 2910.0, 'Beta'),
+            (-12.0, -30.0, 0.12, 0.03, 'Gamma'),
+            (-8.0, -22.0, 0.19, 0.08, 'Gamma'),
+            (-4.0, -14.0, 0.27, 0.13, 'Gamma'),
+            (2.0, -6.0, 0.34, 0.19, 'Gamma')
+         )",
+    )
+    .await
+    .expect("create concat/facet alignment data")
+}
+
 fn sepal_child() -> Plot<Cartesian> {
     Plot::<Cartesian>::new().title("Sepal").mark(
         Symbol::<Cartesian>::new()
@@ -177,6 +204,81 @@ fn grid_splom_child(x: &'static str, y: &'static str) -> Plot<Cartesian> {
             .stroke_width(0.5)
             .size(34.0),
     )
+}
+
+fn alignment_grid_cell(x: &'static str, y: &'static str, fill: &str) -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().mark(
+        Symbol::<Cartesian>::new()
+            .x_with(col(x), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                    .axis(|a| a.title(x))
+            })
+            .y_with(col(y), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                    .axis(|a| a.title(y))
+            })
+            .fill(fill)
+            .opacity(0.78)
+            .stroke("#ffffff")
+            .stroke_width(0.75)
+            .size(64.0),
+    )
+}
+
+fn alignment_grid_concat() -> Plot<GridConcat> {
+    Plot::<GridConcat>::new()
+        .rows(2)
+        .columns(2)
+        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .mark(
+            Subplot::new(alignment_grid_cell("x", "y", "#2f7ed8"))
+                .grid_cell(0, 0)
+                .key("xy"),
+        )
+        .mark(
+            Subplot::new(alignment_grid_cell("x2", "y", "#8bbc21"))
+                .grid_cell(0, 1)
+                .key("x2y"),
+        )
+        .mark(
+            Subplot::new(alignment_grid_cell("x", "y2", "#f28f43"))
+                .grid_cell(1, 0)
+                .key("xy2"),
+        )
+        .mark(
+            Subplot::new(alignment_grid_cell("x2", "y2", "#910000"))
+                .grid_cell(1, 1)
+                .key("x2y2"),
+        )
+}
+
+fn alignment_wrap_concat() -> Plot<WrapConcat> {
+    Plot::<WrapConcat>::new()
+        .columns(2)
+        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .mark(Subplot::new(alignment_grid_cell("x", "y", "#2f7ed8")).key("xy"))
+        .mark(Subplot::new(alignment_grid_cell("x2", "y", "#8bbc21")).key("x2y"))
+        .mark(Subplot::new(alignment_grid_cell("x", "y2", "#f28f43")).key("xy2"))
+}
+
+fn facet_column_alignment_cell(x: &'static str, y: &'static str, fill: &str) -> Plot<FacetColumn> {
+    let child = Plot::<Cartesian>::new().mark(
+        Symbol::<Cartesian>::new()
+            .x_with(col(x), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                    .axis(|a| a.title(x))
+            })
+            .y_with(col(y), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                    .axis(|a| a.title(y))
+            })
+            .fill(fill)
+            .opacity(0.78)
+            .stroke("#ffffff")
+            .stroke_width(0.75)
+            .size(58.0),
+    );
+    Plot::<FacetColumn>::new().mark(Subplot::new(child).column(col("group_name")))
 }
 
 fn shared_color_child(data: DataFrame, title: &str, position: LegendPosition) -> Plot<Cartesian> {
@@ -598,6 +700,119 @@ async fn grid_concat_splom_named_domains() {
         None,
         "concat",
         "grid_concat_splom_named_domains",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn grid_concat_inside_facet_column_aligned() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<FacetColumn>::new()
+        .data(concat_facet_alignment_data(&ctx).await)
+        .canvas_size(1320.0, 420.0)
+        .mark(Subplot::new(alignment_grid_concat()).column(col("group_name")));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile GridConcat inside FacetColumn");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "concat",
+        "grid_concat_inside_facet_column_aligned",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn grid_concat_inside_facet_wrap_aligned() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<FacetWrap>::new()
+        .data(concat_facet_alignment_data(&ctx).await)
+        .canvas_size(1320.0, 760.0)
+        .mark(
+            Subplot::new(alignment_grid_concat())
+                .wrap_with(col("group_name"), |c| c.columns(2).empty_cells_as_holes()),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile GridConcat inside FacetWrap");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "concat",
+        "grid_concat_inside_facet_wrap_aligned",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn wrap_concat_inside_facet_column_aligned() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<FacetColumn>::new()
+        .data(concat_facet_alignment_data(&ctx).await)
+        .canvas_size(1320.0, 380.0)
+        .mark(Subplot::new(alignment_wrap_concat()).column(col("group_name")));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile WrapConcat inside FacetColumn");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "concat",
+        "wrap_concat_inside_facet_column_aligned",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn facet_column_inside_grid_concat_smoke() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<GridConcat>::new()
+        .data(concat_facet_alignment_data(&ctx).await)
+        .canvas_size(1320.0, 520.0)
+        .rows(2)
+        .columns(2)
+        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .mark(
+            Subplot::new(facet_column_alignment_cell("x", "y", "#2f7ed8"))
+                .grid_cell(0, 0)
+                .key("xy"),
+        )
+        .mark(
+            Subplot::new(facet_column_alignment_cell("x2", "y", "#8bbc21"))
+                .grid_cell(0, 1)
+                .key("x2y"),
+        )
+        .mark(
+            Subplot::new(facet_column_alignment_cell("x", "y2", "#f28f43"))
+                .grid_cell(1, 0)
+                .key("xy2"),
+        )
+        .mark(
+            Subplot::new(facet_column_alignment_cell("x2", "y2", "#910000"))
+                .grid_cell(1, 1)
+                .key("x2y2"),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile FacetColumn inside GridConcat");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "concat",
+        "facet_column_inside_grid_concat_smoke",
     )
     .await;
 }

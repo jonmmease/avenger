@@ -27,6 +27,33 @@ async fn repeat_data(ctx: &SessionContext) -> DataFrame {
     .expect("repeat visual data")
 }
 
+async fn repeat_three_group_data(ctx: &SessionContext) -> DataFrame {
+    ctx.sql(
+        "SELECT
+            column1 AS a,
+            column2 AS b,
+            column3 AS c,
+            column4 AS score,
+            column5 AS group_name
+         FROM (VALUES
+            (1.0, 3.2, 6.0, 1.0, 'Alpha'),
+            (1.5, 2.8, 5.5, 1.6, 'Alpha'),
+            (2.1, 2.4, 5.0, 2.0, 'Alpha'),
+            (2.6, 2.0, 4.6, 2.8, 'Alpha'),
+            (3.2, 1.7, 4.2, 3.1, 'Beta'),
+            (3.8, 1.3, 3.8, 3.8, 'Beta'),
+            (4.3, 1.0, 3.3, 4.3, 'Beta'),
+            (4.9, 0.8, 2.9, 4.9, 'Beta'),
+            (0.8, 4.4, 5.7, 1.4, 'Gamma'),
+            (1.3, 4.0, 5.1, 2.2, 'Gamma'),
+            (1.9, 3.6, 4.7, 3.0, 'Gamma'),
+            (2.4, 3.0, 4.1, 3.7, 'Gamma')
+         )",
+    )
+    .await
+    .expect("repeat three-group visual data")
+}
+
 fn repeat_variables() -> Vec<RepeatVariable> {
     vec![
         RepeatVariable::new("a", col("a")).title("Alpha metric"),
@@ -357,6 +384,68 @@ async fn repeat_grid_inside_facet_matrix_domains() {
         None,
         "repeat",
         "repeat_grid_inside_facet_matrix_domains",
+        0.999,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn repeat_grid_inside_facet_wrap_aligned() {
+    let ctx = SessionContext::new();
+    let variables = repeat_variables()[0..2].to_vec();
+    let repeat = Plot::<RepeatGrid>::new()
+        .rows(variables.clone())
+        .columns(variables)
+        .cell(grid_cell_matrix_axes())
+        .matrix_domains()
+        .matrix_axes();
+    let plot = Plot::<FacetWrap>::new()
+        .data(repeat_three_group_data(&ctx).await)
+        .canvas_size(1320.0, 760.0)
+        .mark(
+            Subplot::new(repeat)
+                .wrap_with(col("group_name"), |c| c.columns(2).empty_cells_as_holes()),
+        );
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile facet wrap containing repeat grid");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "repeat",
+        "repeat_grid_inside_facet_wrap_aligned",
+        0.999,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn repeat_wrap_inside_facet_wrap_aligned() {
+    let ctx = SessionContext::new();
+    let repeat = Plot::<RepeatWrap>::new()
+        .items(repeat_variables())
+        .columns(2)
+        .cell(wrap_cell())
+        .item_domains();
+    let plot = Plot::<FacetWrap>::new()
+        .data(repeat_three_group_data(&ctx).await)
+        .canvas_size(1320.0, 920.0)
+        .mark(
+            Subplot::new(repeat)
+                .wrap_with(col("group_name"), |c| c.columns(2).empty_cells_as_holes()),
+        );
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile facet wrap containing repeat wrap");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "repeat",
+        "repeat_wrap_inside_facet_wrap_aligned",
         0.999,
     )
     .await;
