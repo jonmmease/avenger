@@ -1041,10 +1041,24 @@ fn child_in_same_axis_strip(
     axis: CoordinationAxis,
 ) -> bool {
     match axis {
-        CoordinationAxis::Vertical => placement.column == reference.column,
-        CoordinationAxis::Horizontal => placement.row == reference.row,
+        CoordinationAxis::Vertical => ranges_overlap(
+            placement.column,
+            placement.column + placement.column_span,
+            reference.column,
+            reference.column + reference.column_span,
+        ),
+        CoordinationAxis::Horizontal => ranges_overlap(
+            placement.row,
+            placement.row + placement.row_span,
+            reference.row,
+            reference.row + reference.row_span,
+        ),
         CoordinationAxis::Positioned => false,
     }
+}
+
+fn ranges_overlap(a_start: usize, a_end: usize, b_start: usize, b_end: usize) -> bool {
+    a_start < b_end && b_start < a_end
 }
 
 fn strip_has_equivalent_domain_coordination(
@@ -1620,18 +1634,34 @@ fn grid_concat_sharing_levels_with_axis_configs(
     slots: &GridGuideSharingSlots,
     axis_guide_visibility: GridAxisGuideVisibilityConfig,
 ) -> Vec<ChildFrameSharingLevel> {
-    let row_index = slots.row_slot_index(placement.column, placement.row);
-    let row_count = slots.row_slot_count(placement.column);
-    let column_index = slots.column_slot_index(placement.row, placement.column);
-    let column_count = slots.column_slot_count(placement.row);
+    let row = slots.row_edge_ownership(placement);
+    let column = slots.column_edge_ownership(placement);
+    let vertical_visibility = axis_guide_visibility
+        .for_axis(CoordinationAxis::Vertical)
+        .with_span_ambiguity(row.ambiguous);
+    let horizontal_visibility = axis_guide_visibility
+        .for_axis(CoordinationAxis::Horizontal)
+        .with_span_ambiguity(column.ambiguous);
     vec![
-        ChildFrameSharingLevel::grid_concat_row(child_index, key, row_index, row_count)
-            .with_axis_guide_visibility(axis_guide_visibility.for_axis(CoordinationAxis::Vertical)),
-        ChildFrameSharingLevel::grid_concat_column(column_index, column_count)
-            .with_axis_guide_visibility(
-                axis_guide_visibility.for_axis(CoordinationAxis::Horizontal),
-            ),
+        ChildFrameSharingLevel::grid_concat_row(child_index, key, row.index, row.count)
+            .with_axis_guide_visibility(vertical_visibility),
+        ChildFrameSharingLevel::grid_concat_column(column.index, column.count)
+            .with_axis_guide_visibility(horizontal_visibility),
     ]
+}
+
+trait AxisGuideVisibilitySpanExt {
+    fn with_span_ambiguity(self, ambiguous: bool) -> Self;
+}
+
+impl AxisGuideVisibilitySpanExt for AxisGuideVisibilityConfig {
+    fn with_span_ambiguity(self, ambiguous: bool) -> Self {
+        if ambiguous {
+            AxisGuideVisibilityConfig::same(AxisGuideVisibilityPolicy::All)
+        } else {
+            self
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -1721,6 +1751,13 @@ pub(crate) struct GridGuideSharingSlots {
     columns_by_row: Vec<Vec<usize>>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct GridGuideEdgeOwnership {
+    index: usize,
+    count: usize,
+    ambiguous: bool,
+}
+
 impl GridGuideSharingSlots {
     pub(crate) fn from_placements(
         shape: GridShape,
@@ -1777,6 +1814,29 @@ impl GridGuideSharingSlots {
             .unwrap_or(1)
     }
 
+    fn row_edge_ownership(&self, placement: GridPlacementConfig) -> GridGuideEdgeOwnership {
+        let row = placement.row + placement.row_span.saturating_sub(1);
+        let mut ownership = None;
+        let mut ambiguous = false;
+        for column in placement.column..placement.column + placement.column_span {
+            let candidate = (
+                self.row_slot_index(column, row),
+                self.row_slot_count(column),
+            );
+            match ownership {
+                Some(existing) if existing != candidate => ambiguous = true,
+                None => ownership = Some(candidate),
+                _ => {}
+            }
+        }
+        let (index, count) = ownership.unwrap_or((row, 1));
+        GridGuideEdgeOwnership {
+            index,
+            count,
+            ambiguous,
+        }
+    }
+
     fn column_slot_index(&self, row: usize, column: usize) -> usize {
         self.columns_by_row
             .get(row)
@@ -1789,6 +1849,29 @@ impl GridGuideSharingSlots {
             .get(row)
             .map(|columns| columns.len().max(1))
             .unwrap_or(1)
+    }
+
+    fn column_edge_ownership(&self, placement: GridPlacementConfig) -> GridGuideEdgeOwnership {
+        let column = placement.column;
+        let mut ownership = None;
+        let mut ambiguous = false;
+        for row in placement.row..placement.row + placement.row_span {
+            let candidate = (
+                self.column_slot_index(row, column),
+                self.column_slot_count(row),
+            );
+            match ownership {
+                Some(existing) if existing != candidate => ambiguous = true,
+                None => ownership = Some(candidate),
+                _ => {}
+            }
+        }
+        let (index, count) = ownership.unwrap_or((column, 1));
+        GridGuideEdgeOwnership {
+            index,
+            count,
+            ambiguous,
+        }
     }
 }
 
@@ -3053,6 +3136,131 @@ mod tests {
         assert_eq!(slots.column_slot_count(1), 2);
     }
 
+    #[test]
+    fn grid_guide_sharing_uses_span_bottom_edge_for_x_axis() {
+        let slots = GridGuideSharingSlots::from_placements(
+            GridShape {
+                rows: 3,
+                columns: 1,
+            },
+            [
+                GridPlacementConfig {
+                    row: 0,
+                    column: 0,
+                    row_span: 2,
+                    column_span: 1,
+                },
+                GridPlacementConfig {
+                    row: 2,
+                    column: 0,
+                    row_span: 1,
+                    column_span: 1,
+                },
+            ],
+        );
+
+        let levels = grid_concat_sharing_levels(
+            0,
+            Some("spanned"),
+            GridPlacementConfig {
+                row: 0,
+                column: 0,
+                row_span: 2,
+                column_span: 1,
+            },
+            &slots,
+            AxisGuideVisibilityConfig::auto(),
+        );
+        assert_eq!(levels[0].axis, CoordinationAxis::Vertical);
+        assert_eq!(levels[0].index, 1);
+        assert_eq!(levels[0].count, 3);
+    }
+
+    #[test]
+    fn grid_guide_sharing_keeps_ambiguous_span_edges_visible() {
+        let row_ambiguous_slots = GridGuideSharingSlots::from_placements(
+            GridShape {
+                rows: 3,
+                columns: 2,
+            },
+            [
+                GridPlacementConfig {
+                    row: 0,
+                    column: 0,
+                    row_span: 2,
+                    column_span: 2,
+                },
+                GridPlacementConfig {
+                    row: 2,
+                    column: 1,
+                    row_span: 1,
+                    column_span: 1,
+                },
+            ],
+        );
+        let row_levels = grid_concat_sharing_levels(
+            0,
+            Some("row-ambiguous"),
+            GridPlacementConfig {
+                row: 0,
+                column: 0,
+                row_span: 2,
+                column_span: 2,
+            },
+            &row_ambiguous_slots,
+            AxisGuideVisibilityConfig::same(AxisGuideVisibilityPolicy::OuterEdges),
+        );
+        assert_eq!(
+            row_levels[0].axis_guide_visibility.labels,
+            AxisGuideVisibilityPolicy::All
+        );
+        assert_eq!(
+            row_levels[0].axis_guide_visibility.title,
+            AxisGuideVisibilityPolicy::All
+        );
+
+        let column_ambiguous_slots = GridGuideSharingSlots::from_placements(
+            GridShape {
+                rows: 2,
+                columns: 3,
+            },
+            [
+                GridPlacementConfig {
+                    row: 0,
+                    column: 1,
+                    row_span: 2,
+                    column_span: 2,
+                },
+                GridPlacementConfig {
+                    row: 1,
+                    column: 0,
+                    row_span: 1,
+                    column_span: 1,
+                },
+            ],
+        );
+        let column_levels = grid_concat_sharing_levels(
+            0,
+            Some("column-ambiguous"),
+            GridPlacementConfig {
+                row: 0,
+                column: 1,
+                row_span: 2,
+                column_span: 2,
+            },
+            &column_ambiguous_slots,
+            AxisGuideVisibilityConfig::same(AxisGuideVisibilityPolicy::OuterEdges),
+        );
+        assert_eq!(
+            column_levels[1].axis_guide_visibility.labels,
+            AxisGuideVisibilityPolicy::All
+        );
+        assert_eq!(
+            column_levels[1].axis_guide_visibility.title,
+            AxisGuideVisibilityPolicy::All
+        );
+    }
+
     #[tokio::test]
     async fn grid_concat_measures_spanned_child() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
@@ -3739,22 +3947,48 @@ mod tests {
         semantic_child_domains_with_compatibility(domains, &[], &[])
     }
 
+    fn semantic_child_domains_with_placements<'a>(
+        domains: &'a [HashMap<String, DomainCoordination>],
+        placements: &[GridPlacementConfig],
+    ) -> Vec<GridSemanticChild<'a>> {
+        semantic_child_domains_with_compatibility_and_placements(domains, &[], &[], placements)
+    }
+
     fn semantic_child_domains_with_compatibility<'a>(
         domains: &'a [HashMap<String, DomainCoordination>],
         scale_types: &[HashMap<String, String>],
         axis_configs: &[HashMap<String, Vec<String>>],
+    ) -> Vec<GridSemanticChild<'a>> {
+        let placements = domains
+            .iter()
+            .enumerate()
+            .map(|(slot_index, _)| GridPlacementConfig {
+                row: slot_index / 2,
+                column: slot_index % 2,
+                row_span: 1,
+                column_span: 1,
+            })
+            .collect::<Vec<_>>();
+        semantic_child_domains_with_compatibility_and_placements(
+            domains,
+            scale_types,
+            axis_configs,
+            &placements,
+        )
+    }
+
+    fn semantic_child_domains_with_compatibility_and_placements<'a>(
+        domains: &'a [HashMap<String, DomainCoordination>],
+        scale_types: &[HashMap<String, String>],
+        axis_configs: &[HashMap<String, Vec<String>>],
+        placements: &[GridPlacementConfig],
     ) -> Vec<GridSemanticChild<'a>> {
         domains
             .iter()
             .enumerate()
             .map(|(slot_index, domain)| GridSemanticChild {
                 child_index: slot_index,
-                placement: GridPlacementConfig {
-                    row: slot_index / 2,
-                    column: slot_index % 2,
-                    row_span: 1,
-                    column_span: 1,
-                },
+                placement: placements[slot_index],
                 channel_domain_coordinations: domain,
                 scale_type_signatures: scale_types.get(slot_index).cloned().unwrap_or_default(),
                 axis_config_signatures: axis_configs.get(slot_index).cloned().unwrap_or_default(),
@@ -3897,6 +4131,49 @@ mod tests {
         ];
         let semantic_children =
             semantic_child_domains_with_compatibility(&domains, &scale_types, &axis_configs);
+        let config = semantic_axis_guide_visibility_for_child(
+            AxisGuideVisibilityConfig::same(
+                AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups,
+            ),
+            &semantic_children,
+            0,
+        );
+
+        assert_eq!(config.vertical.labels, AxisGuideVisibilityPolicy::All);
+        assert_eq!(config.vertical.title, AxisGuideVisibilityPolicy::All);
+        assert_eq!(config.horizontal.labels, AxisGuideVisibilityPolicy::All);
+        assert_eq!(config.horizontal.title, AxisGuideVisibilityPolicy::All);
+    }
+
+    #[test]
+    fn semantic_axis_visibility_checks_spanned_axis_strips() {
+        let domains = vec![
+            HashMap::from([
+                ("x".to_string(), named_domain("a")),
+                ("y".to_string(), named_domain("a")),
+            ]),
+            HashMap::from([
+                ("x".to_string(), named_domain("different-x")),
+                ("y".to_string(), named_domain("different-y")),
+            ]),
+        ];
+        let semantic_children = semantic_child_domains_with_placements(
+            &domains,
+            &[
+                GridPlacementConfig {
+                    row: 0,
+                    column: 0,
+                    row_span: 2,
+                    column_span: 2,
+                },
+                GridPlacementConfig {
+                    row: 1,
+                    column: 1,
+                    row_span: 1,
+                    column_span: 1,
+                },
+            ],
+        );
         let config = semantic_axis_guide_visibility_for_child(
             AxisGuideVisibilityConfig::same(
                 AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups,
