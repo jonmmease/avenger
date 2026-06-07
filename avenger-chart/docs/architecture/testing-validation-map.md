@@ -14,6 +14,7 @@ flowchart TD
     ChildFrames["child frames"]
     Facet["facet"]
     Concat["concat"]
+    Repeat["repeat"]
     Positioned["positioned subplots"]
     External["external extension boundaries"]
     Apps["chart apps"]
@@ -26,6 +27,7 @@ flowchart TD
     ChildFrames --> DomainChecks["cargo test -p avenger-chart --lib container_domain_sharing"]
     Facet --> FacetChecks["cargo test -p avenger-chart --test test_evaluated_facet_tree"]
     Concat --> ConcatChecks["cargo test -p avenger-chart --test visual_regression concat"]
+    Repeat --> RepeatChecks["cargo test -p avenger-chart --lib --release repeat_"]
     Positioned --> PositionedChecks["cargo test -p avenger-chart --test visual_regression positioned_subplot"]
     External --> ExternalChecks["cargo test --manifest-path avenger-chart-external-test/Cargo.toml"]
     Apps --> AppChecks["cargo test -p avenger-chart-app --features winit-wgpu resize"]
@@ -42,6 +44,7 @@ flowchart TD
 | Legend ownership | `cargo test -p avenger-chart --lib legend_disposition -- --nocapture` |
 | Child-frame domain sharing | `cargo test -p avenger-chart --lib container_domain_sharing -- --nocapture` |
 | Facet tree | `cargo test -p avenger-chart --test test_evaluated_facet_tree -- --nocapture` |
+| Repeat containers | `cargo test -p avenger-chart --lib --release repeat_ -- --nocapture`; `cargo test -p avenger-chart-app --features winit-wgpu --lib --release repeat_ -- --nocapture` |
 | External boundaries | `cargo test --manifest-path avenger-chart-external-test/Cargo.toml -- --nocapture` |
 | Chart app resize | `cargo test -p avenger-chart-app --features winit-wgpu resize -- --nocapture`; `cargo check -p avenger-chart-app --all-targets --features winit-wgpu`; `cargo check -p avenger-winit-wgpu --all-targets` |
 | Compile coverage | `cargo check -p avenger-chart --all-targets`; `cargo check --manifest-path avenger-chart-external-test/Cargo.toml --all-targets` |
@@ -55,6 +58,7 @@ Useful categories:
 
 - facet: `test_facet_*`, `test_nested_facets`, and facet layout snapshots,
 - concat: `test_concat`,
+- repeat: `test_repeat`,
 - positioned subplots: `test_cartesian_subplot`,
   `test_positioned_subplot_scale_sharing`, and
   `test_positioned_subplot_legend_sharing`,

@@ -25,6 +25,7 @@ sequenceDiagram
 
     User->>Plot: mark(), data(), scale(), legend(), layout()
     User->>Plot: compile(SessionContext)
+    Plot->>Plot: lower Repeat* plots to concat-family containers
     Plot->>Plot: extract channel axis/scale/legend configs
     Plot->>Plot: compile marks into CompiledMark
     Plot->>Plot: build coordinate guide and transform
@@ -45,10 +46,15 @@ sequenceDiagram
 ## Compile Stage
 
 `Plot<C>` stores authoring state: marks, plot-level data, scale specs, legend
-configs, layout spec, title/subtitle, theme, guide config, and params.
+configs, layout spec, title/subtitle, theme, guide config, params, stores,
+selections, tools, and event bindings.
 
 `Plot<C>::compile` performs these steps:
 
+- lowers repeat coordinate plots to generated concat-family plots when `C` is
+  `RepeatColumns`, `RepeatRows`, `RepeatGrid`, or `RepeatWrap`,
+- expands tools into generated params, stores, selections, event bindings,
+  scale edits, and marks,
 - collects axis, legend, scale, and scale-to-coordinate-channel configs with
   `plot::channel::extract_channel_configs`,
 - compiles marks into `Arc<dyn CompiledMark>`,

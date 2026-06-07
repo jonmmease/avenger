@@ -76,8 +76,8 @@ flowchart LR
 ```
 
 Placement channels belong to the parent coordinate system. Child plot channels
-belong to the child plot. Their domains, sharing levels, axes, and legends are
-independent unless the chart author explicitly connects them through shared
+belong to the child plot. Their domains, coordination scopes, axes, and legends
+are independent unless the chart author explicitly connects them through shared
 data or shared scale configuration.
 
 The parent coordinate transform must return `PointGeometry` for positioned

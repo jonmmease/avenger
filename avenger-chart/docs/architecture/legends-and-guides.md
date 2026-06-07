@@ -41,7 +41,8 @@ mark chooses a renderer by returning `LegendRendererSelection` from
 contains an `Arc<dyn LegendRenderer>` and is used directly.
 
 `LegendChannel` carries the channel name, expression, configured scale, channel
-type, sharing level, mark type, mark index, and related channel info.
+type, resolved coordination level, mark type, mark index, and related channel
+info.
 `MergeKey` allows compatible discrete legend channels from the same mark to be
 merged.
 
@@ -79,14 +80,34 @@ depend on facade-owned child-frame measurements.
 
 ## Ownership Rules
 
-Facet and child-frame legend ownership use the same sharing primitives as
-scale-domain sharing. Free legends render locally. Non-free legends render at
-the owner for their sharing level or are hoisted to the owner.
+Facet and child-frame legend ownership use the same scoped coordination
+primitive as scale-domain coordination. Free legends render locally. Non-free
+legends render at the owner for their resolved coordination scope or are
+hoisted to that owner.
 
-The visual channel owns its legend. A shared `subplot_x` placement channel does
-not promote a `fill` legend; the `fill` channel's own sharing level controls
-that legend.
+The visual channel owns its legend. A coordinated `subplot_x` placement
+channel does not promote a `fill` legend; the `fill` channel's own coordination
+metadata controls that legend.
+
+## Axis Guide Visibility Policy
+
+Container-style coordinates can apply `AxisGuideVisibilityPolicy` to child
+axes:
+
+- `Auto` preserves the container's default behavior;
+- `All` leaves every eligible child guide visible;
+- `OuterEdges` compacts guides to physical outer non-empty edges;
+- `OuterForEquivalentDomainGroups` compacts only when aligned cells have
+  equivalent domain coordination targets.
+
+Facets use this policy to preserve current facet behavior under `Auto` while
+allowing explicit overrides. `GridConcat` and `WrapConcat` use the same policy
+for manual matrix and wrapped layouts. `RepeatGrid::matrix_axes()` selects
+`OuterForEquivalentDomainGroups` on the lowered `GridConcat` and supplies
+repeat-variable axis-title defaults.
 
 See [scales-domains-and-sharing.md](scales-domains-and-sharing.md) for domain
-sharing and [layout-and-child-frames.md](layout-and-child-frames.md) for
-child-frame sharing paths.
+coordination, [concat-system.md](concat-system.md) for concat guide policy,
+[repeat-system.md](repeat-system.md) for matrix-axis defaults, and
+[layout-and-child-frames.md](layout-and-child-frames.md) for child-frame
+coordination paths.

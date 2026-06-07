@@ -45,7 +45,7 @@ tree of `PartitionNode` values.
 ```mermaid
 flowchart TD
     Data["Plot or mark DataFrame"]
-    Dimensions["PartitionDimensionSpec\nFacetDirection, sharing, field_expr"]
+    Dimensions["PartitionDimensionSpec\nFacetDirection, scope, field_expr"]
     Extractor["PartitionKeyExtractor"]
     Root["PartitionNode"]
     Content["PartitionContent\nLeaf or Branch"]
@@ -61,12 +61,12 @@ flowchart TD
 ```
 
 `PartitionDimensionSpec` describes one facet dimension while the tree is being
-built. `PartitionNode` stores the facet direction, sharing level, field name,
+built. `PartitionNode` stores the facet direction, coordination scope, field name,
 field expression, observed values, and `PartitionContent`. `PartitionCellPlan`
 is the per-cell metadata used by measurement and rendering.
 
 `EvaluatedFacetTree` caches path metadata, predicates, slot membership,
-enumerations, jagged-axis checks, and channel-domain sharing levels. Guide,
+enumerations, jagged-axis checks, and channel-domain coordination metadata. Guide,
 legend, domain, and render code query the tree instead of recomputing
 partition relationships.
 
@@ -101,12 +101,18 @@ Rendering resolves `FacetBandPlacement` through `facet/placement.rs`, converts
 that placement to child-frame render placements, and calls
 `CompiledPlot::build_plot_components` for each renderable cell.
 
-## Sharing
+## Coordination
 
-Facet slot sharing and scale-domain sharing both use `Sharing` at the API
-boundary and `SharingLevel` internally. `facet/sharing_policy.rs` combines
-sharing primitives with facet path metadata to decide domain grouping, axis
-label ownership, axis title ownership, and legend ownership.
+Facet slot sharing and scale-domain coordination both use `CoordinationScope`
+at the API boundary. The runtime normalizes these scopes into internal
+`SharingLevel` values where older facet and child-frame algorithms still need a
+numeric level.
+
+`facet/sharing_policy.rs` combines coordination primitives with facet path
+metadata to decide domain grouping, axis label ownership, axis title ownership,
+and legend ownership. `FacetWrap` is special only in its physical layout: it
+contributes exactly one logical facet level even though it lays out as hidden
+row bands containing visible column cells.
 
 Facet measurements also feed the generic child-frame path with
 `ContainerPathSegment::FacetValue`, so nested child-frame guide/domain/legend

@@ -1,8 +1,8 @@
 # Layout And Child Frames
 
 The top-level `avenger-chart` crate owns layout runtime behavior. Facet,
-concat, and coordinate-positioned subplots all measure child plots as chart
-frames and expose them through a shared child-frame view.
+concat, repeat-lowered concat, and coordinate-positioned subplots all measure
+child plots as chart frames and expose them through a shared child-frame view.
 
 ## Child-Frame Lifecycle
 
@@ -11,14 +11,14 @@ sequenceDiagram
     participant Container as Facet/Concat/Positioned runtime
     participant Runtime as ChildFrameRuntime
     participant Child as Child CompiledPlot
-    participant Sharing as Domain/guide/legend sharing
+    participant Coordination as Domain/guide/legend coordination
     participant View as ChildFrameContainerView
     participant Render as Render placement
 
     Container->>Runtime: prepare_plot(child, data selection)
     Runtime->>Child: build scale builder and local domain extents
-    Container->>Sharing: build ChildFrameDomainSharingInput
-    Sharing-->>Container: coordinated child-frame domain extents
+    Container->>Coordination: build ChildFrameDomainSharingInput
+    Coordination-->>Container: coordinated child-frame domain extents
     Container->>Runtime: measure child with fixed plot-area layout
     Runtime->>Child: measure_plot_components
     Container->>View: expose measured children and placements
@@ -33,7 +33,7 @@ sequenceDiagram
 Important runtime values:
 
 - `PreparedChildFramePlot`: prepared child plot, data override, scale builder,
-  local domain extents, and channel sharing levels,
+  local domain extents, and channel coordination metadata,
 - `ChildFrameDataSelection`: explicit child data or inherited parent data,
 - `ChildFrameScopeKey`: stable identity for one child frame,
 - `ChildFrameKey`: immediate child identity for concat, positioned subplot,
@@ -41,8 +41,8 @@ Important runtime values:
 - `ContainerPathSegment`: ancestor path identity,
 - `ChildFrameSharingLevel` and `ChildFrameSharingPath`: nested sharing position
   metadata,
-- `ChildFrameDomainSharingInput`: local domain extents and sharing levels for a
-  measured child,
+- `ChildFrameDomainSharingInput`: local domain extents and coordination
+  metadata for a measured child,
 - `ChildFrameContainerView`: read-only projection over measured child frames,
 - `ChildFrameRenderPlacement`: render origin for one child frame.
 
@@ -74,15 +74,17 @@ flowchart TD
 ```
 
 Facet uses `FacetBandCoordMeasurement`. Concat uses `ConcatCoordMeasurement`.
-Coordinate-positioned subplots use `PositionedCoordMeasurement`. The common
-projection function accepts all three and returns `ChildFrameContainerView`.
+Repeat containers lower to concat containers before measurement, so they also
+produce `ConcatCoordMeasurement`. Coordinate-positioned subplots use
+`PositionedCoordMeasurement`. The common projection function accepts these
+measurements and returns `ChildFrameContainerView`.
 
 ## Measurement Pattern
 
 Containers decide which child frames exist. For each child frame they:
 
 - prepare the child plot with `ChildFrameRuntime::prepare_plot`,
-- build a scope key and child-frame sharing level,
+- build a scope key and child-frame coordination level,
 - coordinate child-frame domains through
   `coordinated_child_frame_domain_extents`,
 - measure the child with `PreparedChildFramePlot::measure`,
@@ -104,5 +106,16 @@ child-frame identities and placements, so each container does not need a
 separate implementation of those cross-cutting concerns.
 
 See [facet-system.md](facet-system.md), [concat-system.md](concat-system.md),
-and [positioned-subplots.md](positioned-subplots.md) for the concrete
-container producers.
+[repeat-system.md](repeat-system.md), and
+[positioned-subplots.md](positioned-subplots.md) for the concrete container
+producers.
+
+## Preview Invariant
+
+Preview evaluation may reuse prior measurements and rendered data marks, but
+measurements with a `ChildFrameContainerView` must still traverse children when
+building the evaluated plot. Child traversal regenerates nested interaction
+scopes for concat, repeat, facet, tool, and selection routing. Data-mark-only
+reuse for a child-frame container would preserve visible marks while dropping
+those scopes, so the Preview renderer declines that reuse path for child-frame
+containers.

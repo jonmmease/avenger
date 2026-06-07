@@ -59,7 +59,7 @@ let brush_boxes = Store::empty("brush_boxes")
     .field("y_min", DataType::Float64, false)
     .field("y_max", DataType::Float64, false)
     .primary_key(["id"])
-    .sharing(Sharing::Free);
+    .sharing(CoordinationScope::Free);
 ```
 
 `CompiledStoreSpec` is stored on `CompiledPlot`, so store declarations are part
@@ -126,26 +126,27 @@ Rect::<Cartesian>::new()
 ```
 
 `StoreData::new(name)` reads the store instance implied by that store's
-`Sharing`. A free store reads the current leaf facet owner's rows, a
-`Level(N)` store reads the current logical ancestor's rows, and a shared store
-reads the root rows. The mark data source does not carry an independent read
-scope; changing how store-backed chrome is replicated is done by changing the
-store's sharing level.
+`CoordinationScope`. A free store reads the current leaf facet owner's rows, a
+  `Level(N)` store reads the current logical ancestor's rows, and a shared store
+  reads the root rows. The mark data source does not carry an independent read
+  scope; changing how store-backed chrome is replicated is done by changing the
+  store's coordination scope.
 
 When a mark requests store data, `PlotSession` materializes the relevant rows
 as an Arrow `RecordBatch` and exposes them to DataFusion as a queryable
 relation for that evaluation. Mark-data cache keys include store revision
 fingerprints, so store-backed marks update when interaction mutates rows.
 
-## Store Sharing
+## Store Scope
 
-Stores use `Sharing`, the same level-based scoping model used by params and
-scale domains:
+Stores use `CoordinationScope`, the same level-based scoping model used by
+params and scale domains:
 
-- `Sharing::Free` / `Sharing::Level(0)`: one store instance per leaf facet
-  cell;
-- `Sharing::Level(N)`: one store instance at logical ancestor level `N`;
-- `Sharing::Shared`: one root store instance.
+- `CoordinationScope::Free` / `CoordinationScope::Level(0)`: one store
+  instance per leaf facet cell;
+- `CoordinationScope::Level(N)`: one store instance at logical ancestor level
+  `N`;
+- `CoordinationScope::Shared`: one root store instance.
 
 `ChartEventBinding::set_store(...)` writes to the current routed scope.
 `ChartEventBinding::set_store_at_start_scope(...)` writes to the scope where a
@@ -174,7 +175,7 @@ Selection clauses are written by event bindings:
 
 ```rust
 let clause = SelectionClauseUpdate::interval(lit("active"))
-    .facet_scope(Sharing::Free)
+    .facet_scope(CoordinationScope::Free)
     .dimension(col("source_a"))
     .endpoints(x_min, x_max)
     .dimension(col("source_b"))
@@ -262,16 +263,17 @@ in the same reevaluation.
 
 ## Facet Context
 
-Selections are coordinate-neutral and do not have a sharing level. Facet
-ownership is recorded on each clause.
+Selections are coordinate-neutral and do not have their own coordination
+scope. Facet ownership is recorded on each clause.
 
 `SelectionClauseUpdate::facet_scope(...)` controls how much logical facet
 context the clause captures:
 
-- `Sharing::Free` captures the full logical facet path for the starting or
-  current facet cell.
-- `Sharing::Level(N)` captures the logical ancestor path at level `N`.
-- `Sharing::Shared` captures no facet context.
+- `CoordinationScope::Free` captures the full logical facet path for the
+  starting or current facet cell.
+- `CoordinationScope::Level(N)` captures the logical ancestor path at level
+  `N`.
+- `CoordinationScope::Shared` captures no facet context.
 
 Facet context fields are declared on the selection:
 
@@ -302,7 +304,7 @@ let brush_boxes = Store::empty("brush_boxes")
     .field("y_min", DataType::Float64, false)
     .field("y_max", DataType::Float64, false)
     .primary_key(["id"])
-    .sharing(Sharing::Free);
+    .sharing(CoordinationScope::Free);
 
 let brush = Selection::new("brush")
     .combine(SelectionCombine::Union)
@@ -376,6 +378,31 @@ let picked = LassoSelection::new("picked")
 or marks. Editable region-selection chrome uses the same selection primitive for
 predicate semantics, plus stores and ordinary marks for drawable state. It does
 not need a private overlay scene-mark system.
+
+## Repeat-Aware Interaction State
+
+Repeat-aware interactions are built from the same primitives. Repeat does not
+own a separate store or selection runtime.
+
+Low-level bindings and tools can use repeat placeholders in event updates:
+
+- `repeat::column()` and `repeat::row()` resolve to the concrete source-data
+  expressions for the current repeat cell;
+- `repeat::cell_id()` gives the generated cell id;
+- `repeat::current_cell_predicate()` filters store-backed chrome marks to the
+  cell that created the visible geometry.
+
+`BoxSelection` uses this shape for matrix selections. Its semantic selection
+clauses contain resolved interval dimensions over the repeated data
+expressions, so `brush.predicate()` remains portable to sibling concat plots.
+Its store-backed rectangle chrome can remain local to the current repeat cell
+by storing the cell id and filtering overlay marks with
+`repeat::current_cell_predicate()`.
+
+For union and intersect matrix selections, each repeated cell writes ordinary
+selection clauses with stable cell-derived clause ids. The selection's
+`SelectionCombine` determines how clauses combine; repeat only supplies the
+resolved expressions and cell metadata.
 
 ## Invariants
 

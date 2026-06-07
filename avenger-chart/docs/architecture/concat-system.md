@@ -1,14 +1,18 @@
 # Concat System
 
-`HConcat` and `VConcat` are built-in layout containers in `avenger-chart`.
-They are represented as coordinate systems whose marks are compiled concat
-subplots.
+`HConcat`, `VConcat`, `GridConcat`, and `WrapConcat` are built-in layout
+containers in `avenger-chart`. They are represented as coordinate systems whose
+marks are compiled concat subplots.
+
+Concat is the physical layout substrate for repeat. Repeat containers lower to
+matching concat containers, but concat remains usable directly as the manual
+escape hatch for custom grids, holes, spans, and wrapped layouts.
 
 ## Runtime Flow
 
 ```mermaid
 flowchart TD
-    Compile["Subplot<HConcat/VConcat>\nCompiledConcatSubplot"]
+    Compile["Subplot<HConcat/VConcat/GridConcat/WrapConcat>\nCompiledConcatSubplot"]
     Measure["measure_concat_coord_system"]
     Prepare["prepare_concat_child\nChildFrameRuntime::prepare_plot"]
     Domains["coordinated_child_frame_domain_extents"]
@@ -30,11 +34,30 @@ flowchart TD
 
 ## Coordinate Types
 
-`HConcat` and `VConcat` implement `CoordinateSystemCore`,
+All concat containers implement `CoordinateSystemCore`,
 `CoordinateSystemTransformCore`, and `CoordinateSystemTransform`. Their
 required channel list is empty. Their transform returns container point
 geometry, but concat placement is driven by child-frame measurement rather than
 data position channels.
+
+The four public container shapes are:
+
+- `HConcat`: one row, one column per child subplot;
+- `VConcat`: one column, one row per child subplot;
+- `GridConcat`: explicit two-dimensional placement with
+  `Subplot::grid_cell(row, column)`;
+- `WrapConcat`: row-major wrapping with auto, fixed, or responsive column
+  count.
+
+`GridConcat::rows(...)` and `GridConcat::columns(...)` optionally declare the
+track count. Undeclared counts are inferred from child placements. Empty grid
+slots behave as holes; they do not collapse tracks or steal axis-guide
+ownership from the nearest non-empty outer edge.
+
+`WrapConcat::columns(expr)` fixes the physical column count.
+`WrapConcat::responsive_columns(width)` resolves the column count from the
+current canvas-constrained width and the target approximate cell width.
+Trailing missing cells in the final physical row behave as holes.
 
 `ConcatGuide` implements `CoordinateGuide` and `CompiledGuide`. It measures
 space for child labels and renders labels through generic child-frame container
@@ -55,19 +78,50 @@ child, and builds `ConcatCoordMeasurement`.
 - fallback content size for placement conversion.
 
 Each `ConcatChildMeasurement` stores the child index, optional key, optional
-label, container path, and measured `ComponentsMeasurement`.
+label, grid/wrap placement metadata, container path, and measured
+`ComponentsMeasurement`.
 
-## Placement And Sharing
+## Placement And Coordination
 
 Horizontal concat uses `ChildFrameSharingLevel::hconcat_child`; vertical concat
-uses `ChildFrameSharingLevel::vconcat_child`. Each child gets a
-`ChildFrameScopeKey` with `ChildFrameKey::ConcatChild`.
+uses `ChildFrameSharingLevel::vconcat_child`; grid and wrapped concat use the
+corresponding grid/wrap child-frame levels. Each child gets a
+`ChildFrameScopeKey` with `ChildFrameKey::ConcatChild` and a stable
+container-path segment.
 
 `BandChildFramePlacement::from_sized_children` positions children along the
-concat axis using measured child plot sizes and sibling boundary demands. The
-placement is converted to `ChildFramePlacementResult` for rendering and
+container axes using measured child plot sizes and sibling boundary demands.
+The placement is converted to `ChildFramePlacementResult` for rendering and
 generic child-frame consumers.
 
 Concat participates in the same child-frame domain, guide, legend, layout, and
 debug machinery as facet and positioned subplots. See
 [layout-and-child-frames.md](layout-and-child-frames.md).
+
+## Guide Visibility
+
+`GridConcat` and `WrapConcat` can carry an `AxisGuideVisibilityConfig` through
+`.axis_guide_visibility(...)`. The reusable policies are defined by
+`AxisGuideVisibilityPolicy`:
+
+- `Auto`: preserve the container's default behavior;
+- `All`: show every eligible child axis guide;
+- `OuterEdges`: show guides only on the physical outer non-empty edge;
+- `OuterForEquivalentDomainGroups`: compact to outer edges only when aligned
+  cells use equivalent domain coordination targets.
+
+Repeat matrix axes are implemented by lowering to `GridConcat` with
+`OuterForEquivalentDomainGroups`. The policy is not repeat-specific; manual
+concat grids can use it directly.
+
+## Interaction Metadata
+
+Concat child frames contribute evaluated interaction scopes. These scopes carry
+the child-frame path, optional authored subplot id, grid row/column placement,
+and inherited facet path. Chart event bindings, scene queries, stores,
+selections, and tools target those semantic scopes rather than public
+`Vec<usize>` scenegraph paths.
+
+When repeat lowers to concat, generated child-frame keys and ids are ordinary
+concat metadata. This is why repeat-aware tools and selections do not need a
+separate runtime path.

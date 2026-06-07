@@ -92,6 +92,12 @@ Prepared mark-data materialization and DataFusion subplan materialization are
 not durable session caches. Mark data is normally collected while rendering
 unless Preview can safely reuse rendered data components.
 
+Child-frame containers are a special case for rendered component reuse. They
+may reuse compatible child measurements, but the evaluated plot still must
+traverse the child-frame container so nested interaction scopes are regenerated.
+Preview therefore does not use a data-mark-only reuse path for measurements
+that expose a `ChildFrameContainerView`.
+
 ```mermaid
 flowchart TD
     Params["Current params and scoped params"]

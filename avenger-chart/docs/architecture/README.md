@@ -24,8 +24,9 @@ agents. User-facing chart documentation lives in `avenger-chart/book/src`.
 - To work on nested layout, read
   [layout-and-child-frames.md](layout-and-child-frames.md),
   [facet-system.md](facet-system.md), [concat-system.md](concat-system.md), and
+  [repeat-system.md](repeat-system.md), and
   [positioned-subplots.md](positioned-subplots.md).
-- To work on scales, guides, legends, or sharing, read
+- To work on scales, guides, legends, or domain coordination, read
   [scales-domains-and-sharing.md](scales-domains-and-sharing.md) and
   [legends-and-guides.md](legends-and-guides.md).
 - To validate a change, start with
@@ -42,12 +43,15 @@ flowchart TD
     ScaleLegend["Scale and legend planning\nScaleBuilder, PreparedLegendPlan"]
     Layout["Layout and measurement\nComponentsMeasurement, child frames"]
     Coord["Coordinate measurement\nfacet, concat, positioned subplots"]
+    Repeat["Repeat lowering\nsemantic generation over concat"]
     Render["Scenegraph rendering\nPlotComponents, EvaluatedPlot"]
     Wgpu["Raster output\nWgpuRenderer, CanvasExt"]
     Apps["Interactive apps\navenger-chart-app, avenger-winit-wgpu"]
     State["Interactive state\nstores, selections, event bindings"]
 
     Author --> Compile
+    Author --> Repeat
+    Repeat --> Compile
     Compile --> Session
     Session --> Transforms
     Transforms --> ScaleLegend
@@ -61,10 +65,11 @@ flowchart TD
     Apps --> Wgpu
 
     Compile -. details .-> Marks["marks-and-channels.md"]
+    Repeat -. details .-> RepeatDocs["repeat-system.md"]
     Transforms -. details .-> TransformDocs["data-transforms.md"]
     ScaleLegend -. details .-> Scales["scales-domains-and-sharing.md"]
     Layout -. details .-> ChildFrames["layout-and-child-frames.md"]
-    Coord -. details .-> Containers["facet-system.md / concat-system.md / positioned-subplots.md"]
+    Coord -. details .-> Containers["facet-system.md / concat-system.md / repeat-system.md / positioned-subplots.md"]
     Render -. details .-> Rendering["rendering-and-scenegraph.md"]
     Apps -. details .-> AppDocs["chart-apps-and-interaction.md"]
     State -. details .-> StateDocs["stores-selections-and-interaction-state.md"]
@@ -93,14 +98,18 @@ flowchart TD
   stage sharing, derived scalars, built-in transform ownership, and time
   context propagation.
 - [scales-domains-and-sharing.md](scales-domains-and-sharing.md): scale
-  authoring, built-in scale implementation, domain inference, and sharing.
+  authoring, built-in scale implementation, domain inference, scoped domain
+  coordination, and named domain groups.
 - [legends-and-guides.md](legends-and-guides.md): legend renderer selection,
   legend hoisting, guide measurement, and guide sharing.
 - [layout-and-child-frames.md](layout-and-child-frames.md): shared
   child-frame runtime used by facet, concat, and positioned subplots.
 - [facet-system.md](facet-system.md): built-in row/column facet runtime.
-- [concat-system.md](concat-system.md): built-in horizontal and vertical concat
-  runtime.
+- [concat-system.md](concat-system.md): built-in horizontal, vertical, grid,
+  and wrapped concat runtime.
+- [repeat-system.md](repeat-system.md): repeat variables, placeholder
+  resolution, repeat lowering to concat containers, matrix domain/axis
+  defaults, and repeat-aware interactions.
 - [positioned-subplots.md](positioned-subplots.md): coordinate-positioned
   `Subplot<Coord>` runtime.
 - [coordinate-systems.md](coordinate-systems.md): coordinate traits,

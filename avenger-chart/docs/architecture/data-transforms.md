@@ -93,10 +93,10 @@ The distinction is intentional:
   `fold.value()`, `stack.end()`, or `impute.imputed()`;
 - explicitly named columns use `col("...")` because the author chose the name.
 
-## Transform Stages And Sharing
+## Transform Stages And Scope
 
-Each transform call stores an ordered `DataTransformStage` with a `Sharing`
-scope:
+Each transform call stores an ordered `DataTransformStage` with a
+`CoordinationScope`:
 
 - `.transform(...)` and `.transform_free(...)` compute at the final leaf scope;
 - `.transform_level(n, ...)` computes at a logical ancestor scope;
