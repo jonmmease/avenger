@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     AvengerChartError, CoordinateSystemCore, CoordinationScope, DomainCoordination, Mark, Param,
-    Selection, Store, event::ChartEventBinding,
+    RepeatContext, Selection, Store, event::ChartEventBinding,
 };
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +20,7 @@ pub trait ChartTool<C: CoordinateSystemCore>: Send + Sync + 'static {
 pub struct ToolExpansionContext<'a> {
     pub tool_id: &'a str,
     pub scale_targets: &'a [ToolScaleTarget],
+    pub repeat_context: Option<&'a RepeatContext>,
 }
 
 impl<'a> ToolExpansionContext<'a> {
@@ -27,11 +28,28 @@ impl<'a> ToolExpansionContext<'a> {
         Self {
             tool_id,
             scale_targets,
+            repeat_context: None,
         }
     }
 
     pub fn empty(tool_id: &'a str) -> Self {
         Self::new(tool_id, &[])
+    }
+
+    pub fn with_repeat_context(mut self, repeat_context: &'a RepeatContext) -> Self {
+        self.repeat_context = Some(repeat_context);
+        self
+    }
+
+    pub fn repeat_cell_id(&self) -> Option<String> {
+        let repeat = self.repeat_context?;
+        match (&repeat.item, &repeat.row, &repeat.column) {
+            (Some(item), _, _) => Some(format!("repeat_cell:item:{}", item.id)),
+            (_, Some(row), Some(column)) => Some(format!("repeat_cell:{}:{}", row.id, column.id)),
+            (_, Some(row), None) => Some(format!("repeat_cell:row:{}", row.id)),
+            (_, None, Some(column)) => Some(format!("repeat_cell:column:{}", column.id)),
+            _ => None,
+        }
     }
 
     pub fn scale_targets_for_channel<'b>(

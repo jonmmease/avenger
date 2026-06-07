@@ -102,7 +102,11 @@ impl ToolCompileContext {
                     "Duplicate chart tool id '{id}'"
                 )));
             }
-            let mut expansion = tool.expand(ToolExpansionContext::new(&id, scale_targets))?;
+            let mut expansion_context = ToolExpansionContext::new(&id, scale_targets);
+            if let Some(repeat_context) = self.repeat_context.as_ref() {
+                expansion_context = expansion_context.with_repeat_context(repeat_context);
+            }
+            let mut expansion = tool.expand(expansion_context)?;
             self.resolve_repeat_event_bindings(&mut expansion.event_bindings)?;
             self.localize_event_bindings(&mut expansion.event_bindings);
             let identity = Arc::as_ptr(tool) as *const dyn ChartTool<C> as *const () as usize;

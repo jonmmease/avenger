@@ -1977,6 +1977,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn repeat_grid_free_pan_scroll_zoom_uses_cell_specific_params()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<RepeatGrid>::new()
+            .rows(repeat_vars(&["a", "b"]))
+            .columns(repeat_vars(&["a", "b"]))
+            .cell(repeated_grid_cell().tool(PanScrollZoom::cartesian()))
+            .matrix_domains_with_scope(CoordinationScope::Free)
+            .compile(&ctx)
+            .await?;
+
+        let tool_param_names = compiled
+            .param_specs()
+            .keys()
+            .filter(|name| name.starts_with("__tool_pan_scroll_zoom__"))
+            .cloned()
+            .collect::<Vec<_>>();
+        assert!(
+            tool_param_names
+                .iter()
+                .any(|name| name == "__tool_pan_scroll_zoom__domain__a__repeat_cell_b_a"),
+            "expected a cell-specific a-domain param, got {tool_param_names:?}"
+        );
+        assert!(
+            tool_param_names
+                .iter()
+                .any(|name| name == "__tool_pan_scroll_zoom__domain__a__repeat_cell_a_b"),
+            "expected a distinct cross-orientation a-domain param, got {tool_param_names:?}"
+        );
+        assert!(
+            !tool_param_names
+                .iter()
+                .any(|name| name == "__tool_pan_scroll_zoom__domain__a"),
+            "free repeat should not use a shared a-domain param: {tool_param_names:?}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn repeat_grid_matrix_axes_generate_title_defaults_and_policy()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();

@@ -140,18 +140,27 @@ impl PanScrollZoom {
         &self,
         channel: &str,
         coordination: Option<&DomainCoordination>,
+        repeat_cell_id: Option<&str>,
     ) -> Param {
         let Some(coordination) = coordination else {
             return self.default_domain_param(channel);
         };
-        let DomainCoordinationGroup::Named(group) = &coordination.group else {
-            return self.default_domain_param(channel);
-        };
-        if group == channel {
-            self.default_domain_param(channel)
+        let mut param = if let DomainCoordinationGroup::Named(group) = &coordination.group {
+            if group == channel {
+                self.default_domain_param(channel)
+            } else {
+                Param::raw_domain(generated_tool_name(&self.id, &format!("domain__{group}")))
+            }
         } else {
-            Param::raw_domain(generated_tool_name(&self.id, &format!("domain__{group}")))
+            self.default_domain_param(channel)
+        };
+
+        if coordination.scope.is_free()
+            && let Some(cell_id) = repeat_cell_id
+        {
+            param.name = format!("{}__{}", param.name, sanitize_tool_name_part(cell_id));
         }
+        param
     }
 }
 
@@ -179,12 +188,16 @@ impl ChartTool<Cartesian> for PanScrollZoom {
 
         let mut scale_channels = Vec::new();
         let mut event_targets: Vec<(Vec<String>, Param)> = Vec::new();
+        let repeat_cell_id = ctx.repeat_cell_id();
         if let Some(channel) = &self.x_channel {
             let target = ctx.single_domain_coordination_for_channel(channel);
-            let param = self
-                .x_domain_param
-                .clone()
-                .unwrap_or_else(|| self.default_domain_param_for_target(channel, target.as_ref()));
+            let param = self.x_domain_param.clone().unwrap_or_else(|| {
+                self.default_domain_param_for_target(
+                    channel,
+                    target.as_ref(),
+                    repeat_cell_id.as_deref(),
+                )
+            });
             let sharing = match (
                 self.x_sharing,
                 self.x_domain_param.is_none(),
@@ -205,10 +218,13 @@ impl ChartTool<Cartesian> for PanScrollZoom {
         }
         if let Some(channel) = &self.y_channel {
             let target = ctx.single_domain_coordination_for_channel(channel);
-            let param = self
-                .y_domain_param
-                .clone()
-                .unwrap_or_else(|| self.default_domain_param_for_target(channel, target.as_ref()));
+            let param = self.y_domain_param.clone().unwrap_or_else(|| {
+                self.default_domain_param_for_target(
+                    channel,
+                    target.as_ref(),
+                    repeat_cell_id.as_deref(),
+                )
+            });
             let sharing = match (
                 self.y_sharing,
                 self.y_domain_param.is_none(),
@@ -1680,6 +1696,19 @@ fn zoom_interval(channel: &str, factor: Expr) -> Expr {
 
 fn generated_tool_name(id: &str, suffix: &str) -> String {
     format!("__tool_{id}__{suffix}")
+}
+
+fn sanitize_tool_name_part(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

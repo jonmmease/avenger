@@ -4988,6 +4988,143 @@ mod tests {
         (state, handlers)
     }
 
+    fn repeat_pan_cell(settle_exact: bool) -> Plot<Cartesian> {
+        let mut tool = PanScrollZoom::cartesian();
+        if settle_exact {
+            tool = tool.settle_exact(true);
+        }
+        Plot::<Cartesian>::new()
+            .mark(
+                Symbol::new()
+                    .x_with(repeat::column(), |c| {
+                        c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                    })
+                    .y_with(repeat::row(), |c| {
+                        c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                    })
+                    .size(20.0),
+            )
+            .tool(tool)
+    }
+
+    async fn repeat_pan_compiled(
+        scope: CoordinationScope,
+        settle_exact: bool,
+    ) -> (CompiledPlot, Arc<SessionContext>) {
+        let ctx = Arc::new(SessionContext::new());
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    (0.0, 0.0),
+                    (10.0, 100.0),
+                    (20.0, 200.0)
+                ) AS t(a, b)",
+            )
+            .await
+            .expect("repeat pan data");
+        let compiled = Plot::<RepeatGrid>::new()
+            .canvas_size(520.0, 520.0)
+            .data(df)
+            .rows([
+                RepeatVariable::new("a", col("a")),
+                RepeatVariable::new("b", col("b")),
+            ])
+            .columns([
+                RepeatVariable::new("a", col("a")),
+                RepeatVariable::new("b", col("b")),
+            ])
+            .cell(repeat_pan_cell(settle_exact))
+            .matrix_domains_with_scope(scope)
+            .matrix_axes()
+            .compile(&ctx)
+            .await
+            .expect("compile repeat pan plot");
+        (compiled, ctx)
+    }
+
+    async fn repeat_pan_state_and_handlers(
+        scope: CoordinationScope,
+        settle_exact: bool,
+    ) -> (
+        ChartAppState,
+        Vec<ChartEventBindingHandler>,
+        Vec<ChartEventBindingHandler>,
+    ) {
+        let (compiled, ctx) = repeat_pan_compiled(scope, settle_exact).await;
+        let policy = compiled.resize_policy();
+        let drag_handlers =
+            compile_handlers_for_event_type(&compiled, &ctx, ChartEventType::CursorMoved);
+        let wheel_handlers =
+            compile_handlers_for_event_type(&compiled, &ctx, ChartEventType::MouseWheel);
+        let session = Arc::new(compiled).instantiate(ctx);
+        let state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        (state, drag_handlers, wheel_handlers)
+    }
+
+    fn repeat_scope<'a>(
+        scopes: &'a [EvaluatedInteractionScope],
+        cell_key: &str,
+    ) -> &'a EvaluatedInteractionScope {
+        scopes
+            .iter()
+            .find(|scope| {
+                scope
+                    .child_frame_path
+                    .last()
+                    .and_then(|segment| segment.key.as_deref())
+                    == Some(cell_key)
+            })
+            .unwrap_or_else(|| panic!("missing repeat scope {cell_key}"))
+    }
+
+    fn repeat_scope_domain(
+        scopes: &[EvaluatedInteractionScope],
+        cell_key: &str,
+        channel: &str,
+    ) -> (f32, f32) {
+        repeat_scope(scopes, cell_key)
+            .scales
+            .get(channel)
+            .unwrap_or_else(|| panic!("scope {cell_key} has {channel} scale"))
+            .numeric_interval_domain()
+            .unwrap_or_else(|_| panic!("{cell_key}/{channel} domain is numeric"))
+    }
+
+    fn scope_center(scope: &EvaluatedInteractionScope) -> [f32; 2] {
+        [
+            scope.bounds.x + scope.bounds.width * 0.5,
+            scope.bounds.y + scope.bounds.height * 0.5,
+        ]
+    }
+
+    async fn wheel_zoom_all(
+        state: &mut ChartAppState,
+        handlers: &[ChartEventBindingHandler],
+        position: [f32; 2],
+        delta_y: f32,
+    ) -> UpdateStatus {
+        let mut status = UpdateStatus::default();
+        let event = SceneGraphEvent::MouseWheel(avenger_eventstream::scene::SceneMouseWheelEvent {
+            position,
+            delta: MouseScrollDelta::LineDelta(0.0, delta_y),
+            mark_instance: None,
+            modifiers: Default::default(),
+        });
+        for handler in handlers {
+            status = status.merge(
+                &handler
+                    .handle_with_context(
+                        &event,
+                        &EventStreamContext::default(),
+                        state,
+                        &empty_rtree(),
+                    )
+                    .await,
+            );
+        }
+        status
+    }
+
     fn compile_handler_for_event_type(
         compiled: &CompiledPlot,
         ctx: &SessionContext,
@@ -5606,6 +5743,277 @@ mod tests {
     async fn wrap_concat_pan_updates_linked_child_domains() {
         let (mut state, handlers) = wrap_concat_pan_state_and_handlers().await;
         assert_concat_pan_updates_all_child_domains(&mut state, &handlers).await;
+    }
+
+    #[tokio::test]
+    async fn repeat_pan_horizontal_updates_cross_orientation_variable_domain() {
+        let (mut state, drag_handlers, _) =
+            repeat_pan_state_and_handlers(CoordinationScope::Shared, false).await;
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial repeat build");
+        let scopes = state.interaction_scopes().await;
+        assert_eq!(scopes.len(), 4, "2x2 repeat grid exports four scopes");
+        let initial_a_y = repeat_scope_domain(&scopes, "repeat_cell:a:b", "y");
+        let initial_b_y = repeat_scope_domain(&scopes, "repeat_cell:b:a", "y");
+        let active = repeat_scope(&scopes, "repeat_cell:b:a").clone();
+        let center = scope_center(&active);
+
+        let status = pan_move_all(
+            &mut state,
+            &drag_handlers,
+            Instant::now(),
+            center,
+            [center[0] + active.bounds.width * 0.18, center[1]],
+        )
+        .await;
+        assert!(status.rerender, "repeat horizontal pan should rerender");
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("build after repeat horizontal pan");
+
+        let scopes = state.interaction_scopes().await;
+        let panned_a_y = repeat_scope_domain(&scopes, "repeat_cell:a:b", "y");
+        let stable_b_y = repeat_scope_domain(&scopes, "repeat_cell:b:a", "y");
+        assert!(
+            panned_a_y.0 < initial_a_y.0 && panned_a_y.1 < initial_a_y.1,
+            "horizontal pan of x=a should also move y=a in another cell: \
+             {initial_a_y:?} -> {panned_a_y:?}"
+        );
+        assert!(
+            (stable_b_y.0 - initial_b_y.0).abs() < 1e-3
+                && (stable_b_y.1 - initial_b_y.1).abs() < 1e-3,
+            "horizontal pan should not move row variable b: \
+             {initial_b_y:?} -> {stable_b_y:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn repeat_pan_vertical_updates_cross_orientation_variable_domain() {
+        let (mut state, drag_handlers, _) =
+            repeat_pan_state_and_handlers(CoordinationScope::Shared, false).await;
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial repeat build");
+        let scopes = state.interaction_scopes().await;
+        let initial_b_x = repeat_scope_domain(&scopes, "repeat_cell:a:b", "x");
+        let initial_a_x = repeat_scope_domain(&scopes, "repeat_cell:b:a", "x");
+        let active = repeat_scope(&scopes, "repeat_cell:b:a").clone();
+        let center = scope_center(&active);
+
+        let status = pan_move_all(
+            &mut state,
+            &drag_handlers,
+            Instant::now(),
+            center,
+            [center[0], center[1] + active.bounds.height * 0.18],
+        )
+        .await;
+        assert!(status.rerender, "repeat vertical pan should rerender");
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("build after repeat vertical pan");
+
+        let scopes = state.interaction_scopes().await;
+        let panned_b_x = repeat_scope_domain(&scopes, "repeat_cell:a:b", "x");
+        let stable_a_x = repeat_scope_domain(&scopes, "repeat_cell:b:a", "x");
+        assert!(
+            panned_b_x.0 > initial_b_x.0 && panned_b_x.1 > initial_b_x.1,
+            "vertical pan of y=b should also move x=b in another cell: \
+             {initial_b_x:?} -> {panned_b_x:?}"
+        );
+        assert!(
+            (stable_a_x.0 - initial_a_x.0).abs() < 1e-3
+                && (stable_a_x.1 - initial_a_x.1).abs() < 1e-3,
+            "vertical pan should not move column variable a: \
+             {initial_a_x:?} -> {stable_a_x:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn repeat_wheel_zoom_updates_variable_domains_in_both_orientations() {
+        let (mut state, _, wheel_handlers) =
+            repeat_pan_state_and_handlers(CoordinationScope::Shared, false).await;
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial repeat build");
+        let scopes = state.interaction_scopes().await;
+        let initial_a_y = repeat_scope_domain(&scopes, "repeat_cell:a:b", "y");
+        let initial_b_x = repeat_scope_domain(&scopes, "repeat_cell:a:b", "x");
+        let active = repeat_scope(&scopes, "repeat_cell:b:a").clone();
+        let center = scope_center(&active);
+
+        let status = wheel_zoom_all(&mut state, &wheel_handlers, center, 6.0).await;
+        assert!(status.rerender, "repeat wheel zoom should rerender");
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("build after repeat wheel zoom");
+
+        let scopes = state.interaction_scopes().await;
+        let zoomed_a_y = repeat_scope_domain(&scopes, "repeat_cell:a:b", "y");
+        let zoomed_b_x = repeat_scope_domain(&scopes, "repeat_cell:a:b", "x");
+        assert!(
+            zoomed_a_y.1 - zoomed_a_y.0 < initial_a_y.1 - initial_a_y.0,
+            "wheel zoom in x=a/y=b cell should shrink y=a elsewhere: \
+             {initial_a_y:?} -> {zoomed_a_y:?}"
+        );
+        assert!(
+            zoomed_b_x.1 - zoomed_b_x.0 < initial_b_x.1 - initial_b_x.0,
+            "wheel zoom in x=a/y=b cell should shrink x=b elsewhere: \
+             {initial_b_x:?} -> {zoomed_b_x:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn repeat_free_pan_updates_only_active_cell_domains() {
+        let (mut state, drag_handlers, _) =
+            repeat_pan_state_and_handlers(CoordinationScope::Free, false).await;
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial repeat build");
+        let scopes = state.interaction_scopes().await;
+        let initial_active_x = repeat_scope_domain(&scopes, "repeat_cell:b:a", "x");
+        let initial_other_a_y = repeat_scope_domain(&scopes, "repeat_cell:a:b", "y");
+        let active = repeat_scope(&scopes, "repeat_cell:b:a").clone();
+        let center = scope_center(&active);
+
+        let status = pan_move_all(
+            &mut state,
+            &drag_handlers,
+            Instant::now(),
+            center,
+            [center[0] + active.bounds.width * 0.18, center[1]],
+        )
+        .await;
+        assert!(status.rerender, "repeat free pan should rerender");
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("build after repeat free pan");
+
+        let scopes = state.interaction_scopes().await;
+        let active_x = repeat_scope_domain(&scopes, "repeat_cell:b:a", "x");
+        let other_a_y = repeat_scope_domain(&scopes, "repeat_cell:a:b", "y");
+        assert!(
+            active_x.0 < initial_active_x.0 && active_x.1 < initial_active_x.1,
+            "active free repeat cell should pan: {initial_active_x:?} -> {active_x:?}"
+        );
+        assert!(
+            (other_a_y.0 - initial_other_a_y.0).abs() < 1e-3
+                && (other_a_y.1 - initial_other_a_y.1).abs() < 1e-3,
+            "free repeat pan should not update another cell with the same variable: \
+             {initial_other_a_y:?} -> {other_a_y:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn repeat_pan_exact_settle_matches_single_preview_move() {
+        let (compiled, ctx) = repeat_pan_compiled(CoordinationScope::Shared, true).await;
+        let streams = event_streams_for_plot_bindings(&compiled, &ctx).expect("event streams");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(ctx);
+        let mut manager = EventStreamManager::new(ChartAppState::new(
+            session,
+            policy,
+            crate::ChartAppOptions::default(),
+        ));
+        let scene = crate::ChartSceneGraphBuilder
+            .build(manager.state_mut())
+            .await
+            .expect("initial repeat build");
+        let scopes = manager.state().interaction_scopes().await;
+        let active = repeat_scope(&scopes, "repeat_cell:b:a").clone();
+        let center = scope_center(&active);
+        let end = [center[0] + active.bounds.width * 0.18, center[1]];
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        for (config, handler) in streams {
+            manager.register_handler(config, handler);
+        }
+        let instant = Instant::now();
+        manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved { position: center }),
+                &rtree,
+                instant,
+            )
+            .await;
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Pressed,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                instant,
+            )
+            .await;
+        let preview_status = manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved { position: end }),
+                &rtree,
+                instant + Duration::from_millis(16),
+            )
+            .await;
+        assert!(preview_status.rerender);
+        assert!(
+            !preview_status.rebuild_geometry,
+            "drag move should remain Preview before settle"
+        );
+        let settle_status = manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                instant + Duration::from_millis(32),
+            )
+            .await;
+        assert!(
+            settle_status.rebuild_geometry,
+            "mouse-up settle should request Exact evaluation"
+        );
+        crate::ChartSceneGraphBuilder
+            .build(manager.state_mut())
+            .await
+            .expect("exact settle build");
+        let metrics = manager
+            .state()
+            .last_metrics()
+            .await
+            .expect("metrics after exact settle");
+        assert_eq!(metrics.mode, EvaluationMode::Exact);
+        let settled_scopes = manager.state().interaction_scopes().await;
+        let settled_a_y = repeat_scope_domain(&settled_scopes, "repeat_cell:a:b", "y");
+
+        let (mut direct_state, direct_handlers, _) =
+            repeat_pan_state_and_handlers(CoordinationScope::Shared, false).await;
+        crate::ChartSceneGraphBuilder
+            .build(&mut direct_state)
+            .await
+            .expect("direct initial repeat build");
+        let direct_status =
+            pan_move_all(&mut direct_state, &direct_handlers, instant, center, end).await;
+        assert!(direct_status.rerender);
+        crate::ChartSceneGraphBuilder
+            .build(&mut direct_state)
+            .await
+            .expect("direct build");
+        let direct_scopes = direct_state.interaction_scopes().await;
+        let direct_a_y = repeat_scope_domain(&direct_scopes, "repeat_cell:a:b", "y");
+        assert!(
+            (settled_a_y.0 - direct_a_y.0).abs() < 1e-3
+                && (settled_a_y.1 - direct_a_y.1).abs() < 1e-3,
+            "exact-settled repeat pan should match a one-shot preview move: \
+             settled={settled_a_y:?}, direct={direct_a_y:?}"
+        );
     }
 
     /// First component of a scope's facet path, as a `&str` cell value.
