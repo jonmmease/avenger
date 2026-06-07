@@ -1678,6 +1678,13 @@ pub(crate) struct GridChildTrackDemand {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct GridTrackRequirements {
     pub(crate) shape: GridShape,
+    /// Facet-guide slot gap needed when generic grid requirements are
+    /// projected back into `CoordinatedLayout`.
+    ///
+    /// Concat containers do not use this value, so their local requirements
+    /// keep it at zero. Keeping it here avoids losing facet guide-spacing
+    /// state when facet bands participate in the generic layout model.
+    pub(crate) guide_slot_gap_px: f32,
     pub(crate) column_outer_start: f32,
     pub(crate) column_outer_end: f32,
     pub(crate) row_outer_start: f32,
@@ -1692,6 +1699,7 @@ pub(crate) struct GridTrackRequirements {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct GridTrackSolution {
+    pub(crate) guide_slot_gap_px: f32,
     pub(crate) column_outer_start: f32,
     pub(crate) column_outer_end: f32,
     pub(crate) row_outer_start: f32,
@@ -1900,6 +1908,7 @@ pub(crate) fn grid_track_requirements(
 ) -> Result<GridTrackRequirements, AvengerChartError> {
     let mut requirements = GridTrackRequirements {
         shape,
+        guide_slot_gap_px: 0.0,
         column_outer_start: 0.0,
         column_outer_end: 0.0,
         row_outer_start: 0.0,
@@ -2001,6 +2010,7 @@ pub(crate) fn solve_grid_track_requirements(
     );
 
     GridTrackSolution {
+        guide_slot_gap_px: requirements.guide_slot_gap_px,
         column_outer_start: requirements.column_outer_start,
         column_outer_end: requirements.column_outer_end,
         row_outer_start: requirements.row_outer_start,
@@ -2461,6 +2471,7 @@ mod tests {
             slots,
             requirements: ChildFrameLayoutRequirements::Grid(GridTrackRequirements {
                 shape,
+                guide_slot_gap_px: 0.0,
                 column_outer_start: 0.0,
                 column_outer_end: 0.0,
                 row_outer_start: 0.0,
@@ -2809,6 +2820,7 @@ mod tests {
         )];
 
         let mut requirements = grid_track_requirements(shape, Size2D::new(100.0, 50.0), &demands)?;
+        requirements.guide_slot_gap_px = 13.0;
         requirements.column_outer_start = 3.0;
         requirements.column_outer_end = 7.0;
         requirements.row_outer_start = 5.0;
@@ -2816,6 +2828,7 @@ mod tests {
 
         let solution = solve_grid_track_requirements(&requirements, &demands);
 
+        assert_eq!(solution.guide_slot_gap_px, 13.0);
         assert_eq!(solution.column_starts, vec![3.0]);
         assert_eq!(solution.row_starts, vec![5.0]);
         assert_eq!(solution.content_size, Size2D::new(110.0, 66.0));

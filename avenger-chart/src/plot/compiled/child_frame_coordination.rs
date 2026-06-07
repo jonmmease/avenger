@@ -314,7 +314,7 @@ fn facet_layout_slots(
 
 fn facet_grid_track_requirements(
     measurement: &ComponentsMeasurement,
-    _facet_band: &FacetBandCoordMeasurement,
+    facet_band: &FacetBandCoordMeasurement,
     shape: GridShape,
 ) -> Result<GridTrackRequirements, AvengerChartError> {
     let placement = resolve_facet_band_placement(measurement)?.ok_or_else(|| {
@@ -322,7 +322,15 @@ fn facet_grid_track_requirements(
             "Facet grid track requirements requested for non-facet measurement".to_string(),
         )
     })?;
-    facet_grid_track_requirements_from_placement(shape, &placement)
+    let mut requirements = facet_grid_track_requirements_from_placement(shape, &placement)?;
+    let active_layout = facet_band
+        .coordinated_layout
+        .as_ref()
+        .unwrap_or(&facet_band.local_layout);
+    requirements.guide_slot_gap_px = active_layout
+        .guide_slot_gap_px
+        .max(facet_band.guide_padding_inner_px);
+    Ok(requirements)
 }
 
 fn facet_grid_track_requirements_from_placement(
@@ -331,6 +339,7 @@ fn facet_grid_track_requirements_from_placement(
 ) -> Result<GridTrackRequirements, AvengerChartError> {
     let mut requirements = GridTrackRequirements {
         shape,
+        guide_slot_gap_px: 0.0,
         column_outer_start: 0.0,
         column_outer_end: 0.0,
         row_outer_start: 0.0,
@@ -643,6 +652,7 @@ fn merge_child_frame_layout_requirements<'a>(
             ChildFrameLayoutRequirements::Grid(mut merged),
             ChildFrameLayoutRequirements::Grid(next),
         ) if merged.shape == next.shape => {
+            merged.guide_slot_gap_px = merged.guide_slot_gap_px.max(next.guide_slot_gap_px);
             merged.column_outer_start = merged.column_outer_start.max(next.column_outer_start);
             merged.column_outer_end = merged.column_outer_end.max(next.column_outer_end);
             merged.row_outer_start = merged.row_outer_start.max(next.row_outer_start);
@@ -692,6 +702,7 @@ fn requirement_slab_delta(
                 + (merged.column_outer_end - local.column_outer_end).abs()
                 + (merged.row_outer_start - local.row_outer_start).abs()
                 + (merged.row_outer_end - local.row_outer_end).abs()
+                + (merged.guide_slot_gap_px - local.guide_slot_gap_px).abs()
         }
     }
 }
@@ -833,6 +844,7 @@ mod tests {
                 rows: 1,
                 columns: 1,
             },
+            guide_slot_gap_px: 0.0,
             column_outer_start: 0.0,
             column_outer_end: 0.0,
             row_outer_start: 0.0,
@@ -852,6 +864,24 @@ mod tests {
             track_delta: 1.0,
             slab_delta: 0.0,
         }
+    }
+
+    #[test]
+    fn grid_requirement_merge_preserves_guide_slot_gap() {
+        let mut left = test_requirements(10.0);
+        let mut right = test_requirements(10.0);
+        let ChildFrameLayoutRequirements::Grid(left_grid) = &mut left;
+        left_grid.guide_slot_gap_px = 6.0;
+        let ChildFrameLayoutRequirements::Grid(right_grid) = &mut right;
+        right_grid.guide_slot_gap_px = 18.0;
+
+        let merged =
+            merge_child_frame_layout_requirements([&left, &right]).expect("compatible grids");
+        let ChildFrameLayoutRequirements::Grid(merged_grid) = &merged;
+
+        assert_eq!(merged_grid.guide_slot_gap_px, 18.0);
+        assert_eq!(requirement_slab_delta(&left, &merged), 12.0);
+        assert_eq!(requirement_slab_delta(&right, &merged), 0.0);
     }
 
     #[test]
@@ -914,6 +944,7 @@ mod tests {
 
         assert_eq!(requirements.column_outer_start, 3.0);
         assert_eq!(requirements.column_outer_end, 5.0);
+        assert_eq!(requirements.guide_slot_gap_px, 0.0);
         assert_eq!(requirements.row_outer_start, 0.0);
         assert_eq!(requirements.row_outer_end, 0.0);
         assert_eq!(requirements.column_widths, vec![10.0, 10.0]);
