@@ -103,7 +103,8 @@ flowchart TD
 - [legends-and-guides.md](legends-and-guides.md): legend renderer selection,
   legend hoisting, guide measurement, and guide sharing.
 - [layout-and-child-frames.md](layout-and-child-frames.md): shared
-  child-frame runtime used by facet, concat, and positioned subplots.
+  child-frame runtime and generic layout alignment used by facet, concat,
+  repeat-lowered concat, and positioned subplots.
 - [facet-system.md](facet-system.md): built-in row/column facet runtime.
 - [concat-system.md](concat-system.md): built-in horizontal, vertical, grid,
   and wrapped concat runtime.

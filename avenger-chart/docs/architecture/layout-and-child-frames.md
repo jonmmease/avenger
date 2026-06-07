@@ -110,6 +110,62 @@ See [facet-system.md](facet-system.md), [concat-system.md](concat-system.md),
 [positioned-subplots.md](positioned-subplots.md) for the concrete container
 producers.
 
+## Layout Coordination And Alignment
+
+Child-frame layout alignment is the generic physical-layout coordination pass
+for nested child-frame containers. It is separate from domain coordination:
+
+- domain coordination decides which scales share data domains;
+- axis guide visibility decides which physical axes own labels and titles;
+- layout alignment decides which physical tracks, guide gaps, outer offsets,
+  and chrome slabs should line up across equivalent container instances.
+
+The implementation lives in
+`plot/compiled/child_frame_coordination.rs`. It exports
+`ChildFrameLayoutCoordinationNode` values from measured containers, groups them
+by `LayoutAlignmentKey`, merges compatible `GridTrackRequirements`, and applies
+the merged requirements through container-specific adapters.
+
+The grouping key intentionally distinguishes physical instance identity from
+semantic template identity. Repeat-generated concat children use stable
+template keys such as `repeat_cell:*`, so equivalent repeat grids under
+different facet values can align. Facet-band nodes include a semantic facet tag
+containing axis, depth, and facet-field identity, so same-shaped but unrelated
+facets do not align accidentally. Manual grid siblings that contain equivalent
+facet bands may align through a narrow template rule that drops only the
+immediate non-repeat grid-child segment while preserving ancestor context and
+the facet semantic tag.
+
+The pass records two kinds of evidence:
+
+- measurement-only diagnostics from
+  `diagnose_child_frame_layout_alignment(...)`, including exported node count,
+  alignment group count, merged deltas, and skipped groups;
+- apply traces from `apply_child_frame_layout_alignment(...)`, including
+  exported nodes, planned groups, and actually applied containers.
+
+Those names are deliberately generic. They should not be reported as
+facet-only coordination even when some participating nodes are facet bands.
+
+## Current Adapter Boundary
+
+Concat-family containers are the primary apply-capable containers. `GridConcat`,
+`WrapConcat`, `HConcat`, and `VConcat` expose grid-shaped requirements and can
+be physically aligned across equivalent instances.
+
+Facet bands also export layout-coordination nodes. Their mutating adapter is
+gated: it applies only to safe explicit `FacetColumn` / `FacetRow` bands whose
+topology can round-trip through the existing facet placement path. The adapter
+rejects empty bands, nested facet children, scale-backed facet placement, and
+topology mismatches. The existing facet coordination driver remains the
+authoritative path for facet-only retargeting and final propagation.
+
+This coexistence is intentional. The generic pass solves cross-container
+alignment such as repeat inside facet, facet inside repeat, and facet bands
+inside manual grid siblings. The facet-specific driver still owns the full
+facet measurement algorithm until broad facet parity justifies retiring more
+of that code.
+
 ## Preview Invariant
 
 Preview evaluation may reuse prior measurements and rendered data marks, but
@@ -119,3 +175,12 @@ scopes for concat, repeat, facet, tool, and selection routing. Data-mark-only
 reuse for a child-frame container would preserve visible marks while dropping
 those scopes, so the Preview renderer declines that reuse path for child-frame
 containers.
+
+When Preview can reuse terminal facet-cell measurements during responsive
+structure reflow, it must refresh guide ownership, legend layout, frame layout,
+overflow, and interaction-scope metadata under the current physical owner path
+before the reused cell is treated as current. If a child-frame physical
+structure changes in a way that cannot be refreshed safely, Preview falls back
+with `PhysicalStructureMismatch` and rebuilds the measurement. The layout
+alignment pass uses measurements from the current evaluation and does not reuse
+stale aligned child measurements after a physical-path change.

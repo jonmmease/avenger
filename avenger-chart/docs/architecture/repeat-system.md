@@ -207,6 +207,24 @@ Facet and repeat metadata both survive into evaluated interaction scopes.
 `FacetWrap` contributes one logical facet level even though it lays out as a
 physical grid of hidden rows and visible columns.
 
+## Nested Layout Alignment
+
+Repeat does not own a private physical alignment pass. After repeat lowers to
+the matching concat container, generic child-frame layout alignment treats the
+result as ordinary `ConcatCoordMeasurement` nodes. The generated child-frame
+keys provide stable template identity:
+
+- repeat grid cells normalize to a repeat-cell template;
+- repeat columns and rows normalize to repeat-column or repeat-row templates;
+- wrapped repeat items normalize to a repeat-item template.
+
+This is how equivalent repeat grids inside different facet values align their
+matrix tracks and guide slabs. The same pass also handles the inverse
+direction, where a repeat cell contains a facet, and manual concat structures
+that mirror repeat-generated layouts. Repeat contributes semantic identities
+and domain coordination metadata; the child-frame layer owns the physical
+track and chrome alignment.
+
 ## Preview And Cache Invariant
 
 Preview evaluation may reuse layout profiles and rendered data marks, but

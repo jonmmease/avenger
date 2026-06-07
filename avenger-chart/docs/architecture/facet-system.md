@@ -101,6 +101,31 @@ Rendering resolves `FacetBandPlacement` through `facet/placement.rs`, converts
 that placement to child-frame render placements, and calls
 `CompiledPlot::build_plot_components` for each renderable cell.
 
+## Generic Layout Alignment Boundary
+
+Facet layout also participates in the generic child-frame layout-alignment
+pass described in [layout-and-child-frames.md](layout-and-child-frames.md).
+`FacetBandCoordMeasurement` exports a `ChildFrameLayoutCoordinationNode` whose
+grid-shaped requirements are derived from the resolved facet placement. The
+node includes a facet semantic tag so equivalent facet bands can align across
+manual or repeat-generated container siblings without grouping unrelated
+facet fields.
+
+The generic pass currently coexists with the facet-specific coordination
+driver. Facet-only measurement still uses `coordinate_facet_measurement_tree`
+as the authoritative retarget/final-propagation path. The generic facet-band
+apply adapter is deliberately narrower: it only mutates safe explicit
+`FacetColumn` / `FacetRow` bands by converting merged `GridTrackRequirements`
+back into `CoordinatedLayout`, then reusing
+`FacetBandCoordMeasurement::set_coordinated_layout_value(...)` and
+`recompute_explicit_placement_if_needed()`.
+
+The adapter refuses cases where that round trip is not proven safe, including
+`FacetWrap`'s nested physical band topology, scale-backed placement, empty
+bands, and topology mismatches. This keeps the full facet pipeline in charge
+of complex facet retargeting while still allowing the generic layout pass to
+align safe facet bands nested inside concat or repeat structures.
+
 ## Coordination
 
 Facet slot sharing and scale-domain coordination both use `CoordinationScope`

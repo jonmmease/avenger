@@ -98,6 +98,37 @@ Concat participates in the same child-frame domain, guide, legend, layout, and
 debug machinery as facet and positioned subplots. See
 [layout-and-child-frames.md](layout-and-child-frames.md).
 
+## Layout Alignment
+
+Concat containers are the main apply-capable participants in generic
+child-frame layout alignment. During measurement, `ConcatCoordMeasurement`
+exports grid-shaped layout requirements through
+`ChildFrameLayoutCoordinationNode`:
+
+- track plot-area widths and heights;
+- per-track left/right/top/bottom chrome slabs;
+- outer offsets;
+- guide-slot gap requirements;
+- the child-slot topology used to prove two instances are compatible.
+
+The alignment pass groups equivalent concat instances by `LayoutAlignmentKey`,
+merges compatible requirements by taking maxima, and applies the merged
+solution back to each matching `ConcatCoordMeasurement`. This lets repeated or
+manual concat grids nested under different facet values share physical track
+and chrome geometry after each local child has been measured.
+
+`HConcat` and `VConcat` are represented as degenerate one-row or one-column
+grid layouts for this pass. `WrapConcat` participates only when instances have
+the same resolved physical grid shape; responsive wraps with different column
+counts are separated instead of forced into one solution.
+
+Manual grid siblings that contain equivalent nested facet bands can also align
+those facet bands. The template-key rule is narrow: it drops the immediate
+manual grid-child segment only for facet-band template identity, while keeping
+ancestor context, facet kind, topology, and facet semantic tag. This prevents
+unrelated grids or different facet fields from becoming one global alignment
+group.
+
 ## Guide Visibility
 
 `GridConcat` and `WrapConcat` can carry an `AxisGuideVisibilityConfig` through
