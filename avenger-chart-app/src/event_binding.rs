@@ -8166,6 +8166,229 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn repeat_box_selection_drag_updates_current_cell_store_and_selection() {
+        use datafusion::arrow::datatypes::DataType;
+
+        const STORE: &str = "brush_boxes";
+        const SELECTION: &str = "brush";
+
+        fn repeat_box_row() -> StoreRow {
+            let x_interval = event::interval_ordered(
+                event::start_coord("x"),
+                event::event_at_start_clipped_coord("x"),
+            );
+            let y_interval = event::interval_ordered(
+                event::start_coord("y"),
+                event::event_at_start_clipped_coord("y"),
+            );
+            StoreRow::new()
+                .field("id", repeat::cell_id())
+                .field("cell_id", repeat::cell_id())
+                .field("x_min", event::interval_start(x_interval.clone()))
+                .field("x_max", event::interval_end(x_interval))
+                .field("y_min", event::interval_start(y_interval.clone()))
+                .field("y_max", event::interval_end(y_interval))
+        }
+
+        fn repeat_interval_clause() -> SelectionClauseUpdate {
+            SelectionClauseUpdate::interval(repeat::cell_id())
+                .facet_scope(CoordinationScope::Shared)
+                .dimension(repeat::column())
+                .endpoints(
+                    event::interval_start(event::interval_ordered(
+                        event::start_coord("x"),
+                        event::event_at_start_clipped_coord("x"),
+                    )),
+                    event::interval_end(event::interval_ordered(
+                        event::start_coord("x"),
+                        event::event_at_start_clipped_coord("x"),
+                    )),
+                )
+                .dimension(repeat::row())
+                .endpoints(
+                    event::interval_start(event::interval_ordered(
+                        event::start_coord("y"),
+                        event::event_at_start_clipped_coord("y"),
+                    )),
+                    event::interval_end(event::interval_ordered(
+                        event::start_coord("y"),
+                        event::event_at_start_clipped_coord("y"),
+                    )),
+                )
+                .build()
+        }
+
+        let ctx = SessionContext::new();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    (1.0, 1.0),
+                    (2.0, 2.0),
+                    (3.0, 3.0)
+                ) AS t(a, b)",
+            )
+            .await
+            .expect("repeat data");
+        let drag = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .between(
+                ChartEventStream::on(ChartEventType::MouseDown)
+                    .filter(event::button().eq(lit("left"))),
+                ChartEventStream::on(ChartEventType::MouseUp),
+            )
+            .filter(event::start_coord("x").is_not_null())
+            .filter(event::start_coord("y").is_not_null())
+            .filter(event::event_at_start_clipped_coord("x").is_not_null())
+            .filter(event::event_at_start_clipped_coord("y").is_not_null())
+            .set_selection_at_start_scope(
+                SELECTION,
+                SelectionUpdate::upsert_clause(repeat_interval_clause()),
+            )
+            .set_store_at_start_scope(STORE, StoreUpdate::upsert_rows([repeat_box_row()]))
+            .preview();
+
+        let cell = Plot::<Cartesian>::new()
+            .mark(
+                Symbol::new()
+                    .x(repeat::column())
+                    .y(repeat::row())
+                    .size(24.0),
+            )
+            .mark(
+                Rect::<Cartesian>::new()
+                    .data_store(StoreData::new(STORE))
+                    .transform_no_output(Filter::new(repeat::current_cell_predicate()), |mark| mark)
+                    .exclude_from_scale_domains()
+                    .x(col("x_min"))
+                    .x2(col("x_max"))
+                    .y(col("y_min"))
+                    .y2(col("y_max")),
+            )
+            .event_binding(drag);
+        let variables = vec![
+            RepeatVariable::new("a", col("a")).title("A"),
+            RepeatVariable::new("b", col("b")).title("B"),
+        ];
+        let repeat_grid = Plot::<RepeatGrid>::new()
+            .data(df)
+            .rows(variables.clone())
+            .columns(variables)
+            .cell(cell)
+            .matrix_domains()
+            .matrix_axes();
+        let compiled = Plot::<HConcat>::new()
+            .canvas_size(640.0, 360.0)
+            .add_store(
+                Store::empty(STORE)
+                    .field("id", DataType::Utf8, false)
+                    .field("cell_id", DataType::Utf8, false)
+                    .field("x_min", DataType::Float64, false)
+                    .field("x_max", DataType::Float64, false)
+                    .field("y_min", DataType::Float64, false)
+                    .field("y_max", DataType::Float64, false)
+                    .primary_key(["id"])
+                    .sharing(CoordinationScope::Shared),
+            )
+            .add_selection(
+                Selection::new(SELECTION)
+                    .combine(SelectionCombine::Union)
+                    .empty_selects_nothing(),
+            )
+            .mark(Subplot::new(repeat_grid).id("splom"))
+            .compile(&ctx)
+            .await
+            .expect("compile repeat box selection plot");
+
+        let handlers =
+            compile_handlers_for_event_type(&compiled, &ctx, ChartEventType::CursorMoved);
+        assert_eq!(
+            handlers.len(),
+            4,
+            "one local drag binding should be generated per repeated cell"
+        );
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial repeat scene");
+        let scope = state
+            .interaction_scopes()
+            .await
+            .into_iter()
+            .find(|scope| scope.kind == InteractionScopeKind::Coordinate)
+            .expect("repeat coordinate scope");
+        let start = [
+            scope.bounds.x + scope.bounds.width * 0.25,
+            scope.bounds.y + scope.bounds.height * 0.75,
+        ];
+        let current = [
+            scope.bounds.x + scope.bounds.width * 0.75,
+            scope.bounds.y + scope.bounds.height * 0.25,
+        ];
+        let start_event = EventStreamEventSnapshot {
+            event: SceneGraphEvent::MouseDown(SceneMouseDownEvent {
+                position: start,
+                button: MouseButton::Left,
+                mark_instance: None,
+                modifiers: Default::default(),
+            }),
+            mark_instance: None,
+            instant: Instant::now(),
+        };
+        let context = EventStreamContext {
+            mark_instance: None,
+            current_event: None,
+            start_event: Some(start_event),
+            previous_event: None,
+        };
+
+        let mut rerenders = 0;
+        for handler in &handlers {
+            let status = handler
+                .handle_with_context(
+                    &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                        position: current,
+                        mark_instance: None,
+                        modifiers: Default::default(),
+                    }),
+                    &context,
+                    &mut state,
+                    &empty_rtree(),
+                )
+                .await;
+            rerenders += usize::from(status.rerender);
+        }
+        assert_eq!(
+            rerenders, 1,
+            "only the binding for the routed repeated cell should update state"
+        );
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics(SELECTION);
+        assert_eq!(clauses.len(), 1);
+        let rows = runtime.session.store_rows_for_diagnostics(STORE);
+        let root_rows = rows
+            .iter()
+            .find(|(path, _)| path.is_empty())
+            .expect("shared store root rows");
+        assert_eq!(root_rows.1.len(), 1);
+        let store_cell_id = root_rows.1[0]
+            .get("cell_id")
+            .expect("store cell id")
+            .clone();
+        assert_eq!(
+            ScalarValue::Utf8(Some(clauses[0].id.clone())),
+            store_cell_id,
+            "selection clause id should match the brush chrome cell id"
+        );
+        assert!(
+            clauses[0].id.starts_with("repeat_cell:"),
+            "repeat cell id should be used as the clause id"
+        );
+    }
+
+    #[tokio::test]
     async fn event_binding_can_reset_raw_domain_to_default() {
         let (mut state, handler) = raw_domain_reset_state_and_handler().await;
         let default_domain = state
