@@ -90,7 +90,9 @@ use crate::{
 use super::{
     ChildFrameContainerView, ChildFrameSharingPath, CompiledPlot, ComponentsMeasurement,
     FacetCellProfileIndex, LayoutProfileSnapshot, MarkDataRequest, PlotComponents,
-    PreparedMarkData, compiled_subplot_payload_child_plot,
+    PreparedMarkData,
+    child_frame_coordination::diagnose_child_frame_layout_alignment,
+    compiled_subplot_payload_child_plot,
     legends::{HoistedLegendAnchor, HoistedLegendRequest, LegendPlanScope, PreparedLegendPlan},
     prepare_mark_data_runtime,
     scale_provider::{DynamicScaleProvider, ScaleProvider},
@@ -4325,7 +4327,7 @@ impl CompiledPlot {
             owned_slabs: EdgeSlabs::default(),
         };
 
-        Ok(ComponentsMeasurement {
+        let measurement = ComponentsMeasurement {
             coord_measurement,
             scales: final_scales,
             plot_area_width,
@@ -4336,7 +4338,11 @@ impl CompiledPlot {
             frame_allocation,
             params: merged_params,
             legend_plan,
-        })
+        };
+        if tracing::enabled!(target: "avenger_chart::layout_coordination", tracing::Level::DEBUG) {
+            let _ = diagnose_child_frame_layout_alignment(&measurement)?;
+        }
+        Ok(measurement)
     }
 
     /// Build plot components with explicit dimensions and scale provider (recursive entry point)

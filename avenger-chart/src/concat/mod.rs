@@ -1968,6 +1968,7 @@ mod tests {
                 child_frame_coordination::{
                     ChildFrameLayoutRequirements, ChildFrameLayoutTopology,
                     collect_child_frame_layout_coordination_nodes,
+                    diagnose_child_frame_layout_alignment,
                 },
                 container_label_items_from_child_frame_container,
                 scale_provider::DynamicScaleProvider,
@@ -2756,6 +2757,50 @@ mod tests {
         assert_ne!(nodes[0].instance_key, nodes[1].instance_key);
         assert_ne!(nodes[0].template_key, nodes[1].template_key);
         assert_ne!(nodes[0].alignment_key(), nodes[1].alignment_key());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn grid_layout_alignment_diagnostics_detect_repeat_in_facet_deltas()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('small', 1.0, 10.0),
+                    ('small', 2.0, 20.0),
+                    ('large', 100000.0, 1000000.0),
+                    ('large', 200000.0, 2000000.0)
+                ) AS t(group_name, a, b)",
+            )
+            .await?;
+        let repeat = Plot::<RepeatGrid>::new()
+            .rows(repeat_vars(&["a", "b"]))
+            .columns(repeat_vars(&["a", "b"]))
+            .cell(repeated_grid_cell());
+        let compiled = Plot::<FacetColumn>::new()
+            .data(df)
+            .mark(Subplot::new(repeat).column(col("group_name")))
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 420.0, 220.0, &ctx).await?;
+        let diagnostics = diagnose_child_frame_layout_alignment(&measurement)?;
+
+        assert_eq!(diagnostics.exported_node_count, 2);
+        assert_eq!(diagnostics.alignment_group_count, 1);
+        assert!(diagnostics.skipped_groups.is_empty());
+        assert_eq!(diagnostics.merged_groups.len(), 1);
+        let group = &diagnostics.merged_groups[0];
+        assert_eq!(group.node_count, 2);
+        assert!(
+            group.node_deltas.iter().any(|delta| delta.has_delta()),
+            "expected merged requirements to differ from at least one local repeat grid"
+        );
+        assert!(
+            diagnostics.total_track_delta() > 0.0 || diagnostics.total_slab_delta() > 0.0,
+            "expected repeat-in-facet diagnostics to report a nonzero merge delta"
+        );
         Ok(())
     }
 
