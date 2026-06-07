@@ -331,7 +331,7 @@ async fn repeat_grid_inside_facet_matrix_domains() {
         .matrix_axes();
     let plot = Plot::<FacetColumn>::new()
         .data(repeat_data(&ctx).await)
-        .canvas_size(760.0, 380.0)
+        .canvas_size(1320.0, 380.0)
         .mark(Subplot::new(repeat).column(col("group_name")));
     let compiled = plot
         .compile(&ctx)
@@ -380,6 +380,31 @@ async fn repeat_wrap_responsive_columns() {
         None,
         "repeat",
         "repeat_wrap_responsive_columns",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn repeat_wrap_inside_facet_column_fixed_columns() {
+    let ctx = SessionContext::new();
+    let repeat = Plot::<RepeatWrap>::new()
+        .items(repeat_variables())
+        .columns(2)
+        .cell(wrap_cell());
+    let plot = Plot::<FacetColumn>::new()
+        .data(repeat_data(&ctx).await)
+        .canvas_size(1320.0, 380.0)
+        .mark(Subplot::new(repeat).column(col("group_name")));
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile faceted repeat wrap");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "repeat",
+        "repeat_wrap_inside_facet_column_fixed_columns",
     )
     .await;
 }

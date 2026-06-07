@@ -30,6 +30,7 @@ use crate::{
     guide::{
         CompiledGuide, CoordinateGuide, GuideSharingContext, GuideUpdate, OverflowSpaceRequirement,
     },
+    layout::BandPlacedChild,
     layout::{BandDirection, EdgeSlabs, LayoutBounds, Size2D},
     marks::{CompiledMark, CompiledMarkCore},
     plot::compiled::{
@@ -570,6 +571,22 @@ impl ConcatCoordMeasurement {
         self.placement.grid_shape()
     }
 
+    pub(crate) fn layout_coordination_shape(&self) -> Option<GridShape> {
+        match &self.placement {
+            ConcatChildPlacement::Grid { shape, .. } => Some(*shape),
+            ConcatChildPlacement::Band(band) => match band.direction {
+                BandDirection::Horizontal => Some(GridShape {
+                    rows: 1,
+                    columns: self.children.len().max(1),
+                }),
+                BandDirection::Vertical => Some(GridShape {
+                    rows: self.children.len().max(1),
+                    columns: 1,
+                }),
+            },
+        }
+    }
+
     pub(crate) fn container_path(&self) -> Result<Vec<ContainerPathSegment>, AvengerChartError> {
         let Some(first) = self.children.first() else {
             return Ok(Vec::new());
@@ -585,22 +602,18 @@ impl ConcatCoordMeasurement {
     }
 
     pub(crate) fn grid_layout_slots(&self) -> Result<Vec<ChildFrameLayoutSlot>, AvengerChartError> {
-        if self.grid_shape().is_none() {
+        if self.layout_coordination_shape().is_none() {
             return Ok(Vec::new());
         }
         self.children
             .iter()
+            .enumerate()
             .map(|child| {
-                let placement = child.grid_placement.ok_or_else(|| {
-                    AvengerChartError::InternalError(format!(
-                        "Missing grid placement for child {} while exporting layout coordination slot",
-                        child.child_index
-                    ))
-                })?;
+                let (slot_index, child) = child;
                 Ok(ChildFrameLayoutSlot {
                     child_index: child.child_index,
                     child_key: child.scope_key().child_key,
-                    slot: GridSlotRect::from_placement(placement),
+                    slot: self.layout_coordination_slot_for_child(slot_index, child)?,
                 })
             })
             .collect()
@@ -609,16 +622,17 @@ impl ConcatCoordMeasurement {
     pub(crate) fn grid_track_requirements(
         &self,
     ) -> Result<GridTrackRequirements, AvengerChartError> {
-        let shape = self.grid_shape().ok_or_else(|| {
+        let shape = self.layout_coordination_shape().ok_or_else(|| {
             AvengerChartError::InternalError(
-                "Grid track requirements requested for non-grid concat measurement".to_string(),
+                "Grid track requirements requested for non-child-frame concat measurement"
+                    .to_string(),
             )
         })?;
         let base_child_plot_area = Size2D::new(
             self.fallback_content_size.width / shape.columns.max(1) as f32,
             self.fallback_content_size.height / shape.rows.max(1) as f32,
         );
-        let demands = grid_child_track_demands(&self.children)?;
+        let demands = self.layout_coordination_track_demands()?;
         grid_track_requirements(shape, base_child_plot_area, &demands)
     }
 
@@ -626,44 +640,148 @@ impl ConcatCoordMeasurement {
         &mut self,
         requirements: &GridTrackRequirements,
     ) -> Result<bool, AvengerChartError> {
-        let shape = self.grid_shape().ok_or_else(|| {
+        let shape = self.layout_coordination_shape().ok_or_else(|| {
             AvengerChartError::InternalError(
-                "Grid track solution applied to non-grid concat measurement".to_string(),
+                "Grid track solution applied to non-child-frame concat measurement".to_string(),
             )
         })?;
         if requirements.shape != shape {
             return Err(AvengerChartError::InternalError(format!(
-                "Grid track solution shape {:?} did not match concat grid shape {:?}",
+                "Grid track solution shape {:?} did not match concat coordination shape {:?}",
                 requirements.shape, shape
             )));
         }
 
         let old_placement = self.child_frame_placement();
-        let demands = grid_child_track_demands(&self.children)?;
+        let demands = self.layout_coordination_track_demands()?;
         let solution = solve_grid_track_requirements(requirements, &demands);
-        let render_placements = self
-            .children
-            .iter()
-            .map(|child| {
+
+        let placement = match &self.placement {
+            ConcatChildPlacement::Grid { .. } => {
+                let render_placements = self
+                    .children
+                    .iter()
+                    .enumerate()
+                    .map(|(slot_index, child)| {
+                        let slot = self.layout_coordination_slot_for_child(slot_index, child)?;
+                        Ok(ChildFrameRenderPlacement {
+                            child_index: child.child_index,
+                            origin: solution.origin_for_slot(slot),
+                        })
+                    })
+                    .collect::<Result<Vec<_>, AvengerChartError>>()?;
+                ConcatChildPlacement::Grid {
+                    placement: ChildFramePlacementResult::new(
+                        solution.content_size,
+                        render_placements,
+                    ),
+                    shape,
+                }
+            }
+            ConcatChildPlacement::Band(band) => {
+                let direction = band.direction;
+                let children = self
+                    .children
+                    .iter()
+                    .enumerate()
+                    .map(|(slot_index, child)| {
+                        let slot = self.layout_coordination_slot_for_child(slot_index, child)?;
+                        let (main_axis_start, main_axis_size, cross_axis_start, cross_axis_size) =
+                            match direction {
+                                BandDirection::Horizontal => (
+                                    solution.column_starts[slot.column],
+                                    solution.column_widths[slot.column],
+                                    solution.row_starts[0],
+                                    solution.row_heights[0],
+                                ),
+                                BandDirection::Vertical => (
+                                    solution.row_starts[slot.row],
+                                    solution.row_heights[slot.row],
+                                    solution.column_starts[0],
+                                    solution.column_widths[0],
+                                ),
+                            };
+                        Ok(BandPlacedChild::with_cross_axis(
+                            child.child_index,
+                            main_axis_start,
+                            main_axis_size,
+                            cross_axis_start,
+                            cross_axis_size,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, AvengerChartError>>()?;
+                let (main_axis_extent, cross_axis_extent) = match direction {
+                    BandDirection::Horizontal => {
+                        (solution.content_size.width, solution.content_size.height)
+                    }
+                    BandDirection::Vertical => {
+                        (solution.content_size.height, solution.content_size.width)
+                    }
+                };
+                ConcatChildPlacement::Band(BandChildFramePlacement::from_positioned_children(
+                    direction,
+                    children,
+                    main_axis_extent,
+                    Some(cross_axis_extent),
+                ))
+            }
+        };
+        let placement_result = placement.child_frame_placement(self.fallback_content_size);
+        let changed = placement_result != old_placement;
+        if changed {
+            self.placement = placement;
+        }
+        Ok(changed)
+    }
+
+    fn layout_coordination_slot_for_child(
+        &self,
+        slot_index: usize,
+        child: &ConcatChildMeasurement,
+    ) -> Result<GridSlotRect, AvengerChartError> {
+        match self.band_direction() {
+            Some(BandDirection::Horizontal) => Ok(GridSlotRect {
+                row: 0,
+                column: slot_index,
+                row_span: 1,
+                column_span: 1,
+            }),
+            Some(BandDirection::Vertical) => Ok(GridSlotRect {
+                row: slot_index,
+                column: 0,
+                row_span: 1,
+                column_span: 1,
+            }),
+            None => {
                 let placement = child.grid_placement.ok_or_else(|| {
                     AvengerChartError::InternalError(format!(
-                        "Missing grid placement for child {} while applying layout coordination",
+                        "Missing grid placement for child {} while exporting layout coordination slot",
                         child.child_index
                     ))
                 })?;
-                let slot = GridSlotRect::from_placement(placement);
-                Ok(ChildFrameRenderPlacement {
+                Ok(GridSlotRect::from_placement(placement))
+            }
+        }
+    }
+
+    fn layout_coordination_track_demands(
+        &self,
+    ) -> Result<Vec<GridChildTrackDemand>, AvengerChartError> {
+        self.children
+            .iter()
+            .enumerate()
+            .map(|(slot_index, child)| {
+                Ok(GridChildTrackDemand {
                     child_index: child.child_index,
-                    origin: solution.origin_for_slot(slot),
+                    slot: self.layout_coordination_slot_for_child(slot_index, child)?,
+                    plot_area: Size2D::new(
+                        child.measurement.plot_area_width,
+                        child.measurement.plot_area_height,
+                    ),
+                    slabs: child.measurement.frame_demand().rendered_envelope,
                 })
             })
-            .collect::<Result<Vec<_>, AvengerChartError>>()?;
-        let placement = ChildFramePlacementResult::new(solution.content_size, render_placements);
-        let changed = placement != old_placement;
-        if changed {
-            self.placement = ConcatChildPlacement::Grid { placement, shape };
-        }
-        Ok(changed)
+            .collect()
     }
 }
 
@@ -2010,7 +2128,11 @@ mod tests {
                 CoordinationKind, CoordinationScopeKey, EvaluationRequest,
                 child_frame_container_view_from_concat,
                 child_frame_coordination::{
-                    ChildFrameLayoutRequirements, ChildFrameLayoutTopology,
+                    ChildFrameContainerInstanceKey, ChildFrameContainerKind,
+                    ChildFrameContainerTemplateKey, ChildFrameLayoutCoordinationNode,
+                    ChildFrameLayoutRequirements, ChildFrameLayoutSlot,
+                    ChildFrameLayoutSlotTopology, ChildFrameLayoutTopology,
+                    LayoutCoordinationScope, build_child_frame_layout_alignment_diagnostics,
                     collect_child_frame_layout_coordination_nodes,
                     diagnose_child_frame_layout_alignment,
                 },
@@ -2251,6 +2373,68 @@ mod tests {
         (0..count).fold(Plot::<WrapConcat>::new(), |plot, idx| {
             plot.mark(Subplot::new(zero_plot()).key(format!("child-{idx}")))
         })
+    }
+
+    fn synthetic_wrap_alignment_node(
+        shape: GridShape,
+        facet_value: &str,
+    ) -> ChildFrameLayoutCoordinationNode {
+        let slots = (0..5)
+            .map(|child_index| {
+                let slot = GridSlotRect {
+                    row: child_index / shape.columns,
+                    column: child_index % shape.columns,
+                    row_span: 1,
+                    column_span: 1,
+                };
+                let child_key = ChildFrameKey::ConcatChild {
+                    index: child_index,
+                    key: Some(format!("child-{child_index}")),
+                };
+                ChildFrameLayoutSlot {
+                    child_index,
+                    child_key,
+                    slot,
+                }
+            })
+            .collect::<Vec<_>>();
+        let topology_slots = slots
+            .iter()
+            .map(|slot| ChildFrameLayoutSlotTopology {
+                child_key: slot.child_key.clone(),
+                slot: slot.slot,
+            })
+            .collect();
+        let template_path = vec![ContainerPathSegment::concat_child(0, Some("repeat_wrap"))];
+        let mut instance_path = vec![ContainerPathSegment::facet_value(
+            FacetAxis::Column,
+            0,
+            ScalarValue::Utf8(Some(facet_value.to_string())),
+        )];
+        instance_path.extend(template_path.clone());
+
+        ChildFrameLayoutCoordinationNode {
+            instance_key: ChildFrameContainerInstanceKey::new(instance_path),
+            template_key: ChildFrameContainerTemplateKey {
+                container_path_template: template_path,
+            },
+            kind: ChildFrameContainerKind::GridConcat,
+            alignment_scope: LayoutCoordinationScope::TemplatePathWithoutFacetSegments,
+            topology: ChildFrameLayoutTopology::Grid {
+                shape,
+                slots: topology_slots,
+            },
+            slots,
+            requirements: ChildFrameLayoutRequirements::Grid(GridTrackRequirements {
+                shape,
+                column_widths: vec![10.0; shape.columns],
+                row_heights: vec![10.0; shape.rows],
+                column_left: vec![0.0; shape.columns],
+                column_right: vec![0.0; shape.columns],
+                row_top: vec![0.0; shape.rows],
+                row_bottom: vec![0.0; shape.rows],
+            }),
+        }
     }
 
     #[tokio::test]
@@ -2833,12 +3017,126 @@ mod tests {
 
         let measurement = measurement_for_plot(&compiled, 400.0, 160.0, &ctx).await?;
         let nodes = collect_child_frame_layout_coordination_nodes(&measurement)?;
+        let nodes = nodes
+            .into_iter()
+            .filter(|node| node.kind == ChildFrameContainerKind::GridConcat)
+            .collect::<Vec<_>>();
 
         assert_eq!(nodes.len(), 2);
         assert_ne!(nodes[0].instance_key, nodes[1].instance_key);
         assert_ne!(nodes[0].template_key, nodes[1].template_key);
         assert_ne!(nodes[0].alignment_key(), nodes[1].alignment_key());
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn layout_coordination_nodes_export_degenerate_hconcat_and_vconcat()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let horizontal = keyed_hconcat("left", "right").compile(&ctx).await?;
+        let horizontal_measurement = measurement_for_plot(&horizontal, 240.0, 100.0, &ctx).await?;
+        let horizontal_nodes =
+            collect_child_frame_layout_coordination_nodes(&horizontal_measurement)?;
+        assert_eq!(horizontal_nodes.len(), 1);
+        assert_eq!(horizontal_nodes[0].kind, ChildFrameContainerKind::HConcat);
+        match &horizontal_nodes[0].topology {
+            ChildFrameLayoutTopology::Grid { shape, slots } => {
+                assert_eq!(
+                    *shape,
+                    GridShape {
+                        rows: 1,
+                        columns: 2
+                    }
+                );
+                assert_eq!(slots.len(), 2);
+                assert_eq!(slots[0].slot.row, 0);
+                assert_eq!(slots[0].slot.column, 0);
+                assert_eq!(slots[1].slot.row, 0);
+                assert_eq!(slots[1].slot.column, 1);
+            }
+        }
+
+        let vertical = Plot::<VConcat>::new()
+            .mark(Subplot::new(zero_plot()).key("top"))
+            .mark(Subplot::new(zero_plot()).key("bottom"))
+            .compile(&ctx)
+            .await?;
+        let vertical_measurement = measurement_for_plot(&vertical, 120.0, 200.0, &ctx).await?;
+        let vertical_nodes = collect_child_frame_layout_coordination_nodes(&vertical_measurement)?;
+        assert_eq!(vertical_nodes.len(), 1);
+        assert_eq!(vertical_nodes[0].kind, ChildFrameContainerKind::VConcat);
+        match &vertical_nodes[0].topology {
+            ChildFrameLayoutTopology::Grid { shape, slots } => {
+                assert_eq!(
+                    *shape,
+                    GridShape {
+                        rows: 2,
+                        columns: 1
+                    }
+                );
+                assert_eq!(slots.len(), 2);
+                assert_eq!(slots[0].slot.row, 0);
+                assert_eq!(slots[0].slot.column, 0);
+                assert_eq!(slots[1].slot.row, 1);
+                assert_eq!(slots[1].slot.column, 0);
+            }
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn layout_coordination_nodes_export_wrap_concat_grid_topology()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = wrapped_zero_plot(5).columns(3).compile(&ctx).await?;
+
+        let measurement = measurement_for_plot(&compiled, 300.0, 200.0, &ctx).await?;
+        let nodes = collect_child_frame_layout_coordination_nodes(&measurement)?;
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].kind, ChildFrameContainerKind::GridConcat);
+        match &nodes[0].topology {
+            ChildFrameLayoutTopology::Grid { shape, slots } => {
+                assert_eq!(
+                    *shape,
+                    GridShape {
+                        rows: 2,
+                        columns: 3
+                    }
+                );
+                assert_eq!(slots.len(), 5);
+                assert_eq!(slots[0].slot.row, 0);
+                assert_eq!(slots[0].slot.column, 0);
+                assert_eq!(slots[3].slot.row, 1);
+                assert_eq!(slots[3].slot.column, 0);
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn layout_coordination_keeps_different_wrap_topologies_separate() {
+        let nodes = vec![
+            synthetic_wrap_alignment_node(
+                GridShape {
+                    rows: 2,
+                    columns: 3,
+                },
+                "alpha",
+            ),
+            synthetic_wrap_alignment_node(
+                GridShape {
+                    rows: 3,
+                    columns: 2,
+                },
+                "beta",
+            ),
+        ];
+
+        let diagnostics = build_child_frame_layout_alignment_diagnostics(&nodes);
+        assert_eq!(diagnostics.exported_node_count, 2);
+        assert_eq!(diagnostics.alignment_group_count, 2);
+        assert!(diagnostics.merged_groups.is_empty());
+        assert_eq!(diagnostics.skipped_groups.len(), 2);
     }
 
     #[tokio::test]

@@ -57,6 +57,8 @@ impl ChildFrameContainerTemplateKey {
 /// Kind of child-frame container described by a layout coordination node.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum ChildFrameContainerKind {
+    HConcat,
+    VConcat,
     GridConcat,
 }
 
@@ -129,7 +131,7 @@ pub(crate) enum ChildFrameLayoutRequirements {
 pub(crate) fn grid_layout_coordination_node(
     concat: &ConcatCoordMeasurement,
 ) -> Result<Option<ChildFrameLayoutCoordinationNode>, AvengerChartError> {
-    let Some(shape) = concat.grid_shape() else {
+    let Some(shape) = concat.layout_coordination_shape() else {
         return Ok(None);
     };
 
@@ -149,11 +151,16 @@ pub(crate) fn grid_layout_coordination_node(
             .collect(),
     };
     let requirements = ChildFrameLayoutRequirements::Grid(concat.grid_track_requirements()?);
+    let kind = match concat.band_direction() {
+        Some(crate::layout::BandDirection::Horizontal) => ChildFrameContainerKind::HConcat,
+        Some(crate::layout::BandDirection::Vertical) => ChildFrameContainerKind::VConcat,
+        None => ChildFrameContainerKind::GridConcat,
+    };
 
     Ok(Some(ChildFrameLayoutCoordinationNode {
         instance_key,
         template_key,
-        kind: ChildFrameContainerKind::GridConcat,
+        kind,
         alignment_scope,
         topology,
         slots,
