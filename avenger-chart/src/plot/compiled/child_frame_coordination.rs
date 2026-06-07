@@ -13,7 +13,7 @@ use crate::{
     coords::FacetAxis,
     facet::{
         coord::FacetBandCoordMeasurement,
-        placement::{FacetBandPlacement, FacetCellPlacement, resolve_facet_band_placement},
+        placement::{FacetBandPlacement, resolve_facet_band_placement},
     },
     plot::compiled::{ChildFrameKey, ComponentsMeasurement, ContainerPathSegment},
     positioned_subplot::PositionedCoordMeasurement,
@@ -808,6 +808,7 @@ fn apply_child_frame_layout_alignment_recursive(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::facet::placement::FacetCellPlacement;
 
     fn test_alignment_key(kind: ChildFrameContainerKind) -> LayoutAlignmentKey {
         LayoutAlignmentKey {
