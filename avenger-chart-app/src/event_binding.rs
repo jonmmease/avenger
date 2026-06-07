@@ -8165,58 +8165,100 @@ mod tests {
         );
     }
 
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum RepeatBoxTestMode {
+        Global,
+        Union,
+        Intersect,
+    }
+
     #[tokio::test]
-    async fn repeat_box_selection_drag_updates_current_cell_store_and_selection() {
+    async fn repeat_box_selection_modes_update_current_cell_store_and_selection() {
+        for mode in [
+            RepeatBoxTestMode::Global,
+            RepeatBoxTestMode::Union,
+            RepeatBoxTestMode::Intersect,
+        ] {
+            let (mut state, handlers) = repeat_box_selection_state_and_handlers(mode).await;
+            let scopes = state
+                .interaction_scopes()
+                .await
+                .into_iter()
+                .filter(|scope| scope.kind == InteractionScopeKind::Coordinate)
+                .take(2)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                scopes.len(),
+                2,
+                "repeat grid should expose coordinate scopes"
+            );
+
+            let mut updated_cell_ids = Vec::new();
+            for scope in scopes {
+                let cell_id = drag_repeat_box_scope(&mut state, &handlers, &scope).await;
+                updated_cell_ids.push(cell_id);
+            }
+            updated_cell_ids.sort();
+            updated_cell_ids.dedup();
+            assert_eq!(
+                updated_cell_ids.len(),
+                2,
+                "test setup should drag in two distinct repeated cells"
+            );
+
+            let runtime = state.runtime.lock().await;
+            let mut clause_ids = runtime
+                .session
+                .selection_clauses_for_diagnostics(REPEAT_BOX_SELECTION)
+                .iter()
+                .map(|clause| clause.id.clone())
+                .collect::<Vec<_>>();
+            clause_ids.sort();
+            let rows = runtime.session.store_rows_for_diagnostics(REPEAT_BOX_STORE);
+            let root_rows = rows
+                .iter()
+                .find(|(path, _)| path.is_empty())
+                .expect("shared store root rows");
+            let mut store_cell_ids = root_rows
+                .1
+                .iter()
+                .map(|row| match row.get("cell_id").expect("store cell id") {
+                    ScalarValue::Utf8(Some(value)) => value.clone(),
+                    value => panic!("expected string cell id, got {value:?}"),
+                })
+                .collect::<Vec<_>>();
+            store_cell_ids.sort();
+
+            match mode {
+                RepeatBoxTestMode::Global => {
+                    assert_eq!(clause_ids.len(), 1, "global mode keeps one clause");
+                    assert_eq!(store_cell_ids.len(), 1, "global mode keeps one box");
+                }
+                RepeatBoxTestMode::Union | RepeatBoxTestMode::Intersect => {
+                    assert_eq!(
+                        clause_ids, updated_cell_ids,
+                        "{mode:?} mode keeps one clause per repeated cell"
+                    );
+                    assert_eq!(
+                        store_cell_ids, updated_cell_ids,
+                        "{mode:?} mode keeps one box per repeated cell"
+                    );
+                }
+            }
+            assert!(
+                clause_ids.iter().all(|id| id.starts_with("repeat_cell:")),
+                "repeat cell ids should be used as clause ids"
+            );
+        }
+    }
+
+    const REPEAT_BOX_STORE: &str = "brush_boxes";
+    const REPEAT_BOX_SELECTION: &str = "brush";
+
+    async fn repeat_box_selection_state_and_handlers(
+        mode: RepeatBoxTestMode,
+    ) -> (ChartAppState, Vec<ChartEventBindingHandler>) {
         use datafusion::arrow::datatypes::DataType;
-
-        const STORE: &str = "brush_boxes";
-        const SELECTION: &str = "brush";
-
-        fn repeat_box_row() -> StoreRow {
-            let x_interval = event::interval_ordered(
-                event::start_coord("x"),
-                event::event_at_start_clipped_coord("x"),
-            );
-            let y_interval = event::interval_ordered(
-                event::start_coord("y"),
-                event::event_at_start_clipped_coord("y"),
-            );
-            StoreRow::new()
-                .field("id", repeat::cell_id())
-                .field("cell_id", repeat::cell_id())
-                .field("x_min", event::interval_start(x_interval.clone()))
-                .field("x_max", event::interval_end(x_interval))
-                .field("y_min", event::interval_start(y_interval.clone()))
-                .field("y_max", event::interval_end(y_interval))
-        }
-
-        fn repeat_interval_clause() -> SelectionClauseUpdate {
-            SelectionClauseUpdate::interval(repeat::cell_id())
-                .facet_scope(CoordinationScope::Shared)
-                .dimension(repeat::column())
-                .endpoints(
-                    event::interval_start(event::interval_ordered(
-                        event::start_coord("x"),
-                        event::event_at_start_clipped_coord("x"),
-                    )),
-                    event::interval_end(event::interval_ordered(
-                        event::start_coord("x"),
-                        event::event_at_start_clipped_coord("x"),
-                    )),
-                )
-                .dimension(repeat::row())
-                .endpoints(
-                    event::interval_start(event::interval_ordered(
-                        event::start_coord("y"),
-                        event::event_at_start_clipped_coord("y"),
-                    )),
-                    event::interval_end(event::interval_ordered(
-                        event::start_coord("y"),
-                        event::event_at_start_clipped_coord("y"),
-                    )),
-                )
-                .build()
-        }
 
         let ctx = SessionContext::new();
         let df = ctx
@@ -8239,11 +8281,8 @@ mod tests {
             .filter(event::start_coord("y").is_not_null())
             .filter(event::event_at_start_clipped_coord("x").is_not_null())
             .filter(event::event_at_start_clipped_coord("y").is_not_null())
-            .set_selection_at_start_scope(
-                SELECTION,
-                SelectionUpdate::upsert_clause(repeat_interval_clause()),
-            )
-            .set_store_at_start_scope(STORE, StoreUpdate::upsert_rows([repeat_box_row()]))
+            .set_selection_at_start_scope(REPEAT_BOX_SELECTION, repeat_box_selection_update(mode))
+            .set_store_at_start_scope(REPEAT_BOX_STORE, repeat_box_store_update(mode))
             .preview();
 
         let cell = Plot::<Cartesian>::new()
@@ -8255,7 +8294,7 @@ mod tests {
             )
             .mark(
                 Rect::<Cartesian>::new()
-                    .data_store(StoreData::new(STORE))
+                    .data_store(StoreData::new(REPEAT_BOX_STORE))
                     .transform_no_output(Filter::new(repeat::current_cell_predicate()), |mark| mark)
                     .exclude_from_scale_domains()
                     .x(col("x_min"))
@@ -8275,10 +8314,20 @@ mod tests {
             .cell(cell)
             .matrix_domains()
             .matrix_axes();
+        let selection = match mode {
+            RepeatBoxTestMode::Global | RepeatBoxTestMode::Union => {
+                Selection::new(REPEAT_BOX_SELECTION)
+                    .combine(SelectionCombine::Union)
+                    .empty_selects_nothing()
+            }
+            RepeatBoxTestMode::Intersect => Selection::new(REPEAT_BOX_SELECTION)
+                .combine(SelectionCombine::Intersect)
+                .empty_selects_all(),
+        };
         let compiled = Plot::<HConcat>::new()
             .canvas_size(640.0, 360.0)
             .add_store(
-                Store::empty(STORE)
+                Store::empty(REPEAT_BOX_STORE)
                     .field("id", DataType::Utf8, false)
                     .field("cell_id", DataType::Utf8, false)
                     .field("x_min", DataType::Float64, false)
@@ -8288,11 +8337,7 @@ mod tests {
                     .primary_key(["id"])
                     .sharing(CoordinationScope::Shared),
             )
-            .add_selection(
-                Selection::new(SELECTION)
-                    .combine(SelectionCombine::Union)
-                    .empty_selects_nothing(),
-            )
+            .add_selection(selection)
             .mark(Subplot::new(repeat_grid).id("splom"))
             .compile(&ctx)
             .await
@@ -8312,12 +8357,81 @@ mod tests {
             .build(&mut state)
             .await
             .expect("initial repeat scene");
-        let scope = state
-            .interaction_scopes()
-            .await
-            .into_iter()
-            .find(|scope| scope.kind == InteractionScopeKind::Coordinate)
-            .expect("repeat coordinate scope");
+        (state, handlers)
+    }
+
+    fn repeat_box_selection_update(mode: RepeatBoxTestMode) -> SelectionUpdate {
+        match mode {
+            RepeatBoxTestMode::Global => {
+                SelectionUpdate::replace_all_clauses([repeat_interval_clause()])
+            }
+            RepeatBoxTestMode::Union | RepeatBoxTestMode::Intersect => {
+                SelectionUpdate::upsert_clause(repeat_interval_clause())
+            }
+        }
+    }
+
+    fn repeat_box_store_update(mode: RepeatBoxTestMode) -> StoreUpdate {
+        match mode {
+            RepeatBoxTestMode::Global => StoreUpdate::replace_rows([repeat_box_row()]),
+            RepeatBoxTestMode::Union | RepeatBoxTestMode::Intersect => {
+                StoreUpdate::upsert_rows([repeat_box_row()])
+            }
+        }
+    }
+
+    fn repeat_box_row() -> StoreRow {
+        let x_interval = event::interval_ordered(
+            event::start_coord("x"),
+            event::event_at_start_clipped_coord("x"),
+        );
+        let y_interval = event::interval_ordered(
+            event::start_coord("y"),
+            event::event_at_start_clipped_coord("y"),
+        );
+        StoreRow::new()
+            .field("id", repeat::cell_id())
+            .field("cell_id", repeat::cell_id())
+            .field("x_min", event::interval_start(x_interval.clone()))
+            .field("x_max", event::interval_end(x_interval))
+            .field("y_min", event::interval_start(y_interval.clone()))
+            .field("y_max", event::interval_end(y_interval))
+    }
+
+    fn repeat_interval_clause() -> SelectionClauseUpdate {
+        SelectionClauseUpdate::interval(repeat::cell_id())
+            .facet_scope(CoordinationScope::Shared)
+            .dimension(repeat::column())
+            .endpoints(
+                event::interval_start(event::interval_ordered(
+                    event::start_coord("x"),
+                    event::event_at_start_clipped_coord("x"),
+                )),
+                event::interval_end(event::interval_ordered(
+                    event::start_coord("x"),
+                    event::event_at_start_clipped_coord("x"),
+                )),
+            )
+            .dimension(repeat::row())
+            .endpoints(
+                event::interval_start(event::interval_ordered(
+                    event::start_coord("y"),
+                    event::event_at_start_clipped_coord("y"),
+                )),
+                event::interval_end(event::interval_ordered(
+                    event::start_coord("y"),
+                    event::event_at_start_clipped_coord("y"),
+                )),
+            )
+            .build()
+    }
+
+    async fn drag_repeat_box_scope(
+        state: &mut ChartAppState,
+        handlers: &[ChartEventBindingHandler],
+        scope: &EvaluatedInteractionScope,
+    ) -> String {
+        let before = repeat_box_store_cell_ids(state).await;
         let start = [
             scope.bounds.x + scope.bounds.width * 0.25,
             scope.bounds.y + scope.bounds.height * 0.75,
@@ -8344,7 +8458,7 @@ mod tests {
         };
 
         let mut rerenders = 0;
-        for handler in &handlers {
+        for handler in handlers {
             let status = handler
                 .handle_with_context(
                     &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
@@ -8353,7 +8467,7 @@ mod tests {
                         modifiers: Default::default(),
                     }),
                     &context,
-                    &mut state,
+                    state,
                     &empty_rtree(),
                 )
                 .await;
@@ -8363,29 +8477,27 @@ mod tests {
             rerenders, 1,
             "only the binding for the routed repeated cell should update state"
         );
+        let after = repeat_box_store_cell_ids(state).await;
+        let added = after.difference(&before).cloned().collect::<Vec<_>>();
+        if let [cell_id] = added.as_slice() {
+            return cell_id.clone();
+        }
+        after.into_iter().next().expect("updated store cell id")
+    }
 
+    async fn repeat_box_store_cell_ids(state: &ChartAppState) -> BTreeSet<String> {
         let runtime = state.runtime.lock().await;
-        let clauses = runtime.session.selection_clauses_for_diagnostics(SELECTION);
-        assert_eq!(clauses.len(), 1);
-        let rows = runtime.session.store_rows_for_diagnostics(STORE);
-        let root_rows = rows
-            .iter()
-            .find(|(path, _)| path.is_empty())
-            .expect("shared store root rows");
-        assert_eq!(root_rows.1.len(), 1);
-        let store_cell_id = root_rows.1[0]
-            .get("cell_id")
-            .expect("store cell id")
-            .clone();
-        assert_eq!(
-            ScalarValue::Utf8(Some(clauses[0].id.clone())),
-            store_cell_id,
-            "selection clause id should match the brush chrome cell id"
-        );
-        assert!(
-            clauses[0].id.starts_with("repeat_cell:"),
-            "repeat cell id should be used as the clause id"
-        );
+        runtime
+            .session
+            .store_rows_for_diagnostics(REPEAT_BOX_STORE)
+            .into_iter()
+            .flat_map(|(_, rows)| {
+                rows.into_iter().filter_map(|row| match row.get("cell_id") {
+                    Some(ScalarValue::Utf8(Some(value))) => Some(value.clone()),
+                    _ => None,
+                })
+            })
+            .collect()
     }
 
     #[tokio::test]
