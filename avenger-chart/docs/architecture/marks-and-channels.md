@@ -40,7 +40,8 @@ data can inherit plot-level or container-provided data.
 
 Channel configs implement `ChannelConfig`. Scale-bearing configs also get
 `ScaleChannelConfig`, which provides `scale`, `scale_with`,
-`with_scale_sharing`, `share_scale`, and `free_scale`.
+`with_domain_scope`, `with_domain_group`, `with_domain_coordination`,
+`share_domain`, and `free_domain`.
 
 ## Compile-Time Contracts
 
