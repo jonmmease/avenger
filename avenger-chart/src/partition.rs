@@ -131,6 +131,12 @@ pub struct PartitionNode {
     pub values: Vec<ScalarValue>,
     /// Values observed under the concrete parent-path filter for this node.
     pub observed_values: Vec<ScalarValue>,
+    /// Minimum physical slots to reserve for this node.
+    ///
+    /// This is layout metadata rather than a semantic domain value list. Facet
+    /// wrap uses it to preserve trailing holes in ragged physical rows without
+    /// inventing fake data values or predicates.
+    pub(crate) min_slot_count: Option<usize>,
     /// Partition content: either leaf values or branches keyed by values.
     pub content: PartitionContent,
 }
@@ -523,6 +529,7 @@ impl PartitionNode {
             axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
             values: values.clone(),
             observed_values: values.clone(),
+            min_slot_count: None,
             content: PartitionContent::Leaf { values },
         }
     }
@@ -544,6 +551,7 @@ impl PartitionNode {
             axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
             values: values.clone(),
             observed_values,
+            min_slot_count: None,
             content: PartitionContent::Leaf { values },
         }
     }
@@ -565,6 +573,7 @@ impl PartitionNode {
             axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
             values: values.clone(),
             observed_values: values,
+            min_slot_count: None,
             content: PartitionContent::Branch { children },
         }
     }
@@ -587,6 +596,7 @@ impl PartitionNode {
             axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
             values,
             observed_values,
+            min_slot_count: None,
             content: PartitionContent::Branch { children },
         }
     }
@@ -609,8 +619,18 @@ impl PartitionNode {
             axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
             values,
             observed_values,
+            min_slot_count: None,
             content: PartitionContent::Branch { children },
         }
+    }
+
+    pub(crate) fn with_min_slot_count(mut self, min_slot_count: usize) -> Self {
+        self.min_slot_count = Some(min_slot_count);
+        self
+    }
+
+    pub(crate) fn min_slot_count(&self) -> Option<usize> {
+        self.min_slot_count
     }
 
     /// Check if this is a leaf node.

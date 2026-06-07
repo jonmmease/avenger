@@ -415,9 +415,33 @@ pub(crate) fn compute_explicit_facet_band_placement(
         );
     }
 
+    let slot_count = layout.n.max(inputs.len());
+    let band_inputs = if slot_count > inputs.len() {
+        let fallback_main_axis_size = inputs
+            .iter()
+            .map(|input| input.main_axis_size)
+            .fold(0.0f32, f32::max);
+        let fallback_cross_axis_size = inputs
+            .iter()
+            .map(|input| input.cross_axis_size)
+            .fold(0.0f32, f32::max);
+        let mut band_inputs = inputs.clone();
+        for child_index in inputs.len()..slot_count {
+            band_inputs.push(BandChildFrameInput {
+                child_index,
+                main_axis_size: fallback_main_axis_size,
+                cross_axis_size: fallback_cross_axis_size,
+                boundary: BoundaryDemand1D::default(),
+            });
+        }
+        band_inputs
+    } else {
+        inputs.clone()
+    };
+
     let band = BandChildFramePlacement::from_sized_children(
         band_direction(axis),
-        &inputs,
+        &band_inputs,
         BandSpacing {
             outer_start: layout.outer_start,
             outer_end: layout.outer_end,
@@ -428,6 +452,7 @@ pub(crate) fn compute_explicit_facet_band_placement(
     let main_axis_positions = band
         .children
         .iter()
+        .take(cells.len())
         .map(|child| child.main_axis_start)
         .collect();
     let main_axis_size = band.main_axis_extent;

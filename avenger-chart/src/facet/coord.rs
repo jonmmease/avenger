@@ -1476,6 +1476,7 @@ enum NestedScalePlan<'a> {
 /// Planning data prepared once before running the facet-band measurement pipeline.
 struct FacetBandMeasurePlan {
     cell_values: Vec<ScalarValue>,
+    min_slot_count: usize,
     cells: Vec<FacetCellDraft>,
     scale_artifacts: Arc<FacetScaleNodeArtifacts>,
 }
@@ -2326,6 +2327,10 @@ async fn build_facet_band_measure_plan(
     eval_ctx: &EvaluationContext,
 ) -> Result<FacetBandMeasurePlan, AvengerChartError> {
     let cell_values: Vec<ScalarValue> = cell_plans.iter().map(|plan| plan.value.clone()).collect();
+    let min_slot_count = facet_tree
+        .min_slot_count_for_facet(facet_path)
+        .unwrap_or(cell_values.len())
+        .max(cell_values.len());
 
     let node_key = FacetScaleNodeKey::new(compiled_subplot, facet_path);
     let scale_artifacts = if let Some(artifacts) = eval_ctx
@@ -2398,6 +2403,7 @@ async fn build_facet_band_measure_plan(
 
     Ok(FacetBandMeasurePlan {
         cell_values,
+        min_slot_count,
         cells,
         scale_artifacts,
     })
@@ -3451,6 +3457,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 .cell_semantics
                 .cell_values
                 .clone(),
+            min_slot_count: overflow_probe.prepared_inputs.cell_semantics.min_slot_count,
             cells: overflow_runtime.cells,
             scale_artifacts: prepared_runtime.scale_artifacts.clone(),
         };
@@ -3783,6 +3790,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         &self,
         cells: &[FacetCellDraft],
         cell_values: &[ScalarValue],
+        min_slot_count: usize,
         pass1: &OverflowProbeSummary,
         empty_cell_policy: FacetEmptyCellPolicy,
     ) -> FacetBandPlan {
@@ -3847,7 +3855,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             guide_padding_inner_px,
             outer_start,
             outer_end,
-            n: cell_values.len(),
+            n: min_slot_count.max(cell_values.len()),
         }
     }
 
@@ -3957,6 +3965,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         let band_layout_plan = self.derive_layout_plan(
             &plan.cells,
             &plan.cell_values,
+            plan.min_slot_count,
             overflow_summary,
             empty_cell_policy,
         );
@@ -4033,6 +4042,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 .cell_semantics
                 .cell_values
                 .clone(),
+            min_slot_count: overflow_probe.prepared_inputs.cell_semantics.min_slot_count,
             cells: overflow_runtime.cells,
             scale_artifacts: prepared_runtime.scale_artifacts.clone(),
         };

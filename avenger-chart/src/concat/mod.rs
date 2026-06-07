@@ -507,6 +507,7 @@ pub(crate) enum ConcatChildPlacement {
     Grid {
         placement: ChildFramePlacementResult,
         shape: GridShape,
+        retarget_plot_area_size: bool,
     },
 }
 
@@ -657,18 +658,26 @@ impl ConcatCoordMeasurement {
         let solution = solve_grid_track_requirements(requirements, &demands);
 
         let placement = match &self.placement {
-            ConcatChildPlacement::Grid { .. } => {
+            ConcatChildPlacement::Grid {
+                retarget_plot_area_size,
+                ..
+            } => {
                 let render_placements = self
                     .children
                     .iter()
                     .enumerate()
                     .map(|(slot_index, child)| {
                         let slot = self.layout_coordination_slot_for_child(slot_index, child)?;
-                        Ok(ChildFrameRenderPlacement::with_plot_area_size(
-                            child.child_index,
-                            solution.origin_for_slot(slot),
-                            solution.plot_area_size_for_slot(slot),
-                        ))
+                        let origin = solution.origin_for_slot(slot);
+                        Ok(if *retarget_plot_area_size {
+                            ChildFrameRenderPlacement::with_plot_area_size(
+                                child.child_index,
+                                origin,
+                                solution.plot_area_size_for_slot(slot),
+                            )
+                        } else {
+                            ChildFrameRenderPlacement::new(child.child_index, origin)
+                        })
                     })
                     .collect::<Result<Vec<_>, AvengerChartError>>()?;
                 ConcatChildPlacement::Grid {
@@ -677,6 +686,7 @@ impl ConcatCoordMeasurement {
                         render_placements,
                     ),
                     shape,
+                    retarget_plot_area_size: *retarget_plot_area_size,
                 }
             }
             ConcatChildPlacement::Band(band) => {
@@ -1368,12 +1378,13 @@ pub(crate) async fn measure_grid_concat_coord_system(
         );
     }
 
-    let placement = grid_child_frame_placement(&children, grid_shape, base_child_plot_area)?;
+    let placement = grid_child_frame_placement(&children, grid_shape, base_child_plot_area, true)?;
     Ok(Box::new(ConcatCoordMeasurement {
         children,
         placement: ConcatChildPlacement::Grid {
             placement,
             shape: grid_shape,
+            retarget_plot_area_size: true,
         },
         fallback_content_size: Size2D::new(plot_width, plot_height),
     }))
@@ -1489,12 +1500,13 @@ pub(crate) async fn measure_wrap_concat_coord_system(
         children.push(child);
     }
 
-    let placement = grid_child_frame_placement(&children, grid_shape, child_plot_area)?;
+    let placement = grid_child_frame_placement(&children, grid_shape, child_plot_area, false)?;
     Ok(Box::new(ConcatCoordMeasurement {
         children,
         placement: ConcatChildPlacement::Grid {
             placement,
             shape: grid_shape,
+            retarget_plot_area_size: false,
         },
         fallback_content_size: Size2D::new(plot_width, plot_height),
     }))
@@ -1955,6 +1967,7 @@ fn grid_child_frame_placement(
     children: &[ConcatChildMeasurement],
     shape: GridShape,
     base_cell_size: Size2D,
+    retarget_plot_area_size: bool,
 ) -> Result<ChildFramePlacementResult, AvengerChartError> {
     let demands = grid_child_track_demands(children)?;
     let requirements = grid_track_requirements(shape, base_cell_size, &demands)?;
@@ -1965,11 +1978,16 @@ fn grid_child_frame_placement(
         .map(|child| {
             let placement = child.grid_placement.expect("validated above");
             let slot = GridSlotRect::from_placement(placement);
-            ChildFrameRenderPlacement::with_plot_area_size(
-                child.child_index,
-                solution.origin_for_slot(slot),
-                solution.plot_area_size_for_slot(slot),
-            )
+            let origin = solution.origin_for_slot(slot);
+            if retarget_plot_area_size {
+                ChildFrameRenderPlacement::with_plot_area_size(
+                    child.child_index,
+                    origin,
+                    solution.plot_area_size_for_slot(slot),
+                )
+            } else {
+                ChildFrameRenderPlacement::new(child.child_index, origin)
+            }
         })
         .collect();
 
@@ -4565,6 +4583,15 @@ mod tests {
             .map(|placement| (placement.child_index, placement.origin))
             .collect::<Vec<_>>();
         assert_eq!(origins, vec![(0, [0.0, 0.0])]);
+        assert_eq!(
+            placement
+                .render_placements()
+                .iter()
+                .map(|placement| placement.plot_area_size)
+                .collect::<Vec<_>>(),
+            vec![None],
+            "wrap cells should keep their measured one-slot plot area and leave trailing holes"
+        );
         assert_eq!(placement.content_size, Size2D::new(300.0, 100.0));
         Ok(())
     }

@@ -35,6 +35,7 @@ pub(crate) struct FacetBandSemantics {
     pub(crate) coordination_field_identity: String,
     pub(crate) empty_cell_policy: FacetEmptyCellPolicy,
     pub(crate) cell_values: Vec<ScalarValue>,
+    pub(crate) min_slot_count: usize,
     pub(crate) cells: Vec<FacetBandCellSemantic>,
 }
 
@@ -91,6 +92,10 @@ impl FacetBandSemantics {
         facet_tree: &EvaluatedFacetTree,
         cell_values: &[ScalarValue],
     ) -> Result<Self, AvengerChartError> {
+        let min_slot_count = facet_tree
+            .min_slot_count_for_facet(facet_path)
+            .unwrap_or(cell_values.len())
+            .max(cell_values.len());
         let cells = cell_values
             .iter()
             .map(|value| {
@@ -136,6 +141,7 @@ impl FacetBandSemantics {
             coordination_field_identity,
             empty_cell_policy,
             cell_values: cell_values.to_vec(),
+            min_slot_count,
             cells,
         })
     }

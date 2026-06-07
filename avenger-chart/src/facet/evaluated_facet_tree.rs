@@ -938,6 +938,15 @@ impl EvaluatedFacetTree {
         self.enumerate_values_for_facet_uncached(facet_path, sharing_level)
     }
 
+    pub(crate) fn min_slot_count_for_facet(&self, facet_path: &[ScalarValue]) -> Option<usize> {
+        let node = if facet_path.is_empty() {
+            self.root.as_ref()
+        } else {
+            self.node_at_path(facet_path)
+        }?;
+        node.min_slot_count()
+    }
+
     /// Get the sharing level for a channel.
     ///
     /// Returns the sharing level stored during tree construction, or 255 (Shared)
@@ -2482,6 +2491,7 @@ async fn build_wrap_partition_node(
                     row_observed,
                 )
                 .with_axis_guide_visibility(dimension.axis_guide_visibility)
+                .with_min_slot_count(columns)
             } else {
                 PartitionNode::branch_with_values_and_observed(
                     FacetDirection::Column,
@@ -2493,6 +2503,7 @@ async fn build_wrap_partition_node(
                     value_children,
                 )
                 .with_axis_guide_visibility(dimension.axis_guide_visibility)
+                .with_min_slot_count(columns)
             }
         } else {
             PartitionNode::leaf_with_observed(
@@ -2504,6 +2515,7 @@ async fn build_wrap_partition_node(
                 row_observed,
             )
             .with_axis_guide_visibility(dimension.axis_guide_visibility)
+            .with_min_slot_count(columns)
         };
         row_children.insert(row_value.clone(), Box::new(column_node));
     }
@@ -2694,6 +2706,40 @@ mod tests {
             .expect("nested wrap row child")
             .values()
             .count()
+    }
+
+    #[tokio::test]
+    async fn fixed_wrap_rows_preserve_trailing_physical_slot_count() -> Result<(), AvengerChartError>
+    {
+        let ctx = SessionContext::new();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('A', 0.0, 0.1),
+                    ('B', 1.0, 0.2),
+                    ('C', 2.0, 0.3)
+                ) AS t(facet, x, y)",
+            )
+            .await?;
+        let plot = Plot::<FacetWrap>::new().data(df).mark(
+            Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))))
+                .wrap_with(col("facet"), |c| c.columns(2).empty_cells_as_holes()),
+        );
+        let compiled = plot.compile(&ctx).await?;
+        let tree = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx).await?;
+        let root = tree.root().expect("wrap root");
+        let rows = root.values().cloned().collect::<Vec<_>>();
+        assert_eq!(rows.len(), 2);
+
+        let first_row_child = root.child(&rows[0]).expect("first wrap row child");
+        assert_eq!(first_row_child.values().count(), 2);
+        assert_eq!(first_row_child.min_slot_count(), Some(2));
+
+        let second_row_child = root.child(&rows[1]).expect("second wrap row child");
+        assert_eq!(second_row_child.values().count(), 1);
+        assert_eq!(second_row_child.min_slot_count(), Some(2));
+        assert_eq!(tree.min_slot_count_for_facet(&[rows[1].clone()]), Some(2));
+        Ok(())
     }
 
     #[tokio::test]
