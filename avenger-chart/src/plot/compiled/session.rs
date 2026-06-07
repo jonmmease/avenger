@@ -3494,6 +3494,51 @@ mod tests {
             .await
     }
 
+    async fn compile_responsive_repeat_wrap_inside_facet_wrap_width_param_cache_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let width = Param::new("width", ScalarValue::Float64(Some(560.0)));
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('Alpha', 1.0, 3.2, 6.0),
+                    ('Alpha', 1.5, 2.8, 5.5),
+                    ('Beta', 3.2, 1.7, 4.2),
+                    ('Beta', 3.8, 1.3, 3.8),
+                    ('Gamma', 0.8, 4.4, 5.7),
+                    ('Gamma', 1.3, 4.0, 5.1)
+                ) AS t(group_name, a, b, c)",
+            )
+            .await?;
+        let items = ["a", "b", "c"]
+            .into_iter()
+            .map(|name| RepeatVariable::new(name, col(name)).title(format!("Title {name}")));
+        let repeat = Plot::<RepeatWrap>::new()
+            .items(items)
+            .responsive_columns(180.0)
+            .cell(
+                Plot::<Cartesian>::new().mark(
+                    Symbol::new()
+                        .x(lit(1.0))
+                        .y(repeat::item())
+                        .size(20.0)
+                        .fill("#4682b4"),
+                ),
+            )
+            .item_domains();
+        Plot::<FacetWrap>::new()
+            .add_param(width.clone())
+            .canvas_constraint(CanvasConstraint::width(width.expr()))
+            .plot_constraint(PlotConstraint::height(110.0))
+            .data(df)
+            .mark(
+                Subplot::new(repeat)
+                    .wrap_with(col("group_name"), |c| c.columns(2).empty_cells_as_holes()),
+            )
+            .compile(ctx)
+            .await
+    }
+
     async fn compile_positioned_child_width_param_scale_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
@@ -5993,6 +6038,137 @@ mod tests {
         assert_eq!(exact.mode, EvaluationMode::Exact);
         assert_eq!(settled.scene_graph.width, one_shot.scene_graph.width);
         assert_eq!(settled.scene_graph.height, one_shot.scene_graph.height);
+        assert_symbol_positions_close_with_tolerance(
+            &settled.scene_graph,
+            &one_shot.scene_graph,
+            6.0,
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_preview_responsive_repeat_wrap_inside_facet_wrap_updates_final_scopes()
+    -> Result<(), AvengerChartError> {
+        use crate::render::EvaluatedChildFrameKind;
+
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(
+            compile_responsive_repeat_wrap_inside_facet_wrap_width_param_cache_plot(&ctx).await?,
+        );
+        let mut session = compiled.clone().instantiate(ctx.clone());
+
+        let (_evaluated, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            exact.facet_layout.plot_component_measure_calls > 0,
+            "warm exact evaluation should build nested facet/repeat-wrap measurements"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(2000.0)));
+        let (preview_plot, preview) = session
+            .evaluate_with_metrics(
+                EvaluationRequest::new()
+                    .preview()
+                    .param_patch(patch.clone()),
+            )
+            .await?;
+
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(
+            preview.pipeline.preview_profile_reuses, 0,
+            "responsive RepeatWrap lowers to WrapConcat, so a column-count change should not retarget stale child-frame structure"
+        );
+        assert_eq!(preview.pipeline.preview_fallbacks, 1);
+        assert_eq!(
+            preview.pipeline.preview_profile_fallback_reasons,
+            vec![PreviewProfileFallbackReason::PhysicalStructureMismatch]
+        );
+
+        let mut one_shot_preview_session = compiled.clone().instantiate(ctx.clone());
+        let (one_shot_preview, one_shot_preview_metrics) = one_shot_preview_session
+            .evaluate_with_metrics(
+                EvaluationRequest::new()
+                    .preview()
+                    .param_patch(patch.clone()),
+            )
+            .await?;
+        assert_eq!(one_shot_preview_metrics.mode, EvaluationMode::Preview);
+        assert_eq!(
+            one_shot_preview_metrics
+                .pipeline
+                .preview_profile_fallback_reasons,
+            vec![PreviewProfileFallbackReason::NoPriorProfile]
+        );
+        assert_eq!(
+            preview_plot.scene_graph.width,
+            one_shot_preview.scene_graph.width
+        );
+        assert_eq!(
+            preview_plot.scene_graph.height,
+            one_shot_preview.scene_graph.height
+        );
+        assert_eq!(
+            preview_plot.scene_graph.marks.len(),
+            one_shot_preview.scene_graph.marks.len()
+        );
+        assert_symbol_positions_close_with_tolerance(
+            &preview_plot.scene_graph,
+            &one_shot_preview.scene_graph,
+            3.0,
+        );
+
+        let mut scopes_by_group: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        for scope in &preview_plot.interaction.scopes {
+            assert_eq!(
+                scope.logical_facet_values.len(),
+                1,
+                "each repeated leaf scope should retain its outer FacetWrap value"
+            );
+            let ScalarValue::Utf8(Some(group)) = &scope.logical_facet_values[0] else {
+                panic!(
+                    "expected UTF-8 facet value, got {:?}",
+                    scope.logical_facet_values[0]
+                );
+            };
+            assert_eq!(
+                scope.child_frame_path.len(),
+                1,
+                "the repeat-generated WrapConcat should be the only child-frame segment below the facet"
+            );
+            let segment = &scope.child_frame_path[0];
+            assert_eq!(segment.kind, EvaluatedChildFrameKind::WrapConcat);
+            assert_eq!(segment.row, Some(0));
+            assert_eq!(segment.row_count, Some(1));
+            assert_eq!(segment.column_count, Some(3));
+            scopes_by_group
+                .entry(group.clone())
+                .or_default()
+                .push(segment.column.expect("repeat item column"));
+        }
+        assert_eq!(scopes_by_group.len(), 3);
+        for (group, mut columns) in scopes_by_group {
+            columns.sort_unstable();
+            assert_eq!(
+                columns,
+                vec![0, 1, 2],
+                "group {group} should expose final 3-column repeat-wrap placement"
+            );
+        }
+
+        let (settled, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        let one_shot = compiled.evaluate(ctx.as_ref(), Some(patch)).await?;
+        assert_eq!(exact.mode, EvaluationMode::Exact);
+        assert_eq!(settled.scene_graph.width, one_shot.scene_graph.width);
+        assert_eq!(settled.scene_graph.height, one_shot.scene_graph.height);
+        assert_eq!(
+            settled.scene_graph.marks.len(),
+            one_shot.scene_graph.marks.len()
+        );
         assert_symbol_positions_close_with_tolerance(
             &settled.scene_graph,
             &one_shot.scene_graph,
