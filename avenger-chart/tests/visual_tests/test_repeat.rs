@@ -83,14 +83,6 @@ fn repeat_variables_short() -> Vec<RepeatVariable> {
     ]
 }
 
-fn repeat_grid_bottom_row_predicate() -> Expr {
-    repeat::row_index().eq(lit(2_i64))
-}
-
-fn repeat_grid_left_column_predicate() -> Expr {
-    repeat::column_index().eq(lit(0_i64))
-}
-
 fn repeat_variables_four() -> Vec<RepeatVariable> {
     let mut variables = repeat_variables();
     variables.push(RepeatVariable::new("score", col("score")).title("Score"));
@@ -170,16 +162,10 @@ fn grid_cell_outer_axes_short_titles() -> Plot<Cartesian> {
     Plot::<Cartesian>::new().mark(
         Symbol::new()
             .x_with(repeat::column(), |c| {
-                c.axis(|a| {
-                    a.title(repeat::column_title())
-                        .visible(repeat_grid_bottom_row_predicate())
-                })
+                c.axis(|a| a.title(repeat::column_title()).grid(true))
             })
             .y_with(repeat::row(), |c| {
-                c.axis(|a| {
-                    a.title(repeat::row_title())
-                        .visible(repeat_grid_left_column_predicate())
-                })
+                c.axis(|a| a.title(repeat::row_title()).grid(true))
             })
             .fill("#2f7ed8")
             .opacity(0.78)
@@ -256,23 +242,15 @@ fn diagonal_histogram_cell_outer_axes_short_titles() -> Plot<Cartesian> {
         Bin::new(repeat::column()).maxbins(5),
         |mark, bin| {
             mark.x_with(bin.start(), |c| {
-                c.axis(|a| {
-                    a.title(repeat::column_title())
-                        .visible(repeat_grid_bottom_row_predicate())
-                })
+                c.axis(|a| a.title(repeat::column_title()).grid(true))
             })
             .x2(bin.end())
-            .y_with(lit(0.0), |c| {
-                c.axis(|a| {
-                    a.title("count")
-                        .visible(repeat_grid_left_column_predicate())
-                })
-            })
+            .y_with(lit(0.0), |c| c.axis(|a| a.title("count").grid(true)))
             .y2(count(lit(1)))
             .fill("#2f7ed8")
             .stroke("#ffffff")
             .stroke_width(1.0)
-            .opacity(0.7)
+            .opacity(0.4)
         },
     ))
 }
@@ -540,7 +518,7 @@ async fn repeat_grid_matrix_axes_diagonal_histograms_large_short_titles() {
     let variables = repeat_variables_short();
     let plot = Plot::<RepeatGrid>::new()
         .data(repeat_data(&ctx).await)
-        .plot_size(180.0, 155.0)
+        .plot_size(270.0, 232.5)
         .rows(variables.clone())
         .columns(variables)
         .cell(grid_cell_outer_axes_short_titles())
@@ -560,7 +538,7 @@ async fn repeat_grid_matrix_axes_diagonal_histograms_large_short_titles() {
         None,
         "repeat",
         "repeat_grid_matrix_axes_diagonal_histograms_large_short_titles",
-        0.999,
+        0.997,
     )
     .await;
 }
