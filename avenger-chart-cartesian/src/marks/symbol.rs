@@ -139,12 +139,11 @@ impl CompiledMarkCore for CompiledCartesianSymbol {
                 let size_expr = resolve_channel("size");
                 let stroke_width_expr = resolve_channel("stroke_width");
 
-                // For symbols: radius = sqrt(area) * 0.5 + stroke_width / 2 + 4px
+                // For symbols: radius = sqrt(area) * 0.5 + stroke_width / 2
                 // The size channel represents the area of the bounding square
                 // The base circle SVG path has radius 0.5 for a unit square (size=1)
                 // Add half the stroke width since stroke extends both inward and outward
-                let radius_expr =
-                    sqrt(size_expr) * lit(0.5) + stroke_width_expr / lit(2.0) + lit(4.0);
+                let radius_expr = sqrt(size_expr) * lit(0.5) + stroke_width_expr / lit(2.0);
 
                 let radius_expr_node = LogicalExprNode::from_default_expr(radius_expr)
                     .expect("Failed to serialize expr");
