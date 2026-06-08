@@ -53,6 +53,7 @@ pub(crate) struct RequirementNodeSnapshot {
     pub(crate) key: CoordinationScopeKey,
     pub(crate) axis: FacetAxis,
     pub(crate) slot_sharing: SharingLevel,
+    pub(crate) min_slot_count: usize,
     pub(crate) measured_overflow: Option<CoordinatedOverflow>,
     pub(crate) local_layout: CoordinatedLayout,
     pub(crate) guide_padding_inner_px: f32,
@@ -380,6 +381,7 @@ struct RoundCollectionInput {
     key: CoordinationScopeKey,
     axis: FacetAxis,
     slot_sharing: SharingLevel,
+    min_slot_count: usize,
     measured_overflow: Option<CoordinatedOverflow>,
     local_layout: CoordinatedLayout,
     guide_padding_inner_px: f32,
@@ -708,7 +710,7 @@ fn build_round_patches(
         if let Some(merged_layout) = merged.layout_by_key.get(&layout_key).cloned() {
             let mut layout = merged_layout;
             if node.slot_sharing.is_free() {
-                layout.n = node.local_layout.n;
+                layout.n = node.local_layout.n.max(node.min_slot_count);
             }
             if let Some(axis_group) = scopes.axis_lane_scope_by_node.get(&node.node_id)
                 && let Some(group_gap) = grouped.max_guide_slot_gap_by_axis_group.get(axis_group)
@@ -744,6 +746,7 @@ pub(crate) fn build_requirement_pass(
             key: node.key.clone(),
             axis: node.axis,
             slot_sharing: node.slot_sharing,
+            min_slot_count: node.min_slot_count,
             measured_overflow: node.measured_overflow.clone(),
             local_layout: node.local_layout.clone(),
             guide_padding_inner_px: node.guide_padding_inner_px,
@@ -802,6 +805,7 @@ mod tests {
             key: key.clone(),
             axis,
             slot_sharing: SharingLevel::GLOBAL,
+            min_slot_count: 0,
             measured_overflow,
             local_layout: CoordinatedLayout {
                 padding_inner_px: 0.0,
@@ -830,6 +834,7 @@ mod tests {
                     key: key.clone(),
                     axis: FacetAxis::Column,
                     slot_sharing: SharingLevel::GLOBAL,
+                    min_slot_count: 0,
                     measured_overflow: Some(overflow(1.0, 2.0, 3.0, 4.0)),
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 2.0,
@@ -847,6 +852,7 @@ mod tests {
                     key: key.clone(),
                     axis: FacetAxis::Column,
                     slot_sharing: SharingLevel::GLOBAL,
+                    min_slot_count: 0,
                     measured_overflow: Some(overflow(3.0, 1.0, 5.0, 2.0)),
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 4.0,
@@ -884,6 +890,7 @@ mod tests {
                         key: key.clone(),
                         axis: FacetAxis::Column,
                         slot_sharing: SharingLevel::FREE,
+                        min_slot_count: 0,
                         measured_overflow: None,
                         local_layout: CoordinatedLayout {
                             n: 1,
@@ -898,6 +905,7 @@ mod tests {
                         key,
                         axis: FacetAxis::Column,
                         slot_sharing: SharingLevel::FREE,
+                        min_slot_count: 0,
                         measured_overflow: None,
                         local_layout: CoordinatedLayout {
                             n: 3,
@@ -930,6 +938,41 @@ mod tests {
     }
 
     #[test]
+    fn free_slot_requirement_patches_preserve_minimum_physical_slot_count() {
+        let key = scope_key(2, "col:wrap_row");
+        let ragged_row = CoordinationNodeKey::new(vec![1]);
+        let pass = build_requirement_pass(
+            RequirementStage::Initial,
+            RequirementSnapshot {
+                nodes: vec![RequirementNodeSnapshot {
+                    node_id: ragged_row.clone(),
+                    key,
+                    axis: FacetAxis::Column,
+                    slot_sharing: SharingLevel::FREE,
+                    min_slot_count: 5,
+                    measured_overflow: None,
+                    local_layout: CoordinatedLayout {
+                        n: 2,
+                        ..Default::default()
+                    },
+                    guide_padding_inner_px: 0.0,
+                    first_edge_index: 0,
+                    last_edge_index: 1,
+                }],
+            },
+        );
+
+        assert_eq!(
+            pass.distribution
+                .layout_patches_by_node
+                .get(&ragged_row)
+                .unwrap()
+                .n,
+            5
+        );
+    }
+
+    #[test]
     fn shared_slot_requirement_patches_use_merged_slot_count() {
         let key = scope_key(2, "col:team");
         let left_node = CoordinationNodeKey::new(vec![0, 0]);
@@ -943,6 +986,7 @@ mod tests {
                         key: key.clone(),
                         axis: FacetAxis::Column,
                         slot_sharing: SharingLevel::GLOBAL,
+                        min_slot_count: 0,
                         measured_overflow: None,
                         local_layout: CoordinatedLayout {
                             n: 1,
@@ -957,6 +1001,7 @@ mod tests {
                         key,
                         axis: FacetAxis::Column,
                         slot_sharing: SharingLevel::GLOBAL,
+                        min_slot_count: 0,
                         measured_overflow: None,
                         local_layout: CoordinatedLayout {
                             n: 3,
@@ -1186,6 +1231,7 @@ mod tests {
                     key: outer_col_key.clone(),
                     axis: FacetAxis::Column,
                     slot_sharing: SharingLevel::GLOBAL,
+                    min_slot_count: 0,
                     measured_overflow: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 36.0,
@@ -1203,6 +1249,7 @@ mod tests {
                     key: inner_col_key.clone(),
                     axis: FacetAxis::Column,
                     slot_sharing: SharingLevel::GLOBAL,
+                    min_slot_count: 0,
                     measured_overflow: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 27.0,
@@ -1220,6 +1267,7 @@ mod tests {
                     key: row_key.clone(),
                     axis: FacetAxis::Row,
                     slot_sharing: SharingLevel::GLOBAL,
+                    min_slot_count: 0,
                     measured_overflow: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 9.0,
@@ -1301,6 +1349,7 @@ mod tests {
                     key: outer_row_key,
                     axis: FacetAxis::Row,
                     slot_sharing: SharingLevel::GLOBAL,
+                    min_slot_count: 0,
                     measured_overflow: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 8.0,
@@ -1318,6 +1367,7 @@ mod tests {
                     key: scope_key(2, "col:department"),
                     axis: FacetAxis::Column,
                     slot_sharing: SharingLevel::GLOBAL,
+                    min_slot_count: 0,
                     measured_overflow: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 12.0,
@@ -1335,6 +1385,7 @@ mod tests {
                     key: inner_row_key,
                     axis: FacetAxis::Row,
                     slot_sharing: SharingLevel::GLOBAL,
+                    min_slot_count: 0,
                     measured_overflow: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 40.0,
@@ -1382,6 +1433,7 @@ mod tests {
                     key: legend_col_key.clone(),
                     axis: FacetAxis::Column,
                     slot_sharing: SharingLevel::GLOBAL,
+                    min_slot_count: 0,
                     measured_overflow: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 160.0,
@@ -1399,6 +1451,7 @@ mod tests {
                     key: inner_col_key.clone(),
                     axis: FacetAxis::Column,
                     slot_sharing: SharingLevel::GLOBAL,
+                    min_slot_count: 0,
                     measured_overflow: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 24.0,
@@ -1456,6 +1509,7 @@ mod tests {
                     key: root_key,
                     axis: FacetAxis::Column,
                     slot_sharing: SharingLevel::GLOBAL,
+                    min_slot_count: 0,
                     measured_overflow: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 0.0,
@@ -1473,6 +1527,7 @@ mod tests {
                     key: row_key.clone(),
                     axis: FacetAxis::Row,
                     slot_sharing: SharingLevel::GLOBAL,
+                    min_slot_count: 0,
                     measured_overflow: Some(overflow(0.0, 3.0, 0.0, 39.0)),
                     local_layout: CoordinatedLayout::default(),
                     guide_padding_inner_px: 0.0,
@@ -1484,6 +1539,7 @@ mod tests {
                     key: row_key.clone(),
                     axis: FacetAxis::Row,
                     slot_sharing: SharingLevel::GLOBAL,
+                    min_slot_count: 0,
                     measured_overflow: Some(overflow(0.0, 8.0, 0.0, 8.0)),
                     local_layout: CoordinatedLayout::default(),
                     guide_padding_inner_px: 0.0,
@@ -1537,6 +1593,7 @@ mod tests {
                     key: key.clone(),
                     axis: FacetAxis::Row,
                     slot_sharing: SharingLevel::GLOBAL,
+                    min_slot_count: 0,
                     measured_overflow: Some(overflow(1.0, 1.0, 2.0, 3.0)),
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 3.0,
@@ -1554,6 +1611,7 @@ mod tests {
                     key,
                     axis: FacetAxis::Row,
                     slot_sharing: SharingLevel::GLOBAL,
+                    min_slot_count: 0,
                     measured_overflow: Some(overflow(2.0, 4.0, 1.0, 1.0)),
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 5.0,

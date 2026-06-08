@@ -250,6 +250,9 @@ pub struct FacetBandCoordMeasurement {
     pub coordination_field_identity: String,
     /// Slot-sharing level for this facet band.
     pub(crate) slot_sharing: SharingLevel,
+    /// Minimum physical slot count for this band. This can be larger than the
+    /// visible cell count for wrap rows with trailing holes.
+    pub(crate) min_slot_count: usize,
     /// Coordinated overflow values aggregated across ALL facets at this nesting level.
     /// Populated by facet coordination after local measurement.
     pub coordinated_overflow: CoordinatedOverflow,
@@ -2070,6 +2073,7 @@ fn empty_facet_band_measurement(
         coordinated_layout: None,
         coordination_field_identity: axis.scale_name().to_string(),
         slot_sharing: SharingLevel::FREE,
+        min_slot_count: 0,
         empty_cell_policy,
         allocation_ownership: FacetBandAllocationOwnership::from_policy(
             !facet_path.is_empty() || plot_area_sized_mode,
@@ -4250,6 +4254,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             facet_depth,
             coordination_field_identity,
             slot_sharing,
+            min_slot_count,
             empty_cell_policy,
             cells,
             ..
@@ -4347,6 +4352,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             coordinated_layout: None,
             coordination_field_identity,
             slot_sharing,
+            min_slot_count,
             empty_cell_policy,
             allocation_ownership: FacetBandAllocationOwnership::from_axis_policy(
                 !self.scale_backed_edge_slab_is_chart_overflow(true),

@@ -2,6 +2,7 @@ use crate::container::ChildFrameSideSlabTargets;
 use crate::facet::coord::{
     FacetBandCoordMeasurement, FacetColumn, FacetRow, FacetWrap,
     apply_measurement_side_slab_targets, facet_band_ref,
+    retarget_measurement_plot_area_no_remeasure,
 };
 use crate::facet::marks::facet_config::{
     FacetColChannelConfig, FacetRowChannelConfig, FacetWrapChannelConfig,
@@ -121,6 +122,7 @@ struct FacetCellBuildTask {
     data_override: DataFrame,
     full_path: Vec<ScalarValue>,
     is_terminal_cell: bool,
+    plot_area_target: Option<Size2D>,
     side_slab_targets: Option<ChildFrameSideSlabTargets>,
 }
 
@@ -138,6 +140,7 @@ async fn build_one_facet_cell(
         data_override,
         full_path,
         is_terminal_cell,
+        plot_area_target,
         side_slab_targets,
     } = task;
 
@@ -158,6 +161,16 @@ async fn build_one_facet_cell(
     refresh_measurement_params_for_cell(&mut measurement, &cell_eval_ctx);
     if let Some(targets) = side_slab_targets {
         apply_measurement_side_slab_targets(&mut measurement, targets);
+    }
+    if let Some(target) = plot_area_target {
+        retarget_measurement_plot_area_no_remeasure(
+            &mut measurement,
+            subplot.as_ref(),
+            &cell_eval_ctx,
+            &full_path,
+            target.width,
+            target.height,
+        )?;
     }
 
     let cached_profile = if is_terminal_cell {
@@ -431,6 +444,10 @@ async fn render_facet_band_with_placement(
         let subplot_origin = child_render_placement.origin;
         let is_empty_cell = cell.plan.is_empty;
         let band_size = cell_placement.main_axis_size;
+        let plot_area_target = match placement.axis {
+            FacetAxis::Column => Size2D::new(band_size, cell.measurement.plot_area_height),
+            FacetAxis::Row => Size2D::new(cell.measurement.plot_area_width, band_size),
+        };
 
         if is_empty_cell
             && matches!(
@@ -476,6 +493,7 @@ async fn render_facet_band_with_placement(
             data_override: cell.data_override.clone(),
             full_path: cell.plan.full_path.clone(),
             is_terminal_cell,
+            plot_area_target: Some(plot_area_target),
             side_slab_targets: child_render_placement.side_slab_targets,
         });
         plans.push(FacetCellPlan {
