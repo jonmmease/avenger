@@ -372,7 +372,7 @@ impl LegendRenderer for CompiledRectLegend {
                 index: item.index,
                 label: item.label.clone(),
                 channel: primary_channel.channel_type.clone(),
-                value: value.as_scalar_string()?,
+                value: format_scalar_value(value),
                 name: item.label.clone(),
                 group_path: item.group_path.clone(),
                 hit_rect_path: item.hit_rect_path.clone(),
@@ -384,5 +384,36 @@ impl LegendRenderer for CompiledRectLegend {
             items,
             continuous_surfaces: Vec::new(),
         }))
+    }
+}
+
+fn format_scalar_value(value: &ScalarValue) -> String {
+    match value {
+        ScalarValue::Utf8(Some(s))
+        | ScalarValue::LargeUtf8(Some(s))
+        | ScalarValue::Utf8View(Some(s)) => s.clone(),
+        ScalarValue::Float64(Some(f)) => {
+            if f.fract() == 0.0 && f.abs() < 1e10 {
+                format!("{f:.0}")
+            } else {
+                f.to_string()
+            }
+        }
+        ScalarValue::Float32(Some(f)) => {
+            if f.fract() == 0.0 && f.abs() < 1e10 {
+                format!("{f:.0}")
+            } else {
+                f.to_string()
+            }
+        }
+        ScalarValue::Int64(Some(i)) => i.to_string(),
+        ScalarValue::Int32(Some(i)) => i.to_string(),
+        ScalarValue::Int16(Some(i)) => i.to_string(),
+        ScalarValue::Int8(Some(i)) => i.to_string(),
+        ScalarValue::UInt64(Some(i)) => i.to_string(),
+        ScalarValue::UInt32(Some(i)) => i.to_string(),
+        ScalarValue::UInt16(Some(i)) => i.to_string(),
+        ScalarValue::UInt8(Some(i)) => i.to_string(),
+        _ => format!("{value:?}"),
     }
 }

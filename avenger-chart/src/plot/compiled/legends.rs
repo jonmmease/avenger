@@ -450,6 +450,13 @@ async fn apply_related_legend_item_opacity(
         Some(&available_columns),
         Some(selection_specs),
     )?;
+    if opacity_expr
+        .column_refs()
+        .iter()
+        .any(|column| !available_columns.contains(&column.name))
+    {
+        return Ok(());
+    }
     let domain_array = ScalarValue::iter_to_array(domain_values.into_iter())?;
     let schema = Arc::new(Schema::new(vec![Field::new(
         primary_column,

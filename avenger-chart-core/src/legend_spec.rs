@@ -65,6 +65,9 @@ pub struct Legend {
     pub visible: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
     pub title: Maybe<Option<LogicalExprNode>>,
+    #[doc(hidden)]
+    #[serde(default)]
+    pub explicit_title: bool,
     #[serde_as(as = "MaybeOptionalExpr")]
     pub position: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
@@ -137,6 +140,7 @@ impl std::fmt::Debug for Legend {
             .field("event_bindings", &self.event_bindings.len())
             .field("visible", &self.visible)
             .field("title", &self.title)
+            .field("explicit_title", &self.explicit_title)
             .field("position", &self.position)
             .field("orientation", &self.orientation)
             .field("symbol_size", &self.symbol_size)
@@ -181,6 +185,7 @@ impl Legend {
             )),
             position: Maybe::Unset,
             title: Maybe::Unset,
+            explicit_title: false,
             orientation: Maybe::Unset,
             symbol_size: Maybe::Unset,
             gradient_thickness: Maybe::Unset,
@@ -222,8 +227,9 @@ impl Legend {
         if other.visible.is_set() {
             self.visible = other.visible;
         }
-        if other.title.is_set() {
+        if other.title.is_set() && (!self.explicit_title || other.explicit_title) {
             self.title = other.title;
+            self.explicit_title = other.explicit_title;
         }
         if other.position.is_set() {
             self.position = other.position;
@@ -367,6 +373,17 @@ impl Legend {
         self.title = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize title expr"),
         ));
+        self.explicit_title = true;
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn default_title(mut self, title: impl IntoExpr) -> Self {
+        let expr = title.into_expr();
+        self.title = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize title expr"),
+        ));
+        self.explicit_title = false;
         self
     }
 
@@ -601,6 +618,7 @@ impl Default for Legend {
 mod tests {
     use datafusion::prelude::lit;
 
+    use crate::DefaultLogicalExprNodeExt;
     use crate::{ChartEventBinding, ChartEventType};
 
     use super::*;
@@ -627,5 +645,22 @@ mod tests {
             .validate_event_surface()
             .expect_err("conflicting legend ids should fail");
         assert!(err.to_string().contains("conflicting explicit ids"));
+    }
+
+    #[test]
+    fn explicit_title_survives_generated_default_merge() {
+        let merged = Legend::new()
+            .title("Category")
+            .update(Legend::new().default_title("category"));
+
+        assert!(merged.explicit_title);
+        let title = merged
+            .title
+            .as_option()
+            .and_then(|node| node.as_ref())
+            .expect("title expression")
+            .to_expr(&datafusion::prelude::SessionContext::new())
+            .expect("deserialize title");
+        assert_eq!(title, lit("Category"));
     }
 }

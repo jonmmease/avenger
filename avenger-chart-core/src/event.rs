@@ -160,9 +160,9 @@ pub struct ChartEventSelectionAssignment {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChartEventScopeTarget {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     subplot_ids: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     resolved_coord_node_path_prefix: Option<Vec<usize>>,
 }
 
@@ -215,9 +215,9 @@ pub enum ChartEventSurfaceTarget {
     All,
     PlotSurface,
     LegendSurface {
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[serde(default)]
         surface_keys: Vec<String>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[serde(default)]
         kinds: Vec<LegendSurfaceKind>,
     },
 }
@@ -250,11 +250,11 @@ pub struct ChartEventStream {
     pub event_type: Option<ChartEventType>,
     #[serde_as(as = "Vec<FromInto<SerializableExpr>>")]
     pub filters: Vec<LogicalExprNode>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     mark_ids: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     resolved_source_group: Option<Vec<usize>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     resolved_mark_paths: Option<Vec<Vec<usize>>>,
 }
 
@@ -366,7 +366,7 @@ pub struct ChartEventBinding {
     #[serde_as(as = "Vec<FromInto<SerializableExpr>>")]
     pub filters: Vec<LogicalExprNode>,
     pub between: Option<ChartEventBetween>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub event_path_min_distance_px: Option<f32>,
     pub throttle_ms: Option<u64>,
     pub consume: bool,
@@ -377,9 +377,9 @@ pub struct ChartEventBinding {
     pub selection_assignments: Vec<ChartEventSelectionAssignment>,
     pub evaluation_mode: ChartEventEvaluationMode,
     pub settle_exact: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub scope_target: Option<ChartEventScopeTarget>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub surface_target: Option<ChartEventSurfaceTarget>,
 }
 
@@ -1806,6 +1806,29 @@ mod tests {
         let json = serde_json::to_string(&binding).expect("serialize binding");
         let restored: ChartEventBinding = serde_json::from_str(&json).expect("deserialize binding");
         assert_eq!(restored.event_type, ChartEventType::CursorMoved);
+        assert_eq!(restored.assignments.len(), 1);
+        assert!(restored.settle_exact);
+        assert_eq!(restored.event_path_min_distance_px, Some(6.0));
+    }
+
+    #[test]
+    fn chart_event_binding_bincode_serializes() {
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .between(
+                ChartEventStream::on(ChartEventType::MouseDown).filter(button().eq(lit("left"))),
+                ChartEventStream::on(ChartEventType::MouseUp).filter(button().eq(lit("left"))),
+            )
+            .event_path_min_distance_px(6.0)
+            .filter(shift().eq(lit(false)))
+            .set_param("x0", start_param("x0") + dx())
+            .preview()
+            .settle_exact();
+
+        let bytes = bincode::serialize(&binding).expect("serialize binding");
+        let restored: ChartEventBinding =
+            bincode::deserialize(&bytes).expect("deserialize binding");
+        assert_eq!(restored.event_type, ChartEventType::CursorMoved);
+        assert_eq!(restored.filters.len(), 1);
         assert_eq!(restored.assignments.len(), 1);
         assert!(restored.settle_exact);
         assert_eq!(restored.event_path_min_distance_px, Some(6.0));

@@ -43,7 +43,7 @@ pub fn themed_default_legend(
     theme: &Theme,
     params: &IndexMap<String, ScalarValue>,
 ) -> Legend {
-    let mut legend = Legend::new().title(title).position(position);
+    let mut legend = Legend::new().default_title(title).position(position);
     let legend_ctx = theme.legend_context_with_params(legend_type, params.clone());
     let bg_ctx = legend_ctx.child("background");
     let base_font_size = theme.get_base_font_size(&legend_ctx.params);
