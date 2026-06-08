@@ -346,6 +346,25 @@ fn shared_color_child(data: DataFrame, title: &str, position: LegendPosition) ->
     )
 }
 
+fn local_right_legend_child(
+    x: &'static str,
+    y: &'static str,
+    title: &str,
+    y_title: &'static str,
+) -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().title(title).mark(
+        Symbol::<Cartesian>::new()
+            .x_with(col(x), |c| c.axis(|a| a.title(x)))
+            .y_with(col(y), |c| c.axis(|a| a.title(y_title)))
+            .fill_with(col("group_name"), |c| {
+                c.legend(|l| l.title("group").position(LegendPosition::Right))
+            })
+            .size(88.0)
+            .stroke("#ffffff")
+            .stroke_width(1.0),
+    )
+}
+
 fn level1_shared_x_child(data: DataFrame) -> Plot<Cartesian> {
     Plot::<Cartesian>::new().data(data).mark(
         Symbol::<Cartesian>::new()
@@ -498,6 +517,43 @@ async fn hconcat_shared_color_legend_right() {
         None,
         "concat",
         "hconcat_shared_color_legend_right",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn grid_concat_local_right_legends_coordinated_chrome() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<GridConcat>::new()
+        .canvas_size(940.0, 300.0)
+        .data(concat_facet_alignment_data(&ctx).await)
+        .title("Local right legends")
+        .mark(
+            Subplot::new(local_right_legend_child("x", "y", "Small y labels", "y"))
+                .grid_cell(0, 0)
+                .key("small-y"),
+        )
+        .mark(
+            Subplot::new(local_right_legend_child(
+                "x2",
+                "y2",
+                "Large y labels",
+                "wide y",
+            ))
+            .grid_cell(0, 1)
+            .key("large-y"),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile local right legend GridConcat chart");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "concat",
+        "grid_concat_local_right_legends_coordinated_chrome",
     )
     .await;
 }

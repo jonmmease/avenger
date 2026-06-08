@@ -1,5 +1,7 @@
+use crate::container::ChildFrameSideSlabTargets;
 use crate::facet::coord::{
-    FacetBandCoordMeasurement, FacetColumn, FacetRow, FacetWrap, facet_band_ref,
+    FacetBandCoordMeasurement, FacetColumn, FacetRow, FacetWrap,
+    apply_measurement_side_slab_targets, facet_band_ref,
 };
 use crate::facet::marks::facet_config::{
     FacetColChannelConfig, FacetRowChannelConfig, FacetWrapChannelConfig,
@@ -119,6 +121,7 @@ struct FacetCellBuildTask {
     data_override: DataFrame,
     full_path: Vec<ScalarValue>,
     is_terminal_cell: bool,
+    side_slab_targets: Option<ChildFrameSideSlabTargets>,
 }
 
 /// Build one facet cell's `PlotComponents`, reusing cached data marks when a
@@ -135,6 +138,7 @@ async fn build_one_facet_cell(
         data_override,
         full_path,
         is_terminal_cell,
+        side_slab_targets,
     } = task;
 
     // Install a per-task-local metrics collector so the many `record_*` calls
@@ -152,6 +156,9 @@ async fn build_one_facet_cell(
         None => cell_eval_ctx,
     };
     refresh_measurement_params_for_cell(&mut measurement, &cell_eval_ctx);
+    if let Some(targets) = side_slab_targets {
+        apply_measurement_side_slab_targets(&mut measurement, targets);
+    }
 
     let cached_profile = if is_terminal_cell {
         cell_eval_ctx.layout_profile().and_then(|profile| {
@@ -469,6 +476,7 @@ async fn render_facet_band_with_placement(
             data_override: cell.data_override.clone(),
             full_path: cell.plan.full_path.clone(),
             is_terminal_cell,
+            side_slab_targets: child_render_placement.side_slab_targets,
         });
         plans.push(FacetCellPlan {
             idx,

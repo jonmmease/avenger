@@ -21,7 +21,8 @@ pub(crate) use band_child_frame::{
 };
 pub use band_position::BandPositionIterator;
 pub(crate) use child_frame::{
-    ChildFramePlacementResult, ChildFrameRenderPlacement, project_child_frame_bounds,
+    ChildFramePlacementResult, ChildFrameRenderPlacement, ChildFrameSideSlabTargets,
+    project_child_frame_bounds,
 };
 pub use content_solver::{
     ChildFrameContentMeasurement, ChildFrameContentPlan, ChildFrameContentSolver,

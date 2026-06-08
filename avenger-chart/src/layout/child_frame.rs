@@ -1,6 +1,18 @@
 //! Child-frame placement utilities shared by container-style content.
 
-use crate::layout::{LayoutBounds, Size2D};
+use crate::layout::{EdgeSlabs, LayoutBounds, Size2D};
+
+/// Coordinated side slabs granted to a child frame by its parent container.
+///
+/// `guide` is the guide/chrome space between the plot area and any legend.
+/// `total` is the full rendered edge envelope. The difference is important for
+/// local legend anchoring: legends should start after the coordinated guide
+/// slab, while sibling spacing uses the coordinated total slab.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) struct ChildFrameSideSlabTargets {
+    pub(crate) guide: EdgeSlabs,
+    pub(crate) total: EdgeSlabs,
+}
 
 /// Render-space placement for one child frame relative to its parent content rectangle.
 #[derive(Debug, Clone, PartialEq)]
@@ -8,6 +20,7 @@ pub(crate) struct ChildFrameRenderPlacement {
     pub(crate) child_index: usize,
     pub(crate) origin: [f32; 2],
     pub(crate) plot_area_size: Option<Size2D>,
+    pub(crate) side_slab_targets: Option<ChildFrameSideSlabTargets>,
 }
 
 impl ChildFrameRenderPlacement {
@@ -16,6 +29,7 @@ impl ChildFrameRenderPlacement {
             child_index,
             origin,
             plot_area_size: None,
+            side_slab_targets: None,
         }
     }
 
@@ -28,7 +42,13 @@ impl ChildFrameRenderPlacement {
             child_index,
             origin,
             plot_area_size: Some(plot_area_size),
+            side_slab_targets: None,
         }
+    }
+
+    pub(crate) fn with_side_slab_targets(mut self, targets: ChildFrameSideSlabTargets) -> Self {
+        self.side_slab_targets = Some(targets);
+        self
     }
 }
 

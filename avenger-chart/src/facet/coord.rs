@@ -24,7 +24,9 @@ use avenger_chart_core::{
 use avenger_chart_core::{DerivedScalarsByChannel, GuideSharingContext, OverflowSpaceRequirement};
 
 use crate::{
-    container::{ChildFrameKey, ChildFrameScopeKey, ContainerPathSegment},
+    container::{
+        ChildFrameKey, ChildFrameScopeKey, ChildFrameSideSlabTargets, ContainerPathSegment,
+    },
     coords::CellDomainInfo,
     facet::FacetDirection,
     facet::{
@@ -1576,6 +1578,36 @@ fn apply_measurement_side_slab(
 ) {
     apply_frame_side_slab(&mut measurement.layout, side, guide, total);
     measurement.sync_canvas_size_from_layout();
+}
+
+pub(crate) fn apply_measurement_side_slab_targets(
+    measurement: &mut ComponentsMeasurement,
+    targets: ChildFrameSideSlabTargets,
+) {
+    apply_measurement_side_slab(
+        measurement,
+        AxisPosition::Top,
+        targets.guide.top,
+        targets.total.top,
+    );
+    apply_measurement_side_slab(
+        measurement,
+        AxisPosition::Right,
+        targets.guide.right,
+        targets.total.right,
+    );
+    apply_measurement_side_slab(
+        measurement,
+        AxisPosition::Bottom,
+        targets.guide.bottom,
+        targets.total.bottom,
+    );
+    apply_measurement_side_slab(
+        measurement,
+        AxisPosition::Left,
+        targets.guide.left,
+        targets.total.left,
+    );
 }
 
 fn child_uses_parent_cross_axis_guide_slab(

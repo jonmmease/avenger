@@ -8,7 +8,10 @@ use indexmap::IndexMap;
 use tracing::debug;
 
 use crate::{
-    concat::{ConcatCoordMeasurement, GridShape, GridSlotRect, GridTrackRequirements},
+    concat::{
+        ConcatCoordMeasurement, GridEdgeChromeRequirement, GridShape, GridSlotRect,
+        GridTrackRequirements, zero_edge_requirements,
+    },
     coords::FacetAxis,
     facet::{
         coord::FacetBandCoordMeasurement,
@@ -364,10 +367,10 @@ fn facet_grid_track_requirements_from_placement(
         row_outer_end: 0.0,
         column_widths: vec![0.0; shape.columns],
         row_heights: vec![0.0; shape.rows],
-        column_left: vec![0.0; shape.columns],
-        column_right: vec![0.0; shape.columns],
-        row_top: vec![0.0; shape.rows],
-        row_bottom: vec![0.0; shape.rows],
+        column_left: zero_edge_requirements(shape.columns),
+        column_right: zero_edge_requirements(shape.columns),
+        row_top: zero_edge_requirements(shape.rows),
+        row_bottom: zero_edge_requirements(shape.rows),
     };
 
     match placement.axis {
@@ -397,7 +400,8 @@ fn facet_grid_track_requirements_from_placement(
                 let right = &pair[1];
                 let gap = right.main_axis_start - left.main_axis_start - left.main_axis_size;
                 if left.cell_index + 1 < shape.columns {
-                    requirements.column_right[left.cell_index] = gap.max(0.0);
+                    requirements.column_right[left.cell_index] =
+                        GridEdgeChromeRequirement::total(gap);
                 }
             }
         }
@@ -427,7 +431,7 @@ fn facet_grid_track_requirements_from_placement(
                 let bottom = &pair[1];
                 let gap = bottom.main_axis_start - top.main_axis_start - top.main_axis_size;
                 if top.cell_index + 1 < shape.rows {
-                    requirements.row_bottom[top.cell_index] = gap.max(0.0);
+                    requirements.row_bottom[top.cell_index] = GridEdgeChromeRequirement::total(gap);
                 }
             }
         }
@@ -506,12 +510,15 @@ fn facet_grid_requirements_to_coordinated_layout(
     })
 }
 
-fn max_adjacent_gap(trailing: &[f32], leading: &[f32]) -> f32 {
+fn max_adjacent_gap(
+    trailing: &[GridEdgeChromeRequirement],
+    leading: &[GridEdgeChromeRequirement],
+) -> f32 {
     if trailing.is_empty() || leading.is_empty() {
         return 0.0;
     }
     (0..trailing.len().saturating_sub(1))
-        .map(|index| trailing[index].max(0.0) + leading[index + 1].max(0.0))
+        .map(|index| trailing[index].total + leading[index + 1].total)
         .fold(0.0, f32::max)
 }
 
@@ -805,10 +812,10 @@ fn merge_child_frame_layout_requirements<'a>(
             merged.row_outer_end = merged.row_outer_end.max(next.row_outer_end);
             max_assign_each(&mut merged.column_widths, &next.column_widths);
             max_assign_each(&mut merged.row_heights, &next.row_heights);
-            max_assign_each(&mut merged.column_left, &next.column_left);
-            max_assign_each(&mut merged.column_right, &next.column_right);
-            max_assign_each(&mut merged.row_top, &next.row_top);
-            max_assign_each(&mut merged.row_bottom, &next.row_bottom);
+            max_assign_edge_each(&mut merged.column_left, &next.column_left);
+            max_assign_edge_each(&mut merged.column_right, &next.column_right);
+            max_assign_edge_each(&mut merged.row_top, &next.row_top);
+            max_assign_edge_each(&mut merged.row_bottom, &next.row_bottom);
             Some(ChildFrameLayoutRequirements::Grid(merged))
         }
         _ => None,
@@ -819,6 +826,16 @@ fn max_assign_each(target: &mut [f32], source: &[f32]) {
     debug_assert_eq!(target.len(), source.len());
     for (target, source) in target.iter_mut().zip(source.iter()) {
         *target = (*target).max(*source);
+    }
+}
+
+fn max_assign_edge_each(
+    target: &mut [GridEdgeChromeRequirement],
+    source: &[GridEdgeChromeRequirement],
+) {
+    debug_assert_eq!(target.len(), source.len());
+    for (target, source) in target.iter_mut().zip(source.iter()) {
+        *target = target.max_components(*source);
     }
 }
 
@@ -840,10 +857,10 @@ fn requirement_slab_delta(
 ) -> f32 {
     match (local, merged) {
         (ChildFrameLayoutRequirements::Grid(local), ChildFrameLayoutRequirements::Grid(merged)) => {
-            abs_delta_sum(&local.column_left, &merged.column_left)
-                + abs_delta_sum(&local.column_right, &merged.column_right)
-                + abs_delta_sum(&local.row_top, &merged.row_top)
-                + abs_delta_sum(&local.row_bottom, &merged.row_bottom)
+            abs_edge_delta_sum(&local.column_left, &merged.column_left)
+                + abs_edge_delta_sum(&local.column_right, &merged.column_right)
+                + abs_edge_delta_sum(&local.row_top, &merged.row_top)
+                + abs_edge_delta_sum(&local.row_bottom, &merged.row_bottom)
                 + (merged.column_outer_start - local.column_outer_start).abs()
                 + (merged.column_outer_end - local.column_outer_end).abs()
                 + (merged.row_outer_start - local.row_outer_start).abs()
@@ -859,6 +876,18 @@ fn abs_delta_sum(local: &[f32], merged: &[f32]) -> f32 {
         .iter()
         .zip(merged.iter())
         .map(|(local, merged)| (merged - local).abs())
+        .sum()
+}
+
+fn abs_edge_delta_sum(
+    local: &[GridEdgeChromeRequirement],
+    merged: &[GridEdgeChromeRequirement],
+) -> f32 {
+    debug_assert_eq!(local.len(), merged.len());
+    local
+        .iter()
+        .zip(merged.iter())
+        .map(|(local, merged)| (merged.total - local.total).abs())
         .sum()
 }
 
@@ -1015,10 +1044,10 @@ mod tests {
             row_outer_end: 0.0,
             column_widths: vec![width],
             row_heights: vec![10.0],
-            column_left: vec![0.0],
-            column_right: vec![0.0],
-            row_top: vec![0.0],
-            row_bottom: vec![0.0],
+            column_left: zero_edge_requirements(1),
+            column_right: zero_edge_requirements(1),
+            row_top: zero_edge_requirements(1),
+            row_bottom: zero_edge_requirements(1),
         })
     }
 
@@ -1113,7 +1142,10 @@ mod tests {
         assert_eq!(requirements.row_outer_end, 0.0);
         assert_eq!(requirements.column_widths, vec![10.0, 10.0]);
         assert_eq!(requirements.row_heights, vec![40.0]);
-        assert_eq!(requirements.column_right, vec![7.0, 0.0]);
+        assert_eq!(
+            requirements.column_right,
+            crate::concat::total_edge_requirements([7.0, 0.0])
+        );
         Ok(())
     }
 }

@@ -19,7 +19,7 @@ use crate::{
     container::{
         BandChildFrameInput, BandChildFramePlacement, BandSpacing, BoundaryDemand1D, ChildFrameKey,
         ChildFramePlacementResult, ChildFrameRenderPlacement, ChildFrameScopeKey,
-        ChildFrameSharingLevel, ContainerPathSegment,
+        ChildFrameSharingLevel, ChildFrameSideSlabTargets, ContainerPathSegment,
     },
     coords::{
         CoordMeasurement, CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
@@ -45,7 +45,7 @@ use crate::{
     theme::Theme,
 };
 use avenger_chart_core::{
-    AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, CoordinationAxis,
+    AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, AxisPosition, CoordinationAxis,
     DefaultLogicalExprNodeExt, ExprHelpers, FacetWrapColumnMode, IntoExpr, SharingLevel,
     contains_aggregate, params_to_datafusion,
 };
@@ -702,14 +702,17 @@ impl ConcatCoordMeasurement {
                     .map(|(slot_index, child)| {
                         let slot = self.layout_coordination_slot_for_child(slot_index, child)?;
                         let origin = solution.origin_for_slot(slot);
+                        let side_targets = solution.side_slab_targets_for_slot(slot);
                         Ok(if *retarget_plot_area_size {
                             ChildFrameRenderPlacement::with_plot_area_size(
                                 child.child_index,
                                 origin,
                                 solution.plot_area_size_for_slot(slot),
                             )
+                            .with_side_slab_targets(side_targets)
                         } else {
                             ChildFrameRenderPlacement::new(child.child_index, origin)
+                                .with_side_slab_targets(side_targets)
                         })
                     })
                     .collect::<Result<Vec<_>, AvengerChartError>>()?;
@@ -815,6 +818,7 @@ impl ConcatCoordMeasurement {
             .iter()
             .enumerate()
             .map(|(slot_index, child)| {
+                let frame_demand = child.measurement.frame_demand();
                 Ok(GridChildTrackDemand {
                     child_index: child.child_index,
                     slot: self.layout_coordination_slot_for_child(slot_index, child)?,
@@ -822,7 +826,9 @@ impl ConcatCoordMeasurement {
                         child.measurement.plot_area_width,
                         child.measurement.plot_area_height,
                     ),
-                    slabs: child.measurement.frame_demand().rendered_envelope,
+                    guide_slabs: frame_demand.guide_slabs,
+                    legend_slabs: frame_demand.legend_slabs,
+                    slabs: frame_demand.rendered_envelope,
                 })
             })
             .collect()
@@ -1752,7 +1758,41 @@ pub(crate) struct GridChildTrackDemand {
     pub(crate) child_index: usize,
     pub(crate) slot: GridSlotRect,
     pub(crate) plot_area: Size2D,
+    pub(crate) guide_slabs: EdgeSlabs,
+    pub(crate) legend_slabs: EdgeSlabs,
     pub(crate) slabs: EdgeSlabs,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct GridEdgeChromeRequirement {
+    pub(crate) guide: f32,
+    pub(crate) legend: f32,
+    pub(crate) total: f32,
+}
+
+impl GridEdgeChromeRequirement {
+    pub(crate) fn new(guide: f32, legend: f32, total: f32) -> Self {
+        let guide = guide.max(0.0);
+        let legend = legend.max(0.0);
+        let total = total.max(guide + legend).max(0.0);
+        Self {
+            guide,
+            legend,
+            total,
+        }
+    }
+
+    pub(crate) fn total(total: f32) -> Self {
+        Self::new(0.0, 0.0, total)
+    }
+
+    pub(crate) fn max_components(self, other: Self) -> Self {
+        Self::new(
+            self.guide.max(other.guide),
+            self.legend.max(other.legend),
+            self.total.max(other.total),
+        )
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1771,10 +1811,10 @@ pub(crate) struct GridTrackRequirements {
     pub(crate) row_outer_end: f32,
     pub(crate) column_widths: Vec<f32>,
     pub(crate) row_heights: Vec<f32>,
-    pub(crate) column_left: Vec<f32>,
-    pub(crate) column_right: Vec<f32>,
-    pub(crate) row_top: Vec<f32>,
-    pub(crate) row_bottom: Vec<f32>,
+    pub(crate) column_left: Vec<GridEdgeChromeRequirement>,
+    pub(crate) column_right: Vec<GridEdgeChromeRequirement>,
+    pub(crate) row_top: Vec<GridEdgeChromeRequirement>,
+    pub(crate) row_bottom: Vec<GridEdgeChromeRequirement>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1786,10 +1826,10 @@ pub(crate) struct GridTrackSolution {
     pub(crate) row_outer_end: f32,
     pub(crate) column_widths: Vec<f32>,
     pub(crate) row_heights: Vec<f32>,
-    pub(crate) column_left: Vec<f32>,
-    pub(crate) column_right: Vec<f32>,
-    pub(crate) row_top: Vec<f32>,
-    pub(crate) row_bottom: Vec<f32>,
+    pub(crate) column_left: Vec<GridEdgeChromeRequirement>,
+    pub(crate) column_right: Vec<GridEdgeChromeRequirement>,
+    pub(crate) row_top: Vec<GridEdgeChromeRequirement>,
+    pub(crate) row_bottom: Vec<GridEdgeChromeRequirement>,
     pub(crate) column_starts: Vec<f32>,
     pub(crate) row_starts: Vec<f32>,
     pub(crate) content_size: Size2D,
@@ -2016,14 +2056,17 @@ fn grid_child_frame_placement(
             let placement = child.grid_placement.expect("validated above");
             let slot = GridSlotRect::from_placement(placement);
             let origin = solution.origin_for_slot(slot);
+            let side_targets = solution.side_slab_targets_for_slot(slot);
             if retarget_plot_area_size {
                 ChildFrameRenderPlacement::with_plot_area_size(
                     child.child_index,
                     origin,
                     solution.plot_area_size_for_slot(slot),
                 )
+                .with_side_slab_targets(side_targets)
             } else {
                 ChildFrameRenderPlacement::new(child.child_index, origin)
+                    .with_side_slab_targets(side_targets)
             }
         })
         .collect();
@@ -2053,10 +2096,40 @@ fn grid_child_track_demands(
                     child.measurement.plot_area_width,
                     child.measurement.plot_area_height,
                 ),
+                guide_slabs: child.measurement.frame_demand().guide_slabs,
+                legend_slabs: child.measurement.frame_demand().legend_slabs,
                 slabs: child.measurement.frame_demand().rendered_envelope,
             })
         })
         .collect()
+}
+
+fn grid_edge_chrome_requirement(
+    demand: &GridChildTrackDemand,
+    side: AxisPosition,
+) -> GridEdgeChromeRequirement {
+    match side {
+        AxisPosition::Top => GridEdgeChromeRequirement::new(
+            demand.guide_slabs.top,
+            demand.legend_slabs.top,
+            demand.slabs.top,
+        ),
+        AxisPosition::Right => GridEdgeChromeRequirement::new(
+            demand.guide_slabs.right,
+            demand.legend_slabs.right,
+            demand.slabs.right,
+        ),
+        AxisPosition::Bottom => GridEdgeChromeRequirement::new(
+            demand.guide_slabs.bottom,
+            demand.legend_slabs.bottom,
+            demand.slabs.bottom,
+        ),
+        AxisPosition::Left => GridEdgeChromeRequirement::new(
+            demand.guide_slabs.left,
+            demand.legend_slabs.left,
+            demand.slabs.left,
+        ),
+    }
 }
 
 pub(crate) fn grid_track_requirements(
@@ -2073,10 +2146,10 @@ pub(crate) fn grid_track_requirements(
         row_outer_end: 0.0,
         column_widths: vec![base_cell_size.width; shape.columns],
         row_heights: vec![base_cell_size.height; shape.rows],
-        column_left: vec![0.0; shape.columns],
-        column_right: vec![0.0; shape.columns],
-        row_top: vec![0.0; shape.rows],
-        row_bottom: vec![0.0; shape.rows],
+        column_left: vec![GridEdgeChromeRequirement::default(); shape.columns],
+        column_right: vec![GridEdgeChromeRequirement::default(); shape.columns],
+        row_top: vec![GridEdgeChromeRequirement::default(); shape.rows],
+        row_bottom: vec![GridEdgeChromeRequirement::default(); shape.rows],
     };
 
     for demand in demands {
@@ -2094,13 +2167,14 @@ pub(crate) fn grid_track_requirements(
 
         let last_row = slot.row_end() - 1;
         let last_column = slot.column_end() - 1;
-        requirements.column_left[slot.column] =
-            requirements.column_left[slot.column].max(demand.slabs.left);
-        requirements.column_right[last_column] =
-            requirements.column_right[last_column].max(demand.slabs.right);
-        requirements.row_top[slot.row] = requirements.row_top[slot.row].max(demand.slabs.top);
-        requirements.row_bottom[last_row] =
-            requirements.row_bottom[last_row].max(demand.slabs.bottom);
+        requirements.column_left[slot.column] = requirements.column_left[slot.column]
+            .max_components(grid_edge_chrome_requirement(demand, AxisPosition::Left));
+        requirements.column_right[last_column] = requirements.column_right[last_column]
+            .max_components(grid_edge_chrome_requirement(demand, AxisPosition::Right));
+        requirements.row_top[slot.row] = requirements.row_top[slot.row]
+            .max_components(grid_edge_chrome_requirement(demand, AxisPosition::Top));
+        requirements.row_bottom[last_row] = requirements.row_bottom[last_row]
+            .max_components(grid_edge_chrome_requirement(demand, AxisPosition::Bottom));
 
         if slot.column_span == 1 {
             requirements.column_widths[slot.column] =
@@ -2124,11 +2198,15 @@ pub(crate) fn solve_grid_track_requirements(
 
     let mut column_widths = requirements.column_widths.clone();
     let mut row_heights = requirements.row_heights.clone();
+    let column_right_totals = edge_totals(&requirements.column_right);
+    let column_left_totals = edge_totals(&requirements.column_left);
+    let row_bottom_totals = edge_totals(&requirements.row_bottom);
+    let row_top_totals = edge_totals(&requirements.row_top);
 
     satisfy_span_axis_constraints(
         &mut column_widths,
-        &requirements.column_right,
-        &requirements.column_left,
+        &column_right_totals,
+        &column_left_totals,
         demands
             .iter()
             .map(|demand| AxisSpanConstraint {
@@ -2140,8 +2218,8 @@ pub(crate) fn solve_grid_track_requirements(
     );
     satisfy_span_axis_constraints(
         &mut row_heights,
-        &requirements.row_bottom,
-        &requirements.row_top,
+        &row_bottom_totals,
+        &row_top_totals,
         demands
             .iter()
             .map(|demand| AxisSpanConstraint {
@@ -2154,15 +2232,15 @@ pub(crate) fn solve_grid_track_requirements(
 
     let (column_starts, content_width) = track_starts_and_content_size(
         &column_widths,
-        &requirements.column_right,
-        &requirements.column_left,
+        &column_right_totals,
+        &column_left_totals,
         requirements.column_outer_start,
         requirements.column_outer_end,
     );
     let (row_starts, content_height) = track_starts_and_content_size(
         &row_heights,
-        &requirements.row_bottom,
-        &requirements.row_top,
+        &row_bottom_totals,
+        &row_top_totals,
         requirements.row_outer_start,
         requirements.row_outer_end,
     );
@@ -2183,6 +2261,24 @@ pub(crate) fn solve_grid_track_requirements(
         row_starts,
         content_size: Size2D::new(content_width, content_height),
     }
+}
+
+fn edge_totals(edges: &[GridEdgeChromeRequirement]) -> Vec<f32> {
+    edges.iter().map(|edge| edge.total).collect()
+}
+
+pub(crate) fn zero_edge_requirements(len: usize) -> Vec<GridEdgeChromeRequirement> {
+    vec![GridEdgeChromeRequirement::default(); len]
+}
+
+#[cfg(test)]
+pub(crate) fn total_edge_requirements(
+    values: impl IntoIterator<Item = f32>,
+) -> Vec<GridEdgeChromeRequirement> {
+    values
+        .into_iter()
+        .map(GridEdgeChromeRequirement::total)
+        .collect()
 }
 
 #[derive(Clone, Debug)]
@@ -2257,19 +2353,47 @@ impl GridTrackSolution {
         [self.column_starts[slot.column], self.row_starts[slot.row]]
     }
 
+    fn side_slab_targets_for_slot(&self, slot: GridSlotRect) -> ChildFrameSideSlabTargets {
+        let last_row = slot.row_end() - 1;
+        let last_column = slot.column_end() - 1;
+        let top = self.row_top[slot.row];
+        let right = self.column_right[last_column];
+        let bottom = self.row_bottom[last_row];
+        let left = self.column_left[slot.column];
+
+        ChildFrameSideSlabTargets {
+            guide: EdgeSlabs {
+                top: top.guide,
+                right: right.guide,
+                bottom: bottom.guide,
+                left: left.guide,
+            },
+            total: EdgeSlabs {
+                top: top.total,
+                right: right.total,
+                bottom: bottom.total,
+                left: left.total,
+            },
+        }
+    }
+
     fn plot_area_size_for_slot(&self, slot: GridSlotRect) -> Size2D {
+        let column_right_totals = edge_totals(&self.column_right);
+        let column_left_totals = edge_totals(&self.column_left);
+        let row_bottom_totals = edge_totals(&self.row_bottom);
+        let row_top_totals = edge_totals(&self.row_top);
         Size2D::new(
             span_axis_extent(
                 &self.column_widths,
-                &self.column_right,
-                &self.column_left,
+                &column_right_totals,
+                &column_left_totals,
                 slot.column,
                 slot.column_span,
             ),
             span_axis_extent(
                 &self.row_heights,
-                &self.row_bottom,
-                &self.row_top,
+                &row_bottom_totals,
+                &row_top_totals,
                 slot.row,
                 slot.row_span,
             ),
@@ -2657,10 +2781,10 @@ mod tests {
                 row_outer_end: 0.0,
                 column_widths: vec![10.0; shape.columns],
                 row_heights: vec![10.0; shape.rows],
-                column_left: vec![0.0; shape.columns],
-                column_right: vec![0.0; shape.columns],
-                row_top: vec![0.0; shape.rows],
-                row_bottom: vec![0.0; shape.rows],
+                column_left: zero_edge_requirements(shape.columns),
+                column_right: zero_edge_requirements(shape.columns),
+                row_top: zero_edge_requirements(shape.rows),
+                row_bottom: zero_edge_requirements(shape.rows),
             }),
         }
     }
@@ -2722,10 +2846,10 @@ mod tests {
                 row_outer_end: 0.0,
                 column_widths: vec![10.0; shape.columns],
                 row_heights: vec![10.0; shape.rows],
-                column_left: vec![0.0; shape.columns],
-                column_right: vec![0.0; shape.columns],
-                row_top: vec![0.0; shape.rows],
-                row_bottom: vec![0.0; shape.rows],
+                column_left: zero_edge_requirements(shape.columns),
+                column_right: zero_edge_requirements(shape.columns),
+                row_top: zero_edge_requirements(shape.rows),
+                row_bottom: zero_edge_requirements(shape.rows),
             }),
         }
     }
@@ -2957,7 +3081,7 @@ mod tests {
         assert_eq!(old_placement.render_placements()[1].origin, [100.0, 0.0]);
 
         let mut requirements = concat.grid_track_requirements()?;
-        requirements.column_left[1] = 32.0;
+        requirements.column_left[1] = GridEdgeChromeRequirement::total(32.0);
         assert!(concat.apply_grid_track_requirements(&requirements)?);
 
         let applied_placement = concat.child_frame_placement();
@@ -3014,6 +3138,30 @@ mod tests {
         plot_area: Size2D,
         slabs: EdgeSlabs,
     ) -> GridChildTrackDemand {
+        track_chrome_demand(
+            child_index,
+            row,
+            column,
+            row_span,
+            column_span,
+            plot_area,
+            EdgeSlabs::default(),
+            EdgeSlabs::default(),
+            slabs,
+        )
+    }
+
+    fn track_chrome_demand(
+        child_index: usize,
+        row: usize,
+        column: usize,
+        row_span: usize,
+        column_span: usize,
+        plot_area: Size2D,
+        guide_slabs: EdgeSlabs,
+        legend_slabs: EdgeSlabs,
+        slabs: EdgeSlabs,
+    ) -> GridChildTrackDemand {
         GridChildTrackDemand {
             child_index,
             slot: GridSlotRect {
@@ -3023,8 +3171,33 @@ mod tests {
                 column_span,
             },
             plot_area,
+            guide_slabs,
+            legend_slabs,
             slabs,
         }
+    }
+
+    #[test]
+    fn grid_edge_chrome_requirement_merges_structured_components() {
+        let left = GridEdgeChromeRequirement::new(4.0, 11.0, 2.0);
+        assert_eq!(
+            left,
+            GridEdgeChromeRequirement {
+                guide: 4.0,
+                legend: 11.0,
+                total: 15.0
+            }
+        );
+
+        let right = GridEdgeChromeRequirement::new(9.0, 3.0, 22.0);
+        assert_eq!(
+            left.max_components(right),
+            GridEdgeChromeRequirement {
+                guide: 9.0,
+                legend: 11.0,
+                total: 22.0
+            }
+        );
     }
 
     #[test]
@@ -3197,12 +3370,14 @@ mod tests {
         let requirements = grid_track_requirements(shape, Size2D::new(50.0, 50.0), &demands)?;
         let solution = solve_grid_track_requirements(&requirements, &demands);
 
-        assert_eq!(solution.column_left, vec![4.0, 2.0, 0.0]);
-        assert_eq!(solution.column_right, vec![0.0, 3.0, 6.0]);
+        assert_eq!(edge_totals(&solution.column_left), vec![4.0, 2.0, 0.0]);
+        assert_eq!(edge_totals(&solution.column_right), vec![0.0, 3.0, 6.0]);
+        let column_right_totals = edge_totals(&solution.column_right);
+        let column_left_totals = edge_totals(&solution.column_left);
         let spanned_width = span_axis_extent(
             &solution.column_widths,
-            &solution.column_right,
-            &solution.column_left,
+            &column_right_totals,
+            &column_left_totals,
             0,
             3,
         );
@@ -3213,6 +3388,50 @@ mod tests {
             solution.column_widths[0] + 2.0 + solution.column_widths[1] + 3.0
         );
         assert!((solution.content_size.width - 190.0).abs() < 0.0001);
+        Ok(())
+    }
+
+    #[test]
+    fn grid_track_solution_carries_structured_side_slab_targets() -> Result<(), AvengerChartError> {
+        let shape = GridShape {
+            rows: 1,
+            columns: 2,
+        };
+        let demands = vec![
+            track_chrome_demand(
+                0,
+                0,
+                0,
+                1,
+                1,
+                Size2D::new(100.0, 60.0),
+                EdgeSlabs::new(0.0, 6.0, 0.0, 0.0),
+                EdgeSlabs::new(0.0, 20.0, 0.0, 0.0),
+                EdgeSlabs::new(0.0, 12.0, 0.0, 0.0),
+            ),
+            track_demand(
+                1,
+                0,
+                1,
+                1,
+                1,
+                Size2D::new(100.0, 60.0),
+                EdgeSlabs::new(0.0, 0.0, 0.0, 3.0),
+            ),
+        ];
+
+        let requirements = grid_track_requirements(shape, Size2D::new(100.0, 60.0), &demands)?;
+        assert_eq!(
+            requirements.column_right[0],
+            GridEdgeChromeRequirement::new(6.0, 20.0, 12.0)
+        );
+
+        let solution = solve_grid_track_requirements(&requirements, &demands);
+        let targets = solution.side_slab_targets_for_slot(demands[0].slot);
+        assert_eq!(targets.guide.right, 6.0);
+        assert_eq!(targets.total.right, 26.0);
+        assert_eq!(targets.guide.left, 0.0);
+        assert_eq!(targets.total.left, 0.0);
         Ok(())
     }
 
@@ -5055,10 +5274,10 @@ mod tests {
             row_outer_end: 0.0,
             column_widths: vec![100.0; scale_backed_facet.cells.len()],
             row_heights: vec![80.0],
-            column_left: vec![0.0; scale_backed_facet.cells.len()],
-            column_right: vec![0.0; scale_backed_facet.cells.len()],
-            row_top: vec![0.0],
-            row_bottom: vec![0.0],
+            column_left: zero_edge_requirements(scale_backed_facet.cells.len()),
+            column_right: zero_edge_requirements(scale_backed_facet.cells.len()),
+            row_top: zero_edge_requirements(1),
+            row_bottom: zero_edge_requirements(1),
         };
 
         let err = facet_band_grid_apply_layout(&scale_backed_facet, &requirements)
@@ -5100,10 +5319,10 @@ mod tests {
             row_outer_end: 0.0,
             column_widths: vec![100.0; explicit_facet.cells.len()],
             row_heights: vec![80.0],
-            column_left: vec![0.0, 3.0],
-            column_right: vec![7.0, 0.0],
-            row_top: vec![0.0],
-            row_bottom: vec![0.0],
+            column_left: total_edge_requirements([0.0, 3.0]),
+            column_right: total_edge_requirements([7.0, 0.0]),
+            row_top: zero_edge_requirements(1),
+            row_bottom: zero_edge_requirements(1),
         };
 
         let layout = facet_band_grid_apply_layout(&explicit_facet, &requirements)
@@ -5173,10 +5392,10 @@ mod tests {
             row_outer_end: 0.0,
             column_widths: vec![100.0; cell_count],
             row_heights: vec![80.0],
-            column_left,
-            column_right,
-            row_top: vec![0.0],
-            row_bottom: vec![0.0],
+            column_left: total_edge_requirements(column_left),
+            column_right: total_edge_requirements(column_right),
+            row_top: zero_edge_requirements(1),
+            row_bottom: zero_edge_requirements(1),
         };
 
         let applied = apply_facet_band_grid_track_requirements(&mut measurement, &requirements)?;
