@@ -34,6 +34,19 @@ exclude = [
 
 resolver = "2"
 
+[profile.dev]
+# Keep edit-build cycles fast without emitting full DWARF for every crate.
+debug = "line-tables-only"
+
+[profile.dev.build-override]
+debug = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.build-override]
+debug = 0
+
 [workspace.dependencies]
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
