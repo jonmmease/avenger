@@ -355,6 +355,7 @@ fn collect_requirement_snapshot(measurement: &ComponentsMeasurement) -> Requirem
                 node_id: node_id.clone(),
                 key: facet_band.coordination_scope_key_for_depth(depth),
                 axis: facet_band.axis,
+                slot_sharing: facet_band.slot_sharing,
                 measured_overflow: facet_band.measured_overflow_value(),
                 local_layout: facet_band.local_layout_value(),
                 guide_padding_inner_px: facet_band.guide_padding_inner_px_value(),

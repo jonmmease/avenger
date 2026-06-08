@@ -248,6 +248,8 @@ pub struct FacetBandCoordMeasurement {
     /// Stable field identity for coordination grouping at this facet level.
     /// This is typically the facet row or column field name.
     pub coordination_field_identity: String,
+    /// Slot-sharing level for this facet band.
+    pub(crate) slot_sharing: SharingLevel,
     /// Coordinated overflow values aggregated across ALL facets at this nesting level.
     /// Populated by facet coordination after local measurement.
     pub coordinated_overflow: CoordinatedOverflow,
@@ -2067,6 +2069,7 @@ fn empty_facet_band_measurement(
         guide_padding_inner_px: 0.0,
         coordinated_layout: None,
         coordination_field_identity: axis.scale_name().to_string(),
+        slot_sharing: SharingLevel::FREE,
         empty_cell_policy,
         allocation_ownership: FacetBandAllocationOwnership::from_policy(
             !facet_path.is_empty() || plot_area_sized_mode,
@@ -3920,6 +3923,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             self.facet_path,
             self.facet_path.len() as u8 + 1,
             resolved.coordination_field_identity.clone(),
+            resolved.current_facet_slot_sharing,
             resolved.empty_cell_policy,
             &self.eval_ctx.facet_tree,
             cell_values,
@@ -4245,6 +4249,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         let crate::facet::band_attributes::FacetBandSemantics {
             facet_depth,
             coordination_field_identity,
+            slot_sharing,
             empty_cell_policy,
             cells,
             ..
@@ -4341,6 +4346,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             guide_padding_inner_px: band_layout_plan.guide_padding_inner_px,
             coordinated_layout: None,
             coordination_field_identity,
+            slot_sharing,
             empty_cell_policy,
             allocation_ownership: FacetBandAllocationOwnership::from_axis_policy(
                 !self.scale_backed_edge_slab_is_chart_overflow(true),
