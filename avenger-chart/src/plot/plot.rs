@@ -1462,7 +1462,9 @@ mod tests {
     use crate::repeat::{RepeatColumns, RepeatGrid, RepeatRows, RepeatWrap};
     use crate::tools::ToolCompileContext;
     use crate::zerod::ZeroDCoord;
-    use avenger_chart_cartesian::{CartesianAxis, CartesianSymbolPositionChannels};
+    use avenger_chart_cartesian::{
+        CartesianAxis, CartesianRectPositionChannels, CartesianSymbolPositionChannels,
+    };
     use avenger_chart_core::{
         AxisGuideVisibilityPolicy, DefaultLogicalExprNodeExt, DomainCoordinationGroup,
         RepeatContext, RepeatDomainCoordination, RepeatVariable, ResolvedRepeatVariable,
@@ -1470,15 +1472,16 @@ mod tests {
         StoreRow, StoreUpdate, SubplotDataSource, collect_repeat_placeholder_kinds, repeat,
         simplify_to_scalar_sync,
     };
-    use avenger_chart_marks::{Subplot, Symbol};
+    use avenger_chart_marks::{Rect, Subplot, Symbol};
     use avenger_chart_tools::PanScrollZoom;
-    use avenger_chart_transforms::Calculate;
+    use avenger_chart_transforms::{Bin, Calculate};
     use datafusion::{
         arrow::{
             array::Float64Array,
             datatypes::{DataType, Field, Schema},
             record_batch::RecordBatch,
         },
+        functions_aggregate::expr_fn::count,
         prelude::{SessionContext, col, lit},
     };
     use std::sync::Arc;
@@ -1520,6 +1523,22 @@ mod tests {
         )
     }
 
+    fn diagonal_histogram_count_shared_cell() -> Plot<Cartesian> {
+        Plot::<Cartesian>::new().mark(Rect::new().transform(
+            Bin::new(repeat::column()).maxbins(5),
+            |mark, bin| {
+                mark.x(bin.start())
+                    .x2(bin.end())
+                    .y_with(lit(0.0), |c| {
+                        c.with_domain_group("hist_count").share_domain()
+                    })
+                    .y2_with(count(lit(1)), |c| {
+                        c.with_domain_group("hist_count").share_domain()
+                    })
+            },
+        ))
+    }
+
     fn constant_y_grid_cell(value: f64) -> Plot<Cartesian> {
         Plot::<Cartesian>::new().mark(Symbol::new().x(repeat::column()).y(lit(value)).size(64.0))
     }
@@ -1530,6 +1549,24 @@ mod tests {
 
     fn zerod_branch_cell() -> Plot<ZeroDCoord> {
         Plot::<ZeroDCoord>::new().mark(Symbol::new().fill("#2f7ed8").size(64.0))
+    }
+
+    fn repeat_histogram_domain_data(ctx: &SessionContext) -> DataFrame {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("a", DataType::Float64, false),
+            Field::new("b", DataType::Float64, false),
+            Field::new("c", DataType::Float64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(Float64Array::from(vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0])),
+                Arc::new(Float64Array::from(vec![0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0])),
+                Arc::new(Float64Array::from(vec![2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 3.0])),
+            ],
+        )
+        .expect("repeat histogram domain batch");
+        ctx.read_batch(batch).expect("repeat histogram domain df")
     }
 
     fn child_channel_expr(
@@ -1769,6 +1806,94 @@ mod tests {
                 .contains("Repeat-generated domain coordination target"),
             "{err}"
         );
+    }
+
+    #[tokio::test]
+    async fn repeat_grid_conditional_histogram_preserves_count_domain_group()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<RepeatGrid>::new()
+            .rows(repeat_vars(&["a", "b"]))
+            .columns(repeat_vars(&["a", "b"]))
+            .cell(repeated_grid_cell())
+            .cell_when(
+                repeat::row_index().eq(repeat::column_index()),
+                diagonal_histogram_count_shared_cell(),
+            )
+            .matrix_domains()
+            .compile(&ctx)
+            .await?;
+
+        let children = lowered_children(&compiled);
+        for index in [0, 3] {
+            let y = child_channel_domain_coordination(children[index], "y").expect("y domain");
+            let y2 = child_channel_domain_coordination(children[index], "y2").expect("y2 domain");
+            assert_eq!(y.scope, CoordinationScope::Level(u8::MAX));
+            assert_eq!(y2.scope, CoordinationScope::Level(u8::MAX));
+            assert_eq!(
+                y.group,
+                DomainCoordinationGroup::Named("hist_count".to_string())
+            );
+            assert_eq!(
+                y2.group,
+                DomainCoordinationGroup::Named("hist_count".to_string())
+            );
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn repeat_grid_conditional_histogram_coordinates_count_domains()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<RepeatGrid>::new()
+            .data(repeat_histogram_domain_data(&ctx))
+            .plot_size(180.0, 140.0)
+            .rows(repeat_vars(&["a", "b", "c"]))
+            .columns(repeat_vars(&["a", "b", "c"]))
+            .cell(repeated_grid_cell())
+            .cell_when(
+                repeat::row_index().eq(repeat::column_index()),
+                diagonal_histogram_count_shared_cell(),
+            )
+            .matrix_domains()
+            .compile(&ctx)
+            .await?;
+
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let histogram_y_domains = evaluated
+            .interaction
+            .scopes
+            .iter()
+            .filter_map(|scope| {
+                let child = scope.child_frame_path.last()?;
+                let key = child.key.as_deref()?;
+                matches!(
+                    key,
+                    "repeat_cell:a:a" | "repeat_cell:b:b" | "repeat_cell:c:c"
+                )
+                .then(|| {
+                    scope
+                        .scales
+                        .get("y")
+                        .expect("y scale")
+                        .numeric_interval_domain()
+                        .expect("numeric y domain")
+                })
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(histogram_y_domains.len(), 3);
+        assert_eq!(histogram_y_domains[0], histogram_y_domains[1]);
+        assert_eq!(histogram_y_domains[0], histogram_y_domains[2]);
+        assert!(
+            histogram_y_domains[0].1 >= 6.0,
+            "shared count domain should include the densest histogram bin, got {:?}",
+            histogram_y_domains[0]
+        );
+
+        Ok(())
     }
 
     #[tokio::test]

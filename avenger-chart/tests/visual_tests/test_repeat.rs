@@ -245,8 +245,14 @@ fn diagonal_histogram_cell_outer_axes_short_titles() -> Plot<Cartesian> {
                 c.axis(|a| a.title(repeat::column_title()).grid(true))
             })
             .x2(bin.end())
-            .y_with(lit(0.0), |c| c.axis(|a| a.title("count").grid(true)))
-            .y2(count(lit(1)))
+            .y_with(lit(0.0), |c| {
+                c.with_domain_group("hist_count")
+                    .share_domain()
+                    .axis(|a| a.title("count").grid(true))
+            })
+            .y2_with(count(lit(1)), |c| {
+                c.with_domain_group("hist_count").share_domain()
+            })
             .fill("#2f7ed8")
             .stroke("#ffffff")
             .stroke_width(1.0)
