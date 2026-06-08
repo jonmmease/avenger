@@ -221,7 +221,23 @@ impl ChildFrameRuntime {
                     .collect::<HashSet<_>>();
                 for extents in domain_extents {
                     if !extents.is_empty() {
+                        let channels_before = builder
+                            .channel_builders()
+                            .keys()
+                            .cloned()
+                            .collect::<HashSet<_>>();
                         builder.extend_with_domain_extents_for_channels(extents, &seed_channels);
+                        for channel in extents.keys() {
+                            if seed_channels.contains(channel)
+                                && !channels_before.contains(channel)
+                                && builder.channel_builders().contains_key(channel)
+                            {
+                                builder.apply_coordinate_default_options(
+                                    channel,
+                                    plot.coord_transform.as_ref(),
+                                )?;
+                            }
+                        }
                     }
                 }
                 builder

@@ -38,8 +38,9 @@ use indexmap::IndexMap;
 use tracing::trace;
 
 use avenger_chart_core::{
-    AvengerChartError, DerivedScalarMap, Maybe, ResolvedDomain, ScaleRange, ScaleRangeBinding,
-    Theme, eval_to_scalars, params_to_datafusion, resolve_derived_scalars,
+    AvengerChartError, CoordinateSystemTransformCore, DerivedScalarMap, Maybe, ResolvedDomain,
+    ScaleRange, ScaleRangeBinding, Theme, eval_to_scalars, params_to_datafusion,
+    resolve_derived_scalars,
 };
 
 use crate::{
@@ -474,6 +475,54 @@ impl ScaleBuilder {
     /// Get the channel builders
     pub fn channel_builders(&self) -> &HashMap<String, ChannelScaleData> {
         &self.channel_scale_data
+    }
+
+    /// Apply coordinate-system default options to an existing cached channel.
+    ///
+    /// This is primarily used when a parent layout injects coordinated domain
+    /// extents into an otherwise empty child cell. The channel data may be
+    /// synthesized from the coordinated extent, but it should still honor the
+    /// coordinate system's ordinary defaults such as Cartesian y zero-baselines.
+    pub fn apply_coordinate_default_options<C>(
+        &mut self,
+        channel_name: &str,
+        coord_transform: &C,
+    ) -> Result<(), AvengerChartError>
+    where
+        C: CoordinateSystemTransformCore + ?Sized,
+    {
+        let Some(channel_builder) = self.channel_scale_data.get_mut(channel_name) else {
+            return Ok(());
+        };
+
+        let (scale_spec, options) = match channel_builder {
+            ChannelScaleData::Standard {
+                scale_spec,
+                options,
+                ..
+            }
+            | ChannelScaleData::RadiusAware {
+                scale_spec,
+                options,
+                ..
+            }
+            | ChannelScaleData::ExplicitDomain {
+                scale_spec,
+                options,
+                ..
+            } => (scale_spec, options),
+        };
+
+        let scale = Scale::<Auto>::from_spec(scale_spec.as_ref().clone_box());
+        let scale_impl = scale.to_scale_impl()?;
+        for (key, value) in coord_transform.default_scale_options(channel_name, scale_impl.as_ref())
+        {
+            options
+                .entry(key)
+                .or_insert(LogicalExprNode::from_expr(lit(value))?);
+        }
+
+        Ok(())
     }
 
     /// Extract data extents for specified channels as DomainExtent
@@ -1189,7 +1238,39 @@ impl DataExtents {
 mod tests {
     use super::*;
     use crate::Linear;
+    use avenger_chart_core::PlotGeometry;
+    use avenger_common::value::ScalarOrArray;
     use datafusion::functions_array::expr_fn::make_array;
+
+    struct TestCoordDefaults;
+
+    impl CoordinateSystemTransformCore for TestCoordDefaults {
+        fn required_channels(&self) -> &'static [&'static str] {
+            &["x", "y"]
+        }
+
+        fn transform(
+            &self,
+            _position_channels: &HashMap<&str, ScalarOrArray<f32>>,
+            _position_values: Option<&HashMap<&str, Vec<ScalarValue>>>,
+            _plot_width: f32,
+            _plot_height: f32,
+        ) -> Result<Box<dyn PlotGeometry>, AvengerChartError> {
+            unimplemented!("scale-builder tests do not call coordinate transforms")
+        }
+
+        fn default_scale_options(
+            &self,
+            channel: &str,
+            _scale_impl: &dyn ScaleImpl,
+        ) -> HashMap<String, ScalarValue> {
+            if channel == "y" {
+                HashMap::from([("zero".to_string(), ScalarValue::Boolean(Some(true)))])
+            } else {
+                HashMap::new()
+            }
+        }
+    }
 
     fn no_default_range(
         _channel: &str,
@@ -1942,6 +2023,25 @@ mod tests {
             builder.channel_data_types.get("x"),
             Some(&DataType::Float64)
         );
+    }
+
+    #[test]
+    fn test_coordinate_defaults_apply_to_seeded_channel() {
+        let mut builder = ScaleBuilder::new();
+        let mut shared = HashMap::new();
+        shared.insert("y".to_string(), DomainExtent::numeric(2.0, 8.0));
+
+        builder.extend_with_domain_extents(&shared);
+        builder
+            .apply_coordinate_default_options("y", &TestCoordDefaults)
+            .unwrap();
+
+        let y = builder.channel_scale_data.get("y").unwrap();
+        let options = match y {
+            ChannelScaleData::Standard { options, .. } => options,
+            _ => panic!("expected standard seeded channel"),
+        };
+        assert!(options.contains_key("zero"));
     }
 
     #[test]
