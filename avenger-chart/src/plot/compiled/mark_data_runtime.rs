@@ -1003,9 +1003,10 @@ pub(crate) fn apply_channel_scale(
             let default_scale_name = strip_trailing_numbers(channel_name).to_string();
             let scale_key = scale_name.as_ref().unwrap_or(&default_scale_name);
             let scale = scales.get(scale_key).ok_or_else(|| {
+                let available_scales = scales.keys().cloned().collect::<Vec<_>>().join(", ");
                 AvengerChartError::InternalError(format!(
-                    "Scale '{}' not found for channel '{}'",
-                    scale_key, channel_name
+                    "Scale '{}' not found for channel '{}' (available scales: [{}])",
+                    scale_key, channel_name, available_scales
                 ))
             })?;
 
@@ -1069,10 +1070,39 @@ pub(crate) async fn prepare_mark_data(
     let mut array_channels = Vec::new();
     let mut scalar_channels = Vec::new();
     let mut has_array_data = false;
+    let scale_error_context = || {
+        let facet_path = request
+            .facet_data_scope
+            .as_ref()
+            .map(|scope| format!("{:?}", scope.full_path))
+            .unwrap_or_else(|| "None".to_string());
+        let available_scales = request
+            .scales
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        (facet_path, available_scales)
+    };
     for channel_desc in &supported_channels {
         if let Some(channel_value) = channels.get(channel_desc.name) {
-            let scaled_expr =
-                apply_channel_scale(channel_desc.name, channel_value, request.scales, ctx)?;
+            let scaled_expr = apply_channel_scale(
+                channel_desc.name,
+                channel_value,
+                request.scales,
+                ctx,
+            )
+            .map_err(|err| {
+                let (facet_path, available_scales) = scale_error_context();
+                AvengerChartError::InternalError(format!(
+                    "failed to scale mark '{}' channel '{}' at facet path {} with scales [{}]: {}",
+                    mark.mark_type(),
+                    channel_desc.name,
+                    facet_path,
+                    available_scales,
+                    err
+                ))
+            })?;
             if channel_desc.allow_column_ref && scaled_expr.any_column_refs() {
                 array_channels.push((channel_desc.name, scaled_expr));
                 has_array_data = true;

@@ -77,7 +77,7 @@ use crate::{
     plot::compiled::{
         CompiledPlot, ComponentsMeasurement, CoordinationKind, CoordinationScopeKey,
         fixed_child_plot_area_layout_spec, measure_child_frame_plot_with_builder,
-        scales::build_scale_builder_from_marks_with_facet_scope,
+        scales::build_scale_builder_from_marks_with_facet_scope, union_domain_extents,
     },
     render::{EvaluationContext, FacetSubtreeCheckpoint, FacetSubtreeSelector},
     scales::{
@@ -2634,6 +2634,7 @@ async fn build_overflow_probe(
         prepared_inputs.cell_semantics.facet_depth,
         &runtime_state.compiled_subplot,
         &runtime_state.nested_measure_ctx,
+        prepared_inputs.cell_semantics.empty_cell_policy,
     ))
     .await?;
     let overflow_probe_summary = measure_overflow_probe(
@@ -2699,6 +2700,7 @@ async fn coordinate_cell_domains_before_measurement(
     facet_depth: u8,
     compiled_subplot: &Arc<CompiledPlot>,
     nested_ctx: &FacetBandNestedMeasureContext,
+    empty_cell_policy: FacetEmptyCellPolicy,
 ) -> Result<HashMap<String, DomainCoordination>, AvengerChartError> {
     let mut ordered_owner_extent_cache: HashMap<(Vec<ScalarValue>, String), DomainExtent> =
         HashMap::new();
@@ -2769,6 +2771,58 @@ async fn coordinate_cell_domains_before_measurement(
         cell.local_domain_extents = local_extents;
     }
 
+    if matches!(
+        empty_cell_policy.effective(),
+        FacetEmptyCellPolicy::EmptySubplot
+    ) {
+        let mut band_free_extents = HashMap::<String, DomainExtent>::new();
+        for cell in cells.iter() {
+            if !cell.plan.has_data_rows {
+                continue;
+            }
+            for (channel, annotated) in &cell.local_domain_extents {
+                if !annotated.domain_sharing_level.is_free() {
+                    continue;
+                }
+                band_free_extents
+                    .entry(channel.clone())
+                    .and_modify(|extent| {
+                        *extent = union_domain_extents(extent, &annotated.extent);
+                    })
+                    .or_insert_with(|| annotated.extent.clone());
+            }
+        }
+
+        if !band_free_extents.is_empty() {
+            for cell in cells.iter_mut() {
+                if cell.plan.has_data_rows {
+                    continue;
+                }
+                for (channel, extent) in &band_free_extents {
+                    if cell.local_domain_extents.contains_key(channel) {
+                        continue;
+                    }
+                    let domain_sharing_level = nested_ctx
+                        .facet_tree
+                        .channel_domain_sharing_level_typed(channel);
+                    if !domain_sharing_level.is_free() {
+                        continue;
+                    }
+                    cell.local_domain_extents.insert(
+                        channel.clone(),
+                        ChannelDomainExtent {
+                            extent: extent.clone(),
+                            domain_sharing_level,
+                            domain_coordination: nested_ctx
+                                .facet_tree
+                                .channel_domain_coordination(channel),
+                        },
+                    );
+                }
+            }
+        }
+    }
+
     let current_domain_infos = cells
         .iter()
         .flat_map(|cell| {
@@ -2810,6 +2864,18 @@ async fn coordinate_cell_domains_before_measurement(
                     .sharing_owner_path(&cell.plan.full_path, sharing_level.raw())
             },
         );
+        if !cell.plan.has_data_rows
+            && matches!(
+                empty_cell_policy.effective(),
+                FacetEmptyCellPolicy::EmptySubplot
+            )
+        {
+            for (channel, annotated) in &cell.local_domain_extents {
+                cell.coordinated_domain_extents
+                    .entry(channel.clone())
+                    .or_insert_with(|| annotated.extent.clone());
+            }
+        }
         if cell.local_domain_extents.is_empty() && !cell.coordinated_domain_extents.is_empty() {
             trace!(
                 cell_path = ?cell.plan.full_path,
@@ -6084,6 +6150,7 @@ mod tests {
             facet_depth,
             &compiled_subplot,
             &nested_measure_ctx,
+            FacetEmptyCellPolicy::Hole,
         )
         .await?;
 
@@ -6167,6 +6234,7 @@ mod tests {
             facet_depth,
             &compiled_subplot,
             &nested_measure_ctx,
+            FacetEmptyCellPolicy::Hole,
         )
         .await?;
         measure_overflow_probe(

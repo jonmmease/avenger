@@ -4,7 +4,10 @@
 //! should be placed. This module owns the common "measure this child plot as a
 //! frame" work that those containers should not duplicate.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use datafusion::{
     common::ScalarValue, dataframe::DataFrame, logical_expr::Expr, prelude::SessionContext,
@@ -210,9 +213,15 @@ impl ChildFrameRuntime {
         } else {
             extended_builder = {
                 let mut builder = scale_builder.clone();
+                let seed_channels = plot
+                    .scale_to_coord_channel
+                    .keys()
+                    .chain(plot.scale_specs.keys())
+                    .cloned()
+                    .collect::<HashSet<_>>();
                 for extents in domain_extents {
                     if !extents.is_empty() {
-                        builder.extend_with_domain_extents(extents);
+                        builder.extend_with_domain_extents_for_channels(extents, &seed_channels);
                     }
                 }
                 builder

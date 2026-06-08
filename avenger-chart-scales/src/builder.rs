@@ -22,16 +22,20 @@
 //! on each build using cached data. This trades cheap math (microseconds) for
 //! avoiding duplicate queries (milliseconds to seconds).
 
-use std::collections::HashMap;
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+};
 
 use avenger_scales::scales::{
     RangeKind, ScaleImpl, domain_solver::compute_domain_from_data_with_padding_linear,
 };
+use datafusion::arrow::datatypes::TimeUnit;
 use datafusion::{arrow::datatypes::DataType, logical_expr::lit, prelude::SessionContext};
 use datafusion_common::ScalarValue;
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
-use tracing::{debug, trace};
+use tracing::trace;
 
 use avenger_chart_core::{
     AvengerChartError, DerivedScalarMap, Maybe, ResolvedDomain, ScaleRange, ScaleRangeBinding,
@@ -39,8 +43,8 @@ use avenger_chart_core::{
 };
 
 use crate::{
-    Auto, ConfiguredScaleWithSpec, DomainBounds, DomainExtent, PlotScaleSpec, RadiusPadding, Scale,
-    ScaleRuntimeExt, ScaleSpec,
+    Auto, ConfiguredScaleWithSpec, DomainBounds, DomainExtent, Linear, Ordinal, PlotScaleSpec,
+    RadiusPadding, Scale, ScaleRuntimeExt, ScaleSpec, Time,
     domain::{ScaleDefaultDomain, ScaleDomain},
     domain_extent::SerializableDomainValue,
     scale::resolve_raw_domain_override,
@@ -58,6 +62,77 @@ pub type DefaultScaleRangeResolver<'a> = dyn Fn(
     + Send
     + Sync
     + 'a;
+
+fn radius_solver_inputs_with_zero<'a>(
+    position_data: &'a [f64],
+    radius_lower_data: &'a [f64],
+    radius_upper_data: &'a [f64],
+    include_zero: bool,
+) -> (Cow<'a, [f64]>, Cow<'a, [f64]>, Cow<'a, [f64]>) {
+    if !include_zero {
+        return (
+            Cow::Borrowed(position_data),
+            Cow::Borrowed(radius_lower_data),
+            Cow::Borrowed(radius_upper_data),
+        );
+    }
+
+    let (mut min, mut max) = (f64::INFINITY, f64::NEG_INFINITY);
+    for value in position_data
+        .iter()
+        .copied()
+        .filter(|value| value.is_finite())
+    {
+        min = min.min(value);
+        max = max.max(value);
+    }
+
+    if !min.is_finite() || (min <= 0.0 && max >= 0.0) {
+        return (
+            Cow::Borrowed(position_data),
+            Cow::Borrowed(radius_lower_data),
+            Cow::Borrowed(radius_upper_data),
+        );
+    }
+
+    let mut position_data = position_data.to_vec();
+    let mut radius_lower_data = radius_lower_data.to_vec();
+    let mut radius_upper_data = radius_upper_data.to_vec();
+    position_data.push(0.0);
+    radius_lower_data.push(0.0);
+    radius_upper_data.push(0.0);
+
+    (
+        Cow::Owned(position_data),
+        Cow::Owned(radius_lower_data),
+        Cow::Owned(radius_upper_data),
+    )
+}
+
+async fn evaluate_bool_scale_option(
+    scale: &Scale<Auto>,
+    key: &str,
+    default: bool,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+) -> Result<bool, AvengerChartError> {
+    let Some(value_node) = scale.get_options().get(key) else {
+        return Ok(default);
+    };
+    let expr = value_node.to_expr(ctx)?;
+    let param_values = params_to_datafusion(params);
+    let scalars = eval_to_scalars(vec![expr], Some(ctx), param_values.as_ref()).await?;
+    let Some(scalar) = scalars.first() else {
+        return Ok(default);
+    };
+    match scalar {
+        ScalarValue::Boolean(Some(value)) => Ok(*value),
+        ScalarValue::Boolean(None) | ScalarValue::Null => Ok(default),
+        other => Err(AvengerChartError::InvalidArgument(format!(
+            "Scale option '{key}' must evaluate to a boolean, got {other}"
+        ))),
+    }
+}
 
 /// Stores cached query results for building scales on-demand
 ///
@@ -257,6 +332,15 @@ fn append_radius_domain_boundary_samples(
         len_before,
         len_after: position_data.len(),
     })
+}
+
+fn scalar_data_type_or_utf8(value: &ScalarValue) -> DataType {
+    let data_type = value.data_type();
+    if data_type == DataType::Null {
+        DataType::Utf8
+    } else {
+        data_type
+    }
 }
 
 fn should_use_cached_domain(scale: &Scale<Auto>) -> bool {
@@ -479,16 +563,38 @@ impl ScaleBuilder {
     /// # Arguments
     /// * `shared_extents` - HashMap mapping channel names to their shared DomainExtent values
     pub fn extend_with_domain_extents(&mut self, shared_extents: &HashMap<String, DomainExtent>) {
-        debug!(
-            shared_channel_count = shared_extents.len(),
-            available_channels = ?self.channel_scale_data.keys().collect::<Vec<_>>(),
-            "extend_with_domain_extents"
-        );
+        self.extend_with_domain_extents_inner(shared_extents, None);
+    }
+
+    /// Extend data extents, seeding missing channels only for scale names that
+    /// belong to the current plot. This keeps container plots from synthesizing
+    /// descendant leaf scales when coordinated extents are threaded through a
+    /// nested measurement path.
+    pub fn extend_with_domain_extents_for_channels(
+        &mut self,
+        shared_extents: &HashMap<String, DomainExtent>,
+        seed_channels: &HashSet<String>,
+    ) {
+        self.extend_with_domain_extents_inner(shared_extents, Some(seed_channels));
+    }
+
+    fn extend_with_domain_extents_inner(
+        &mut self,
+        shared_extents: &HashMap<String, DomainExtent>,
+        seed_channels: Option<&HashSet<String>>,
+    ) {
         for (ch, ext) in shared_extents {
             trace!(channel = ch, extent = ?ext, "shared extent");
         }
 
         for (channel, shared_extent) in shared_extents {
+            let should_seed_missing = seed_channels
+                .map(|channels| channels.contains(channel))
+                .unwrap_or(true);
+            if should_seed_missing && !self.channel_scale_data.contains_key(channel) {
+                self.seed_missing_channel_from_domain_extent(channel, shared_extent);
+            }
+
             if let Some(channel_builder) = self.channel_scale_data.get_mut(channel) {
                 let variant = match channel_builder {
                     ChannelScaleData::Standard { data_extents, .. } => {
@@ -591,6 +697,74 @@ impl ScaleBuilder {
                         // Explicit domains should not be modified by shared extents
                     }
                 }
+            }
+        }
+    }
+
+    fn seed_missing_channel_from_domain_extent(
+        &mut self,
+        channel: &str,
+        shared_extent: &DomainExtent,
+    ) {
+        match &shared_extent.bounds {
+            DomainBounds::Numeric { min, max } => {
+                if let Some(radius) = &shared_extent.radius {
+                    self.add_radius_aware(
+                        channel.to_string(),
+                        Box::new(Linear),
+                        vec![*min, *max],
+                        vec![radius.max_lower, 0.0],
+                        vec![0.0, radius.max_upper],
+                        HashMap::new(),
+                        DerivedScalarMap::new(),
+                    );
+                } else {
+                    self.add_standard(
+                        channel.to_string(),
+                        Box::new(Linear),
+                        DataExtents::Interval(*min, *max),
+                        HashMap::new(),
+                        DerivedScalarMap::new(),
+                    );
+                }
+                self.set_channel_data_type(channel.to_string(), DataType::Float64);
+            }
+            DomainBounds::Temporal { min, max } => {
+                self.add_standard(
+                    channel.to_string(),
+                    Box::new(Time),
+                    DataExtents::Temporal(*min, *max),
+                    HashMap::new(),
+                    DerivedScalarMap::new(),
+                );
+                self.set_channel_data_type(
+                    channel.to_string(),
+                    DataType::Timestamp(TimeUnit::Millisecond, None),
+                );
+            }
+            DomainBounds::Discrete(values) => {
+                let scalar_values = values
+                    .iter()
+                    .map(SerializableDomainValue::to_scalar)
+                    .collect::<Vec<_>>();
+                let data_type = scalar_values
+                    .iter()
+                    .find(|value| !value.is_null())
+                    .map(scalar_data_type_or_utf8)
+                    .unwrap_or(DataType::Utf8);
+                let data_extents = if shared_extent.ordered_discrete {
+                    DataExtents::OrderedDiscrete(scalar_values)
+                } else {
+                    DataExtents::Discrete(scalar_values)
+                };
+                self.add_standard(
+                    channel.to_string(),
+                    Box::new(Ordinal),
+                    data_extents,
+                    HashMap::new(),
+                    DerivedScalarMap::new(),
+                );
+                self.set_channel_data_type(channel.to_string(), data_type);
             }
         }
     }
@@ -851,27 +1025,27 @@ impl ScaleBuilder {
                         }
                     }
 
-                    // Recompute domain with new range_width using cached data
+                    let include_zero_in_radius_solve =
+                        evaluate_bool_scale_option(&scale, "zero", false, ctx, params).await?;
+                    let (solver_position_data, solver_radius_lower_data, solver_radius_upper_data) =
+                        radius_solver_inputs_with_zero(
+                            position_data,
+                            radius_lower_data,
+                            radius_upper_data,
+                            include_zero_in_radius_solve,
+                        );
+
+                    // Recompute domain with new range_width using cached data.
+                    // If zero is part of the scale domain, include it in the
+                    // solve so the marker margin remains valid after zero
+                    // extension. Otherwise zero would widen the domain after
+                    // the fact and shrink the protected pixel margin.
                     let (d_min, d_max) = compute_domain_from_data_with_padding_linear(
-                        position_data,
-                        radius_lower_data,
-                        radius_upper_data,
+                        solver_position_data.as_ref(),
+                        solver_radius_lower_data.as_ref(),
+                        solver_radius_upper_data.as_ref(),
                         range_width,
                     )?;
-
-                    if channel_name == "y" {
-                        let data_preview: Vec<f64> =
-                            position_data.iter().take(12).cloned().collect();
-                        trace!(
-                            channel = channel_name,
-                            d_min,
-                            d_max,
-                            position_len = position_data.len(),
-                            range_width,
-                            data_preview = ?data_preview,
-                            "RadiusAware domain after compute_domain_from_data"
-                        );
-                    }
 
                     // Set domain and range
                     let domain = attach_raw_domain(
@@ -883,21 +1057,6 @@ impl ScaleBuilder {
 
                     // Normalize domain (apply zero, nice, padding)
                     scale = Box::pin(scale.normalize_domain(width, height, ctx, params)).await?;
-
-                    if channel_name == "y"
-                        && let Ok((norm_min, norm_max)) = Box::pin(
-                            scale
-                                .clone()
-                                .create_configured_scale(width, height, ctx, params),
-                        )
-                        .await
-                        .and_then(|c| Ok(c.numeric_interval_domain()?))
-                    {
-                        trace!(
-                            channel = channel_name,
-                            norm_min, norm_max, "RadiusAware domain after normalize"
-                        );
-                    }
 
                     scale = self.apply_default_range_if_needed(
                         scale,
@@ -1379,6 +1538,64 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_build_scales_radius_aware_zero_is_part_of_padding_solve() {
+        let mut builder = ScaleBuilder::new();
+        let mut options = HashMap::new();
+        options.insert(
+            "zero".to_string(),
+            LogicalExprNode::from_expr(lit(true)).unwrap(),
+        );
+        options.insert(
+            "nice".to_string(),
+            LogicalExprNode::from_expr(lit(false)).unwrap(),
+        );
+
+        builder.add_radius_aware(
+            "y".to_string(),
+            Box::new(Linear),
+            vec![1.0, 1.3],
+            vec![8.0, 8.0],
+            vec![8.0, 8.0],
+            options,
+            empty_scalars(),
+        );
+
+        let mut coord_ranges = HashMap::new();
+        coord_ranges.insert(
+            "y".to_string(),
+            ScaleRangeBinding::fixed_interval(80.0, 0.0),
+        );
+
+        let ctx = SessionContext::new();
+        let scales = builder
+            .build_scales(
+                110.0,
+                80.0,
+                &coord_ranges,
+                &HashMap::new(),
+                &no_default_range,
+                &Theme::light(),
+                &ctx,
+                &IndexMap::new(),
+            )
+            .await
+            .unwrap();
+
+        let (d_min, d_max) = scales
+            .get("y")
+            .unwrap()
+            .configured()
+            .numeric_interval_domain()
+            .unwrap();
+
+        assert_eq!(d_min, 0.0);
+        assert!(
+            d_max > 1.43,
+            "zero-inclusive radius solve should preserve upper marker margin, got {d_max}"
+        );
+    }
+
+    #[tokio::test]
     async fn test_build_scales_radius_aware_range_change() {
         let mut builder = ScaleBuilder::new();
         let scale_spec = Box::new(Linear) as Box<dyn ScaleSpec>;
@@ -1707,5 +1924,97 @@ mod tests {
         let color = extents.get("color").unwrap();
         let values = color.discrete_values().unwrap();
         assert_eq!(values.len(), 3);
+    }
+
+    #[test]
+    fn test_extend_with_domain_extents_seeds_missing_numeric_channel() {
+        let mut builder = ScaleBuilder::new();
+        let mut shared = HashMap::new();
+        shared.insert("x".to_string(), DomainExtent::numeric(2.0, 8.0));
+
+        builder.extend_with_domain_extents(&shared);
+
+        let extents = builder.extract_domain_extents(&["x"]);
+        let x = extents.get("x").unwrap();
+        assert_eq!(x.numeric_bounds(), Some((2.0, 8.0)));
+        assert!(!x.has_radius());
+        assert_eq!(
+            builder.channel_data_types.get("x"),
+            Some(&DataType::Float64)
+        );
+    }
+
+    #[test]
+    fn test_extend_with_domain_extents_for_channels_does_not_seed_unowned_channel() {
+        let mut builder = ScaleBuilder::new();
+        let mut shared = HashMap::new();
+        shared.insert("x".to_string(), DomainExtent::numeric(2.0, 8.0));
+
+        builder.extend_with_domain_extents_for_channels(&shared, &HashSet::new());
+
+        assert!(builder.channel_scale_data.is_empty());
+        assert!(builder.channel_data_types.is_empty());
+    }
+
+    #[test]
+    fn test_extend_with_domain_extents_seeds_missing_radius_aware_channel() {
+        let mut builder = ScaleBuilder::new();
+        let mut shared = HashMap::new();
+        shared.insert(
+            "y".to_string(),
+            DomainExtent::numeric_with_radius(0.0, 10.0, 3.0, 4.0),
+        );
+
+        builder.extend_with_domain_extents(&shared);
+
+        let extents = builder.extract_domain_extents(&["y"]);
+        let y = extents.get("y").unwrap();
+        assert_eq!(y.numeric_bounds(), Some((0.0, 10.0)));
+        assert!(y.has_radius());
+        let radius = y.radius.as_ref().unwrap();
+        assert_eq!(radius.max_lower, 3.0);
+        assert_eq!(radius.max_upper, 4.0);
+    }
+
+    #[test]
+    fn test_extend_with_domain_extents_seeds_missing_discrete_channel() {
+        let mut builder = ScaleBuilder::new();
+        let mut shared = HashMap::new();
+        shared.insert(
+            "category".to_string(),
+            DomainExtent::ordered_discrete(vec![
+                SerializableDomainValue::String("alpha".to_string()),
+                SerializableDomainValue::String("beta".to_string()),
+            ]),
+        );
+
+        builder.extend_with_domain_extents(&shared);
+
+        let extents = builder.extract_domain_extents(&["category"]);
+        let category = extents.get("category").unwrap();
+        let values = category.discrete_values().unwrap();
+        assert_eq!(values.len(), 2);
+        assert!(category.ordered_discrete);
+        assert_eq!(
+            builder.channel_data_types.get("category"),
+            Some(&DataType::Utf8)
+        );
+    }
+
+    #[test]
+    fn test_extend_with_domain_extents_seeds_missing_temporal_channel() {
+        let mut builder = ScaleBuilder::new();
+        let mut shared = HashMap::new();
+        shared.insert("date".to_string(), DomainExtent::temporal(1000, 2000));
+
+        builder.extend_with_domain_extents(&shared);
+
+        let extents = builder.extract_domain_extents(&["date"]);
+        let date = extents.get("date").unwrap();
+        assert_eq!(date.temporal_bounds(), Some((1000, 2000)));
+        assert_eq!(
+            builder.channel_data_types.get("date"),
+            Some(&DataType::Timestamp(TimeUnit::Millisecond, None))
+        );
     }
 }

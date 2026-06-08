@@ -204,6 +204,15 @@ pub(crate) fn resolve_scale_backed_facet_band_placement(
         FacetAxis::Row => "FacetRow",
     };
 
+    if cell_count == 0 && cell_values.is_empty() {
+        return Ok(FacetBandPlacement::new(
+            axis,
+            Vec::new(),
+            0.0,
+            cross_axis_extent,
+        ));
+    }
+
     if bands.len() != cell_count {
         return Err(AvengerChartError::InternalError(format!(
             "{axis_label} placement: band positions length {} did not match facet cell count {}",
@@ -600,6 +609,25 @@ mod tests {
         let message = format!("{}", err);
         assert!(message.contains("band positions length"));
         assert!(message.contains("facet cell count"));
+    }
+
+    #[test]
+    fn scale_backed_placement_allows_empty_filtered_cells() {
+        let scale = make_band_scale((0.0, 100.0));
+
+        let placement = resolve_scale_backed_facet_band_placement(
+            FacetAxis::Column,
+            &scale,
+            &[],
+            0,
+            Some(42.0),
+        )
+        .unwrap();
+
+        assert_eq!(placement.axis, FacetAxis::Column);
+        assert_eq!(placement.cell_count(), 0);
+        assert_eq!(placement.main_axis_extent, 0.0);
+        assert_eq!(placement.cross_axis_extent, Some(42.0));
     }
 
     #[test]

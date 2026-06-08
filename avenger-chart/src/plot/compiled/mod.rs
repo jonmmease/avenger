@@ -88,6 +88,7 @@ pub(crate) use self::container_sharing::{
     shared_path_key,
 };
 pub(crate) use self::coordination_scope::{CoordinationKind, CoordinationScopeKey};
+pub(crate) use self::domain_coordination::union_domain_extents;
 pub(crate) use self::domain_coordination::{ChildFrameDomainRequest, aggregate_domain_requests};
 pub(crate) use self::layout_profile::{
     FacetCellProfileIndex, FacetCellRenderedComponentsProfileCapture, LayoutProfileSnapshot,
