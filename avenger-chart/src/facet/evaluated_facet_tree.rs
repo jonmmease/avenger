@@ -1796,22 +1796,13 @@ fn extract_channel_domain_coordinations(
     marks: &[Arc<dyn CompiledMark>],
 ) -> HashMap<String, DomainCoordination> {
     let mut result = HashMap::new();
+    let mut implicit_scaled_channels = HashSet::new();
 
     for mark in marks {
         if let Some(facet_mark) = facet_subplot_ref(mark.as_ref()) {
             // Recurse into subplot to find innermost marks
             let inner = extract_channel_domain_coordinations(&facet_mark.compiled_subplot().marks);
-            result.extend(inner);
-        } else {
-            // Non-facet mark - extract channel-domain coordination targets.
-            let data_context = mark.data_context();
-            for (channel, channel_value) in data_context.channels() {
-                let Some(coordination) = channel_value.get_domain_coordination().cloned() else {
-                    continue;
-                };
-                let Some(scale_name) = channel_value.get_scale_name(channel) else {
-                    continue;
-                };
+            for (scale_name, coordination) in inner {
                 result
                     .entry(scale_name)
                     .and_modify(|existing: &mut DomainCoordination| {
@@ -1821,7 +1812,33 @@ fn extract_channel_domain_coordinations(
                     })
                     .or_insert(coordination);
             }
+        } else {
+            // Non-facet mark - extract channel-domain coordination targets.
+            let data_context = mark.data_context();
+            for (channel, channel_value) in data_context.channels() {
+                let Some(scale_name) = channel_value.get_scale_name(channel) else {
+                    continue;
+                };
+                if let Some(coordination) = channel_value.get_domain_coordination().cloned() {
+                    result
+                        .entry(scale_name)
+                        .and_modify(|existing: &mut DomainCoordination| {
+                            if coordination.scope.to_level() > existing.scope.to_level() {
+                                *existing = coordination.clone();
+                            }
+                        })
+                        .or_insert(coordination);
+                } else {
+                    implicit_scaled_channels.insert(scale_name);
+                }
+            }
         }
+    }
+
+    for scale_name in implicit_scaled_channels {
+        result
+            .entry(scale_name)
+            .or_insert_with(|| DomainCoordination::scale_name(SharingLevel::GLOBAL.into()));
     }
 
     result
@@ -3763,6 +3780,56 @@ mod tests {
             DomainCoordinationGroup::Named("height".to_string())
         );
         assert_eq!(tree.channel_domain_sharing_level("x"), u8::MAX);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn extract_channel_domain_coordinations_adds_default_shared_scaled_channels()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .mark(
+                Symbol::new()
+                    .x(col("x"))
+                    .y(col("y"))
+                    .fill(col("continuous_fill")),
+            )
+            .compile(&ctx)
+            .await?;
+
+        let coordinations = extract_channel_domain_coordinations(&compiled.marks);
+        let fill = coordinations
+            .get("fill")
+            .expect("default scaled fill should be coordinated");
+
+        assert_eq!(fill.scope, CoordinationScope::Level(u8::MAX));
+        assert_eq!(fill.group, DomainCoordinationGroup::ScaleName);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn explicit_domain_coordination_wins_over_implicit_related_channel()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .mark(
+                Rect::new()
+                    .x_with(col("x0"), |c| c.free_domain())
+                    .x2(col("x1"))
+                    .y(lit(0.0))
+                    .y2(col("height")),
+            )
+            .compile(&ctx)
+            .await?;
+
+        let coordinations = extract_channel_domain_coordinations(&compiled.marks);
+        let x = coordinations
+            .get("x")
+            .expect("x/x2 shared scale should have coordination");
+
+        assert_eq!(x.scope, CoordinationScope::Level(0));
 
         Ok(())
     }

@@ -8,8 +8,9 @@ use avenger_chart::scales::{Linear, Ordinal, ScaleRange};
 use datafusion::prelude::*;
 use palette::rgb::Srgba;
 
-/// Test 1: Row facet with Free x/y scales + Free color legend
-/// Each subplot should have its own color legend on the right side
+/// Test 1: Row facet with Free x/y scales + default shared color legend
+/// The historical baseline name says "free_color", but only x/y are free here.
+/// Fill should still use the default shared domain coordination.
 #[tokio::test]
 async fn test_facet_row_free_domains_with_free_color_legend() {
     let ctx = SessionContext::new();
@@ -63,8 +64,9 @@ async fn test_facet_row_free_domains_with_free_color_legend() {
     .await;
 }
 
-/// Test: Row facet with Free x/y scales + Free color legend positioned on the LEFT
-/// Tests that left-positioned legends align correctly across row facets
+/// Test: Row facet with Free x/y scales + default shared color legend positioned on the LEFT
+/// Tests that left-positioned legends align correctly across row facets.
+/// Fill should still use the default shared domain coordination.
 #[tokio::test]
 async fn test_facet_row_free_domains_with_left_color_legend() {
     let ctx = SessionContext::new();
@@ -508,8 +510,8 @@ async fn test_facet_col_legend_bottom() {
     .await;
 }
 
-/// Test 5: Small 2-row facet with Free legends
-/// Tests with fewer facets
+/// Test 5: Small 2-row facet with Free x/y domains and default shared fill legend
+/// Tests with fewer facets.
 #[tokio::test]
 async fn test_facet_row_two_rows_free_legend() {
     let ctx = SessionContext::new();
