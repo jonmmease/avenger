@@ -129,6 +129,47 @@ mod tests {
         assert!(hit_rect.width.is_some());
         assert!(hit_rect.height.is_some());
     }
+
+    #[test]
+    fn symbol_hit_rect_preserves_reserved_row_height() {
+        let output = make_symbol_legend_itemized(&SymbolLegendConfig {
+            text: ScalarOrArray::new_array(vec!["small".to_string(), "medium".to_string()]),
+            shape: ScalarOrArray::new_array(vec![
+                SymbolShape::Circle,
+                SymbolShape::from_vega_str("square").expect("square shape"),
+            ]),
+            size: ScalarOrArray::new_array(vec![30.0, 120.0]),
+            stroke_width: Some(1.0),
+            fill: ScalarOrArray::new_array(vec![
+                ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0]),
+                ColorOrGradient::Color([0.0, 1.0, 0.0, 1.0]),
+            ]),
+            ..Default::default()
+        })
+        .expect("symbol legend renders");
+
+        let SceneMark::Group(item_group) = &output.group.marks[2] else {
+            panic!("second legend item should be a group");
+        };
+        let SceneMark::Rect(hit_rect) = &item_group.marks[0] else {
+            panic!("first item mark should be hit rect");
+        };
+        let SceneMark::Symbol(symbol) = &item_group.marks[1] else {
+            panic!("second item visual should be a symbol");
+        };
+
+        let hit_y = hit_rect.y.as_vec(1, None)[0];
+        let hit_height = hit_rect
+            .height
+            .as_ref()
+            .expect("hit rect has height")
+            .as_vec(1, None)[0];
+        let reserved_row_height = (symbol.bounding_box().height() + 1.0).round();
+        assert!(
+            hit_y + hit_height >= reserved_row_height,
+            "symbol legend hit rect should preserve reserved row height"
+        );
+    }
 }
 
 pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, AvengerGuidesError> {
@@ -388,16 +429,22 @@ fn make_symbol_group(
         ..Default::default()
     }
     .bounding_box();
+    let reserved_row_height = (symbol_height + padding * 2.0).round();
+    let hit_x0 = content_bbox.lower()[0].min(0.0);
+    let hit_y0 = content_bbox.lower()[1].min(0.0);
+    let hit_x1 = content_bbox.upper()[0];
+    let hit_y1 = content_bbox.upper()[1].max(reserved_row_height);
 
     SceneGroup {
         origin,
         marks: std::iter::once(
-            // Transparent hit rect for interactions, sized to the rendered item.
+            // Transparent hit rect for interactions. Its row height preserves the
+            // pre-itemized legend spacing that used an invisible row rect.
             SceneMark::Rect(SceneRectMark {
-                x: content_bbox.lower()[0].into(),
-                y: content_bbox.lower()[1].into(),
-                width: Some(content_bbox.width().into()),
-                height: Some(content_bbox.height().into()),
+                x: hit_x0.into(),
+                y: hit_y0.into(),
+                width: Some((hit_x1 - hit_x0).into()),
+                height: Some((hit_y1 - hit_y0).into()),
                 fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
                 stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
                 stroke_width: 0.0.into(),
