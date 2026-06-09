@@ -12,6 +12,7 @@ use crate::{
     coords::FacetAxis,
     facet::{
         coord::FacetBandCoordMeasurement,
+        overflow_projection::{FacetBoundaryDemand, rendered_boundary_demand_for_measurement},
         placement::{FacetBandPlacement, resolve_facet_band_placement},
     },
     layout::{
@@ -344,20 +345,42 @@ fn facet_grid_requirements(
             "Facet grid track requirements requested for non-facet measurement".to_string(),
         )
     })?;
-    let mut requirements = facet_grid_requirements_from_placement(shape, &placement)?;
     let active_layout = facet_band
         .coordinated_layout
         .as_ref()
         .unwrap_or(&facet_band.local_layout);
+    let cell_boundaries = facet_band
+        .cells
+        .iter()
+        .map(|cell| rendered_boundary_demand_for_measurement(facet_band.axis, &cell.measurement))
+        .collect::<Vec<_>>();
+    let mut requirements = facet_grid_requirements_from_placement(
+        shape,
+        &placement,
+        active_layout.padding_inner_px,
+        &cell_boundaries,
+    )?;
     requirements.guide_slot_gap_px = active_layout
         .guide_slot_gap_px
         .max(facet_band.guide_padding_inner_px);
     Ok(requirements)
 }
 
+/// Export facet-band layout state as grid requirements.
+///
+/// The export keeps padding policy and boundary chrome separate: the band's
+/// `padding_inner_px` becomes the main-axis `min_gap`, and each cell's raw
+/// rendered boundary demand becomes that track's edge demand. The exported
+/// `min_gap` is deliberately not floored by `MIN_SUBPLOT_MAIN_GAP`: facet
+/// requirements are only merged and projected back into `CoordinatedLayout`
+/// (never solved), and the floor is applied where placement is computed, in
+/// `compute_explicit_facet_band_placement`. Exporting the raw value keeps
+/// export -> apply -> export a fixed point.
 fn facet_grid_requirements_from_placement(
     shape: GridShape,
     placement: &FacetBandPlacement,
+    min_gap: f32,
+    cell_boundaries: &[FacetBoundaryDemand],
 ) -> Result<GridRequirements, AvengerChartError> {
     let mut requirements = GridRequirements {
         shape,
@@ -374,6 +397,7 @@ fn facet_grid_requirements_from_placement(
 
     match placement.axis {
         FacetAxis::Column => {
+            requirements.column_spacing.min_gap = min_gap;
             if let Some(first) = placement.cells.first() {
                 requirements.column_spacing.outer_start = first.main_start.max(0.0);
             }
@@ -393,16 +417,13 @@ fn facet_grid_requirements_from_placement(
                 }
                 requirements.column_widths[cell.cell_index] = cell.main_size;
             }
-            for pair in placement.cells.windows(2) {
-                let left = &pair[0];
-                let right = &pair[1];
-                let gap = right.main_start - left.main_start - left.main_size;
-                if left.cell_index + 1 < shape.columns {
-                    requirements.column_right[left.cell_index] = EdgeDemand::total(gap);
-                }
+            for (index, boundary) in cell_boundaries.iter().enumerate().take(shape.columns) {
+                requirements.column_left[index] = EdgeDemand::total(boundary.before);
+                requirements.column_right[index] = EdgeDemand::total(boundary.after);
             }
         }
         FacetAxis::Row => {
+            requirements.row_spacing.min_gap = min_gap;
             if let Some(first) = placement.cells.first() {
                 requirements.row_spacing.outer_start = first.main_start.max(0.0);
             }
@@ -422,13 +443,9 @@ fn facet_grid_requirements_from_placement(
                 }
                 requirements.row_heights[cell.cell_index] = cell.main_size;
             }
-            for pair in placement.cells.windows(2) {
-                let top = &pair[0];
-                let bottom = &pair[1];
-                let gap = bottom.main_start - top.main_start - top.main_size;
-                if top.cell_index + 1 < shape.rows {
-                    requirements.row_bottom[top.cell_index] = EdgeDemand::total(gap);
-                }
+            for (index, boundary) in cell_boundaries.iter().enumerate().take(shape.rows) {
+                requirements.row_top[index] = EdgeDemand::total(boundary.before);
+                requirements.row_bottom[index] = EdgeDemand::total(boundary.after);
             }
         }
     }
@@ -482,13 +499,13 @@ fn facet_grid_requirements_to_coordinated_layout(
             requirements.shape.columns,
             requirements.column_spacing.outer_start,
             requirements.column_spacing.outer_end,
-            max_adjacent_gap(&requirements.column_right, &requirements.column_left),
+            requirements.column_spacing.min_gap,
         ),
         FacetAxis::Row if requirements.shape.columns == 1 => (
             requirements.shape.rows,
             requirements.row_spacing.outer_start,
             requirements.row_spacing.outer_end,
-            max_adjacent_gap(&requirements.row_bottom, &requirements.row_top),
+            requirements.row_spacing.min_gap,
         ),
         _ => return Err(FacetBandGridApplyUnsupported::TopologyMismatch),
     };
@@ -504,15 +521,6 @@ fn facet_grid_requirements_to_coordinated_layout(
         outer_end,
         n,
     })
-}
-
-fn max_adjacent_gap(trailing: &[EdgeDemand], leading: &[EdgeDemand]) -> f32 {
-    if trailing.is_empty() || leading.is_empty() {
-        return 0.0;
-    }
-    (0..trailing.len().saturating_sub(1))
-        .map(|index| trailing[index].total + leading[index + 1].total)
-        .fold(0.0, f32::max)
 }
 
 pub(crate) fn apply_facet_band_grid_requirements(
@@ -1037,9 +1045,8 @@ mod tests {
         assert!(plans.contains_key(&grid_key));
     }
 
-    #[test]
-    fn facet_grid_requirements_preserve_outer_band_offsets() -> Result<(), AvengerChartError> {
-        let placement = FacetBandPlacement::new(
+    fn two_cell_column_placement() -> FacetBandPlacement {
+        FacetBandPlacement::new(
             FacetAxis::Column,
             vec![
                 FacetCellPlacement {
@@ -1055,24 +1062,129 @@ mod tests {
             ],
             35.0,
             Some(40.0),
-        );
+        )
+    }
+
+    #[test]
+    fn facet_grid_requirements_preserve_outer_band_offsets() -> Result<(), AvengerChartError> {
+        let placement = two_cell_column_placement();
+        let boundaries = [
+            FacetBoundaryDemand {
+                before: 0.0,
+                after: 7.0,
+            },
+            FacetBoundaryDemand {
+                before: 2.0,
+                after: 0.0,
+            },
+        ];
         let requirements = facet_grid_requirements_from_placement(
             GridShape {
                 rows: 1,
                 columns: 2,
             },
             &placement,
+            9.0,
+            &boundaries,
         )?;
 
-        assert_eq!(requirements.column_spacing.outer_start, 3.0);
-        assert_eq!(requirements.column_spacing.outer_end, 5.0);
+        assert_eq!(
+            requirements.column_spacing,
+            TrackSpacing {
+                outer_start: 3.0,
+                outer_end: 5.0,
+                min_gap: 9.0,
+            }
+        );
         assert_eq!(requirements.guide_slot_gap_px, 0.0);
         assert_eq!(requirements.row_spacing, TrackSpacing::default());
         assert_eq!(requirements.column_widths, vec![10.0, 10.0]);
         assert_eq!(requirements.row_heights, vec![40.0]);
         assert_eq!(
+            requirements.column_left,
+            crate::layout::total_edge_demands([0.0, 2.0])
+        );
+        assert_eq!(
             requirements.column_right,
             crate::layout::total_edge_demands([7.0, 0.0])
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn facet_grid_requirements_round_trip_preserves_coordinated_layout()
+    -> Result<(), AvengerChartError> {
+        let placement = two_cell_column_placement();
+        let boundaries = [
+            FacetBoundaryDemand {
+                before: 1.0,
+                after: 30.0,
+            },
+            FacetBoundaryDemand {
+                before: 6.0,
+                after: 0.0,
+            },
+        ];
+        let requirements = facet_grid_requirements_from_placement(
+            GridShape {
+                rows: 1,
+                columns: 2,
+            },
+            &placement,
+            8.0,
+            &boundaries,
+        )?;
+
+        let layout =
+            facet_grid_requirements_to_coordinated_layout(FacetAxis::Column, &requirements)
+                .expect("one-dimensional column requirements should project");
+
+        assert_eq!(layout.n, 2);
+        assert_eq!(layout.outer_start, 3.0);
+        assert_eq!(layout.outer_end, 5.0);
+        assert_eq!(
+            layout.padding_inner_px, 8.0,
+            "padding policy must round trip exactly and not absorb boundary chrome"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn merged_facet_requirements_take_max_min_gap_without_boundary_inflation()
+    -> Result<(), AvengerChartError> {
+        let placement = two_cell_column_placement();
+        let shape = GridShape {
+            rows: 1,
+            columns: 2,
+        };
+        let narrow_boundaries = [FacetBoundaryDemand::default(); 2];
+        let wide_boundaries = [
+            FacetBoundaryDemand {
+                before: 0.0,
+                after: 18.0,
+            },
+            FacetBoundaryDemand {
+                before: 12.0,
+                after: 0.0,
+            },
+        ];
+        let first =
+            facet_grid_requirements_from_placement(shape, &placement, 14.0, &narrow_boundaries)?;
+        let second =
+            facet_grid_requirements_from_placement(shape, &placement, 8.0, &wide_boundaries)?;
+
+        let merged = merge_grid_requirements([&first, &second]).expect("compatible facet grids");
+        let layout = facet_grid_requirements_to_coordinated_layout(FacetAxis::Column, &merged)
+            .expect("merged one-dimensional column requirements should project");
+
+        assert_eq!(
+            layout.padding_inner_px, 14.0,
+            "merged padding is the max of paddings, not the adjacent boundary sum (30.0)"
+        );
+        assert_eq!(
+            merged.column_right,
+            crate::layout::total_edge_demands([18.0, 0.0]),
+            "raw boundary demands merge independently of padding policy"
         );
         Ok(())
     }

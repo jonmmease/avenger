@@ -4917,13 +4917,13 @@ mod tests {
             column_spacing: TrackSpacing {
                 outer_start: 2.0,
                 outer_end: 5.0,
-                min_gap: 0.0,
+                min_gap: 10.0,
             },
             row_spacing: TrackSpacing::default(),
             column_widths: vec![100.0; explicit_facet.cells.len()],
             row_heights: vec![80.0],
             column_left: total_edge_demands([0.0, 3.0]),
-            column_right: total_edge_demands([7.0, 0.0]),
+            column_right: total_edge_demands([40.0, 0.0]),
             row_top: zero_edge_demands(1),
             row_bottom: zero_edge_demands(1),
         };
@@ -4933,7 +4933,10 @@ mod tests {
         assert_eq!(layout.n, explicit_facet.cells.len());
         assert_eq!(layout.outer_start, 2.0);
         assert_eq!(layout.outer_end, 5.0);
-        assert_eq!(layout.padding_inner_px, 10.0);
+        assert_eq!(
+            layout.padding_inner_px, 10.0,
+            "padding comes from the coordinated min gap; boundary chrome (40.0) must not leak in"
+        );
         assert_eq!(
             layout.guide_slot_gap_px, 4.0,
             "guide slot gap is independent from inner subplot padding"
@@ -4992,7 +4995,7 @@ mod tests {
             column_spacing: TrackSpacing {
                 outer_start: 19.0,
                 outer_end: 23.0,
-                min_gap: 0.0,
+                min_gap: 24.0,
             },
             row_spacing: TrackSpacing::default(),
             column_widths: vec![100.0; cell_count],
@@ -5028,7 +5031,7 @@ mod tests {
         assert_eq!(layout.outer_end, 23.0);
         assert_eq!(
             layout.padding_inner_px, 24.0,
-            "inner subplot padding should come from adjacent cell chrome"
+            "inner subplot padding should come from the coordinated min gap"
         );
         assert_eq!(
             layout.guide_slot_gap_px, 17.0,
