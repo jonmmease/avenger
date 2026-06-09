@@ -43,6 +43,7 @@ pub(crate) struct FacetBandSemantics {
 #[derive(Clone, Debug)]
 pub(crate) struct FacetBandPreparedInputs {
     pub(crate) cell_semantics: FacetBandSemantics,
+    pub(crate) layout_min_slot_count: usize,
     pub(crate) renderable_mask: Vec<bool>,
     pub(crate) scale_artifacts_key: FacetScaleNodeKey,
 }

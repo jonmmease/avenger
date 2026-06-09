@@ -250,8 +250,9 @@ pub struct FacetBandCoordMeasurement {
     pub coordination_field_identity: String,
     /// Slot-sharing level for this facet band.
     pub(crate) slot_sharing: SharingLevel,
-    /// Minimum physical slot count for this band. This can be larger than the
-    /// visible cell count for wrap rows with trailing holes.
+    /// Minimum structural slot count for this band. This can be larger than the
+    /// visible cell count for wrap rows with trailing holes. Layout-only padding
+    /// for ragged sibling branches is represented by `local_layout.n`.
     pub(crate) min_slot_count: usize,
     /// Coordinated overflow values aggregated across ALL facets at this nesting level.
     /// Populated by facet coordination after local measurement.
@@ -2571,7 +2572,7 @@ fn prepared_cells_as_drafts(
 }
 
 async fn prepare_band_inputs_and_runtime(
-    mut cell_semantics: FacetBandSemantics,
+    cell_semantics: FacetBandSemantics,
     data_df: &DataFrame,
     compiled_subplot: &Arc<CompiledPlot>,
     band_scale: &ConfiguredScaleWithSpec,
@@ -2593,7 +2594,7 @@ async fn prepare_band_inputs_and_runtime(
         eval_ctx,
     ))
     .await?;
-    cell_semantics.min_slot_count = measurement_inputs.plan.min_slot_count;
+    let layout_min_slot_count = measurement_inputs.plan.min_slot_count;
 
     let renderable_mask = renderable_mask_for_cells(
         &measurement_inputs.plan.cells,
@@ -2609,6 +2610,7 @@ async fn prepare_band_inputs_and_runtime(
 
     let prepared_inputs = FacetBandPreparedInputs {
         cell_semantics: cell_semantics.clone(),
+        layout_min_slot_count,
         renderable_mask,
         scale_artifacts_key: FacetScaleNodeKey::new(
             compiled_subplot,
@@ -3617,7 +3619,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 .cell_semantics
                 .cell_values
                 .clone(),
-            min_slot_count: overflow_probe.prepared_inputs.cell_semantics.min_slot_count,
+            min_slot_count: overflow_probe.prepared_inputs.layout_min_slot_count,
             cells: overflow_runtime.cells,
             scale_artifacts: prepared_runtime.scale_artifacts.clone(),
         };
@@ -4203,7 +4205,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 .cell_semantics
                 .cell_values
                 .clone(),
-            min_slot_count: overflow_probe.prepared_inputs.cell_semantics.min_slot_count,
+            min_slot_count: overflow_probe.prepared_inputs.layout_min_slot_count,
             cells: overflow_runtime.cells,
             scale_artifacts: prepared_runtime.scale_artifacts.clone(),
         };
@@ -6337,6 +6339,12 @@ mod tests {
             prepared_inputs.renderable_mask.len()
         );
         assert_eq!(prepared_inputs.cell_semantics.cell_values, cell_values);
+        assert!(
+            prepared_inputs.layout_min_slot_count >= prepared_inputs.cell_semantics.min_slot_count
+        );
+        assert!(
+            prepared_inputs.layout_min_slot_count >= prepared_inputs.cell_semantics.cells.len()
+        );
         Ok(())
     }
 
