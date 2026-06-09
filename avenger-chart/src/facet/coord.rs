@@ -24,9 +24,7 @@ use avenger_chart_core::{
 use avenger_chart_core::{DerivedScalarsByChannel, GuideSharingContext, OverflowSpaceRequirement};
 
 use crate::{
-    container::{
-        ChildFrameKey, ChildFrameScopeKey, ChildFrameSideSlabTargets, ContainerPathSegment,
-    },
+    container::{ChildFrameKey, ChildFrameScopeKey, ContainerPathSegment, EdgeTargets},
     coords::CellDomainInfo,
     facet::FacetDirection,
     facet::{
@@ -353,11 +351,11 @@ impl FacetBandCoordMeasurement {
         let mut placement =
             compute_explicit_facet_band_placement(self.axis, &self.cells, active_layout);
         let slabs = FacetOverflowSlabs::from_coordinated(self.active_boundary_overflow());
-        let cross_axis_start_offset = match self.axis {
+        let cross_start_offset = match self.axis {
             FacetAxis::Column => slabs.legend.top,
             FacetAxis::Row => slabs.legend.left,
         };
-        placement.cross_axis_size += cross_axis_start_offset.max(0.0);
+        placement.cross_size += cross_start_offset.max(0.0);
         self.placement_model = FacetBandPlacementModel::Explicit(placement);
     }
 
@@ -373,14 +371,14 @@ impl FacetBandCoordMeasurement {
             return;
         }
 
-        let (main_axis_size, cross_axis_size) = match self.axis {
+        let (main_size, cross_size) = match self.axis {
             FacetAxis::Column => (plot_width, plot_height),
             FacetAxis::Row => (plot_height, plot_width),
         };
         self.placement_model = FacetBandPlacementModel::Explicit(FacetBandExplicitPlacement {
             main_axis_positions: Vec::new(),
-            main_axis_size: main_axis_size.max(0.0),
-            cross_axis_size: cross_axis_size.max(0.0),
+            main_size: main_size.max(0.0),
+            cross_size: cross_size.max(0.0),
         });
     }
 
@@ -393,14 +391,8 @@ impl FacetBandCoordMeasurement {
             };
         };
         match self.axis {
-            FacetAxis::Column => (
-                explicit_placement.main_axis_size,
-                explicit_placement.cross_axis_size,
-            ),
-            FacetAxis::Row => (
-                explicit_placement.cross_axis_size,
-                explicit_placement.main_axis_size,
-            ),
+            FacetAxis::Column => (explicit_placement.main_size, explicit_placement.cross_size),
+            FacetAxis::Row => (explicit_placement.cross_size, explicit_placement.main_size),
         }
     }
 
@@ -1586,32 +1578,32 @@ fn apply_measurement_side_slab(
     measurement.sync_canvas_size_from_layout();
 }
 
-pub(crate) fn apply_measurement_side_slab_targets(
+pub(crate) fn apply_measurement_edge_targets(
     measurement: &mut ComponentsMeasurement,
-    targets: ChildFrameSideSlabTargets,
+    targets: EdgeTargets,
 ) {
     apply_measurement_side_slab(
         measurement,
         AxisPosition::Top,
-        targets.guide.top,
+        targets.inner.top,
         targets.total.top,
     );
     apply_measurement_side_slab(
         measurement,
         AxisPosition::Right,
-        targets.guide.right,
+        targets.inner.right,
         targets.total.right,
     );
     apply_measurement_side_slab(
         measurement,
         AxisPosition::Bottom,
-        targets.guide.bottom,
+        targets.inner.bottom,
         targets.total.bottom,
     );
     apply_measurement_side_slab(
         measurement,
         AxisPosition::Left,
-        targets.guide.left,
+        targets.inner.left,
         targets.total.left,
     );
 }
@@ -3918,12 +3910,12 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         for value in cell_values {
             let mut cell_path = self.facet_path.to_vec();
             cell_path.push(value.clone());
-            let plot_area_size = self.fixed_subtree_plot_area_for_cell_path(
+            let content_size_override = self.fixed_subtree_plot_area_for_cell_path(
                 &cell_path,
                 leaf_plot_width,
                 leaf_plot_height,
             );
-            max_main_size = max_main_size.max(plot_area_size.main_size(self.axis_ops.axis));
+            max_main_size = max_main_size.max(content_size_override.main_size(self.axis_ops.axis));
         }
         if max_main_size > 0.0 {
             max_main_size

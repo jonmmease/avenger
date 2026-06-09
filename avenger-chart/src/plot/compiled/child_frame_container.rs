@@ -12,7 +12,7 @@ use avenger_chart_core::{
 
 use crate::{
     concat::ConcatCoordMeasurement,
-    container::{ChildFramePlacementResult, project_child_frame_bounds},
+    container::{PlacementSolution, project_child_rect},
     facet::{coord::FacetBandCoordMeasurement, placement::resolve_facet_child_frame_placement},
     partition::format_partition_value,
     positioned_subplot::PositionedCoordMeasurement,
@@ -37,18 +37,18 @@ struct ChildFrameChildView<'a> {
 #[derive(Debug)]
 pub struct ChildFrameContainerView<'a> {
     children: Vec<ChildFrameChildView<'a>>,
-    placement: ChildFramePlacementResult,
+    placement: PlacementSolution,
 }
 
 impl<'a> ChildFrameContainerView<'a> {
-    fn new(children: Vec<ChildFrameChildView<'a>>, placement: ChildFramePlacementResult) -> Self {
+    fn new(children: Vec<ChildFrameChildView<'a>>, placement: PlacementSolution) -> Self {
         Self {
             children,
             placement,
         }
     }
 
-    pub(crate) fn placement(&self) -> &ChildFramePlacementResult {
+    pub(crate) fn placement(&self) -> &PlacementSolution {
         &self.placement
     }
 
@@ -294,7 +294,7 @@ pub(crate) fn child_frame_container_overflow(
 pub(crate) fn child_frame_container_overflow_from_placements<'a>(
     plot_width: f32,
     plot_height: f32,
-    placement: &ChildFramePlacementResult,
+    placement: &PlacementSolution,
     mut child_measurement: impl FnMut(usize) -> Result<&'a ComponentsMeasurement, AvengerChartError>,
 ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
     let mut min_x = 0.0f32;
@@ -302,10 +302,10 @@ pub(crate) fn child_frame_container_overflow_from_placements<'a>(
     let mut max_x = placement.content_size.width.max(plot_width);
     let mut max_y = placement.content_size.height.max(plot_height);
 
-    for render_placement in placement.render_placements() {
+    for render_placement in placement.placements() {
         let child_measurement = child_measurement(render_placement.child_index)?;
         let child_plot_bounds = *child_measurement.layout.plot_area_bounds();
-        let frame_bounds = project_child_frame_bounds(
+        let frame_bounds = project_child_rect(
             [0.0, 0.0],
             render_placement.origin,
             child_plot_bounds,
@@ -327,20 +327,20 @@ pub(crate) fn child_frame_container_overflow_from_placements<'a>(
 }
 
 fn validate_container_placements(
-    placement: &ChildFramePlacementResult,
+    placement: &PlacementSolution,
     children: &[ChildFrameChildView<'_>],
     child_debug_labels: Option<&[String]>,
 ) -> Result<(), AvengerChartError> {
-    if placement.render_placements().len() != children.len() {
+    if placement.placements().len() != children.len() {
         return Err(AvengerChartError::InternalError(format!(
             "Child-frame container placement count mismatch: placements={}, children={}",
-            placement.render_placements().len(),
+            placement.placements().len(),
             children.len()
         )));
     }
 
-    let mut seen_placements = HashSet::with_capacity(placement.render_placements().len());
-    for render_placement in placement.render_placements() {
+    let mut seen_placements = HashSet::with_capacity(placement.placements().len());
+    for render_placement in placement.placements() {
         if !seen_placements.insert(render_placement.child_index) {
             return Err(AvengerChartError::InternalError(format!(
                 "Duplicate child-frame container placement for child index {}",

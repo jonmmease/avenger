@@ -65,7 +65,7 @@ use crate::{
         AvengerFrameLayoutSolver, EdgeSlabs, EvaluatedLayoutSpec, EvaluatedMargins,
         EvaluatedSizeMode, FrameAllocation, FrameDimensionSizing, FrameLayout, FrameLayoutInput,
         LayoutBounds, LayoutSpec, Margins, ResolvedLayoutDimensions, Size2D, SizeMode,
-        project_child_frame_bounds,
+        project_child_rect,
     },
     marks::CompiledMark,
     positioned_subplot::{PositionedCoordMeasurement, render_positioned_subplot_with_context},
@@ -886,7 +886,7 @@ fn projected_child_frame_container_plot_area_envelope(
     let parent_content_origin = [layout.plot_area.x, layout.plot_area.y];
     let mut envelope = None;
 
-    for child_render_placement in container.placement().render_placements() {
+    for child_render_placement in container.placement().placements() {
         let child_measurement = container
             .child_measurement(child_render_placement.child_index)
             .ok_or_else(|| {
@@ -896,7 +896,7 @@ fn projected_child_frame_container_plot_area_envelope(
                 ))
             })?;
         let child_plot_bounds = *child_measurement.layout.plot_area_bounds();
-        let projected_plot_bounds = project_child_frame_bounds(
+        let projected_plot_bounds = project_child_rect(
             parent_content_origin,
             child_render_placement.origin,
             child_plot_bounds,
@@ -929,7 +929,7 @@ fn child_frame_container_component_debug_side_extents(
 
     let parent_content_origin = [layout.plot_area.x, layout.plot_area.y];
 
-    for child_render_placement in container.placement().render_placements() {
+    for child_render_placement in container.placement().placements() {
         let child_measurement = container
             .child_measurement(child_render_placement.child_index)
             .ok_or_else(|| {
@@ -960,7 +960,7 @@ fn child_frame_container_component_debug_side_extents(
                 else {
                     continue;
                 };
-                let projected = project_child_frame_bounds(
+                let projected = project_child_rect(
                     parent_content_origin,
                     child_render_placement.origin,
                     *child_plot_bounds,
@@ -3992,8 +3992,8 @@ impl CompiledPlot {
 
         let parent_content_origin = [content_rect.x, content_rect.y];
 
-        let mut rects = Vec::with_capacity(container.placement().render_placements().len());
-        for child_render_placement in container.placement().render_placements() {
+        let mut rects = Vec::with_capacity(container.placement().placements().len());
+        for child_render_placement in container.placement().placements() {
             let child_measurement = container
                 .child_measurement(child_render_placement.child_index)
                 .ok_or_else(|| {
@@ -4004,7 +4004,7 @@ impl CompiledPlot {
                 })?;
             let child_rect = child_measurement.frame_allocation.rect;
             let child_plot_bounds = child_measurement.layout.plot_area_bounds();
-            rects.push(project_child_frame_bounds(
+            rects.push(project_child_rect(
                 parent_content_origin,
                 child_render_placement.origin,
                 *child_plot_bounds,
@@ -5386,7 +5386,7 @@ impl CompiledPlot {
             ));
         }
         if let Some(container) = measurement.child_frame_container_view()? {
-            let expected_count = container.placement().render_placements().len();
+            let expected_count = container.placement().placements().len();
             if content_layout.child_frame_allocations.len() != expected_count {
                 return Err(AvengerChartError::InternalError(format!(
                     "root child-frame allocation count mismatch: expected {}, got {}",
@@ -8487,10 +8487,10 @@ mod tests {
             .expect("facet measurement should expose a child-frame container view");
 
         assert_eq!(
-            container.placement().render_placements().len(),
+            container.placement().placements().len(),
             facet_band.cells.len()
         );
-        for child_render_placement in container.placement().render_placements() {
+        for child_render_placement in container.placement().placements() {
             let child_measurement = container
                 .child_measurement(child_render_placement.child_index)
                 .expect("render placement should resolve to a child measurement");
@@ -8692,13 +8692,13 @@ mod tests {
                 let current = &window[0];
                 let next = &window[1];
                 assert!(
-                    next.main_axis_start + 0.01 >= current.main_axis_start + current.main_axis_size,
+                    next.main_start + 0.01 >= current.main_start + current.main_size,
                     "plot-area-sized main-axis overlap at axis {:?}, cell_index {}, current_start={}, current_span={}, next_start={}",
                     facet_band.axis,
                     current.cell_index,
-                    current.main_axis_start,
-                    current.main_axis_size,
-                    next.main_axis_start
+                    current.main_start,
+                    current.main_size,
+                    next.main_start
                 );
             }
 
@@ -8832,7 +8832,7 @@ mod tests {
             let resolved = plot_area_sized_facet
                 .resolved_placement_from_scale_specs(&measurement.scales)
                 .expect("plot-area-sized facet placement should resolve");
-            let actual = resolved.main_axis_starts().collect::<Vec<_>>();
+            let actual = resolved.main_starts().collect::<Vec<_>>();
             assert_eq!(
                 actual.len(),
                 expected.len(),

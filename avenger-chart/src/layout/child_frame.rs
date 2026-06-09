@@ -2,52 +2,53 @@
 
 use crate::layout::{EdgeSlabs, LayoutBounds, Size2D};
 
-/// Coordinated side slabs granted to a child frame by its parent container.
+/// Coordinated edge targets granted to a child region by its parent container.
 ///
-/// `guide` is the guide/chrome space between the plot area and any legend.
-/// `total` is the full rendered edge envelope. The difference is important for
-/// local legend anchoring: legends should start after the coordinated guide
-/// slab, while sibling spacing uses the coordinated total slab.
+/// `inner` is the interior edge between the content rectangle and any outer
+/// content. `total` is the full rendered edge envelope. The difference is
+/// important for local outer-content anchoring: outer content should start
+/// after the coordinated inner edge, while sibling spacing uses the coordinated
+/// total edge.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub(crate) struct ChildFrameSideSlabTargets {
-    pub(crate) guide: EdgeSlabs,
+pub(crate) struct EdgeTargets {
+    pub(crate) inner: EdgeSlabs,
     pub(crate) total: EdgeSlabs,
 }
 
 /// Render-space placement for one child frame relative to its parent content rectangle.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ChildFrameRenderPlacement {
+pub(crate) struct PlacedRegion {
     pub(crate) child_index: usize,
     pub(crate) origin: [f32; 2],
-    pub(crate) plot_area_size: Option<Size2D>,
-    pub(crate) side_slab_targets: Option<ChildFrameSideSlabTargets>,
+    pub(crate) content_size_override: Option<Size2D>,
+    pub(crate) edge_targets: Option<EdgeTargets>,
 }
 
-impl ChildFrameRenderPlacement {
+impl PlacedRegion {
     pub(crate) fn new(child_index: usize, origin: [f32; 2]) -> Self {
         Self {
             child_index,
             origin,
-            plot_area_size: None,
-            side_slab_targets: None,
+            content_size_override: None,
+            edge_targets: None,
         }
     }
 
-    pub(crate) fn with_plot_area_size(
+    pub(crate) fn with_content_size_override(
         child_index: usize,
         origin: [f32; 2],
-        plot_area_size: Size2D,
+        content_size_override: Size2D,
     ) -> Self {
         Self {
             child_index,
             origin,
-            plot_area_size: Some(plot_area_size),
-            side_slab_targets: None,
+            content_size_override: Some(content_size_override),
+            edge_targets: None,
         }
     }
 
-    pub(crate) fn with_side_slab_targets(mut self, targets: ChildFrameSideSlabTargets) -> Self {
-        self.side_slab_targets = Some(targets);
+    pub(crate) fn with_edge_targets(mut self, targets: EdgeTargets) -> Self {
+        self.edge_targets = Some(targets);
         self
     }
 }
@@ -59,35 +60,32 @@ impl ChildFrameRenderPlacement {
 /// layout can all produce the same child-frame handoff for rendering and debug
 /// projection.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ChildFramePlacementResult {
+pub(crate) struct PlacementSolution {
     pub(crate) content_size: Size2D,
-    pub(crate) render_placements: Vec<ChildFrameRenderPlacement>,
+    pub(crate) placements: Vec<PlacedRegion>,
 }
 
-impl ChildFramePlacementResult {
-    pub(crate) fn new(
-        content_size: Size2D,
-        render_placements: Vec<ChildFrameRenderPlacement>,
-    ) -> Self {
+impl PlacementSolution {
+    pub(crate) fn new(content_size: Size2D, placements: Vec<PlacedRegion>) -> Self {
         Self {
             content_size,
-            render_placements,
+            placements,
         }
     }
 
-    pub(crate) fn render_placements(&self) -> &[ChildFrameRenderPlacement] {
-        &self.render_placements
+    pub(crate) fn placements(&self) -> &[PlacedRegion] {
+        &self.placements
     }
 
-    pub(crate) fn child(&self, child_index: usize) -> Option<&ChildFrameRenderPlacement> {
-        self.render_placements
+    pub(crate) fn child(&self, child_index: usize) -> Option<&PlacedRegion> {
+        self.placements
             .iter()
             .find(|placement| placement.child_index == child_index)
     }
 }
 
 /// Project a child-local component bound into the parent frame's coordinate space.
-pub(crate) fn project_child_frame_bounds(
+pub(crate) fn project_child_rect(
     parent_content_origin: [f32; 2],
     child_render_origin: [f32; 2],
     child_plot_bounds: LayoutBounds,
@@ -106,8 +104,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn child_frame_bounds_projection_matches_render_group_transform() {
-        let projected = project_child_frame_bounds(
+    fn child_rect_projection_matches_render_group_transform() {
+        let projected = project_child_rect(
             [10.0, 85.0],
             [20.0, 48.0],
             LayoutBounds {
@@ -136,16 +134,16 @@ mod tests {
     }
 
     #[test]
-    fn child_frame_placement_result_finds_child_by_index() {
-        let result = ChildFramePlacementResult::new(
+    fn placement_solution_finds_child_by_index() {
+        let result = PlacementSolution::new(
             Size2D::new(200.0, 120.0),
             vec![
-                ChildFrameRenderPlacement::new(3, [10.0, 20.0]),
-                ChildFrameRenderPlacement::new(1, [30.0, 40.0]),
+                PlacedRegion::new(3, [10.0, 20.0]),
+                PlacedRegion::new(1, [30.0, 40.0]),
             ],
         );
 
-        assert_eq!(result.render_placements().len(), 2);
+        assert_eq!(result.placements().len(), 2);
         assert_eq!(result.child(1).unwrap().origin, [30.0, 40.0]);
         assert!(result.child(2).is_none());
         assert_eq!(result.content_size, Size2D::new(200.0, 120.0));

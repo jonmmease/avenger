@@ -19,8 +19,8 @@ use crate::{
         padding_policy,
     },
     layout::{
-        BandChildFrameInput, BandChildFramePlacement, BandDirection, BandPlacedChild, BandPosition,
-        BandPositionIterator, BandSpacing, BoundaryDemand1D, ChildFramePlacementResult, Size2D,
+        BandItem, BandPosition, BandPositionIterator, BandSolution, BandSpacing, BoundaryDemand,
+        Orientation, PlacedBandItem, PlacementSolution, Size2D,
     },
     plot::compiled::ComponentsMeasurement,
     scales::ConfiguredScaleWithSpec,
@@ -31,24 +31,24 @@ use crate::{
 pub(crate) struct FacetBandPlacement {
     pub(crate) axis: FacetAxis,
     pub(crate) cells: Vec<FacetCellPlacement>,
-    pub(crate) main_axis_extent: f32,
-    pub(crate) cross_axis_extent: Option<f32>,
+    pub(crate) main_extent: f32,
+    pub(crate) cross_extent: Option<f32>,
 }
 
 /// Resolved placement for one facet cell.
 #[derive(Debug, Clone)]
 pub(crate) struct FacetCellPlacement {
     pub(crate) cell_index: usize,
-    pub(crate) main_axis_start: f32,
-    pub(crate) main_axis_size: f32,
+    pub(crate) main_start: f32,
+    pub(crate) main_size: f32,
 }
 
 /// Explicit placement model used when a band dimension is leaf-plot-area-sized.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct FacetBandExplicitPlacement {
     pub(crate) main_axis_positions: Vec<f32>,
-    pub(crate) main_axis_size: f32,
-    pub(crate) cross_axis_size: f32,
+    pub(crate) main_size: f32,
+    pub(crate) cross_size: f32,
 }
 
 /// Placement model for a facet band.
@@ -68,24 +68,24 @@ impl FacetBandPlacement {
     pub(crate) fn new(
         axis: FacetAxis,
         cells: Vec<FacetCellPlacement>,
-        main_axis_extent: f32,
-        cross_axis_extent: Option<f32>,
+        main_extent: f32,
+        cross_extent: Option<f32>,
     ) -> Self {
         Self {
             axis,
             cells,
-            main_axis_extent,
-            cross_axis_extent,
+            main_extent,
+            cross_extent,
         }
     }
 
-    fn from_child_frame_band(axis: FacetAxis, band: BandChildFramePlacement) -> Self {
+    fn from_child_frame_band(axis: FacetAxis, band: BandSolution) -> Self {
         let cells = band
             .children
             .iter()
             .map(FacetCellPlacement::from_placed_child)
             .collect();
-        Self::new(axis, cells, band.main_axis_extent, band.cross_axis_extent)
+        Self::new(axis, cells, band.main_extent, band.cross_extent)
     }
 
     pub(crate) fn from_explicit(
@@ -107,19 +107,19 @@ impl FacetBandPlacement {
             .copied()
             .zip(cells.iter())
             .enumerate()
-            .map(|(child_index, (main_axis_start, cell))| {
-                BandPlacedChild::new(
+            .map(|(child_index, (main_start, cell))| {
+                PlacedBandItem::new(
                     child_index,
-                    main_axis_start,
+                    main_start,
                     cell_main_plot_size(axis, &cell.measurement),
                 )
             })
             .collect();
-        let band = BandChildFramePlacement::from_positioned_children(
+        let band = BandSolution::from_positioned_children(
             band_direction(axis),
             children,
-            explicit.main_axis_size,
-            Some(explicit.cross_axis_size),
+            explicit.main_size,
+            Some(explicit.cross_size),
         );
 
         Ok(Self::from_child_frame_band(axis, band))
@@ -134,13 +134,13 @@ impl FacetBandPlacement {
     }
 
     #[cfg(test)]
-    pub(crate) fn main_axis_starts(&self) -> impl Iterator<Item = f32> + '_ {
-        self.cells.iter().map(|cell| cell.main_axis_start)
+    pub(crate) fn main_starts(&self) -> impl Iterator<Item = f32> + '_ {
+        self.cells.iter().map(|cell| cell.main_start)
     }
 
     #[cfg(test)]
-    pub(crate) fn main_axis_sizes(&self) -> impl Iterator<Item = f32> + '_ {
-        self.cells.iter().map(|cell| cell.main_axis_size)
+    pub(crate) fn main_sizes(&self) -> impl Iterator<Item = f32> + '_ {
+        self.cells.iter().map(|cell| cell.main_size)
     }
 
     pub(crate) fn band_positions(
@@ -162,8 +162,8 @@ impl FacetBandPlacement {
             .map(|(placement, cell)| {
                 BandPosition::new(
                     cell.plan.value.clone(),
-                    placement.main_axis_start,
-                    placement.main_axis_size,
+                    placement.main_start,
+                    placement.main_size,
                 )
             })
             .collect())
@@ -171,23 +171,23 @@ impl FacetBandPlacement {
 }
 
 impl FacetCellPlacement {
-    fn from_placed_child(child: &BandPlacedChild) -> Self {
+    fn from_placed_child(child: &PlacedBandItem) -> Self {
         Self {
             cell_index: child.child_index,
-            main_axis_start: child.main_axis_start,
-            main_axis_size: child.main_axis_size,
+            main_start: child.main_start,
+            main_size: child.main_size,
         }
     }
 
-    fn to_placed_child(&self) -> BandPlacedChild {
-        BandPlacedChild::new(self.cell_index, self.main_axis_start, self.main_axis_size)
+    fn to_placed_child(&self) -> PlacedBandItem {
+        PlacedBandItem::new(self.cell_index, self.main_start, self.main_size)
     }
 }
 
-fn band_direction(axis: FacetAxis) -> BandDirection {
+fn band_direction(axis: FacetAxis) -> Orientation {
     match axis {
-        FacetAxis::Column => BandDirection::Horizontal,
-        FacetAxis::Row => BandDirection::Vertical,
+        FacetAxis::Column => Orientation::Horizontal,
+        FacetAxis::Row => Orientation::Vertical,
     }
 }
 
@@ -196,7 +196,7 @@ pub(crate) fn resolve_scale_backed_facet_band_placement(
     configured: &ConfiguredScale,
     cell_values: &[ScalarValue],
     cell_count: usize,
-    cross_axis_extent: Option<f32>,
+    cross_extent: Option<f32>,
 ) -> Result<FacetBandPlacement, AvengerChartError> {
     let bands: Vec<_> = BandPositionIterator::from_configured_scale(configured)?.collect();
     let axis_label = match axis {
@@ -205,12 +205,7 @@ pub(crate) fn resolve_scale_backed_facet_band_placement(
     };
 
     if cell_count == 0 && cell_values.is_empty() {
-        return Ok(FacetBandPlacement::new(
-            axis,
-            Vec::new(),
-            0.0,
-            cross_axis_extent,
-        ));
+        return Ok(FacetBandPlacement::new(axis, Vec::new(), 0.0, cross_extent));
     }
 
     if bands.len() != cell_count {
@@ -239,7 +234,7 @@ pub(crate) fn resolve_scale_backed_facet_band_placement(
         )));
     }
 
-    let main_axis_extent = configured
+    let main_extent = configured
         .numeric_interval_range()
         .map(|(start, end)| (end - start).abs())
         .unwrap_or_else(|_| {
@@ -251,13 +246,13 @@ pub(crate) fn resolve_scale_backed_facet_band_placement(
     let children = bands
         .into_iter()
         .enumerate()
-        .map(|(child_index, band)| BandPlacedChild::new(child_index, band.start(), band.bandwidth))
+        .map(|(child_index, band)| PlacedBandItem::new(child_index, band.start(), band.bandwidth))
         .collect();
-    let band = BandChildFramePlacement::from_positioned_children(
+    let band = BandSolution::from_positioned_children(
         band_direction(axis),
         children,
-        main_axis_extent,
-        cross_axis_extent,
+        main_extent,
+        cross_extent,
     );
 
     Ok(FacetBandPlacement::from_child_frame_band(axis, band))
@@ -304,7 +299,7 @@ pub(crate) fn resolve_facet_band_placement(
     )
 }
 
-fn facet_cell_main_axis_start_offset(facet_band: &FacetBandCoordMeasurement) -> (f32, f32) {
+fn facet_cell_main_start_offset(facet_band: &FacetBandCoordMeasurement) -> (f32, f32) {
     let slabs = FacetOverflowSlabs::from_coordinated(&facet_band.coordinated_overflow);
     match facet_band.axis {
         FacetAxis::Column => (0.0, slabs.legend.top),
@@ -316,7 +311,7 @@ pub(crate) fn facet_child_frame_placement_from_band(
     facet_band: &FacetBandCoordMeasurement,
     placement: &FacetBandPlacement,
     fallback_content_size: Size2D,
-) -> Result<ChildFramePlacementResult, AvengerChartError> {
+) -> Result<PlacementSolution, AvengerChartError> {
     if placement.axis != facet_band.axis {
         return Err(AvengerChartError::InternalError(format!(
             "Facet child-frame placement axis mismatch: placement={:?}, measurement={:?}",
@@ -345,23 +340,22 @@ pub(crate) fn facet_child_frame_placement_from_band(
             Ok(cell_placement.to_placed_child())
         })
         .collect::<Result<Vec<_>, AvengerChartError>>()?;
-    let band = BandChildFramePlacement::from_positioned_children(
+    let band = BandSolution::from_positioned_children(
         band_direction(placement.axis),
         children,
-        placement.main_axis_extent,
-        placement.cross_axis_extent,
+        placement.main_extent,
+        placement.cross_extent,
     );
 
-    let (origin_offset_x, origin_offset_y) = facet_cell_main_axis_start_offset(facet_band);
-    Ok(band
-        .to_child_frame_placement_result([origin_offset_x, origin_offset_y], fallback_content_size))
+    let (origin_offset_x, origin_offset_y) = facet_cell_main_start_offset(facet_band);
+    Ok(band.to_placement_solution([origin_offset_x, origin_offset_y], fallback_content_size))
 }
 
 pub(crate) fn resolve_facet_child_frame_placement_from_scale_specs(
     facet_band: &FacetBandCoordMeasurement,
     scales: &HashMap<String, ConfiguredScaleWithSpec>,
     fallback_content_size: Size2D,
-) -> Result<ChildFramePlacementResult, AvengerChartError> {
+) -> Result<PlacementSolution, AvengerChartError> {
     let placement = facet_band.resolved_placement_from_scale_specs(scales)?;
     facet_child_frame_placement_from_band(facet_band, &placement, fallback_content_size)
 }
@@ -369,7 +363,7 @@ pub(crate) fn resolve_facet_child_frame_placement_from_scale_specs(
 pub(crate) fn resolve_facet_child_frame_placement(
     measurement: &ComponentsMeasurement,
     facet_band: &FacetBandCoordMeasurement,
-) -> Result<ChildFramePlacementResult, AvengerChartError> {
+) -> Result<PlacementSolution, AvengerChartError> {
     resolve_facet_child_frame_placement_from_scale_specs(
         facet_band,
         &measurement.scales,
@@ -395,11 +389,11 @@ pub(crate) fn compute_explicit_facet_band_placement(
         .enumerate()
         .map(|(child_index, cell)| {
             let boundary = rendered_boundary_demand_for_measurement(axis, &cell.measurement);
-            BandChildFrameInput {
+            BandItem {
                 child_index,
-                main_axis_size: cell_main_plot_size(axis, &cell.measurement),
-                cross_axis_size: cell_cross_plot_size(axis, &cell.measurement),
-                boundary: BoundaryDemand1D {
+                main_size: cell_main_plot_size(axis, &cell.measurement),
+                cross_size: cell_cross_plot_size(axis, &cell.measurement),
+                boundary: BoundaryDemand {
                     before: boundary.before,
                     after: boundary.after,
                 },
@@ -426,21 +420,21 @@ pub(crate) fn compute_explicit_facet_band_placement(
 
     let slot_count = layout.n.max(inputs.len());
     let band_inputs = if slot_count > inputs.len() {
-        let fallback_main_axis_size = inputs
+        let fallback_main_size = inputs
             .iter()
-            .map(|input| input.main_axis_size)
+            .map(|input| input.main_size)
             .fold(0.0f32, f32::max);
-        let fallback_cross_axis_size = inputs
+        let fallback_cross_size = inputs
             .iter()
-            .map(|input| input.cross_axis_size)
+            .map(|input| input.cross_size)
             .fold(0.0f32, f32::max);
         let mut band_inputs = inputs.clone();
         for child_index in inputs.len()..slot_count {
-            band_inputs.push(BandChildFrameInput {
+            band_inputs.push(BandItem {
                 child_index,
-                main_axis_size: fallback_main_axis_size,
-                cross_axis_size: fallback_cross_axis_size,
-                boundary: BoundaryDemand1D::default(),
+                main_size: fallback_main_size,
+                cross_size: fallback_cross_size,
+                boundary: BoundaryDemand::default(),
             });
         }
         band_inputs
@@ -448,7 +442,7 @@ pub(crate) fn compute_explicit_facet_band_placement(
         inputs.clone()
     };
 
-    let band = BandChildFramePlacement::from_sized_children(
+    let band = BandSolution::from_sized_children(
         band_direction(axis),
         &band_inputs,
         BandSpacing {
@@ -462,15 +456,15 @@ pub(crate) fn compute_explicit_facet_band_placement(
         .children
         .iter()
         .take(cells.len())
-        .map(|child| child.main_axis_start)
+        .map(|child| child.main_start)
         .collect();
-    let main_axis_size = band.main_axis_extent;
-    let cross_axis_size = band.cross_axis_extent.unwrap_or(0.0);
+    let main_size = band.main_extent;
+    let cross_size = band.cross_extent.unwrap_or(0.0);
 
     FacetBandExplicitPlacement {
         main_axis_positions,
-        main_axis_size,
-        cross_axis_size,
+        main_size,
+        cross_size,
     }
 }
 
@@ -580,13 +574,13 @@ mod tests {
         )
         .unwrap();
 
-        let starts = placement.main_axis_starts().collect::<Vec<_>>();
-        let sizes = placement.main_axis_sizes().collect::<Vec<_>>();
+        let starts = placement.main_starts().collect::<Vec<_>>();
+        let sizes = placement.main_sizes().collect::<Vec<_>>();
         assert_eq!(placement.axis, FacetAxis::Column);
         assert_eq!(placement.cell_count(), 2);
         assert!(starts[0] < starts[1]);
         assert!(sizes.iter().all(|size| *size > 0.0));
-        assert_eq!(placement.cross_axis_extent, Some(42.0));
+        assert_eq!(placement.cross_extent, Some(42.0));
         assert_eq!(placement.cell(1).unwrap().cell_index, 1);
     }
 
@@ -626,8 +620,8 @@ mod tests {
 
         assert_eq!(placement.axis, FacetAxis::Column);
         assert_eq!(placement.cell_count(), 0);
-        assert_eq!(placement.main_axis_extent, 0.0);
-        assert_eq!(placement.cross_axis_extent, Some(42.0));
+        assert_eq!(placement.main_extent, 0.0);
+        assert_eq!(placement.cross_extent, Some(42.0));
     }
 
     #[test]

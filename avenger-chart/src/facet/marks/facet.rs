@@ -1,8 +1,7 @@
-use crate::container::ChildFrameSideSlabTargets;
+use crate::container::EdgeTargets;
 use crate::facet::coord::{
-    FacetBandCoordMeasurement, FacetColumn, FacetRow, FacetWrap,
-    apply_measurement_side_slab_targets, facet_band_ref,
-    retarget_measurement_plot_area_no_remeasure,
+    FacetBandCoordMeasurement, FacetColumn, FacetRow, FacetWrap, apply_measurement_edge_targets,
+    facet_band_ref, retarget_measurement_plot_area_no_remeasure,
 };
 use crate::facet::marks::facet_config::{
     FacetColChannelConfig, FacetRowChannelConfig, FacetWrapChannelConfig,
@@ -123,7 +122,7 @@ struct FacetCellBuildTask {
     full_path: Vec<ScalarValue>,
     is_terminal_cell: bool,
     plot_area_target: Option<Size2D>,
-    side_slab_targets: Option<ChildFrameSideSlabTargets>,
+    edge_targets: Option<EdgeTargets>,
 }
 
 /// Build one facet cell's `PlotComponents`, reusing cached data marks when a
@@ -141,7 +140,7 @@ async fn build_one_facet_cell(
         full_path,
         is_terminal_cell,
         plot_area_target,
-        side_slab_targets,
+        edge_targets,
     } = task;
 
     // Install a per-task-local metrics collector so the many `record_*` calls
@@ -159,8 +158,8 @@ async fn build_one_facet_cell(
         None => cell_eval_ctx,
     };
     refresh_measurement_params_for_cell(&mut measurement, &cell_eval_ctx);
-    if let Some(targets) = side_slab_targets {
-        apply_measurement_side_slab_targets(&mut measurement, targets);
+    if let Some(targets) = edge_targets {
+        apply_measurement_edge_targets(&mut measurement, targets);
     }
     if let Some(target) = plot_area_target {
         retarget_measurement_plot_area_no_remeasure(
@@ -414,8 +413,8 @@ async fn render_facet_band_with_placement(
     )?;
     trace!(
         axis = ?placement.axis,
-        main_axis_extent = placement.main_axis_extent,
-        cross_axis_extent = ?placement.cross_axis_extent,
+        main_extent = placement.main_extent,
+        cross_extent = ?placement.cross_extent,
         child_content_width = child_frame_placement.content_size.width,
         child_content_height = child_frame_placement.content_size.height,
         cell_count = placement.cell_count(),
@@ -440,10 +439,10 @@ async fn render_facet_band_with_placement(
                 "Missing facet child-frame placement for cell index {idx}"
             ))
         })?;
-        let position = cell_placement.main_axis_start;
+        let position = cell_placement.main_start;
         let subplot_origin = child_render_placement.origin;
         let is_empty_cell = cell.plan.is_empty;
-        let band_size = cell_placement.main_axis_size;
+        let band_size = cell_placement.main_size;
         let plot_area_target = match placement.axis {
             FacetAxis::Column => Size2D::new(band_size, cell.measurement.plot_area_height),
             FacetAxis::Row => Size2D::new(cell.measurement.plot_area_width, band_size),
@@ -494,7 +493,7 @@ async fn render_facet_band_with_placement(
             full_path: cell.plan.full_path.clone(),
             is_terminal_cell,
             plot_area_target: Some(plot_area_target),
-            side_slab_targets: child_render_placement.side_slab_targets,
+            edge_targets: child_render_placement.edge_targets,
         });
         plans.push(FacetCellPlan {
             idx,

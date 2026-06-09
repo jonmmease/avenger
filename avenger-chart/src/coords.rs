@@ -178,7 +178,7 @@ pub(crate) async fn measure_coordinate_system_transform(
 
     if any.is::<crate::concat::HConcat>() {
         return Box::pin(crate::concat::measure_concat_coord_system(
-            crate::layout::BandDirection::Horizontal,
+            crate::layout::Orientation::Horizontal,
             request.plot_width(),
             request.plot_height(),
             request.eval_ctx(),
@@ -191,7 +191,7 @@ pub(crate) async fn measure_coordinate_system_transform(
 
     if any.is::<crate::concat::VConcat>() {
         return Box::pin(crate::concat::measure_concat_coord_system(
-            crate::layout::BandDirection::Vertical,
+            crate::layout::Orientation::Vertical,
             request.plot_width(),
             request.plot_height(),
             request.eval_ctx(),

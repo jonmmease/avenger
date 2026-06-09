@@ -17,9 +17,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     container::{
-        BandChildFrameInput, BandChildFramePlacement, BandSpacing, BoundaryDemand1D, ChildFrameKey,
-        ChildFramePlacementResult, ChildFrameRenderPlacement, ChildFrameScopeKey,
-        ChildFrameSharingLevel, ChildFrameSideSlabTargets, ContainerPathSegment,
+        BandItem, BandSolution, BandSpacing, BoundaryDemand, ChildFrameKey, ChildFrameScopeKey,
+        ChildFrameSharingLevel, ContainerPathSegment, PlacedRegion, PlacementSolution,
     },
     coords::{
         CoordMeasurement, CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
@@ -30,8 +29,10 @@ use crate::{
     guide::{
         CompiledGuide, CoordinateGuide, GuideSharingContext, GuideUpdate, OverflowSpaceRequirement,
     },
-    layout::BandPlacedChild,
-    layout::{BandDirection, EdgeSlabs, LayoutBounds, Size2D},
+    layout::{
+        GridItem, GridRequirements, GridShape, GridSlot, LayoutBounds, Orientation, PlacedBandItem,
+        Size2D, grid_requirements, solve_grid_requirements,
+    },
     marks::{CompiledMark, CompiledMarkCore},
     plot::compiled::{
         ChildFrameDataSelection, ChildFrameDomainSharingInput, ChildFrameLayoutSlot,
@@ -45,7 +46,7 @@ use crate::{
     theme::Theme,
 };
 use avenger_chart_core::{
-    AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, AxisPosition, CoordinationAxis,
+    AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, CoordinationAxis,
     DefaultLogicalExprNodeExt, ExprHelpers, FacetWrapColumnMode, IntoExpr, SharingLevel,
     contains_aggregate, params_to_datafusion,
 };
@@ -503,25 +504,23 @@ impl CoordinateSystemTransform for WrapConcat {
 
 #[derive(Clone, Debug)]
 pub(crate) enum ConcatChildPlacement {
-    Band(BandChildFramePlacement),
+    Band(BandSolution),
     Grid {
-        placement: ChildFramePlacementResult,
+        placement: PlacementSolution,
         shape: GridShape,
         retarget_plot_area_size: bool,
     },
 }
 
 impl ConcatChildPlacement {
-    fn child_frame_placement(&self, fallback_content_size: Size2D) -> ChildFramePlacementResult {
+    fn child_frame_placement(&self, fallback_content_size: Size2D) -> PlacementSolution {
         match self {
-            Self::Band(band) => {
-                band.to_child_frame_placement_result([0.0, 0.0], fallback_content_size)
-            }
+            Self::Band(band) => band.to_placement_solution([0.0, 0.0], fallback_content_size),
             Self::Grid { placement, .. } => placement.clone(),
         }
     }
 
-    fn band_direction(&self) -> Option<BandDirection> {
+    fn band_direction(&self) -> Option<Orientation> {
         match self {
             Self::Band(band) => Some(band.direction),
             Self::Grid { .. } => None,
@@ -559,7 +558,7 @@ impl ConcatCoordMeasurement {
             .map(ConcatChildMeasurement::scope_key)
     }
 
-    pub(crate) fn child_frame_placement(&self) -> ChildFramePlacementResult {
+    pub(crate) fn child_frame_placement(&self) -> PlacementSolution {
         self.placement
             .child_frame_placement(self.fallback_content_size)
     }
@@ -579,14 +578,14 @@ impl ConcatCoordMeasurement {
             return Ok(());
         };
 
-        let base_child_plot_area = Size2D::new(
+        let base_child_content_size = Size2D::new(
             plot_width / shape.columns.max(1) as f32,
             plot_height / shape.rows.max(1) as f32,
         );
         let placement = grid_child_frame_placement(
             &self.children,
             shape,
-            base_child_plot_area,
+            base_child_content_size,
             retarget_plot_area_size,
         )?;
         self.placement = ConcatChildPlacement::Grid {
@@ -597,7 +596,7 @@ impl ConcatCoordMeasurement {
         Ok(())
     }
 
-    pub(crate) fn band_direction(&self) -> Option<BandDirection> {
+    pub(crate) fn band_direction(&self) -> Option<Orientation> {
         self.placement.band_direction()
     }
 
@@ -609,11 +608,11 @@ impl ConcatCoordMeasurement {
         match &self.placement {
             ConcatChildPlacement::Grid { shape, .. } => Some(*shape),
             ConcatChildPlacement::Band(band) => match band.direction {
-                BandDirection::Horizontal => Some(GridShape {
+                Orientation::Horizontal => Some(GridShape {
                     rows: 1,
                     columns: self.children.len().max(1),
                 }),
-                BandDirection::Vertical => Some(GridShape {
+                Orientation::Vertical => Some(GridShape {
                     rows: self.children.len().max(1),
                     columns: 1,
                 }),
@@ -653,74 +652,68 @@ impl ConcatCoordMeasurement {
             .collect()
     }
 
-    pub(crate) fn grid_track_requirements(
-        &self,
-    ) -> Result<GridTrackRequirements, AvengerChartError> {
+    pub(crate) fn grid_requirements(&self) -> Result<GridRequirements, AvengerChartError> {
         let shape = self.layout_coordination_shape().ok_or_else(|| {
             AvengerChartError::InternalError(
-                "Grid track requirements requested for non-child-frame concat measurement"
-                    .to_string(),
+                "Grid requirements requested for non-child-frame concat measurement".to_string(),
             )
         })?;
-        let base_child_plot_area = Size2D::new(
+        let base_child_content_size = Size2D::new(
             self.fallback_content_size.width / shape.columns.max(1) as f32,
             self.fallback_content_size.height / shape.rows.max(1) as f32,
         );
-        let demands = self.layout_coordination_track_demands()?;
-        grid_track_requirements(shape, base_child_plot_area, &demands)
+        let demands = self.layout_coordination_grid_items()?;
+        grid_requirements(shape, base_child_content_size, &demands)
     }
 
-    pub(crate) fn apply_grid_track_requirements(
+    pub(crate) fn apply_grid_requirements(
         &mut self,
-        requirements: &GridTrackRequirements,
+        requirements: &GridRequirements,
     ) -> Result<bool, AvengerChartError> {
         let shape = self.layout_coordination_shape().ok_or_else(|| {
             AvengerChartError::InternalError(
-                "Grid track solution applied to non-child-frame concat measurement".to_string(),
+                "Grid solution applied to non-child-frame concat measurement".to_string(),
             )
         })?;
         if requirements.shape != shape {
             return Err(AvengerChartError::InternalError(format!(
-                "Grid track solution shape {:?} did not match concat coordination shape {:?}",
+                "Grid solution shape {:?} did not match concat coordination shape {:?}",
                 requirements.shape, shape
             )));
         }
 
         let old_placement = self.child_frame_placement();
-        let demands = self.layout_coordination_track_demands()?;
-        let solution = solve_grid_track_requirements(requirements, &demands);
+        let demands = self.layout_coordination_grid_items()?;
+        let solution = solve_grid_requirements(requirements, &demands);
 
         let placement = match &self.placement {
             ConcatChildPlacement::Grid {
                 retarget_plot_area_size,
                 ..
             } => {
-                let render_placements = self
+                let placements = self
                     .children
                     .iter()
                     .enumerate()
                     .map(|(slot_index, child)| {
                         let slot = self.layout_coordination_slot_for_child(slot_index, child)?;
-                        let origin = solution.origin_for_slot(slot);
-                        let side_targets = solution.side_slab_targets_for_slot(slot);
+                        let origin = solution.content_origin_for_slot(slot);
+                        let edge_targets = solution.edge_targets_for_slot(slot);
                         Ok(if *retarget_plot_area_size {
-                            ChildFrameRenderPlacement::with_plot_area_size(
+                            PlacedRegion::with_content_size_override(
                                 child.child_index,
                                 origin,
-                                solution.plot_area_size_for_slot(slot),
+                                solution.content_size_for_slot(slot),
                             )
-                            .with_side_slab_targets(side_targets)
+                            .with_edge_targets(edge_targets)
                         } else {
-                            ChildFrameRenderPlacement::new(child.child_index, origin)
-                                .with_side_slab_targets(side_targets)
+                            PlacedRegion::new(child.child_index, origin)
+                                .with_edge_targets(edge_targets)
                         })
                     })
                     .collect::<Result<Vec<_>, AvengerChartError>>()?;
                 ConcatChildPlacement::Grid {
-                    placement: ChildFramePlacementResult::new(
-                        solution.content_size,
-                        render_placements,
-                    ),
+                    placement: PlacementSolution::new(solution.content_size, placements),
                     shape,
                     retarget_plot_area_size: *retarget_plot_area_size,
                 }
@@ -733,43 +726,42 @@ impl ConcatCoordMeasurement {
                     .enumerate()
                     .map(|(slot_index, child)| {
                         let slot = self.layout_coordination_slot_for_child(slot_index, child)?;
-                        let (main_axis_start, main_axis_size, cross_axis_start, cross_axis_size) =
-                            match direction {
-                                BandDirection::Horizontal => (
-                                    solution.column_starts[slot.column],
-                                    solution.column_widths[slot.column],
-                                    solution.row_starts[0],
-                                    solution.row_heights[0],
-                                ),
-                                BandDirection::Vertical => (
-                                    solution.row_starts[slot.row],
-                                    solution.row_heights[slot.row],
-                                    solution.column_starts[0],
-                                    solution.column_widths[0],
-                                ),
-                            };
-                        Ok(BandPlacedChild::with_cross_axis(
+                        let (main_start, main_size, cross_start, cross_size) = match direction {
+                            Orientation::Horizontal => (
+                                solution.column_starts[slot.column],
+                                solution.column_widths[slot.column],
+                                solution.row_starts[0],
+                                solution.row_heights[0],
+                            ),
+                            Orientation::Vertical => (
+                                solution.row_starts[slot.row],
+                                solution.row_heights[slot.row],
+                                solution.column_starts[0],
+                                solution.column_widths[0],
+                            ),
+                        };
+                        Ok(PlacedBandItem::with_cross_axis(
                             child.child_index,
-                            main_axis_start,
-                            main_axis_size,
-                            cross_axis_start,
-                            cross_axis_size,
+                            main_start,
+                            main_size,
+                            cross_start,
+                            cross_size,
                         ))
                     })
                     .collect::<Result<Vec<_>, AvengerChartError>>()?;
-                let (main_axis_extent, cross_axis_extent) = match direction {
-                    BandDirection::Horizontal => {
+                let (main_extent, cross_extent) = match direction {
+                    Orientation::Horizontal => {
                         (solution.content_size.width, solution.content_size.height)
                     }
-                    BandDirection::Vertical => {
+                    Orientation::Vertical => {
                         (solution.content_size.height, solution.content_size.width)
                     }
                 };
-                ConcatChildPlacement::Band(BandChildFramePlacement::from_positioned_children(
+                ConcatChildPlacement::Band(BandSolution::from_positioned_children(
                     direction,
                     children,
-                    main_axis_extent,
-                    Some(cross_axis_extent),
+                    main_extent,
+                    Some(cross_extent),
                 ))
             }
         };
@@ -785,15 +777,15 @@ impl ConcatCoordMeasurement {
         &self,
         slot_index: usize,
         child: &ConcatChildMeasurement,
-    ) -> Result<GridSlotRect, AvengerChartError> {
+    ) -> Result<GridSlot, AvengerChartError> {
         match self.band_direction() {
-            Some(BandDirection::Horizontal) => Ok(GridSlotRect {
+            Some(Orientation::Horizontal) => Ok(GridSlot {
                 row: 0,
                 column: slot_index,
                 row_span: 1,
                 column_span: 1,
             }),
-            Some(BandDirection::Vertical) => Ok(GridSlotRect {
+            Some(Orientation::Vertical) => Ok(GridSlot {
                 row: slot_index,
                 column: 0,
                 row_span: 1,
@@ -806,29 +798,27 @@ impl ConcatCoordMeasurement {
                         child.child_index
                     ))
                 })?;
-                Ok(GridSlotRect::from_placement(placement))
+                Ok(grid_slot_from_placement(placement))
             }
         }
     }
 
-    fn layout_coordination_track_demands(
-        &self,
-    ) -> Result<Vec<GridChildTrackDemand>, AvengerChartError> {
+    fn layout_coordination_grid_items(&self) -> Result<Vec<GridItem>, AvengerChartError> {
         self.children
             .iter()
             .enumerate()
             .map(|(slot_index, child)| {
                 let frame_demand = child.measurement.frame_demand();
-                Ok(GridChildTrackDemand {
+                Ok(GridItem {
                     child_index: child.child_index,
                     slot: self.layout_coordination_slot_for_child(slot_index, child)?,
-                    plot_area: Size2D::new(
+                    content_size: Size2D::new(
                         child.measurement.plot_area_width,
                         child.measurement.plot_area_height,
                     ),
-                    guide_slabs: frame_demand.guide_slabs,
-                    legend_slabs: frame_demand.legend_slabs,
-                    slabs: frame_demand.rendered_envelope,
+                    inner_edges: frame_demand.guide_slabs,
+                    outer_edges: frame_demand.legend_slabs,
+                    total_edges: frame_demand.rendered_envelope,
                 })
             })
             .collect()
@@ -905,58 +895,55 @@ pub(crate) fn concat_coord_ref(
 
 fn concat_label_placement(concat: &ConcatCoordMeasurement) -> Option<ContainerLabelPlacement> {
     match concat.band_direction()? {
-        BandDirection::Horizontal => Some(ContainerLabelPlacement::Top),
-        BandDirection::Vertical => Some(ContainerLabelPlacement::Left),
+        Orientation::Horizontal => Some(ContainerLabelPlacement::Top),
+        Orientation::Vertical => Some(ContainerLabelPlacement::Left),
     }
 }
 
 fn child_plot_area_size(
-    direction: BandDirection,
+    direction: Orientation,
     plot_width: f32,
     plot_height: f32,
     child_count: usize,
 ) -> Size2D {
     let child_count = child_count.max(1) as f32;
     match direction {
-        BandDirection::Horizontal => Size2D::new(plot_width / child_count, plot_height),
-        BandDirection::Vertical => Size2D::new(plot_width, plot_height / child_count),
+        Orientation::Horizontal => Size2D::new(plot_width / child_count, plot_height),
+        Orientation::Vertical => Size2D::new(plot_width, plot_height / child_count),
     }
 }
 
 fn boundary_demand_for_child(
-    direction: BandDirection,
+    direction: Orientation,
     measurement: &ComponentsMeasurement,
-) -> BoundaryDemand1D {
+) -> BoundaryDemand {
     let slabs = measurement.frame_demand().rendered_envelope;
     match direction {
-        BandDirection::Horizontal => BoundaryDemand1D {
+        Orientation::Horizontal => BoundaryDemand {
             before: slabs.left,
             after: slabs.right,
         },
-        BandDirection::Vertical => BoundaryDemand1D {
+        Orientation::Vertical => BoundaryDemand {
             before: slabs.top,
             after: slabs.bottom,
         },
     }
 }
 
-fn band_input_for_child(
-    direction: BandDirection,
-    child: &ConcatChildMeasurement,
-) -> BandChildFrameInput {
-    let main_axis_size = match direction {
-        BandDirection::Horizontal => child.measurement.plot_area_width,
-        BandDirection::Vertical => child.measurement.plot_area_height,
+fn band_input_for_child(direction: Orientation, child: &ConcatChildMeasurement) -> BandItem {
+    let main_size = match direction {
+        Orientation::Horizontal => child.measurement.plot_area_width,
+        Orientation::Vertical => child.measurement.plot_area_height,
     };
-    let cross_axis_size = match direction {
-        BandDirection::Horizontal => child.measurement.plot_area_height,
-        BandDirection::Vertical => child.measurement.plot_area_width,
+    let cross_size = match direction {
+        Orientation::Horizontal => child.measurement.plot_area_height,
+        Orientation::Vertical => child.measurement.plot_area_width,
     };
 
-    BandChildFrameInput {
+    BandItem {
         child_index: child.child_index,
-        main_axis_size,
-        cross_axis_size,
+        main_size,
+        cross_size,
         boundary: boundary_demand_for_child(direction, &child.measurement),
     }
 }
@@ -989,16 +976,12 @@ impl PreparedConcatChild<'_> {
         concat_child_scope_key(&self.container_path, self.child_index(), self.key())
     }
 
-    fn sharing_level(
-        &self,
-        direction: BandDirection,
-        child_count: usize,
-    ) -> ChildFrameSharingLevel {
+    fn sharing_level(&self, direction: Orientation, child_count: usize) -> ChildFrameSharingLevel {
         match direction {
-            BandDirection::Horizontal => {
+            Orientation::Horizontal => {
                 ChildFrameSharingLevel::hconcat_child(self.child_index(), child_count, self.key())
             }
-            BandDirection::Vertical => {
+            Orientation::Vertical => {
                 ChildFrameSharingLevel::vconcat_child(self.child_index(), child_count, self.key())
             }
         }
@@ -1264,7 +1247,7 @@ async fn measure_prepared_concat_child(
 }
 
 pub(crate) async fn measure_concat_coord_system(
-    direction: BandDirection,
+    direction: Orientation,
     plot_width: f32,
     plot_height: f32,
     eval_ctx: &EvaluationContext,
@@ -1317,7 +1300,7 @@ pub(crate) async fn measure_concat_coord_system(
         .map(|child| band_input_for_child(direction, child))
         .collect::<Vec<_>>();
     let child_band_layout =
-        BandChildFramePlacement::from_sized_children(direction, &inputs, BandSpacing::default());
+        BandSolution::from_sized_children(direction, &inputs, BandSpacing::default());
 
     Ok(Box::new(ConcatCoordMeasurement {
         children,
@@ -1340,7 +1323,7 @@ pub(crate) async fn measure_grid_concat_coord_system(
         .filter_map(|mark| compiled_subplot(mark.as_ref()))
         .collect::<Vec<_>>();
     let grid_shape = resolve_grid_shape(grid, &subplots)?;
-    let base_child_plot_area = Size2D::new(
+    let base_child_content_size = Size2D::new(
         plot_width / grid_shape.columns.max(1) as f32,
         plot_height / grid_shape.rows.max(1) as f32,
     );
@@ -1388,8 +1371,8 @@ pub(crate) async fn measure_grid_concat_coord_system(
             )
         })?;
         let child_plot_area = Size2D::new(
-            base_child_plot_area.width * placement.column_span as f32,
-            base_child_plot_area.height * placement.row_span as f32,
+            base_child_content_size.width * placement.column_span as f32,
+            base_child_content_size.height * placement.row_span as f32,
         );
         let facet_scoped_extents = eval_ctx
             .facet_scale_precompute_store()
@@ -1421,7 +1404,8 @@ pub(crate) async fn measure_grid_concat_coord_system(
         );
     }
 
-    let placement = grid_child_frame_placement(&children, grid_shape, base_child_plot_area, true)?;
+    let placement =
+        grid_child_frame_placement(&children, grid_shape, base_child_content_size, true)?;
     Ok(Box::new(ConcatCoordMeasurement {
         children,
         placement: ConcatChildPlacement::Grid {
@@ -1720,121 +1704,6 @@ impl AxisGuideVisibilitySpanExt for AxisGuideVisibilityConfig {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct GridShape {
-    pub(crate) rows: usize,
-    pub(crate) columns: usize,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct GridSlotRect {
-    pub(crate) row: usize,
-    pub(crate) column: usize,
-    pub(crate) row_span: usize,
-    pub(crate) column_span: usize,
-}
-
-impl GridSlotRect {
-    fn from_placement(placement: GridPlacementConfig) -> Self {
-        Self {
-            row: placement.row,
-            column: placement.column,
-            row_span: placement.row_span,
-            column_span: placement.column_span,
-        }
-    }
-
-    fn row_end(self) -> usize {
-        self.row + self.row_span
-    }
-
-    fn column_end(self) -> usize {
-        self.column + self.column_span
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct GridChildTrackDemand {
-    pub(crate) child_index: usize,
-    pub(crate) slot: GridSlotRect,
-    pub(crate) plot_area: Size2D,
-    pub(crate) guide_slabs: EdgeSlabs,
-    pub(crate) legend_slabs: EdgeSlabs,
-    pub(crate) slabs: EdgeSlabs,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub(crate) struct GridEdgeChromeRequirement {
-    pub(crate) guide: f32,
-    pub(crate) legend: f32,
-    pub(crate) total: f32,
-}
-
-impl GridEdgeChromeRequirement {
-    pub(crate) fn new(guide: f32, legend: f32, total: f32) -> Self {
-        let guide = guide.max(0.0);
-        let legend = legend.max(0.0);
-        let total = total.max(guide + legend).max(0.0);
-        Self {
-            guide,
-            legend,
-            total,
-        }
-    }
-
-    pub(crate) fn total(total: f32) -> Self {
-        Self::new(0.0, 0.0, total)
-    }
-
-    pub(crate) fn max_components(self, other: Self) -> Self {
-        Self::new(
-            self.guide.max(other.guide),
-            self.legend.max(other.legend),
-            self.total.max(other.total),
-        )
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct GridTrackRequirements {
-    pub(crate) shape: GridShape,
-    /// Facet-guide slot gap needed when generic grid requirements are
-    /// projected back into `CoordinatedLayout`.
-    ///
-    /// Concat containers do not use this value, so their local requirements
-    /// keep it at zero. Keeping it here avoids losing facet guide-spacing
-    /// state when facet bands participate in the generic layout model.
-    pub(crate) guide_slot_gap_px: f32,
-    pub(crate) column_outer_start: f32,
-    pub(crate) column_outer_end: f32,
-    pub(crate) row_outer_start: f32,
-    pub(crate) row_outer_end: f32,
-    pub(crate) column_widths: Vec<f32>,
-    pub(crate) row_heights: Vec<f32>,
-    pub(crate) column_left: Vec<GridEdgeChromeRequirement>,
-    pub(crate) column_right: Vec<GridEdgeChromeRequirement>,
-    pub(crate) row_top: Vec<GridEdgeChromeRequirement>,
-    pub(crate) row_bottom: Vec<GridEdgeChromeRequirement>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct GridTrackSolution {
-    pub(crate) guide_slot_gap_px: f32,
-    pub(crate) column_outer_start: f32,
-    pub(crate) column_outer_end: f32,
-    pub(crate) row_outer_start: f32,
-    pub(crate) row_outer_end: f32,
-    pub(crate) column_widths: Vec<f32>,
-    pub(crate) row_heights: Vec<f32>,
-    pub(crate) column_left: Vec<GridEdgeChromeRequirement>,
-    pub(crate) column_right: Vec<GridEdgeChromeRequirement>,
-    pub(crate) row_top: Vec<GridEdgeChromeRequirement>,
-    pub(crate) row_bottom: Vec<GridEdgeChromeRequirement>,
-    pub(crate) column_starts: Vec<f32>,
-    pub(crate) row_starts: Vec<f32>,
-    pub(crate) content_size: Size2D,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct GridGuideSharingSlots {
     rows_by_column: Vec<Vec<usize>>,
@@ -2040,46 +1909,51 @@ fn resolve_grid_shape(
     })
 }
 
+fn grid_slot_from_placement(placement: GridPlacementConfig) -> GridSlot {
+    GridSlot {
+        row: placement.row,
+        column: placement.column,
+        row_span: placement.row_span,
+        column_span: placement.column_span,
+    }
+}
+
 fn grid_child_frame_placement(
     children: &[ConcatChildMeasurement],
     shape: GridShape,
     base_cell_size: Size2D,
     retarget_plot_area_size: bool,
-) -> Result<ChildFramePlacementResult, AvengerChartError> {
-    let demands = grid_child_track_demands(children)?;
-    let requirements = grid_track_requirements(shape, base_cell_size, &demands)?;
-    let solution = solve_grid_track_requirements(&requirements, &demands);
+) -> Result<PlacementSolution, AvengerChartError> {
+    let demands = grid_child_items(children)?;
+    let requirements = grid_requirements(shape, base_cell_size, &demands)?;
+    let solution = solve_grid_requirements(&requirements, &demands);
 
-    let render_placements = children
+    let placements = children
         .iter()
         .map(|child| {
             let placement = child.grid_placement.expect("validated above");
-            let slot = GridSlotRect::from_placement(placement);
-            let origin = solution.origin_for_slot(slot);
-            let side_targets = solution.side_slab_targets_for_slot(slot);
+            let slot = grid_slot_from_placement(placement);
+            let origin = solution.content_origin_for_slot(slot);
+            let edge_targets = solution.edge_targets_for_slot(slot);
             if retarget_plot_area_size {
-                ChildFrameRenderPlacement::with_plot_area_size(
+                PlacedRegion::with_content_size_override(
                     child.child_index,
                     origin,
-                    solution.plot_area_size_for_slot(slot),
+                    solution.content_size_for_slot(slot),
                 )
-                .with_side_slab_targets(side_targets)
+                .with_edge_targets(edge_targets)
             } else {
-                ChildFrameRenderPlacement::new(child.child_index, origin)
-                    .with_side_slab_targets(side_targets)
+                PlacedRegion::new(child.child_index, origin).with_edge_targets(edge_targets)
             }
         })
         .collect();
 
-    Ok(ChildFramePlacementResult::new(
-        solution.content_size,
-        render_placements,
-    ))
+    Ok(PlacementSolution::new(solution.content_size, placements))
 }
 
-fn grid_child_track_demands(
+fn grid_child_items(
     children: &[ConcatChildMeasurement],
-) -> Result<Vec<GridChildTrackDemand>, AvengerChartError> {
+) -> Result<Vec<GridItem>, AvengerChartError> {
     children
         .iter()
         .map(|child| {
@@ -2089,316 +1963,19 @@ fn grid_child_track_demands(
                     child.child_index
                 ))
             })?;
-            Ok(GridChildTrackDemand {
+            Ok(GridItem {
                 child_index: child.child_index,
-                slot: GridSlotRect::from_placement(placement),
-                plot_area: Size2D::new(
+                slot: grid_slot_from_placement(placement),
+                content_size: Size2D::new(
                     child.measurement.plot_area_width,
                     child.measurement.plot_area_height,
                 ),
-                guide_slabs: child.measurement.frame_demand().guide_slabs,
-                legend_slabs: child.measurement.frame_demand().legend_slabs,
-                slabs: child.measurement.frame_demand().rendered_envelope,
+                inner_edges: child.measurement.frame_demand().guide_slabs,
+                outer_edges: child.measurement.frame_demand().legend_slabs,
+                total_edges: child.measurement.frame_demand().rendered_envelope,
             })
         })
         .collect()
-}
-
-fn grid_edge_chrome_requirement(
-    demand: &GridChildTrackDemand,
-    side: AxisPosition,
-) -> GridEdgeChromeRequirement {
-    match side {
-        AxisPosition::Top => GridEdgeChromeRequirement::new(
-            demand.guide_slabs.top,
-            demand.legend_slabs.top,
-            demand.slabs.top,
-        ),
-        AxisPosition::Right => GridEdgeChromeRequirement::new(
-            demand.guide_slabs.right,
-            demand.legend_slabs.right,
-            demand.slabs.right,
-        ),
-        AxisPosition::Bottom => GridEdgeChromeRequirement::new(
-            demand.guide_slabs.bottom,
-            demand.legend_slabs.bottom,
-            demand.slabs.bottom,
-        ),
-        AxisPosition::Left => GridEdgeChromeRequirement::new(
-            demand.guide_slabs.left,
-            demand.legend_slabs.left,
-            demand.slabs.left,
-        ),
-    }
-}
-
-pub(crate) fn grid_track_requirements(
-    shape: GridShape,
-    base_cell_size: Size2D,
-    demands: &[GridChildTrackDemand],
-) -> Result<GridTrackRequirements, AvengerChartError> {
-    let mut requirements = GridTrackRequirements {
-        shape,
-        guide_slot_gap_px: 0.0,
-        column_outer_start: 0.0,
-        column_outer_end: 0.0,
-        row_outer_start: 0.0,
-        row_outer_end: 0.0,
-        column_widths: vec![base_cell_size.width; shape.columns],
-        row_heights: vec![base_cell_size.height; shape.rows],
-        column_left: vec![GridEdgeChromeRequirement::default(); shape.columns],
-        column_right: vec![GridEdgeChromeRequirement::default(); shape.columns],
-        row_top: vec![GridEdgeChromeRequirement::default(); shape.rows],
-        row_bottom: vec![GridEdgeChromeRequirement::default(); shape.rows],
-    };
-
-    for demand in demands {
-        let slot = demand.slot;
-        if slot.row_span == 0
-            || slot.column_span == 0
-            || slot.row_end() > shape.rows
-            || slot.column_end() > shape.columns
-        {
-            return Err(AvengerChartError::InvalidArgument(format!(
-                "Grid child {} slot {:?} exceeds grid shape {}x{}",
-                demand.child_index, slot, shape.rows, shape.columns
-            )));
-        }
-
-        let last_row = slot.row_end() - 1;
-        let last_column = slot.column_end() - 1;
-        requirements.column_left[slot.column] = requirements.column_left[slot.column]
-            .max_components(grid_edge_chrome_requirement(demand, AxisPosition::Left));
-        requirements.column_right[last_column] = requirements.column_right[last_column]
-            .max_components(grid_edge_chrome_requirement(demand, AxisPosition::Right));
-        requirements.row_top[slot.row] = requirements.row_top[slot.row]
-            .max_components(grid_edge_chrome_requirement(demand, AxisPosition::Top));
-        requirements.row_bottom[last_row] = requirements.row_bottom[last_row]
-            .max_components(grid_edge_chrome_requirement(demand, AxisPosition::Bottom));
-
-        if slot.column_span == 1 {
-            requirements.column_widths[slot.column] =
-                requirements.column_widths[slot.column].max(demand.plot_area.width);
-        }
-        if slot.row_span == 1 {
-            requirements.row_heights[slot.row] =
-                requirements.row_heights[slot.row].max(demand.plot_area.height);
-        }
-    }
-
-    Ok(requirements)
-}
-
-pub(crate) fn solve_grid_track_requirements(
-    requirements: &GridTrackRequirements,
-    demands: &[GridChildTrackDemand],
-) -> GridTrackSolution {
-    debug_assert_eq!(requirements.column_widths.len(), requirements.shape.columns);
-    debug_assert_eq!(requirements.row_heights.len(), requirements.shape.rows);
-
-    let mut column_widths = requirements.column_widths.clone();
-    let mut row_heights = requirements.row_heights.clone();
-    let column_right_totals = edge_totals(&requirements.column_right);
-    let column_left_totals = edge_totals(&requirements.column_left);
-    let row_bottom_totals = edge_totals(&requirements.row_bottom);
-    let row_top_totals = edge_totals(&requirements.row_top);
-
-    satisfy_span_axis_constraints(
-        &mut column_widths,
-        &column_right_totals,
-        &column_left_totals,
-        demands
-            .iter()
-            .map(|demand| AxisSpanConstraint {
-                start: demand.slot.column,
-                span: demand.slot.column_span,
-                target: demand.plot_area.width,
-            })
-            .collect(),
-    );
-    satisfy_span_axis_constraints(
-        &mut row_heights,
-        &row_bottom_totals,
-        &row_top_totals,
-        demands
-            .iter()
-            .map(|demand| AxisSpanConstraint {
-                start: demand.slot.row,
-                span: demand.slot.row_span,
-                target: demand.plot_area.height,
-            })
-            .collect(),
-    );
-
-    let (column_starts, content_width) = track_starts_and_content_size(
-        &column_widths,
-        &column_right_totals,
-        &column_left_totals,
-        requirements.column_outer_start,
-        requirements.column_outer_end,
-    );
-    let (row_starts, content_height) = track_starts_and_content_size(
-        &row_heights,
-        &row_bottom_totals,
-        &row_top_totals,
-        requirements.row_outer_start,
-        requirements.row_outer_end,
-    );
-
-    GridTrackSolution {
-        guide_slot_gap_px: requirements.guide_slot_gap_px,
-        column_outer_start: requirements.column_outer_start,
-        column_outer_end: requirements.column_outer_end,
-        row_outer_start: requirements.row_outer_start,
-        row_outer_end: requirements.row_outer_end,
-        column_widths,
-        row_heights,
-        column_left: requirements.column_left.clone(),
-        column_right: requirements.column_right.clone(),
-        row_top: requirements.row_top.clone(),
-        row_bottom: requirements.row_bottom.clone(),
-        column_starts,
-        row_starts,
-        content_size: Size2D::new(content_width, content_height),
-    }
-}
-
-fn edge_totals(edges: &[GridEdgeChromeRequirement]) -> Vec<f32> {
-    edges.iter().map(|edge| edge.total).collect()
-}
-
-pub(crate) fn zero_edge_requirements(len: usize) -> Vec<GridEdgeChromeRequirement> {
-    vec![GridEdgeChromeRequirement::default(); len]
-}
-
-#[cfg(test)]
-pub(crate) fn total_edge_requirements(
-    values: impl IntoIterator<Item = f32>,
-) -> Vec<GridEdgeChromeRequirement> {
-    values
-        .into_iter()
-        .map(GridEdgeChromeRequirement::total)
-        .collect()
-}
-
-#[derive(Clone, Debug)]
-struct AxisSpanConstraint {
-    start: usize,
-    span: usize,
-    target: f32,
-}
-
-fn satisfy_span_axis_constraints(
-    sizes: &mut [f32],
-    trailing_slabs: &[f32],
-    leading_slabs: &[f32],
-    mut constraints: Vec<AxisSpanConstraint>,
-) {
-    constraints.sort_by_key(|constraint| constraint.span);
-    for constraint in constraints {
-        let current = span_axis_extent(
-            sizes,
-            trailing_slabs,
-            leading_slabs,
-            constraint.start,
-            constraint.span,
-        );
-        let deficit = constraint.target - current;
-        if deficit <= 0.0 || constraint.span == 0 {
-            continue;
-        }
-        let extra_per_track = deficit / constraint.span as f32;
-        for size in &mut sizes[constraint.start..constraint.start + constraint.span] {
-            *size += extra_per_track;
-        }
-    }
-}
-
-fn span_axis_extent(
-    sizes: &[f32],
-    trailing_slabs: &[f32],
-    leading_slabs: &[f32],
-    start: usize,
-    span: usize,
-) -> f32 {
-    let end = start + span;
-    let track_sum = sizes[start..end].iter().sum::<f32>();
-    let gap_sum = (start..end.saturating_sub(1))
-        .map(|index| trailing_slabs[index] + leading_slabs[index + 1])
-        .sum::<f32>();
-    track_sum + gap_sum
-}
-
-fn track_starts_and_content_size(
-    sizes: &[f32],
-    trailing_slabs: &[f32],
-    leading_slabs: &[f32],
-    outer_start: f32,
-    outer_end: f32,
-) -> (Vec<f32>, f32) {
-    let mut starts = vec![0.0f32; sizes.len()];
-    let mut cursor = outer_start.max(0.0);
-    for index in 0..sizes.len() {
-        if index > 0 {
-            cursor += trailing_slabs[index - 1] + leading_slabs[index];
-        }
-        starts[index] = cursor;
-        cursor += sizes[index];
-    }
-    (starts, cursor + outer_end.max(0.0))
-}
-
-impl GridTrackSolution {
-    fn origin_for_slot(&self, slot: GridSlotRect) -> [f32; 2] {
-        [self.column_starts[slot.column], self.row_starts[slot.row]]
-    }
-
-    fn side_slab_targets_for_slot(&self, slot: GridSlotRect) -> ChildFrameSideSlabTargets {
-        let last_row = slot.row_end() - 1;
-        let last_column = slot.column_end() - 1;
-        let top = self.row_top[slot.row];
-        let right = self.column_right[last_column];
-        let bottom = self.row_bottom[last_row];
-        let left = self.column_left[slot.column];
-
-        ChildFrameSideSlabTargets {
-            guide: EdgeSlabs {
-                top: top.guide,
-                right: right.guide,
-                bottom: bottom.guide,
-                left: left.guide,
-            },
-            total: EdgeSlabs {
-                top: top.total,
-                right: right.total,
-                bottom: bottom.total,
-                left: left.total,
-            },
-        }
-    }
-
-    fn plot_area_size_for_slot(&self, slot: GridSlotRect) -> Size2D {
-        let column_right_totals = edge_totals(&self.column_right);
-        let column_left_totals = edge_totals(&self.column_left);
-        let row_bottom_totals = edge_totals(&self.row_bottom);
-        let row_top_totals = edge_totals(&self.row_top);
-        Size2D::new(
-            span_axis_extent(
-                &self.column_widths,
-                &column_right_totals,
-                &column_left_totals,
-                slot.column,
-                slot.column_span,
-            ),
-            span_axis_extent(
-                &self.row_heights,
-                &row_bottom_totals,
-                &row_top_totals,
-                slot.row,
-                slot.row_span,
-            ),
-        )
-    }
 }
 
 fn container_point_geometry(
@@ -2454,7 +2031,10 @@ mod tests {
             marks::{FacetColumnSubplotChannels, FacetRowSubplotChannels},
             placement::{FacetBandExplicitPlacement, FacetBandPlacementModel},
         },
-        layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
+        layout::{
+            EdgeDemand, EdgeSlabs, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode,
+            edge_demand_totals, span_axis_extent, total_edge_demands, zero_edge_demands,
+        },
         marks::{Subplot, line::Line, symbol::Symbol},
         plot::{
             CompiledPlot, Plot,
@@ -2467,7 +2047,7 @@ mod tests {
                     ChildFrameLayoutRequirements, ChildFrameLayoutSlot,
                     ChildFrameLayoutSlotTopology, ChildFrameLayoutTopology,
                     FacetBandGridApplyUnsupported, LayoutCoordinationScope,
-                    apply_child_frame_layout_alignment, apply_facet_band_grid_track_requirements,
+                    apply_child_frame_layout_alignment, apply_facet_band_grid_requirements,
                     build_child_frame_layout_alignment_diagnostics,
                     collect_child_frame_layout_coordination_nodes,
                     diagnose_child_frame_layout_alignment, facet_band_grid_apply_layout,
@@ -2727,7 +2307,7 @@ mod tests {
     ) -> ChildFrameLayoutCoordinationNode {
         let slots = (0..5)
             .map(|child_index| {
-                let slot = GridSlotRect {
+                let slot = GridSlot {
                     row: child_index / shape.columns,
                     column: child_index % shape.columns,
                     row_span: 1,
@@ -2772,7 +2352,7 @@ mod tests {
                 slots: topology_slots,
             },
             slots,
-            requirements: ChildFrameLayoutRequirements::Grid(GridTrackRequirements {
+            requirements: ChildFrameLayoutRequirements::Grid(GridRequirements {
                 shape,
                 guide_slot_gap_px: 0.0,
                 column_outer_start: 0.0,
@@ -2781,20 +2361,20 @@ mod tests {
                 row_outer_end: 0.0,
                 column_widths: vec![10.0; shape.columns],
                 row_heights: vec![10.0; shape.rows],
-                column_left: zero_edge_requirements(shape.columns),
-                column_right: zero_edge_requirements(shape.columns),
-                row_top: zero_edge_requirements(shape.rows),
-                row_bottom: zero_edge_requirements(shape.rows),
+                column_left: zero_edge_demands(shape.columns),
+                column_right: zero_edge_demands(shape.columns),
+                row_top: zero_edge_demands(shape.rows),
+                row_bottom: zero_edge_demands(shape.rows),
             }),
         }
     }
 
     fn synthetic_grid_alignment_node(
         shape: GridShape,
-        slot_rects: &[GridSlotRect],
+        slots: &[GridSlot],
         facet_value: &str,
     ) -> ChildFrameLayoutCoordinationNode {
-        let slots = slot_rects
+        let slots = slots
             .iter()
             .enumerate()
             .map(|(child_index, &slot)| {
@@ -2837,7 +2417,7 @@ mod tests {
                 slots: topology_slots,
             },
             slots,
-            requirements: ChildFrameLayoutRequirements::Grid(GridTrackRequirements {
+            requirements: ChildFrameLayoutRequirements::Grid(GridRequirements {
                 shape,
                 guide_slot_gap_px: 0.0,
                 column_outer_start: 0.0,
@@ -2846,35 +2426,35 @@ mod tests {
                 row_outer_end: 0.0,
                 column_widths: vec![10.0; shape.columns],
                 row_heights: vec![10.0; shape.rows],
-                column_left: zero_edge_requirements(shape.columns),
-                column_right: zero_edge_requirements(shape.columns),
-                row_top: zero_edge_requirements(shape.rows),
-                row_bottom: zero_edge_requirements(shape.rows),
+                column_left: zero_edge_demands(shape.columns),
+                column_right: zero_edge_demands(shape.columns),
+                row_top: zero_edge_demands(shape.rows),
+                row_bottom: zero_edge_demands(shape.rows),
             }),
         }
     }
 
-    fn spanned_grid_topology_slots() -> [GridSlotRect; 4] {
+    fn spanned_grid_topology_slots() -> [GridSlot; 4] {
         [
-            GridSlotRect {
+            GridSlot {
                 row: 0,
                 column: 0,
                 row_span: 2,
                 column_span: 2,
             },
-            GridSlotRect {
+            GridSlot {
                 row: 0,
                 column: 2,
                 row_span: 1,
                 column_span: 1,
             },
-            GridSlotRect {
+            GridSlot {
                 row: 2,
                 column: 0,
                 row_span: 1,
                 column_span: 1,
             },
-            GridSlotRect {
+            GridSlot {
                 row: 2,
                 column: 2,
                 row_span: 1,
@@ -2885,7 +2465,7 @@ mod tests {
 
     fn child_frame_placement_snapshots(
         measurement: &ComponentsMeasurement,
-    ) -> Result<Vec<ChildFramePlacementResult>, AvengerChartError> {
+    ) -> Result<Vec<PlacementSolution>, AvengerChartError> {
         let mut snapshots = Vec::new();
         collect_child_frame_placement_snapshots(measurement, &mut snapshots)?;
         Ok(snapshots)
@@ -2893,13 +2473,13 @@ mod tests {
 
     fn collect_child_frame_placement_snapshots(
         measurement: &ComponentsMeasurement,
-        snapshots: &mut Vec<ChildFramePlacementResult>,
+        snapshots: &mut Vec<PlacementSolution>,
     ) -> Result<(), AvengerChartError> {
         let Some(container) = measurement.child_frame_container_view()? else {
             return Ok(());
         };
         snapshots.push(container.placement().clone());
-        for placement in container.placement().render_placements() {
+        for placement in container.placement().placements() {
             let child = container
                 .child_measurement(placement.child_index)
                 .ok_or_else(|| {
@@ -2937,7 +2517,7 @@ mod tests {
             .as_any()
             .downcast_ref::<ConcatCoordMeasurement>()
             .expect("HConcat should measure as ConcatCoordMeasurement");
-        assert_eq!(concat.band_direction(), Some(BandDirection::Horizontal));
+        assert_eq!(concat.band_direction(), Some(Orientation::Horizontal));
         assert_eq!(concat.children.len(), 2);
         assert_eq!(concat.children[0].key.as_deref(), Some("left"));
         assert_eq!(concat.children[1].key.as_deref(), Some("right"));
@@ -2956,11 +2536,8 @@ mod tests {
         let container = measurement
             .child_frame_container_view()?
             .expect("concat measurement should expose a child-frame container view");
-        assert_eq!(container.placement().render_placements().len(), 2);
-        assert_eq!(
-            container.placement().render_placements()[0].origin,
-            [0.0, 0.0]
-        );
+        assert_eq!(container.placement().placements().len(), 2);
+        assert_eq!(container.placement().placements()[0].origin, [0.0, 0.0]);
         assert!(container.child_measurement(0).is_some());
         assert!(container.child_measurement(1).is_some());
         assert_eq!(container.child_scope_key(0), Some(&left_scope));
@@ -3042,7 +2619,7 @@ mod tests {
 
         let placement = concat.child_frame_placement();
         let origins = placement
-            .render_placements()
+            .placements()
             .iter()
             .map(|placement| (placement.child_index, placement.origin))
             .collect::<Vec<_>>();
@@ -3078,21 +2655,18 @@ mod tests {
             .downcast_mut::<ConcatCoordMeasurement>()
             .expect("GridConcat should measure as ConcatCoordMeasurement");
         let old_placement = concat.child_frame_placement();
-        assert_eq!(old_placement.render_placements()[1].origin, [100.0, 0.0]);
+        assert_eq!(old_placement.placements()[1].origin, [100.0, 0.0]);
 
-        let mut requirements = concat.grid_track_requirements()?;
-        requirements.column_left[1] = GridEdgeChromeRequirement::total(32.0);
-        assert!(concat.apply_grid_track_requirements(&requirements)?);
+        let mut requirements = concat.grid_requirements()?;
+        requirements.column_left[1] = EdgeDemand::total(32.0);
+        assert!(concat.apply_grid_requirements(&requirements)?);
 
         let applied_placement = concat.child_frame_placement();
-        assert_eq!(applied_placement.render_placements()[0].origin, [0.0, 0.0]);
-        assert_eq!(
-            applied_placement.render_placements()[1].origin,
-            [132.0, 0.0]
-        );
+        assert_eq!(applied_placement.placements()[0].origin, [0.0, 0.0]);
+        assert_eq!(applied_placement.placements()[1].origin, [132.0, 0.0]);
         assert_eq!(applied_placement.content_size, Size2D::new(232.0, 100.0));
         assert_ne!(applied_placement, old_placement);
-        assert!(!concat.apply_grid_track_requirements(&requirements)?);
+        assert!(!concat.apply_grid_requirements(&requirements)?);
         Ok(())
     }
 
@@ -3120,7 +2694,7 @@ mod tests {
 
         let placement = concat.child_frame_placement();
         let origins = placement
-            .render_placements()
+            .placements()
             .iter()
             .map(|placement| (placement.child_index, placement.origin))
             .collect::<Vec<_>>();
@@ -3129,85 +2703,85 @@ mod tests {
         Ok(())
     }
 
-    fn track_demand(
+    fn grid_item(
         child_index: usize,
         row: usize,
         column: usize,
         row_span: usize,
         column_span: usize,
-        plot_area: Size2D,
-        slabs: EdgeSlabs,
-    ) -> GridChildTrackDemand {
-        track_chrome_demand(
+        content_size: Size2D,
+        total_edges: EdgeSlabs,
+    ) -> GridItem {
+        grid_item_with_edges(
             child_index,
             row,
             column,
             row_span,
             column_span,
-            plot_area,
+            content_size,
             EdgeSlabs::default(),
             EdgeSlabs::default(),
-            slabs,
+            total_edges,
         )
     }
 
-    fn track_chrome_demand(
+    fn grid_item_with_edges(
         child_index: usize,
         row: usize,
         column: usize,
         row_span: usize,
         column_span: usize,
-        plot_area: Size2D,
-        guide_slabs: EdgeSlabs,
-        legend_slabs: EdgeSlabs,
-        slabs: EdgeSlabs,
-    ) -> GridChildTrackDemand {
-        GridChildTrackDemand {
+        content_size: Size2D,
+        inner_edges: EdgeSlabs,
+        outer_edges: EdgeSlabs,
+        total_edges: EdgeSlabs,
+    ) -> GridItem {
+        GridItem {
             child_index,
-            slot: GridSlotRect {
+            slot: GridSlot {
                 row,
                 column,
                 row_span,
                 column_span,
             },
-            plot_area,
-            guide_slabs,
-            legend_slabs,
-            slabs,
+            content_size,
+            inner_edges,
+            outer_edges,
+            total_edges,
         }
     }
 
     #[test]
-    fn grid_edge_chrome_requirement_merges_structured_components() {
-        let left = GridEdgeChromeRequirement::new(4.0, 11.0, 2.0);
+    fn edge_demand_merges_structured_components() {
+        let left = EdgeDemand::new(4.0, 11.0, 2.0);
         assert_eq!(
             left,
-            GridEdgeChromeRequirement {
-                guide: 4.0,
-                legend: 11.0,
+            EdgeDemand {
+                inner: 4.0,
+                outer: 11.0,
                 total: 15.0
             }
         );
 
-        let right = GridEdgeChromeRequirement::new(9.0, 3.0, 22.0);
+        let right = EdgeDemand::new(9.0, 3.0, 22.0);
         assert_eq!(
             left.max_components(right),
-            GridEdgeChromeRequirement {
-                guide: 9.0,
-                legend: 11.0,
+            EdgeDemand {
+                inner: 9.0,
+                outer: 11.0,
                 total: 22.0
             }
         );
     }
 
     #[test]
-    fn grid_track_solver_matches_non_spanning_grid_placement() -> Result<(), AvengerChartError> {
+    fn grid_solver_matches_non_spanning_grid_placement() -> Result<(), AvengerChartError> {
         let shape = GridShape {
             rows: 2,
             columns: 2,
         };
         let demands = vec![
-            track_demand(
+            grid_item(
                 0,
                 0,
                 0,
@@ -3216,7 +2790,7 @@ mod tests {
                 Size2D::new(100.0, 50.0),
                 EdgeSlabs::new(1.0, 5.0, 2.0, 3.0),
             ),
-            track_demand(
+            grid_item(
                 1,
                 0,
                 1,
@@ -3225,7 +2799,7 @@ mod tests {
                 Size2D::new(120.0, 50.0),
                 EdgeSlabs::new(1.0, 4.0, 2.0, 7.0),
             ),
-            track_demand(
+            grid_item(
                 2,
                 1,
                 0,
@@ -3236,26 +2810,32 @@ mod tests {
             ),
         ];
 
-        let requirements = grid_track_requirements(shape, Size2D::new(100.0, 50.0), &demands)?;
-        let solution = solve_grid_track_requirements(&requirements, &demands);
+        let requirements = grid_requirements(shape, Size2D::new(100.0, 50.0), &demands)?;
+        let solution = solve_grid_requirements(&requirements, &demands);
 
         assert_eq!(solution.column_widths, vec![100.0, 120.0]);
         assert_eq!(solution.row_heights, vec![50.0, 60.0]);
         assert_eq!(solution.column_starts, vec![0.0, 112.0]);
         assert_eq!(solution.row_starts, vec![0.0, 61.0]);
         assert_eq!(solution.content_size, Size2D::new(232.0, 121.0));
-        assert_eq!(solution.origin_for_slot(demands[1].slot), [112.0, 0.0]);
-        assert_eq!(solution.origin_for_slot(demands[2].slot), [0.0, 61.0]);
+        assert_eq!(
+            solution.content_origin_for_slot(demands[1].slot),
+            [112.0, 0.0]
+        );
+        assert_eq!(
+            solution.content_origin_for_slot(demands[2].slot),
+            [0.0, 61.0]
+        );
         Ok(())
     }
 
     #[test]
-    fn grid_track_solver_preserves_outer_offsets() -> Result<(), AvengerChartError> {
+    fn grid_solver_preserves_outer_offsets() -> Result<(), AvengerChartError> {
         let shape = GridShape {
             rows: 1,
             columns: 1,
         };
-        let demands = vec![track_demand(
+        let demands = vec![grid_item(
             0,
             0,
             0,
@@ -3265,31 +2845,34 @@ mod tests {
             EdgeSlabs::default(),
         )];
 
-        let mut requirements = grid_track_requirements(shape, Size2D::new(100.0, 50.0), &demands)?;
+        let mut requirements = grid_requirements(shape, Size2D::new(100.0, 50.0), &demands)?;
         requirements.guide_slot_gap_px = 13.0;
         requirements.column_outer_start = 3.0;
         requirements.column_outer_end = 7.0;
         requirements.row_outer_start = 5.0;
         requirements.row_outer_end = 11.0;
 
-        let solution = solve_grid_track_requirements(&requirements, &demands);
+        let solution = solve_grid_requirements(&requirements, &demands);
 
         assert_eq!(solution.guide_slot_gap_px, 13.0);
         assert_eq!(solution.column_starts, vec![3.0]);
         assert_eq!(solution.row_starts, vec![5.0]);
         assert_eq!(solution.content_size, Size2D::new(110.0, 66.0));
-        assert_eq!(solution.origin_for_slot(demands[0].slot), [3.0, 5.0]);
+        assert_eq!(
+            solution.content_origin_for_slot(demands[0].slot),
+            [3.0, 5.0]
+        );
         Ok(())
     }
 
     #[test]
-    fn grid_track_solver_preserves_hole_track_positions() -> Result<(), AvengerChartError> {
+    fn grid_solver_preserves_hole_track_positions() -> Result<(), AvengerChartError> {
         let shape = GridShape {
             rows: 2,
             columns: 3,
         };
         let demands = vec![
-            track_demand(
+            grid_item(
                 0,
                 0,
                 0,
@@ -3298,7 +2881,7 @@ mod tests {
                 Size2D::new(100.0, 100.0),
                 EdgeSlabs::default(),
             ),
-            track_demand(
+            grid_item(
                 1,
                 1,
                 2,
@@ -3309,23 +2892,26 @@ mod tests {
             ),
         ];
 
-        let requirements = grid_track_requirements(shape, Size2D::new(100.0, 100.0), &demands)?;
-        let solution = solve_grid_track_requirements(&requirements, &demands);
+        let requirements = grid_requirements(shape, Size2D::new(100.0, 100.0), &demands)?;
+        let solution = solve_grid_requirements(&requirements, &demands);
 
         assert_eq!(solution.column_starts, vec![0.0, 100.0, 200.0]);
         assert_eq!(solution.row_starts, vec![0.0, 100.0]);
-        assert_eq!(solution.origin_for_slot(demands[1].slot), [200.0, 100.0]);
+        assert_eq!(
+            solution.content_origin_for_slot(demands[1].slot),
+            [200.0, 100.0]
+        );
         assert_eq!(solution.content_size, Size2D::new(300.0, 200.0));
         Ok(())
     }
 
     #[test]
-    fn grid_track_requirements_reject_slot_rect_outside_shape() {
+    fn grid_requirements_reject_slot_outside_shape() {
         let shape = GridShape {
             rows: 1,
             columns: 1,
         };
-        let demands = vec![track_demand(
+        let demands = vec![grid_item(
             0,
             0,
             0,
@@ -3335,19 +2921,19 @@ mod tests {
             EdgeSlabs::default(),
         )];
 
-        let err = grid_track_requirements(shape, Size2D::new(100.0, 100.0), &demands)
+        let err = grid_requirements(shape, Size2D::new(100.0, 100.0), &demands)
             .expect_err("slot rect should exceed shape");
         assert!(err.to_string().contains("exceeds grid shape"));
     }
 
     #[test]
-    fn grid_track_solver_satisfies_span_interval_constraints() -> Result<(), AvengerChartError> {
+    fn grid_solver_satisfies_span_interval_constraints() -> Result<(), AvengerChartError> {
         let shape = GridShape {
             rows: 1,
             columns: 3,
         };
         let demands = vec![
-            track_demand(
+            grid_item(
                 0,
                 0,
                 0,
@@ -3356,7 +2942,7 @@ mod tests {
                 Size2D::new(190.0, 50.0),
                 EdgeSlabs::new(1.0, 6.0, 2.0, 4.0),
             ),
-            track_demand(
+            grid_item(
                 1,
                 0,
                 1,
@@ -3367,13 +2953,19 @@ mod tests {
             ),
         ];
 
-        let requirements = grid_track_requirements(shape, Size2D::new(50.0, 50.0), &demands)?;
-        let solution = solve_grid_track_requirements(&requirements, &demands);
+        let requirements = grid_requirements(shape, Size2D::new(50.0, 50.0), &demands)?;
+        let solution = solve_grid_requirements(&requirements, &demands);
 
-        assert_eq!(edge_totals(&solution.column_left), vec![4.0, 2.0, 0.0]);
-        assert_eq!(edge_totals(&solution.column_right), vec![0.0, 3.0, 6.0]);
-        let column_right_totals = edge_totals(&solution.column_right);
-        let column_left_totals = edge_totals(&solution.column_left);
+        assert_eq!(
+            edge_demand_totals(&solution.column_left),
+            vec![4.0, 2.0, 0.0]
+        );
+        assert_eq!(
+            edge_demand_totals(&solution.column_right),
+            vec![0.0, 3.0, 6.0]
+        );
+        let column_right_totals = edge_demand_totals(&solution.column_right);
+        let column_left_totals = edge_demand_totals(&solution.column_left);
         let spanned_width = span_axis_extent(
             &solution.column_widths,
             &column_right_totals,
@@ -3392,13 +2984,13 @@ mod tests {
     }
 
     #[test]
-    fn grid_track_solution_carries_structured_side_slab_targets() -> Result<(), AvengerChartError> {
+    fn grid_solution_carries_structured_edge_targets() -> Result<(), AvengerChartError> {
         let shape = GridShape {
             rows: 1,
             columns: 2,
         };
         let demands = vec![
-            track_chrome_demand(
+            grid_item_with_edges(
                 0,
                 0,
                 0,
@@ -3409,7 +3001,7 @@ mod tests {
                 EdgeSlabs::new(0.0, 20.0, 0.0, 0.0),
                 EdgeSlabs::new(0.0, 12.0, 0.0, 0.0),
             ),
-            track_demand(
+            grid_item(
                 1,
                 0,
                 1,
@@ -3420,17 +3012,17 @@ mod tests {
             ),
         ];
 
-        let requirements = grid_track_requirements(shape, Size2D::new(100.0, 60.0), &demands)?;
+        let requirements = grid_requirements(shape, Size2D::new(100.0, 60.0), &demands)?;
         assert_eq!(
             requirements.column_right[0],
-            GridEdgeChromeRequirement::new(6.0, 20.0, 12.0)
+            EdgeDemand::new(6.0, 20.0, 12.0)
         );
 
-        let solution = solve_grid_track_requirements(&requirements, &demands);
-        let targets = solution.side_slab_targets_for_slot(demands[0].slot);
-        assert_eq!(targets.guide.right, 6.0);
+        let solution = solve_grid_requirements(&requirements, &demands);
+        let targets = solution.edge_targets_for_slot(demands[0].slot);
+        assert_eq!(targets.inner.right, 6.0);
         assert_eq!(targets.total.right, 26.0);
-        assert_eq!(targets.guide.left, 0.0);
+        assert_eq!(targets.inner.left, 0.0);
         assert_eq!(targets.total.left, 0.0);
         Ok(())
     }
@@ -3676,7 +3268,10 @@ mod tests {
             [0.0, 0.0]
         );
         assert_eq!(
-            placement.child(0).expect("spanned child").plot_area_size,
+            placement
+                .child(0)
+                .expect("spanned child")
+                .content_size_override,
             Some(Size2D::new(100.0, 100.0))
         );
         assert_eq!(
@@ -4317,25 +3912,25 @@ mod tests {
             columns: 3,
         };
         let unspanned_slots = [
-            GridSlotRect {
+            GridSlot {
                 row: 0,
                 column: 0,
                 row_span: 1,
                 column_span: 1,
             },
-            GridSlotRect {
+            GridSlot {
                 row: 0,
                 column: 2,
                 row_span: 1,
                 column_span: 1,
             },
-            GridSlotRect {
+            GridSlot {
                 row: 2,
                 column: 0,
                 row_span: 1,
                 column_span: 1,
             },
-            GridSlotRect {
+            GridSlot {
                 row: 2,
                 column: 2,
                 row_span: 1,
@@ -4744,7 +4339,7 @@ mod tests {
 
         let placement = concat.child_frame_placement();
         let origins = placement
-            .render_placements()
+            .placements()
             .iter()
             .map(|placement| (placement.child_index, placement.origin))
             .collect::<Vec<_>>();
@@ -4792,7 +4387,7 @@ mod tests {
 
         let placement = concat.child_frame_placement();
         let origins = placement
-            .render_placements()
+            .placements()
             .iter()
             .map(|placement| (placement.child_index, placement.origin))
             .collect::<Vec<_>>();
@@ -4834,16 +4429,16 @@ mod tests {
 
         let placement = concat.child_frame_placement();
         let origins = placement
-            .render_placements()
+            .placements()
             .iter()
             .map(|placement| (placement.child_index, placement.origin))
             .collect::<Vec<_>>();
         assert_eq!(origins, vec![(0, [0.0, 0.0])]);
         assert_eq!(
             placement
-                .render_placements()
+                .placements()
                 .iter()
-                .map(|placement| placement.plot_area_size)
+                .map(|placement| placement.content_size_override)
                 .collect::<Vec<_>>(),
             vec![None],
             "wrap cells should keep their measured one-slot plot area and leave trailing holes"
@@ -5262,7 +4857,7 @@ mod tests {
             .expect("FacetColumn should measure as FacetBandCoordMeasurement");
         let mut scale_backed_facet = facet.clone();
         scale_backed_facet.placement_model = FacetBandPlacementModel::ScaleBacked;
-        let requirements = GridTrackRequirements {
+        let requirements = GridRequirements {
             shape: GridShape {
                 rows: 1,
                 columns: scale_backed_facet.cells.len(),
@@ -5274,10 +4869,10 @@ mod tests {
             row_outer_end: 0.0,
             column_widths: vec![100.0; scale_backed_facet.cells.len()],
             row_heights: vec![80.0],
-            column_left: zero_edge_requirements(scale_backed_facet.cells.len()),
-            column_right: zero_edge_requirements(scale_backed_facet.cells.len()),
-            row_top: zero_edge_requirements(1),
-            row_bottom: zero_edge_requirements(1),
+            column_left: zero_edge_demands(scale_backed_facet.cells.len()),
+            column_right: zero_edge_demands(scale_backed_facet.cells.len()),
+            row_top: zero_edge_demands(1),
+            row_bottom: zero_edge_demands(1),
         };
 
         let err = facet_band_grid_apply_layout(&scale_backed_facet, &requirements)
@@ -5307,7 +4902,7 @@ mod tests {
         let mut explicit_facet = facet.clone();
         explicit_facet.placement_model =
             FacetBandPlacementModel::Explicit(FacetBandExplicitPlacement::default());
-        let requirements = GridTrackRequirements {
+        let requirements = GridRequirements {
             shape: GridShape {
                 rows: 1,
                 columns: explicit_facet.cells.len(),
@@ -5319,10 +4914,10 @@ mod tests {
             row_outer_end: 0.0,
             column_widths: vec![100.0; explicit_facet.cells.len()],
             row_heights: vec![80.0],
-            column_left: total_edge_requirements([0.0, 3.0]),
-            column_right: total_edge_requirements([7.0, 0.0]),
-            row_top: zero_edge_requirements(1),
-            row_bottom: zero_edge_requirements(1),
+            column_left: total_edge_demands([0.0, 3.0]),
+            column_right: total_edge_demands([7.0, 0.0]),
+            row_top: zero_edge_demands(1),
+            row_bottom: zero_edge_demands(1),
         };
 
         let layout = facet_band_grid_apply_layout(&explicit_facet, &requirements)
@@ -5380,7 +4975,7 @@ mod tests {
         let mut column_right = vec![0.0; cell_count];
         column_right[0] = 13.0;
         column_left[1] = 11.0;
-        let requirements = GridTrackRequirements {
+        let requirements = GridRequirements {
             shape: GridShape {
                 rows: 1,
                 columns: cell_count,
@@ -5392,13 +4987,13 @@ mod tests {
             row_outer_end: 0.0,
             column_widths: vec![100.0; cell_count],
             row_heights: vec![80.0],
-            column_left: total_edge_requirements(column_left),
-            column_right: total_edge_requirements(column_right),
-            row_top: zero_edge_requirements(1),
-            row_bottom: zero_edge_requirements(1),
+            column_left: total_edge_demands(column_left),
+            column_right: total_edge_demands(column_right),
+            row_top: zero_edge_demands(1),
+            row_bottom: zero_edge_demands(1),
         };
 
-        let applied = apply_facet_band_grid_track_requirements(&mut measurement, &requirements)?;
+        let applied = apply_facet_band_grid_requirements(&mut measurement, &requirements)?;
         assert!(
             applied,
             "safe explicit facet band should accept a real layout delta"
@@ -5435,7 +5030,7 @@ mod tests {
         };
         assert_eq!(explicit.main_axis_positions.len(), cell_count);
         assert_eq!(
-            after[0].render_placements().len(),
+            after[0].placements().len(),
             cell_count,
             "facet child-frame placement should still render one child per facet cell"
         );
@@ -5448,13 +5043,13 @@ mod tests {
             "column facet apply should not change the cross-axis content extent"
         );
         assert_eq!(
-            after[0].render_placements()[0].origin[1],
-            before[0].render_placements()[0].origin[1],
+            after[0].placements()[0].origin[1],
+            before[0].placements()[0].origin[1],
             "column facet apply should leave child y origins unchanged"
         );
         assert_ne!(
-            after[0].render_placements()[0].origin[0],
-            before[0].render_placements()[0].origin[0],
+            after[0].placements()[0].origin[0],
+            before[0].placements()[0].origin[0],
             "column facet apply should update child x origins"
         );
         Ok(())
@@ -5476,17 +5071,14 @@ mod tests {
             .as_any()
             .downcast_ref::<ConcatCoordMeasurement>()
             .expect("VConcat should measure as ConcatCoordMeasurement");
-        assert_eq!(concat.band_direction(), Some(BandDirection::Vertical));
+        assert_eq!(concat.band_direction(), Some(Orientation::Vertical));
 
         let container = measurement
             .child_frame_container_view()?
             .expect("concat measurement should expose a child-frame container view");
-        assert_eq!(
-            container.placement().render_placements()[0].origin,
-            [0.0, 0.0]
-        );
-        assert_eq!(container.placement().render_placements()[1].origin[0], 0.0);
-        assert!(container.placement().render_placements()[1].origin[1] > 0.0);
+        assert_eq!(container.placement().placements()[0].origin, [0.0, 0.0]);
+        assert_eq!(container.placement().placements()[1].origin[0], 0.0);
+        assert!(container.placement().placements()[1].origin[1] > 0.0);
         Ok(())
     }
 

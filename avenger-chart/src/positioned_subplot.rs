@@ -20,8 +20,8 @@ use datafusion::{
 
 use crate::{
     container::{
-        ChildFrameKey, ChildFramePlacementResult, ChildFrameRenderPlacement, ChildFrameScopeKey,
-        ChildFrameSharingLevel, ContainerPathSegment,
+        ChildFrameKey, ChildFrameScopeKey, ChildFrameSharingLevel, ContainerPathSegment,
+        PlacedRegion, PlacementSolution,
     },
     coords::{CoordMeasurement, OverflowSpaceRequirement},
     error::AvengerChartError,
@@ -145,7 +145,7 @@ pub(crate) async fn render_positioned_subplot_with_context(
 #[derive(Clone, Debug)]
 pub(crate) struct PositionedCoordMeasurement {
     pub(crate) children: Vec<PositionedChildMeasurement>,
-    pub(crate) placement: ChildFramePlacementResult,
+    pub(crate) placement: PlacementSolution,
 }
 
 impl PositionedCoordMeasurement {
@@ -173,7 +173,7 @@ impl PositionedCoordMeasurement {
             .map(PositionedChildMeasurement::scope_key)
     }
 
-    pub(crate) fn child_frame_placement(&self) -> ChildFramePlacementResult {
+    pub(crate) fn child_frame_placement(&self) -> PlacementSolution {
         self.placement.clone()
     }
 }
@@ -916,7 +916,7 @@ pub(crate) async fn measure_positioned_subplots(
     let coordinated_domain_extents = coordinated_child_frame_domain_extents(&domain_inputs);
 
     let mut children = Vec::with_capacity(next_child_index);
-    let mut render_placements = Vec::with_capacity(next_child_index);
+    let mut placements = Vec::with_capacity(next_child_index);
     let mut domain_index = 0usize;
     for prepared in &prepared_subplots {
         for (spec_index, spec) in prepared.child_specs.iter().enumerate() {
@@ -943,7 +943,7 @@ pub(crate) async fn measure_positioned_subplots(
                 ))
                 .await?,
             );
-            render_placements.push(ChildFrameRenderPlacement::new(
+            placements.push(PlacedRegion::new(
                 spec.child_index,
                 positioned_render_origin(spec, prepared.subplot),
             ));
@@ -953,9 +953,6 @@ pub(crate) async fn measure_positioned_subplots(
 
     Ok(Some(Box::new(PositionedCoordMeasurement {
         children,
-        placement: ChildFramePlacementResult::new(
-            Size2D::new(plot_width, plot_height),
-            render_placements,
-        ),
+        placement: PlacementSolution::new(Size2D::new(plot_width, plot_height), placements),
     })))
 }

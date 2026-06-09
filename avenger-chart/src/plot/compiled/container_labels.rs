@@ -12,7 +12,7 @@ use datafusion::common::ScalarValue;
 use indexmap::IndexMap;
 
 use crate::{
-    container::{ChildFramePlacementResult, project_child_frame_bounds},
+    container::{PlacementSolution, project_child_rect},
     error::AvengerChartError,
     layout::{LayoutBounds, Size2D},
     theme::{Theme, ThemeContext},
@@ -66,13 +66,13 @@ struct MeasuredContainerLabel<'a> {
 
 /// Derive label anchors from child-frame placement metadata.
 pub(crate) fn container_label_items_from_placements<'a>(
-    placement: &ChildFramePlacementResult,
+    placement: &PlacementSolution,
     mut child_frame: impl FnMut(usize) -> Result<ContainerLabelChildFrame, AvengerChartError>,
     mut child_label: impl FnMut(usize) -> Option<&'a str>,
 ) -> Result<Vec<ContainerLabelItem>, AvengerChartError> {
     let mut items = Vec::new();
 
-    for render_placement in placement.render_placements() {
+    for render_placement in placement.placements() {
         let child_frame = child_frame(render_placement.child_index)?;
         let Some(label) =
             child_label(render_placement.child_index).filter(|label| !label.trim().is_empty())
@@ -80,7 +80,7 @@ pub(crate) fn container_label_items_from_placements<'a>(
             continue;
         };
 
-        let frame_bounds = project_child_frame_bounds(
+        let frame_bounds = project_child_rect(
             [0.0, 0.0],
             render_placement.origin,
             child_frame.plot_bounds,
@@ -287,15 +287,15 @@ fn label_style(theme: &Theme, params: &IndexMap<String, ScalarValue>) -> Contain
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::container::{ChildFramePlacementResult, ChildFrameRenderPlacement};
+    use crate::container::{PlacedRegion, PlacementSolution};
 
     #[test]
     fn label_items_project_child_frames_and_skip_empty_labels() {
-        let placement = ChildFramePlacementResult::new(
+        let placement = PlacementSolution::new(
             Size2D::new(300.0, 200.0),
             vec![
-                ChildFrameRenderPlacement::new(10, [20.0, 30.0]),
-                ChildFrameRenderPlacement::new(20, [140.0, 30.0]),
+                PlacedRegion::new(10, [20.0, 30.0]),
+                PlacedRegion::new(20, [140.0, 30.0]),
             ],
         );
 
@@ -359,9 +359,9 @@ mod tests {
 
     #[test]
     fn label_items_require_matching_child_geometry() {
-        let placement = ChildFramePlacementResult::new(
+        let placement = PlacementSolution::new(
             Size2D::new(100.0, 80.0),
-            vec![ChildFrameRenderPlacement::new(2, [0.0, 0.0])],
+            vec![PlacedRegion::new(2, [0.0, 0.0])],
         );
 
         let err = container_label_items_from_placements(

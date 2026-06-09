@@ -17,10 +17,8 @@ use crate::{
     concat::{GridConcat, HConcat, VConcat, WrapConcat, concat_coord_ref},
     coords::CoordinateSystemTransformCore,
     error::AvengerChartError,
-    facet::coord::{
-        apply_measurement_side_slab_targets, retarget_measurement_plot_area_no_remeasure,
-    },
-    layout::BandDirection,
+    facet::coord::{apply_measurement_edge_targets, retarget_measurement_plot_area_no_remeasure},
+    layout::Orientation,
     marks::{
         ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore, CompiledMarkState,
         CompiledSubplotPayload, SubplotContainerCoordinateSystem, SubplotDataSource,
@@ -397,7 +395,7 @@ impl CompiledConcatSubplot {
         let label = self.label().map(ToOwned::to_owned);
         let (row, column, row_count, column_count, row_span, column_span) =
             match concat_measurement.band_direction() {
-                Some(BandDirection::Horizontal) => (
+                Some(Orientation::Horizontal) => (
                     Some(0),
                     Some(child_index),
                     Some(1),
@@ -405,7 +403,7 @@ impl CompiledConcatSubplot {
                     Some(1),
                     Some(1),
                 ),
-                Some(BandDirection::Vertical) => (
+                Some(Orientation::Vertical) => (
                     Some(child_index),
                     Some(0),
                     Some(child_count),
@@ -515,18 +513,18 @@ impl CompiledConcatSubplot {
             let data_override = self.inherited_data_override(data, context)?;
             let mut child_measurement = child.measurement.clone();
             refresh_measurement_params_for_child(&mut child_measurement, &child_eval_ctx);
-            if let Some(plot_area_size) = render_placement.plot_area_size {
+            if let Some(content_size_override) = render_placement.content_size_override {
                 retarget_measurement_plot_area_no_remeasure(
                     &mut child_measurement,
                     self.compiled_subplot(),
                     &child_eval_ctx,
                     child_facet_path,
-                    plot_area_size.width,
-                    plot_area_size.height,
+                    content_size_override.width,
+                    content_size_override.height,
                 )?;
             }
-            if let Some(side_slab_targets) = render_placement.side_slab_targets {
-                apply_measurement_side_slab_targets(&mut child_measurement, side_slab_targets);
+            if let Some(edge_targets) = render_placement.edge_targets {
+                apply_measurement_edge_targets(&mut child_measurement, edge_targets);
             }
             if has_raw_domain_scale(self.compiled_subplot()) {
                 let raw_domain_overrides = resolve_raw_domain_overrides(

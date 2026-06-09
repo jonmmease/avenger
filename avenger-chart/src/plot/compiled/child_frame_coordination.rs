@@ -8,14 +8,15 @@ use indexmap::IndexMap;
 use tracing::debug;
 
 use crate::{
-    concat::{
-        ConcatCoordMeasurement, GridEdgeChromeRequirement, GridShape, GridSlotRect,
-        GridTrackRequirements, zero_edge_requirements,
-    },
+    concat::ConcatCoordMeasurement,
     coords::FacetAxis,
     facet::{
         coord::FacetBandCoordMeasurement,
         placement::{FacetBandPlacement, resolve_facet_band_placement},
+    },
+    layout::{
+        EdgeDemand, GridRequirements, GridShape, GridSlot, grid_content_delta, grid_edge_delta,
+        merge_grid_requirements, zero_edge_demands,
     },
     plot::compiled::{ChildFrameKey, ComponentsMeasurement, ContainerPathSegment},
     positioned_subplot::PositionedCoordMeasurement,
@@ -138,7 +139,7 @@ pub(crate) enum LayoutCoordinationScope {
 pub(crate) struct ChildFrameLayoutSlot {
     pub(crate) child_index: usize,
     pub(crate) child_key: ChildFrameKey,
-    pub(crate) slot: GridSlotRect,
+    pub(crate) slot: GridSlot,
 }
 
 /// Grouping key for compatible alignment nodes.
@@ -162,7 +163,7 @@ pub(crate) enum ChildFrameLayoutTopology {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct ChildFrameLayoutSlotTopology {
     pub(crate) child_key: ChildFrameKey,
-    pub(crate) slot: GridSlotRect,
+    pub(crate) slot: GridSlot,
 }
 
 /// Read-only measured layout coordination node.
@@ -190,7 +191,7 @@ impl ChildFrameLayoutCoordinationNode {
 /// Local requirements exported by a measured child-frame container.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ChildFrameLayoutRequirements {
-    Grid(GridTrackRequirements),
+    Grid(GridRequirements),
 }
 
 pub(crate) fn grid_layout_coordination_node(
@@ -215,10 +216,10 @@ pub(crate) fn grid_layout_coordination_node(
             })
             .collect(),
     };
-    let requirements = ChildFrameLayoutRequirements::Grid(concat.grid_track_requirements()?);
+    let requirements = ChildFrameLayoutRequirements::Grid(concat.grid_requirements()?);
     let kind = match concat.band_direction() {
-        Some(crate::layout::BandDirection::Horizontal) => ChildFrameContainerKind::HConcat,
-        Some(crate::layout::BandDirection::Vertical) => ChildFrameContainerKind::VConcat,
+        Some(crate::layout::Orientation::Horizontal) => ChildFrameContainerKind::HConcat,
+        Some(crate::layout::Orientation::Vertical) => ChildFrameContainerKind::VConcat,
         None => ChildFrameContainerKind::GridConcat,
     };
 
@@ -256,7 +257,7 @@ pub(crate) fn facet_band_layout_coordination_node(
             })
             .collect(),
     };
-    let requirements = ChildFrameLayoutRequirements::Grid(facet_grid_track_requirements(
+    let requirements = ChildFrameLayoutRequirements::Grid(facet_grid_requirements(
         measurement,
         facet_band,
         shape,
@@ -299,15 +300,15 @@ fn facet_layout_coordination_shape(facet_band: &FacetBandCoordMeasurement) -> Gr
     }
 }
 
-fn facet_layout_slot(axis: FacetAxis, child_index: usize) -> GridSlotRect {
+fn facet_layout_slot(axis: FacetAxis, child_index: usize) -> GridSlot {
     match axis {
-        FacetAxis::Column => GridSlotRect {
+        FacetAxis::Column => GridSlot {
             row: 0,
             column: child_index,
             row_span: 1,
             column_span: 1,
         },
-        FacetAxis::Row => GridSlotRect {
+        FacetAxis::Row => GridSlot {
             row: child_index,
             column: 0,
             row_span: 1,
@@ -333,17 +334,17 @@ fn facet_layout_slots(
         .collect()
 }
 
-fn facet_grid_track_requirements(
+fn facet_grid_requirements(
     measurement: &ComponentsMeasurement,
     facet_band: &FacetBandCoordMeasurement,
     shape: GridShape,
-) -> Result<GridTrackRequirements, AvengerChartError> {
+) -> Result<GridRequirements, AvengerChartError> {
     let placement = resolve_facet_band_placement(measurement)?.ok_or_else(|| {
         AvengerChartError::InternalError(
             "Facet grid track requirements requested for non-facet measurement".to_string(),
         )
     })?;
-    let mut requirements = facet_grid_track_requirements_from_placement(shape, &placement)?;
+    let mut requirements = facet_grid_requirements_from_placement(shape, &placement)?;
     let active_layout = facet_band
         .coordinated_layout
         .as_ref()
@@ -354,11 +355,11 @@ fn facet_grid_track_requirements(
     Ok(requirements)
 }
 
-fn facet_grid_track_requirements_from_placement(
+fn facet_grid_requirements_from_placement(
     shape: GridShape,
     placement: &FacetBandPlacement,
-) -> Result<GridTrackRequirements, AvengerChartError> {
-    let mut requirements = GridTrackRequirements {
+) -> Result<GridRequirements, AvengerChartError> {
+    let mut requirements = GridRequirements {
         shape,
         guide_slot_gap_px: 0.0,
         column_outer_start: 0.0,
@@ -367,23 +368,22 @@ fn facet_grid_track_requirements_from_placement(
         row_outer_end: 0.0,
         column_widths: vec![0.0; shape.columns],
         row_heights: vec![0.0; shape.rows],
-        column_left: zero_edge_requirements(shape.columns),
-        column_right: zero_edge_requirements(shape.columns),
-        row_top: zero_edge_requirements(shape.rows),
-        row_bottom: zero_edge_requirements(shape.rows),
+        column_left: zero_edge_demands(shape.columns),
+        column_right: zero_edge_demands(shape.columns),
+        row_top: zero_edge_demands(shape.rows),
+        row_bottom: zero_edge_demands(shape.rows),
     };
 
     match placement.axis {
         FacetAxis::Column => {
             if let Some(first) = placement.cells.first() {
-                requirements.column_outer_start = first.main_axis_start.max(0.0);
+                requirements.column_outer_start = first.main_start.max(0.0);
             }
             if let Some(last) = placement.cells.last() {
                 requirements.column_outer_end =
-                    (placement.main_axis_extent - last.main_axis_start - last.main_axis_size)
-                        .max(0.0);
+                    (placement.main_extent - last.main_start - last.main_size).max(0.0);
             }
-            if let Some(height) = placement.cross_axis_extent {
+            if let Some(height) = placement.cross_extent {
                 requirements.row_heights[0] = height;
             }
             for cell in &placement.cells {
@@ -393,28 +393,26 @@ fn facet_grid_track_requirements_from_placement(
                         cell.cell_index, shape.columns
                     )));
                 }
-                requirements.column_widths[cell.cell_index] = cell.main_axis_size;
+                requirements.column_widths[cell.cell_index] = cell.main_size;
             }
             for pair in placement.cells.windows(2) {
                 let left = &pair[0];
                 let right = &pair[1];
-                let gap = right.main_axis_start - left.main_axis_start - left.main_axis_size;
+                let gap = right.main_start - left.main_start - left.main_size;
                 if left.cell_index + 1 < shape.columns {
-                    requirements.column_right[left.cell_index] =
-                        GridEdgeChromeRequirement::total(gap);
+                    requirements.column_right[left.cell_index] = EdgeDemand::total(gap);
                 }
             }
         }
         FacetAxis::Row => {
             if let Some(first) = placement.cells.first() {
-                requirements.row_outer_start = first.main_axis_start.max(0.0);
+                requirements.row_outer_start = first.main_start.max(0.0);
             }
             if let Some(last) = placement.cells.last() {
                 requirements.row_outer_end =
-                    (placement.main_axis_extent - last.main_axis_start - last.main_axis_size)
-                        .max(0.0);
+                    (placement.main_extent - last.main_start - last.main_size).max(0.0);
             }
-            if let Some(width) = placement.cross_axis_extent {
+            if let Some(width) = placement.cross_extent {
                 requirements.column_widths[0] = width;
             }
             for cell in &placement.cells {
@@ -424,14 +422,14 @@ fn facet_grid_track_requirements_from_placement(
                         cell.cell_index, shape.rows
                     )));
                 }
-                requirements.row_heights[cell.cell_index] = cell.main_axis_size;
+                requirements.row_heights[cell.cell_index] = cell.main_size;
             }
             for pair in placement.cells.windows(2) {
                 let top = &pair[0];
                 let bottom = &pair[1];
-                let gap = bottom.main_axis_start - top.main_axis_start - top.main_axis_size;
+                let gap = bottom.main_start - top.main_start - top.main_size;
                 if top.cell_index + 1 < shape.rows {
-                    requirements.row_bottom[top.cell_index] = GridEdgeChromeRequirement::total(gap);
+                    requirements.row_bottom[top.cell_index] = EdgeDemand::total(gap);
                 }
             }
         }
@@ -450,7 +448,7 @@ pub(crate) enum FacetBandGridApplyUnsupported {
 
 pub(crate) fn facet_band_grid_apply_layout(
     facet_band: &FacetBandCoordMeasurement,
-    requirements: &GridTrackRequirements,
+    requirements: &GridRequirements,
 ) -> Result<CoordinatedLayout, FacetBandGridApplyUnsupported> {
     if facet_band.cells.is_empty() {
         return Err(FacetBandGridApplyUnsupported::EmptyBand);
@@ -479,7 +477,7 @@ pub(crate) fn facet_band_grid_apply_layout(
 
 fn facet_grid_requirements_to_coordinated_layout(
     axis: FacetAxis,
-    requirements: &GridTrackRequirements,
+    requirements: &GridRequirements,
 ) -> Result<CoordinatedLayout, FacetBandGridApplyUnsupported> {
     let (n, outer_start, outer_end, padding_inner_px) = match axis {
         FacetAxis::Column if requirements.shape.rows == 1 => (
@@ -510,10 +508,7 @@ fn facet_grid_requirements_to_coordinated_layout(
     })
 }
 
-fn max_adjacent_gap(
-    trailing: &[GridEdgeChromeRequirement],
-    leading: &[GridEdgeChromeRequirement],
-) -> f32 {
+fn max_adjacent_gap(trailing: &[EdgeDemand], leading: &[EdgeDemand]) -> f32 {
     if trailing.is_empty() || leading.is_empty() {
         return 0.0;
     }
@@ -522,9 +517,9 @@ fn max_adjacent_gap(
         .fold(0.0, f32::max)
 }
 
-pub(crate) fn apply_facet_band_grid_track_requirements(
+pub(crate) fn apply_facet_band_grid_requirements(
     measurement: &mut ComponentsMeasurement,
-    requirements: &GridTrackRequirements,
+    requirements: &GridRequirements,
 ) -> Result<bool, AvengerChartError> {
     let Some(facet_band) = measurement
         .coord_measurement
@@ -798,45 +793,13 @@ fn layout_alignment_key_has_apply_adapter(key: &LayoutAlignmentKey) -> bool {
 fn merge_child_frame_layout_requirements<'a>(
     requirements: impl IntoIterator<Item = &'a ChildFrameLayoutRequirements>,
 ) -> Option<ChildFrameLayoutRequirements> {
-    let mut iter = requirements.into_iter();
-    let first = iter.next()?.clone();
-    iter.try_fold(first, |merged, next| match (merged, next) {
-        (
-            ChildFrameLayoutRequirements::Grid(mut merged),
-            ChildFrameLayoutRequirements::Grid(next),
-        ) if merged.shape == next.shape => {
-            merged.guide_slot_gap_px = merged.guide_slot_gap_px.max(next.guide_slot_gap_px);
-            merged.column_outer_start = merged.column_outer_start.max(next.column_outer_start);
-            merged.column_outer_end = merged.column_outer_end.max(next.column_outer_end);
-            merged.row_outer_start = merged.row_outer_start.max(next.row_outer_start);
-            merged.row_outer_end = merged.row_outer_end.max(next.row_outer_end);
-            max_assign_each(&mut merged.column_widths, &next.column_widths);
-            max_assign_each(&mut merged.row_heights, &next.row_heights);
-            max_assign_edge_each(&mut merged.column_left, &next.column_left);
-            max_assign_edge_each(&mut merged.column_right, &next.column_right);
-            max_assign_edge_each(&mut merged.row_top, &next.row_top);
-            max_assign_edge_each(&mut merged.row_bottom, &next.row_bottom);
-            Some(ChildFrameLayoutRequirements::Grid(merged))
+    let mut grids = Vec::new();
+    for requirement in requirements {
+        match requirement {
+            ChildFrameLayoutRequirements::Grid(grid) => grids.push(grid),
         }
-        _ => None,
-    })
-}
-
-fn max_assign_each(target: &mut [f32], source: &[f32]) {
-    debug_assert_eq!(target.len(), source.len());
-    for (target, source) in target.iter_mut().zip(source.iter()) {
-        *target = (*target).max(*source);
     }
-}
-
-fn max_assign_edge_each(
-    target: &mut [GridEdgeChromeRequirement],
-    source: &[GridEdgeChromeRequirement],
-) {
-    debug_assert_eq!(target.len(), source.len());
-    for (target, source) in target.iter_mut().zip(source.iter()) {
-        *target = target.max_components(*source);
-    }
+    merge_grid_requirements(grids).map(ChildFrameLayoutRequirements::Grid)
 }
 
 fn requirement_track_delta(
@@ -845,8 +808,7 @@ fn requirement_track_delta(
 ) -> f32 {
     match (local, merged) {
         (ChildFrameLayoutRequirements::Grid(local), ChildFrameLayoutRequirements::Grid(merged)) => {
-            abs_delta_sum(&local.column_widths, &merged.column_widths)
-                + abs_delta_sum(&local.row_heights, &merged.row_heights)
+            grid_content_delta(local, merged)
         }
     }
 }
@@ -857,38 +819,9 @@ fn requirement_slab_delta(
 ) -> f32 {
     match (local, merged) {
         (ChildFrameLayoutRequirements::Grid(local), ChildFrameLayoutRequirements::Grid(merged)) => {
-            abs_edge_delta_sum(&local.column_left, &merged.column_left)
-                + abs_edge_delta_sum(&local.column_right, &merged.column_right)
-                + abs_edge_delta_sum(&local.row_top, &merged.row_top)
-                + abs_edge_delta_sum(&local.row_bottom, &merged.row_bottom)
-                + (merged.column_outer_start - local.column_outer_start).abs()
-                + (merged.column_outer_end - local.column_outer_end).abs()
-                + (merged.row_outer_start - local.row_outer_start).abs()
-                + (merged.row_outer_end - local.row_outer_end).abs()
-                + (merged.guide_slot_gap_px - local.guide_slot_gap_px).abs()
+            grid_edge_delta(local, merged)
         }
     }
-}
-
-fn abs_delta_sum(local: &[f32], merged: &[f32]) -> f32 {
-    debug_assert_eq!(local.len(), merged.len());
-    local
-        .iter()
-        .zip(merged.iter())
-        .map(|(local, merged)| (merged - local).abs())
-        .sum()
-}
-
-fn abs_edge_delta_sum(
-    local: &[GridEdgeChromeRequirement],
-    merged: &[GridEdgeChromeRequirement],
-) -> f32 {
-    debug_assert_eq!(local.len(), merged.len());
-    local
-        .iter()
-        .zip(merged.iter())
-        .map(|(local, merged)| (merged.total - local.total).abs())
-        .sum()
 }
 
 fn collect_child_frame_layout_coordination_nodes_into(
@@ -916,7 +849,7 @@ fn collect_child_frame_layout_coordination_nodes_into(
     }
 
     if let Some(container) = measurement.child_frame_container_view()? {
-        for placement in container.placement().render_placements() {
+        for placement in container.placement().placements() {
             let child = container.child_measurement(placement.child_index).ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
                     "Missing child-frame measurement for child index {} while collecting layout coordination nodes",
@@ -949,7 +882,7 @@ fn apply_child_frame_layout_alignment_recursive(
                 .as_any_mut()
                 .downcast_mut::<ConcatCoordMeasurement>()
             {
-                if concat.apply_grid_track_requirements(requirements)? {
+                if concat.apply_grid_requirements(requirements)? {
                     trace.applied_container_count += 1;
                 }
             }
@@ -980,7 +913,7 @@ fn apply_child_frame_layout_alignment_recursive(
     if let Some(ChildFrameLayoutRequirements::Grid(requirements)) =
         facet_alignment_key.as_ref().and_then(|key| plans.get(key))
     {
-        if apply_facet_band_grid_track_requirements(measurement, requirements)? {
+        if apply_facet_band_grid_requirements(measurement, requirements)? {
             trace.applied_container_count += 1;
         }
     }
@@ -1032,7 +965,7 @@ mod tests {
     }
 
     fn test_requirements(width: f32) -> ChildFrameLayoutRequirements {
-        ChildFrameLayoutRequirements::Grid(GridTrackRequirements {
+        ChildFrameLayoutRequirements::Grid(GridRequirements {
             shape: GridShape {
                 rows: 1,
                 columns: 1,
@@ -1044,10 +977,10 @@ mod tests {
             row_outer_end: 0.0,
             column_widths: vec![width],
             row_heights: vec![10.0],
-            column_left: zero_edge_requirements(1),
-            column_right: zero_edge_requirements(1),
-            row_top: zero_edge_requirements(1),
-            row_bottom: zero_edge_requirements(1),
+            column_left: zero_edge_demands(1),
+            column_right: zero_edge_demands(1),
+            row_top: zero_edge_demands(1),
+            row_bottom: zero_edge_demands(1),
         })
     }
 
@@ -1115,19 +1048,19 @@ mod tests {
             vec![
                 FacetCellPlacement {
                     cell_index: 0,
-                    main_axis_start: 3.0,
-                    main_axis_size: 10.0,
+                    main_start: 3.0,
+                    main_size: 10.0,
                 },
                 FacetCellPlacement {
                     cell_index: 1,
-                    main_axis_start: 20.0,
-                    main_axis_size: 10.0,
+                    main_start: 20.0,
+                    main_size: 10.0,
                 },
             ],
             35.0,
             Some(40.0),
         );
-        let requirements = facet_grid_track_requirements_from_placement(
+        let requirements = facet_grid_requirements_from_placement(
             GridShape {
                 rows: 1,
                 columns: 2,
@@ -1144,7 +1077,7 @@ mod tests {
         assert_eq!(requirements.row_heights, vec![40.0]);
         assert_eq!(
             requirements.column_right,
-            crate::concat::total_edge_requirements([7.0, 0.0])
+            crate::layout::total_edge_demands([7.0, 0.0])
         );
         Ok(())
     }
