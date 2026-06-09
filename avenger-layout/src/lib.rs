@@ -49,8 +49,9 @@ pub mod region;
 pub mod svg;
 
 pub use alignment::{
-    AlignedGroup, AlignmentNode, AlignmentPlan, NodeDelta, SkippedGroup, SkippedGroupReason, align,
-    grid_content_delta, grid_edge_delta, merge_grid_requirements,
+    AlignedGroup, AlignmentNode, AlignmentPlan, ConvergenceTrace, NodeDelta, RoundDeltas,
+    SingletonPolicy, SkippedGroup, SkippedGroupReason, align, align_by, grid_content_delta,
+    grid_edge_delta, merge_grid_requirements,
 };
 pub use band::{BandItem, BandSolution, BandSpacing, BoundaryDemand, CrossAlign, PlacedBandItem};
 pub use geometry::{Edges, Orientation, Point, Rect, Side, Size};

@@ -40,6 +40,21 @@ impl EdgeDemand {
     }
 }
 
+impl Edges<EdgeDemand> {
+    /// Component-wise [`EdgeDemand::max_components`] on every side.
+    ///
+    /// This is the neutral merge law for per-side layered demand (for
+    /// charts: guide overflow as `inner`, legend overflow as `outer`).
+    pub fn max_components(self, other: Self) -> Self {
+        Edges {
+            top: self.top.max_components(other.top),
+            right: self.right.max_components(other.right),
+            bottom: self.bottom.max_components(other.bottom),
+            left: self.left.max_components(other.left),
+        }
+    }
+}
+
 /// Coordinated edge targets granted to a child region by its parent.
 ///
 /// `inner` is the interior edge between the content rectangle and any outer

@@ -2,12 +2,19 @@
 //!
 //! Callers own node identity, traversal, group-key derivation, side-car
 //! state, and application. This module groups nodes by caller-supplied keys,
-//! merges compatible grid requirements (component-wise max), and reports
-//! numeric deltas between local and merged requirements.
+//! merges each group's payloads, and reports numeric deltas between local
+//! and merged payloads.
 //!
-//! [`align`] models ONE pure round. Driver loops — re-measure content whose
+//! [`align_by`] is the payload-generic round: grouping, skip reasons, member
+//! IDs, and delta bookkeeping are engine mechanics, while merge and delta
+//! laws are caller-supplied. [`align`] is the [`GridRequirements`]
+//! specialization. Deltas use two conventional channels — `content` (sizes)
+//! and `edge` (chrome/spacing) — that callers map their payload onto.
+//!
+//! A round is ONE pure pass. Driver loops — re-measure content whose
 //! allocation changed, then align again until deltas reach zero or a cap —
 //! belong to the caller, because re-measurement is not a layout concern.
+//! [`ConvergenceTrace`] records per-round deltas for such drivers.
 
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -18,12 +25,24 @@ use crate::region::EdgeDemand;
 /// One measured node participating in a single alignment round.
 ///
 /// `id` and `group_key` are caller-owned and opaque: nodes sharing a
-/// `group_key` are required to end up with identical track layouts.
+/// `group_key` are required to end up with identical coordinated payloads.
 #[derive(Clone, Debug, PartialEq)]
-pub struct AlignmentNode<Id = usize, Key = usize> {
+pub struct AlignmentNode<Id = usize, Key = usize, P = GridRequirements> {
     pub id: Id,
     pub group_key: Key,
-    pub requirements: GridRequirements,
+    pub requirements: P,
+}
+
+/// How a round treats groups with a single member.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SingletonPolicy {
+    /// Report singleton groups as skipped; there is nothing to align.
+    /// The grid alignment pass uses this.
+    Skip,
+    /// Merge singleton groups (merged == the lone payload) so every node
+    /// receives a patch. Coordination passes that must install coordinated
+    /// state on every node use this.
+    Merge,
 }
 
 /// Requirement delta from one local node to its group's merged requirements.
@@ -40,14 +59,14 @@ impl<Id> NodeDelta<Id> {
     }
 }
 
-/// One group of nodes merged to a shared requirement.
+/// One group of nodes merged to a shared payload.
 ///
 /// `deltas` doubles as the group member list (one entry per node, in input
 /// order); callers fold side-car state per group through these member IDs.
 #[derive(Clone, Debug, PartialEq)]
-pub struct AlignedGroup<Id = usize, Key = usize> {
+pub struct AlignedGroup<Id = usize, Key = usize, P = GridRequirements> {
     pub key: Key,
-    pub merged: GridRequirements,
+    pub merged: P,
     pub deltas: Vec<NodeDelta<Id>>,
 }
 
@@ -70,13 +89,13 @@ pub struct SkippedGroup<Key = usize> {
 
 /// Result of one alignment round.
 #[derive(Clone, Debug, PartialEq)]
-pub struct AlignmentPlan<Id = usize, Key = usize> {
+pub struct AlignmentPlan<Id = usize, Key = usize, P = GridRequirements> {
     pub node_count: usize,
-    pub groups: Vec<AlignedGroup<Id, Key>>,
+    pub groups: Vec<AlignedGroup<Id, Key, P>>,
     pub skipped: Vec<SkippedGroup<Key>>,
 }
 
-impl<Id, Key> AlignmentPlan<Id, Key> {
+impl<Id, Key, P> AlignmentPlan<Id, Key, P> {
     /// Total number of distinct group keys seen, merged or skipped.
     pub fn group_count(&self) -> usize {
         self.groups.len() + self.skipped.len()
@@ -107,13 +126,42 @@ impl<Id, Key> AlignmentPlan<Id, Key> {
     }
 }
 
-/// Run one alignment round over measured nodes.
+/// Run one alignment round over measured grid nodes.
+///
+/// The [`GridRequirements`] specialization of [`align_by`]: singleton groups
+/// are skipped, compatible multi-node groups merge by component-wise max,
+/// and deltas report track sizes (content) vs edges/spacing (edge).
+pub fn align<Id, Key>(nodes: &[AlignmentNode<Id, Key>]) -> AlignmentPlan<Id, Key>
+where
+    Id: Clone,
+    Key: Clone + Eq + Hash,
+{
+    align_by(
+        nodes,
+        SingletonPolicy::Skip,
+        |members| merge_grid_requirements(members.iter().copied()),
+        |local, merged| {
+            (
+                grid_content_delta(local, merged),
+                grid_edge_delta(local, merged),
+            )
+        },
+    )
+}
+
+/// Run one alignment round over measured nodes with a caller-supplied
+/// payload.
 ///
 /// Nodes are grouped by `group_key` in first-seen key order (deterministic
-/// for callers that iterate the plan), each multi-node group with compatible
-/// shapes is merged by component-wise max, and per-node deltas are reported
-/// against the merged requirements.
-pub fn align<Id, Key>(nodes: &[AlignmentNode<Id, Key>]) -> AlignmentPlan<Id, Key>
+/// for callers that iterate the plan). Each group is merged by `merge`
+/// (returning `None` marks the group incompatible), and `delta` reports each
+/// member's `(content_delta, edge_delta)` against the merged payload.
+pub fn align_by<Id, Key, P>(
+    nodes: &[AlignmentNode<Id, Key, P>],
+    singleton_policy: SingletonPolicy,
+    mut merge: impl FnMut(&[&P]) -> Option<P>,
+    mut delta: impl FnMut(&P, &P) -> (f32, f32),
+) -> AlignmentPlan<Id, Key, P>
 where
     Id: Clone,
     Key: Clone + Eq + Hash,
@@ -133,7 +181,7 @@ where
     let mut groups = Vec::new();
     let mut skipped = Vec::new();
     for (key, member_indices) in group_order {
-        if member_indices.len() < 2 {
+        if member_indices.len() < 2 && singleton_policy == SingletonPolicy::Skip {
             skipped.push(SkippedGroup {
                 key,
                 node_count: member_indices.len(),
@@ -142,11 +190,11 @@ where
             continue;
         }
 
-        let Some(merged) = merge_grid_requirements(
-            member_indices
-                .iter()
-                .map(|&index| &nodes[index].requirements),
-        ) else {
+        let members = member_indices
+            .iter()
+            .map(|&index| &nodes[index].requirements)
+            .collect::<Vec<_>>();
+        let Some(merged) = merge(&members) else {
             skipped.push(SkippedGroup {
                 key,
                 node_count: member_indices.len(),
@@ -159,10 +207,11 @@ where
             .iter()
             .map(|&index| {
                 let node = &nodes[index];
+                let (content_delta, edge_delta) = delta(&node.requirements, &merged);
                 NodeDelta {
                     id: node.id.clone(),
-                    content_delta: grid_content_delta(&node.requirements, &merged),
-                    edge_delta: grid_edge_delta(&node.requirements, &merged),
+                    content_delta,
+                    edge_delta,
                 }
             })
             .collect();
@@ -178,6 +227,55 @@ where
         node_count: nodes.len(),
         groups,
         skipped,
+    }
+}
+
+/// Per-round delta totals recorded by a multi-round driver.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct RoundDeltas {
+    pub content: f32,
+    pub edge: f32,
+}
+
+impl RoundDeltas {
+    pub fn total(self) -> f32 {
+        self.content + self.edge
+    }
+}
+
+/// Cross-round convergence evidence for drivers that alternate alignment
+/// rounds with re-measurement.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ConvergenceTrace {
+    rounds: Vec<RoundDeltas>,
+}
+
+impl ConvergenceTrace {
+    pub fn record_round(&mut self, content: f32, edge: f32) {
+        self.rounds.push(RoundDeltas { content, edge });
+    }
+
+    pub fn record_plan<Id, Key, P>(&mut self, plan: &AlignmentPlan<Id, Key, P>) {
+        self.record_round(plan.total_content_delta(), plan.total_edge_delta());
+    }
+
+    pub fn rounds(&self) -> &[RoundDeltas] {
+        &self.rounds
+    }
+
+    /// The last recorded round had no deltas beyond `epsilon`.
+    pub fn is_converged(&self, epsilon: f32) -> bool {
+        self.rounds
+            .last()
+            .is_some_and(|round| round.total() <= epsilon)
+    }
+
+    /// Two or more consecutive rounds with non-decreasing, non-zero deltas:
+    /// evidence the driver is cycling rather than converging.
+    pub fn is_non_converging(&self, epsilon: f32) -> bool {
+        self.rounds
+            .windows(2)
+            .any(|pair| pair[0].total() > epsilon && pair[1].total() >= pair[0].total())
     }
 }
 
@@ -393,6 +491,93 @@ mod tests {
             SkippedGroupReason::IncompatibleRequirements
         );
         assert_eq!(plan.skipped[0].node_count, 2);
+    }
+
+    fn payload_node(id: usize, group_key: &str, value: f32) -> AlignmentNode<usize, String, f32> {
+        AlignmentNode {
+            id,
+            group_key: group_key.to_string(),
+            requirements: value,
+        }
+    }
+
+    fn max_merge(members: &[&f32]) -> Option<f32> {
+        members.iter().copied().copied().reduce(f32::max)
+    }
+
+    fn abs_delta(local: &f32, merged: &f32) -> (f32, f32) {
+        (0.0, (merged - local).abs())
+    }
+
+    #[test]
+    fn align_by_merges_custom_payloads_with_caller_laws() {
+        let nodes = vec![
+            payload_node(0, "g", 10.0),
+            payload_node(1, "g", 25.0),
+            payload_node(2, "h", 5.0),
+        ];
+
+        let plan = align_by(&nodes, SingletonPolicy::Skip, max_merge, abs_delta);
+
+        assert_eq!(plan.groups.len(), 1);
+        assert_eq!(plan.groups[0].merged, 25.0);
+        assert_eq!(plan.groups[0].deltas[0].edge_delta, 15.0);
+        assert_eq!(plan.groups[0].deltas[1].edge_delta, 0.0);
+        assert_eq!(plan.skipped.len(), 1);
+        assert_eq!(plan.skipped[0].reason, SkippedGroupReason::Singleton);
+    }
+
+    #[test]
+    fn align_by_merge_policy_patches_singletons() {
+        let nodes = vec![payload_node(0, "solo", 10.0), payload_node(1, "g", 5.0)];
+
+        let plan = align_by(&nodes, SingletonPolicy::Merge, max_merge, abs_delta);
+
+        assert!(plan.skipped.is_empty());
+        assert_eq!(plan.groups.len(), 2);
+        assert_eq!(plan.groups[0].key, "solo");
+        assert_eq!(plan.groups[0].merged, 10.0);
+        assert_eq!(plan.groups[0].deltas.len(), 1);
+        assert!(!plan.groups[0].deltas[0].has_delta());
+    }
+
+    #[test]
+    fn edge_demand_edges_merge_component_wise() {
+        use crate::geometry::Edges;
+
+        let left = Edges::new(
+            EdgeDemand::new(10.0, 0.0, 10.0),
+            EdgeDemand::default(),
+            EdgeDemand::default(),
+            EdgeDemand::new(1.0, 2.0, 3.0),
+        );
+        let right = Edges::new(
+            EdgeDemand::new(0.0, 10.0, 10.0),
+            EdgeDemand::default(),
+            EdgeDemand::default(),
+            EdgeDemand::new(4.0, 0.0, 4.0),
+        );
+
+        let merged = left.max_components(right);
+        assert_eq!(merged.top, EdgeDemand::new(10.0, 10.0, 20.0));
+        assert_eq!(merged.left, EdgeDemand::new(4.0, 2.0, 6.0));
+    }
+
+    #[test]
+    fn convergence_trace_detects_settling_and_cycling() {
+        let mut settling = ConvergenceTrace::default();
+        settling.record_round(30.0, 10.0);
+        settling.record_round(5.0, 1.0);
+        settling.record_round(0.0, 0.0);
+        assert!(settling.is_converged(0.01));
+        assert!(!settling.is_non_converging(0.01));
+        assert_eq!(settling.rounds().len(), 3);
+
+        let mut cycling = ConvergenceTrace::default();
+        cycling.record_round(12.0, 0.0);
+        cycling.record_round(12.0, 0.0);
+        assert!(!cycling.is_converged(0.01));
+        assert!(cycling.is_non_converging(0.01));
     }
 
     #[test]
