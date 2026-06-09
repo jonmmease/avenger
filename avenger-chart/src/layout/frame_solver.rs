@@ -811,10 +811,16 @@ mod tests {
     use avenger_chart_legend::{LegendMeasurement, LegendMeasurements};
     use indexmap::IndexMap;
 
+    use crate::{
+        guide::OverflowSpaceRequirement,
+        layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
+    };
+
     use super::{
         ComponentType, FrameTrackSize, GridLayout, LegendMainAxis, MIN_COMPONENT_SIZE,
         layout_legend_group, retarget_flexible_legend_group_main_axis, rounded_guide_bounds,
-        rounded_plot_bounds, rounded_track_total, solve_tracks, title_or_subtitle_bounds,
+        rounded_plot_bounds, rounded_track_total, solve_native_frame_layout, solve_tracks,
+        title_or_subtitle_bounds,
     };
 
     #[test]
@@ -1069,6 +1075,67 @@ mod tests {
         assert_eq!(bounds["fill"].height, MIN_COMPONENT_SIZE);
         assert_eq!(bounds["opacity"].y, 95.0);
         assert_eq!(bounds["opacity"].height, MIN_COMPONENT_SIZE);
+    }
+
+    #[test]
+    fn layout_solution_reports_guide_only_total_overflow_from_solver() {
+        let mut grid = GridLayout::new();
+        grid.cols = vec![
+            FrameTrackSize::fixed(10.0),
+            FrameTrackSize::fixed(5.0),
+            FrameTrackSize::fr(1.0),
+            FrameTrackSize::fixed(7.0),
+            FrameTrackSize::fixed(10.0),
+        ];
+        grid.rows = vec![
+            FrameTrackSize::fixed(10.0),
+            FrameTrackSize::fixed(6.0),
+            FrameTrackSize::fr(1.0),
+            FrameTrackSize::fixed(8.0),
+            FrameTrackSize::fixed(10.0),
+        ];
+        grid.add_component(ComponentType::GuideOverflow(OverflowSide::Top), 1, 2);
+        grid.add_component(ComponentType::GuideOverflow(OverflowSide::Left), 2, 1);
+        grid.add_component(ComponentType::PlotArea, 2, 2);
+        grid.add_component(ComponentType::GuideOverflow(OverflowSide::Right), 2, 3);
+        grid.add_component(ComponentType::GuideOverflow(OverflowSide::Bottom), 3, 2);
+
+        let solution = solve_native_frame_layout(
+            &OverflowSpaceRequirement {
+                top: 6.0,
+                right: 7.0,
+                bottom: 8.0,
+                left: 5.0,
+            },
+            &EvaluatedLayoutSpec {
+                canvas: EvaluatedSizeMode::Fixed {
+                    width: 400.0,
+                    height: 300.0,
+                },
+                plot_area: EvaluatedSizeMode::Auto,
+                margins: EvaluatedMargins {
+                    top: 10.0,
+                    right: 10.0,
+                    bottom: 10.0,
+                    left: 10.0,
+                },
+            },
+            &grid,
+            &IndexMap::new(),
+            &LegendMeasurements::new(),
+            TitleSpan::PlotArea,
+            TitleSpan::PlotArea,
+        )
+        .expect("solve native frame layout");
+
+        assert_eq!(solution.overflow.left, 5.0);
+        assert_eq!(solution.overflow.right, 7.0);
+        assert_eq!(solution.overflow.top, 6.0);
+        assert_eq!(solution.overflow.bottom, 8.0);
+        assert_eq!(solution.total_overflow.left, solution.overflow.left);
+        assert_eq!(solution.total_overflow.right, solution.overflow.right);
+        assert_eq!(solution.total_overflow.top, solution.overflow.top);
+        assert_eq!(solution.total_overflow.bottom, solution.overflow.bottom);
     }
 
     fn legend_measurements(items: &[(&str, Size2D, bool)]) -> LegendMeasurements {
