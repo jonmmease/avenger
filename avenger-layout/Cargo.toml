@@ -4,4 +4,8 @@ version = "0.1.0"
 edition = "2024"
 description = "Chart-independent layout primitives for arranging rectangular regions whose content rectangles align while edge overflow is synchronized"
 
+[features]
+# Debug SVG export of solved layouts (DebugScene); no extra dependencies.
+svg = []
+
 [dependencies]

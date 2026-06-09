@@ -33,6 +33,8 @@
 //!   for row/column bands, plus cross-axis alignment.
 //! - [`alignment`]: requirement merging and deltas for aligning equivalent
 //!   grids that are measured independently.
+//! - `svg` (behind the `svg` feature): a renderer-independent debug data
+//!   model and SVG export for inspecting solved layouts.
 //!
 //! Item identity is generic (`Id`, defaulting to `usize`) and opaque to this
 //! crate: callers own what an ID means and how equivalent regions are
@@ -43,6 +45,8 @@ pub mod band;
 pub mod geometry;
 pub mod grid;
 pub mod region;
+#[cfg(feature = "svg")]
+pub mod svg;
 
 pub use alignment::{
     AlignedGroup, AlignmentNode, AlignmentPlan, NodeDelta, SkippedGroup, SkippedGroupReason, align,
@@ -56,3 +60,5 @@ pub use grid::{
     total_edge_demands, zero_edge_demands,
 };
 pub use region::{EdgeDemand, EdgeTargets, PlacedRegion, PlacementSolution, project_rect};
+#[cfg(feature = "svg")]
+pub use svg::{DebugRegion, DebugScene};
