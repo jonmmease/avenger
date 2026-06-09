@@ -115,8 +115,10 @@ The generic pass currently coexists with the facet-specific coordination
 driver. Facet-only measurement still uses `coordinate_facet_measurement_tree`
 as the authoritative retarget/final-propagation path. The generic facet-band
 apply adapter is deliberately narrower: it only mutates safe explicit
-`FacetColumn` / `FacetRow` bands by converting merged `GridTrackRequirements`
-back into `CoordinatedLayout`, then reusing
+`FacetColumn` / `FacetRow` bands by converting merged
+`avenger_layout::GridRequirements` back into `CoordinatedLayout` (an exact
+round trip: `TrackSpacing::min_gap` <-> `padding_inner_px`, outer offsets and
+track count map directly), then reusing
 `FacetBandCoordMeasurement::set_coordinated_layout_value(...)` and
 `recompute_explicit_placement_if_needed()`.
 

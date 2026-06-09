@@ -4,6 +4,12 @@ The top-level `avenger-chart` crate owns layout runtime behavior. Facet,
 concat, repeat-lowered concat, and coordinate-positioned subplots all measure
 child plots as chart frames and expose them through a shared child-frame view.
 
+The chart-independent layout primitives underneath — geometry, the band/grid
+solvers, and requirement alignment — live in the `avenger-layout` crate.
+`avenger-chart` re-exports them through `crate::layout` and adapts chart
+concepts at the boundary: plot area -> content size, guide overflow -> inner
+edge, legend overflow -> outer edge, rendered envelope -> total edge.
+
 ## Child-Frame Lifecycle
 
 ```mermaid
@@ -46,8 +52,8 @@ Important runtime values:
 - `ChildFrameContainerView`: read-only projection over measured child frames,
 - `ChildFrameRenderPlacement`: render origin for one child frame.
 
-The lower-level placement utilities are `ChildFramePlacementResult` and
-`BandChildFramePlacement`.
+The lower-level placement utilities are `PlacementSolution` and
+`BandSolution` from the `avenger-layout` crate.
 
 ## Container Producers
 
@@ -122,9 +128,13 @@ for nested child-frame containers. It is separate from domain coordination:
 
 The implementation lives in
 `plot/compiled/child_frame_coordination.rs`. It exports
-`ChildFrameLayoutCoordinationNode` values from measured containers, groups them
-by `LayoutAlignmentKey`, merges compatible `GridTrackRequirements`, and applies
-the merged requirements through container-specific adapters.
+`ChildFrameLayoutCoordinationNode` values from measured containers and runs
+them through `avenger_layout::align`, the one-round alignment engine: nodes
+are grouped by `LayoutAlignmentKey`, compatible groups merge their
+`avenger_layout::GridRequirements` by component-wise max, and the merged
+requirements apply through container-specific adapters. The chart-only
+`guide_slot_gap_px` rides in a `ChartGridRequirements` side-car and is folded
+per group over the plan's member IDs.
 
 For grid-shaped child-frame containers, the exported topology is a list of
 slot rectangles, not just child count. A manual `GridConcat` child with

@@ -21,6 +21,7 @@ flowchart TD
     Visual["visual baselines"]
 
     Core --> CoreChecks["cargo test -p avenger-chart-core --lib"]
+    Layout["neutral layout solvers"] --> LayoutChecks["cargo test -p avenger-layout"]
     Marks --> MarkChecks["cargo test -p avenger-chart --test test_channel_resolution"]
     Scales --> ScaleChecks["cargo test -p avenger-chart --test test_scale_api"]
     Legends --> LegendChecks["cargo test -p avenger-chart --lib legend_disposition"]
@@ -39,6 +40,7 @@ flowchart TD
 | Area | Useful checks |
 | --- | --- |
 | Core contracts | `cargo test -p avenger-chart-core --lib -- --nocapture` |
+| Neutral layout solvers (band/grid/alignment) | `cargo test -p avenger-layout -- --nocapture` |
 | Scale API | `cargo test -p avenger-chart --test test_scale_api -- --nocapture` |
 | Scale UDF/serialization | `cargo test -p avenger-chart --test test_simple_scale_udf -- --nocapture`; `cargo test -p avenger-chart --test test_scale_udf_serialization -- --nocapture` |
 | Legend ownership | `cargo test -p avenger-chart --lib legend_disposition -- --nocapture` |

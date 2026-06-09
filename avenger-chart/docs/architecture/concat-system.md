@@ -17,7 +17,7 @@ flowchart TD
     Prepare["prepare_concat_child\nChildFrameRuntime::prepare_plot"]
     Domains["coordinated_child_frame_domain_extents"]
     Children["ConcatChildMeasurement"]
-    Band["BandChildFramePlacement"]
+    Band["BandSolution / GridSolution\n(avenger-layout)"]
     Guide["ConcatGuide\nlabels and overflow"]
     View["ChildFrameContainerView"]
     Render["child frame render placement"]
@@ -95,7 +95,8 @@ child, and builds `ConcatCoordMeasurement`.
 `ConcatCoordMeasurement` stores:
 
 - `ConcatChildMeasurement` values,
-- a `BandChildFramePlacement`,
+- a `ConcatChildPlacement` (an `avenger_layout::BandSolution` or grid
+  `PlacementSolution`),
 - fallback content size for placement conversion.
 
 Each `ConcatChildMeasurement` stores the child index, optional key, optional
@@ -110,10 +111,11 @@ corresponding grid/wrap child-frame levels. Each child gets a
 `ChildFrameScopeKey` with `ChildFrameKey::ConcatChild` and a stable
 container-path segment.
 
-`BandChildFramePlacement::from_sized_children` positions children along the
-container axes using measured child plot sizes and sibling boundary demands.
-The placement is converted to `ChildFramePlacementResult` for rendering and
-generic child-frame consumers.
+`avenger_layout::BandSolution::from_sized_children` positions children along
+the container axes using measured child plot sizes and sibling boundary
+demands (solved as a 1xN grid by the `avenger-layout` crate); grid concat uses
+the `avenger-layout` grid solver directly. The placement is converted to
+`PlacementSolution` for rendering and generic child-frame consumers.
 
 Concat participates in the same child-frame domain, guide, legend, layout, and
 debug machinery as facet and positioned subplots. See
