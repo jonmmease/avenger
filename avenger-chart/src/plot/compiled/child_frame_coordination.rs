@@ -189,10 +189,23 @@ impl ChildFrameLayoutCoordinationNode {
     }
 }
 
+/// Neutral grid requirements plus chart-only side-car state.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ChartGridRequirements {
+    pub(crate) grid: GridRequirements,
+    /// Chart-adapter facet guide slot gap needed when generic grid
+    /// requirements are projected back into `CoordinatedLayout`.
+    ///
+    /// Concat containers do not use this value, so their local requirements
+    /// keep it at zero. Keeping it here avoids losing chart guide-spacing
+    /// state when facet bands participate in the generic layout model.
+    pub(crate) guide_slot_gap_px: f32,
+}
+
 /// Local requirements exported by a measured child-frame container.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ChildFrameLayoutRequirements {
-    Grid(GridRequirements),
+    Grid(ChartGridRequirements),
 }
 
 pub(crate) fn grid_layout_coordination_node(
@@ -217,7 +230,10 @@ pub(crate) fn grid_layout_coordination_node(
             })
             .collect(),
     };
-    let requirements = ChildFrameLayoutRequirements::Grid(concat.grid_requirements()?);
+    let requirements = ChildFrameLayoutRequirements::Grid(ChartGridRequirements {
+        grid: concat.grid_requirements()?,
+        guide_slot_gap_px: 0.0,
+    });
     let kind = match concat.band_direction() {
         Some(crate::layout::Orientation::Horizontal) => ChildFrameContainerKind::HConcat,
         Some(crate::layout::Orientation::Vertical) => ChildFrameContainerKind::VConcat,
@@ -339,7 +355,7 @@ fn facet_grid_requirements(
     measurement: &ComponentsMeasurement,
     facet_band: &FacetBandCoordMeasurement,
     shape: GridShape,
-) -> Result<GridRequirements, AvengerChartError> {
+) -> Result<ChartGridRequirements, AvengerChartError> {
     let placement = resolve_facet_band_placement(measurement)?.ok_or_else(|| {
         AvengerChartError::InternalError(
             "Facet grid track requirements requested for non-facet measurement".to_string(),
@@ -354,16 +370,18 @@ fn facet_grid_requirements(
         .iter()
         .map(|cell| rendered_boundary_demand_for_measurement(facet_band.axis, &cell.measurement))
         .collect::<Vec<_>>();
-    let mut requirements = facet_grid_requirements_from_placement(
+    let grid = facet_grid_requirements_from_placement(
         shape,
         &placement,
         active_layout.padding_inner_px,
         &cell_boundaries,
     )?;
-    requirements.guide_slot_gap_px = active_layout
-        .guide_slot_gap_px
-        .max(facet_band.guide_padding_inner_px);
-    Ok(requirements)
+    Ok(ChartGridRequirements {
+        grid,
+        guide_slot_gap_px: active_layout
+            .guide_slot_gap_px
+            .max(facet_band.guide_padding_inner_px),
+    })
 }
 
 /// Export facet-band layout state as grid requirements.
@@ -384,7 +402,6 @@ fn facet_grid_requirements_from_placement(
 ) -> Result<GridRequirements, AvengerChartError> {
     let mut requirements = GridRequirements {
         shape,
-        guide_slot_gap_px: 0.0,
         column_spacing: TrackSpacing::default(),
         row_spacing: TrackSpacing::default(),
         column_widths: vec![0.0; shape.columns],
@@ -463,7 +480,7 @@ pub(crate) enum FacetBandGridApplyUnsupported {
 
 pub(crate) fn facet_band_grid_apply_layout(
     facet_band: &FacetBandCoordMeasurement,
-    requirements: &GridRequirements,
+    requirements: &ChartGridRequirements,
 ) -> Result<CoordinatedLayout, FacetBandGridApplyUnsupported> {
     if facet_band.cells.is_empty() {
         return Err(FacetBandGridApplyUnsupported::EmptyBand);
@@ -483,7 +500,7 @@ pub(crate) fn facet_band_grid_apply_layout(
     }
 
     let expected_shape = facet_layout_coordination_shape(facet_band);
-    if requirements.shape != expected_shape {
+    if requirements.grid.shape != expected_shape {
         return Err(FacetBandGridApplyUnsupported::TopologyMismatch);
     }
 
@@ -492,20 +509,21 @@ pub(crate) fn facet_band_grid_apply_layout(
 
 fn facet_grid_requirements_to_coordinated_layout(
     axis: FacetAxis,
-    requirements: &GridRequirements,
+    requirements: &ChartGridRequirements,
 ) -> Result<CoordinatedLayout, FacetBandGridApplyUnsupported> {
+    let grid = &requirements.grid;
     let (n, outer_start, outer_end, padding_inner_px) = match axis {
-        FacetAxis::Column if requirements.shape.rows == 1 => (
-            requirements.shape.columns,
-            requirements.column_spacing.outer_start,
-            requirements.column_spacing.outer_end,
-            requirements.column_spacing.min_gap,
+        FacetAxis::Column if grid.shape.rows == 1 => (
+            grid.shape.columns,
+            grid.column_spacing.outer_start,
+            grid.column_spacing.outer_end,
+            grid.column_spacing.min_gap,
         ),
-        FacetAxis::Row if requirements.shape.columns == 1 => (
-            requirements.shape.rows,
-            requirements.row_spacing.outer_start,
-            requirements.row_spacing.outer_end,
-            requirements.row_spacing.min_gap,
+        FacetAxis::Row if grid.shape.columns == 1 => (
+            grid.shape.rows,
+            grid.row_spacing.outer_start,
+            grid.row_spacing.outer_end,
+            grid.row_spacing.min_gap,
         ),
         _ => return Err(FacetBandGridApplyUnsupported::TopologyMismatch),
     };
@@ -525,7 +543,7 @@ fn facet_grid_requirements_to_coordinated_layout(
 
 pub(crate) fn apply_facet_band_grid_requirements(
     measurement: &mut ComponentsMeasurement,
-    requirements: &GridRequirements,
+    requirements: &ChartGridRequirements,
 ) -> Result<bool, AvengerChartError> {
     let Some(facet_band) = measurement
         .coord_measurement
@@ -800,12 +818,21 @@ fn merge_child_frame_layout_requirements<'a>(
     requirements: impl IntoIterator<Item = &'a ChildFrameLayoutRequirements>,
 ) -> Option<ChildFrameLayoutRequirements> {
     let mut grids = Vec::new();
+    let mut guide_slot_gap_px = 0.0f32;
     for requirement in requirements {
         match requirement {
-            ChildFrameLayoutRequirements::Grid(grid) => grids.push(grid),
+            ChildFrameLayoutRequirements::Grid(chart_grid) => {
+                guide_slot_gap_px = guide_slot_gap_px.max(chart_grid.guide_slot_gap_px);
+                grids.push(&chart_grid.grid);
+            }
         }
     }
-    merge_grid_requirements(grids).map(ChildFrameLayoutRequirements::Grid)
+    merge_grid_requirements(grids).map(|grid| {
+        ChildFrameLayoutRequirements::Grid(ChartGridRequirements {
+            grid,
+            guide_slot_gap_px,
+        })
+    })
 }
 
 fn requirement_track_delta(
@@ -814,7 +841,7 @@ fn requirement_track_delta(
 ) -> f32 {
     match (local, merged) {
         (ChildFrameLayoutRequirements::Grid(local), ChildFrameLayoutRequirements::Grid(merged)) => {
-            grid_content_delta(local, merged)
+            grid_content_delta(&local.grid, &merged.grid)
         }
     }
 }
@@ -825,7 +852,8 @@ fn requirement_slab_delta(
 ) -> f32 {
     match (local, merged) {
         (ChildFrameLayoutRequirements::Grid(local), ChildFrameLayoutRequirements::Grid(merged)) => {
-            grid_edge_delta(local, merged)
+            grid_edge_delta(&local.grid, &merged.grid)
+                + (merged.guide_slot_gap_px - local.guide_slot_gap_px).abs()
         }
     }
 }
@@ -888,7 +916,7 @@ fn apply_child_frame_layout_alignment_recursive(
                 .as_any_mut()
                 .downcast_mut::<ConcatCoordMeasurement>()
             {
-                if concat.apply_grid_requirements(requirements)? {
+                if concat.apply_grid_requirements(&requirements.grid)? {
                     trace.applied_container_count += 1;
                 }
             }
@@ -971,20 +999,22 @@ mod tests {
     }
 
     fn test_requirements(width: f32) -> ChildFrameLayoutRequirements {
-        ChildFrameLayoutRequirements::Grid(GridRequirements {
-            shape: GridShape {
-                rows: 1,
-                columns: 1,
+        ChildFrameLayoutRequirements::Grid(ChartGridRequirements {
+            grid: GridRequirements {
+                shape: GridShape {
+                    rows: 1,
+                    columns: 1,
+                },
+                column_spacing: TrackSpacing::default(),
+                row_spacing: TrackSpacing::default(),
+                column_widths: vec![width],
+                row_heights: vec![10.0],
+                column_left: zero_edge_demands(1),
+                column_right: zero_edge_demands(1),
+                row_top: zero_edge_demands(1),
+                row_bottom: zero_edge_demands(1),
             },
             guide_slot_gap_px: 0.0,
-            column_spacing: TrackSpacing::default(),
-            row_spacing: TrackSpacing::default(),
-            column_widths: vec![width],
-            row_heights: vec![10.0],
-            column_left: zero_edge_demands(1),
-            column_right: zero_edge_demands(1),
-            row_top: zero_edge_demands(1),
-            row_bottom: zero_edge_demands(1),
         })
     }
 
@@ -1096,7 +1126,6 @@ mod tests {
                 min_gap: 9.0,
             }
         );
-        assert_eq!(requirements.guide_slot_gap_px, 0.0);
         assert_eq!(requirements.row_spacing, TrackSpacing::default());
         assert_eq!(requirements.column_widths, vec![10.0, 10.0]);
         assert_eq!(requirements.row_heights, vec![40.0]);
@@ -1135,9 +1164,14 @@ mod tests {
             &boundaries,
         )?;
 
-        let layout =
-            facet_grid_requirements_to_coordinated_layout(FacetAxis::Column, &requirements)
-                .expect("one-dimensional column requirements should project");
+        let layout = facet_grid_requirements_to_coordinated_layout(
+            FacetAxis::Column,
+            &ChartGridRequirements {
+                grid: requirements,
+                guide_slot_gap_px: 0.0,
+            },
+        )
+        .expect("one-dimensional column requirements should project");
 
         assert_eq!(layout.n, 2);
         assert_eq!(layout.outer_start, 3.0);
@@ -1174,8 +1208,14 @@ mod tests {
             facet_grid_requirements_from_placement(shape, &placement, 8.0, &wide_boundaries)?;
 
         let merged = merge_grid_requirements([&first, &second]).expect("compatible facet grids");
-        let layout = facet_grid_requirements_to_coordinated_layout(FacetAxis::Column, &merged)
-            .expect("merged one-dimensional column requirements should project");
+        let layout = facet_grid_requirements_to_coordinated_layout(
+            FacetAxis::Column,
+            &ChartGridRequirements {
+                grid: merged.clone(),
+                guide_slot_gap_px: 0.0,
+            },
+        )
+        .expect("merged one-dimensional column requirements should project");
 
         assert_eq!(
             layout.padding_inner_px, 14.0,

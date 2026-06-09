@@ -288,11 +288,12 @@ fn label_style(theme: &Theme, params: &IndexMap<String, ScalarValue>) -> Contain
 mod tests {
     use super::*;
     use crate::container::{PlacedRegion, PlacementSolution};
+    use crate::layout::Size;
 
     #[test]
     fn label_items_project_child_frames_and_skip_empty_labels() {
         let placement = PlacementSolution::new(
-            Size2D::new(300.0, 200.0),
+            Size::new(300.0, 200.0),
             vec![
                 PlacedRegion::new(10, [20.0, 30.0]),
                 PlacedRegion::new(20, [140.0, 30.0]),
@@ -360,7 +361,7 @@ mod tests {
     #[test]
     fn label_items_require_matching_child_geometry() {
         let placement = PlacementSolution::new(
-            Size2D::new(100.0, 80.0),
+            Size::new(100.0, 80.0),
             vec![PlacedRegion::new(2, [0.0, 0.0])],
         );
 

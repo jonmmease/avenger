@@ -20,7 +20,7 @@ use crate::{
     },
     layout::{
         BandItem, BandPosition, BandPositionIterator, BandSolution, BandSpacing, BoundaryDemand,
-        Orientation, PlacedBandItem, PlacementSolution, Size2D,
+        Orientation, PlacedBandItem, PlacementSolution, Size,
     },
     plot::compiled::ComponentsMeasurement,
     scales::ConfiguredScaleWithSpec,
@@ -310,7 +310,7 @@ fn facet_cell_main_start_offset(facet_band: &FacetBandCoordMeasurement) -> (f32,
 pub(crate) fn facet_child_frame_placement_from_band(
     facet_band: &FacetBandCoordMeasurement,
     placement: &FacetBandPlacement,
-    fallback_content_size: Size2D,
+    fallback_content_size: Size,
 ) -> Result<PlacementSolution, AvengerChartError> {
     if placement.axis != facet_band.axis {
         return Err(AvengerChartError::InternalError(format!(
@@ -354,7 +354,7 @@ pub(crate) fn facet_child_frame_placement_from_band(
 pub(crate) fn resolve_facet_child_frame_placement_from_scale_specs(
     facet_band: &FacetBandCoordMeasurement,
     scales: &HashMap<String, ConfiguredScaleWithSpec>,
-    fallback_content_size: Size2D,
+    fallback_content_size: Size,
 ) -> Result<PlacementSolution, AvengerChartError> {
     let placement = facet_band.resolved_placement_from_scale_specs(scales)?;
     facet_child_frame_placement_from_band(facet_band, &placement, fallback_content_size)
@@ -367,7 +367,7 @@ pub(crate) fn resolve_facet_child_frame_placement(
     resolve_facet_child_frame_placement_from_scale_specs(
         facet_band,
         &measurement.scales,
-        Size2D::new(measurement.plot_area_width, measurement.plot_area_height),
+        Size::new(measurement.plot_area_width, measurement.plot_area_height),
     )
 }
 

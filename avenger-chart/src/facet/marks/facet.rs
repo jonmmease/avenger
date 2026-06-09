@@ -409,7 +409,7 @@ async fn render_facet_band_with_placement(
     let child_frame_placement = facet_child_frame_placement_from_band(
         facet_measurement,
         &placement,
-        Size2D::new(context.plot_width(), context.plot_height()),
+        crate::layout::Size::new(context.plot_width(), context.plot_height()),
     )?;
     trace!(
         axis = ?placement.axis,

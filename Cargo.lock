@@ -529,6 +529,7 @@ dependencies = [
  "avenger-eventstream",
  "avenger-geometry",
  "avenger-guides",
+ "avenger-layout",
  "avenger-scales",
  "avenger-scenegraph",
  "avenger-text",

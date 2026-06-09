@@ -25,7 +25,7 @@ use crate::{
     },
     coords::{CoordMeasurement, OverflowSpaceRequirement},
     error::AvengerChartError,
-    layout::Size2D,
+    layout::Size,
     marks::CompiledMark,
     partition::format_partition_value,
     plot::compiled::{
@@ -953,6 +953,6 @@ pub(crate) async fn measure_positioned_subplots(
 
     Ok(Some(Box::new(PositionedCoordMeasurement {
         children,
-        placement: PlacementSolution::new(Size2D::new(plot_width, plot_height), placements),
+        placement: PlacementSolution::new(Size::new(plot_width, plot_height), placements),
     })))
 }

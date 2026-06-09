@@ -1,13 +1,15 @@
 //! Chart frame layout engine.
+//!
+//! Neutral layout primitives (geometry, band/grid solvers, requirement
+//! alignment) live in the `avenger-layout` crate and are re-exported here.
+//! This module keeps the chart-specific layers: frame chrome solving, content
+//! solving, sizing specs, and adapters between chart-core geometry and
+//! `avenger-layout` geometry.
 
-mod band_child_frame;
 mod band_position;
-mod child_frame;
 mod content_solver;
 mod frame_solver;
 mod grid;
-mod grid_alignment;
-mod grid_tracks;
 mod info;
 mod sizing;
 
@@ -16,11 +18,15 @@ pub use avenger_chart_core::{
     EdgeSlabs, FrameAllocation, FrameDemand, FrameDimensionSizing, FrameLayout, FrameSizingPolicy,
     LayoutBounds, OverflowSide, OwnedEdgeSlabs, Size2D,
 };
-pub(crate) use band_child_frame::{
-    BandItem, BandSolution, BandSpacing, BoundaryDemand, Orientation, PlacedBandItem,
+#[cfg(test)]
+pub(crate) use avenger_layout::total_edge_demands;
+pub(crate) use avenger_layout::{
+    BandItem, BandSolution, BandSpacing, BoundaryDemand, EdgeDemand, EdgeTargets, Edges, GridItem,
+    GridRequirements, GridShape, GridSlot, Orientation, PlacedBandItem, PlacedRegion,
+    PlacementSolution, Size, TrackSpacing, grid_content_delta, grid_edge_delta, grid_requirements,
+    merge_grid_requirements, solve_grid_requirements, zero_edge_demands,
 };
 pub use band_position::BandPositionIterator;
-pub(crate) use child_frame::{EdgeTargets, PlacedRegion, PlacementSolution, project_child_rect};
 pub use content_solver::{
     ChildFrameContentMeasurement, ChildFrameContentPlan, ChildFrameContentSolver,
     ContentAllocation, ContentDemand, ContentLayout, ContentLayoutSolver,
@@ -31,13 +37,6 @@ pub(crate) use frame_solver::{
     retarget_frame_layout_for_plot_area,
 };
 pub(crate) use grid::{ComponentType, MIN_GUIDE_OVERFLOW_SIZE};
-pub(crate) use grid_alignment::{grid_content_delta, grid_edge_delta, merge_grid_requirements};
-pub(crate) use grid_tracks::{
-    EdgeDemand, GridItem, GridRequirements, GridShape, GridSlot, TrackSpacing, grid_requirements,
-    solve_grid_requirements, zero_edge_demands,
-};
-#[cfg(test)]
-pub(crate) use grid_tracks::{edge_demand_totals, span_axis_extent, total_edge_demands};
 pub use info::LegendLayoutInfo;
 pub use sizing::{
     CanvasConstraint, ChartResizeAxisPolicy, ChartResizePolicy, LayoutSpec, Margins, PlotConstraint,
@@ -45,3 +44,34 @@ pub use sizing::{
 pub(crate) use sizing::{
     EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, ResolvedLayoutDimensions, SizeMode,
 };
+
+/// Convert chart-core edge slabs into neutral layout edges.
+pub(crate) fn layout_edges(slabs: EdgeSlabs) -> Edges<f32> {
+    Edges::new(slabs.top, slabs.right, slabs.bottom, slabs.left)
+}
+
+fn layout_rect(bounds: LayoutBounds) -> avenger_layout::Rect {
+    avenger_layout::Rect::new(bounds.x, bounds.y, bounds.width, bounds.height)
+}
+
+/// Project a child-local component bound into the parent frame's coordinate
+/// space.
+pub(crate) fn project_child_rect(
+    parent_content_origin: [f32; 2],
+    child_render_origin: [f32; 2],
+    child_plot_bounds: LayoutBounds,
+    child_bounds: LayoutBounds,
+) -> LayoutBounds {
+    let rect = avenger_layout::project_rect(
+        parent_content_origin,
+        child_render_origin,
+        layout_rect(child_plot_bounds),
+        layout_rect(child_bounds),
+    );
+    LayoutBounds {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+    }
+}
