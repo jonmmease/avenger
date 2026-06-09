@@ -4,7 +4,10 @@
 //! frames along a horizontal or vertical band from child sizes, sibling boundary
 //! demands, and spacing policy.
 
-use crate::layout::{PlacedRegion, PlacementSolution, Size2D};
+use crate::layout::{
+    EdgeSlabs, GridItem, GridShape, GridSlot, PlacedRegion, PlacementSolution, Size2D,
+    TrackSpacing, grid_requirements, solve_grid_requirements,
+};
 
 /// Flow direction for a one-dimensional band of child frames.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,42 +129,110 @@ impl BandSolution {
     }
 
     /// Build from child sizes, sibling boundary demands, and spacing policy.
+    ///
+    /// A band is the one-track-cross-axis special case of the grid solver:
+    /// each child occupies one main-axis track, sibling boundary demands map
+    /// to track edge demands, and `min_inner_gap` maps to the main-axis
+    /// `TrackSpacing::min_gap`. Cross-axis alignment stays in this band layer.
     pub(crate) fn from_sized_children(
         direction: Orientation,
         children: &[BandItem],
         spacing: BandSpacing,
     ) -> Self {
-        let mut placed_children = Vec::with_capacity(children.len());
-        let mut cursor = spacing.outer_start.max(0.0);
-        let cross_extent = children
+        let shape = match direction {
+            Orientation::Horizontal => GridShape {
+                rows: 1,
+                columns: children.len(),
+            },
+            Orientation::Vertical => GridShape {
+                rows: children.len(),
+                columns: 1,
+            },
+        };
+        let items = children
             .iter()
-            .map(|child| child.cross_size.max(0.0))
-            .fold(0.0f32, f32::max);
-        let min_inner_gap = spacing.min_inner_gap.max(0.0);
+            .enumerate()
+            .map(|(slot_index, child)| {
+                let (slot, content_size, total_edges) = match direction {
+                    Orientation::Horizontal => (
+                        GridSlot {
+                            row: 0,
+                            column: slot_index,
+                            row_span: 1,
+                            column_span: 1,
+                        },
+                        Size2D::new(child.main_size, child.cross_size),
+                        EdgeSlabs::new(0.0, child.boundary.after, 0.0, child.boundary.before),
+                    ),
+                    Orientation::Vertical => (
+                        GridSlot {
+                            row: slot_index,
+                            column: 0,
+                            row_span: 1,
+                            column_span: 1,
+                        },
+                        Size2D::new(child.cross_size, child.main_size),
+                        EdgeSlabs::new(child.boundary.before, 0.0, child.boundary.after, 0.0),
+                    ),
+                };
+                GridItem {
+                    child_index: child.child_index,
+                    slot,
+                    content_size,
+                    inner_edges: EdgeSlabs::default(),
+                    outer_edges: EdgeSlabs::default(),
+                    total_edges,
+                }
+            })
+            .collect::<Vec<_>>();
 
-        for (idx, child) in children.iter().enumerate() {
-            let main_size = child.main_size.max(0.0);
-            let child_cross_size = child.cross_size.max(0.0);
-            let cross_start = spacing.cross_align.offset(cross_extent, child_cross_size);
-            placed_children.push(PlacedBandItem::with_cross_axis(
-                child.child_index,
-                cursor,
-                main_size,
-                cross_start,
-                child_cross_size,
-            ));
-
-            cursor += main_size;
-            if let Some(next) = children.get(idx + 1) {
-                let boundary_gap = child.boundary.after.max(0.0) + next.boundary.before.max(0.0);
-                cursor += min_inner_gap.max(boundary_gap);
-            }
+        let mut requirements = grid_requirements(shape, Size2D::default(), &items)
+            .expect("band slots are single-span and indexed within the band grid shape");
+        let main_spacing = TrackSpacing {
+            outer_start: spacing.outer_start,
+            outer_end: spacing.outer_end,
+            min_gap: spacing.min_inner_gap,
+        };
+        match direction {
+            Orientation::Horizontal => requirements.column_spacing = main_spacing,
+            Orientation::Vertical => requirements.row_spacing = main_spacing,
         }
+        let solution = solve_grid_requirements(&requirements, &items);
+
+        let (main_starts, main_sizes, cross_extent, main_extent) = match direction {
+            Orientation::Horizontal => (
+                &solution.column_starts,
+                &solution.column_widths,
+                solution.row_heights[0],
+                solution.content_size.width,
+            ),
+            Orientation::Vertical => (
+                &solution.row_starts,
+                &solution.row_heights,
+                solution.column_widths[0],
+                solution.content_size.height,
+            ),
+        };
+
+        let placed_children = children
+            .iter()
+            .enumerate()
+            .map(|(slot_index, child)| {
+                let child_cross_size = child.cross_size.max(0.0);
+                PlacedBandItem::with_cross_axis(
+                    child.child_index,
+                    main_starts[slot_index],
+                    main_sizes[slot_index],
+                    spacing.cross_align.offset(cross_extent, child_cross_size),
+                    child_cross_size,
+                )
+            })
+            .collect();
 
         Self {
             direction,
             children: placed_children,
-            main_extent: (cursor + spacing.outer_end.max(0.0)).max(0.0),
+            main_extent,
             cross_extent: Some(cross_extent),
         }
     }
