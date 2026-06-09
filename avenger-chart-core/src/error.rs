@@ -76,12 +76,6 @@ pub enum AvengerChartError {
     },
 }
 
-impl From<taffy::TaffyError> for AvengerChartError {
-    fn from(err: taffy::TaffyError) -> Self {
-        AvengerChartError::LayoutError(err.to_string())
-    }
-}
-
 impl From<AvengerChartError> for DataFusionError {
     fn from(value: AvengerChartError) -> Self {
         match value {

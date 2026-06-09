@@ -18,11 +18,11 @@ In the first pass, the system:
 3. Calculates "overflow" - the space needed by axes and guides beyond the plot area
 4. Uses an estimated plot area (80% of available space) for initial measurements
 
-### Pass 2: Taffy Layout Computation
+### Pass 2: Native Frame Layout Computation
 
 The second pass:
 1. Takes the grid template from Pass 1
-2. Uses the Taffy layout engine (a Rust implementation of CSS Flexbox/Grid)
+2. Resolves the Avenger frame tracks with fixed and fractional sizing
 3. Computes exact pixel positions for all components
 4. Handles flexible sizing for components like colorbar legends
 
@@ -126,12 +126,11 @@ The magenta rectangles show:
 
 ## Flexible Legends and Colorbars
 
-Colorbar legends are special - they're configured to expand and fill available vertical space in their container. This is achieved through Taffy's flexbox model:
+Colorbar legends are special - they're configured to expand and fill available vertical space in their container. The native frame solver allocates remaining legend-container space across flexible legends:
 
 ```rust
 // In the layout system, colorbars have:
-flex_grow: 1.0,  // Expand to fill available space
-flex_shrink: 1.0, // Can shrink if needed
+flexible: true, // Expand to fill available space
 ```
 
 ### Example with Expanding Colorbar
@@ -223,7 +222,7 @@ The layout algorithm follows a precise two-pass process:
 
 **1. Estimate Initial Plot Area**
 
-The system starts by assuming the plot area will occupy 80% of the canvas dimensions. This is purely an estimate used for measurement purposes - the final plot area size will be computed by Taffy in Pass 2.
+The system starts by assuming the plot area will occupy 80% of the canvas dimensions. This is purely an estimate used for measurement purposes - the final plot area size will be computed by the native frame solver in Pass 2.
 
 **2. Measure Guide Overflow**
 
@@ -247,16 +246,16 @@ The system constructs a CSS Grid template by adding rows and columns only for co
 
 Small overflows below a minimum threshold are omitted to keep the grid efficient.
 
-### Pass 2: Taffy Layout Computation
+### Pass 2: Native Frame Layout Computation
 
-The Taffy CSS Grid engine takes the grid template and canvas dimensions and computes final pixel positions for every component.
+The native frame solver takes the grid template and canvas dimensions and computes final pixel positions for every component.
 
 **Key Behavior**:
 - **Fixed-size tracks** (titles, overflows, legends) get exactly the space they measured
-- **Flexible tracks** (plot area, margins) expand to fill remaining space using CSS Grid fractional units (`fr`)
+- **Flexible tracks** (plot area, margins) expand to fill remaining space using Avenger fractional units (`fr`)
 - The plot area "absorbs" whatever space is left after allocating fixed-size components
 
-This is why the plot area automatically adjusts when you add titles, legends, or have axes with long labels - Taffy recalculates the flexible space to ensure everything fits within the canvas bounds.
+This is why the plot area automatically adjusts when you add titles, legends, or have axes with long labels - the frame solver recalculates the flexible space to ensure everything fits within the canvas bounds.
 
 ### Why Two Passes?
 
@@ -278,7 +277,7 @@ The current two-pass system has a known limitation: **guide overflow is measured
 
 ### The Issue
 
-When Taffy computes the final layout in Pass 2, the actual plot area may differ from the 80% estimate used in Pass 1. This can affect:
+When the frame solver computes the final layout in Pass 2, the actual plot area may differ from the 80% estimate used in Pass 1. This can affect:
 
 1. **Axis tick positioning**: Final plot dimensions might suggest different tick counts or positions
 2. **Label wrapping**: Available space for axis labels might change
@@ -300,7 +299,7 @@ A more robust approach would iterate the two passes until convergence:
 ```
 Loop:
   1. Measure overflow with current plot size estimate
-  2. Compute layout with Taffy
+  2. Compute layout with the native frame solver
   3. Refine domains with final ranges
   4. Check if overflow changed significantly
   5. If stable: done. If not: repeat with new estimate

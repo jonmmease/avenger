@@ -76,7 +76,7 @@ The crate provides structured logging for various operations:
 - Plot area bounds calculation
 - Axis and guide placement
 - Grid configuration
-- Taffy layout tree operations
+- Native frame solver operations
 - Facet measurement and coordination
 
 #### Legend Crate (`avenger_chart_legend`)

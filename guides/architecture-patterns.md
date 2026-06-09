@@ -65,7 +65,7 @@ impl SceneGraphBuilder<MyState> for MyBuilder {
 - Immutable design for predictable behavior
 
 ### Layout System (avenger-chart)
-- Uses Taffy for flexbox-like layout
+- Uses an Avenger-native frame grid solver for chart chrome layout
 - Debug visualization available via AVENGER_CHART_DEBUG_LAYOUT
 - Handles plot areas, guides, legends, titles
 

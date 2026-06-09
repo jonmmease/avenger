@@ -62,9 +62,9 @@ use crate::{
     },
     guide::{GuideOverflowPhase, GuideSharingContext, OverflowSpaceRequirement},
     layout::{
-        EdgeSlabs, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, FrameAllocation,
-        FrameDimensionSizing, FrameLayout, FrameLayoutInput, LayoutBounds, LayoutSpec, Margins,
-        ResolvedLayoutDimensions, Size2D, SizeMode, TaffyFrameLayoutSolver,
+        AvengerFrameLayoutSolver, EdgeSlabs, EvaluatedLayoutSpec, EvaluatedMargins,
+        EvaluatedSizeMode, FrameAllocation, FrameDimensionSizing, FrameLayout, FrameLayoutInput,
+        LayoutBounds, LayoutSpec, Margins, ResolvedLayoutDimensions, Size2D, SizeMode,
         project_child_frame_bounds,
     },
     marks::CompiledMark,
@@ -2254,7 +2254,7 @@ impl CompiledPlot {
             .await?;
         }
 
-        let mut result = Box::pin(TaffyFrameLayoutSolver::solve(FrameLayoutInput {
+        let mut result = Box::pin(AvengerFrameLayoutSolver::solve(FrameLayoutInput {
             overflow,
             layout_spec,
             title: self.get_title(),

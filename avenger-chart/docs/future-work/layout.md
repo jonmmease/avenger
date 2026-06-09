@@ -57,8 +57,9 @@ single-plot `LayoutSpec` as the dashboard API.
 - **Use `HConcat`/`VConcat` only**: good for simple stacks and side-by-side
   layouts, but insufficient for grid spanning, dashboards, and unrelated
   charts.
-- **CSS/Taffy layout tree**: likely a good implementation detail, but the
-  public API should be chart-oriented and typed.
+- **Generic layout tree**: a possible implementation detail for dashboard-style
+  layout, but the public API should be chart-oriented and typed. The existing
+  single-chart frame solver stays Avenger-native.
 - **HTML/SVG host layout**: keeps chart core smaller, but prevents WGPU/canvas
   rendering of complete dashboard scenegraphs.
 

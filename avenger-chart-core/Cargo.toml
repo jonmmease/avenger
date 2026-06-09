@@ -28,7 +28,6 @@ serde_json = { workspace = true }
 serde_with = "3.0"
 selectors = "0.31"
 strsim = "0.11"
-taffy = "0.8.3"
 thiserror = { workspace = true }
 tracing = { workspace = true }
 typetag = "0.2"

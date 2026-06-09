@@ -9,7 +9,6 @@ use avenger_text::{
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
-use taffy::prelude::*;
 use tracing::debug;
 
 use avenger_chart_core::{
@@ -29,13 +28,30 @@ use crate::{
 use super::sizing::EvaluatedLayoutSpec;
 
 /// Types of components that can be laid out.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum ComponentType {
     PlotArea,
     GuideOverflow(OverflowSide),
     LegendContainer(LegendPosition),
     Title,
     Subtitle,
+}
+
+/// Frame grid track sizing used by the Avenger-native frame solver.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum FrameTrackSize {
+    Fixed(f32),
+    Fr(f32),
+}
+
+impl FrameTrackSize {
+    pub(crate) fn fixed(value: f32) -> Self {
+        Self::Fixed(value.max(0.0))
+    }
+
+    pub(crate) fn fr(value: f32) -> Self {
+        Self::Fr(value.max(0.0))
+    }
 }
 
 /// Minimum size in pixels for creating guide overflow regions.
@@ -145,10 +161,10 @@ pub(crate) struct GridBuilder {
 
 #[derive(Debug)]
 pub(crate) struct GridLayout {
-    /// CSS Grid row track sizing functions
-    pub rows: Vec<TrackSizingFunction>,
-    /// CSS Grid column track sizing functions
-    pub cols: Vec<TrackSizingFunction>,
+    /// Frame grid row track sizing functions.
+    pub rows: Vec<FrameTrackSize>,
+    /// Frame grid column track sizing functions.
+    pub cols: Vec<FrameTrackSize>,
     /// Maps grid cells (row, col) to their component types
     pub component_cells: HashMap<(usize, usize), ComponentType>,
 }
@@ -171,17 +187,8 @@ impl GridLayout {
     /// Find the grid position of a component
     pub fn find_component_position(&self, component: &ComponentType) -> Option<(usize, usize)> {
         for ((row, col), comp) in &self.component_cells {
-            if std::mem::discriminant(comp) == std::mem::discriminant(component) {
-                // For guide overflow positions, check specific position match
-                if let (ComponentType::GuideOverflow(pos1), ComponentType::GuideOverflow(pos2)) =
-                    (comp, component)
-                {
-                    if pos1 == pos2 {
-                        return Some((*row, *col));
-                    }
-                } else {
-                    return Some((*row, *col));
-                }
+            if comp == component {
+                return Some((*row, *col));
             }
         }
         None
@@ -427,9 +434,9 @@ impl GridBuilder {
         // 1. Start with left margin
         // Use fr(1.0) if margins should expand horizontally, otherwise use fixed length
         if expand_horizontal {
-            grid.cols.push(fr(1.0));
+            grid.cols.push(FrameTrackSize::fr(1.0));
         } else {
-            grid.cols.push(length(margins.left));
+            grid.cols.push(FrameTrackSize::fixed(margins.left));
         }
         let mut col_index = 1;
 
@@ -437,14 +444,14 @@ impl GridBuilder {
         let mut left_legend_cols = Vec::new();
         if let Some(channels) = self.legends_by_position.get(&LegendPosition::Left) {
             let width = self.measure_legend_container_width(channels, legend_sizes);
-            grid.cols.push(length(width));
+            grid.cols.push(FrameTrackSize::fixed(width));
             left_legend_cols.push(col_index);
             col_index += 1;
         }
 
         // 3. Add left overflow column if needed for guide overflow (e.g., axis labels extending left)
         let left_overflow_col = if overflow.left > MIN_GUIDE_OVERFLOW_SIZE {
-            grid.cols.push(length(overflow.left.ceil())); // Pixel-align by ceilling
+            grid.cols.push(FrameTrackSize::fixed(overflow.left.ceil())); // Pixel-align by ceilling
             let idx = col_index;
             col_index += 1;
             Some(idx)
@@ -457,15 +464,15 @@ impl GridBuilder {
         let plot_col_index = col_index;
         let plot_col_size = match &layout_spec.plot_area {
             super::sizing::EvaluatedSizeMode::Fixed { width, .. }
-            | super::sizing::EvaluatedSizeMode::Width(width) => length(*width),
-            _ => fr(1.0), // Flexible - takes remaining space
+            | super::sizing::EvaluatedSizeMode::Width(width) => FrameTrackSize::fixed(*width),
+            _ => FrameTrackSize::fr(1.0), // Flexible - takes remaining space
         };
         grid.cols.push(plot_col_size);
         col_index += 1;
 
         // 5. Add right overflow column if needed for guide overflow (e.g., axis labels extending right)
         let right_overflow_col = if overflow.right > MIN_GUIDE_OVERFLOW_SIZE {
-            grid.cols.push(length(overflow.right.ceil())); // Pixel-align by ceilling
+            grid.cols.push(FrameTrackSize::fixed(overflow.right.ceil())); // Pixel-align by ceilling
             let idx = col_index;
             col_index += 1;
             Some(idx)
@@ -478,7 +485,7 @@ impl GridBuilder {
         let mut right_legend_cols = Vec::new();
         if let Some(channels) = self.legends_by_position.get(&LegendPosition::Right) {
             let width = self.measure_legend_container_width(channels, legend_sizes);
-            grid.cols.push(length(width));
+            grid.cols.push(FrameTrackSize::fixed(width));
             right_legend_cols.push(col_index);
             let _ = col_index + 1; // Would be incremented for more columns
         }
@@ -486,9 +493,9 @@ impl GridBuilder {
         // 7. End with right margin
         // Use fr(1.0) if margins should expand horizontally, otherwise use fixed length
         if expand_horizontal {
-            grid.cols.push(fr(1.0));
+            grid.cols.push(FrameTrackSize::fr(1.0));
         } else {
-            grid.cols.push(length(margins.right));
+            grid.cols.push(FrameTrackSize::fixed(margins.right));
         }
 
         // === Build Row Template ===
@@ -498,15 +505,15 @@ impl GridBuilder {
         // 1. Start with top margin
         // Use fr(1.0) if margins should expand vertically, otherwise use fixed length
         if expand_vertical {
-            grid.rows.push(fr(1.0));
+            grid.rows.push(FrameTrackSize::fr(1.0));
         } else {
-            grid.rows.push(length(margins.top));
+            grid.rows.push(FrameTrackSize::fixed(margins.top));
         }
         let mut row_index = 1;
 
         // 2. Add title row if present (using pre-measured height)
         if let Some(height) = title_height {
-            grid.rows.push(length(height));
+            grid.rows.push(FrameTrackSize::fixed(height));
             // Title spans from left overflow (if present) or plot area to the end
             let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
             grid.add_component(ComponentType::Title, row_index, start_col);
@@ -515,7 +522,7 @@ impl GridBuilder {
 
         // 3. Add subtitle row if present (using pre-measured height)
         if let Some(height) = subtitle_height {
-            grid.rows.push(length(height));
+            grid.rows.push(FrameTrackSize::fixed(height));
             // Subtitle spans from left overflow (if present) or plot area to the end
             let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
             grid.add_component(ComponentType::Subtitle, row_index, start_col);
@@ -530,7 +537,7 @@ impl GridBuilder {
                 channels = ?channels,
                 "Top legend container height"
             );
-            grid.rows.push(length(height));
+            grid.rows.push(FrameTrackSize::fixed(height));
             // Top legends should align with plot area, not include left overflow
             grid.add_component(
                 ComponentType::LegendContainer(LegendPosition::Top),
@@ -542,7 +549,7 @@ impl GridBuilder {
 
         // 5. Add top overflow row if needed for guide overflow (e.g., axis labels extending upward)
         if overflow.top > MIN_GUIDE_OVERFLOW_SIZE {
-            grid.rows.push(length(overflow.top.ceil())); // Pixel-align by ceilling
+            grid.rows.push(FrameTrackSize::fixed(overflow.top.ceil())); // Pixel-align by ceilling
             grid.add_component(
                 ComponentType::GuideOverflow(OverflowSide::Top),
                 row_index,
@@ -556,8 +563,8 @@ impl GridBuilder {
         let plot_row_index = row_index;
         let plot_row_size = match &layout_spec.plot_area {
             super::sizing::EvaluatedSizeMode::Fixed { height, .. }
-            | super::sizing::EvaluatedSizeMode::Height(height) => length(*height),
-            _ => fr(1.0),
+            | super::sizing::EvaluatedSizeMode::Height(height) => FrameTrackSize::fixed(*height),
+            _ => FrameTrackSize::fr(1.0),
         };
         grid.rows.push(plot_row_size);
         grid.add_component(ComponentType::PlotArea, plot_row_index, plot_col_index);
@@ -607,7 +614,8 @@ impl GridBuilder {
 
         // 10. Add bottom overflow row if needed for guide overflow (e.g., axis labels extending downward)
         if overflow.bottom > MIN_GUIDE_OVERFLOW_SIZE {
-            grid.rows.push(length(overflow.bottom.ceil()));
+            grid.rows
+                .push(FrameTrackSize::fixed(overflow.bottom.ceil()));
             grid.add_component(
                 ComponentType::GuideOverflow(OverflowSide::Bottom),
                 row_index,
@@ -624,7 +632,7 @@ impl GridBuilder {
                 channels = ?channels,
                 "Bottom legend container height"
             );
-            grid.rows.push(length(height));
+            grid.rows.push(FrameTrackSize::fixed(height));
             // Bottom legends should align with plot area, not include left overflow
             grid.add_component(
                 ComponentType::LegendContainer(LegendPosition::Bottom),
@@ -638,11 +646,44 @@ impl GridBuilder {
         // 12. End with bottom margin
         // Use fr(1.0) if margins should expand vertically, otherwise use fixed length
         if expand_vertical {
-            grid.rows.push(fr(1.0));
+            grid.rows.push(FrameTrackSize::fr(1.0));
         } else {
-            grid.rows.push(length(margins.bottom));
+            grid.rows.push(FrameTrackSize::fixed(margins.bottom));
         }
 
         Ok(grid)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use avenger_chart_core::{LegendPosition, OverflowSide};
+
+    use super::{ComponentType, GridLayout};
+
+    #[test]
+    fn component_lookup_matches_full_component_payload() {
+        let mut grid = GridLayout::new();
+        grid.add_component(ComponentType::LegendContainer(LegendPosition::Top), 1, 2);
+        grid.add_component(ComponentType::LegendContainer(LegendPosition::Right), 3, 4);
+        grid.add_component(ComponentType::GuideOverflow(OverflowSide::Top), 5, 6);
+        grid.add_component(ComponentType::GuideOverflow(OverflowSide::Right), 7, 8);
+
+        assert_eq!(
+            grid.find_component_position(&ComponentType::LegendContainer(LegendPosition::Top)),
+            Some((1, 2))
+        );
+        assert_eq!(
+            grid.find_component_position(&ComponentType::LegendContainer(LegendPosition::Right)),
+            Some((3, 4))
+        );
+        assert_eq!(
+            grid.find_component_position(&ComponentType::GuideOverflow(OverflowSide::Top)),
+            Some((5, 6))
+        );
+        assert_eq!(
+            grid.find_component_position(&ComponentType::GuideOverflow(OverflowSide::Right)),
+            Some((7, 8))
+        );
     }
 }

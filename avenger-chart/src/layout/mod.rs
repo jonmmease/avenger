@@ -2,7 +2,6 @@
 
 mod band_child_frame;
 mod band_position;
-mod chart_layout;
 mod child_frame;
 mod content_solver;
 mod frame_solver;
@@ -30,7 +29,7 @@ pub use content_solver::{
     SinglePlotContentMeasurement, SinglePlotContentPlan, SinglePlotContentSolver,
 };
 pub(crate) use frame_solver::{
-    FrameLayoutInput, TaffyFrameLayoutSolver, apply_frame_side_slab, overflow_side_value,
+    AvengerFrameLayoutSolver, FrameLayoutInput, apply_frame_side_slab, overflow_side_value,
     retarget_frame_layout_for_plot_area,
 };
 pub(crate) use grid::{ComponentType, MIN_GUIDE_OVERFLOW_SIZE};

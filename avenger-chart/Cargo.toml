@@ -44,7 +44,6 @@ serde_with = "3.0"
 typetag = "0.2"
 erased-serde = "0.4.8"
 
-taffy = "0.8.3"
 tracing = { workspace = true }
 lyon_path = { workspace = true }
 paste = "1.0"
