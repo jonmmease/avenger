@@ -134,8 +134,8 @@ pub struct PartitionNode {
     /// Minimum physical slots to reserve for this node.
     ///
     /// This is layout metadata rather than a semantic domain value list. Facet
-    /// wrap uses it to preserve trailing holes in ragged physical rows without
-    /// inventing fake data values or predicates.
+    /// wrap uses it to preserve empty physical slots without inventing fake data
+    /// values or predicates.
     pub(crate) min_slot_count: Option<usize>,
     /// Partition content: either leaf values or branches keyed by values.
     pub content: PartitionContent,

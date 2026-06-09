@@ -262,12 +262,13 @@ impl EvaluatedFacetTree {
         let values = node.values().cloned().collect::<Vec<_>>();
         let observed_values = node.observed_values().cloned().collect::<Vec<_>>();
         key.push(format!(
-            "node:path={:?};direction={:?};sharing={};field={};axis_policy={:?};values={:?};observed={:?}",
+            "node:path={:?};direction={:?};sharing={};field={};axis_policy={:?};min_slots={:?};values={:?};observed={:?}",
             Self::canonical_path(path),
             node.direction,
             node.sharing,
             node.field,
             node.axis_guide_visibility,
+            node.min_slot_count(),
             values,
             observed_values
         ));
@@ -945,6 +946,42 @@ impl EvaluatedFacetTree {
             self.node_at_path(facet_path)
         }?;
         node.min_slot_count()
+    }
+
+    pub(crate) fn ragged_orthogonal_slot_count_for_facet(
+        &self,
+        facet_path: &[ScalarValue],
+    ) -> Option<usize> {
+        if facet_path.is_empty() {
+            return None;
+        }
+
+        let current = self.node_at_path(facet_path)?;
+        let parent_path = &facet_path[..facet_path.len() - 1];
+        let parent = if parent_path.is_empty() {
+            self.root.as_ref()
+        } else {
+            self.node_at_path(parent_path)
+        }?;
+
+        if current.direction == parent.direction {
+            return None;
+        }
+
+        let PartitionContent::Branch { children } = &parent.content else {
+            return None;
+        };
+        if children.len() < 2 {
+            return None;
+        }
+
+        let max_sibling_slots = children
+            .values()
+            .filter(|child| child.direction == current.direction)
+            .map(|child| child.domain_count())
+            .max()?;
+
+        (max_sibling_slots > current.domain_count()).then_some(max_sibling_slots)
     }
 
     /// Get the sharing level for a channel.
@@ -4077,6 +4114,22 @@ mod tests {
 
         assert!(narrow_visibility.show_title);
         assert!(medium_visibility.show_title);
+    }
+
+    #[test]
+    fn ragged_free_nested_rows_expose_orthogonal_sibling_physical_slot_count() {
+        let tree = build_free_row_title_test_tree();
+        let narrow_path = vec![scalar("narrow")];
+
+        assert_eq!(tree.min_slot_count_for_facet(&narrow_path), None);
+        assert_eq!(
+            tree.ragged_orthogonal_slot_count_for_facet(&narrow_path),
+            Some(2)
+        );
+        assert_eq!(
+            tree.enumerate_values_for_facet(&narrow_path, SharingLevel::FREE.raw()),
+            Some(vec![scalar("Iris-setosa")])
+        );
     }
 
     #[test]

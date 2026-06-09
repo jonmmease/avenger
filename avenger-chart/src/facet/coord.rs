@@ -2400,6 +2400,7 @@ async fn measure_nested_cell(
 }
 
 async fn build_facet_band_measure_plan(
+    axis: FacetAxis,
     cell_plans: Vec<FacetCellPlan>,
     facet_path: &[ScalarValue],
     data_df: &DataFrame,
@@ -2408,10 +2409,18 @@ async fn build_facet_band_measure_plan(
     eval_ctx: &EvaluationContext,
 ) -> Result<FacetBandMeasurePlan, AvengerChartError> {
     let cell_values: Vec<ScalarValue> = cell_plans.iter().map(|plan| plan.value.clone()).collect();
-    let min_slot_count = facet_tree
+    let mut min_slot_count = facet_tree
         .min_slot_count_for_facet(facet_path)
         .unwrap_or(cell_values.len())
         .max(cell_values.len());
+    if !eval_ctx
+        .facet_runtime_sizing_mode()
+        .facet_band_is_leaf_plot_area_sized(axis)
+        && let Some(ragged_slot_count) =
+            facet_tree.ragged_orthogonal_slot_count_for_facet(facet_path)
+    {
+        min_slot_count = min_slot_count.max(ragged_slot_count);
+    }
 
     let node_key = FacetScaleNodeKey::new(compiled_subplot, facet_path);
     let scale_artifacts = if let Some(artifacts) = eval_ctx
@@ -2491,6 +2500,7 @@ async fn build_facet_band_measure_plan(
 }
 
 async fn prepare_measurement_inputs(
+    axis: FacetAxis,
     cell_plans: Vec<FacetCellPlan>,
     facet_path: &[ScalarValue],
     data_df: &DataFrame,
@@ -2499,6 +2509,7 @@ async fn prepare_measurement_inputs(
     eval_ctx: &EvaluationContext,
 ) -> Result<FacetPreparedRuntimeInputs, AvengerChartError> {
     let plan = Box::pin(build_facet_band_measure_plan(
+        axis,
         cell_plans,
         facet_path,
         data_df,
@@ -2560,7 +2571,7 @@ fn prepared_cells_as_drafts(
 }
 
 async fn prepare_band_inputs_and_runtime(
-    cell_semantics: FacetBandSemantics,
+    mut cell_semantics: FacetBandSemantics,
     data_df: &DataFrame,
     compiled_subplot: &Arc<CompiledPlot>,
     band_scale: &ConfiguredScaleWithSpec,
@@ -2573,6 +2584,7 @@ async fn prepare_band_inputs_and_runtime(
         .map(FacetCellPlan::from)
         .collect();
     let measurement_inputs = Box::pin(prepare_measurement_inputs(
+        cell_semantics.node_id.axis,
         cell_plans,
         &cell_semantics.node_id.facet_path,
         data_df,
@@ -2581,6 +2593,7 @@ async fn prepare_band_inputs_and_runtime(
         eval_ctx,
     ))
     .await?;
+    cell_semantics.min_slot_count = measurement_inputs.plan.min_slot_count;
 
     let renderable_mask = renderable_mask_for_cells(
         &measurement_inputs.plan.cells,
@@ -5203,6 +5216,7 @@ mod tests {
         let cell_plans =
             build_facet_cell_plans(&facet_tree, &facet_path, &[s("A"), s("B"), s("C")])?;
         let prepared_inputs = prepare_measurement_inputs(
+            FacetAxis::Column,
             cell_plans,
             &facet_path,
             &data_df,
