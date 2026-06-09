@@ -1100,11 +1100,15 @@ mod tests {
             .iter()
             .map(|state| state.local_layout.padding_inner_px)
             .fold(0.0f32, f32::max);
-        let expected_n = expected_states
+        let local_slot_counts = expected_states
             .iter()
             .map(|state| state.local_layout.n)
-            .max()
-            .unwrap_or(0);
+            .collect::<Vec<_>>();
+        assert_ne!(
+            local_slot_counts.iter().max(),
+            local_slot_counts.iter().min(),
+            "perturbation should make depth-1 local slot counts diverge"
+        );
 
         let retargeted_requirement_pass = build_requirement_pass(
             RequirementStage::Retargeted,
@@ -1122,12 +1126,16 @@ mod tests {
                 .coordinated_layout
                 .as_ref()
                 .expect("retargeted requirements should set coordinated layout");
+            // Chrome and spacing still coordinate to the group maximum.
             assert!(approx_eq_within(
                 coordinated.padding_inner_px,
                 expected_padding,
                 0.01
             ));
-            assert_eq!(coordinated.n, expected_n);
+            // The fixture's bands use the default FREE slot sharing, which
+            // keeps slot counts local instead of adopting the group maximum:
+            // free nested facets must not reserve hidden slots (eb04e728).
+            assert_eq!(coordinated.n, state.local_layout.n);
         }
 
         Ok(())
