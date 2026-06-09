@@ -17,10 +17,8 @@ pub(crate) fn merge_grid_requirements<'a>(
         }
 
         merged.guide_slot_gap_px = merged.guide_slot_gap_px.max(next.guide_slot_gap_px);
-        merged.column_outer_start = merged.column_outer_start.max(next.column_outer_start);
-        merged.column_outer_end = merged.column_outer_end.max(next.column_outer_end);
-        merged.row_outer_start = merged.row_outer_start.max(next.row_outer_start);
-        merged.row_outer_end = merged.row_outer_end.max(next.row_outer_end);
+        merged.column_spacing = merged.column_spacing.merge_max(next.column_spacing);
+        merged.row_spacing = merged.row_spacing.merge_max(next.row_spacing);
         max_assign_each(&mut merged.column_widths, &next.column_widths);
         max_assign_each(&mut merged.row_heights, &next.row_heights);
         max_assign_edge_each(&mut merged.column_left, &next.column_left);
@@ -41,10 +39,8 @@ pub(crate) fn grid_edge_delta(local: &GridRequirements, merged: &GridRequirement
         + abs_edge_delta_sum(&local.column_right, &merged.column_right)
         + abs_edge_delta_sum(&local.row_top, &merged.row_top)
         + abs_edge_delta_sum(&local.row_bottom, &merged.row_bottom)
-        + (merged.column_outer_start - local.column_outer_start).abs()
-        + (merged.column_outer_end - local.column_outer_end).abs()
-        + (merged.row_outer_start - local.row_outer_start).abs()
-        + (merged.row_outer_end - local.row_outer_end).abs()
+        + local.column_spacing.abs_delta(merged.column_spacing)
+        + local.row_spacing.abs_delta(merged.row_spacing)
         + (merged.guide_slot_gap_px - local.guide_slot_gap_px).abs()
 }
 
@@ -83,7 +79,9 @@ fn abs_edge_delta_sum(local: &[EdgeDemand], merged: &[EdgeDemand]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layout::{GridRequirements, GridShape, total_edge_demands, zero_edge_demands};
+    use crate::layout::{
+        GridRequirements, GridShape, TrackSpacing, total_edge_demands, zero_edge_demands,
+    };
 
     fn requirements(width: f32, left_total: f32) -> GridRequirements {
         GridRequirements {
@@ -92,10 +90,8 @@ mod tests {
                 columns: 1,
             },
             guide_slot_gap_px: 0.0,
-            column_outer_start: 0.0,
-            column_outer_end: 0.0,
-            row_outer_start: 0.0,
-            row_outer_end: 0.0,
+            column_spacing: TrackSpacing::default(),
+            row_spacing: TrackSpacing::default(),
             column_widths: vec![width],
             row_heights: vec![40.0],
             column_left: total_edge_demands([left_total]),
@@ -107,10 +103,13 @@ mod tests {
 
     #[test]
     fn merge_grid_requirements_keeps_component_maxima() {
-        let first = requirements(100.0, 4.0);
+        let mut first = requirements(100.0, 4.0);
+        first.column_spacing.min_gap = 9.0;
         let mut second = requirements(80.0, 12.0);
         second.row_heights[0] = 55.0;
         second.guide_slot_gap_px = 7.0;
+        second.column_spacing.min_gap = 5.0;
+        second.column_spacing.outer_start = 3.0;
 
         let merged = merge_grid_requirements([&first, &second]).unwrap();
 
@@ -118,6 +117,14 @@ mod tests {
         assert_eq!(merged.row_heights, vec![55.0]);
         assert_eq!(merged.column_left[0].total, 12.0);
         assert_eq!(merged.guide_slot_gap_px, 7.0);
+        assert_eq!(
+            merged.column_spacing,
+            TrackSpacing {
+                outer_start: 3.0,
+                outer_end: 0.0,
+                min_gap: 9.0
+            }
+        );
     }
 
     #[test]
@@ -134,9 +141,10 @@ mod tests {
         let local = requirements(100.0, 4.0);
         let mut merged = requirements(120.0, 10.0);
         merged.row_heights[0] = 45.0;
-        merged.column_outer_start = 3.0;
+        merged.column_spacing.outer_start = 3.0;
+        merged.column_spacing.min_gap = 6.0;
 
         assert_eq!(grid_content_delta(&local, &merged), 25.0);
-        assert_eq!(grid_edge_delta(&local, &merged), 9.0);
+        assert_eq!(grid_edge_delta(&local, &merged), 15.0);
     }
 }

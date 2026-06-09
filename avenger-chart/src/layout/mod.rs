@@ -33,7 +33,7 @@ pub(crate) use frame_solver::{
 pub(crate) use grid::{ComponentType, MIN_GUIDE_OVERFLOW_SIZE};
 pub(crate) use grid_alignment::{grid_content_delta, grid_edge_delta, merge_grid_requirements};
 pub(crate) use grid_tracks::{
-    EdgeDemand, GridItem, GridRequirements, GridShape, GridSlot, grid_requirements,
+    EdgeDemand, GridItem, GridRequirements, GridShape, GridSlot, TrackSpacing, grid_requirements,
     solve_grid_requirements, zero_edge_demands,
 };
 #[cfg(test)]

@@ -79,6 +79,41 @@ impl EdgeDemand {
     }
 }
 
+/// Per-axis spacing policy for a sequence of grid tracks.
+///
+/// `min_gap` is the floor applied to every inter-track gap:
+/// `gap(i, i+1) = max(min_gap, trailing[i].total + leading[i+1].total)`.
+/// The first track's leading edge and the last track's trailing edge stay
+/// excluded from the content extent (they overlap container overflow).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct TrackSpacing {
+    pub(crate) outer_start: f32,
+    pub(crate) outer_end: f32,
+    pub(crate) min_gap: f32,
+}
+
+impl TrackSpacing {
+    pub(crate) fn merge_max(self, other: Self) -> Self {
+        Self {
+            outer_start: self.outer_start.max(other.outer_start),
+            outer_end: self.outer_end.max(other.outer_end),
+            min_gap: self.min_gap.max(other.min_gap),
+        }
+    }
+
+    pub(crate) fn abs_delta(self, other: Self) -> f32 {
+        (other.outer_start - self.outer_start).abs()
+            + (other.outer_end - self.outer_end).abs()
+            + (other.min_gap - self.min_gap).abs()
+    }
+}
+
+/// Effective gap between adjacent tracks `i` and `i + 1` on one axis.
+#[inline]
+fn track_gap(trailing_total: f32, leading_total: f32, min_gap: f32) -> f32 {
+    (trailing_total + leading_total).max(min_gap.max(0.0))
+}
+
 /// Track sizes and edge requirements needed to align one measured grid.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct GridRequirements {
@@ -90,10 +125,8 @@ pub(crate) struct GridRequirements {
     /// keep it at zero. Keeping it here avoids losing chart guide-spacing state
     /// when facet bands participate in the generic layout model.
     pub(crate) guide_slot_gap_px: f32,
-    pub(crate) column_outer_start: f32,
-    pub(crate) column_outer_end: f32,
-    pub(crate) row_outer_start: f32,
-    pub(crate) row_outer_end: f32,
+    pub(crate) column_spacing: TrackSpacing,
+    pub(crate) row_spacing: TrackSpacing,
     pub(crate) column_widths: Vec<f32>,
     pub(crate) row_heights: Vec<f32>,
     pub(crate) column_left: Vec<EdgeDemand>,
@@ -106,10 +139,8 @@ pub(crate) struct GridRequirements {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct GridSolution {
     pub(crate) guide_slot_gap_px: f32,
-    pub(crate) column_outer_start: f32,
-    pub(crate) column_outer_end: f32,
-    pub(crate) row_outer_start: f32,
-    pub(crate) row_outer_end: f32,
+    pub(crate) column_spacing: TrackSpacing,
+    pub(crate) row_spacing: TrackSpacing,
     pub(crate) column_widths: Vec<f32>,
     pub(crate) row_heights: Vec<f32>,
     pub(crate) column_left: Vec<EdgeDemand>,
@@ -154,10 +185,8 @@ pub(crate) fn grid_requirements(
     let mut requirements = GridRequirements {
         shape,
         guide_slot_gap_px: 0.0,
-        column_outer_start: 0.0,
-        column_outer_end: 0.0,
-        row_outer_start: 0.0,
-        row_outer_end: 0.0,
+        column_spacing: TrackSpacing::default(),
+        row_spacing: TrackSpacing::default(),
         column_widths: vec![base_cell_size.width; shape.columns],
         row_heights: vec![base_cell_size.height; shape.rows],
         column_left: vec![EdgeDemand::default(); shape.columns],
@@ -221,6 +250,7 @@ pub(crate) fn solve_grid_requirements(
         &mut column_widths,
         &column_right_totals,
         &column_left_totals,
+        requirements.column_spacing.min_gap,
         demands
             .iter()
             .map(|demand| AxisSpanConstraint {
@@ -234,6 +264,7 @@ pub(crate) fn solve_grid_requirements(
         &mut row_heights,
         &row_bottom_totals,
         &row_top_totals,
+        requirements.row_spacing.min_gap,
         demands
             .iter()
             .map(|demand| AxisSpanConstraint {
@@ -248,23 +279,19 @@ pub(crate) fn solve_grid_requirements(
         &column_widths,
         &column_right_totals,
         &column_left_totals,
-        requirements.column_outer_start,
-        requirements.column_outer_end,
+        requirements.column_spacing,
     );
     let (row_starts, content_height) = track_starts_and_content_size(
         &row_heights,
         &row_bottom_totals,
         &row_top_totals,
-        requirements.row_outer_start,
-        requirements.row_outer_end,
+        requirements.row_spacing,
     );
 
     GridSolution {
         guide_slot_gap_px: requirements.guide_slot_gap_px,
-        column_outer_start: requirements.column_outer_start,
-        column_outer_end: requirements.column_outer_end,
-        row_outer_start: requirements.row_outer_start,
-        row_outer_end: requirements.row_outer_end,
+        column_spacing: requirements.column_spacing,
+        row_spacing: requirements.row_spacing,
         column_widths,
         row_heights,
         column_left: requirements.column_left.clone(),
@@ -301,6 +328,7 @@ fn satisfy_span_axis_constraints(
     sizes: &mut [f32],
     trailing_edges: &[f32],
     leading_edges: &[f32],
+    min_gap: f32,
     mut constraints: Vec<AxisSpanConstraint>,
 ) {
     constraints.sort_by_key(|constraint| constraint.span);
@@ -309,6 +337,7 @@ fn satisfy_span_axis_constraints(
             sizes,
             trailing_edges,
             leading_edges,
+            min_gap,
             constraint.start,
             constraint.span,
         );
@@ -327,13 +356,14 @@ pub(crate) fn span_axis_extent(
     sizes: &[f32],
     trailing_edges: &[f32],
     leading_edges: &[f32],
+    min_gap: f32,
     start: usize,
     span: usize,
 ) -> f32 {
     let end = start + span;
     let track_sum = sizes[start..end].iter().sum::<f32>();
     let gap_sum = (start..end.saturating_sub(1))
-        .map(|index| trailing_edges[index] + leading_edges[index + 1])
+        .map(|index| track_gap(trailing_edges[index], leading_edges[index + 1], min_gap))
         .sum::<f32>();
     track_sum + gap_sum
 }
@@ -342,19 +372,22 @@ fn track_starts_and_content_size(
     sizes: &[f32],
     trailing_edges: &[f32],
     leading_edges: &[f32],
-    outer_start: f32,
-    outer_end: f32,
+    spacing: TrackSpacing,
 ) -> (Vec<f32>, f32) {
     let mut starts = vec![0.0f32; sizes.len()];
-    let mut cursor = outer_start.max(0.0);
+    let mut cursor = spacing.outer_start.max(0.0);
     for index in 0..sizes.len() {
         if index > 0 {
-            cursor += trailing_edges[index - 1] + leading_edges[index];
+            cursor += track_gap(
+                trailing_edges[index - 1],
+                leading_edges[index],
+                spacing.min_gap,
+            );
         }
         starts[index] = cursor;
         cursor += sizes[index];
     }
-    (starts, cursor + outer_end.max(0.0))
+    (starts, cursor + spacing.outer_end.max(0.0))
 }
 
 impl GridSolution {
@@ -396,6 +429,7 @@ impl GridSolution {
                 &self.column_widths,
                 &column_right_totals,
                 &column_left_totals,
+                self.column_spacing.min_gap,
                 slot.column,
                 slot.column_span,
             ),
@@ -403,6 +437,7 @@ impl GridSolution {
                 &self.row_heights,
                 &row_bottom_totals,
                 &row_top_totals,
+                self.row_spacing.min_gap,
                 slot.row,
                 slot.row_span,
             ),
@@ -558,10 +593,16 @@ mod tests {
 
         let mut requirements = grid_requirements(shape, Size2D::new(100.0, 50.0), &demands)?;
         requirements.guide_slot_gap_px = 13.0;
-        requirements.column_outer_start = 3.0;
-        requirements.column_outer_end = 7.0;
-        requirements.row_outer_start = 5.0;
-        requirements.row_outer_end = 11.0;
+        requirements.column_spacing = TrackSpacing {
+            outer_start: 3.0,
+            outer_end: 7.0,
+            min_gap: 0.0,
+        };
+        requirements.row_spacing = TrackSpacing {
+            outer_start: 5.0,
+            outer_end: 11.0,
+            min_gap: 0.0,
+        };
 
         let solution = solve_grid_requirements(&requirements, &demands);
 
@@ -681,6 +722,7 @@ mod tests {
             &solution.column_widths,
             &column_right_totals,
             &column_left_totals,
+            solution.column_spacing.min_gap,
             0,
             3,
         );
@@ -691,6 +733,113 @@ mod tests {
             solution.column_widths[0] + 2.0 + solution.column_widths[1] + 3.0
         );
         assert!((solution.content_size.width - 190.0).abs() < 0.0001);
+        Ok(())
+    }
+
+    #[test]
+    fn min_gap_floors_inter_track_gaps() -> Result<(), AvengerChartError> {
+        let shape = GridShape {
+            rows: 1,
+            columns: 3,
+        };
+        let demands = vec![
+            grid_item(
+                0,
+                0,
+                0,
+                1,
+                1,
+                Size2D::new(100.0, 50.0),
+                EdgeSlabs::new(0.0, 2.0, 0.0, 0.0),
+            ),
+            grid_item(
+                1,
+                0,
+                1,
+                1,
+                1,
+                Size2D::new(100.0, 50.0),
+                EdgeSlabs::new(0.0, 9.0, 0.0, 3.0),
+            ),
+            grid_item(
+                2,
+                0,
+                2,
+                1,
+                1,
+                Size2D::new(100.0, 50.0),
+                EdgeSlabs::new(0.0, 0.0, 0.0, 4.0),
+            ),
+        ];
+
+        let mut requirements = grid_requirements(shape, Size2D::new(100.0, 50.0), &demands)?;
+        requirements.column_spacing.min_gap = 10.0;
+
+        let solution = solve_grid_requirements(&requirements, &demands);
+
+        // First pair: edge demand 2.0 + 3.0 = 5.0 < min_gap 10.0 -> floored.
+        // Second pair: edge demand 9.0 + 4.0 = 13.0 > min_gap 10.0 -> demand wins.
+        assert_eq!(solution.column_starts, vec![0.0, 110.0, 223.0]);
+        assert_eq!(solution.content_size.width, 323.0);
+        Ok(())
+    }
+
+    #[test]
+    fn min_gap_participates_in_span_extents() -> Result<(), AvengerChartError> {
+        let shape = GridShape {
+            rows: 1,
+            columns: 2,
+        };
+        let demands = vec![
+            grid_item(
+                0,
+                0,
+                0,
+                1,
+                2,
+                Size2D::new(250.0, 50.0),
+                EdgeSlabs::default(),
+            ),
+            grid_item(
+                1,
+                0,
+                0,
+                1,
+                1,
+                Size2D::new(100.0, 50.0),
+                EdgeSlabs::new(0.0, 1.0, 0.0, 0.0),
+            ),
+            grid_item(
+                2,
+                0,
+                1,
+                1,
+                1,
+                Size2D::new(100.0, 50.0),
+                EdgeSlabs::new(0.0, 0.0, 0.0, 2.0),
+            ),
+        ];
+
+        let mut requirements = grid_requirements(shape, Size2D::new(100.0, 50.0), &demands)?;
+        requirements.column_spacing.min_gap = 8.0;
+
+        let solution = solve_grid_requirements(&requirements, &demands);
+
+        // The floored gap (max(8.0, 1.0 + 2.0) = 8.0) counts toward the span
+        // target of 250.0, so each track absorbs (250 - 200 - 8) / 2 = 21.0.
+        assert_eq!(solution.column_widths, vec![121.0, 121.0]);
+        assert_eq!(solution.column_starts, vec![0.0, 129.0]);
+        assert_eq!(solution.content_size.width, 250.0);
+
+        // Slot content size agrees with the positional distance from span
+        // start to span end content edge.
+        let span_slot = demands[0].slot;
+        let positional_extent =
+            solution.column_starts[1] + solution.column_widths[1] - solution.column_starts[0];
+        assert_eq!(
+            solution.content_size_for_slot(span_slot).width,
+            positional_extent
+        );
         Ok(())
     }
 

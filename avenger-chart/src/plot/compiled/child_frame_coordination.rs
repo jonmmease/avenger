@@ -15,8 +15,8 @@ use crate::{
         placement::{FacetBandPlacement, resolve_facet_band_placement},
     },
     layout::{
-        EdgeDemand, GridRequirements, GridShape, GridSlot, grid_content_delta, grid_edge_delta,
-        merge_grid_requirements, zero_edge_demands,
+        EdgeDemand, GridRequirements, GridShape, GridSlot, TrackSpacing, grid_content_delta,
+        grid_edge_delta, merge_grid_requirements, zero_edge_demands,
     },
     plot::compiled::{ChildFrameKey, ComponentsMeasurement, ContainerPathSegment},
     positioned_subplot::PositionedCoordMeasurement,
@@ -362,10 +362,8 @@ fn facet_grid_requirements_from_placement(
     let mut requirements = GridRequirements {
         shape,
         guide_slot_gap_px: 0.0,
-        column_outer_start: 0.0,
-        column_outer_end: 0.0,
-        row_outer_start: 0.0,
-        row_outer_end: 0.0,
+        column_spacing: TrackSpacing::default(),
+        row_spacing: TrackSpacing::default(),
         column_widths: vec![0.0; shape.columns],
         row_heights: vec![0.0; shape.rows],
         column_left: zero_edge_demands(shape.columns),
@@ -377,10 +375,10 @@ fn facet_grid_requirements_from_placement(
     match placement.axis {
         FacetAxis::Column => {
             if let Some(first) = placement.cells.first() {
-                requirements.column_outer_start = first.main_start.max(0.0);
+                requirements.column_spacing.outer_start = first.main_start.max(0.0);
             }
             if let Some(last) = placement.cells.last() {
-                requirements.column_outer_end =
+                requirements.column_spacing.outer_end =
                     (placement.main_extent - last.main_start - last.main_size).max(0.0);
             }
             if let Some(height) = placement.cross_extent {
@@ -406,10 +404,10 @@ fn facet_grid_requirements_from_placement(
         }
         FacetAxis::Row => {
             if let Some(first) = placement.cells.first() {
-                requirements.row_outer_start = first.main_start.max(0.0);
+                requirements.row_spacing.outer_start = first.main_start.max(0.0);
             }
             if let Some(last) = placement.cells.last() {
-                requirements.row_outer_end =
+                requirements.row_spacing.outer_end =
                     (placement.main_extent - last.main_start - last.main_size).max(0.0);
             }
             if let Some(width) = placement.cross_extent {
@@ -482,14 +480,14 @@ fn facet_grid_requirements_to_coordinated_layout(
     let (n, outer_start, outer_end, padding_inner_px) = match axis {
         FacetAxis::Column if requirements.shape.rows == 1 => (
             requirements.shape.columns,
-            requirements.column_outer_start,
-            requirements.column_outer_end,
+            requirements.column_spacing.outer_start,
+            requirements.column_spacing.outer_end,
             max_adjacent_gap(&requirements.column_right, &requirements.column_left),
         ),
         FacetAxis::Row if requirements.shape.columns == 1 => (
             requirements.shape.rows,
-            requirements.row_outer_start,
-            requirements.row_outer_end,
+            requirements.row_spacing.outer_start,
+            requirements.row_spacing.outer_end,
             max_adjacent_gap(&requirements.row_bottom, &requirements.row_top),
         ),
         _ => return Err(FacetBandGridApplyUnsupported::TopologyMismatch),
@@ -971,10 +969,8 @@ mod tests {
                 columns: 1,
             },
             guide_slot_gap_px: 0.0,
-            column_outer_start: 0.0,
-            column_outer_end: 0.0,
-            row_outer_start: 0.0,
-            row_outer_end: 0.0,
+            column_spacing: TrackSpacing::default(),
+            row_spacing: TrackSpacing::default(),
             column_widths: vec![width],
             row_heights: vec![10.0],
             column_left: zero_edge_demands(1),
@@ -1068,11 +1064,10 @@ mod tests {
             &placement,
         )?;
 
-        assert_eq!(requirements.column_outer_start, 3.0);
-        assert_eq!(requirements.column_outer_end, 5.0);
+        assert_eq!(requirements.column_spacing.outer_start, 3.0);
+        assert_eq!(requirements.column_spacing.outer_end, 5.0);
         assert_eq!(requirements.guide_slot_gap_px, 0.0);
-        assert_eq!(requirements.row_outer_start, 0.0);
-        assert_eq!(requirements.row_outer_end, 0.0);
+        assert_eq!(requirements.row_spacing, TrackSpacing::default());
         assert_eq!(requirements.column_widths, vec![10.0, 10.0]);
         assert_eq!(requirements.row_heights, vec![40.0]);
         assert_eq!(

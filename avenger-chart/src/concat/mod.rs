@@ -2033,7 +2033,8 @@ mod tests {
         },
         layout::{
             EdgeDemand, EdgeSlabs, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode,
-            edge_demand_totals, span_axis_extent, total_edge_demands, zero_edge_demands,
+            TrackSpacing, edge_demand_totals, span_axis_extent, total_edge_demands,
+            zero_edge_demands,
         },
         marks::{Subplot, line::Line, symbol::Symbol},
         plot::{
@@ -2355,10 +2356,8 @@ mod tests {
             requirements: ChildFrameLayoutRequirements::Grid(GridRequirements {
                 shape,
                 guide_slot_gap_px: 0.0,
-                column_outer_start: 0.0,
-                column_outer_end: 0.0,
-                row_outer_start: 0.0,
-                row_outer_end: 0.0,
+                column_spacing: TrackSpacing::default(),
+                row_spacing: TrackSpacing::default(),
                 column_widths: vec![10.0; shape.columns],
                 row_heights: vec![10.0; shape.rows],
                 column_left: zero_edge_demands(shape.columns),
@@ -2420,10 +2419,8 @@ mod tests {
             requirements: ChildFrameLayoutRequirements::Grid(GridRequirements {
                 shape,
                 guide_slot_gap_px: 0.0,
-                column_outer_start: 0.0,
-                column_outer_end: 0.0,
-                row_outer_start: 0.0,
-                row_outer_end: 0.0,
+                column_spacing: TrackSpacing::default(),
+                row_spacing: TrackSpacing::default(),
                 column_widths: vec![10.0; shape.columns],
                 row_heights: vec![10.0; shape.rows],
                 column_left: zero_edge_demands(shape.columns),
@@ -2847,10 +2844,16 @@ mod tests {
 
         let mut requirements = grid_requirements(shape, Size2D::new(100.0, 50.0), &demands)?;
         requirements.guide_slot_gap_px = 13.0;
-        requirements.column_outer_start = 3.0;
-        requirements.column_outer_end = 7.0;
-        requirements.row_outer_start = 5.0;
-        requirements.row_outer_end = 11.0;
+        requirements.column_spacing = TrackSpacing {
+            outer_start: 3.0,
+            outer_end: 7.0,
+            min_gap: 0.0,
+        };
+        requirements.row_spacing = TrackSpacing {
+            outer_start: 5.0,
+            outer_end: 11.0,
+            min_gap: 0.0,
+        };
 
         let solution = solve_grid_requirements(&requirements, &demands);
 
@@ -2970,6 +2973,7 @@ mod tests {
             &solution.column_widths,
             &column_right_totals,
             &column_left_totals,
+            solution.column_spacing.min_gap,
             0,
             3,
         );
@@ -4863,10 +4867,12 @@ mod tests {
                 columns: scale_backed_facet.cells.len(),
             },
             guide_slot_gap_px: 4.0,
-            column_outer_start: 2.0,
-            column_outer_end: 5.0,
-            row_outer_start: 0.0,
-            row_outer_end: 0.0,
+            column_spacing: TrackSpacing {
+                outer_start: 2.0,
+                outer_end: 5.0,
+                min_gap: 0.0,
+            },
+            row_spacing: TrackSpacing::default(),
             column_widths: vec![100.0; scale_backed_facet.cells.len()],
             row_heights: vec![80.0],
             column_left: zero_edge_demands(scale_backed_facet.cells.len()),
@@ -4908,10 +4914,12 @@ mod tests {
                 columns: explicit_facet.cells.len(),
             },
             guide_slot_gap_px: 4.0,
-            column_outer_start: 2.0,
-            column_outer_end: 5.0,
-            row_outer_start: 0.0,
-            row_outer_end: 0.0,
+            column_spacing: TrackSpacing {
+                outer_start: 2.0,
+                outer_end: 5.0,
+                min_gap: 0.0,
+            },
+            row_spacing: TrackSpacing::default(),
             column_widths: vec![100.0; explicit_facet.cells.len()],
             row_heights: vec![80.0],
             column_left: total_edge_demands([0.0, 3.0]),
@@ -4981,10 +4989,12 @@ mod tests {
                 columns: cell_count,
             },
             guide_slot_gap_px: 17.0,
-            column_outer_start: 19.0,
-            column_outer_end: 23.0,
-            row_outer_start: 0.0,
-            row_outer_end: 0.0,
+            column_spacing: TrackSpacing {
+                outer_start: 19.0,
+                outer_end: 23.0,
+                min_gap: 0.0,
+            },
+            row_spacing: TrackSpacing::default(),
             column_widths: vec![100.0; cell_count],
             row_heights: vec![80.0],
             column_left: total_edge_demands(column_left),
