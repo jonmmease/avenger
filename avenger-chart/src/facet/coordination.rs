@@ -166,9 +166,14 @@ pub(crate) async fn run_facet_coordination_pipeline(
     );
     apply_requirement_pass(measurement, &initial_requirement_pass)?;
     let mut layout_convergence = ConvergenceTrace::default();
+    let mut overflow_convergence = ConvergenceTrace::default();
     layout_convergence.record_round(
         initial_requirement_pass.layout_round_deltas.content,
         initial_requirement_pass.layout_round_deltas.edge,
+    );
+    overflow_convergence.record_round(
+        initial_requirement_pass.overflow_round_deltas.content,
+        initial_requirement_pass.overflow_round_deltas.edge,
     );
     debug!(
         policy = FacetCoordinationPolicy::LABEL,
@@ -250,11 +255,17 @@ pub(crate) async fn run_facet_coordination_pipeline(
         retargeted_requirement_pass.layout_round_deltas.content,
         retargeted_requirement_pass.layout_round_deltas.edge,
     );
+    overflow_convergence.record_round(
+        retargeted_requirement_pass.overflow_round_deltas.content,
+        retargeted_requirement_pass.overflow_round_deltas.edge,
+    );
     debug!(
         policy = FacetCoordinationPolicy::LABEL,
         layout_rounds = layout_convergence.rounds().len(),
         layout_converged = layout_convergence.is_converged(0.01),
         layout_non_converging = layout_convergence.is_non_converging(0.01),
+        overflow_converged = overflow_convergence.is_converged(0.01),
+        overflow_non_converging = overflow_convergence.is_non_converging(0.01),
         "coordinate_facet_measurement_tree retargeted requirements complete"
     );
 
