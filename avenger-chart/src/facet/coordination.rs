@@ -32,6 +32,7 @@ use crate::{
         layout_plan::effective_edge_indices,
         overflow_projection::FacetOverflowSlabs,
     },
+    layout::ConvergenceTrace,
     plot::compiled::ComponentsMeasurement,
     render::{CoordinationCheckpoint, EvaluationContext},
 };
@@ -164,6 +165,11 @@ pub(crate) async fn run_facet_coordination_pipeline(
         "coordinate_facet_measurement_tree initial requirements global aggregate + distribution"
     );
     apply_requirement_pass(measurement, &initial_requirement_pass)?;
+    let mut layout_convergence = ConvergenceTrace::default();
+    layout_convergence.record_round(
+        initial_requirement_pass.layout_round_deltas.content,
+        initial_requirement_pass.layout_round_deltas.edge,
+    );
     debug!(
         policy = FacetCoordinationPolicy::LABEL,
         "coordinate_facet_measurement_tree initial requirements complete"
@@ -240,8 +246,15 @@ pub(crate) async fn run_facet_coordination_pipeline(
         "coordinate_facet_measurement_tree retargeted requirements post-retarget reconciliation"
     );
     apply_requirement_pass(measurement, &retargeted_requirement_pass)?;
+    layout_convergence.record_round(
+        retargeted_requirement_pass.layout_round_deltas.content,
+        retargeted_requirement_pass.layout_round_deltas.edge,
+    );
     debug!(
         policy = FacetCoordinationPolicy::LABEL,
+        layout_rounds = layout_convergence.rounds().len(),
+        layout_converged = layout_convergence.is_converged(0.01),
+        layout_non_converging = layout_convergence.is_non_converging(0.01),
         "coordinate_facet_measurement_tree retargeted requirements complete"
     );
 

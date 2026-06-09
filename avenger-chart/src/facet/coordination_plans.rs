@@ -18,6 +18,7 @@ use avenger_chart_core::{
 
 use crate::{
     facet::overflow_projection::{FacetOverflowProjection, project_facet_overflow},
+    layout::{AlignmentNode, RoundDeltas, SingletonPolicy, align_by},
     plot::compiled::{CoordinationKind, CoordinationScopeKey},
 };
 
@@ -88,6 +89,9 @@ pub(crate) struct RequirementPass {
     pub(crate) snapshot: RequirementSnapshot,
     pub(crate) aggregates: RequirementAggregates,
     pub(crate) distribution: RequirementDistributionPlan,
+    /// Total layout deltas of this round (local vs merged), for cross-round
+    /// convergence diagnostics.
+    pub(crate) layout_round_deltas: RoundDeltas,
 }
 
 impl Default for RequirementPass {
@@ -97,6 +101,7 @@ impl Default for RequirementPass {
             snapshot: RequirementSnapshot::default(),
             aggregates: RequirementAggregates::default(),
             distribution: RequirementDistributionPlan::default(),
+            layout_round_deltas: RoundDeltas::default(),
         }
     }
 }
@@ -357,24 +362,6 @@ where
         .collect()
 }
 
-fn merge_layout_groups<K>(
-    layout_by_key: HashMap<K, Vec<CoordinatedLayout>>,
-) -> HashMap<K, CoordinatedLayout>
-where
-    K: Eq + Hash,
-{
-    layout_by_key
-        .into_iter()
-        .map(|(key, values)| {
-            let mut merged = CoordinatedLayout::default();
-            for v in values {
-                merged.merge(&v);
-            }
-            (key, merged)
-        })
-        .collect()
-}
-
 #[derive(Debug, Clone)]
 struct RoundCollectionInput {
     node_id: CoordinationNodeKey,
@@ -405,6 +392,7 @@ struct RoundCollectionOutput {
     guide_anchor_overflow_patches_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     boundary_overflow_patches_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     layout_patches_by_node: HashMap<CoordinationNodeKey, CoordinatedLayout>,
+    layout_round_deltas: RoundDeltas,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -412,7 +400,6 @@ struct RoundGroupedRequirements {
     overflow_by_key: HashMap<CoordinationScopeKey, Vec<CoordinatedOverflow>>,
     guide_anchor_overflow_by_key: HashMap<CoordinationScopeKey, Vec<CoordinatedOverflow>>,
     boundary_overflow_by_key: HashMap<CoordinationScopeKey, Vec<CoordinatedOverflow>>,
-    layout_by_key: HashMap<CoordinationScopeKey, Vec<CoordinatedLayout>>,
     max_guide_slot_gap_by_axis_group: HashMap<CoordinationScopeKey, f32>,
 }
 
@@ -597,7 +584,9 @@ fn set_overflow_side(overflow: &mut OverflowSpaceRequirement, side: AxisPosition
 fn build_round_collection(nodes: &[RoundCollectionInput]) -> RoundCollectionOutput {
     let scopes = RequirementScopeMetadata::collect(nodes);
     let grouped = collect_round_groups(nodes, &scopes);
-    let merged = merge_round_groups(&grouped);
+    let mut merged = merge_round_groups(&grouped);
+    let (layout_by_key, layout_round_deltas) = align_layout_groups(nodes);
+    merged.layout_by_key = layout_by_key;
     let patches = build_round_patches(nodes, &scopes, &grouped, &merged);
 
     RoundCollectionOutput {
@@ -608,6 +597,7 @@ fn build_round_collection(nodes: &[RoundCollectionInput]) -> RoundCollectionOutp
         guide_anchor_overflow_patches_by_node: patches.guide_anchor_overflow_by_node,
         boundary_overflow_patches_by_node: patches.boundary_overflow_by_node,
         layout_patches_by_node: patches.layout_by_node,
+        layout_round_deltas,
     }
 }
 
@@ -639,12 +629,6 @@ fn collect_round_groups(
                 .or_default()
                 .push(boundary_overflow);
         }
-        let layout_key = node.key.with_kind(CoordinationKind::ChildSize);
-        grouped
-            .layout_by_key
-            .entry(layout_key)
-            .or_default()
-            .push(node.local_layout.clone());
         if let Some(group) = scopes.axis_lane_scope_by_node.get(&node.node_id) {
             let max_gap = grouped
                 .max_guide_slot_gap_by_axis_group
@@ -671,8 +655,66 @@ fn merge_round_groups(grouped: &RoundGroupedRequirements) -> RoundMergedRequirem
             grouped.guide_anchor_overflow_by_key.clone(),
         ),
         boundary_overflow_by_key: merge_overflow_groups(grouped.boundary_overflow_by_key.clone()),
-        layout_by_key: merge_layout_groups(grouped.layout_by_key.clone()),
+        layout_by_key: HashMap::new(),
     }
+}
+
+/// Run the layout sub-pass as one neutral alignment round.
+///
+/// Group keys (`CoordinationScopeKey` + `ChildSize` kind) and all per-node
+/// patch adjustments (free slot-sharing, lane gap folds, global edge
+/// reversion) stay chart-side in `build_round_patches`; the engine provides
+/// grouping, merging, and delta totals. `SingletonPolicy::Merge` because
+/// every node must receive a coordinated layout patch.
+fn align_layout_groups(
+    nodes: &[RoundCollectionInput],
+) -> (
+    HashMap<CoordinationScopeKey, CoordinatedLayout>,
+    RoundDeltas,
+) {
+    let layout_nodes = nodes
+        .iter()
+        .map(|node| AlignmentNode {
+            id: node.node_id.clone(),
+            group_key: node.key.with_kind(CoordinationKind::ChildSize),
+            requirements: node.local_layout.clone(),
+        })
+        .collect::<Vec<_>>();
+
+    let plan = align_by(
+        &layout_nodes,
+        SingletonPolicy::Merge,
+        |members| {
+            let mut merged = CoordinatedLayout::default();
+            for member in members {
+                merged.merge(member);
+            }
+            Some(merged)
+        },
+        coordinated_layout_delta,
+    );
+
+    let deltas = RoundDeltas {
+        content: plan.total_content_delta(),
+        edge: plan.total_edge_delta(),
+    };
+    let layout_by_key = plan
+        .groups
+        .into_iter()
+        .map(|group| (group.key, group.merged))
+        .collect();
+    (layout_by_key, deltas)
+}
+
+/// Two-channel delta for coordinated layout policy: slot-count difference is
+/// content, chrome/spacing differences are edge.
+fn coordinated_layout_delta(local: &CoordinatedLayout, merged: &CoordinatedLayout) -> (f32, f32) {
+    let content = merged.n.abs_diff(local.n) as f32;
+    let edge = (merged.padding_inner_px - local.padding_inner_px).abs()
+        + (merged.guide_slot_gap_px - local.guide_slot_gap_px).abs()
+        + (merged.outer_start - local.outer_start).abs()
+        + (merged.outer_end - local.outer_end).abs();
+    (content, edge)
 }
 
 fn build_round_patches(
@@ -770,6 +812,7 @@ pub(crate) fn build_requirement_pass(
             boundary_overflow_patches_by_node: round.boundary_overflow_patches_by_node,
             layout_patches_by_node: round.layout_patches_by_node,
         },
+        layout_round_deltas: round.layout_round_deltas,
     }
 }
 

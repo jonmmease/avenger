@@ -19,10 +19,11 @@ pub use avenger_chart_core::{
     LayoutBounds, OverflowSide, OwnedEdgeSlabs, Size2D,
 };
 pub(crate) use avenger_layout::{
-    AlignmentNode, BandItem, BandSolution, BandSpacing, BoundaryDemand, EdgeDemand, EdgeTargets,
-    Edges, GridItem, GridRequirements, GridShape, GridSlot, Orientation, PlacedBandItem,
-    PlacedRegion, PlacementSolution, Size, SkippedGroupReason, TrackSpacing, align,
-    grid_requirements, solve_grid_requirements, zero_edge_demands,
+    AlignmentNode, BandItem, BandSolution, BandSpacing, BoundaryDemand, ConvergenceTrace,
+    EdgeDemand, EdgeTargets, Edges, GridItem, GridRequirements, GridShape, GridSlot, Orientation,
+    PlacedBandItem, PlacedRegion, PlacementSolution, RoundDeltas, SingletonPolicy, Size,
+    SkippedGroupReason, TrackSpacing, align, align_by, grid_requirements, solve_grid_requirements,
+    zero_edge_demands,
 };
 #[cfg(test)]
 pub(crate) use avenger_layout::{merge_grid_requirements, total_edge_demands};
