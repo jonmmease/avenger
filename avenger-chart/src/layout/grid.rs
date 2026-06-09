@@ -71,10 +71,11 @@ const DEFAULT_FONT_FAMILY: &str = "sans-serif";
 
 /// Dynamic grid builder for chart layouts
 ///
-/// `GridBuilder` constructs CSS Grid layouts for charts by dynamically positioning components
-/// based on their semantic roles and spatial requirements. The builder is order-independent -
-/// components can be added in any order and will be positioned deterministically based on
-/// their types and the overflow measurements
+/// `GridBuilder` constructs Avenger frame grids for charts by dynamically
+/// positioning components based on their semantic roles and spatial
+/// requirements. The builder is order-independent - components can be added in
+/// any order and will be positioned deterministically based on their types and
+/// the overflow measurements.
 ///
 /// ## Component Positioning
 ///
@@ -657,9 +658,18 @@ impl GridBuilder {
 
 #[cfg(test)]
 mod tests {
+    use datafusion::prelude::SessionContext;
+    use indexmap::IndexMap;
+
     use avenger_chart_core::{LegendPosition, OverflowSide};
 
-    use super::{ComponentType, GridLayout};
+    use crate::{
+        guide::OverflowSpaceRequirement,
+        layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
+        theme::Theme,
+    };
+
+    use super::{ComponentType, FrameTrackSize, GridBuilder, GridLayout};
 
     #[test]
     fn component_lookup_matches_full_component_payload() {
@@ -685,5 +695,102 @@ mod tests {
             grid.find_component_position(&ComponentType::GuideOverflow(OverflowSide::Right)),
             Some((7, 8))
         );
+    }
+
+    #[tokio::test]
+    async fn build_with_overflow_respects_minimum_guide_threshold() {
+        let builder = GridBuilder::new();
+        let ctx = SessionContext::new();
+        let params = IndexMap::new();
+        let theme = Theme::light();
+        let layout_spec = EvaluatedLayoutSpec {
+            canvas: EvaluatedSizeMode::Fixed {
+                width: 400.0,
+                height: 300.0,
+            },
+            plot_area: EvaluatedSizeMode::Auto,
+            margins: EvaluatedMargins {
+                top: 10.0,
+                right: 10.0,
+                bottom: 10.0,
+                left: 10.0,
+            },
+        };
+
+        let below_threshold = builder
+            .build_with_overflow(
+                &OverflowSpaceRequirement {
+                    left: 2.0,
+                    right: 1.9,
+                    top: 2.0,
+                    bottom: 1.9,
+                },
+                None,
+                None,
+                &theme,
+                &layout_spec,
+                &Default::default(),
+                &ctx,
+                &params,
+                None,
+            )
+            .await
+            .expect("build below-threshold grid");
+
+        assert_eq!(
+            below_threshold
+                .find_component_position(&ComponentType::GuideOverflow(OverflowSide::Left)),
+            None
+        );
+        assert_eq!(
+            below_threshold
+                .find_component_position(&ComponentType::GuideOverflow(OverflowSide::Top)),
+            None
+        );
+
+        let above_threshold = builder
+            .build_with_overflow(
+                &OverflowSpaceRequirement {
+                    left: 2.01,
+                    right: 3.2,
+                    top: 2.01,
+                    bottom: 3.2,
+                },
+                None,
+                None,
+                &theme,
+                &layout_spec,
+                &Default::default(),
+                &ctx,
+                &params,
+                None,
+            )
+            .await
+            .expect("build above-threshold grid");
+
+        assert_eq!(
+            above_threshold
+                .find_component_position(&ComponentType::GuideOverflow(OverflowSide::Left)),
+            Some((2, 1))
+        );
+        assert_eq!(
+            above_threshold
+                .find_component_position(&ComponentType::GuideOverflow(OverflowSide::Right)),
+            Some((2, 3))
+        );
+        assert_eq!(
+            above_threshold
+                .find_component_position(&ComponentType::GuideOverflow(OverflowSide::Top)),
+            Some((1, 2))
+        );
+        assert_eq!(
+            above_threshold
+                .find_component_position(&ComponentType::GuideOverflow(OverflowSide::Bottom)),
+            Some((3, 2))
+        );
+        assert_eq!(above_threshold.cols[1], FrameTrackSize::fixed(3.0));
+        assert_eq!(above_threshold.cols[3], FrameTrackSize::fixed(4.0));
+        assert_eq!(above_threshold.rows[1], FrameTrackSize::fixed(3.0));
+        assert_eq!(above_threshold.rows[3], FrameTrackSize::fixed(4.0));
     }
 }

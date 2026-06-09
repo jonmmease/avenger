@@ -13,7 +13,7 @@ The layout computation happens in two distinct passes:
 ### Pass 1: Grid Construction and Overflow Measurement
 
 In the first pass, the system:
-1. Creates a CSS Grid template structure
+1. Creates an Avenger frame grid structure
 2. Measures each component's space requirements
 3. Calculates "overflow" - the space needed by axes and guides beyond the plot area
 4. Uses an estimated plot area (80% of available space) for initial measurements
@@ -195,11 +195,11 @@ The layout system supports three sizing strategies:
 .plot_size(400.0, 300.0)  // Both specified
 ```
 
-When both are specified, margins become flexible using CSS Grid's `fr(1.0)` units to fill remaining space.
+When both are specified, margins become flexible using Avenger's fractional `fr(1.0)` frame tracks to fill remaining space.
 
 ## Layout Flow Diagram
 
-This diagram shows the CSS Grid structure that Avenger Chart creates dynamically based on component requirements:
+This diagram shows the Avenger frame grid structure that Avenger Chart creates dynamically based on component requirements:
 
 <div class="layout-diagram">
 <svg viewBox="0 0 800 570" xmlns="http://www.w3.org/2000/svg" style="max-width: 100%; height: auto; margin: 2rem auto; display: block;"><rect x="10" y="10" width="780" height="550" fill="#fff" stroke="#495057" stroke-width="2"/><rect x="10" y="10" width="30" height="550" fill="#e9ecef" stroke="#adb5bd" stroke-width="1"/><text x="25" y="290" font-size="11" fill="#495057" font-family="sans-serif" text-anchor="middle" transform="rotate(-90 25 290)">Margin</text><rect x="760" y="10" width="30" height="550" fill="#e9ecef" stroke="#adb5bd" stroke-width="1"/><text x="775" y="290" font-size="11" fill="#495057" font-family="sans-serif" text-anchor="middle" transform="rotate(-90 775 290)">Margin</text><rect x="40" y="10" width="720" height="30" fill="#e9ecef" stroke="#adb5bd" stroke-width="1"/><text x="400" y="28" font-size="11" fill="#495057" font-family="sans-serif" text-anchor="middle">Margin</text><rect x="40" y="530" width="720" height="30" fill="#e9ecef" stroke="#adb5bd" stroke-width="1"/><text x="400" y="548" font-size="11" fill="#495057" font-family="sans-serif" text-anchor="middle">Margin</text><rect x="40" y="40" width="720" height="40" fill="#e7f5ff" stroke="#339af0" stroke-width="2" rx="4"/><text x="400" y="65" font-size="14" font-weight="bold" fill="#1864ab" font-family="sans-serif" text-anchor="middle">Title (optional)</text><rect x="40" y="80" width="720" height="35" fill="#e7f5ff" stroke="#339af0" stroke-width="2" rx="4"/><text x="400" y="102" font-size="13" fill="#1864ab" font-family="sans-serif" text-anchor="middle">Subtitle (optional)</text><rect x="95" y="115" width="545" height="30" fill="#fff3bf" stroke="#f59f00" stroke-width="2" rx="4"/><text x="367.5" y="135" font-size="12" fill="#e67700" font-family="sans-serif" text-anchor="middle">Overflow Top (guide)</text><g><rect x="40" y="145" width="55" height="355" fill="#fff3bf" stroke="#f59f00" stroke-width="2" rx="4"/><text x="67.5" y="322.5" font-size="12" fill="#e67700" font-family="sans-serif" text-anchor="middle" transform="rotate(-90 67.5 322.5)">Overflow Left</text><rect x="95" y="145" width="545" height="355" fill="#d3f9d8" stroke="#37b24d" stroke-width="3" rx="4"/><text x="367.5" y="327.5" font-size="18" font-weight="bold" fill="#2b8a3e" font-family="sans-serif" text-anchor="middle">Plot Area</text><rect x="640" y="145" width="55" height="355" fill="#fff3bf" stroke="#f59f00" stroke-width="2" rx="4"/><text x="667.5" y="322.5" font-size="12" fill="#e67700" font-family="sans-serif" text-anchor="middle" transform="rotate(-90 667.5 322.5)">Overflow Right</text><rect x="695" y="145" width="65" height="355" fill="#ffe3e3" stroke="#f03e3e" stroke-width="2" rx="4"/><text x="727.5" y="327.5" font-size="12" fill="#c92a2a" font-family="sans-serif" text-anchor="middle">Legends</text></g><rect x="95" y="500" width="545" height="30" fill="#fff3bf" stroke="#f59f00" stroke-width="2" rx="4"/><text x="367.5" y="520" font-size="12" fill="#e67700" font-family="sans-serif" text-anchor="middle">Overflow Bottom (guide)</text></svg>
@@ -237,9 +237,9 @@ Overflow is calculated as the distance guide elements extend beyond the estimate
 - **Titles**: Text height is measured and multiplied by a line height factor (1.15 for title, 1.1 for subtitle)
 - **Legends**: Each legend is measured based on its content (symbols, text, colorbar gradients)
 
-**4. Build Dynamic Grid Template**
+**4. Build Dynamic Frame Grid**
 
-The system constructs a CSS Grid template by adding rows and columns only for components that exist:
+The system constructs an Avenger frame grid by adding rows and columns only for components that exist:
 
 - **Columns**: Margins → Overflow Left (if needed) → **Plot Area** (flexible) → Overflow Right (if needed) → Legend Containers → Margins
 - **Rows**: Margins → Title (if exists) → Subtitle (if exists) → Overflow Top (if needed) → **Plot Area** (flexible) → Overflow Bottom (if needed) → Margins
@@ -336,7 +336,7 @@ With debug mode enabled, each magenta rectangle represents:
 The two-pass system is optimized for:
 - **Single Layout Computation**: Layout is computed once during evaluation
 - **Cached Measurements**: Text and component sizes are cached
-- **Efficient Grid Construction**: CSS Grid provides O(n) layout computation
+- **Efficient Grid Construction**: the native frame grid has a small, deterministic O(n) track solver
 
 ## Advanced: Custom Layout Containers
 
@@ -357,7 +357,7 @@ The Avenger Chart layout algorithm provides:
 - **Flexible**: Adapts to different canvas sizes
 - **Debuggable**: Visual debugging with magenta rectangles
 - **Efficient**: Two-pass system minimizes computation
-- **Extensible**: Built on standard CSS Grid concepts
+- **Extensible**: Built on explicit Avenger frame grid concepts
 
 Understanding this system helps you:
 - Debug layout issues effectively

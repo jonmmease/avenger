@@ -346,7 +346,10 @@ fn solve_native_frame_layout(
 
     Ok(LayoutSolution {
         frame_layout,
-        canvas_size: (col_sizes.iter().sum(), row_sizes.iter().sum()),
+        canvas_size: (
+            rounded_track_total(&col_sizes),
+            rounded_track_total(&row_sizes),
+        ),
         overflow: guide_overflow.clone(),
         total_overflow: guide_overflow,
         legend_info,
@@ -446,6 +449,10 @@ fn track_starts(sizes: &[f32]) -> Vec<f32> {
         .collect()
 }
 
+fn rounded_track_total(sizes: &[f32]) -> f32 {
+    sizes.iter().sum::<f32>().round().max(0.0)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn bounds_for_cell(
     row_starts: &[f32],
@@ -466,6 +473,10 @@ fn bounds_for_cell(
 }
 
 fn rounded_plot_bounds(bounds: LayoutBounds) -> LayoutBounds {
+    rounded_track_bounds(bounds)
+}
+
+fn rounded_track_bounds(bounds: LayoutBounds) -> LayoutBounds {
     let x = bounds.x.round();
     let y = bounds.y.round();
     let x2 = (bounds.x + bounds.width).round();
@@ -479,12 +490,7 @@ fn rounded_plot_bounds(bounds: LayoutBounds) -> LayoutBounds {
 }
 
 fn rounded_guide_bounds(bounds: LayoutBounds) -> LayoutBounds {
-    LayoutBounds {
-        x: bounds.x.round(),
-        y: bounds.y.round(),
-        width: bounds.width.ceil(),
-        height: bounds.height.ceil(),
-    }
+    rounded_track_bounds(bounds)
 }
 
 fn rounded_bounds(bounds: LayoutBounds) -> LayoutBounds {
@@ -556,11 +562,7 @@ fn layout_legend_group(
         }
     }
 
-    let flexible_span = if flexible_count > 0 {
-        ((container_main - fixed_total).max(0.0) / flexible_count as f32).max(MIN_COMPONENT_SIZE)
-    } else {
-        0.0
-    };
+    let flexible_span = flexible_legend_span(container_main, fixed_total, flexible_count);
     let mut cursor = match axis {
         LegendMainAxis::Horizontal => container.x,
         LegendMainAxis::Vertical => container.y,
@@ -612,6 +614,14 @@ fn legend_main_axis_span(bounds: &LayoutBounds, axis: LegendMainAxis) -> f32 {
     match axis {
         LegendMainAxis::Horizontal => bounds.width,
         LegendMainAxis::Vertical => bounds.height,
+    }
+}
+
+fn flexible_legend_span(container_main: f32, fixed_total: f32, flexible_count: usize) -> f32 {
+    if flexible_count == 0 {
+        0.0
+    } else {
+        ((container_main - fixed_total).max(0.0) / flexible_count as f32).max(MIN_COMPONENT_SIZE)
     }
 }
 
@@ -667,6 +677,7 @@ fn retarget_flexible_legend_group_main_axis(
     }
 
     let flexible_available = (new_span - fixed_total).max(0.0);
+    let flexible_min = MIN_COMPONENT_SIZE;
     let mut cursor = origin;
     for key in legend_keys {
         let Some(bounds) = legends.get_mut(key) else {
@@ -679,9 +690,9 @@ fn retarget_flexible_legend_group_main_axis(
             .unwrap_or(false);
         let span = if is_flexible {
             if old_flexible_total > 0.01 {
-                flexible_available * old_span / old_flexible_total
+                (flexible_available * old_span / old_flexible_total).max(flexible_min)
             } else {
-                flexible_available / flexible_count as f32
+                (flexible_available / flexible_count as f32).max(flexible_min)
             }
         } else {
             old_span
@@ -796,11 +807,14 @@ fn guide_overflow_bounds(plot_area: LayoutBounds, side: AxisPosition, guide: f32
 
 #[cfg(test)]
 mod tests {
-    use avenger_chart_core::{LayoutBounds, LegendPosition, OverflowSide, TitleSpan};
+    use avenger_chart_core::{LayoutBounds, LegendPosition, OverflowSide, Size2D, TitleSpan};
+    use avenger_chart_legend::{LegendMeasurement, LegendMeasurements};
+    use indexmap::IndexMap;
 
     use super::{
-        ComponentType, FrameTrackSize, GridLayout, MIN_COMPONENT_SIZE, rounded_plot_bounds,
-        solve_tracks, title_or_subtitle_bounds,
+        ComponentType, FrameTrackSize, GridLayout, LegendMainAxis, MIN_COMPONENT_SIZE,
+        layout_legend_group, retarget_flexible_legend_group_main_axis, rounded_guide_bounds,
+        rounded_plot_bounds, rounded_track_total, solve_tracks, title_or_subtitle_bounds,
     };
 
     #[test]
@@ -840,6 +854,32 @@ mod tests {
     }
 
     #[test]
+    fn track_solver_distributes_fixed_canvas_extra_to_expandable_margins() {
+        let sizes = solve_tracks(
+            &[
+                FrameTrackSize::fr(1.0),
+                FrameTrackSize::fixed(300.0),
+                FrameTrackSize::fr(1.0),
+            ],
+            Some(500.0),
+            None,
+        );
+
+        assert_eq!(sizes, vec![100.0, 300.0, 100.0]);
+    }
+
+    #[test]
+    fn track_solver_preserves_plot_minimum_when_fixed_tracks_overflow() {
+        let sizes = solve_tracks(
+            &[FrameTrackSize::fixed(120.0), FrameTrackSize::fr(1.0)],
+            Some(100.0),
+            Some(1),
+        );
+
+        assert_eq!(sizes, vec![120.0, MIN_COMPONENT_SIZE]);
+    }
+
+    #[test]
     fn rounded_plot_bounds_uses_rounded_track_edges() {
         let bounds = rounded_plot_bounds(LayoutBounds {
             x: 45.0,
@@ -852,6 +892,32 @@ mod tests {
         assert_eq!(bounds.y, 53.0);
         assert_eq!(bounds.width, 338.0);
         assert_eq!(bounds.height, 203.0);
+    }
+
+    #[test]
+    fn rounded_guide_bounds_uses_rounded_track_edges() {
+        let bounds = rounded_guide_bounds(LayoutBounds {
+            x: 6.0,
+            y: 202.0,
+            width: 278.33334,
+            height: 5.5,
+        });
+
+        assert_eq!(
+            bounds,
+            LayoutBounds {
+                x: 6.0,
+                y: 202.0,
+                width: 278.0,
+                height: 6.0,
+            }
+        );
+    }
+
+    #[test]
+    fn rounded_track_total_pixel_aligns_auto_canvas_extent() {
+        assert_eq!(rounded_track_total(&[5.5, 278.33334]), 284.0);
+        assert_eq!(rounded_track_total(&[10.0, 880.0, 10.0]), 900.0);
     }
 
     #[test]
@@ -909,6 +975,116 @@ mod tests {
                 height: 21.0,
             }
         );
+    }
+
+    #[test]
+    fn legend_group_stacks_fixed_and_flexible_legends_on_main_axis() {
+        let legend_keys = vec![
+            "shape".to_string(),
+            "fill".to_string(),
+            "opacity".to_string(),
+        ];
+        let measurements = legend_measurements(&[
+            ("shape", Size2D::new(42.0, 20.0), false),
+            ("fill", Size2D::new(14.0, 30.0), true),
+            ("opacity", Size2D::new(14.0, 30.0), true),
+        ]);
+        let bounds = layout_legend_group(
+            LegendPosition::Right,
+            LayoutBounds {
+                x: 410.0,
+                y: 12.0,
+                width: 80.0,
+                height: 170.0,
+            },
+            &legend_keys,
+            &measurements,
+        );
+
+        assert_eq!(
+            bounds["shape"],
+            LayoutBounds {
+                x: 410.0,
+                y: 12.0,
+                width: 42.0,
+                height: 20.0,
+            }
+        );
+        assert_eq!(
+            bounds["fill"],
+            LayoutBounds {
+                x: 410.0,
+                y: 32.0,
+                width: 14.0,
+                height: 75.0,
+            }
+        );
+        assert_eq!(
+            bounds["opacity"],
+            LayoutBounds {
+                x: 410.0,
+                y: 107.0,
+                width: 14.0,
+                height: 75.0,
+            }
+        );
+    }
+
+    #[test]
+    fn flexible_legend_retarget_keeps_first_layout_minimum_span() {
+        let legend_keys = vec![
+            "shape".to_string(),
+            "fill".to_string(),
+            "opacity".to_string(),
+        ];
+        let measurements = legend_measurements(&[
+            ("shape", Size2D::new(42.0, 20.0), false),
+            ("fill", Size2D::new(14.0, 30.0), true),
+            ("opacity", Size2D::new(14.0, 30.0), true),
+        ]);
+        let mut bounds = layout_legend_group(
+            LegendPosition::Right,
+            LayoutBounds {
+                x: 410.0,
+                y: 12.0,
+                width: 80.0,
+                height: 170.0,
+            },
+            &legend_keys,
+            &measurements,
+        );
+
+        retarget_flexible_legend_group_main_axis(
+            &mut bounds,
+            &measurements,
+            &legend_keys,
+            LegendMainAxis::Vertical,
+            25.0,
+            80.0,
+        );
+
+        assert_eq!(bounds["shape"].y, 25.0);
+        assert_eq!(bounds["shape"].height, 20.0);
+        assert_eq!(bounds["fill"].y, 45.0);
+        assert_eq!(bounds["fill"].height, MIN_COMPONENT_SIZE);
+        assert_eq!(bounds["opacity"].y, 95.0);
+        assert_eq!(bounds["opacity"].height, MIN_COMPONENT_SIZE);
+    }
+
+    fn legend_measurements(items: &[(&str, Size2D, bool)]) -> LegendMeasurements {
+        items
+            .iter()
+            .map(|(key, size, flexible)| {
+                (
+                    (*key).to_string(),
+                    LegendMeasurement {
+                        size: *size,
+                        flexible: *flexible,
+                        position: LegendPosition::Right,
+                    },
+                )
+            })
+            .collect::<IndexMap<_, _>>()
     }
 }
 
