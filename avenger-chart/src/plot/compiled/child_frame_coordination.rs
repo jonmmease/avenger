@@ -16,8 +16,8 @@ use crate::{
         placement::{FacetBandPlacement, resolve_facet_band_placement},
     },
     layout::{
-        EdgeDemand, GridRequirements, GridShape, GridSlot, TrackSpacing, grid_content_delta,
-        grid_edge_delta, merge_grid_requirements, zero_edge_demands,
+        AlignmentNode, EdgeDemand, GridRequirements, GridShape, GridSlot, SkippedGroupReason,
+        TrackSpacing, align, zero_edge_demands,
     },
     plot::compiled::{ChildFrameKey, ComponentsMeasurement, ContainerPathSegment},
     positioned_subplot::PositionedCoordMeasurement,
@@ -737,55 +737,79 @@ pub(crate) fn apply_child_frame_layout_alignment(
 pub(crate) fn build_child_frame_layout_alignment_diagnostics(
     nodes: &[ChildFrameLayoutCoordinationNode],
 ) -> ChildFrameLayoutAlignmentDiagnostics {
-    let mut grouped: IndexMap<LayoutAlignmentKey, Vec<&ChildFrameLayoutCoordinationNode>> =
-        IndexMap::new();
-    for node in nodes {
-        grouped.entry(node.alignment_key()).or_default().push(node);
-    }
+    let alignment_nodes = nodes
+        .iter()
+        .enumerate()
+        .map(|(index, node)| {
+            let ChildFrameLayoutRequirements::Grid(chart_grid) = &node.requirements;
+            AlignmentNode {
+                id: index,
+                group_key: node.alignment_key(),
+                requirements: chart_grid.grid.clone(),
+            }
+        })
+        .collect::<Vec<_>>();
 
-    let mut merged_groups = Vec::new();
-    let mut skipped_groups = Vec::new();
-    for (key, group_nodes) in grouped.iter() {
-        if group_nodes.len() < 2 {
-            skipped_groups.push(LayoutAlignmentSkippedGroup {
-                key: key.clone(),
-                node_count: group_nodes.len(),
-                reason: LayoutAlignmentSkippedReason::Singleton,
-            });
-            continue;
-        }
+    let plan = align(&alignment_nodes);
+    let exported_node_count = plan.node_count;
+    let alignment_group_count = plan.group_count();
 
-        let Some(merged_requirements) = merge_child_frame_layout_requirements(
-            group_nodes.iter().map(|node| &node.requirements),
-        ) else {
-            skipped_groups.push(LayoutAlignmentSkippedGroup {
-                key: key.clone(),
-                node_count: group_nodes.len(),
-                reason: LayoutAlignmentSkippedReason::IncompatibleRequirements,
-            });
-            continue;
-        };
+    let merged_groups = plan
+        .groups
+        .iter()
+        .map(|group| {
+            // Fold the chart-only side-car over the group's member IDs; the
+            // neutral engine merges grids only.
+            let node_gap = |id: usize| {
+                let ChildFrameLayoutRequirements::Grid(chart_grid) = &nodes[id].requirements;
+                chart_grid.guide_slot_gap_px
+            };
+            let guide_slot_gap_px = group
+                .deltas
+                .iter()
+                .map(|delta| node_gap(delta.id))
+                .fold(0.0f32, f32::max);
 
-        let node_deltas = group_nodes
-            .iter()
-            .map(|node| ChildFrameLayoutRequirementDelta {
-                instance_key: node.instance_key.clone(),
-                track_delta: requirement_track_delta(&node.requirements, &merged_requirements),
-                slab_delta: requirement_slab_delta(&node.requirements, &merged_requirements),
-            })
-            .collect();
+            let node_deltas = group
+                .deltas
+                .iter()
+                .map(|delta| ChildFrameLayoutRequirementDelta {
+                    instance_key: nodes[delta.id].instance_key.clone(),
+                    track_delta: delta.content_delta,
+                    slab_delta: delta.edge_delta + (guide_slot_gap_px - node_gap(delta.id)).abs(),
+                })
+                .collect();
 
-        merged_groups.push(LayoutAlignmentGroupDiagnostics {
-            key: key.clone(),
-            node_count: group_nodes.len(),
-            merged_requirements,
-            node_deltas,
-        });
-    }
+            LayoutAlignmentGroupDiagnostics {
+                key: group.key.clone(),
+                node_count: group.deltas.len(),
+                merged_requirements: ChildFrameLayoutRequirements::Grid(ChartGridRequirements {
+                    grid: group.merged.clone(),
+                    guide_slot_gap_px,
+                }),
+                node_deltas,
+            }
+        })
+        .collect();
+
+    let skipped_groups = plan
+        .skipped
+        .into_iter()
+        .map(|skipped| LayoutAlignmentSkippedGroup {
+            key: skipped.key,
+            node_count: skipped.node_count,
+            reason: match skipped.reason {
+                SkippedGroupReason::Singleton => LayoutAlignmentSkippedReason::Singleton,
+                SkippedGroupReason::IncompatibleRequirements => {
+                    LayoutAlignmentSkippedReason::IncompatibleRequirements
+                }
+            },
+        })
+        .collect();
 
     ChildFrameLayoutAlignmentDiagnostics {
-        exported_node_count: nodes.len(),
-        alignment_group_count: grouped.len(),
+        exported_node_count,
+        alignment_group_count,
         merged_groups,
         skipped_groups,
     }
@@ -812,50 +836,6 @@ fn layout_alignment_key_has_apply_adapter(key: &LayoutAlignmentKey) -> bool {
             | ChildFrameContainerKind::VConcat
             | ChildFrameContainerKind::GridConcat
     )
-}
-
-fn merge_child_frame_layout_requirements<'a>(
-    requirements: impl IntoIterator<Item = &'a ChildFrameLayoutRequirements>,
-) -> Option<ChildFrameLayoutRequirements> {
-    let mut grids = Vec::new();
-    let mut guide_slot_gap_px = 0.0f32;
-    for requirement in requirements {
-        match requirement {
-            ChildFrameLayoutRequirements::Grid(chart_grid) => {
-                guide_slot_gap_px = guide_slot_gap_px.max(chart_grid.guide_slot_gap_px);
-                grids.push(&chart_grid.grid);
-            }
-        }
-    }
-    merge_grid_requirements(grids).map(|grid| {
-        ChildFrameLayoutRequirements::Grid(ChartGridRequirements {
-            grid,
-            guide_slot_gap_px,
-        })
-    })
-}
-
-fn requirement_track_delta(
-    local: &ChildFrameLayoutRequirements,
-    merged: &ChildFrameLayoutRequirements,
-) -> f32 {
-    match (local, merged) {
-        (ChildFrameLayoutRequirements::Grid(local), ChildFrameLayoutRequirements::Grid(merged)) => {
-            grid_content_delta(&local.grid, &merged.grid)
-        }
-    }
-}
-
-fn requirement_slab_delta(
-    local: &ChildFrameLayoutRequirements,
-    merged: &ChildFrameLayoutRequirements,
-) -> f32 {
-    match (local, merged) {
-        (ChildFrameLayoutRequirements::Grid(local), ChildFrameLayoutRequirements::Grid(merged)) => {
-            grid_edge_delta(&local.grid, &merged.grid)
-                + (merged.guide_slot_gap_px - local.guide_slot_gap_px).abs()
-        }
-    }
 }
 
 fn collect_child_frame_layout_coordination_nodes_into(
@@ -980,6 +960,7 @@ fn apply_child_frame_layout_alignment_recursive(
 mod tests {
     use super::*;
     use crate::facet::placement::FacetCellPlacement;
+    use crate::layout::merge_grid_requirements;
 
     fn test_alignment_key(kind: ChildFrameContainerKind) -> LayoutAlignmentKey {
         LayoutAlignmentKey {
@@ -1026,22 +1007,46 @@ mod tests {
         }
     }
 
+    fn test_node(width: f32, guide_slot_gap_px: f32) -> ChildFrameLayoutCoordinationNode {
+        let ChildFrameLayoutRequirements::Grid(mut chart_grid) = test_requirements(width);
+        chart_grid.guide_slot_gap_px = guide_slot_gap_px;
+        ChildFrameLayoutCoordinationNode {
+            instance_key: ChildFrameContainerInstanceKey::new(Vec::new()),
+            template_key: ChildFrameContainerTemplateKey {
+                container_path_template: Vec::new(),
+                semantic_tag: Some("test".to_string()),
+            },
+            kind: ChildFrameContainerKind::GridConcat,
+            alignment_scope: LayoutCoordinationScope::TemplatePathWithoutFacetSegments,
+            topology: ChildFrameLayoutTopology::Grid {
+                shape: GridShape {
+                    rows: 1,
+                    columns: 1,
+                },
+                slots: Vec::new(),
+            },
+            slots: Vec::new(),
+            requirements: ChildFrameLayoutRequirements::Grid(chart_grid),
+        }
+    }
+
     #[test]
     fn grid_requirement_merge_preserves_guide_slot_gap() {
-        let mut left = test_requirements(10.0);
-        let mut right = test_requirements(10.0);
-        let ChildFrameLayoutRequirements::Grid(left_grid) = &mut left;
-        left_grid.guide_slot_gap_px = 6.0;
-        let ChildFrameLayoutRequirements::Grid(right_grid) = &mut right;
-        right_grid.guide_slot_gap_px = 18.0;
+        let nodes = vec![test_node(10.0, 6.0), test_node(10.0, 18.0)];
 
-        let merged =
-            merge_child_frame_layout_requirements([&left, &right]).expect("compatible grids");
-        let ChildFrameLayoutRequirements::Grid(merged_grid) = &merged;
+        let diagnostics = build_child_frame_layout_alignment_diagnostics(&nodes);
 
-        assert_eq!(merged_grid.guide_slot_gap_px, 18.0);
-        assert_eq!(requirement_slab_delta(&left, &merged), 12.0);
-        assert_eq!(requirement_slab_delta(&right, &merged), 0.0);
+        assert_eq!(diagnostics.exported_node_count, 2);
+        assert_eq!(diagnostics.alignment_group_count, 1);
+        assert_eq!(diagnostics.merged_groups.len(), 1);
+        let group = &diagnostics.merged_groups[0];
+        let ChildFrameLayoutRequirements::Grid(merged) = &group.merged_requirements;
+        assert_eq!(
+            merged.guide_slot_gap_px, 18.0,
+            "side-car gap folds by max over the group's member IDs"
+        );
+        assert_eq!(group.node_deltas[0].slab_delta, 12.0);
+        assert_eq!(group.node_deltas[1].slab_delta, 0.0);
     }
 
     #[test]

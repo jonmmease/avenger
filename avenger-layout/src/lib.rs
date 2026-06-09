@@ -44,7 +44,10 @@ pub mod geometry;
 pub mod grid;
 pub mod region;
 
-pub use alignment::{grid_content_delta, grid_edge_delta, merge_grid_requirements};
+pub use alignment::{
+    AlignedGroup, AlignmentNode, AlignmentPlan, NodeDelta, SkippedGroup, SkippedGroupReason, align,
+    grid_content_delta, grid_edge_delta, merge_grid_requirements,
+};
 pub use band::{BandItem, BandSolution, BandSpacing, BoundaryDemand, CrossAlign, PlacedBandItem};
 pub use geometry::{Edges, Orientation, Point, Rect, Side, Size};
 pub use grid::{
