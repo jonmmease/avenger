@@ -9,8 +9,9 @@
 //!   edges from its content extent, the classic facet aggregation rules fall
 //!   out structurally: on the main axis only the first/last child's edge
 //!   reaches the envelope, while on the cross axis every child's edge merges
-//!   by max. A node's own [`LayoutNode::stacked_edges`] (for charts: facet
-//!   labels and titles) stack beyond the aggregated child envelope.
+//!   by max. A node's own stacked chrome (for charts: facet
+//!   labels/titles on the inner layer, band legends on the outer layer)
+//!   stacks beyond the aggregated child envelope.
 //! - [`solve_tree`] (top-down): origins, per-slot content sizes, and edge
 //!   targets for every region in root coordinates. When a parent allocates
 //!   more space than a subtree's natural extent (for charts: an aligned
@@ -54,10 +55,14 @@ pub struct LayoutNode<Id = usize> {
     pub column_spacing: TrackSpacing,
     pub row_spacing: TrackSpacing,
     pub base_cell_size: Size,
-    /// The node's own chrome stacking beyond the aggregated child envelope
-    /// (for charts: facet labels and titles). Stacking is additive: it
-    /// extends the `outer` and `total` layers of the exported envelope.
-    pub stacked_edges: Edges<f32>,
+    /// The node's own inner-layer chrome stacking beyond the aggregated
+    /// child envelope (for charts: facet labels and titles, which extend the
+    /// guide layer). Additive: extends `inner` and `total`.
+    pub stacked_inner_edges: Edges<f32>,
+    /// The node's own outer-layer chrome stacking beyond the aggregated
+    /// child envelope (for charts: band-level legends). Additive: extends
+    /// `outer` and `total`.
+    pub stacked_outer_edges: Edges<f32>,
     pub items: Vec<LayoutItem<Id>>,
 }
 
@@ -156,21 +161,27 @@ fn node_envelope<Id>(node: &LayoutNode<Id>, collected: &CollectedNode<Id>) -> Tr
     let left = boundary_demand(&solution.column_left, 0);
     let right = boundary_demand(&solution.column_right, node.shape.columns.saturating_sub(1));
 
-    let stacked = node.stacked_edges;
+    let stacked_inner = node.stacked_inner_edges;
+    let stacked_outer = node.stacked_outer_edges;
     TreeEnvelope {
         content_size: solution.content_size,
-        inner_edges: Edges::new(top.inner, right.inner, bottom.inner, left.inner),
+        inner_edges: Edges::new(
+            top.inner + stacked_inner.top,
+            right.inner + stacked_inner.right,
+            bottom.inner + stacked_inner.bottom,
+            left.inner + stacked_inner.left,
+        ),
         outer_edges: Edges::new(
-            top.outer + stacked.top,
-            right.outer + stacked.right,
-            bottom.outer + stacked.bottom,
-            left.outer + stacked.left,
+            top.outer + stacked_outer.top,
+            right.outer + stacked_outer.right,
+            bottom.outer + stacked_outer.bottom,
+            left.outer + stacked_outer.left,
         ),
         total_edges: Edges::new(
-            top.total + stacked.top,
-            right.total + stacked.right,
-            bottom.total + stacked.bottom,
-            left.total + stacked.left,
+            top.total + stacked_inner.top + stacked_outer.top,
+            right.total + stacked_inner.right + stacked_outer.right,
+            bottom.total + stacked_inner.bottom + stacked_outer.bottom,
+            left.total + stacked_inner.left + stacked_outer.left,
         ),
     }
 }
@@ -251,12 +262,13 @@ fn measured_envelope<Id: Clone>(
         }
     }
 
-    let stacked = node.stacked_edges;
+    let stacked_inner = node.stacked_inner_edges;
+    let stacked_outer = node.stacked_outer_edges;
     let total_edges = Edges::new(
-        total.top + stacked.top,
-        total.right + stacked.right,
-        total.bottom + stacked.bottom,
-        total.left + stacked.left,
+        total.top + stacked_inner.top + stacked_outer.top,
+        total.right + stacked_inner.right + stacked_outer.right,
+        total.bottom + stacked_inner.bottom + stacked_outer.bottom,
+        total.left + stacked_inner.left + stacked_outer.left,
     );
     let inner_edges = layered.inner_edges;
     TreeEnvelope {
@@ -420,7 +432,8 @@ mod tests {
             },
             row_spacing: TrackSpacing::default(),
             base_cell_size: Size::default(),
-            stacked_edges: Edges::default(),
+            stacked_inner_edges: Edges::default(),
+            stacked_outer_edges: Edges::default(),
             items,
         }
     }
@@ -529,7 +542,7 @@ mod tests {
             )],
             0.0,
         );
-        inner.stacked_edges = Edges::new(0.0, 35.0, 0.0, 0.0);
+        inner.stacked_inner_edges = Edges::new(0.0, 35.0, 0.0, 0.0);
 
         let inner_envelope = tree_envelope(&inner).expect("inner tree should collect");
         assert_eq!(inner_envelope.total_edges.right, 50.0);

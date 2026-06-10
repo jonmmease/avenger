@@ -471,6 +471,86 @@ fn resolve_sibling_boundary_overflow(
     })
 }
 
+/// Build the 1xN (Column) / Nx1 (Row) layout-tree node for a facet band's
+/// overflow: cells as leaves (guide as inner, legend as outer), plus the
+/// band's own stacked chrome channels.
+pub(crate) fn band_overflow_node(
+    axis: FacetAxis,
+    cells: &[(OverflowSpaceRequirement, OverflowSpaceRequirement)],
+    stacked_inner_edges: Edges<f32>,
+    stacked_outer_edges: Edges<f32>,
+) -> LayoutNode {
+    let items = cells
+        .iter()
+        .enumerate()
+        .map(|(slot_index, (guide, total))| {
+            let (row, column) = match axis {
+                FacetAxis::Column => (0, slot_index),
+                FacetAxis::Row => (slot_index, 0),
+            };
+            LayoutItem {
+                id: slot_index,
+                slot: GridSlot {
+                    row,
+                    column,
+                    row_span: 1,
+                    column_span: 1,
+                },
+                content: LayoutSlotContent::Leaf {
+                    content_size: LayoutSize::default(),
+                    inner_edges: Edges::new(guide.top, guide.right, guide.bottom, guide.left),
+                    outer_edges: Edges::new(
+                        (total.top - guide.top).max(0.0),
+                        (total.right - guide.right).max(0.0),
+                        (total.bottom - guide.bottom).max(0.0),
+                        (total.left - guide.left).max(0.0),
+                    ),
+                    total_edges: Edges::new(total.top, total.right, total.bottom, total.left),
+                },
+            }
+        })
+        .collect::<Vec<_>>();
+    let shape = match axis {
+        FacetAxis::Column => GridShape {
+            rows: 1,
+            columns: cells.len(),
+        },
+        FacetAxis::Row => GridShape {
+            rows: cells.len(),
+            columns: 1,
+        },
+    };
+    LayoutNode {
+        shape,
+        column_spacing: TrackSpacing::default(),
+        row_spacing: TrackSpacing::default(),
+        base_cell_size: LayoutSize::default(),
+        stacked_inner_edges,
+        stacked_outer_edges,
+        items,
+    }
+}
+
+/// Measured envelope of a band node as a coordinated overflow value.
+pub(crate) fn band_node_envelope(node: &LayoutNode) -> CoordinatedOverflow {
+    let envelope = tree_envelope_with(node, TreeEnvelopeKind::Measured)
+        .expect("facet band leaves are single-span and indexed within the band shape");
+    CoordinatedOverflow {
+        guide: OverflowSpaceRequirement {
+            top: envelope.inner_edges.top,
+            right: envelope.inner_edges.right,
+            bottom: envelope.inner_edges.bottom,
+            left: envelope.inner_edges.left,
+        },
+        total: OverflowSpaceRequirement {
+            top: envelope.total_edges.top,
+            right: envelope.total_edges.right,
+            bottom: envelope.total_edges.bottom,
+            left: envelope.total_edges.left,
+        },
+    }
+}
+
 pub(crate) fn aggregate_facet_band_overflow(
     axis: FacetAxis,
     cells: &[FacetCellOverflowInput],
@@ -509,82 +589,15 @@ pub(crate) fn aggregate_facet_band_overflow_with_policy(
     // measured tree envelope: each renderable cell becomes a leaf of a
     // 1xN (Column) or Nx1 (Row) layout node, and the per-side aggregation
     // falls out of the slot edge roles.
-    let items = renderable_indices
+    let cell_envelopes = renderable_indices
         .iter()
-        .enumerate()
-        .map(|(slot_index, &cell_index)| {
+        .map(|&cell_index| {
             let cell = &cells[cell_index];
-            let (row, column) = match axis {
-                FacetAxis::Column => (0, slot_index),
-                FacetAxis::Row => (slot_index, 0),
-            };
-            LayoutItem {
-                id: slot_index,
-                slot: GridSlot {
-                    row,
-                    column,
-                    row_span: 1,
-                    column_span: 1,
-                },
-                content: LayoutSlotContent::Leaf {
-                    content_size: LayoutSize::default(),
-                    inner_edges: Edges::new(
-                        cell.guide.top,
-                        cell.guide.right,
-                        cell.guide.bottom,
-                        cell.guide.left,
-                    ),
-                    outer_edges: Edges::new(
-                        (cell.total.top - cell.guide.top).max(0.0),
-                        (cell.total.right - cell.guide.right).max(0.0),
-                        (cell.total.bottom - cell.guide.bottom).max(0.0),
-                        (cell.total.left - cell.guide.left).max(0.0),
-                    ),
-                    total_edges: Edges::new(
-                        cell.total.top,
-                        cell.total.right,
-                        cell.total.bottom,
-                        cell.total.left,
-                    ),
-                },
-            }
+            (cell.guide.clone(), cell.total.clone())
         })
         .collect::<Vec<_>>();
-    let shape = match axis {
-        FacetAxis::Column => GridShape {
-            rows: 1,
-            columns: items.len(),
-        },
-        FacetAxis::Row => GridShape {
-            rows: items.len(),
-            columns: 1,
-        },
-    };
-    let node = LayoutNode {
-        shape,
-        column_spacing: TrackSpacing::default(),
-        row_spacing: TrackSpacing::default(),
-        base_cell_size: LayoutSize::default(),
-        stacked_edges: Edges::default(),
-        items,
-    };
-    let envelope = tree_envelope_with(&node, TreeEnvelopeKind::Measured)
-        .expect("facet band leaves are single-span and indexed within the band shape");
-
-    Some(CoordinatedOverflow {
-        guide: OverflowSpaceRequirement {
-            top: envelope.inner_edges.top,
-            right: envelope.inner_edges.right,
-            bottom: envelope.inner_edges.bottom,
-            left: envelope.inner_edges.left,
-        },
-        total: OverflowSpaceRequirement {
-            top: envelope.total_edges.top,
-            right: envelope.total_edges.right,
-            bottom: envelope.total_edges.bottom,
-            left: envelope.total_edges.left,
-        },
-    })
+    let node = band_overflow_node(axis, &cell_envelopes, Edges::default(), Edges::default());
+    Some(band_node_envelope(&node))
 }
 
 /// Per-side layered demand view of a coordinated overflow: guide chrome is
@@ -1258,7 +1271,8 @@ mod tests {
                 column_spacing: TrackSpacing::default(),
                 row_spacing: TrackSpacing::default(),
                 base_cell_size: Size::default(),
-                stacked_edges: Edges::default(),
+                stacked_inner_edges: Edges::default(),
+                stacked_outer_edges: Edges::default(),
                 items,
             };
 

@@ -3754,6 +3754,80 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             )
             .await?;
 
+        // Item 3 of the chart-layout consistency plan: the exported band
+        // envelope is the tree composition of the cell envelope plus the
+        // guide overlay's marginal chrome. Labels/titles stack on the inner
+        // (guide) layer, band-level legends on the outer layer; the
+        // composition law lives in avenger_layout::tree while the chrome
+        // measurement itself stays chart-side. Monotonicity (chrome only
+        // adds to the cell envelope) is asserted in debug builds.
+        let cell_envelope = probe_measurement.measured_overflow_value();
+        let side = |req: &OverflowSpaceRequirement| [req.top, req.right, req.bottom, req.left];
+        let stacked_inner_sides: Vec<f32> = side(&guide_overflow)
+            .iter()
+            .zip(side(&cell_envelope.guide))
+            .map(|(overlay, cell)| {
+                debug_assert!(
+                    overlay - cell >= -0.01,
+                    "guide overlay must not shrink below the cell envelope: {overlay} < {cell}"
+                );
+                (overlay - cell).max(0.0)
+            })
+            .collect();
+        let overlay_legend: Vec<f32> = side(&total_overflow)
+            .iter()
+            .zip(side(&guide_overflow))
+            .map(|(total, guide)| (total - guide).max(0.0))
+            .collect();
+        let cell_legend: Vec<f32> = side(&cell_envelope.total)
+            .iter()
+            .zip(side(&cell_envelope.guide))
+            .map(|(total, guide)| (total - guide).max(0.0))
+            .collect();
+        let stacked_outer_sides: Vec<f32> = overlay_legend
+            .iter()
+            .zip(cell_legend.iter())
+            .map(|(overlay, cell)| (overlay - cell).max(0.0))
+            .collect();
+        let band_node = crate::facet::overflow_projection::band_overflow_node(
+            self.axis_ops.axis,
+            &final_overflow_summary
+                .cell_overflows
+                .iter()
+                .enumerate()
+                .filter(|(idx, _)| {
+                    overflow_probe
+                        .prepared_inputs
+                        .renderable_mask
+                        .get(*idx)
+                        .copied()
+                        .unwrap_or(true)
+                })
+                .map(|(_, (guide, total))| (guide.clone(), total.clone()))
+                .collect::<Vec<_>>(),
+            crate::layout::Edges::new(
+                stacked_inner_sides[0],
+                stacked_inner_sides[1],
+                stacked_inner_sides[2],
+                stacked_inner_sides[3],
+            ),
+            crate::layout::Edges::new(
+                stacked_outer_sides[0],
+                stacked_outer_sides[1],
+                stacked_outer_sides[2],
+                stacked_outer_sides[3],
+            ),
+        );
+        let exported = crate::facet::overflow_projection::band_node_envelope(&band_node);
+        debug_assert!(
+            (exported.guide.top - guide_overflow.top).abs() <= 0.01
+                && (exported.guide.right - guide_overflow.right).abs() <= 0.01
+                && (exported.guide.bottom - guide_overflow.bottom).abs() <= 0.01
+                && (exported.guide.left - guide_overflow.left).abs() <= 0.01,
+            "tree-composed band guide envelope diverged from the measured overlay"
+        );
+        let (guide_overflow, total_overflow) = (exported.guide, exported.total);
+
         Ok(FacetBandProbeLayout {
             cell_probe_summary: FacetCellProbeSummary {
                 boundary_profiles:

@@ -441,7 +441,8 @@ where
         column_spacing: TrackSpacing::default(),
         row_spacing: TrackSpacing::default(),
         base_cell_size: LayoutSize::default(),
-        stacked_edges: Edges::default(),
+        stacked_inner_edges: Edges::default(),
+        stacked_outer_edges: Edges::default(),
         items,
     };
     let solved = solve_tree(&node, None).ok()?;
