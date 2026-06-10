@@ -31,6 +31,9 @@
 //!   leading[i+1])`.
 //! - [`band`]: a one-dimensional orientation adapter over the grid solver
 //!   for row/column bands, plus cross-axis alignment.
+//! - [`frame`]: the leaf solver. One content rectangle plus per-side chrome
+//!   layers (margin, bands, outer, inner), sized from the envelope inward
+//!   or from the content outward.
 //! - [`alignment`]: requirement merging and deltas for aligning equivalent
 //!   grids that are measured independently.
 //! - `svg` (behind the `svg` feature): a renderer-independent debug data
@@ -42,6 +45,9 @@
 //!
 //! # Choosing a solver
 //!
+//! - One leaf region's chrome geometry (content plus margin/band/outer/inner
+//!   layers per side, sized from either end): [`frame`] ([`Frame`] and its
+//!   per-axis solve).
 //! - Uniform policy, no per-track content: [`UniformTracks`] (merge and
 //!   solve).
 //! - Measured per-track content, spans, or holes: [`grid`]
@@ -55,6 +61,7 @@
 
 pub mod alignment;
 pub mod band;
+pub mod frame;
 pub mod geometry;
 pub mod grid;
 pub mod region;
@@ -67,6 +74,10 @@ pub use alignment::{
     SingletonPolicy, SkippedGroup, SkippedGroupReason, align, align_by,
 };
 pub use band::{BandItem, BandSolution, BoundaryDemand, CrossAlign, PlacedBandItem};
+pub use frame::{
+    Frame, FrameAxis, FrameAxisSizing, FrameAxisSolution, FrameSide, FrameSolution,
+    SolvedFrameSide, SolvedSlab,
+};
 pub use geometry::{Edges, Orientation, Rect, Side, Size};
 pub use grid::{
     GridError, GridItem, GridRequirements, GridShape, GridSlot, GridSolution, TrackSpacing,
