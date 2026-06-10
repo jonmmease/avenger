@@ -63,7 +63,7 @@ and the tests never compare them — the SVG string is the snapshot.
 | `frame_content_fixed_envelope_derived` | content-first frame: envelope is the sum of all layers |
 | `frame_envelope_and_content_fixed_margin_slack` | both fixed: margins absorb the slack |
 | `frame_content_min_floor_overflows_envelope` | the content floor wins over a too-small envelope |
-| `tree_nested_with_stacked_chrome` | nested band with stacked inner/outer chrome; layered vs geometric envelopes asserted in the test |
-| `tree_allocation_stretches_tracks_evenly` | allocation larger than natural extent stretches every track |
+| `tree_nested_with_stacked_chrome` | nested band with stacked inner/outer chrome, framed with margins; layered vs geometric envelopes asserted in the test |
+| `tree_allocation_stretches_tracks_evenly` | the same framed tree given a larger allocation: every track stretches |
 | `alignment_merges_grids_across_instances` | two instances before alignment, then both re-solved on the merged grid |
 | `frame_wrapping_facet_tree` | a faceted chart in miniature: the tree's envelope becomes the frame's reservations, the frame's content allocates the tree |
