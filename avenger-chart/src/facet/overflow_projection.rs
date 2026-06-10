@@ -38,7 +38,11 @@ use crate::{
         renderable_for_empty_policy,
     },
     facet::layout_plan::effective_edge_indices,
-    layout::{EdgeSlabs, FrameDemand, OwnedEdgeSlabs},
+    layout::{
+        EdgeSlabs, Edges, FrameDemand, GridShape, GridSlot, LayoutItem, LayoutNode,
+        LayoutSlotContent, OwnedEdgeSlabs, Size as LayoutSize, TrackSpacing, TreeEnvelopeKind,
+        tree_envelope_with,
+    },
     plot::compiled::ComponentsMeasurement,
 };
 
@@ -500,80 +504,87 @@ pub(crate) fn aggregate_facet_band_overflow_with_policy(
         }
     }
 
-    let first_idx = *renderable_indices
-        .first()
-        .expect("renderable indices must not be empty");
-    let last_idx = *renderable_indices
-        .last()
-        .expect("renderable indices must not be empty");
-    let first = &cells[first_idx];
-    let last = &cells[last_idx];
-
-    let max_guide_top = renderable_indices
+    // Renderable filtering and the no-renderable policy are chart policy
+    // (applied above); the first/last-vs-max envelope math itself is the
+    // measured tree envelope: each renderable cell becomes a leaf of a
+    // 1xN (Column) or Nx1 (Row) layout node, and the per-side aggregation
+    // falls out of the slot edge roles.
+    let items = renderable_indices
         .iter()
-        .map(|idx| cells[*idx].guide.top)
-        .fold(0.0, f32::max);
-    let max_guide_bottom = renderable_indices
-        .iter()
-        .map(|idx| cells[*idx].guide.bottom)
-        .fold(0.0, f32::max);
-    let max_guide_left = renderable_indices
-        .iter()
-        .map(|idx| cells[*idx].guide.left)
-        .fold(0.0, f32::max);
-    let max_guide_right = renderable_indices
-        .iter()
-        .map(|idx| cells[*idx].guide.right)
-        .fold(0.0, f32::max);
-
-    let max_total_top = renderable_indices
-        .iter()
-        .map(|idx| cells[*idx].total.top)
-        .fold(0.0, f32::max);
-    let max_total_bottom = renderable_indices
-        .iter()
-        .map(|idx| cells[*idx].total.bottom)
-        .fold(0.0, f32::max);
-    let max_total_left = renderable_indices
-        .iter()
-        .map(|idx| cells[*idx].total.left)
-        .fold(0.0, f32::max);
-    let max_total_right = renderable_indices
-        .iter()
-        .map(|idx| cells[*idx].total.right)
-        .fold(0.0, f32::max);
-
-    let guide = match axis {
-        FacetAxis::Column => OverflowSpaceRequirement {
-            top: max_guide_top,
-            bottom: max_guide_bottom,
-            left: first.guide.left,
-            right: last.guide.right,
+        .enumerate()
+        .map(|(slot_index, &cell_index)| {
+            let cell = &cells[cell_index];
+            let (row, column) = match axis {
+                FacetAxis::Column => (0, slot_index),
+                FacetAxis::Row => (slot_index, 0),
+            };
+            LayoutItem {
+                child_index: slot_index,
+                slot: GridSlot {
+                    row,
+                    column,
+                    row_span: 1,
+                    column_span: 1,
+                },
+                content: LayoutSlotContent::Leaf {
+                    content_size: LayoutSize::default(),
+                    inner_edges: Edges::new(
+                        cell.guide.top,
+                        cell.guide.right,
+                        cell.guide.bottom,
+                        cell.guide.left,
+                    ),
+                    outer_edges: Edges::new(
+                        (cell.total.top - cell.guide.top).max(0.0),
+                        (cell.total.right - cell.guide.right).max(0.0),
+                        (cell.total.bottom - cell.guide.bottom).max(0.0),
+                        (cell.total.left - cell.guide.left).max(0.0),
+                    ),
+                    total_edges: Edges::new(
+                        cell.total.top,
+                        cell.total.right,
+                        cell.total.bottom,
+                        cell.total.left,
+                    ),
+                },
+            }
+        })
+        .collect::<Vec<_>>();
+    let shape = match axis {
+        FacetAxis::Column => GridShape {
+            rows: 1,
+            columns: items.len(),
         },
-        FacetAxis::Row => OverflowSpaceRequirement {
-            top: first.guide.top,
-            bottom: last.guide.bottom,
-            left: max_guide_left,
-            right: max_guide_right,
-        },
-    };
-
-    let total = match axis {
-        FacetAxis::Column => OverflowSpaceRequirement {
-            top: max_total_top,
-            bottom: max_total_bottom,
-            left: first.total.left,
-            right: last.total.right,
-        },
-        FacetAxis::Row => OverflowSpaceRequirement {
-            top: first.total.top,
-            bottom: last.total.bottom,
-            left: max_total_left,
-            right: max_total_right,
+        FacetAxis::Row => GridShape {
+            rows: items.len(),
+            columns: 1,
         },
     };
+    let node = LayoutNode {
+        shape,
+        column_spacing: TrackSpacing::default(),
+        row_spacing: TrackSpacing::default(),
+        base_cell_size: LayoutSize::default(),
+        stacked_edges: Edges::default(),
+        items,
+    };
+    let envelope = tree_envelope_with(&node, TreeEnvelopeKind::Measured)
+        .expect("facet band leaves are single-span and indexed within the band shape");
 
-    Some(CoordinatedOverflow { guide, total })
+    Some(CoordinatedOverflow {
+        guide: OverflowSpaceRequirement {
+            top: envelope.inner_edges.top,
+            right: envelope.inner_edges.right,
+            bottom: envelope.inner_edges.bottom,
+            left: envelope.inner_edges.left,
+        },
+        total: OverflowSpaceRequirement {
+            top: envelope.total_edges.top,
+            right: envelope.total_edges.right,
+            bottom: envelope.total_edges.bottom,
+            left: envelope.total_edges.left,
+        },
+    })
 }
 
 pub(crate) fn rendered_subtree_overflow_from_coord_measurement(
@@ -1058,6 +1069,55 @@ fn facet_measurement_overflow(
 mod tests {
     use super::*;
     use crate::layout::{LayoutItem, LayoutNode, LayoutSlotContent, tree_envelope};
+
+    /// The aggregation IS the measured tree envelope (since Phase 9a), so
+    /// equality must hold even in the mixed-dominance case where the
+    /// layered law diverges.
+    #[test]
+    fn aggregation_equals_measured_envelope_on_mixed_dominance() {
+        // Cell 0 is all guide on top (total 10); cell 1 is all legend on
+        // top (total 8). Measured envelope: 10. Layered would lift to 18.
+        let cells = [
+            FacetCellOverflowInput {
+                renderable: true,
+                guide: OverflowSpaceRequirement {
+                    top: 10.0,
+                    right: 0.0,
+                    bottom: 0.0,
+                    left: 0.0,
+                },
+                total: OverflowSpaceRequirement {
+                    top: 10.0,
+                    right: 0.0,
+                    bottom: 0.0,
+                    left: 0.0,
+                },
+            },
+            FacetCellOverflowInput {
+                renderable: true,
+                guide: OverflowSpaceRequirement::default(),
+                total: OverflowSpaceRequirement {
+                    top: 8.0,
+                    right: 0.0,
+                    bottom: 0.0,
+                    left: 0.0,
+                },
+            },
+        ];
+
+        let aggregated = aggregate_facet_band_overflow_with_policy(
+            FacetAxis::Column,
+            &cells,
+            FacetBandNoRenderablePolicy::DefaultOverflow,
+        )
+        .expect("non-empty cells should aggregate");
+
+        assert_eq!(aggregated.guide.top, 10.0);
+        assert_eq!(
+            aggregated.total.top, 10.0,
+            "measured envelope keeps the raw max total; the layered law would report 18"
+        );
+    }
 
     /// Acceptance test for the avenger-layout tree sweeps: the facet band's
     /// first/last-vs-max edge aggregation falls out of grid edge math when

@@ -65,6 +65,6 @@ pub use region::{EdgeDemand, EdgeTargets, PlacedRegion, PlacementSolution, proje
 #[cfg(feature = "svg")]
 pub use svg::{DebugRegion, DebugScene};
 pub use tree::{
-    LayoutItem, LayoutNode, LayoutSlotContent, SolvedRegion, SolvedTree, TreeEnvelope, solve_tree,
-    tree_envelope,
+    LayoutItem, LayoutNode, LayoutSlotContent, SolvedRegion, SolvedTree, TreeEnvelope,
+    TreeEnvelopeKind, solve_tree, tree_envelope, tree_envelope_with,
 };

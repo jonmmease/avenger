@@ -20,16 +20,14 @@ pub use avenger_chart_core::{
 };
 pub(crate) use avenger_layout::{
     AlignmentNode, BandItem, BandSolution, BandSpacing, BoundaryDemand, ConvergenceTrace,
-    EdgeDemand, EdgeTargets, Edges, GridItem, GridRequirements, GridShape, GridSlot, Orientation,
-    PlacedBandItem, PlacedRegion, PlacementSolution, RoundDeltas, SingletonPolicy, Size,
-    SkippedGroupReason, TrackSpacing, align, align_by, grid_requirements, solve_grid_requirements,
+    EdgeDemand, EdgeTargets, Edges, GridItem, GridRequirements, GridShape, GridSlot, LayoutItem,
+    LayoutNode, LayoutSlotContent, Orientation, PlacedBandItem, PlacedRegion, PlacementSolution,
+    RoundDeltas, SingletonPolicy, Size, SkippedGroupReason, TrackSpacing, TreeEnvelopeKind, align,
+    align_by, grid_requirements, solve_grid_requirements, tree_envelope_with,
     zero_edge_demands,
 };
 #[cfg(test)]
-pub(crate) use avenger_layout::{
-    LayoutItem, LayoutNode, LayoutSlotContent, merge_grid_requirements, total_edge_demands,
-    tree_envelope,
-};
+pub(crate) use avenger_layout::{merge_grid_requirements, total_edge_demands, tree_envelope};
 pub use band_position::BandPositionIterator;
 pub use content_solver::{
     ChildFrameContentMeasurement, ChildFrameContentPlan, ChildFrameContentSolver,

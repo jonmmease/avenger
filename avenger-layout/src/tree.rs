@@ -175,10 +175,101 @@ fn node_envelope<Id>(node: &LayoutNode<Id>, collected: &CollectedNode<Id>) -> Tr
     }
 }
 
-/// Collect a subtree bottom-up and export what its parent slot sees.
+/// Which law the envelope's `total` layer reports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TreeEnvelopeKind {
+    /// Coordination view: per-side totals are lifted to `inner + outer`, so
+    /// a side's total is `max(inner) + max(outer)` across contributors —
+    /// the space regions occupy after coordinated patches apply.
+    Layered,
+    /// Geometric view: per-side totals merge by raw maximum across
+    /// contributors, without the lift — the measured rendered envelope.
+    /// The `inner` layer is identical in both kinds; `outer` is derived as
+    /// `(total - inner).max(0)`.
+    Measured,
+}
+
+/// Collect a subtree bottom-up and export what its parent slot sees
+/// (layered law).
 pub fn tree_envelope<Id: Clone>(node: &LayoutNode<Id>) -> Result<TreeEnvelope, GridError> {
+    tree_envelope_with(node, TreeEnvelopeKind::Layered)
+}
+
+/// Collect a subtree bottom-up with an explicit envelope law.
+pub fn tree_envelope_with<Id: Clone>(
+    node: &LayoutNode<Id>,
+    kind: TreeEnvelopeKind,
+) -> Result<TreeEnvelope, GridError> {
     let collected = collect_node(node)?;
-    Ok(node_envelope(node, &collected))
+    match kind {
+        TreeEnvelopeKind::Layered => Ok(node_envelope(node, &collected)),
+        TreeEnvelopeKind::Measured => Ok(measured_envelope(node, &collected, kind)),
+    }
+}
+
+/// Whether an item's slot touches each side of the node.
+fn slot_edge_roles<Id>(node: &LayoutNode<Id>, slot: GridSlot) -> Edges<bool> {
+    Edges::new(
+        slot.row == 0,
+        slot.column_end() == node.shape.columns,
+        slot.row_end() == node.shape.rows,
+        slot.column == 0,
+    )
+}
+
+fn measured_envelope<Id: Clone>(
+    node: &LayoutNode<Id>,
+    collected: &CollectedNode<Id>,
+    kind: TreeEnvelopeKind,
+) -> TreeEnvelope {
+    // Content size and the inner layer are kind-independent: gaps and
+    // content extents always use the lifted grid law, and `inner` carries
+    // raw values through `EdgeDemand` unchanged.
+    let layered = node_envelope(node, &collected);
+
+    let mut total = Edges::new(0.0f32, 0.0f32, 0.0f32, 0.0f32);
+    for (index, item) in node.items.iter().enumerate() {
+        let raw_total = match (&item.content, collected.children[index].as_ref()) {
+            (LayoutSlotContent::Leaf { total_edges, .. }, _) => *total_edges,
+            (LayoutSlotContent::Node(child), Some(child_collected)) => {
+                measured_envelope(child, child_collected, kind).total_edges
+            }
+            (LayoutSlotContent::Node(_), None) => Edges::default(),
+        };
+        let roles = slot_edge_roles(node, item.slot);
+        if roles.top {
+            total.top = total.top.max(raw_total.top);
+        }
+        if roles.right {
+            total.right = total.right.max(raw_total.right);
+        }
+        if roles.bottom {
+            total.bottom = total.bottom.max(raw_total.bottom);
+        }
+        if roles.left {
+            total.left = total.left.max(raw_total.left);
+        }
+    }
+
+    let stacked = node.stacked_edges;
+    let total_edges = Edges::new(
+        total.top + stacked.top,
+        total.right + stacked.right,
+        total.bottom + stacked.bottom,
+        total.left + stacked.left,
+    );
+    let inner_edges = layered.inner_edges;
+    TreeEnvelope {
+        content_size: layered.content_size,
+        outer_edges: Edges::new(
+            (total_edges.top - inner_edges.top).max(0.0),
+            (total_edges.right - inner_edges.right).max(0.0),
+            (total_edges.bottom - inner_edges.bottom).max(0.0),
+            (total_edges.left - inner_edges.left).max(0.0),
+        ),
+        inner_edges,
+        total_edges,
+    }
 }
 
 /// Stretch solved tracks evenly so the content extent meets `target`.
@@ -374,6 +465,60 @@ mod tests {
         );
         // Interior boundary edges become gaps: (9 + 2) and (3 + 6).
         assert_eq!(envelope.content_size, Size::new(320.0, 60.0));
+    }
+
+    #[test]
+    fn measured_envelope_reports_raw_max_totals() {
+        // Mixed dominance on the cross axis: cell 0 is all guide (top
+        // total 10), cell 1 is all legend (top total 8). The layered law
+        // lifts to max(guide) + max(legend) = 18; the measured law reports
+        // the raw maximum rendered envelope, 10.
+        let node = column_band(
+            vec![
+                LayoutItem {
+                    child_index: 0,
+                    slot: GridSlot {
+                        row: 0,
+                        column: 0,
+                        row_span: 1,
+                        column_span: 1,
+                    },
+                    content: LayoutSlotContent::Leaf {
+                        content_size: Size::new(100.0, 60.0),
+                        inner_edges: Edges::new(10.0, 0.0, 0.0, 0.0),
+                        outer_edges: Edges::default(),
+                        total_edges: Edges::new(10.0, 0.0, 0.0, 0.0),
+                    },
+                },
+                LayoutItem {
+                    child_index: 1,
+                    slot: GridSlot {
+                        row: 0,
+                        column: 1,
+                        row_span: 1,
+                        column_span: 1,
+                    },
+                    content: LayoutSlotContent::Leaf {
+                        content_size: Size::new(100.0, 60.0),
+                        inner_edges: Edges::default(),
+                        outer_edges: Edges::new(8.0, 0.0, 0.0, 0.0),
+                        total_edges: Edges::new(8.0, 0.0, 0.0, 0.0),
+                    },
+                },
+            ],
+            0.0,
+        );
+
+        let layered =
+            tree_envelope_with(&node, TreeEnvelopeKind::Layered).expect("band tree should collect");
+        let measured = tree_envelope_with(&node, TreeEnvelopeKind::Measured)
+            .expect("band tree should collect");
+
+        assert_eq!(layered.total_edges.top, 18.0);
+        assert_eq!(measured.total_edges.top, 10.0);
+        assert_eq!(measured.inner_edges.top, 10.0, "inner layer is shared");
+        assert_eq!(measured.outer_edges.top, 0.0);
+        assert_eq!(measured.content_size, layered.content_size);
     }
 
     #[test]
