@@ -173,7 +173,7 @@ fn project_layout_rects(
     let v = &solution.vertical;
 
     let mut frame_layout = FrameLayout {
-        plot_area: rounded_plot_bounds(LayoutBounds {
+        plot_area: snap_rect_edges(LayoutBounds {
             x: h.content.start,
             y: v.content.start,
             width: h.content.size,
@@ -239,7 +239,7 @@ fn project_layout_rects(
         if !present {
             continue;
         }
-        let bounds = rounded_guide_bounds(bounds);
+        let bounds = snap_rect_edges(bounds);
         debug!(
             position = ?side,
             x = bounds.x,
@@ -307,7 +307,7 @@ fn project_layout_rects(
         for (key, bounds) in
             layout_legend_group(*position, container, legend_keys, legend_measurements)
         {
-            let bounds = rounded_bounds(bounds);
+            let bounds = snap_rect_edges(bounds);
             debug!(
                 channel = key,
                 x = bounds.x,
@@ -399,7 +399,7 @@ fn title_band_bounds(
             (x, width)
         }
     };
-    rounded_bounds(LayoutBounds {
+    snap_rect_edges(LayoutBounds {
         x,
         y: band.start,
         width,
@@ -436,11 +436,12 @@ async fn evaluate_title_span(
     }
 }
 
-fn rounded_plot_bounds(bounds: LayoutBounds) -> LayoutBounds {
-    rounded_track_bounds(bounds)
-}
-
-fn rounded_track_bounds(bounds: LayoutBounds) -> LayoutBounds {
+/// The one pixel-snapping rule for frame component rects: round the edges
+/// (`x` and `x + width`), never the sizes. Edge snapping keeps adjacent
+/// rects adjacent and keeps spans from drifting; a size-rounded rect can
+/// end up one pixel wider than the slab it sits in. Chrome slab inputs are
+/// pixel-aligned by ceiling at measurement; the canvas extent rounds.
+fn snap_rect_edges(bounds: LayoutBounds) -> LayoutBounds {
     let x = bounds.x.round();
     let y = bounds.y.round();
     let x2 = (bounds.x + bounds.width).round();
@@ -450,19 +451,6 @@ fn rounded_track_bounds(bounds: LayoutBounds) -> LayoutBounds {
         y,
         width: (x2 - x).max(0.0),
         height: (y2 - y).max(0.0),
-    }
-}
-
-fn rounded_guide_bounds(bounds: LayoutBounds) -> LayoutBounds {
-    rounded_track_bounds(bounds)
-}
-
-fn rounded_bounds(bounds: LayoutBounds) -> LayoutBounds {
-    LayoutBounds {
-        x: bounds.x.round(),
-        y: bounds.y.round(),
-        width: bounds.width.round(),
-        height: bounds.height.round(),
     }
 }
 
@@ -609,8 +597,8 @@ mod tests {
     use indexmap::IndexMap;
 
     use super::{
-        FrameChrome, MIN_COMPONENT_SIZE, layout_legend_group, rounded_guide_bounds,
-        rounded_plot_bounds, solve_native_frame_layout, title_band_bounds,
+        FrameChrome, MIN_COMPONENT_SIZE, layout_legend_group, snap_rect_edges,
+        solve_native_frame_layout, title_band_bounds,
     };
 
     fn frame_side(margin: f32, bands: &[f32], outer: f32, inner: f32) -> FrameSide {
@@ -668,8 +656,8 @@ mod tests {
     }
 
     #[test]
-    fn rounded_plot_bounds_uses_rounded_track_edges() {
-        let bounds = rounded_plot_bounds(LayoutBounds {
+    fn snap_rect_edges_rounds_edges_not_sizes() {
+        let bounds = snap_rect_edges(LayoutBounds {
             x: 45.0,
             y: 53.1044,
             width: 338.0,
@@ -683,8 +671,8 @@ mod tests {
     }
 
     #[test]
-    fn rounded_guide_bounds_uses_rounded_track_edges() {
-        let bounds = rounded_guide_bounds(LayoutBounds {
+    fn snap_rect_edges_keeps_fractional_spans_anchored() {
+        let bounds = snap_rect_edges(LayoutBounds {
             x: 6.0,
             y: 202.0,
             width: 278.33334,
