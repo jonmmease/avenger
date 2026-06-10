@@ -851,8 +851,12 @@ fn kind_style(kind: DebugRegionKind) -> &'static str {
         DebugRegionKind::Content => "fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"",
         DebugRegionKind::Margin => "fill=\"#e5e7eb\" fill-opacity=\"0.6\" stroke=\"#6b7280\"",
         DebugRegionKind::Band => "fill=\"#fde68a\" fill-opacity=\"0.6\" stroke=\"#d97706\"",
-        DebugRegionKind::Outer => "fill=\"#bbf7d0\" fill-opacity=\"0.6\" stroke=\"#16a34a\"",
-        DebugRegionKind::Inner => "fill=\"#fecaca\" fill-opacity=\"0.6\" stroke=\"#dc2626\"",
+        DebugRegionKind::Outer => {
+            "fill=\"#bbf7d0\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\""
+        }
+        DebugRegionKind::Inner => {
+            "fill=\"#fecaca\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\""
+        }
         DebugRegionKind::Bounds => "fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"",
     }
 }
