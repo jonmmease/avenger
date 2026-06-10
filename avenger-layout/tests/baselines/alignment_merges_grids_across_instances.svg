@@ -41,7 +41,7 @@
   <rect x="0" y="289" width="230" height="60" fill="none" stroke="#111111" stroke-width="1"/>
   <rect x="0" y="359" width="10" height="10" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
   <text x="13" y="368" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">content</text>
-  <rect x="69" y="359" width="5" height="10" fill="#c52f2f" stroke="#ffffff" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="69" y="359" width="5" height="10" fill="#c52f2f" stroke="#c52f2f" stroke-width="1"/>
   <rect x="74" y="359" width="5" height="10" fill="url(#hatch-i0)" stroke="#c52f2f" stroke-width="1"/>
   <text x="82" y="368" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">inner</text>
   <line x1="-36" y1="86" x2="240" y2="86" stroke="#111111" stroke-width="0.5"/>

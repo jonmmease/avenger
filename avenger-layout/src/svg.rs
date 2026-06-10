@@ -760,10 +760,15 @@ impl DebugScene {
                     'i' => inner_shade(*depth),
                     _ => outer_shade(*depth),
                 };
+                // Same border as the hatched half so the split swatch
+                // reads as one aligned chip.
                 let _ = write!(
                     svg,
                     "  {}\n",
-                    rect_element(Rect::new(cursor, key_y, 5.0, 10.0), &solid_fill(shade))
+                    rect_element(
+                        Rect::new(cursor, key_y, 5.0, 10.0),
+                        &format!("fill=\"{shade}\" stroke=\"{shade}\" stroke-width=\"1\"")
+                    )
                 );
                 let _ = write!(
                     svg,
@@ -1099,10 +1104,10 @@ mod tests {
   <text x=\"132\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">1 r0c1</text>
   <rect x=\"0\" y=\"70\" width=\"10\" height=\"10\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
   <text x=\"13\" y=\"79\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">content</text>
-  <rect x=\"69\" y=\"70\" width=\"5\" height=\"10\" fill=\"#c52f2f\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
+  <rect x=\"69\" y=\"70\" width=\"5\" height=\"10\" fill=\"#c52f2f\" stroke=\"#c52f2f\" stroke-width=\"1\"/>
   <rect x=\"74\" y=\"70\" width=\"5\" height=\"10\" fill=\"url(#hatch-i0)\" stroke=\"#c52f2f\" stroke-width=\"1\"/>
   <text x=\"82\" y=\"79\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">inner</text>
-  <rect x=\"126\" y=\"70\" width=\"5\" height=\"10\" fill=\"#1e8a4c\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
+  <rect x=\"126\" y=\"70\" width=\"5\" height=\"10\" fill=\"#1e8a4c\" stroke=\"#1e8a4c\" stroke-width=\"1\"/>
   <rect x=\"131\" y=\"70\" width=\"5\" height=\"10\" fill=\"url(#hatch-o0)\" stroke=\"#1e8a4c\" stroke-width=\"1\"/>
   <text x=\"139\" y=\"79\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">outer</text>
 </svg>
