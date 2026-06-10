@@ -638,6 +638,96 @@ fn tree_allocation_stretches_tracks_evenly() {
     );
 }
 
+/// A faceted chart in miniature: a frame (margins, title band, a frame-
+/// level legend) whose content is the nested facet tree. This is the
+/// handoff between the two solvers, both ways: the tree's layered
+/// envelope becomes the frame's inner/outer reservations, and the frame's
+/// solved content rectangle becomes the tree's allocation. Composed
+/// test-side by offsetting the tree scene into the frame's content rect.
+#[test]
+fn frame_wrapping_facet_tree() {
+    let tree = nested_tree();
+    let envelope = tree
+        .envelope(TreeEnvelopeKind::Layered)
+        .expect("envelope solves");
+
+    let chrome_side = |margin: f32, bands: Vec<f32>, outer: f32, inner: f32| FrameSide {
+        margin,
+        bands,
+        outer,
+        inner,
+    };
+    let frame = Frame {
+        horizontal: FrameAxis {
+            sizing: FrameAxisSizing::EnvelopeFixed { extent: 460.0 },
+            leading: chrome_side(
+                12.0,
+                vec![],
+                envelope.outer_edges.left,
+                envelope.inner_edges.left,
+            ),
+            // The tree's band-level legend and a frame-level legend share
+            // the outer ring on the right.
+            trailing: chrome_side(
+                12.0,
+                vec![],
+                envelope.outer_edges.right + 48.0,
+                envelope.inner_edges.right,
+            ),
+            content_min: 50.0,
+        },
+        vertical: FrameAxis {
+            sizing: FrameAxisSizing::EnvelopeFixed { extent: 380.0 },
+            leading: chrome_side(
+                12.0,
+                vec![20.0],
+                envelope.outer_edges.top,
+                envelope.inner_edges.top,
+            ),
+            trailing: chrome_side(
+                12.0,
+                vec![],
+                envelope.outer_edges.bottom,
+                envelope.inner_edges.bottom,
+            ),
+            content_min: 50.0,
+        },
+    };
+    let frame_solution = frame.solve();
+    let content = frame_solution.content_rect();
+
+    // The frame's content allocates the tree; both axes exceed the tree's
+    // natural extent here, so every track stretches.
+    let solved_tree = tree
+        .solve(Some(Size::new(content.width, content.height)))
+        .expect("tree solves in the frame's content");
+    assert_eq!(
+        solved_tree.content_size,
+        Size::new(content.width, content.height)
+    );
+
+    let mut scene = DebugScene::from_frame(&frame_solution);
+    scene
+        .regions
+        .extend(
+            DebugScene::from_tree(&solved_tree)
+                .regions
+                .into_iter()
+                .map(|mut region| {
+                    region.content.x += content.x;
+                    region.content.y += content.y;
+                    if let Some(anchor) = &mut region.label_anchor {
+                        anchor[0] += content.x;
+                        // One extra line down so depth-0 labels clear the
+                        // frame's own "content" label.
+                        anchor[1] += content.y + 12.0;
+                    }
+                    region
+                }),
+        );
+    assert_svg_baseline("frame_wrapping_facet_tree", &scene.to_svg());
+}
+
 // --- alignment --------------------------------------------------------
 
 /// Stack captioned scenes vertically into one gallery image (test-side
