@@ -7,6 +7,7 @@ description = "Chart-independent layout primitives for arranging rectangular reg
 [features]
 # Debug SVG export of solved layouts (DebugScene); no extra dependencies.
 svg = []
+default = ["svg"]
 
 [dependencies]
 

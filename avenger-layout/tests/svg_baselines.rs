@@ -806,8 +806,11 @@ fn stack_scenes(scenes: Vec<(&str, DebugScene)>) -> DebugScene {
         });
         y_offset += CAPTION;
         for mut region in scene.regions {
-            // Demands are content-relative, so only the rect moves.
+            // Demands are content-relative; the rect and label move.
             region.content.y += y_offset;
+            if let Some(anchor) = &mut region.label_anchor {
+                anchor[1] += y_offset;
+            }
             combined.regions.push(region);
         }
         // Drawn after the panel's regions so the boundary stays visible
@@ -927,6 +930,122 @@ fn alignment_merges_grids_across_instances() {
     assert_svg_baseline(
         "alignment_merges_grids_across_instances",
         &stack_scenes(scenes).to_svg(),
+    );
+}
+
+/// The full loop on whole charts: measure -> coordinate -> allocate.
+/// Two framed "charts" (a frame around a 1x2 grid, boundary chrome
+/// becoming the frame's reservations) are measured independently, their
+/// grid requirements aligned across instances, and each re-solved from
+/// the merged result: afterwards both canvases have identical geometry,
+/// and the instance with less chrome shows hatched coordinated bands it
+/// was granted (e.g. b inherits a's 24px axis-label reservation).
+#[test]
+fn alignment_coordinates_framed_charts() {
+    let shape = GridShape {
+        rows: 1,
+        columns: 2,
+    };
+    let item = |id: usize, column: usize, size: Size, left_inner: f32| GridItem {
+        id,
+        slot: slot(0, column),
+        content_size: size,
+        inner_edges: Edges::new(0.0, 0.0, 0.0, left_inner),
+        outer_edges: Edges::default(),
+        total_edges: Edges::new(0.0, 0.0, 0.0, left_inner),
+    };
+    let items_a = vec![
+        item(0, 0, Size::new(90.0, 60.0), 24.0),
+        item(1, 1, Size::new(130.0, 60.0), 0.0),
+    ];
+    let items_b = vec![
+        item(0, 0, Size::new(120.0, 40.0), 8.0),
+        item(1, 1, Size::new(80.0, 40.0), 0.0),
+    ];
+    let requirements_a =
+        GridRequirements::from_items(shape, Size::default(), &items_a).expect("a fits");
+    let requirements_b =
+        GridRequirements::from_items(shape, Size::default(), &items_b).expect("b fits");
+
+    // Coordinate the cousins: one alignment round merges the requirements.
+    let plan = align(&[
+        AlignmentNode {
+            id: "a",
+            group_key: "row",
+            requirements: requirements_a.clone(),
+        },
+        AlignmentNode {
+            id: "b",
+            group_key: "row",
+            requirements: requirements_b.clone(),
+        },
+    ]);
+    let merged = &plan.groups[0].merged;
+    assert_eq!(merged.column_widths, vec![120.0, 130.0]);
+    assert_eq!(merged.column_left[0].total, 24.0);
+
+    // Wrap one solved grid in a frame whose reservations are the grid's
+    // boundary chrome, and compose the scenes.
+    let framed = |requirements: &GridRequirements, items: &[GridItem<usize>]| {
+        let solution = requirements.solve(items);
+        let left = solution.column_left.first().copied().unwrap_or_default();
+        let right = solution.column_right.last().copied().unwrap_or_default();
+        let top = solution.row_top.first().copied().unwrap_or_default();
+        let bottom = solution.row_bottom.last().copied().unwrap_or_default();
+        let chrome_side = |edge: avenger_layout::EdgeDemand| FrameSide {
+            margin: 10.0,
+            bands: vec![],
+            outer: (edge.total - edge.inner).max(0.0),
+            inner: edge.inner,
+        };
+        let frame = Frame {
+            horizontal: FrameAxis {
+                sizing: FrameAxisSizing::ContentFixed {
+                    content: solution.content_size.width,
+                },
+                leading: chrome_side(left),
+                trailing: chrome_side(right),
+                content_min: 50.0,
+            },
+            vertical: FrameAxis {
+                sizing: FrameAxisSizing::ContentFixed {
+                    content: solution.content_size.height,
+                },
+                leading: chrome_side(top),
+                trailing: chrome_side(bottom),
+                content_min: 50.0,
+            },
+        };
+        let frame_solution = frame.solve();
+        let content = frame_solution.content_rect();
+        let mut scene = DebugScene::from_frame(&frame_solution);
+        let mut grid_scene = DebugScene::from_grid(&solution, items);
+        for region in &mut grid_scene.regions {
+            if let Some(anchor) = &mut region.label_anchor {
+                anchor[1] += 12.0;
+            } else {
+                region.label_anchor = Some([region.content.x + 3.0, region.content.y + 24.0]);
+            }
+        }
+        scene.embed(grid_scene, [content.x, content.y]);
+        scene
+    };
+
+    // After coordination both instances solve from the merged requirements
+    // and end up with identical canvas geometry.
+    let after_a = framed(merged, &items_a);
+    let after_b = framed(merged, &items_b);
+    assert_eq!(after_a.content_size, after_b.content_size);
+
+    assert_svg_baseline(
+        "alignment_coordinates_framed_charts",
+        &stack_scenes(vec![
+            ("a — measured", framed(&requirements_a, &items_a)),
+            ("b — measured", framed(&requirements_b, &items_b)),
+            ("a — coordinated", after_a),
+            ("b — coordinated", after_b),
+        ])
+        .to_svg(),
     );
 }
 
