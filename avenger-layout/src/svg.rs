@@ -859,19 +859,15 @@ fn kind_style(kind: DebugRegionKind) -> &'static str {
             "fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#9ca3af\" stroke-width=\"0.5\" stroke-opacity=\"0.7\""
         }
         DebugRegionKind::Margin => {
-            "fill=\"#e5e7eb\" fill-opacity=\"0.6\" stroke=\"#9ca3af\" stroke-width=\"0.5\" stroke-opacity=\"0.7\""
+            "fill=\"#e5e7eb\" fill-opacity=\"0.6\" stroke=\"#e5e7eb\" stroke-width=\"0.5\" stroke-opacity=\"0.6\""
         }
         DebugRegionKind::Band => {
-            "fill=\"#fde68a\" fill-opacity=\"0.6\" stroke=\"#9ca3af\" stroke-width=\"0.5\" stroke-opacity=\"0.7\""
+            "fill=\"#fde68a\" fill-opacity=\"0.6\" stroke=\"#fde68a\" stroke-width=\"0.5\" stroke-opacity=\"0.6\""
         }
         // OUTER_SHADES[0]: the base step of the outer ramp.
-        DebugRegionKind::Outer => {
-            "fill=\"#14602f\" stroke=\"#9ca3af\" stroke-width=\"0.5\" stroke-opacity=\"0.7\""
-        }
+        DebugRegionKind::Outer => "fill=\"#14602f\" stroke=\"#14602f\" stroke-width=\"0.5\"",
         // INNER_SHADES[0]: the base step of the inner ramp.
-        DebugRegionKind::Inner => {
-            "fill=\"#9f2222\" stroke=\"#9ca3af\" stroke-width=\"0.5\" stroke-opacity=\"0.7\""
-        }
+        DebugRegionKind::Inner => "fill=\"#9f2222\" stroke=\"#9f2222\" stroke-width=\"0.5\"",
         DebugRegionKind::Bounds => "fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"",
     }
 }
