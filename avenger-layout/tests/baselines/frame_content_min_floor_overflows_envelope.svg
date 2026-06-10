@@ -1,27 +1,33 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 182 150" font-family="monospace" font-size="10">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 303 174" font-family="monospace" font-size="10">
   <rect x="0" y="0" width="162" height="130" fill="none" stroke="#111111" stroke-width="1"/>
   <rect x="0" y="0" width="162" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#6b7280"/>
-  <text x="3" y="12">t margin</text>
+  <text x="47" y="8.5" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">t margin</text>
   <rect x="0" y="10" width="162" height="22" fill="#fde68a" fill-opacity="0.6" stroke="#d97706"/>
-  <text x="3" y="22">t band 0</text>
+  <text x="47" y="24.5" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">t band 0</text>
   <rect x="0" y="32" width="162" height="16" fill="#fde68a" fill-opacity="0.6" stroke="#d97706"/>
-  <text x="3" y="44">t band 1</text>
+  <text x="47" y="43.5" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">t band 1</text>
   <rect x="0" y="48" width="162" height="4" fill="#fecaca" fill-opacity="0.6" stroke="#dc2626"/>
-  <text x="3" y="60">t inner</text>
   <rect x="0" y="120" width="162" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#6b7280"/>
-  <text x="3" y="132">b margin</text>
+  <text x="47" y="128.5" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">b margin</text>
   <rect x="0" y="102" width="162" height="18" fill="#fecaca" fill-opacity="0.6" stroke="#dc2626"/>
-  <text x="3" y="114">b inner</text>
+  <text x="47" y="114.5" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">b inner</text>
   <rect x="0" y="0" width="10" height="130" fill="#e5e7eb" fill-opacity="0.6" stroke="#6b7280"/>
-  <text x="12" y="3" transform="rotate(90 12 3)">l margin</text>
   <rect x="10" y="0" width="34" height="130" fill="#fecaca" fill-opacity="0.6" stroke="#dc2626"/>
-  <text x="22" y="3" transform="rotate(90 22 3)">l inner</text>
+  <text x="30.5" y="55" transform="rotate(90 30.5 55)" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">l inner</text>
   <rect x="152" y="0" width="10" height="130" fill="#e5e7eb" fill-opacity="0.6" stroke="#6b7280"/>
-  <text x="164" y="3" transform="rotate(90 164 3)">r margin</text>
   <rect x="100" y="0" width="52" height="130" fill="#bbf7d0" fill-opacity="0.6" stroke="#16a34a"/>
-  <text x="112" y="3" transform="rotate(90 112 3)">r outer</text>
+  <text x="129.5" y="55" transform="rotate(90 129.5 55)" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">r outer</text>
   <rect x="94" y="0" width="6" height="130" fill="#fecaca" fill-opacity="0.6" stroke="#dc2626"/>
-  <text x="106" y="3" transform="rotate(90 106 3)">r inner</text>
   <rect x="44" y="52" width="50" height="50" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
-  <text x="47" y="64">content</text>
+  <text x="47" y="64" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">content</text>
+  <rect x="0" y="140" width="10" height="10" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
+  <text x="13" y="149" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">content</text>
+  <rect x="69" y="140" width="10" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#6b7280"/>
+  <text x="82" y="149" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">margin</text>
+  <rect x="132" y="140" width="10" height="10" fill="#fde68a" fill-opacity="0.6" stroke="#d97706"/>
+  <text x="145" y="149" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">band</text>
+  <rect x="183" y="140" width="10" height="10" fill="#bbf7d0" fill-opacity="0.6" stroke="#16a34a"/>
+  <text x="196" y="149" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">outer</text>
+  <rect x="240" y="140" width="10" height="10" fill="#fecaca" fill-opacity="0.6" stroke="#dc2626"/>
+  <text x="253" y="149" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">inner</text>
 </svg>

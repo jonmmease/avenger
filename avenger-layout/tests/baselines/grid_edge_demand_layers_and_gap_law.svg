@@ -3,9 +3,9 @@
   <rect x="-24" y="-8" width="162" height="86" fill="none" stroke="#9333ea" stroke-dasharray="4 2"/>
   <rect x="-24" y="-8" width="144" height="86" fill="none" stroke="#2563eb" stroke-dasharray="2 2"/>
   <rect x="0" y="0" width="110" height="70" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
-  <text x="3" y="12">0 r0c0</text>
+  <text x="3" y="12" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">0 r0c0</text>
   <rect x="138" y="-8" width="125" height="86" fill="none" stroke="#9333ea" stroke-dasharray="4 2"/>
   <rect x="138" y="-8" width="125" height="86" fill="none" stroke="#2563eb" stroke-dasharray="2 2"/>
   <rect x="147" y="0" width="110" height="70" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
-  <text x="150" y="12">1 r0c1</text>
+  <text x="150" y="12" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">1 r0c1</text>
 </svg>

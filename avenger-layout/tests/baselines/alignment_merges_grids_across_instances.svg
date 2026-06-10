@@ -3,25 +3,25 @@
   <rect x="-26" y="0" width="106" height="60" fill="none" stroke="#9333ea" stroke-dasharray="4 2"/>
   <rect x="-26" y="0" width="106" height="60" fill="none" stroke="#2563eb" stroke-dasharray="2 2"/>
   <rect x="0" y="0" width="80" height="60" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
-  <text x="3" y="12">0 r0c0</text>
+  <text x="3" y="12" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">0 r0c0</text>
   <rect x="80" y="0" width="120" height="60" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
-  <text x="83" y="12">1 r0c1</text>
+  <text x="83" y="12" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">1 r0c1</text>
   <rect x="-9" y="84" width="119" height="45" fill="none" stroke="#9333ea" stroke-dasharray="4 2"/>
   <rect x="-9" y="84" width="119" height="45" fill="none" stroke="#2563eb" stroke-dasharray="2 2"/>
   <rect x="0" y="84" width="110" height="45" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
-  <text x="3" y="96">0 r0c0</text>
+  <text x="3" y="96" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">0 r0c0</text>
   <rect x="110" y="84" width="70" height="45" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
-  <text x="113" y="96">1 r0c1</text>
+  <text x="113" y="96" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">1 r0c1</text>
   <rect x="-26" y="153" width="136" height="60" fill="none" stroke="#9333ea" stroke-dasharray="4 2"/>
   <rect x="-26" y="153" width="136" height="60" fill="none" stroke="#2563eb" stroke-dasharray="2 2"/>
   <rect x="0" y="153" width="110" height="60" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
-  <text x="3" y="165">0 r0c0</text>
+  <text x="3" y="165" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">0 r0c0</text>
   <rect x="110" y="153" width="120" height="60" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
-  <text x="113" y="165">1 r0c1</text>
+  <text x="113" y="165" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">1 r0c1</text>
   <rect x="-26" y="237" width="136" height="60" fill="none" stroke="#9333ea" stroke-dasharray="4 2"/>
   <rect x="-26" y="237" width="136" height="60" fill="none" stroke="#2563eb" stroke-dasharray="2 2"/>
   <rect x="0" y="237" width="110" height="60" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
-  <text x="3" y="249">0 r0c0</text>
+  <text x="3" y="249" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">0 r0c0</text>
   <rect x="110" y="237" width="120" height="60" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
-  <text x="113" y="249">1 r0c1</text>
+  <text x="113" y="249" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">1 r0c1</text>
 </svg>

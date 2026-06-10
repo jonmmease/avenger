@@ -18,7 +18,11 @@
 //! layers as translucent strips, one per solved slab: gray margins, amber
 //! bands, green outer (legend-like) layers, and red inner (guide-like)
 //! layers. The two axes are solved independently, so horizontal and
-//! vertical strips overlap at the corners by design. Placement scenes
+//! vertical strips overlap at the corners by design. Strip labels anchor
+//! inside the content span (the segment clear of perpendicular strips),
+//! strips too thin to hold a label go unlabeled, and a color key row below
+//! the scene identifies the layer kinds. All label text carries a white
+//! halo so overlapping labels stay legible. Placement scenes
 //! ([`DebugScene::from_placements`]) draw each child origin as a labeled
 //! cross marker.
 
@@ -51,6 +55,7 @@ pub enum DebugRegionKind {
 /// One labeled region in a solved layout.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DebugRegion {
+    /// Label text; an empty label draws nothing.
     pub label: String,
     pub kind: DebugRegionKind,
     pub content: Rect,
@@ -58,6 +63,13 @@ pub struct DebugRegion {
     pub inner_envelope: Option<Rect>,
     /// Content expanded by the coordinated total edges, when known.
     pub total_envelope: Option<Rect>,
+    /// Where to draw the label. Defaults to just inside the content
+    /// rectangle's top-left corner; frame scenes anchor strip labels inside
+    /// the content span so they stay clear of the perpendicular strips.
+    pub label_anchor: Option<[f32; 2]>,
+    /// Draw the label rotated 90 degrees (reads downward), for labels that
+    /// run along a tall narrow strip.
+    pub label_rotated: bool,
 }
 
 /// One labeled point marker (e.g. a placement origin).
@@ -115,6 +127,8 @@ impl DebugScene {
                             targets.total.left,
                         ],
                     )),
+                    label_anchor: None,
+                    label_rotated: false,
                 }
             })
             .collect();
@@ -160,6 +174,8 @@ impl DebugScene {
                     content,
                     inner_envelope: None,
                     total_envelope: None,
+                    label_anchor: None,
+                    label_rotated: false,
                 }
             })
             .collect();
@@ -201,6 +217,8 @@ impl DebugScene {
                             region.edge_targets.total.left,
                         ],
                     )),
+                    label_anchor: None,
+                    label_rotated: false,
                 }
             })
             .collect();
@@ -216,53 +234,79 @@ impl DebugScene {
     /// and horizontal-axis slabs span the envelope height; because the two
     /// axes solve independently, the strips overlap at the corners.
     pub fn from_frame(solution: &FrameSolution) -> Self {
+        /// Strips thinner than this get no in-strip label; the color key
+        /// identifies the layer instead. Rotated labels need more strip
+        /// width than horizontal labels need height.
+        const MIN_LABELED_STRIP: f32 = 9.0;
+        const MIN_ROTATED_LABELED_STRIP: f32 = 12.0;
+
         let extent = solution.extent();
+        // Strip labels anchor inside the content span on the strip's long
+        // axis: that segment is guaranteed clear of the perpendicular
+        // strips, so labels never pile up in the double-covered corners.
+        let content_x = solution.horizontal.content.start;
+        let content_y = solution.vertical.content.start;
         let mut regions = Vec::new();
 
-        let mut push = |label: String, kind: DebugRegionKind, rect: Rect| {
-            if rect.width <= 0.0 || rect.height <= 0.0 {
-                return;
-            }
-            regions.push(DebugRegion {
-                label,
-                kind,
-                content: rect,
-                inner_envelope: None,
-                total_envelope: None,
-            });
-        };
-
         let mut push_axis = |axis: &FrameAxisSolution, vertical: bool| {
-            let strip = |slab: SolvedSlab| {
-                if vertical {
-                    Rect::new(0.0, slab.start, extent.width, slab.size)
-                } else {
-                    Rect::new(slab.start, 0.0, slab.size, extent.height)
-                }
-            };
             let (lead, trail) = if vertical { ("t", "b") } else { ("l", "r") };
             for (prefix, side) in [(lead, &axis.leading), (trail, &axis.trailing)] {
+                let mut push = |label: String, kind: DebugRegionKind, slab: SolvedSlab| {
+                    if slab.size <= 0.0 {
+                        return;
+                    }
+                    let labeled = slab.size
+                        >= if vertical {
+                            MIN_LABELED_STRIP
+                        } else {
+                            MIN_ROTATED_LABELED_STRIP
+                        };
+                    // Vertically (resp. horizontally) center the label in
+                    // the strip; 3.5 is half the cap height of the 10px
+                    // monospace face.
+                    let centered = slab.start + slab.size / 2.0 + 3.5;
+                    let (content, label_anchor) = if vertical {
+                        (
+                            Rect::new(0.0, slab.start, extent.width, slab.size),
+                            [content_x + 3.0, centered],
+                        )
+                    } else {
+                        (
+                            Rect::new(slab.start, 0.0, slab.size, extent.height),
+                            [centered, content_y + 3.0],
+                        )
+                    };
+                    regions.push(DebugRegion {
+                        label: if labeled { label } else { String::new() },
+                        kind,
+                        content,
+                        inner_envelope: None,
+                        total_envelope: None,
+                        label_anchor: Some(label_anchor),
+                        label_rotated: !vertical,
+                    });
+                };
                 push(
                     format!("{prefix} margin"),
                     DebugRegionKind::Margin,
-                    strip(side.margin),
+                    side.margin,
                 );
                 for (index, band) in side.bands.iter().enumerate() {
                     push(
                         format!("{prefix} band {index}"),
                         DebugRegionKind::Band,
-                        strip(*band),
+                        *band,
                     );
                 }
                 push(
                     format!("{prefix} outer"),
                     DebugRegionKind::Outer,
-                    strip(side.outer),
+                    side.outer,
                 );
                 push(
                     format!("{prefix} inner"),
                     DebugRegionKind::Inner,
-                    strip(side.inner),
+                    side.inner,
                 );
             }
         };
@@ -275,6 +319,8 @@ impl DebugScene {
             content: solution.content_rect(),
             inner_envelope: None,
             total_envelope: None,
+            label_anchor: None,
+            label_rotated: false,
         });
 
         Self {
@@ -297,6 +343,8 @@ impl DebugScene {
                 content: Rect::new(*start, 0.0, solution.track_size, cross_extent),
                 inner_envelope: None,
                 total_envelope: None,
+                label_anchor: None,
+                label_rotated: false,
             })
             .collect();
         Self {
@@ -327,6 +375,17 @@ impl DebugScene {
     /// Write the scene as a self-contained SVG document.
     pub fn to_svg(&self) -> String {
         const PADDING: f32 = 10.0;
+        /// White halo under label text so overlapping labels stay legible.
+        const TEXT_STYLE: &str = "fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\"";
+        /// Swatch order and labels for the color key row.
+        const KEY_KINDS: [(DebugRegionKind, &str); 5] = [
+            (DebugRegionKind::Content, "content"),
+            (DebugRegionKind::Margin, "margin"),
+            (DebugRegionKind::Band, "band"),
+            (DebugRegionKind::Outer, "outer"),
+            (DebugRegionKind::Inner, "inner"),
+        ];
+        const KEY_HEIGHT: f32 = 24.0;
 
         let bounds_rect = Rect::new(0.0, 0.0, self.content_size.width, self.content_size.height);
         let mut bounds = bounds_rect;
@@ -344,6 +403,25 @@ impl DebugScene {
                 bounds,
                 Rect::new(marker.position[0] - 4.0, marker.position[1] - 4.0, 8.0, 8.0),
             );
+        }
+
+        // A color key row is shown whenever chrome strips are present
+        // (frame scenes); content-only scenes stay minimal.
+        let show_key = self
+            .regions
+            .iter()
+            .any(|region| region.kind != DebugRegionKind::Content);
+        let key_y = bounds.y + bounds.height + 10.0;
+        if show_key {
+            bounds.height += KEY_HEIGHT;
+            // The key row must also fit horizontally in narrow scenes.
+            let key_width: f32 = KEY_KINDS
+                .iter()
+                .filter(|(kind, _)| self.regions.iter().any(|region| region.kind == *kind))
+                .map(|(_, label)| 13.0 + label.len() as f32 * 6.0 + 14.0)
+                .sum::<f32>()
+                - 14.0;
+            bounds.width = bounds.width.max(bounds.x.max(0.0) - bounds.x + key_width);
         }
 
         let mut svg = String::new();
@@ -388,46 +466,35 @@ impl DebugScene {
                     )
                 );
             }
-            let style = match region.kind {
-                DebugRegionKind::Content => {
-                    "fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\""
-                }
-                DebugRegionKind::Margin => {
-                    "fill=\"#e5e7eb\" fill-opacity=\"0.6\" stroke=\"#6b7280\""
-                }
-                DebugRegionKind::Band => "fill=\"#fde68a\" fill-opacity=\"0.6\" stroke=\"#d97706\"",
-                DebugRegionKind::Outer => {
-                    "fill=\"#bbf7d0\" fill-opacity=\"0.6\" stroke=\"#16a34a\""
-                }
-                DebugRegionKind::Inner => {
-                    "fill=\"#fecaca\" fill-opacity=\"0.6\" stroke=\"#dc2626\""
-                }
-            };
-            let _ = write!(svg, "  {}\n", rect_element(region.content, style));
-            // Tall narrow chrome strips (a frame's left/right layers) get
-            // their label rotated to run down the strip instead of
-            // colliding with the labels along the top edge.
-            let tall_narrow = region.kind != DebugRegionKind::Content
-                && region.content.width < 60.0
-                && region.content.height > region.content.width * 1.5;
-            if tall_narrow {
-                let x = region.content.x + 12.0;
-                let y = region.content.y + 3.0;
+            let _ = write!(
+                svg,
+                "  {}\n",
+                rect_element(region.content, kind_style(region.kind))
+            );
+            if region.label.is_empty() {
+                continue;
+            }
+            let [x, y] = region
+                .label_anchor
+                .unwrap_or([region.content.x + 3.0, region.content.y + 12.0]);
+            if region.label_rotated {
                 let _ = write!(
                     svg,
-                    "  <text x=\"{}\" y=\"{}\" transform=\"rotate(90 {} {})\">{}</text>\n",
+                    "  <text x=\"{}\" y=\"{}\" transform=\"rotate(90 {} {})\" {}>{}</text>\n",
                     x,
                     y,
                     x,
                     y,
+                    TEXT_STYLE,
                     escape_text(&region.label),
                 );
             } else {
                 let _ = write!(
                     svg,
-                    "  <text x=\"{}\" y=\"{}\">{}</text>\n",
-                    region.content.x + 3.0,
-                    region.content.y + 12.0,
+                    "  <text x=\"{}\" y=\"{}\" {}>{}</text>\n",
+                    x,
+                    y,
+                    TEXT_STYLE,
                     escape_text(&region.label),
                 );
             }
@@ -452,11 +519,35 @@ impl DebugScene {
             );
             let _ = write!(
                 svg,
-                "  <text x=\"{}\" y=\"{}\">{}</text>\n",
+                "  <text x=\"{}\" y=\"{}\" {}>{}</text>\n",
                 x + 6.0,
                 y - 3.0,
+                TEXT_STYLE,
                 escape_text(&marker.label),
             );
+        }
+
+        if show_key {
+            let mut cursor = bounds.x.max(0.0);
+            for (kind, label) in KEY_KINDS {
+                if !self.regions.iter().any(|region| region.kind == kind) {
+                    continue;
+                }
+                let _ = write!(
+                    svg,
+                    "  {}\n",
+                    rect_element(Rect::new(cursor, key_y, 10.0, 10.0), kind_style(kind))
+                );
+                let _ = write!(
+                    svg,
+                    "  <text x=\"{}\" y=\"{}\" {}>{}</text>\n",
+                    cursor + 13.0,
+                    key_y + 9.0,
+                    TEXT_STYLE,
+                    label,
+                );
+                cursor += 13.0 + label.len() as f32 * 6.0 + 14.0;
+            }
         }
 
         svg.push_str("</svg>\n");
@@ -481,6 +572,17 @@ fn union(a: Rect, b: Rect) -> Rect {
     let right = (a.x + a.width).max(b.x + b.width);
     let bottom = (a.y + a.height).max(b.y + b.height);
     Rect::new(x, y, right - x, bottom - y)
+}
+
+/// Rendered style per region kind.
+fn kind_style(kind: DebugRegionKind) -> &'static str {
+    match kind {
+        DebugRegionKind::Content => "fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"",
+        DebugRegionKind::Margin => "fill=\"#e5e7eb\" fill-opacity=\"0.6\" stroke=\"#6b7280\"",
+        DebugRegionKind::Band => "fill=\"#fde68a\" fill-opacity=\"0.6\" stroke=\"#d97706\"",
+        DebugRegionKind::Outer => "fill=\"#bbf7d0\" fill-opacity=\"0.6\" stroke=\"#16a34a\"",
+        DebugRegionKind::Inner => "fill=\"#fecaca\" fill-opacity=\"0.6\" stroke=\"#dc2626\"",
+    }
 }
 
 fn rect_element(rect: Rect, attributes: &str) -> String {
@@ -668,13 +770,13 @@ mod tests {
 <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"-10 -10 166 80\" font-family=\"monospace\" font-size=\"10\">
   <rect x=\"0\" y=\"0\" width=\"146\" height=\"60\" fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"/>
   <rect x=\"0\" y=\"0\" width=\"50\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
-  <text x=\"3\" y=\"12\">0 d0</text>
+  <text x=\"3\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">0 d0</text>
   <rect x=\"60\" y=\"0\" width=\"86\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
-  <text x=\"63\" y=\"12\">1 d0</text>
+  <text x=\"63\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">1 d0</text>
   <rect x=\"60\" y=\"0\" width=\"40\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
-  <text x=\"63\" y=\"12\">10 d1</text>
+  <text x=\"63\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">10 d1</text>
   <rect x=\"106\" y=\"0\" width=\"40\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
-  <text x=\"109\" y=\"12\">11 d1</text>
+  <text x=\"109\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">11 d1</text>
 </svg>
 ";
         assert_eq!(svg, expected);
@@ -688,9 +790,9 @@ mod tests {
 <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"-10 -10 112 110\" font-family=\"monospace\" font-size=\"10\">
   <rect x=\"0\" y=\"0\" width=\"92\" height=\"90\" fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"/>
   <rect x=\"5\" y=\"0\" width=\"30\" height=\"80\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
-  <text x=\"8\" y=\"12\">0</text>
+  <text x=\"8\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">0</text>
   <rect x=\"45\" y=\"0\" width=\"40\" height=\"90\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
-  <text x=\"48\" y=\"12\">1</text>
+  <text x=\"48\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">1</text>
 </svg>
 ";
         assert_eq!(svg, expected);
@@ -706,10 +808,10 @@ mod tests {
   <rect x=\"0\" y=\"0\" width=\"126\" height=\"60\" fill=\"none\" stroke=\"#9333ea\" stroke-dasharray=\"4 2\"/>
   <rect x=\"0\" y=\"0\" width=\"106\" height=\"60\" fill=\"none\" stroke=\"#2563eb\" stroke-dasharray=\"2 2\"/>
   <rect x=\"0\" y=\"0\" width=\"100\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
-  <text x=\"3\" y=\"12\">0 r0c0</text>
+  <text x=\"3\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">0 r0c0</text>
   <rect x=\"126\" y=\"0\" width=\"103\" height=\"60\" fill=\"none\" stroke=\"#9333ea\" stroke-dasharray=\"4 2\"/>
   <rect x=\"129\" y=\"0\" width=\"100\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
-  <text x=\"132\" y=\"12\">1 r0c1</text>
+  <text x=\"132\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">1 r0c1</text>
 </svg>
 ";
         assert_eq!(svg, expected);

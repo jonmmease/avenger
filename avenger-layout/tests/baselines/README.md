@@ -34,7 +34,9 @@ and the tests never compare them — the SVG string is the snapshot.
 - dotted blue / dashed purple: inner / total edge envelopes
 - frame chrome strips: gray margins, amber bands (titles), green outer
   (legend-like), red inner (guide-like); the two frame axes solve
-  independently, so strips overlap at corners by design
+  independently, so strips overlap at corners by design. A color key row
+  below the scene identifies the kinds; strips too thin to hold a label
+  rely on it
 - crosses: placement origins
 
 ## Gallery
