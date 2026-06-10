@@ -21,10 +21,21 @@ pub use avenger_chart_core::{
 pub(crate) use avenger_layout::{
     AlignmentNode, BandItem, BandSolution, BoundaryDemand, ConvergenceTrace, CrossAlign,
     EdgeDemand, EdgeTargets, Edges, GridItem, GridRequirements, GridShape, GridSlot, LayoutItem,
-    LayoutNode, LayoutSlotContent, Orientation, PlacedBandItem, PlacedRegion, PlacementSolution,
-    RoundDeltas, SingletonPolicy, Size, SkippedGroupReason, TrackSpacing, TreeEnvelopeKind,
-    UniformTracks, align_by,
+    LayoutNode, LayoutSlotContent, Orientation, PlacedBandItem, RoundDeltas, SingletonPolicy, Size,
+    SkippedGroupReason, TrackSpacing, TreeEnvelopeKind, UniformTracks, align_by,
 };
+
+/// Chart placement metadata carried through the neutral handoff: the
+/// concat retarget protocol state. `avenger-layout` never reads it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ChartRegionMeta {
+    pub(crate) content_size_override: Option<Size>,
+    pub(crate) edge_targets: Option<EdgeTargets>,
+}
+
+/// The chart's placement handoff: neutral placement with chart metadata.
+pub type PlacementSolution = avenger_layout::PlacementSolution<usize, ChartRegionMeta>;
+pub type PlacedRegion = avenger_layout::PlacedRegion<usize, ChartRegionMeta>;
 pub use band_position::BandPositionIterator;
 pub use content_solver::{
     ChildFrameContentMeasurement, ChildFrameContentPlan, ChildFrameContentSolver,

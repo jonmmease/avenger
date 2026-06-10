@@ -30,8 +30,8 @@ use crate::{
         CompiledGuide, CoordinateGuide, GuideSharingContext, GuideUpdate, OverflowSpaceRequirement,
     },
     layout::{
-        GridItem, GridRequirements, GridShape, GridSlot, LayoutBounds, Orientation, PlacedBandItem,
-        Size, TrackSpacing, layout_edges,
+        ChartRegionMeta, GridItem, GridRequirements, GridShape, GridSlot, LayoutBounds,
+        Orientation, PlacedBandItem, Size, TrackSpacing, layout_edges,
     },
     marks::{CompiledMark, CompiledMarkCore},
     plot::compiled::{
@@ -570,7 +570,9 @@ pub(crate) enum ConcatChildPlacement {
 impl ConcatChildPlacement {
     fn child_frame_placement(&self, fallback_content_size: Size) -> PlacementSolution {
         match self {
-            Self::Band(band) => band.to_placement_solution([0.0, 0.0], fallback_content_size),
+            Self::Band(band) => band
+                .to_placement_solution([0.0, 0.0], fallback_content_size)
+                .map_meta(|()| ChartRegionMeta::default()),
             Self::Grid { placement, .. } => placement.clone(),
         }
     }
@@ -762,17 +764,16 @@ impl ConcatCoordMeasurement {
                         let slot = self.layout_coordination_slot_for_child(slot_index, child)?;
                         let origin = solution.content_origin_for_slot(slot);
                         let edge_targets = solution.edge_targets_for_slot(slot);
-                        Ok(if *retarget_plot_area_size {
-                            PlacedRegion::with_content_size_override(
-                                child.child_index,
-                                origin,
-                                solution.content_size_for_slot(slot),
-                            )
-                            .with_edge_targets(edge_targets)
-                        } else {
-                            PlacedRegion::new(child.child_index, origin)
-                                .with_edge_targets(edge_targets)
-                        })
+                        let content_size_override =
+                            retarget_plot_area_size.then(|| solution.content_size_for_slot(slot));
+                        Ok(PlacedRegion::with_meta(
+                            child.child_index,
+                            origin,
+                            ChartRegionMeta {
+                                content_size_override,
+                                edge_targets: Some(edge_targets),
+                            },
+                        ))
                     })
                     .collect::<Result<Vec<_>, AvengerChartError>>()?;
                 ConcatChildPlacement::Grid {
@@ -2024,16 +2025,16 @@ fn grid_child_frame_placement(
             let slot = grid_slot_from_placement(placement);
             let origin = solution.content_origin_for_slot(slot);
             let edge_targets = solution.edge_targets_for_slot(slot);
-            if retarget_plot_area_size {
-                PlacedRegion::with_content_size_override(
-                    child.child_index,
-                    origin,
-                    solution.content_size_for_slot(slot),
-                )
-                .with_edge_targets(edge_targets)
-            } else {
-                PlacedRegion::new(child.child_index, origin).with_edge_targets(edge_targets)
-            }
+            let content_size_override =
+                retarget_plot_area_size.then(|| solution.content_size_for_slot(slot));
+            PlacedRegion::with_meta(
+                child.child_index,
+                origin,
+                ChartRegionMeta {
+                    content_size_override,
+                    edge_targets: Some(edge_targets),
+                },
+            )
         })
         .collect();
 
@@ -3097,6 +3098,7 @@ mod tests {
             placement
                 .child(0)
                 .expect("spanned child")
+                .meta
                 .content_size_override,
             Some(Size::new(100.0, 100.0))
         );
@@ -4264,7 +4266,7 @@ mod tests {
             placement
                 .placements()
                 .iter()
-                .map(|placement| placement.content_size_override)
+                .map(|placement| placement.meta.content_size_override)
                 .collect::<Vec<_>>(),
             vec![None],
             "wrap cells should keep their measured one-slot plot area and leave trailing holes"

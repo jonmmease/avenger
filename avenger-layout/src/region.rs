@@ -76,40 +76,29 @@ pub struct EdgeTargets {
 }
 
 /// Placement for one child region relative to its parent content rectangle.
+///
+/// `M` is caller-owned metadata carried through the handoff untouched (for
+/// charts: retarget protocol state). The crate never reads it.
 #[derive(Debug, Clone, PartialEq)]
-pub struct PlacedRegion<Id = usize> {
+pub struct PlacedRegion<Id = usize, M = ()> {
     pub id: Id,
     pub origin: [f32; 2],
-    pub content_size_override: Option<Size>,
-    pub edge_targets: Option<EdgeTargets>,
+    pub meta: M,
 }
 
-impl<Id> PlacedRegion<Id> {
+impl<Id, M: Default> PlacedRegion<Id, M> {
     pub fn new(id: Id, origin: [f32; 2]) -> Self {
         Self {
             id,
             origin,
-            content_size_override: None,
-            edge_targets: None,
+            meta: M::default(),
         }
     }
+}
 
-    pub fn with_content_size_override(
-        id: Id,
-        origin: [f32; 2],
-        content_size_override: Size,
-    ) -> Self {
-        Self {
-            id,
-            origin,
-            content_size_override: Some(content_size_override),
-            edge_targets: None,
-        }
-    }
-
-    pub fn with_edge_targets(mut self, targets: EdgeTargets) -> Self {
-        self.edge_targets = Some(targets);
-        self
+impl<Id, M> PlacedRegion<Id, M> {
+    pub fn with_meta(id: Id, origin: [f32; 2], meta: M) -> Self {
+        Self { id, origin, meta }
     }
 }
 
@@ -119,26 +108,42 @@ impl<Id> PlacedRegion<Id> {
 /// band, a grid, or an absolute layout can all produce the same handoff for
 /// rendering and debug projection.
 #[derive(Debug, Clone, PartialEq)]
-pub struct PlacementSolution<Id = usize> {
+pub struct PlacementSolution<Id = usize, M = ()> {
     pub content_size: Size,
-    pub placements: Vec<PlacedRegion<Id>>,
+    pub placements: Vec<PlacedRegion<Id, M>>,
 }
 
-impl<Id> PlacementSolution<Id> {
-    pub fn new(content_size: Size, placements: Vec<PlacedRegion<Id>>) -> Self {
+impl<Id, M> PlacementSolution<Id, M> {
+    pub fn new(content_size: Size, placements: Vec<PlacedRegion<Id, M>>) -> Self {
         Self {
             content_size,
             placements,
         }
     }
 
-    pub fn placements(&self) -> &[PlacedRegion<Id>] {
+    pub fn placements(&self) -> &[PlacedRegion<Id, M>] {
         &self.placements
+    }
+
+    /// Lift every region's metadata into another metadata space.
+    pub fn map_meta<N>(self, mut f: impl FnMut(M) -> N) -> PlacementSolution<Id, N> {
+        PlacementSolution {
+            content_size: self.content_size,
+            placements: self
+                .placements
+                .into_iter()
+                .map(|placement| PlacedRegion {
+                    id: placement.id,
+                    origin: placement.origin,
+                    meta: f(placement.meta),
+                })
+                .collect(),
+        }
     }
 }
 
-impl<Id: PartialEq> PlacementSolution<Id> {
-    pub fn child(&self, id: Id) -> Option<&PlacedRegion<Id>> {
+impl<Id: PartialEq, M> PlacementSolution<Id, M> {
+    pub fn child(&self, id: Id) -> Option<&PlacedRegion<Id, M>> {
         self.placements.iter().find(|placement| placement.id == id)
     }
 }
@@ -235,7 +240,7 @@ mod tests {
 
     #[test]
     fn placement_solution_finds_child_by_id() {
-        let result = PlacementSolution::new(
+        let result: PlacementSolution = PlacementSolution::new(
             Size::new(200.0, 120.0),
             vec![
                 PlacedRegion::new(3, [10.0, 20.0]),

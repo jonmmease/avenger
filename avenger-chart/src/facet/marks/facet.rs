@@ -493,7 +493,7 @@ async fn render_facet_band_with_placement(
             full_path: cell.plan.full_path.clone(),
             is_terminal_cell,
             plot_area_target: Some(plot_area_target),
-            edge_targets: child_render_placement.edge_targets,
+            edge_targets: child_render_placement.meta.edge_targets,
         });
         plans.push(FacetCellPlan {
             idx,

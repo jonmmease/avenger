@@ -19,8 +19,9 @@ use crate::{
         padding_policy,
     },
     layout::{
-        BandItem, BandPosition, BandPositionIterator, BandSolution, BoundaryDemand, CrossAlign,
-        Orientation, PlacedBandItem, PlacementSolution, Size, TrackSpacing, UniformTracks,
+        BandItem, BandPosition, BandPositionIterator, BandSolution, BoundaryDemand,
+        ChartRegionMeta, CrossAlign, Orientation, PlacedBandItem, PlacementSolution, Size,
+        TrackSpacing, UniformTracks,
     },
     plot::compiled::ComponentsMeasurement,
     scales::ConfiguredScaleWithSpec,
@@ -409,7 +410,9 @@ pub(crate) fn facet_child_frame_placement_from_band(
     );
 
     let (origin_offset_x, origin_offset_y) = facet_cell_main_start_offset(facet_band);
-    Ok(band.to_placement_solution([origin_offset_x, origin_offset_y], fallback_content_size))
+    Ok(band
+        .to_placement_solution([origin_offset_x, origin_offset_y], fallback_content_size)
+        .map_meta(|()| ChartRegionMeta::default()))
 }
 
 pub(crate) fn resolve_facet_child_frame_placement_from_scale_specs(

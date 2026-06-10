@@ -513,7 +513,7 @@ impl CompiledConcatSubplot {
             let data_override = self.inherited_data_override(data, context)?;
             let mut child_measurement = child.measurement.clone();
             refresh_measurement_params_for_child(&mut child_measurement, &child_eval_ctx);
-            if let Some(content_size_override) = render_placement.content_size_override {
+            if let Some(content_size_override) = render_placement.meta.content_size_override {
                 retarget_measurement_plot_area_no_remeasure(
                     &mut child_measurement,
                     self.compiled_subplot(),
@@ -523,7 +523,7 @@ impl CompiledConcatSubplot {
                     content_size_override.height,
                 )?;
             }
-            if let Some(edge_targets) = render_placement.edge_targets {
+            if let Some(edge_targets) = render_placement.meta.edge_targets {
                 apply_measurement_edge_targets(&mut child_measurement, edge_targets);
             }
             if has_raw_domain_scale(self.compiled_subplot()) {
